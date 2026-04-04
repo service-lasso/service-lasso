@@ -1,0 +1,74 @@
+---
+description: issue lifecycle and decision traceability
+globs:
+alwaysApply: true
+---
+# Governance: Issues
+
+## Purpose
+
+Issues are the durable record of intent, decisions, and outcomes.
+
+## When to Use an Issue
+
+Create/update an issue for:
+- feature work
+- bug fixes
+- behavior-changing refactors
+- significant governance/process updates
+
+Small typo-only docs fixes can be grouped where appropriate.
+
+## Minimum Issue Quality
+
+Each issue should include:
+- problem statement
+- desired outcome
+- constraints/non-goals (if relevant)
+- OpenSpec binding (requirement IDs and/or spec path, or explicit `SPEC_GAP`)
+- acceptance criteria
+- verification expectations
+
+For exploratory findings, issues should also include:
+- exact route/page/feature under review
+- affected scenario class (for example: invalid input, keyboard, persistence, role variance)
+- expected behavior
+- actual behavior
+- reproducible steps
+- lightweight evidence notes
+- planned spec/traceability/test follow-up
+
+## One-liner issue handling (mandatory)
+
+If an issue is a one-liner or otherwise under-specified, do not move directly to implementation.
+
+Before execution, the agent must first:
+1. bind the issue to an existing OpenSpec requirement, or
+2. create/expand spec coverage for the behavior (`SPEC_GAP` -> explicit requirement), and
+3. upgrade the issue body to implementation-grade quality, and
+4. flag the issue as ready-for-review/confirmation.
+
+Only after review/confirmation can the issue enter active implementation.
+
+## Lifecycle Expectations
+
+1. clarify and scope
+2. implement with evidence
+3. review outcomes and risks
+4. close with traceable resolution
+
+## Closure Standard
+
+Before closing, ensure:
+- acceptance criteria addressed
+- verification evidence exists
+- OpenSpec/traceability references are updated or explicitly marked `SPEC_GAP` follow-up
+- follow-up items are captured (if any)
+- missing completeness is converted into explicit follow-up work rather than silently carried forward
+
+## Anti-Patterns
+
+- closing issues without evidence
+- mixing unrelated concerns in one issue
+- silent scope expansion without issue update
+- treating issue text as optional or disposable

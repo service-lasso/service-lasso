@@ -1,0 +1,47 @@
+---
+description: task decomposition and backlog management
+globs:
+alwaysApply: true
+---
+# Governance: Tasks
+
+## Task Principle
+
+Tasks should make work reviewable, verifiable, and low-risk.
+
+## Good Task Characteristics
+
+- single clear outcome
+- explicit boundary/scope
+- testable acceptance check
+- realistic size for one focused execution pass
+
+## Decomposition Guidance
+
+Break large work into tasks by behavior boundaries, not by files.
+
+Prefer:
+- "add contract validation for X"
+over
+- "edit 5 files"
+
+## Backlog Hygiene
+
+- keep status current (`todo`, `in_progress`, `blocked`, `done`)
+- prioritize unblocked high-impact work
+- record blockers with required decisions
+- avoid duplicate or stale tasks
+
+## Execution Discipline
+
+- complete one scoped task with evidence
+- update task status immediately
+- move to next highest-priority unblocked item
+- stop only for blockers, empty backlog, or defined limits
+
+## Task Completion Evidence
+
+A task marked done should reference:
+- changed artifacts (paths)
+- verification run(s)
+- residual risks or follow-up tasks

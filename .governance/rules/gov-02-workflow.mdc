@@ -1,0 +1,230 @@
+---
+description: core delivery loop and execution boundaries
+globs:
+alwaysApply: true
+---
+# Governance: Core Workflow
+
+## Delivery Loop
+
+Follow this loop for meaningful changes:
+
+`Observe -> Plan -> Implement -> Verify -> Document`
+
+### 1) Observe
+- Confirm the problem, affected scope, and current operating mode.
+- Identify constraints, dependencies, and non-goals.
+- Note whether the work is development or exploration, and whether release-readiness checks are in scope.
+
+### 2) Plan
+- Make intent explicit before execution.
+- Define acceptance criteria, risks, and required evidence for the chosen mode.
+- Spec-first: bind work to requirement IDs before implementation starts.
+- If requirement coverage is missing, create/update spec requirements first.
+- If intake item is under-defined, expand it to implementation-grade issue quality before execution.
+- If the item came from backlog, confirm the issue is in the correct board state before work starts (`Backlog` or `Ready`) and move it to `Ready` once the issue is clear enough to execute.
+
+### 3) Implement
+- Apply the smallest coherent action that matches the active mode.
+- Avoid unrelated cleanup unless explicitly approved.
+- If the mode changes, state it explicitly and update the evidence plan.
+
+### 4) Verify
+- Produce mode-appropriate evidence that intent is satisfied.
+- Capture failure behavior, blockers, and residual risk when relevant.
+- Feed newly discovered gaps back into tracked backlog work before claiming completion.
+
+### 5) Document
+- Record what changed, what was learned, and how it was verified.
+- Keep handoff artifacts understandable by a new contributor.
+- Update traceability so requirement IDs map to evidence and follow-up work.
+
+## Branch and Pull Request Workflow
+
+Governed repositories should install a strict Git workflow during bootstrap so protected branches stay promotion surfaces instead of scratch space.
+
+- `GOV-02-GIT-001` `main` is the promotion/release branch. It accepts only explicit promotions from `develop` and urgent hotfix pull requests that originate from `main`.
+- `GOV-02-GIT-002` `develop` is the integration branch for normal work. Agent-authored feature, fix, docs, and chore changes must land in `develop` through pull request.
+- `GOV-02-GIT-003` Normal work must start from an issue-scoped branch created from `develop` using a typed prefix such as `feature/`, `fix/`, `docs/`, or `chore/`, plus the governing issue ID and short slug.
+- `GOV-02-GIT-004` Agents must not commit or push directly to `main` or `develop`.
+- `GOV-02-GIT-004A` Normal issue branches must be created from `develop` only. Agents must not create a new `feature/`, `fix/`, `docs/`, or `chore/` branch from another working branch.
+- `GOV-02-GIT-004B` A non-`main` / non-`develop` branch is a governed work unit, not a reusable parent branch.
+- `GOV-02-GIT-004C` Hotfix branches must be created from `main` only.
+- `GOV-02-GIT-004D` Any stacked-branch exception requires explicit human approval, a bounded reason, and an explicit reconciliation plan.
+- `GOV-02-GIT-005` Every agent-authored non-hotfix change must use a pull request into `develop` that links the governing issue/spec and records verification evidence.
+- `GOV-02-GIT-006` Promotion from `develop` to `main` must be explicit and reviewable. Release or promotion pull requests should state what is being promoted and what release-readiness evidence supports the move.
+- `GOV-02-GIT-007` Hotfix work must branch from `main`, merge back to `main` through an explicit hotfix pull request, and then be back-merged or otherwise reconciled into `develop` immediately so the branches do not drift.
+- `GOV-02-GIT-008` Repositories adopting VibeGov should document branch protection expectations for `main` and `develop`, including required pull requests, review gates, status checks, and restricted direct pushes.
+- `GOV-02-GIT-009` Bootstrap and adoption guidance should install the branch/pull-request workflow, review template, and protection checklist before product-code implementation begins.
+- `GOV-02-GIT-010` For GitHub-hosted repositories, bootstrap should also check whether `git` and `gh` are available and whether GitHub authentication/project access is available before attempting board automation.
+- `GOV-02-GIT-011` When GitHub project automation is available, bootstrap should create, adopt, or normalize a canonical project board and report the board URL plus any fallback limitations.
+- `GOV-02-GIT-012` Canonical GitHub board workflow should include `Status` values `Backlog`, `Ready`, `In progress`, `In review`, `Done`, and `Blocked`.
+- `GOV-02-GIT-013` Canonical GitHub board planning fields should include `Priority` (`P0`, `P1`, `P2`) and `Size` (`XS`, `S`, `M`, `L`, `XL`).
+- `GOV-02-GIT-014` Existing open issues should be imported or attached to the GitHub board during adoption/bootstrap when project automation is available.
+- `GOV-02-GIT-015` Issue state on the GitHub board must move with actual delivery state rather than remaining static: `Backlog` -> `Ready` -> `In progress` -> `In review` -> `Done`, with `Blocked` used for proven blockers.
+- `GOV-02-GIT-016` If GitHub prerequisites or auth are missing, bootstrap should report the exact missing capability and degrade gracefully instead of pretending project-board setup succeeded.
+
+This section defines the governance shape of repository flow. Platform-specific docs may describe the exact GitHub or Git-provider settings used to enforce it.
+
+## Explicit Orchestration and Bounded Work Units
+
+Governed agent execution should use explicit orchestration and bounded work units.
+
+- `GOV-02-ORCH-001` The parent orchestration context must select one tracked unit of work before delegation starts.
+- `GOV-02-ORCH-002` The selected unit must have an explicit owner, intent, and expected evidence bundle.
+- `GOV-02-ORCH-003` The parent should announce delegation, receive a visible result, and only then proceed to the next unit by default.
+- `GOV-02-ORCH-004` Hidden nested worker-coordinator chains should be avoided by default because they reduce visibility, weaken accountability, and complicate recovery.
+- `GOV-02-ORCH-005` Prefer sequential bounded stages when they improve observability, recoverability, or handoff clarity.
+- `GOV-02-ORCH-006` Parallel lanes are allowed only when each lane still has explicit ownership, bounded scope, visible checkpoints, and recoverable failure handling.
+- `GOV-02-ORCH-007` Delegation does not end parent orchestration accountability. The parent remains responsible for visible ownership of the delegated unit until completion, blocker, or explicit handoff.
+- `GOV-02-ORCH-008` Long-running delegated work must have visible follow-through checkpoints rather than silent fire-and-forget waiting.
+- `GOV-02-ORCH-009` Governed systems should define an early-follow-up checkpoint window and an ongoing cadence for delegated work supervision.
+- `GOV-02-ORCH-010` Governance should require the existence of follow-through cadence, while runtime, project, or operating docs may define the exact timing thresholds appropriate to the environment.
+
+This section governs work structure, not implementation details. It does not prescribe specific runtimes, queue settings, model choices, shell commands, or machine-local paths. It defines the accountability shape of delegation, while project/runbook docs may specify concrete supervision timings.
+
+## Execution Modes
+
+All meaningful work must declare an active execution mode. Silent mode mixing produces weak evidence and false completion claims.
+
+VibeGov uses two operating modes:
+- **Development**
+- **Exploration**
+
+Release verification is not a third peer mode. It is part of Development's delivery path and release-readiness checks.
+
+### Exploration mode
+
+Use when the objective is discovery, validation, or backlog hydration rather than immediate product change.
+
+Allowed work:
+- inspect live behavior from an end-user or operator perspective
+- compare observed behavior with specs, traceability, and existing test intent
+- create or refine backlog items, spec gaps, and planned verification follow-up
+
+Required evidence:
+- reviewed scope and scenarios exercised
+- observed surfaces/states, including revealed or post-action states
+- per-scenario classification: `Validated`, `Invalidated`, `Blocked`, or `Uncovered-spec-gap`
+- tracked follow-up artifacts for every invalidated, blocked, or uncovered item
+- next recommended backlog action
+
+### Development mode
+
+Use when code, spec, content, automation, release-readiness checks, or shipping mechanics are being changed or executed to satisfy tracked intent.
+
+Allowed work:
+- update the smallest coherent set of artifacts needed for the scoped change
+- add or adjust automated/manual verification needed to prove the change
+- add or maintain build, packaging, deploy, startup, smoke, and release-readiness machinery
+- execute release-readiness checks against a candidate artifact or target environment
+- repair discovered regressions only when they are inside the approved scope or explicitly re-scoped
+
+Required evidence:
+- linked issue/task and requirement IDs
+- changed artifacts
+- executed checks/tests/manual proof with outcomes
+- release-readiness or shipping evidence when applicable
+- any failure behavior or residual risk that still matters
+- updated documentation and traceability
+
+## Release Verification Within Development
+
+Release verification is part of Development, not a separate operating mode.
+
+Use it when Development needs to confirm a candidate artifact is safe to release, safe to promote, or behaving correctly after ship/deploy.
+
+Typical checks include:
+- build/release verification steps
+- artifact startup/bootstrap validation
+- deployment state or environment validation
+- version/build confirmation in the target environment
+- critical route/workflow smoke checks
+- post-release checks that capture regressions, drift, rollout issues, or broken integrations as tracked follow-up work
+
+If required release-readiness checks fail, release creation or promotion must stop until Development resolves the gap.
+
+## Mode Discipline
+
+- Choose the execution mode during planning and state it in checkpoints and handoffs.
+- If work shifts between Exploration and Development, announce the mode change before continuing.
+- If Development enters release verification or shipping checks, state that checkpoint explicitly even though the mode remains Development.
+- Do not use Development evidence standards to judge exploratory work, and do not use exploratory notes as a substitute for Development or release-readiness evidence.
+
+## Backlog Hydration
+
+Backlog hydration is part of the core workflow, not a side activity.
+
+- Exploration mode must convert discovered gaps into tracked backlog artifacts before the reviewed scope can be considered complete.
+- Development release-readiness and post-ship checks must capture new regressions, drift, rollout gaps, or integration failures as tracked follow-up work.
+- Development may surface adjacent gaps, but those gaps must be tracked separately unless scope is explicitly expanded.
+
+## Blocker Escalation and Move-On Behavior
+
+Autonomy is expected, not unrestricted.
+
+Escalate when:
+- requirements are contradictory or ambiguous
+- work crosses sensitive/security boundaries
+- out-of-scope files or approvals are required
+- verification is repeatedly failing without a clear next experiment
+- a blocker prevents meaningful confidence in the current item
+
+When blocked:
+- spend bounded effort to confirm the blocker and capture evidence
+- create or link the blocker artifact and record impact on scope
+- recommend the next best unblocked item or route
+- move on instead of freezing the whole loop unless no ready work remains
+
+A blocker pauses the current item. It does not pause delivery unless it removes all viable next work or requires a human decision.
+
+## Scope Discipline
+
+- Stay inside the agreed directories and task boundaries.
+- Do not expand scope silently.
+- If scope grows, document the reason and request explicit approval.
+
+## Typical Issue Pickup Flow
+
+For normal backlog-driven work, the default governed pickup flow is:
+1. choose the next highest-priority unblocked issue from backlog or `Ready`
+2. clarify the issue until it reaches implementation-grade quality
+3. bind the issue to the governing spec/requirement IDs before implementation
+4. move the issue to `Ready` if clarification/spec binding was required
+5. create a new issue-scoped branch from `develop`
+6. move the issue to `In progress` when active work starts
+7. implement the smallest coherent scoped change
+8. verify with mode-appropriate evidence
+9. update docs/specs/traceability as needed
+10. open a pull request into `develop`
+11. move the issue to `In review` while the PR is active
+12. merge, verify post-merge/release-readiness as needed, then move the issue to `Done`
+13. if a proven blocker stops progress, move the issue to `Blocked` with evidence instead of leaving it stale
+
+This flow defines the default governed lifecycle for normal work. Hotfix flow remains the exception path from `main`.
+
+## Completion Standard
+
+A task is complete only when:
+1. the active mode's intent is satisfied,
+2. the active mode's required evidence is captured,
+3. documentation and traceability are updated,
+4. follow-up backlog artifacts exist for remaining gaps,
+5. unresolved risks are explicitly listed.
+
+Claims of `done` without mode-appropriate evidence are incomplete.
+
+## Backlog Continuity
+
+After finishing one item, continue to the next highest-priority unblocked item until:
+- backlog is exhausted,
+- a hard blocker removes all ready work,
+- a human decision is required,
+- or a defined stop limit is reached.
+
+When stopping, report:
+- completed work,
+- active execution mode at stop,
+- remaining backlog count or uncovered scope,
+- next recommended item,
+- blockers and required decisions.

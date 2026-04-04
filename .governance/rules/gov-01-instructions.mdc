@@ -1,0 +1,50 @@
+---
+description: VibeGov entrypoint and rule precedence
+globs:
+alwaysApply: true
+---
+# Governance: Instructions Entrypoint
+
+This file is the root index for VibeGov governance behavior.
+
+## Rule Loading Order
+
+Apply these files in order:
+
+1. `gov-02-workflow.mdc` (delivery loop + execution boundaries)
+2. `gov-03-communication.mdc` (communication defaults)
+3. `gov-04-quality.mdc` (quality gates)
+4. `gov-05-testing.mdc` (testing proof standards)
+5. `gov-06-issues.mdc` (issue lifecycle)
+6. `gov-07-tasks.mdc` (task hygiene)
+7. `gov-08-exploratory-review.mdc` (continuous exploratory discovery + backlog hydration)
+
+## Source-of-Truth Layout
+
+- Governance rules: `.governance/rules/gov-*.mdc`
+- Project intent: `.governance/project/PROJECT_TEMPLATE.md`
+- Feature/change intent: `.governance/specs/SPEC_TEMPLATE.md`
+
+Treat `.governance/rules/` as canonical.
+
+If a target project already contains a provider-native rules directory, detect it and keep its rule files aligned with `.governance/rules/`.
+
+Do not use placeholder paths. If no provider-native rules directory exists, continue with `.governance/rules/` only.
+
+## Instruction Precedence
+
+1. Human request in current session
+2. Project/feature intent docs (`.governance/project`, `.governance/specs`)
+3. VibeGov rule files (`.governance/rules`)
+4. Tool/framework defaults
+
+If guidance conflicts, choose the most specific project-scoped instruction and document the decision.
+
+## Operating Principle
+
+Intent should outlive implementation:
+
+- clarify why before changing how
+- keep decisions reviewable
+- maintain traceability between intent, change, verification, and outcomes
+
