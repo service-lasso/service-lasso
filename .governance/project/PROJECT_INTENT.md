@@ -3,35 +3,35 @@
 Use this file to capture the project-specific intent that governance cannot provide.
 
 ## Purpose
-Service Lasso exists to pull scattered service knowledge into one governed place so teams can understand what services exist, who owns them, and what operational context is required to work on them safely.
+This repository exists to establish a governed starting point for Service Lasso while stakeholder-validated product intent is still incomplete.
 
 ## Context
-This repository is starting from an almost empty baseline, so the current project intent is based on the repository name, the initial README, and the decision to bootstrap with VibeGov before implementation. The likely primary users are platform teams, service owners, and operators who need a dependable inventory of services and their ownership details. Likely surrounding systems include GitHub, internal documentation, observability tools, and deployment/runtime platforms that may become future integration sources.
+This repository started from an almost empty baseline with only a placeholder README and no validated product brief. The current intent is therefore provisional: establish durable governance, Git workflow, and tracking artifacts before any product implementation begins. GitHub is the current system of record for repository workflow, issue tracking, and project-board setup during bootstrap.
 
 ## Constraints
 - Governance artifacts must be established before product code.
 - This repo is private and should preserve clear auditability for decisions and changes.
-- Product scope is still early and must remain easy to change until validated.
-- Initial delivery should prefer a small, coherent service-inventory slice over broad platform ambitions.
+- Product scope is currently too vague to lock into a feature-first implementation spec.
+- Bootstrap update mode must preserve valid existing artifacts and repair stale or missing ones.
 - No provider-native rules directory was present at bootstrap, so `.governance/` remains the only active rules location for now.
 
 ## Risks
-- The product problem could be interpreted too broadly, leading to premature architecture or over-scoped implementation.
-- Service metadata may come from multiple systems with conflicting definitions of ownership or lifecycle.
-- Teams may expect automation or integrations before the canonical service record is defined.
-- Verification could become shallow if behavior is implemented before the core workflows and evidence expectations are agreed.
+- The product problem could be guessed incorrectly from the repository name, causing bootstrap artifacts to smuggle in unvalidated scope.
+- GitHub workflow/bootstrap artifacts could drift from the live repository state if they are not reconciled after automation steps.
+- Branch-protection or project-board expectations could appear satisfied locally while remaining incomplete remotely.
+- Verification could become shallow if implementation starts before bootstrap blockers and provisional assumptions are made explicit.
 
 ## Assumptions
-- "Service Lasso" implies a system for collecting and organizing service-level metadata rather than a general task tracker.
-- The first implementation slice should establish a canonical service record and a basic review workflow before external integrations.
-- GitHub-backed issue and task tracking is acceptable later, but a repo-local backlog is sufficient for bootstrap.
-- Additional product detail will be captured by follow-on specs before implementation expands.
+- Stakeholder-validated product intent will be captured in a follow-on feature spec before product code is written.
+- GitHub-backed issue tracking and project boards are acceptable workflow tools for bootstrap and adoption work.
+- Repo-local bootstrap artifacts should stay durable even when GitHub automation is available.
+- Existing governance rules copied into `.governance/rules/` remain valid unless superseded by live canonical sources.
 
 ## Key Behaviors
-- The system should maintain a clear, reviewable definition of what a service record contains.
-- Ownership and operational context should be explicit enough to support safe handoff and incident response.
-- Planned workflows should emphasize discoverability, reviewability, and governance traceability from the start.
-- New behavior should be introduced through specs and backlog items, not undocumented chat decisions.
+- Bootstrap runs should classify starting repo state, commit policy, and GitHub capability before claiming progress.
+- Governance, Git workflow, and GitHub board artifacts should remain traceable and reviewable from the start.
+- Product behavior should not be invented when intent is still too vague; bootstrap should use a governance/setup spec instead.
+- New work should be introduced through specs, backlog items, and durable status artifacts rather than undocumented chat decisions.
 
 ## Verification Expectations
-Before product code, verification should focus on artifact completeness: active governance rules, project intent, a feature spec, and a backlog mapped to the spec. Once implementation begins, each scoped change should include acceptance criteria, verification evidence, and traceability updates tied back to the active spec and backlog items.
+Before product code, verification should focus on artifact completeness and live-state reconciliation: active governance rules, provisional-but-honest project intent, a valid `SPEC-001`, a backlog mapped to that spec, strict Git workflow artifacts, GitHub preflight reporting, timestamped bootstrap status/feedback artifacts, and final confirmation that the local docs match the live git/GitHub state.

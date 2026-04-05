@@ -2,8 +2,13 @@
 
 This repository uses VibeGov with `.governance/` as the governance source of truth.
 
+## Canonical Bootstrap Sources
+- `https://vibegov.io/agent.txt`
+- `https://vibegov.io/bootstrap.json`
+- `https://vibegov.io/docs/bootstrap/`
+
 ## Required Read Order
-Read before making governed changes:
+Read before making governed changes or bootstrap claims:
 1. `.governance/rules/gov-01-instructions.mdc`
 2. `.governance/rules/gov-02-workflow.mdc`
 3. `.governance/rules/gov-03-communication.mdc`
@@ -15,13 +20,16 @@ Read before making governed changes:
 
 ## Repo Defaults
 - Source of truth: `.governance/`
-- Provider-native mirror targets: none detected at bootstrap time
+- Provider-native mirror targets: none detected during latest bootstrap update
 - Operating modes: `Development` and `Exploration`
 - Release verification stays inside `Development`
+- Default bootstrap commit policy: `allowed` unless a run artifact states otherwise
 
 ## Pre-Code Gate
 Before product-code implementation:
 - keep `.governance/project/PROJECT_INTENT.md` current
 - work from an active spec in `.governance/specs/`
 - keep backlog items mapped to spec sections
+- keep `INIT-TODO.md` current for bootstrap/adoption/remediation work
+- maintain strict Git workflow artifacts in `.github/`
 - stop and update governance artifacts before expanding scope
