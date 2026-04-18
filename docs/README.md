@@ -1,0 +1,26 @@
+# Service Lasso Docs
+
+This repo is the canonical home for general Service Lasso documentation.
+
+## Canonical general docs
+
+- `docs/reference/service-json-reference.md` - general `service.json` contract reference
+- `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md` - generalized schema/reference shape
+- `docs/reference/SERVICE-CONFIG-TYPES.md` - taxonomy of common service config patterns
+- `docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md` - shared runtime behavior notes
+- `docs/windows-containment-tiers.md` - Windows containment guidance
+
+## Repo boundary rule
+
+Keep these docs here when they describe:
+- general manifest schema
+- shared runtime behavior
+- provider/dependency semantics
+- reusable service taxonomy
+- cross-service/platform contract rules
+
+Keep docs in individual service repos when they describe:
+- service-specific UI or runtime behavior
+- service-specific migration notes
+- service-specific route/page specs
+- service-specific packaging quirks unless they generalize back into the core contract
