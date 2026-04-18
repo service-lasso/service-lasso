@@ -10,6 +10,19 @@ This repo is the canonical home for general Service Lasso documentation.
 - `docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md` - shared runtime behavior notes
 - `docs/windows-containment-tiers.md` - Windows containment guidance
 
+## Source-of-truth rule for `service.json`
+
+When discussing or changing the general `service.json` contract:
+- use the core `service-lasso` docs as the source of truth
+- update the canonical docs here first
+- only then mirror or point from individual service repos as needed
+
+Current canonical files for that work are:
+- `docs/reference/service-json-reference.md`
+- `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md`
+- `docs/reference/SERVICE-CONFIG-TYPES.md`
+- `docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md`
+
 ## Repo boundary rule
 
 Keep these docs here when they describe:
