@@ -9,6 +9,8 @@ This repo is the canonical home for general Service Lasso documentation.
 - `docs/reference/SERVICE-CONFIG-TYPES.md` - taxonomy of common service config patterns
 - `docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md` - shared runtime behavior notes
 - `docs/windows-containment-tiers.md` - Windows containment guidance
+- `docs/development/core-runtime-layout.md` - first tracked core runtime source layout for `SPEC-002` / `TASK-006`
+- `docs/development/core-runtime-dev-plan.md` - recommended full core repo structure, API shape, and implementation order
 
 ## Source-of-truth rule for `service.json`
 

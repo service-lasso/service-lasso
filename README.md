@@ -1,22 +1,68 @@
 # service-lasso
 
-Service Lasso is being bootstrapped around a donor/reference snapshot taken from:
+Service Lasso is the core runtime and contract repository for the Service Lasso project.
+
+This repository started as a bootstrap and donor-analysis workspace around a reference snapshot taken from:
 
 - donor repo: `C:\projects\typerefinery-ai\typerefinery-develop`
 - donor focus: the standalone service-manager runtime and its managed `services/` tree
 
-This repo is still in **analysis / transplant planning** mode.
-It is **not yet a runnable application**.
+That bootstrap phase is now preserved in repo history, but the repo has moved into the first real product implementation phase under:
+
+- `.governance/specs/SPEC-002-core-standalone-runtime.md`
 
 ## Current State
 
 At the moment this repo contains:
 
-- governance/bootstrap scaffolding under `.governance/`
-- project notes and bootstrap adoption tracking
+- governance and backlog/spec traceability under `.governance/`
+- canonical shared contract/runtime docs under `docs/`
+- the first tracked core runtime source layout under `src/`
 - an ignored donor reference snapshot under `ref/typerefinery-service-manager-donor/`
 
-The donor reference material is intentionally **not tracked in git**.
+The donor reference material is intentionally **not tracked in git** and remains reference input, not product code.
+
+## First tracked core runtime layout
+
+The first bounded product slice establishes the repo as a real codebase without claiming full runtime behavior yet.
+
+Current tracked source layout:
+
+```text
+src/
+  contracts/
+    service-root.ts
+  fixtures/
+    README.md
+  runtime/
+    app.ts
+    layout.ts
+  index.ts
+```
+
+What this slice means:
+
+- `src/index.ts` is the thin standalone core entry boundary for the repo
+- `src/runtime/` holds the runtime-side implementation boundary for the future standalone manager
+- `src/contracts/` holds shared contract types that belong to the core runtime
+- `src/fixtures/` is reserved for fixture/sample services used by later runtime smoke verification
+
+This slice is intentionally layout-first. It does **not** yet implement manifest discovery, lifecycle orchestration, or donor parity.
+
+For the detailed layout note, see:
+
+- `docs/development/core-runtime-layout.md`
+
+## Local development commands
+
+```bash
+npm install
+npm run typecheck
+npm run build
+npm run dev
+```
+
+## Donor Reference Snapshot
 
 ## Donor Reference Snapshot
 
