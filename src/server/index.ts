@@ -4,6 +4,7 @@ import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
+import { createServiceHealthResponse } from "./routes/service-health.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -14,6 +15,9 @@ import {
   stopService,
 } from "../runtime/lifecycle/actions.js";
 import { getLifecycleState } from "../runtime/lifecycle/store.js";
+import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
+import { getServiceStatePaths } from "../runtime/state/paths.js";
+import { writeServiceState } from "../runtime/state/writeState.js";
 import type { LifecycleActionResponse, ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
 
 export interface ApiServerOptions {
@@ -54,11 +58,13 @@ async function loadRuntimeModel(servicesRoot: string) {
   };
 }
 
-function createServiceSummary(
+async function createServiceSummary(
   service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
   graph: DependencyGraph,
-): ServiceSummary {
+): Promise<ServiceSummary> {
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
+  const lifecycle = getLifecycleState(service.manifest.id);
+  const health = await evaluateServiceHealth(service.manifest, lifecycle);
 
   return {
     id: service.manifest.id,
@@ -72,7 +78,9 @@ function createServiceSummary(
     version: service.manifest.version,
     dependencies: dependencySummary.dependencies,
     dependents: dependencySummary.dependents,
-    lifecycle: getLifecycleState(service.manifest.id),
+    lifecycle,
+    health,
+    statePaths: getServiceStatePaths(service.serviceRoot),
   };
 }
 
@@ -82,37 +90,37 @@ function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResp
   };
 }
 
-function createLifecycleActionResponse(result: {
-  action: LifecycleActionResponse["action"];
-  serviceId: string;
-  ok: boolean;
-  message: string;
-  state: LifecycleActionResponse["state"];
-}): LifecycleActionResponse {
+async function executeLifecycleAction(action: string, service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number]): Promise<LifecycleActionResponse> {
+  const serviceId = service.manifest.id;
+  const result = (() => {
+    switch (action) {
+      case "install":
+        return installService(serviceId);
+      case "config":
+        return configService(serviceId);
+      case "start":
+        return startService(serviceId);
+      case "stop":
+        return stopService(serviceId);
+      case "restart":
+        return restartService(serviceId);
+      default:
+        throw new Error(`Unknown lifecycle action: ${action}`);
+    }
+  })();
+
+  const persisted = await writeServiceState(service, result.state);
+  const health = await evaluateServiceHealth(service.manifest, result.state);
+
   return {
     action: result.action,
     serviceId: result.serviceId,
     ok: result.ok,
     message: result.message,
     state: result.state,
+    health,
+    statePaths: persisted.paths,
   };
-}
-
-function executeLifecycleAction(action: string, serviceId: string): LifecycleActionResponse {
-  switch (action) {
-    case "install":
-      return createLifecycleActionResponse(installService(serviceId));
-    case "config":
-      return createLifecycleActionResponse(configService(serviceId));
-    case "start":
-      return createLifecycleActionResponse(startService(serviceId));
-    case "stop":
-      return createLifecycleActionResponse(stopService(serviceId));
-    case "restart":
-      return createLifecycleActionResponse(restartService(serviceId));
-    default:
-      throw new Error(`Unknown lifecycle action: ${action}`);
-  }
 }
 
 async function routeRequest(
@@ -129,14 +137,15 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/services") {
     const runtimeModel = await loadRuntimeModel(options.servicesRoot);
-    const services = runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph));
+    const services = await Promise.all(runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph)));
     writeJson(response, 200, createServicesResponse(services));
     return;
   }
 
   if (request.method === "GET" && url.pathname.startsWith("/api/services/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
     const runtimeModel = await loadRuntimeModel(options.servicesRoot);
-    const serviceId = decodeURIComponent(url.pathname.replace("/api/services/", ""));
+    const serviceId = decodeURIComponent(pathParts[2] ?? "");
     const service = runtimeModel.registry.getById(serviceId);
 
     if (!service) {
@@ -144,8 +153,17 @@ async function routeRequest(
       return;
     }
 
-    writeJson(response, 200, createServiceDetailResponse(createServiceSummary(service, runtimeModel.graph)));
-    return;
+    if (pathParts.length === 4 && pathParts[3] === "health") {
+      const lifecycle = getLifecycleState(serviceId);
+      const health = await evaluateServiceHealth(service.manifest, lifecycle);
+      writeJson(response, 200, createServiceHealthResponse(serviceId, health));
+      return;
+    }
+
+    if (pathParts.length === 3) {
+      writeJson(response, 200, createServiceDetailResponse(await createServiceSummary(service, runtimeModel.graph)));
+      return;
+    }
   }
 
   if (request.method === "POST" && url.pathname.startsWith("/api/services/")) {
@@ -161,17 +179,16 @@ async function routeRequest(
         return;
       }
 
-      writeJson(response, 200, executeLifecycleAction(action, serviceId));
+      writeJson(response, 200, await executeLifecycleAction(action, service));
       return;
     }
   }
 
   if (request.method === "GET" && url.pathname === "/api/runtime") {
     const runtimeModel = await loadRuntimeModel(options.servicesRoot);
-    const runningServices = runtimeModel
-      .discovered
-      .filter((service) => getLifecycleState(service.manifest.id).running)
-      .length;
+    const serviceSummaries = await Promise.all(runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph)));
+    const runningServices = serviceSummaries.filter((service) => service.lifecycle?.running).length;
+    const healthyServices = serviceSummaries.filter((service) => service.health?.healthy).length;
 
     writeJson(
       response,
@@ -182,6 +199,7 @@ async function routeRequest(
         enabledServices: runtimeModel.registry.countEnabled(),
         dependencyEdges: runtimeModel.graph.listEdges().length,
         runningServices,
+        healthyServices,
       }),
     );
     return;
