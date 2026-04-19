@@ -27,6 +27,11 @@ export interface ServiceSummary {
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
   statePaths?: ServiceStatePaths;
+  operator?: {
+    logPath: string;
+    variableCount: number;
+    endpointCount: number;
+  };
 }
 
 export interface ServicesResponse {

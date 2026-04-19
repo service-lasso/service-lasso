@@ -4,5 +4,18 @@
   "description": "Tracked sample service used for the first discovery-backed API slices.",
   "version": "0.1.0",
   "enabled": true,
-  "depend_on": ["@node"]
+  "depend_on": ["@node"],
+  "env": {
+    "ECHO_MESSAGE": "hello from operator data surfaces"
+  },
+  "urls": [
+    {
+      "label": "service",
+      "url": "http://127.0.0.1:4010",
+      "kind": "local"
+    }
+  ],
+  "healthcheck": {
+    "type": "process"
+  }
 }

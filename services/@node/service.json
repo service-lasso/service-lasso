@@ -3,5 +3,15 @@
   "name": "Node Runtime",
   "description": "Tracked fixture runtime provider used for manifest discovery.",
   "version": "0.1.0",
-  "enabled": true
+  "enabled": true,
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "urls": [
+    {
+      "label": "docs",
+      "url": "https://nodejs.org",
+      "kind": "external"
+    }
+  ]
 }

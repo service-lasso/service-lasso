@@ -5,6 +5,9 @@ import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
+import { createServiceLogsResponse } from "./routes/logs.js";
+import { createServiceVariablesResponse } from "./routes/variables.js";
+import { createServiceNetworkResponse } from "./routes/network.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -18,6 +21,9 @@ import { getLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
+import { buildServiceLogs } from "../runtime/operator/logs.js";
+import { buildServiceVariables } from "../runtime/operator/variables.js";
+import { buildServiceNetwork } from "../runtime/operator/network.js";
 import type { LifecycleActionResponse, ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
 
 export interface ApiServerOptions {
@@ -65,6 +71,9 @@ async function createServiceSummary(
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const lifecycle = getLifecycleState(service.manifest.id);
   const health = await evaluateServiceHealth(service.manifest, lifecycle);
+  const logs = buildServiceLogs(service, lifecycle);
+  const variables = buildServiceVariables(service);
+  const network = buildServiceNetwork(service);
 
   return {
     id: service.manifest.id,
@@ -81,6 +90,11 @@ async function createServiceSummary(
     lifecycle,
     health,
     statePaths: getServiceStatePaths(service.serviceRoot),
+    operator: {
+      logPath: logs.logPath,
+      variableCount: variables.variables.length,
+      endpointCount: network.endpoints.length,
+    },
   };
 }
 
@@ -142,7 +156,7 @@ async function routeRequest(
     return;
   }
 
-  if (request.method === "GET" && url.pathname.startsWith("/api/services/")) {
+  if (url.pathname.startsWith("/api/services/")) {
     const pathParts = url.pathname.split("/").filter(Boolean);
     const runtimeModel = await loadRuntimeModel(options.servicesRoot);
     const serviceId = decodeURIComponent(pathParts[2] ?? "");
@@ -153,32 +167,35 @@ async function routeRequest(
       return;
     }
 
-    if (pathParts.length === 4 && pathParts[3] === "health") {
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "health") {
       const lifecycle = getLifecycleState(serviceId);
       const health = await evaluateServiceHealth(service.manifest, lifecycle);
       writeJson(response, 200, createServiceHealthResponse(serviceId, health));
       return;
     }
 
-    if (pathParts.length === 3) {
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "logs") {
+      writeJson(response, 200, createServiceLogsResponse(buildServiceLogs(service, getLifecycleState(serviceId))));
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "variables") {
+      writeJson(response, 200, createServiceVariablesResponse(buildServiceVariables(service)));
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "network") {
+      writeJson(response, 200, createServiceNetworkResponse(buildServiceNetwork(service)));
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 3) {
       writeJson(response, 200, createServiceDetailResponse(await createServiceSummary(service, runtimeModel.graph)));
       return;
     }
-  }
 
-  if (request.method === "POST" && url.pathname.startsWith("/api/services/")) {
-    const pathParts = url.pathname.split("/").filter(Boolean);
-    if (pathParts.length === 4) {
-      const [, , rawServiceId, action] = pathParts;
-      const serviceId = decodeURIComponent(rawServiceId);
-      const runtimeModel = await loadRuntimeModel(options.servicesRoot);
-      const service = runtimeModel.registry.getById(serviceId);
-
-      if (!service) {
-        notFound(response);
-        return;
-      }
-
+    if (request.method === "POST" && pathParts.length === 4) {
+      const action = pathParts[3];
       writeJson(response, 200, await executeLifecycleAction(action, service));
       return;
     }
@@ -215,6 +232,20 @@ async function routeRequest(
         edges: runtimeModel.graph.listEdges(),
       }),
     );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/variables") {
+    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const payload = runtimeModel.discovered.map((service) => buildServiceVariables(service));
+    writeJson(response, 200, { services: payload });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/network") {
+    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const payload = runtimeModel.discovered.map((service) => buildServiceNetwork(service));
+    writeJson(response, 200, { services: payload });
     return;
   }
 

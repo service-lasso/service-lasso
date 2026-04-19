@@ -47,6 +47,30 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     }
   }
 
+  const rawEnv = record.env;
+  if (
+    rawEnv !== undefined &&
+    (!rawEnv || typeof rawEnv !== "object" || Array.isArray(rawEnv) || Object.values(rawEnv).some((value) => typeof value !== "string"))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"env\" to be a string map.`);
+  }
+
+  const rawUrls = record.urls;
+  if (
+    rawUrls !== undefined &&
+    (!Array.isArray(rawUrls) ||
+      rawUrls.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== "object" ||
+          Array.isArray(entry) ||
+          typeof (entry as Record<string, unknown>).label !== "string" ||
+          typeof (entry as Record<string, unknown>).url !== "string",
+      ))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
+  }
+
   return {
     id: expectNonEmptyString(record.id, "id", manifestPath),
     name: expectNonEmptyString(record.name, "name", manifestPath),
@@ -55,5 +79,11 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
+    env: rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined,
+    urls: rawUrls?.map((entry) => ({
+      label: (entry as Record<string, string>).label.trim(),
+      url: (entry as Record<string, string>).url.trim(),
+      kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
+    })),
   };
 }

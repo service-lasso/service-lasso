@@ -1,5 +1,11 @@
 import type { ServiceHealthcheck } from "../runtime/health/types.js";
 
+export interface ServiceEndpoint {
+  label: string;
+  url: string;
+  kind?: string;
+}
+
 export interface ServiceManifest {
   id: string;
   name: string;
@@ -8,6 +14,8 @@ export interface ServiceManifest {
   enabled?: boolean;
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
+  env?: Record<string, string>;
+  urls?: ServiceEndpoint[];
 }
 
 export interface DiscoveredService {

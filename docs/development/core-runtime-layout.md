@@ -1,6 +1,6 @@
 # Core runtime layout
 
-This document describes the first tracked source layout, bounded API spine, and first manifest discovery boundary added for the Service Lasso core runtime during `TASK-006`, issue `#2`, and issue `#3`.
+This document describes the first tracked source layout and the current bounded runtime/API slices added for the Service Lasso core runtime through issues `#2` to `#7`.
 
 ## Intent
 
@@ -15,9 +15,9 @@ src/
   contracts/
     api.ts
     service-root.ts
+    service.ts
   fixtures/
     README.md
-    services.ts
   runtime/
     app.ts
     layout.ts
@@ -37,6 +37,10 @@ src/
     manager/
       DependencyGraph.ts
       ServiceRegistry.ts
+    operator/
+      logs.ts
+      network.ts
+      variables.ts
     state/
       paths.ts
       readState.ts
@@ -46,14 +50,19 @@ src/
     routes/
       dependencies.ts
       health.ts
+      logs.ts
+      network.ts
       runtime.ts
+      service-health.ts
       services.ts
+      variables.ts
   index.ts
 tests/
   api-spine.test.js
   manifest-discovery.test.js
   health-state.test.js
   lifecycle-actions.test.js
+  operator-data.test.js
   registry-runtime-state.test.js
 ```
 
@@ -71,9 +80,10 @@ tests/
   - `lifecycle/` contains the first bounded in-memory install/config/start/stop/restart flow
   - `health/` contains the first bounded `process` and `http` health evaluation path
   - `state/` contains the first structured `.state` file-path and read/write helpers
+  - `operator/` contains the first operator-data builders for logs, variables, and network surfaces
 - `src/server/`
   - first real API boundary for the core repo
-  - `routes/health.ts` and `routes/services.ts` provide the first bounded route set
+  - route modules now cover health, services, runtime, dependencies, and the first operator data surfaces
 - `src/contracts/`
   - shared runtime/API contract types for the core repo
   - now includes both service-root/runtime-boundary and first API response shapes
@@ -82,7 +92,7 @@ tests/
 - `src/fixtures/`
   - still reserved for additional fixture/sample inputs when needed beyond the tracked `services/` roots
 - `tests/`
-  - direct route-level, discovery/parsing, runtime-state, lifecycle, and state/health proof for the current core slices
+  - direct route-level, discovery/parsing, runtime-state, lifecycle, state/health, and operator-surface proof for the current core slices
 
 ## What this slice does not do yet
 
