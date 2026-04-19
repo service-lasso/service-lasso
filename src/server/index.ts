@@ -2,13 +2,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { once } from "node:events";
 import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
-import { FIXTURE_SERVICES } from "../fixtures/services.js";
+import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import type { ServiceSummary } from "../contracts/api.js";
 
 export interface ApiServerOptions {
   port?: number;
   version?: string;
-  services?: ServiceSummary[];
+  servicesRoot?: string;
 }
 
 export interface RunningApiServer {
@@ -31,11 +31,23 @@ function notFound(response: ServerResponse): void {
   });
 }
 
-function routeRequest(
+function createServiceSummaries(discovered: Awaited<ReturnType<typeof discoverServices>>): ServiceSummary[] {
+  return discovered.map((service) => ({
+    id: service.manifest.id,
+    name: service.manifest.name,
+    description: service.manifest.description,
+    status: "discovered",
+    source: "manifest",
+    manifestPath: service.manifestPath,
+    serviceRoot: service.serviceRoot,
+  }));
+}
+
+async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  options: Required<Pick<ApiServerOptions, "version" | "services">>,
-): void {
+  options: Required<Pick<ApiServerOptions, "version" | "servicesRoot">>,
+): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
   if (request.method === "GET" && url.pathname === "/api/health") {
@@ -44,7 +56,8 @@ function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/services") {
-    writeJson(response, 200, createServicesResponse(options.services));
+    const discovered = await discoverServices(options.servicesRoot);
+    writeJson(response, 200, createServicesResponse(createServiceSummaries(discovered)));
     return;
   }
 
@@ -54,11 +67,17 @@ function routeRequest(
 export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedOptions = {
     version: options.version ?? "0.1.0",
-    services: options.services ?? FIXTURE_SERVICES,
+    servicesRoot: options.servicesRoot ?? "./services",
   };
 
   return createServer((request, response) => {
-    routeRequest(request, response, resolvedOptions);
+    void routeRequest(request, response, resolvedOptions).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "Unknown API failure.";
+      writeJson(response, 500, {
+        error: "internal_error",
+        message,
+      });
+    });
   });
 }
 

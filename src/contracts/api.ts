@@ -12,8 +12,10 @@ export interface ServiceSummary {
   id: string;
   name: string;
   description: string;
-  status: "fixture";
-  source: "fixture";
+  status: "discovered" | "fixture";
+  source: "manifest" | "fixture";
+  manifestPath?: string;
+  serviceRoot?: string;
 }
 
 export interface ServicesResponse {

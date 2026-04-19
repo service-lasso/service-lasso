@@ -54,12 +54,12 @@ What this slice means:
 
 - `src/index.ts` starts the current bounded development-mode API process
 - `src/server/` holds the first real API boundary for the core repo
-- `src/runtime/` holds the runtime-side implementation boundary for the future standalone manager
+- `src/runtime/` now includes the first manifest discovery/parsing boundary under `src/runtime/discovery/`
 - `src/contracts/` holds shared API/runtime contract types
-- `src/fixtures/` currently provides fixture-backed service data for the first API story
-- `tests/api-spine.test.js` provides direct route proof for `/api/health` and `/api/services`
+- tracked sample manifests now live under `services/*/service.json`
+- `tests/api-spine.test.js` and `tests/manifest-discovery.test.js` provide direct proof for the API spine and discovery/parsing behavior
 
-This slice now establishes the first real API spine. It still does **not** yet implement manifest discovery, lifecycle orchestration, or donor parity.
+This slice now establishes the first real API spine and the first canonical manifest discovery/parsing path. It still does **not** yet implement lifecycle orchestration or donor parity.
 
 For the detailed layout note, see:
 

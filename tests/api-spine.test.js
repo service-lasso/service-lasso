@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import { startApiServer } from "../dist/server/index.js";
 
 async function getJson(url) {
@@ -27,8 +28,9 @@ test("GET /api/health returns core API health", async () => {
   }
 });
 
-test("GET /api/services returns fixture-backed services", async () => {
-  const apiServer = await startApiServer({ port: 0 });
+test("GET /api/services returns discovered services from the tracked services root", async () => {
+  const servicesRoot = path.resolve("services");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
     const result = await getJson(`${apiServer.url}/api/services`);
@@ -40,8 +42,8 @@ test("GET /api/services returns fixture-backed services", async () => {
       result.body.services.map((service) => service.id),
       ["@node", "@python", "echo-service"],
     );
-    assert.equal(result.body.services[0].status, "fixture");
-    assert.equal(result.body.services[0].source, "fixture");
+    assert.equal(result.body.services[0].status, "discovered");
+    assert.equal(result.body.services[0].source, "manifest");
   } finally {
     await apiServer.stop();
   }

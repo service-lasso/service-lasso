@@ -9,12 +9,17 @@ export interface RuntimeApp {
 }
 
 export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<RuntimeApp> {
-  const apiServer = await startApiServer(options);
+  const serviceRoot = createDefaultServiceRootConfig();
+  const apiServer = await startApiServer({
+    servicesRoot: options.servicesRoot ?? serviceRoot.servicesRoot,
+    port: options.port,
+    version: options.version,
+  });
 
   return {
     mode: "development",
     boundary: describeRuntimeBoundary(),
-    serviceRoot: createDefaultServiceRootConfig(),
+    serviceRoot,
     apiServer,
   };
 }

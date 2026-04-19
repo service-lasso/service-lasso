@@ -1,6 +1,6 @@
 # Core runtime layout
 
-This document describes the first tracked source layout and bounded API spine added for the Service Lasso core runtime during `TASK-006` and issue `#2`.
+This document describes the first tracked source layout, bounded API spine, and first manifest discovery boundary added for the Service Lasso core runtime during `TASK-006`, issue `#2`, and issue `#3`.
 
 ## Intent
 
@@ -21,6 +21,10 @@ src/
   runtime/
     app.ts
     layout.ts
+    discovery/
+      discoverServices.ts
+      loadManifest.ts
+      validateManifest.ts
   server/
     index.ts
     routes/
@@ -40,21 +44,23 @@ tests/
   - runtime-facing implementation boundary for the core standalone manager
   - `layout.ts` defines the initial runtime boundary and default root locations
   - `app.ts` now assembles runtime startup around the first bounded API server
+  - `discovery/` contains the first canonical `service.json` loading/validation/discovery path
 - `src/server/`
   - first real API boundary for the core repo
   - `routes/health.ts` and `routes/services.ts` provide the first bounded route set
 - `src/contracts/`
   - shared runtime/API contract types for the core repo
   - now includes both service-root/runtime-boundary and first API response shapes
+- `services/`
+  - tracked sample service roots containing canonical `service.json` files for current discovery-backed development mode
 - `src/fixtures/`
-  - provides fixture/sample services and direct API proof inputs for the first server story
+  - still reserved for additional fixture/sample inputs when needed beyond the tracked `services/` roots
 - `tests/`
-  - direct route-level proof for the first API spine
+  - direct route-level and discovery/parsing proof for the current core slices
 
 ## What this slice does not do yet
 
 This layout does **not** yet implement:
-- canonical `service.json` discovery/parsing
 - lifecycle orchestration
 - provider/runtime execution
 - persistent managed `.state/` behavior
