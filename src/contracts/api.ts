@@ -1,3 +1,5 @@
+import type { LifecycleAction, ServiceLifecycleState } from "../runtime/lifecycle/types.js";
+
 export interface HealthResponse {
   service: "service-lasso";
   status: "ok";
@@ -20,6 +22,7 @@ export interface ServiceSummary {
   version?: string;
   dependencies?: string[];
   dependents?: string[];
+  lifecycle?: ServiceLifecycleState;
 }
 
 export interface ServicesResponse {
@@ -36,6 +39,7 @@ export interface RuntimeSummaryResponse {
     totalServices: number;
     enabledServices: number;
     dependencyEdges: number;
+    runningServices: number;
   };
 }
 
@@ -44,4 +48,12 @@ export interface DependenciesResponse {
     nodes: { id: string; name: string }[];
     edges: { from: string; to: string }[];
   };
+}
+
+export interface LifecycleActionResponse {
+  action: LifecycleAction;
+  serviceId: string;
+  ok: boolean;
+  message: string;
+  state: ServiceLifecycleState;
 }

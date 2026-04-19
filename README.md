@@ -54,12 +54,12 @@ What this slice means:
 
 - `src/index.ts` starts the current bounded development-mode API process
 - `src/server/` holds the first real API boundary for the core repo
-- `src/runtime/` now includes the first manifest discovery/parsing boundary under `src/runtime/discovery/` and the first in-memory registry/dependency model under `src/runtime/manager/`
+- `src/runtime/` now includes the first manifest discovery/parsing boundary under `src/runtime/discovery/`, the first in-memory registry/dependency model under `src/runtime/manager/`, and the first bounded lifecycle action path under `src/runtime/lifecycle/`
 - `src/contracts/` holds shared API/runtime contract types
 - tracked sample manifests now live under `services/*/service.json`
-- `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, and `tests/registry-runtime-state.test.js` provide direct proof for the API spine, discovery/parsing behavior, and the first runtime state read APIs
+- `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, `tests/registry-runtime-state.test.js`, and `tests/lifecycle-actions.test.js` provide direct proof for the API spine, discovery/parsing behavior, the first runtime state read APIs, and the first lifecycle action path
 
-This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, and the first in-memory runtime state model. It still does **not** yet implement lifecycle orchestration or donor parity.
+This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, and the first bounded lifecycle actions. It still does **not** yet implement provider execution, persistent `.state/` behavior, or donor parity.
 
 For the detailed layout note, see:
 

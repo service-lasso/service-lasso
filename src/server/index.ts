@@ -6,7 +6,15 @@ import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
-import type { ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
+import {
+  configService,
+  installService,
+  restartService,
+  startService,
+  stopService,
+} from "../runtime/lifecycle/actions.js";
+import { getLifecycleState } from "../runtime/lifecycle/store.js";
+import type { LifecycleActionResponse, ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
 
 export interface ApiServerOptions {
   port?: number;
@@ -64,6 +72,7 @@ function createServiceSummary(
     version: service.manifest.version,
     dependencies: dependencySummary.dependencies,
     dependents: dependencySummary.dependents,
+    lifecycle: getLifecycleState(service.manifest.id),
   };
 }
 
@@ -71,6 +80,39 @@ function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResp
   return {
     service,
   };
+}
+
+function createLifecycleActionResponse(result: {
+  action: LifecycleActionResponse["action"];
+  serviceId: string;
+  ok: boolean;
+  message: string;
+  state: LifecycleActionResponse["state"];
+}): LifecycleActionResponse {
+  return {
+    action: result.action,
+    serviceId: result.serviceId,
+    ok: result.ok,
+    message: result.message,
+    state: result.state,
+  };
+}
+
+function executeLifecycleAction(action: string, serviceId: string): LifecycleActionResponse {
+  switch (action) {
+    case "install":
+      return createLifecycleActionResponse(installService(serviceId));
+    case "config":
+      return createLifecycleActionResponse(configService(serviceId));
+    case "start":
+      return createLifecycleActionResponse(startService(serviceId));
+    case "stop":
+      return createLifecycleActionResponse(stopService(serviceId));
+    case "restart":
+      return createLifecycleActionResponse(restartService(serviceId));
+    default:
+      throw new Error(`Unknown lifecycle action: ${action}`);
+  }
 }
 
 async function routeRequest(
@@ -106,8 +148,31 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "POST" && url.pathname.startsWith("/api/services/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length === 4) {
+      const [, , rawServiceId, action] = pathParts;
+      const serviceId = decodeURIComponent(rawServiceId);
+      const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+      const service = runtimeModel.registry.getById(serviceId);
+
+      if (!service) {
+        notFound(response);
+        return;
+      }
+
+      writeJson(response, 200, executeLifecycleAction(action, serviceId));
+      return;
+    }
+  }
+
   if (request.method === "GET" && url.pathname === "/api/runtime") {
     const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runningServices = runtimeModel
+      .discovered
+      .filter((service) => getLifecycleState(service.manifest.id).running)
+      .length;
+
     writeJson(
       response,
       200,
@@ -116,6 +181,7 @@ async function routeRequest(
         totalServices: runtimeModel.registry.count(),
         enabledServices: runtimeModel.registry.countEnabled(),
         dependencyEdges: runtimeModel.graph.listEdges().length,
+        runningServices,
       }),
     );
     return;

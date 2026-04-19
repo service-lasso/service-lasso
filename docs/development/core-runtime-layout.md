@@ -25,6 +25,10 @@ src/
       discoverServices.ts
       loadManifest.ts
       validateManifest.ts
+    lifecycle/
+      actions.ts
+      store.ts
+      types.ts
     manager/
       DependencyGraph.ts
       ServiceRegistry.ts
@@ -39,6 +43,7 @@ src/
 tests/
   api-spine.test.js
   manifest-discovery.test.js
+  lifecycle-actions.test.js
   registry-runtime-state.test.js
 ```
 
@@ -53,6 +58,7 @@ tests/
   - `app.ts` now assembles runtime startup around the first bounded API server
   - `discovery/` contains the first canonical `service.json` loading/validation/discovery path
   - `manager/` contains the first in-memory registry and dependency graph model
+  - `lifecycle/` contains the first bounded in-memory install/config/start/stop/restart flow
 - `src/server/`
   - first real API boundary for the core repo
   - `routes/health.ts` and `routes/services.ts` provide the first bounded route set
@@ -64,12 +70,11 @@ tests/
 - `src/fixtures/`
   - still reserved for additional fixture/sample inputs when needed beyond the tracked `services/` roots
 - `tests/`
-  - direct route-level, discovery/parsing, and runtime-state proof for the current core slices
+  - direct route-level, discovery/parsing, runtime-state, and lifecycle proof for the current core slices
 
 ## What this slice does not do yet
 
 This layout does **not** yet implement:
-- lifecycle orchestration
 - provider/runtime execution
 - persistent managed `.state/` behavior
 - release workflow automation beyond local package/build/test plumbing
