@@ -2,8 +2,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { once } from "node:events";
 import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
+import { createDependenciesResponse } from "./routes/dependencies.js";
+import { createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
-import type { ServiceSummary } from "../contracts/api.js";
+import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
+import type { ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
 
 export interface ApiServerOptions {
   port?: number;
@@ -31,8 +34,25 @@ function notFound(response: ServerResponse): void {
   });
 }
 
-function createServiceSummaries(discovered: Awaited<ReturnType<typeof discoverServices>>): ServiceSummary[] {
-  return discovered.map((service) => ({
+async function loadRuntimeModel(servicesRoot: string) {
+  const discovered = await discoverServices(servicesRoot);
+  const registry = createServiceRegistry(discovered);
+  const graph = new DependencyGraph(registry);
+
+  return {
+    discovered,
+    registry,
+    graph,
+  };
+}
+
+function createServiceSummary(
+  service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
+  graph: DependencyGraph,
+): ServiceSummary {
+  const dependencySummary = graph.getServiceDependencies(service.manifest.id);
+
+  return {
     id: service.manifest.id,
     name: service.manifest.name,
     description: service.manifest.description,
@@ -40,7 +60,17 @@ function createServiceSummaries(discovered: Awaited<ReturnType<typeof discoverSe
     source: "manifest",
     manifestPath: service.manifestPath,
     serviceRoot: service.serviceRoot,
-  }));
+    enabled: service.manifest.enabled !== false,
+    version: service.manifest.version,
+    dependencies: dependencySummary.dependencies,
+    dependents: dependencySummary.dependents,
+  };
+}
+
+function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResponse {
+  return {
+    service,
+  };
 }
 
 async function routeRequest(
@@ -56,8 +86,51 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/services") {
-    const discovered = await discoverServices(options.servicesRoot);
-    writeJson(response, 200, createServicesResponse(createServiceSummaries(discovered)));
+    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const services = runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph));
+    writeJson(response, 200, createServicesResponse(services));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/services/")) {
+    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const serviceId = decodeURIComponent(url.pathname.replace("/api/services/", ""));
+    const service = runtimeModel.registry.getById(serviceId);
+
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    writeJson(response, 200, createServiceDetailResponse(createServiceSummary(service, runtimeModel.graph)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime") {
+    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    writeJson(
+      response,
+      200,
+      createRuntimeSummaryResponse({
+        servicesRoot: options.servicesRoot,
+        totalServices: runtimeModel.registry.count(),
+        enabledServices: runtimeModel.registry.countEnabled(),
+        dependencyEdges: runtimeModel.graph.listEdges().length,
+      }),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/dependencies") {
+    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    writeJson(
+      response,
+      200,
+      createDependenciesResponse({
+        nodes: runtimeModel.graph.listNodes(),
+        edges: runtimeModel.graph.listEdges(),
+      }),
+    );
     return;
   }
 

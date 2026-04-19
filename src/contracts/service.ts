@@ -4,6 +4,7 @@ export interface ServiceManifest {
   description: string;
   version?: string;
   enabled?: boolean;
+  depend_on?: string[];
 }
 
 export interface DiscoveredService {

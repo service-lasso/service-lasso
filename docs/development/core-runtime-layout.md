@@ -25,14 +25,21 @@ src/
       discoverServices.ts
       loadManifest.ts
       validateManifest.ts
+    manager/
+      DependencyGraph.ts
+      ServiceRegistry.ts
   server/
     index.ts
     routes/
+      dependencies.ts
       health.ts
+      runtime.ts
       services.ts
   index.ts
 tests/
   api-spine.test.js
+  manifest-discovery.test.js
+  registry-runtime-state.test.js
 ```
 
 ## What each area means
@@ -45,6 +52,7 @@ tests/
   - `layout.ts` defines the initial runtime boundary and default root locations
   - `app.ts` now assembles runtime startup around the first bounded API server
   - `discovery/` contains the first canonical `service.json` loading/validation/discovery path
+  - `manager/` contains the first in-memory registry and dependency graph model
 - `src/server/`
   - first real API boundary for the core repo
   - `routes/health.ts` and `routes/services.ts` provide the first bounded route set
@@ -56,7 +64,7 @@ tests/
 - `src/fixtures/`
   - still reserved for additional fixture/sample inputs when needed beyond the tracked `services/` roots
 - `tests/`
-  - direct route-level and discovery/parsing proof for the current core slices
+  - direct route-level, discovery/parsing, and runtime-state proof for the current core slices
 
 ## What this slice does not do yet
 

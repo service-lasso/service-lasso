@@ -3,5 +3,6 @@
   "name": "Echo Service",
   "description": "Tracked sample service used for the first discovery-backed API slices.",
   "version": "0.1.0",
-  "enabled": true
+  "enabled": true,
+  "depend_on": ["@node"]
 }

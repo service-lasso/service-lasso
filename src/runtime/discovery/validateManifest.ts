@@ -15,11 +15,20 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
 
   const record = input as Record<string, unknown>;
 
+  const dependOn = record.depend_on;
+  if (
+    dependOn !== undefined &&
+    (!Array.isArray(dependOn) || dependOn.some((dependency) => typeof dependency !== "string" || dependency.trim().length === 0))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"depend_on\" to be an array of non-empty strings.`);
+  }
+
   return {
     id: expectNonEmptyString(record.id, "id", manifestPath),
     name: expectNonEmptyString(record.name, "name", manifestPath),
     description: expectNonEmptyString(record.description, "description", manifestPath),
     version: typeof record.version === "string" ? record.version : undefined,
     enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
+    depend_on: dependOn?.map((dependency) => dependency.trim()),
   };
 }
