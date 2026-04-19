@@ -1,21 +1,20 @@
-import { describeRuntimeBoundary, createDefaultServiceRootConfig } from "./layout.js";
+import { createDefaultServiceRootConfig, describeRuntimeBoundary } from "./layout.js";
+import { startApiServer, type ApiServerOptions, type RunningApiServer } from "../server/index.js";
 
-export interface RuntimeLayoutReport {
-  mode: "scaffold";
+export interface RuntimeApp {
+  mode: "development";
   boundary: ReturnType<typeof describeRuntimeBoundary>;
   serviceRoot: ReturnType<typeof createDefaultServiceRootConfig>;
-  nextTasks: string[];
+  apiServer: RunningApiServer;
 }
 
-export function createRuntimeLayoutReport(): RuntimeLayoutReport {
+export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<RuntimeApp> {
+  const apiServer = await startApiServer(options);
+
   return {
-    mode: "scaffold",
+    mode: "development",
     boundary: describeRuntimeBoundary(),
     serviceRoot: createDefaultServiceRootConfig(),
-    nextTasks: [
-      "TASK-007: add the first standalone runtime entrypoint behavior",
-      "TASK-008: implement canonical service.json discovery/parsing",
-      "TASK-009: add fixture-backed runtime smoke verification",
-    ],
+    apiServer,
   };
 }

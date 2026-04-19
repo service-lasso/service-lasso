@@ -1,6 +1,6 @@
 # Core runtime layout
 
-This document describes the first tracked source layout added for the Service Lasso core runtime during `TASK-006`.
+This document describes the first tracked source layout and bounded API spine added for the Service Lasso core runtime during `TASK-006` and issue `#2`.
 
 ## Intent
 
@@ -13,39 +13,52 @@ This layout is intentionally minimal.
 ```text
 src/
   contracts/
+    api.ts
     service-root.ts
   fixtures/
     README.md
+    services.ts
   runtime/
     app.ts
     layout.ts
+  server/
+    index.ts
+    routes/
+      health.ts
+      services.ts
   index.ts
+tests/
+  api-spine.test.js
 ```
 
 ## What each area means
 
 - `src/index.ts`
-  - the thin repo entrypoint for the standalone core runtime slice
-  - currently prints a scaffold report instead of running real service orchestration
+  - the current core process entrypoint
+  - starts the bounded development-mode API server for the first core API story
 - `src/runtime/`
   - runtime-facing implementation boundary for the core standalone manager
   - `layout.ts` defines the initial runtime boundary and default root locations
-  - `app.ts` assembles the current scaffold report and points forward to later tasks
+  - `app.ts` now assembles runtime startup around the first bounded API server
+- `src/server/`
+  - first real API boundary for the core repo
+  - `routes/health.ts` and `routes/services.ts` provide the first bounded route set
 - `src/contracts/`
-  - shared runtime contract types for the core repo
-  - starts with the service-root/runtime-boundary contract because that is the minimum stable concept needed for the first source layout
+  - shared runtime/API contract types for the core repo
+  - now includes both service-root/runtime-boundary and first API response shapes
 - `src/fixtures/`
-  - reserved for fixture/sample services and direct runtime smoke-proof inputs
-  - intentionally not populated yet in `TASK-006`
+  - provides fixture/sample services and direct API proof inputs for the first server story
+- `tests/`
+  - direct route-level proof for the first API spine
 
 ## What this slice does not do yet
 
 This layout does **not** yet implement:
-- runtime startup behavior beyond the scaffold report
 - canonical `service.json` discovery/parsing
 - lifecycle orchestration
 - provider/runtime execution
-- build/release automation beyond local package/build plumbing
+- persistent managed `.state/` behavior
+- release workflow automation beyond local package/build/test plumbing
 
 Those belong to later `SPEC-002` tasks:
 - `TASK-007`
@@ -59,6 +72,7 @@ Those belong to later `SPEC-002` tasks:
 npm install
 npm run typecheck
 npm run build
+npm run test
 npm run dev
 ```
 

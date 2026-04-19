@@ -17,7 +17,8 @@ At the moment this repo contains:
 
 - governance and backlog/spec traceability under `.governance/`
 - canonical shared contract/runtime docs under `docs/`
-- the first tracked core runtime source layout under `src/`
+- the first tracked core runtime source layout and API spine under `src/`
+- direct route tests under `tests/`
 - an ignored donor reference snapshot under `ref/typerefinery-service-manager-donor/`
 
 The donor reference material is intentionally **not tracked in git** and remains reference input, not product code.
@@ -31,23 +32,34 @@ Current tracked source layout:
 ```text
 src/
   contracts/
+    api.ts
     service-root.ts
   fixtures/
     README.md
+    services.ts
   runtime/
     app.ts
     layout.ts
+  server/
+    index.ts
+    routes/
+      health.ts
+      services.ts
   index.ts
+tests/
+  api-spine.test.js
 ```
 
 What this slice means:
 
-- `src/index.ts` is the thin standalone core entry boundary for the repo
+- `src/index.ts` starts the current bounded development-mode API process
+- `src/server/` holds the first real API boundary for the core repo
 - `src/runtime/` holds the runtime-side implementation boundary for the future standalone manager
-- `src/contracts/` holds shared contract types that belong to the core runtime
-- `src/fixtures/` is reserved for fixture/sample services used by later runtime smoke verification
+- `src/contracts/` holds shared API/runtime contract types
+- `src/fixtures/` currently provides fixture-backed service data for the first API story
+- `tests/api-spine.test.js` provides direct route proof for `/api/health` and `/api/services`
 
-This slice is intentionally layout-first. It does **not** yet implement manifest discovery, lifecycle orchestration, or donor parity.
+This slice now establishes the first real API spine. It still does **not** yet implement manifest discovery, lifecycle orchestration, or donor parity.
 
 For the detailed layout note, see:
 
@@ -59,6 +71,7 @@ For the detailed layout note, see:
 npm install
 npm run typecheck
 npm run build
+npm run test
 npm run dev
 ```
 
