@@ -16,6 +16,9 @@ export interface ServiceManifest {
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;
   urls?: ServiceEndpoint[];
+  execservice?: string;
+  executable?: string;
+  args?: string[];
 }
 
 export interface DiscoveredService {

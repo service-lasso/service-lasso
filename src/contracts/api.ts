@@ -1,5 +1,6 @@
 import type { LifecycleAction, ServiceLifecycleState } from "../runtime/lifecycle/types.js";
 import type { ServiceHealthResult } from "../runtime/health/types.js";
+import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
 
 export interface HealthResponse {
@@ -27,6 +28,7 @@ export interface ServiceSummary {
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
   statePaths?: ServiceStatePaths;
+  provider?: ProviderExecutionPlan;
   operator?: {
     logPath: string;
     variableCount: number;
@@ -68,6 +70,7 @@ export interface LifecycleActionResponse {
   state: ServiceLifecycleState;
   health?: ServiceHealthResult;
   statePaths?: ServiceStatePaths;
+  provider?: ProviderExecutionPlan;
 }
 
 export interface ServiceHealthResponse {

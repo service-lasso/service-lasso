@@ -54,12 +54,12 @@ What this slice means:
 
 - `src/index.ts` starts the current bounded development-mode API process
 - `src/server/` holds the first real API boundary for the core repo
-- `src/runtime/` now includes the first manifest discovery/parsing boundary under `src/runtime/discovery/`, the first in-memory registry/dependency model under `src/runtime/manager/`, the first bounded lifecycle action path under `src/runtime/lifecycle/`, the first bounded health evaluation under `src/runtime/health/`, the first structured `.state` persistence layer under `src/runtime/state/`, and the first operator-data builders under `src/runtime/operator/`
+- `src/runtime/` now includes the first manifest discovery/parsing boundary under `src/runtime/discovery/`, the first in-memory registry/dependency model under `src/runtime/manager/`, the first bounded lifecycle action path under `src/runtime/lifecycle/`, the first bounded health evaluation under `src/runtime/health/`, the first structured `.state` persistence layer under `src/runtime/state/`, the first operator-data builders under `src/runtime/operator/`, and the first explicit provider execution boundary under `src/runtime/providers/`
 - `src/contracts/` holds shared API/runtime contract types
 - tracked sample manifests now live under `services/*/service.json`
-- `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, `tests/registry-runtime-state.test.js`, `tests/lifecycle-actions.test.js`, `tests/health-state.test.js`, and `tests/operator-data.test.js` provide direct proof for the API spine, discovery/parsing behavior, runtime state read APIs, lifecycle action path, health/state persistence, and operator data surfaces
+- `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, `tests/registry-runtime-state.test.js`, `tests/lifecycle-actions.test.js`, `tests/health-state.test.js`, `tests/operator-data.test.js`, and `tests/provider-execution.test.js` provide direct proof for the API spine, discovery/parsing behavior, runtime state read APIs, lifecycle action path, health/state persistence, operator data surfaces, and provider execution planning
 
-This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, and the first operator data surfaces. It still does **not** yet implement provider execution or donor parity.
+This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, the first operator data surfaces, and the first provider execution boundary. Full real process execution and broader provider catalog expansion are still future work.
 
 For the detailed layout note, see:
 

@@ -1,6 +1,6 @@
 # Core runtime layout
 
-This document describes the first tracked source layout and the current bounded runtime/API slices added for the Service Lasso core runtime through issues `#2` to `#7`.
+This document describes the first tracked source layout and the current bounded runtime/API slices added for the Service Lasso core runtime through issues `#2` to `#8`.
 
 ## Intent
 
@@ -41,6 +41,12 @@ src/
       logs.ts
       network.ts
       variables.ts
+    providers/
+      direct.ts
+      node.ts
+      python.ts
+      resolveProvider.ts
+      types.ts
     state/
       paths.ts
       readState.ts
@@ -63,6 +69,7 @@ tests/
   health-state.test.js
   lifecycle-actions.test.js
   operator-data.test.js
+  provider-execution.test.js
   registry-runtime-state.test.js
 ```
 
@@ -81,6 +88,7 @@ tests/
   - `health/` contains the first bounded `process` and `http` health evaluation path
   - `state/` contains the first structured `.state` file-path and read/write helpers
   - `operator/` contains the first operator-data builders for logs, variables, and network surfaces
+  - `providers/` contains the first explicit provider resolution/planning layer for direct, node, and python execution modes
 - `src/server/`
   - first real API boundary for the core repo
   - route modules now cover health, services, runtime, dependencies, and the first operator data surfaces
@@ -92,12 +100,13 @@ tests/
 - `src/fixtures/`
   - still reserved for additional fixture/sample inputs when needed beyond the tracked `services/` roots
 - `tests/`
-  - direct route-level, discovery/parsing, runtime-state, lifecycle, state/health, and operator-surface proof for the current core slices
+  - direct route-level, discovery/parsing, runtime-state, lifecycle, state/health, operator-surface, and provider-resolution proof for the current core slices
 
 ## What this slice does not do yet
 
 This layout does **not** yet implement:
-- provider/runtime execution
+- full real process execution per provider
+- broader provider catalog beyond the first bounded direct/node/python layer
 - release workflow automation beyond local package/build/test plumbing
 
 Those belong to later `SPEC-002` tasks:

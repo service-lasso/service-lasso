@@ -55,6 +55,24 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"env\" to be a string map.`);
   }
 
+  const rawExecservice = record.execservice;
+  if (rawExecservice !== undefined && (typeof rawExecservice !== "string" || rawExecservice.trim().length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"execservice\" to be a non-empty string.`);
+  }
+
+  const rawExecutable = record.executable;
+  if (rawExecutable !== undefined && (typeof rawExecutable !== "string" || rawExecutable.trim().length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"executable\" to be a non-empty string.`);
+  }
+
+  const rawArgs = record.args;
+  if (
+    rawArgs !== undefined &&
+    (!Array.isArray(rawArgs) || rawArgs.some((entry) => typeof entry !== "string"))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"args\" to be an array of strings.`);
+  }
+
   const rawUrls = record.urls;
   if (
     rawUrls !== undefined &&
@@ -85,5 +103,8 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       url: (entry as Record<string, string>).url.trim(),
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
+    execservice: typeof rawExecservice === "string" ? rawExecservice.trim() : undefined,
+    executable: typeof rawExecutable === "string" ? rawExecutable.trim() : undefined,
+    args: rawArgs?.map((entry) => entry.trim()),
   };
 }

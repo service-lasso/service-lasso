@@ -4,6 +4,8 @@
   "description": "Tracked fixture runtime provider used for manifest discovery.",
   "version": "0.1.0",
   "enabled": true,
+  "executable": "node",
+  "args": ["--version"],
   "env": {
     "NODE_ENV": "development"
   },

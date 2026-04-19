@@ -5,6 +5,9 @@
   "version": "0.1.0",
   "enabled": true,
   "depend_on": ["@node"],
+  "execservice": "@node",
+  "executable": "node",
+  "args": ["runtime/server.js"],
   "env": {
     "ECHO_MESSAGE": "hello from operator data surfaces"
   },
