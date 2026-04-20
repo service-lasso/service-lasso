@@ -67,12 +67,15 @@ The demo instance is good enough when all of the following are true:
 ### Runtime mode
 Use the current Node/TypeScript runtime in development mode as the first demo target.
 
-### Service root
-Use a dedicated demo-oriented managed service tree shape.
+### Runtime roots
+The demo path should use both:
+- `servicesRoot`
+- `workspaceRoot`
 
 Preferred first step:
-- keep the current tracked `services/` tree as the canonical demo root for now
-- tighten it so it behaves like an intentional demo fixture set rather than just test input
+- keep the current tracked `services/` tree as the default demo `servicesRoot` for now
+- add an explicit demo `workspaceRoot` so runtime-managed logs/work data do not float implicitly
+- tighten the current demo services so they behave like an intentional fixture set rather than just test input
 
 ### Demo services
 The first demo set should stay small and explicit:
@@ -94,7 +97,8 @@ Required outcomes:
 - document the exact startup command
 - document the default demo URL/port
 - document the main review endpoints
-- confirm the runtime loads the intended demo `services/` root by default
+- confirm the runtime loads the intended `servicesRoot`
+- confirm the runtime writes its working data to the intended `workspaceRoot`
 - add a short reviewer smoke-test checklist
 
 Suggested deliverables:
@@ -210,7 +214,7 @@ These are the most valuable next moves if the goal is a credible demo instance:
 
 The first good demo review should look like this:
 
-1. Run one command to start `service-lasso`
+1. Run one command to start `service-lasso` with both `servicesRoot` and `workspaceRoot`
 2. Open or fetch:
    - `/api/health`
    - `/api/services`

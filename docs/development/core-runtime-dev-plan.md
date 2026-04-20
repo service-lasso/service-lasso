@@ -14,6 +14,18 @@ Its job is to provide:
 
 It is **not** the main UI repo. The main UI repo is `lasso-@serviceadmin`.
 
+## Runtime root configuration
+
+Preferred runtime configuration model:
+- `servicesRoot` = where services live
+- `workspaceRoot` = where Service Lasso stores runtime-managed working data
+
+This split should be treated as the preferred direction for multi-config and multi-instance operation.
+
+Use it to keep:
+- service-owned trees under `servicesRoot`
+- runtime-managed logs, archives, temp/work artifacts, and similar working data under `workspaceRoot`
+
 ## Repository role in the three-repo model
 
 - `service-lasso`
@@ -198,7 +210,7 @@ GET    /api/variables
 
 ## Managed service folder shape
 
-Recommended managed-service shape:
+Recommended managed-service shape under `servicesRoot`:
 
 ```text
 services/
@@ -247,7 +259,7 @@ First-time setup may chain install -> config, but later config reruns must remai
 
 ### 5. State should live under `.state/`
 
-Preferred managed state model:
+Preferred managed state direction:
 
 ```text
 .state/
@@ -259,6 +271,10 @@ Preferred managed state model:
 ```
 
 This keeps operational state structured instead of flattening everything into one blob.
+
+Important note:
+- the exact concrete `.state/` file layout currently in code is still provisional
+- use `docs/development/core-runtime-state-model-audit.md` for the agreed-vs-provisional clarification
 
 ## Recommended implementation order
 

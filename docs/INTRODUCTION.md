@@ -66,6 +66,21 @@ Important scope clarification:
 - donor inline HTML/admin UI behavior is **not** the migration target for the core runtime
 - only the main runtime/service-manager code is in scope for the donor-core migration
 
+## Runtime root model
+
+The preferred runtime root model is now:
+- `servicesRoot` = where the services live
+- `workspaceRoot` = where Service Lasso stores runtime-managed working data
+
+This is important because it lets Service Lasso:
+- point at different service trees
+- keep runtime-managed artifacts outside the service source tree
+- run different configs/instances cleanly
+
+At a high level:
+- service-owned files stay under `servicesRoot`
+- runtime-owned working data such as logs and run archives live under `workspaceRoot`
+
 ## Where Service Lasso came from
 
 Service Lasso did not start from a blank sheet.
@@ -261,6 +276,9 @@ After this introduction, the most useful next docs are:
 
 ### For logging model
 - `docs/development/core-runtime-logging-model.md`
+
+### For storage split
+- `docs/development/core-runtime-storage-model.md`
 
 ### For state-model clarification
 - `docs/development/core-runtime-state-model-audit.md`

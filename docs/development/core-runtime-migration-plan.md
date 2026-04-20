@@ -31,6 +31,10 @@ The goal is to:
 - split those behaviors into a cleaner Service Lasso architecture
 - keep visible track of what has actually landed versus what is still donor-only
 
+Current preferred storage split:
+- `servicesRoot` = service-owned trees and manifests
+- `workspaceRoot` = Service Lasso runtime-managed working data
+
 ## Current overall migration status
 
 Current status is best described as:
@@ -259,6 +263,8 @@ Note:
 - donor HTML/admin page behavior is intentionally out of scope for this migration plan
 
 ## 13. Logging behavior
+
+Logging should ultimately target `workspaceRoot`, not ad hoc guessed paths under individual service roots unless a specific per-service ownership rule requires it.
 
 ### Migrated
 - basic operator log data surfaces in API output

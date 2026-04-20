@@ -2,8 +2,13 @@
 
 This repo is the canonical home for general Service Lasso documentation.
 
+Current preferred runtime-root model:
+- `servicesRoot` = where services live
+- `workspaceRoot` = where Service Lasso stores runtime-managed working data
+
 ## Canonical general docs
 
+- `docs/INTRODUCTION.md` - comprehensive introduction to Service Lasso, its donor origin, repo split, and current core-runtime direction
 - `docs/reference/service-json-reference.md` - general `service.json` contract reference
 - `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md` - generalized schema/reference shape
 - `docs/reference/SERVICE-CONFIG-TYPES.md` - taxonomy of common service config patterns
@@ -13,6 +18,9 @@ This repo is the canonical home for general Service Lasso documentation.
 - `docs/development/core-runtime-dev-plan.md` - recommended full core repo structure, API shape, and implementation order
 - `docs/development/core-runtime-demo-instance-plan.md` - phased plan for turning the current bounded core runtime into a reviewable demo instance
 - `docs/development/core-runtime-migration-plan.md` - donor service-manager migration status, gap map, and recommended next migration order
+- `docs/development/core-runtime-state-model-audit.md` - agreed vs provisional audit of the current `.state/` model and its implementation gaps
+- `docs/development/core-runtime-logging-model.md` - canonical logging and archival model using `workspaceRoot/logs/runs/<runId>` for traceability
+- `docs/development/core-runtime-storage-model.md` - preferred split between `servicesRoot` and `workspaceRoot` for multi-config and multi-instance operation
 
 ## Source-of-truth rule for `service.json`
 
@@ -35,6 +43,7 @@ Keep these docs here when they describe:
 - provider/dependency semantics
 - reusable service taxonomy
 - cross-service/platform contract rules
+- the split between `servicesRoot` and `workspaceRoot`
 
 Keep docs in individual service repos when they describe:
 - service-specific UI or runtime behavior

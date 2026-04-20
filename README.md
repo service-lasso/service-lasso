@@ -2,6 +2,15 @@
 
 Service Lasso is the core runtime and contract repository for the Service Lasso project.
 
+Preferred runtime configuration model:
+- `servicesRoot` = where services live
+- `workspaceRoot` = where Service Lasso stores runtime-managed working data
+
+Start with:
+- `docs/INTRODUCTION.md`
+- `docs/development/core-runtime-storage-model.md`
+- `docs/development/core-runtime-logging-model.md`
+
 This repository started as a bootstrap and donor-analysis workspace around a reference snapshot taken from:
 
 - donor repo: `C:\projects\typerefinery-ai\typerefinery-develop`
