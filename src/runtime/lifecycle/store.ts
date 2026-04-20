@@ -9,6 +9,12 @@ function createInitialState(): ServiceLifecycleState {
     running: false,
     lastAction: null,
     actionHistory: [],
+    runtime: {
+      pid: null,
+      startedAt: null,
+      exitCode: null,
+      command: null,
+    },
   };
 }
 
@@ -25,6 +31,12 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
     running: current.running,
     lastAction: current.lastAction,
     actionHistory: [...current.actionHistory],
+    runtime: {
+      pid: current.runtime.pid,
+      startedAt: current.runtime.startedAt,
+      exitCode: current.runtime.exitCode,
+      command: current.runtime.command,
+    },
   };
 }
 
@@ -35,6 +47,12 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
     running: nextState.running,
     lastAction: nextState.lastAction,
     actionHistory: [...nextState.actionHistory],
+    runtime: {
+      pid: nextState.runtime.pid,
+      startedAt: nextState.runtime.startedAt,
+      exitCode: nextState.runtime.exitCode,
+      command: nextState.runtime.command,
+    },
   };
 
   lifecycleState.set(serviceId, cloned);

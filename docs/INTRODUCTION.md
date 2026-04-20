@@ -66,6 +66,26 @@ Important scope clarification:
 - donor inline HTML/admin UI behavior is **not** the migration target for the core runtime
 - only the main runtime/service-manager code is in scope for the donor-core migration
 
+Post-core validation note:
+- once the core runtime is execution-capable and Echo Service proves the runtime path, `lasso-@serviceadmin` should be used as the first real consumer repo for integration validation
+- that validation should prove the admin UI can consume the current API/runtime behavior cleanly before broader reference app/template rollout
+
+## Reference app templates after core
+
+Once the core runtime is built and stable, Service Lasso should also provide reference app packages that showcase integration and give other teams a template starting point.
+
+These reference apps are not the core runtime.
+They are example consumers of the core runtime/API that prove the integration story and make adoption easier.
+
+Planned reference app/template packages include:
+- `@service-lasso/service-lasso-app-web`
+- `@service-lasso/service-lasso-packager-node`
+- `@service-lasso/service-lasso-app-tauri`
+- `@service-lasso/service-lasso-bundled`
+
+These should all consume the same canonical runtime model based on:
+- `servicesRoot`
+- `workspaceRoot`
 ## Runtime root model
 
 The preferred runtime root model is now:
@@ -225,6 +245,11 @@ Major donor runtime behavior still remains to be migrated more fully, including:
 - broader health types and readiness flow
 - manager-level orchestration like reload/startAll/stopAll/autostart
 - fuller runtime logging implementation
+
+Important current boundary:
+- the sibling `lasso-echoservice` harness can already simulate HTTP and TCP health targets for testing and demo hardening
+- `service-lasso` runtime itself now implements bounded manifest health evaluation for `process`, `http`, and `tcp`
+- broader donor-health migration work still remains for types such as `file` and `variable` plus readiness-loop behavior
 
 Again, that is why the repo should be read as:
 

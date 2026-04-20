@@ -81,7 +81,7 @@ Preferred first step:
 The first demo set should stay small and explicit:
 - `@node`
 - `@python`
-- one simple runnable sample service such as `echo-service`
+- one runnable harness service such as `echo-service`, with API + UI surfaces that can simulate lifecycle-adjacent behavior for demo and supervision hardening
 - optionally one HTTP-health demo service if it materially improves the review flow
 
 The demo services should be designed for clarity, not realism overload.

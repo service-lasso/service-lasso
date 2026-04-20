@@ -1,20 +1,27 @@
 {
   "id": "echo-service",
   "name": "Echo Service",
-  "description": "Tracked sample service used for the first discovery-backed API slices.",
-  "version": "0.1.0",
+  "description": "Local fixture manifest mirroring the canonical echo-service repo for core runtime tests and operator-surface coverage.",
+  "version": "0.3.0",
   "enabled": true,
-  "depend_on": ["@node"],
-  "execservice": "@node",
   "executable": "node",
-  "args": ["runtime/server.js"],
+  "args": ["runtime/fixture-harness.mjs"],
   "env": {
-    "ECHO_MESSAGE": "hello from operator data surfaces"
+    "ECHO_MESSAGE": "hello from echo-service harness",
+    "ECHO_PORT": "4010",
+    "ECHO_LOG_PATH": "./runtime/echo.log",
+    "ECHO_STATE_PATH": "./runtime/state.json",
+    "ECHO_DB_PATH": "./runtime/echo.sqlite"
   },
   "urls": [
     {
+      "label": "ui",
+      "url": "http://127.0.0.1:4010/",
+      "kind": "local"
+    },
+    {
       "label": "service",
-      "url": "http://127.0.0.1:4010",
+      "url": "http://127.0.0.1:4010/health",
       "kind": "local"
     }
   ],

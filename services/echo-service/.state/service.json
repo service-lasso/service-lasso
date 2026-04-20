@@ -1,7 +1,0 @@
-{
-  "id": "echo-service",
-  "name": "Echo Service",
-  "description": "Tracked sample service used for the first discovery-backed API slices.",
-  "enabled": true,
-  "version": "0.1.0"
-}

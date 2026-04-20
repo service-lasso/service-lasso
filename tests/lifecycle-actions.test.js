@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import path from "node:path";
+import { rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-
-const servicesRoot = path.resolve("services");
+import { readStoredState } from "../dist/runtime/state/readState.js";
+import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 async function postJson(url) {
   const response = await fetch(url, { method: "POST" });
@@ -14,8 +14,21 @@ async function postJson(url) {
   };
 }
 
+async function waitFor(predicate, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
+}
+
 test("lifecycle actions execute in the expected bounded order", async () => {
   resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  await writeExecutableFixtureService(servicesRoot, "echo-service");
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -35,29 +48,72 @@ test("lifecycle actions execute in the expected bounded order", async () => {
     assert.equal(start.status, 200);
     assert.equal(start.body.action, "start");
     assert.equal(start.body.state.running, true);
+    assert.equal(start.body.state.runtime.pid > 0, true);
+    assert.equal(typeof start.body.state.runtime.command, "string");
 
     const restart = await postJson(`${apiServer.url}/api/services/echo-service/restart`);
     assert.equal(restart.status, 200);
     assert.equal(restart.body.action, "restart");
     assert.equal(restart.body.state.running, true);
+    assert.equal(restart.body.state.runtime.pid > 0, true);
 
     const stop = await postJson(`${apiServer.url}/api/services/echo-service/stop`);
     assert.equal(stop.status, 200);
     assert.equal(stop.body.action, "stop");
     assert.equal(stop.body.state.running, false);
+    assert.equal(stop.body.state.runtime.pid, null);
 
-    const detailResponse = await fetch(`${apiServer.url}/api/services/echo-service`);
-    const detailBody = await detailResponse.json();
+    let detailBody;
+    await waitFor(async () => {
+      const detailResponse = await fetch(`${apiServer.url}/api/services/echo-service`);
+      detailBody = await detailResponse.json();
+      return detailBody.service.lifecycle.runtime.exitCode === 0;
+    });
+
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, ["install", "config", "start", "restart", "stop"]);
     assert.equal(detailBody.service.lifecycle.lastAction, "stop");
+    assert.equal(detailBody.service.lifecycle.runtime.exitCode, 0);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("intentional stop keeps persisted lifecycle metadata on stop", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/echo-service/install`);
+    await postJson(`${apiServer.url}/api/services/echo-service/config`);
+    await postJson(`${apiServer.url}/api/services/echo-service/start`);
+
+    const stop = await postJson(`${apiServer.url}/api/services/echo-service/stop`);
+    assert.equal(stop.status, 200);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime.lastAction === "stop" && stored.runtime.running === false;
+    });
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.lastAction, "stop");
+    assert.deepEqual(stored.runtime.actionHistory, ["install", "config", "start", "stop"]);
+    assert.equal(stored.runtime.running, false);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("start fails before config and keeps the error explicit", async () => {
   resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  await writeExecutableFixtureService(servicesRoot, "echo-service");
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -65,17 +121,41 @@ test("start fails before config and keeps the error explicit", async () => {
     assert.equal(install.status, 200);
 
     const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
-    assert.equal(start.status, 500);
-    assert.equal(start.body.error, "internal_error");
+    assert.equal(start.status, 409);
+    assert.equal(start.body.error, "invalid_lifecycle_state");
+    assert.equal(start.body.statusCode, 409);
     assert.match(start.body.message, /before config/i);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("unknown lifecycle actions return a deterministic client error", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  await writeExecutableFixtureService(servicesRoot, "echo-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await postJson(`${apiServer.url}/api/services/echo-service/ship-it`);
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, "invalid_action");
+    assert.equal(response.body.statusCode, 400);
+    assert.match(response.body.message, /unknown lifecycle action/i);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("runtime summary reflects running services after lifecycle actions", async () => {
   resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  await writeExecutableFixtureService(servicesRoot, "echo-service");
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -91,5 +171,6 @@ test("runtime summary reflects running services after lifecycle actions", async 
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });

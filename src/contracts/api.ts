@@ -13,6 +13,12 @@ export interface HealthResponse {
   };
 }
 
+export interface ApiErrorResponse {
+  error: string;
+  message: string;
+  statusCode: number;
+}
+
 export interface ServiceSummary {
   id: string;
   name: string;
@@ -47,6 +53,7 @@ export interface ServiceDetailResponse {
 export interface RuntimeSummaryResponse {
   runtime: {
     servicesRoot: string;
+    workspaceRoot?: string;
     totalServices: number;
     enabledServices: number;
     dependencyEdges: number;

@@ -1,0 +1,21 @@
+{
+  "id": "node-sample-service",
+  "name": "Node Sample Service",
+  "description": "Tracked provider-backed sample service used to preserve @node execution-plan coverage.",
+  "version": "0.1.0",
+  "enabled": true,
+  "depend_on": ["@node"],
+  "execservice": "@node",
+  "executable": "node",
+  "args": ["runtime/server.js"],
+  "urls": [
+    {
+      "label": "service",
+      "url": "http://127.0.0.1:4020",
+      "kind": "local"
+    }
+  ],
+  "healthcheck": {
+    "type": "process"
+  }
+}

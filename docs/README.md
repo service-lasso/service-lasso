@@ -20,6 +20,9 @@ Current preferred runtime-root model:
 - `docs/development/core-runtime-dev-plan.md` - recommended full core repo structure, API shape, and implementation order
 - `docs/development/core-runtime-demo-instance-plan.md` - phased plan for turning the current bounded core runtime into a reviewable demo instance
 - `docs/development/core-runtime-migration-plan.md` - donor service-manager migration status, gap map, and recommended next migration order
+- `docs/development/core-runtime-comprehensive-review.md` - consolidated review of docs, donor/spec/code coverage, assumptions, and test evidence
+- `docs/development/core-runtime-donor-coverage-audit.md` - donor/spec/code coverage audit with current test evidence and remaining runtime gaps
+- `docs/development/core-runtime-working-application-plan.md` - staged next-steps plan for turning the bounded core slice into a genuinely working application
 - `docs/development/core-runtime-state-model-audit.md` - agreed vs provisional audit of the current `.state/` model and its implementation gaps
 - `docs/development/core-runtime-logging-model.md` - canonical logging and archival model using `workspaceRoot/logs/runs/<runId>` for traceability
 - `docs/development/core-runtime-storage-model.md` - preferred split between `servicesRoot` and `workspaceRoot` for multi-config and multi-instance operation

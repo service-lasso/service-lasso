@@ -1,7 +1,6 @@
 import {
-  DEFAULT_DATA_ROOT,
   DEFAULT_SERVICES_ROOT,
-  DEFAULT_STATE_ROOT,
+  DEFAULT_WORKSPACE_ROOT,
   type RuntimeBoundarySummary,
   type ServiceRootConfig,
 } from "../contracts/service-root.js";
@@ -9,8 +8,7 @@ import {
 export function createDefaultServiceRootConfig(): ServiceRootConfig {
   return {
     servicesRoot: DEFAULT_SERVICES_ROOT,
-    dataRoot: DEFAULT_DATA_ROOT,
-    stateRoot: DEFAULT_STATE_ROOT,
+    workspaceRoot: DEFAULT_WORKSPACE_ROOT,
   };
 }
 

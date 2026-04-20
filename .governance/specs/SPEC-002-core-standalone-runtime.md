@@ -1,7 +1,7 @@
 # Core Standalone Runtime
 
 ## Intent
-Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository currently has strong governance and reference documentation, but no tracked runtime implementation yet. The first core milestone should prove that Service Lasso can run as a standalone manager and consume canonical service manifests directly.
+Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository now has a tracked bounded runtime implementation and needs governed traceability as it widens toward donor parity. The first core milestone proved that Service Lasso can run as a standalone manager and consume canonical service manifests directly; the current work under this spec is widening that bounded slice carefully with direct verification.
 
 ## Scope
 Included in this spec:
@@ -10,6 +10,7 @@ Included in this spec:
 - implement a runnable entrypoint for the core runtime/server
 - support canonical `service.json` manifest discovery/parsing for the first runtime slice
 - provide direct runnable verification against fixture/sample service definitions
+- maintain at least one tracked runnable harness service fixture that can exercise runtime/demo behavior through both API and UI surfaces
 - add the minimum build/validation/release plumbing needed to make the core repo behave like a real product repo
 - update canonical docs/traceability so the implemented behavior is distinguished from donor/reference-only notes
 
@@ -26,6 +27,9 @@ Explicitly out of scope for this spec:
 - `AC-2`: A standalone runtime entrypoint can be executed locally and start successfully in a bounded development mode.
 - `AC-3`: The runtime can discover and parse canonical `service.json` manifests from a defined service root and report the discovered services reliably.
 - `AC-4`: The first runtime slice has direct runnable verification evidence using fixture/sample service definitions, not surrogate-only documentation proof.
+- `AC-4A`: The tracked fixture set includes a runnable harness-style sample service that can be started independently and used to exercise API/UI, persistence, and behavior-simulation flows for later runtime supervision work.
+- `AC-4B`: The runtime includes one bounded real execution/supervision path that can start, observe, stop, and persist runtime state for a directly executable service definition.
+- `AC-4C`: The runtime broadens bounded health support beyond `process` and `http` by directly accepting and evaluating at least one additional donor-aligned manifest health type with runnable verification evidence.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -33,6 +37,9 @@ Explicitly out of scope for this spec:
 Required evidence for this spec:
 - local execution proof that the standalone runtime entrypoint starts
 - direct proof of manifest discovery/parsing against one or more fixture/sample service definitions
+- direct proof that the tracked harness fixture can start locally and expose its documented API/UI surface
+- direct proof that the bounded execution supervisor can start and stop a real process while persisting runtime state updates
+- direct proof that at least one additional donor-aligned manifest health type can be parsed and evaluated successfully by the runtime
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
@@ -64,3 +71,4 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - This spec is the explicit transition point from bootstrap-only repo setup into real `service-lasso` product implementation.
 - The first runtime slice should stay intentionally bounded: prove a runnable standalone core before widening into full donor parity or broad manifest redesign.
 - Donor material under `ref/` remains useful evidence and reference input, but implemented behavior must now move into tracked repo source with direct verification.
+- The tracked fixture set may evolve from static manifest-only samples into runnable harness services when that improves direct verification for runtime hardening and later supervision work.

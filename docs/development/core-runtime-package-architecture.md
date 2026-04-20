@@ -1,0 +1,249 @@
+# Core runtime package architecture
+
+This document captures the intended package boundaries for the next Service Lasso architecture step.
+
+## Core product boundary
+
+The core runtime should be a publishable Node library + CLI.
+
+Suggested package name:
+- `@service-lasso/service-lasso`
+
+### Core should contain
+
+- `Service`
+- `ServiceManager`
+- `InstanceManager`
+- `ManifestLoader`
+- `PortRegistry`
+- `HealthChecker`
+- `ProcessSupervisor`
+- `Logger`
+- shared path helpers
+- API server bootstrap
+- CLI bootstrap
+
+### Core should not contain
+
+- Electron runtime code
+- Tauri runtime code
+- UI framework lock-in
+- desktop app-window lifecycle logic
+- desktop installer packaging config
+
+## Release targets
+
+### 1) Core npm package
+
+Published via npm (`npm publish`) as the canonical reusable runtime package.
+
+### 2) Built Node runtime
+
+Runnable directly from build output:
+
+```bash
+node dist/runtime/server.js
+```
+
+### 3) CLI
+
+Runnable via package bin:
+
+```bash
+npx service-lasso
+# or global install
+```
+
+### 4) Reference apps packages (separate from core)
+
+Once the core runtime is built and stable, additional reference app packages should be created to showcase integration patterns.
+
+These reference apps are required because they should act as:
+- working examples of how to consume the core runtime
+- template starting points that teams can clone or adapt for their own apps
+- proof that the runtime integrates cleanly across multiple host/distribution styles
+
+These packages remain outside core.
+They consume the canonical runtime package and should use the same runtime-root model:
+- `servicesRoot`
+- `workspaceRoot`
+
+They should never redefine the core contract or replace the core runtime boundary.
+
+Before broad reference-template rollout, the existing sibling consumer repo `lasso-@serviceadmin` should be used as the first post-core integration check against the real runtime/API, ideally backed by released `lasso-echoservice` artifacts.
+
+#### A) Web reference app template
+
+Suggested package:
+- `@service-lasso/service-lasso-app-web`
+
+Purpose:
+- demonstrate browser-facing or web-hosted integration around the core runtime/API
+- provide a template repo/package that others can start their own web integration from
+- showcase how a UI-facing app should consume the runtime rather than replace it
+
+Dependency direction:
+- `@service-lasso/service-lasso-app-web` -> `@service-lasso/service-lasso`
+- never the reverse
+
+#### B) Node packager/reference template
+
+Suggested package:
+- `@service-lasso/service-lasso-packager-node`
+
+Purpose:
+- demonstrate a plain Node packaging/distribution path for Service Lasso
+- provide a template for teams who want a non-Electron, non-Tauri starting point
+- stay close to real runtime behavior while packaging for practical use
+
+Likely packaging styles:
+- `pkg`
+- `nexe`
+- tar/zip distribution with Node runtime expectation
+
+Dependency direction:
+- `@service-lasso/service-lasso-packager-node` -> `@service-lasso/service-lasso`
+- never the reverse
+
+#### C) Tauri desktop alternative template
+
+Suggested package:
+- `@service-lasso/service-lasso-app-tauri`
+
+Purpose:
+- provide an explicit desktop alternative to Electron
+- demonstrate how the runtime can be embedded behind a Tauri shell
+- act as a template for teams that want a desktop app starting point without Electron
+
+Dependency direction:
+- `@service-lasso/service-lasso-app-tauri` -> `@service-lasso/service-lasso`
+- never the reverse
+
+#### D) Bundled standalone distribution template
+
+Suggested package:
+- `@service-lasso/service-lasso-bundled`
+
+Purpose:
+- demonstrate a packaged standalone distribution path
+- provide a template for building a more turnkey bundled delivery of Service Lasso
+- showcase how to distribute the runtime as a packaged product without pushing packaging logic into core
+
+Dependency direction:
+- `@service-lasso/service-lasso-bundled` -> `@service-lasso/service-lasso`
+- never the reverse
+
+Recommended rollout order:
+1. core npm module
+2. `@service-lasso/service-lasso-app-web`
+3. `@service-lasso/service-lasso-packager-node`
+4. `@service-lasso/service-lasso-app-tauri`
+5. `@service-lasso/service-lasso-bundled`
+
+## Initial package map
+
+Preferred initial split:
+
+1. `packages/core`
+2. `packages/app-web`
+3. `packages/packager-node`
+
+Optional later split:
+
+4. `packages/app-tauri`
+5. `packages/bundled`
+
+This keeps runtime as the source of truth while validating reference wrappers without polluting core.
+
+## Build approach for core
+
+Use a minimal Node-oriented build:
+- `tsup` (or equivalent esbuild-based build)
+- Node target (Node 20+)
+- type declarations emitted
+- `src/` -> `dist/`
+
+Keep build/release boring and predictable.
+
+## Core package shape target
+
+```json
+{
+  "name": "@service-lasso/service-lasso",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "service-lasso": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./cli": "./dist/cli.js",
+    "./runtime": "./dist/runtime/index.js"
+  }
+}
+```
+
+## Runtime/UI strategy
+
+### Phase 1
+Core can include a minimal built-in admin surface for basic status/control if needed.
+
+### Phase 2
+A richer UI can evolve as a separate package, e.g. `@service-lasso/service-lasso-ui`.
+
+This preserves a self-contained runtime without coupling core to one UI framework.
+
+## Naming direction
+
+- Core: `@service-lasso/service-lasso`
+- Web reference: `@service-lasso/service-lasso-app-web`
+- Node packager reference: `@service-lasso/service-lasso-packager-node`
+- Tauri reference: `@service-lasso/service-lasso-app-tauri`
+- Bundled reference: `@service-lasso/service-lasso-bundled`
+
+Optional later:
+- `@service-lasso/service-lasso-ui`
+- `@service-lasso/service-lasso-manifests`
+- `@service-lasso/service-lasso-examples`
+
+## Target behavior (core)
+
+Programmatic:
+
+```ts
+import { createRuntime } from "@service-lasso/service-lasso";
+
+const runtime = await createRuntime({
+  servicesRoot: "./services",
+  workspaceRoot: "./workspace",
+  port: 19001,
+});
+
+await runtime.start();
+```
+
+CLI:
+
+```bash
+service-lasso dev
+service-lasso start
+service-lasso ui --port 19001
+service-lasso instance start demo
+```
+
+Built runtime:
+
+```bash
+node dist/cli.js dev
+```
+
+## Post-core implementation move
+
+After the core runtime is built and stable, move cleaned runtime code toward `packages/core/src`, then bring up the reference app/template packages as thin consumers of the core package:
+- `packages/app-web`
+- `packages/packager-node`
+- `packages/app-tauri`
+- `packages/bundled`
+
+These should be maintained as starter templates for downstream teams, not just one-off internal demos.
