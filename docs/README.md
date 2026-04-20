@@ -11,6 +11,8 @@ This repo is the canonical home for general Service Lasso documentation.
 - `docs/windows-containment-tiers.md` - Windows containment guidance
 - `docs/development/core-runtime-layout.md` - first tracked core runtime source layout for `SPEC-002` / `TASK-006`
 - `docs/development/core-runtime-dev-plan.md` - recommended full core repo structure, API shape, and implementation order
+- `docs/development/core-runtime-demo-instance-plan.md` - phased plan for turning the current bounded core runtime into a reviewable demo instance
+- `docs/development/core-runtime-migration-plan.md` - donor service-manager migration status, gap map, and recommended next migration order
 
 ## Source-of-truth rule for `service.json`
 

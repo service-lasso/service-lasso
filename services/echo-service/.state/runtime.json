@@ -1,0 +1,9 @@
+{
+  "running": true,
+  "lastAction": "start",
+  "actionHistory": [
+    "install",
+    "config",
+    "start"
+  ]
+}
