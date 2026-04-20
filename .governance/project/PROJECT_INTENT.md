@@ -6,25 +6,27 @@ Use this file to capture the project-specific intent that governance cannot prov
 Service Lasso is the core runtime and contract repository for running local packaged services under one governed manager. Its job is to define and implement the shared service model, discover service manifests, orchestrate install/config/start/stop/health behavior, and provide the reusable runtime surface that service repos and the Service Admin UI depend on.
 
 ## Context
-Bootstrap/governance setup is now in place and should remain durable, but this repository is no longer only a bootstrap shell. The next phase is product implementation of the core standalone runtime.
+Bootstrap/governance setup is now in place and remains durable. The first core runtime implementation batch is landed (`#2` to `#8`), and this repository is now in the hardening phase for startup configuration, persistence rehydration, stronger API semantics, and real execution supervision.
 
 The broader three-repo shape is already established:
 - `service-lasso` = core runtime + canonical shared contract/docs
 - `service-template` = the template for individual services
 - `lasso-@serviceadmin` = the operator UI
 
-This repo is therefore the place where the real core behavior must live:
+This repo is therefore the place where the real core behavior must live and continue hardening:
 - standalone runtime/server entrypoint
 - manifest discovery and parsing
 - service lifecycle orchestration
 - dependency/env/health semantics
+- runtime config loading for `servicesRoot` and `workspaceRoot`
+- state persistence and startup rehydration
 - packaging/release mechanics for the core runtime itself
 
 ## Constraints
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
 - The donor material under `ref/` is reference input, not the product itself.
-- The first implementation slice should stay bounded: get to a real runnable core before broadening scope.
+- Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.
 - Branch-protection verification is still partially degraded on the current GitHub hosting tier and must remain documented honestly.
 - `.governance/` remains the canonical governance source of truth for this repo.
 
@@ -35,10 +37,10 @@ This repo is therefore the place where the real core behavior must live:
 - Missing Windows payload/runtime assumptions from the donor snapshot could block a naive parity-first implementation.
 
 ## Assumptions
-- The first trustworthy product milestone is a standalone core runtime slice that actually runs locally.
-- The first core slice should prove manifest discovery/orchestration behavior before attempting full donor parity.
+- The first trustworthy milestone, a runnable standalone core slice, is now achieved.
+- The current highest-value work is hardening API semantics, config loading, state rehydration, and supervision behavior before broad donor parity pushes.
 - GitHub-backed issues/project board remain the system of record for governed execution tracking.
-- Bootstrap artifacts remain part of repo history, but active delivery should now bind to product specs rather than bootstrap-only specs.
+- Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 
 ## Key Behaviors
 - The core runtime should discover canonical `service.json` manifests and treat them as operational contract files, not passive metadata.

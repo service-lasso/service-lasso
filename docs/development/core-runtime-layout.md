@@ -105,15 +105,12 @@ tests/
 ## What this slice does not do yet
 
 This layout does **not** yet implement:
-- full real process execution per provider
-- broader provider catalog beyond the first bounded direct/node/python layer
-- release workflow automation beyond local package/build/test plumbing
+- full real process execution and supervision per provider
+- startup config loading/validation for non-default `servicesRoot` and `workspaceRoot`
+- startup rehydration of persisted lifecycle/runtime state
+- normalized API error/status semantics across all route/action failures
 
-Those belong to later `SPEC-002` tasks:
-- `TASK-007`
-- `TASK-008`
-- `TASK-009`
-- `TASK-010`
+Those are now tracked as the current hardening queue in `.governance/project/BACKLOG.md` (`TASK-012` onward).
 
 ## Local commands
 

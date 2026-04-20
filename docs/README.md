@@ -2,6 +2,8 @@
 
 This repo is the canonical home for general Service Lasso documentation.
 
+Core runtime status: initial implementation batch (`#2` to `#8`) is landed. Current delivery focus is the hardening queue (`.governance/project/BACKLOG.md`, `TASK-012+`).
+
 Current preferred runtime-root model:
 - `servicesRoot` = where services live
 - `workspaceRoot` = where Service Lasso stores runtime-managed working data
