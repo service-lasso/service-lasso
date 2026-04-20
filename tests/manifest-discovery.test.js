@@ -98,6 +98,36 @@ test("loadServiceManifest accepts bounded tcp healthchecks", async () => {
   }
 });
 
+test("loadServiceManifest accepts bounded file healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "file-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "file-service",
+        name: "File Service",
+        description: "Service with bounded file health.",
+        healthcheck: {
+          type: "file",
+          file: "./runtime/ready.txt",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "file",
+      file: "./runtime/ready.txt",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {

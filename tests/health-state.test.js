@@ -200,6 +200,70 @@ test("TCP healthcheck lifecycle actions stay 200 when the probe is unavailable",
   }
 });
 
+test("GET /api/services/:id/health supports bounded file healthchecks", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const serviceRoot = await writeManifest(servicesRoot, "file-service", {
+    id: "file-service",
+    name: "File Service",
+    description: "Temporary service for file health proof.",
+    healthcheck: {
+      type: "file",
+      file: "./runtime/ready.txt",
+    },
+  });
+  await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+  await writeFile(path.join(serviceRoot, "runtime", "ready.txt"), "ok");
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/file-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "file-service");
+    assert.equal(body.health.type, "file");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /found expected file/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("file healthcheck lifecycle actions stay 200 when the file is unavailable", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  await writeExecutableFixtureService(servicesRoot, "file-health-fixture", {
+    healthcheck: {
+      type: "file",
+      file: "./runtime/ready.txt",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/file-health-fixture/install`);
+    const config = await postJson(`${apiServer.url}/api/services/file-health-fixture/config`);
+    const start = await postJson(`${apiServer.url}/api/services/file-health-fixture/start`);
+    const stop = await postJson(`${apiServer.url}/api/services/file-health-fixture/stop`);
+
+    for (const response of [install, config, start, stop]) {
+      assert.equal(response.status, 200);
+      assert.equal(response.body.health.type, "file");
+      assert.equal(response.body.health.healthy, false);
+      assert.match(response.body.health.detail, /did not find expected file/i);
+    }
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
 test("runtime summary reports healthy services", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();

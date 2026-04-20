@@ -13,7 +13,12 @@ export interface TcpHealthcheck {
   address: string;
 }
 
-export type ServiceHealthcheck = ProcessHealthcheck | HttpHealthcheck | TcpHealthcheck;
+export interface FileHealthcheck {
+  type: "file";
+  file: string;
+}
+
+export type ServiceHealthcheck = ProcessHealthcheck | HttpHealthcheck | TcpHealthcheck | FileHealthcheck;
 
 export interface ServiceHealthResult {
   type: ServiceHealthcheck["type"] | "unknown";

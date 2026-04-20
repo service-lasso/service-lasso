@@ -73,7 +73,7 @@ This slice now establishes the first real API spine, the first canonical manifes
 Note on repo split:
 - the canonical Echo Service implementation now lives in the sibling repo `C:\projects\service-lasso\lasso-echoservice`
 - `service-lasso/services/echo-service/` remains a thin local fixture manifest so the core repo stays self-contained for discovery/runtime tests
-- the sibling Echo Service repo now includes harness-only HTTP and TCP health simulation endpoints for runtime testing, and `service-lasso` itself now evaluates bounded manifest health types `process`, `http`, and `tcp`
+- the sibling Echo Service repo now includes harness-only HTTP and TCP health simulation endpoints for runtime testing, and `service-lasso` itself now evaluates bounded manifest health types `process`, `http`, `tcp`, and `file`
 
 For the detailed layout note, see:
 

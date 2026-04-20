@@ -32,7 +32,7 @@ These assumptions were used consistently throughout the review:
 Automated verification was run during the review:
 
 - command: `npm test`
-- result: `37 passed, 0 failed`
+- result: `40 passed, 0 failed`
 
 What that test run directly proves:
 - API startup
@@ -41,7 +41,7 @@ What that test run directly proves:
 - registry/dependency graph basics
 - lifecycle ordering and guardrails
 - state writes
-- bounded `process`, `http`, and `tcp` health behavior
+- bounded `process`, `http`, `tcp`, and `file` health behavior
 - runtime summary behavior
 - operator logs/variables/network surfaces
 - provider resolution and provider-backed response payloads
@@ -314,7 +314,7 @@ These donor/runtime concerns are meaningfully represented in the current code an
 - in-memory service registry and dependency graph basics
 - bounded lifecycle actions for `install`, `config`, `start`, `stop`, and `restart`
 - one bounded real execution/supervision path for directly executable services
-- bounded health handling for `process`, `http`, and `tcp`
+- bounded health handling for `process`, `http`, `tcp`, and `file`
 - structured per-service `.state` writes
 - operator data surfaces for logs, variables, and network
 - provider relationship resolution/planning for direct, `@node`, and `@python`
@@ -333,9 +333,9 @@ These donor/runtime concerns are represented directionally, but not at donor dep
   - donor code performs execution-backed lifecycle work
 
 - health model
-  - current code supports `process`, `http`, and bounded `tcp`
-  - donor code also supports `file`, `variable`, and readiness waiting loops
-  - the sibling `lasso-echoservice` harness provides direct integration proof for that bounded `tcp` slice
+  - current code supports `process`, `http`, bounded `tcp`, and bounded `file`
+  - donor code also supports `variable` and readiness waiting loops
+  - the sibling `lasso-echoservice` harness provides direct integration proof for the bounded `tcp` and `file` slices
 
 - provider/runtime behavior
   - current code resolves provider relationships and command previews
@@ -363,7 +363,7 @@ These major donor/runtime behaviors are not implemented in the current code:
 - port collision handling
 - dynamic port reassignment
 - shared `globalenv` propagation
-- broader health types beyond `process`, `http`, and `tcp`
+- broader health types beyond `process`, `http`, `tcp`, and `file`
 - dependency readiness loops and start-chain orchestration
 - manager-level `reload`
 - manager-level `startAll`
@@ -446,10 +446,12 @@ Current implementation covers:
 - `process`
 - `http`
 - bounded `tcp`
+- bounded `file`
 
 Related current harness capability:
 - the released `lasso-echoservice` binary already exposes TCP health simulation endpoints and controls
-- `service-lasso` can use that harness today as an integration target and now evaluates bounded manifest `healthcheck.type = tcp`
+- released Echo Service artifacts also provide a real file target through the harness state file
+- `service-lasso` can use that harness today as an integration target and now evaluates bounded manifest `healthcheck.type = tcp` and `healthcheck.type = file`
 - broader donor health parity still remains open beyond that bounded slice
 
 ## 6. Setup and install mechanics

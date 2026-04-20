@@ -169,8 +169,8 @@ Why this order:
 
 Current harness note:
 - the sibling `lasso-echoservice` repo already provides HTTP and TCP health simulation targets for testing
-- that gives us a strong migration harness, and Service Lasso runtime now has bounded `tcp` manifest-health support proven against that harness
-- broader donor health parity still requires additional types such as `file` and `variable` plus readiness-loop behavior
+- that gives us a strong migration harness, and Service Lasso runtime now has bounded `tcp` and `file` manifest-health support proven against that harness
+- broader donor health parity still requires additional types such as `variable` plus readiness-loop behavior
 
 ## Phase 5A: Validate the first real consumer repo
 
