@@ -57,6 +57,10 @@ export async function writeServiceState(
       JSON.stringify(
         {
           running: lifecycle.running,
+          pid: lifecycle.runtime.pid,
+          startedAt: lifecycle.runtime.startedAt,
+          exitCode: lifecycle.runtime.exitCode,
+          command: lifecycle.runtime.command,
           lastAction: lifecycle.lastAction,
           actionHistory: lifecycle.actionHistory,
         },

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { clearPersistedFixtureState } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
 
@@ -16,6 +17,7 @@ async function postJson(url) {
 
 test("service detail includes richer operator metadata", async () => {
   resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -25,15 +27,17 @@ test("service detail includes richer operator metadata", async () => {
     assert.equal(response.status, 200);
     assert.equal(body.service.operator.logPath.endsWith(path.join("services", "echo-service", "logs", "service.log")), true);
     assert.equal(body.service.operator.variableCount >= 3, true);
-    assert.equal(body.service.operator.endpointCount >= 1, true);
+    assert.equal(body.service.operator.endpointCount >= 2, true);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
   }
 });
 
 test("GET /api/services/:id/logs returns operator log payload", async () => {
   resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -50,11 +54,13 @@ test("GET /api/services/:id/logs returns operator log payload", async () => {
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
   }
 });
 
 test("GET /api/services/:id/variables returns manifest and derived variables", async () => {
   resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -68,11 +74,13 @@ test("GET /api/services/:id/variables returns manifest and derived variables", a
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
   }
 });
 
 test("GET /api/services/:id/network returns operator network endpoints", async () => {
   resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -82,14 +90,17 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
     assert.equal(response.status, 200);
     assert.equal(body.network.serviceId, "echo-service");
     assert.ok(body.network.endpoints.some((entry) => entry.label === "service"));
+    assert.ok(body.network.endpoints.some((entry) => entry.label === "ui"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
   }
 });
 
 test("GET /api/variables and /api/network aggregate operator surfaces across services", async () => {
   resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -104,8 +115,10 @@ test("GET /api/variables and /api/network aggregate operator surfaces across ser
     assert.equal(Array.isArray(networkBody.services), true);
     assert.ok(variablesBody.services.some((service) => service.serviceId === "echo-service"));
     assert.ok(networkBody.services.some((service) => service.serviceId === "@node"));
+    assert.ok(networkBody.services.some((service) => service.serviceId === "node-sample-service"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
   }
 });

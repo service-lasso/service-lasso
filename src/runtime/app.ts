@@ -1,5 +1,6 @@
 import { createDefaultServiceRootConfig, describeRuntimeBoundary } from "./layout.js";
 import { startApiServer, type ApiServerOptions, type RunningApiServer } from "../server/index.js";
+import { ensureRuntimeConfig, resolveRuntimeConfig } from "./config.js";
 
 export interface RuntimeApp {
   mode: "development";
@@ -9,11 +10,19 @@ export interface RuntimeApp {
 }
 
 export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<RuntimeApp> {
-  const serviceRoot = createDefaultServiceRootConfig();
+  const defaults = createDefaultServiceRootConfig();
+  const serviceRoot = await ensureRuntimeConfig(
+    resolveRuntimeConfig({
+      servicesRoot: options.servicesRoot ?? defaults.servicesRoot,
+      workspaceRoot: options.workspaceRoot ?? defaults.workspaceRoot,
+      version: options.version,
+    }),
+  );
   const apiServer = await startApiServer({
-    servicesRoot: options.servicesRoot ?? serviceRoot.servicesRoot,
+    servicesRoot: serviceRoot.servicesRoot,
+    workspaceRoot: serviceRoot.workspaceRoot,
     port: options.port,
-    version: options.version,
+    version: serviceRoot.version,
   });
 
   return {

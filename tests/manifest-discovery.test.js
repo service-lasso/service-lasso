@@ -68,6 +68,66 @@ test("loadServiceManifest fails explicitly for malformed manifests", async () =>
   }
 });
 
+test("loadServiceManifest accepts bounded tcp healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "tcp-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "tcp-service",
+        name: "TCP Service",
+        description: "Service with bounded tcp health.",
+        healthcheck: {
+          type: "tcp",
+          address: "127.0.0.1:4012",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "tcp",
+      address: "127.0.0.1:4012",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts bounded file healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "file-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "file-service",
+        name: "File Service",
+        description: "Service with bounded file health.",
+        healthcheck: {
+          type: "file",
+          file: "./runtime/ready.txt",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "file",
+      file: "./runtime/ready.txt",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {
@@ -103,24 +163,13 @@ test("GET /api/services returns manifest-backed data from the configured service
   }
 });
 
-test("GET /api/services returns explicit error when a manifest is malformed", async () => {
+test("runtime startup fails explicitly when a manifest is malformed", async () => {
   const servicesRoot = await makeTempServicesRoot();
   await writeManifest(servicesRoot, "broken-service", {
     id: "broken-service",
     description: "Missing name should fail",
   });
 
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
-
-  try {
-    const response = await fetch(`${apiServer.url}/api/services`);
-    const body = await response.json();
-
-    assert.equal(response.status, 500);
-    assert.equal(body.error, "internal_error");
-    assert.match(body.message, /expected non-empty string for "name"/i);
-  } finally {
-    await apiServer.stop();
-    await rm(servicesRoot, { recursive: true, force: true });
-  }
+  await assert.rejects(() => startApiServer({ port: 0, servicesRoot }), /expected non-empty string for "name"/i);
+  await rm(servicesRoot, { recursive: true, force: true });
 });

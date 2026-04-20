@@ -8,6 +8,7 @@ import { discoverServices } from "../dist/runtime/discovery/discoverServices.js"
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { resolveProviderExecution } from "../dist/runtime/providers/resolveProvider.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { clearPersistedFixtureState } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
 
@@ -45,13 +46,26 @@ test("provider resolution returns direct execution for standalone services", asy
   assert.deepEqual(plan.args, ["--version"]);
 });
 
-test("provider resolution returns node execution for provider-backed services", async () => {
+test("provider resolution returns direct execution for the local echo fixture service", async () => {
   const discovered = await discoverServices(servicesRoot);
   const registry = createServiceRegistry(discovered);
   const echoService = registry.getById("echo-service");
 
   assert.ok(echoService);
   const plan = resolveProviderExecution(echoService, registry);
+
+  assert.equal(plan.provider, "direct");
+  assert.equal(plan.executable, "node");
+  assert.deepEqual(plan.args, ["runtime/fixture-harness.mjs"]);
+});
+
+test("provider resolution returns node execution for provider-backed services", async () => {
+  const discovered = await discoverServices(servicesRoot);
+  const registry = createServiceRegistry(discovered);
+  const nodeSampleService = registry.getById("node-sample-service");
+
+  assert.ok(nodeSampleService);
+  const plan = resolveProviderExecution(nodeSampleService, registry);
 
   assert.equal(plan.provider, "node");
   assert.equal(plan.providerServiceId, "@node");
@@ -94,23 +108,25 @@ test("provider resolution returns python execution for python-backed services", 
 
 test("provider-backed lifecycle action includes provider details in API responses", async () => {
   resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
-    await postJson(`${apiServer.url}/api/services/echo-service/install`);
-    await postJson(`${apiServer.url}/api/services/echo-service/config`);
-    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    await postJson(`${apiServer.url}/api/services/node-sample-service/install`);
+    await postJson(`${apiServer.url}/api/services/node-sample-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/node-sample-service/start`);
 
     assert.equal(start.status, 200);
     assert.equal(start.body.provider.provider, "node");
     assert.equal(start.body.provider.commandPreview, "node runtime/server.js");
 
-    const detail = await fetch(`${apiServer.url}/api/services/echo-service`);
+    const detail = await fetch(`${apiServer.url}/api/services/node-sample-service`);
     const detailBody = await detail.json();
     assert.equal(detailBody.service.provider.provider, "node");
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
   }
 });
 
@@ -136,6 +152,7 @@ test("unknown provider ids fail explicitly", async () => {
 
       assert.equal(response.status, 500);
       assert.equal(body.error, "internal_error");
+      assert.equal(body.statusCode, 500);
       assert.match(body.message, /Unknown provider service id/i);
     } finally {
       await apiServer.stop();

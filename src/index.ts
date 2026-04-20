@@ -9,7 +9,7 @@ async function main(): Promise<void> {
   console.log("[service-lasso] core API spine started");
   console.log(`- api: ${app.apiServer.url}`);
   console.log(`- servicesRoot: ${app.serviceRoot.servicesRoot}`);
-  console.log(`- stateRoot: ${app.serviceRoot.stateRoot}`);
+  console.log(`- workspaceRoot: ${app.serviceRoot.workspaceRoot}`);
 }
 
 main().catch((error: unknown) => {

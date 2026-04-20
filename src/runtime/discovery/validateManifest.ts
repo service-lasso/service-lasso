@@ -42,6 +42,16 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
         expected_status:
           typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
       };
+    } else if (healthRecord.type === "tcp") {
+      healthcheck = {
+        type: "tcp",
+        address: expectNonEmptyString(healthRecord.address, "healthcheck.address", manifestPath),
+      };
+    } else if (healthRecord.type === "file") {
+      healthcheck = {
+        type: "file",
+        file: expectNonEmptyString(healthRecord.file, "healthcheck.file", manifestPath),
+      };
     } else {
       throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);
     }

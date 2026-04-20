@@ -68,7 +68,12 @@ What this slice means:
 - tracked sample manifests now live under `services/*/service.json`
 - `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, `tests/registry-runtime-state.test.js`, `tests/lifecycle-actions.test.js`, `tests/health-state.test.js`, `tests/operator-data.test.js`, and `tests/provider-execution.test.js` provide direct proof for the API spine, discovery/parsing behavior, runtime state read APIs, lifecycle action path, health/state persistence, operator data surfaces, and provider execution planning
 
-This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, the first operator data surfaces, and the first provider execution boundary. Full real process execution and broader provider catalog expansion are still future work.
+This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, the first operator data surfaces, the first provider execution boundary, and a runnable tracked harness fixture under `services/echo-service/` for later execution/demo hardening. Full real process execution and broader provider catalog expansion are still future work.
+
+Note on repo split:
+- the canonical Echo Service implementation now lives in the sibling repo `C:\projects\service-lasso\lasso-echoservice`
+- `service-lasso/services/echo-service/` remains a thin local fixture manifest so the core repo stays self-contained for discovery/runtime tests
+- the sibling Echo Service repo now includes harness-only HTTP and TCP health simulation endpoints for runtime testing, and `service-lasso` itself now evaluates bounded manifest health types `process`, `http`, `tcp`, and `file`
 
 For the detailed layout note, see:
 

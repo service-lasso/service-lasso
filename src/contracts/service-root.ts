@@ -1,7 +1,6 @@
 export interface ServiceRootConfig {
   servicesRoot: string;
-  dataRoot: string;
-  stateRoot: string;
+  workspaceRoot: string;
 }
 
 export interface RuntimeBoundarySummary {
@@ -13,5 +12,4 @@ export interface RuntimeBoundarySummary {
 }
 
 export const DEFAULT_SERVICES_ROOT = "./services";
-export const DEFAULT_DATA_ROOT = "./.local/data";
-export const DEFAULT_STATE_ROOT = "./.state";
+export const DEFAULT_WORKSPACE_ROOT = "./workspace";

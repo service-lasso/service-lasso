@@ -8,7 +8,17 @@ export interface HttpHealthcheck {
   expected_status?: number;
 }
 
-export type ServiceHealthcheck = ProcessHealthcheck | HttpHealthcheck;
+export interface TcpHealthcheck {
+  type: "tcp";
+  address: string;
+}
+
+export interface FileHealthcheck {
+  type: "file";
+  file: string;
+}
+
+export type ServiceHealthcheck = ProcessHealthcheck | HttpHealthcheck | TcpHealthcheck | FileHealthcheck;
 
 export interface ServiceHealthResult {
   type: ServiceHealthcheck["type"] | "unknown";

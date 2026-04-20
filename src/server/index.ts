@@ -25,12 +25,17 @@ import { buildServiceLogs } from "../runtime/operator/logs.js";
 import { buildServiceVariables } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
+import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
+import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
+import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { ApiError, toApiErrorBody } from "./errors.js";
 import type { LifecycleActionResponse, ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
 
 export interface ApiServerOptions {
   port?: number;
   version?: string;
   servicesRoot?: string;
+  workspaceRoot?: string;
 }
 
 export interface RunningApiServer {
@@ -50,6 +55,7 @@ function notFound(response: ServerResponse): void {
   writeJson(response, 404, {
     error: "not_found",
     message: "Route not found.",
+    statusCode: 404,
   });
 }
 
@@ -72,7 +78,7 @@ async function createServiceSummary(
 ): Promise<ServiceSummary> {
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const lifecycle = getLifecycleState(service.manifest.id);
-  const health = await evaluateServiceHealth(service.manifest, lifecycle);
+  const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot);
   const logs = buildServiceLogs(service, lifecycle);
   const variables = buildServiceVariables(service);
   const network = buildServiceNetwork(service);
@@ -114,25 +120,25 @@ async function executeLifecycleAction(
   registry: Awaited<ReturnType<typeof loadRuntimeModel>>["registry"],
 ): Promise<LifecycleActionResponse> {
   const serviceId = service.manifest.id;
-  const result = (() => {
+  const result = await (async () => {
     switch (action) {
       case "install":
         return installService(serviceId);
       case "config":
         return configService(serviceId);
       case "start":
-        return startService(serviceId);
+        return await startService(service);
       case "stop":
-        return stopService(serviceId);
+        return await stopService(service);
       case "restart":
-        return restartService(serviceId);
+        return await restartService(service);
       default:
-        throw new Error(`Unknown lifecycle action: ${action}`);
+        throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
     }
   })();
 
   const persisted = await writeServiceState(service, result.state);
-  const health = await evaluateServiceHealth(service.manifest, result.state);
+  const health = await evaluateServiceHealth(service.manifest, result.state, service.serviceRoot);
   const provider = resolveProviderExecution(service, registry);
 
   return {
@@ -150,17 +156,17 @@ async function executeLifecycleAction(
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  options: Required<Pick<ApiServerOptions, "version" | "servicesRoot">>,
+  config: RuntimeConfig,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
   if (request.method === "GET" && url.pathname === "/api/health") {
-    writeJson(response, 200, createHealthResponse(options.version));
+    writeJson(response, 200, createHealthResponse(config.version));
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/services") {
-    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const services = await Promise.all(
       runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph, runtimeModel.registry)),
     );
@@ -170,7 +176,7 @@ async function routeRequest(
 
   if (url.pathname.startsWith("/api/services/")) {
     const pathParts = url.pathname.split("/").filter(Boolean);
-    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = decodeURIComponent(pathParts[2] ?? "");
     const service = runtimeModel.registry.getById(serviceId);
 
@@ -181,7 +187,7 @@ async function routeRequest(
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "health") {
       const lifecycle = getLifecycleState(serviceId);
-      const health = await evaluateServiceHealth(service.manifest, lifecycle);
+      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot);
       writeJson(response, 200, createServiceHealthResponse(serviceId, health));
       return;
     }
@@ -218,7 +224,7 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/runtime") {
-    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceSummaries = await Promise.all(
       runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph, runtimeModel.registry)),
     );
@@ -229,7 +235,8 @@ async function routeRequest(
       response,
       200,
       createRuntimeSummaryResponse({
-        servicesRoot: options.servicesRoot,
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
         totalServices: runtimeModel.registry.count(),
         enabledServices: runtimeModel.registry.countEnabled(),
         dependencyEdges: runtimeModel.graph.listEdges().length,
@@ -241,7 +248,7 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/dependencies") {
-    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(
       response,
       200,
@@ -254,14 +261,14 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/variables") {
-    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const payload = runtimeModel.discovered.map((service) => buildServiceVariables(service));
     writeJson(response, 200, { services: payload });
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/network") {
-    const runtimeModel = await loadRuntimeModel(options.servicesRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const payload = runtimeModel.discovered.map((service) => buildServiceNetwork(service));
     writeJson(response, 200, { services: payload });
     return;
@@ -271,24 +278,21 @@ async function routeRequest(
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
-  const resolvedOptions = {
-    version: options.version ?? "0.1.0",
-    servicesRoot: options.servicesRoot ?? "./services",
-  };
+  const resolvedConfig = resolveRuntimeConfig(options);
 
   return createServer((request, response) => {
-    void routeRequest(request, response, resolvedOptions).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "Unknown API failure.";
-      writeJson(response, 500, {
-        error: "internal_error",
-        message,
-      });
+    void routeRequest(request, response, resolvedConfig).catch((error: unknown) => {
+      const body = toApiErrorBody(error);
+      writeJson(response, body.statusCode, body);
     });
   });
 }
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
-  const server = createApiServer(options);
+  const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
+  const bootModel = await loadRuntimeModel(config.servicesRoot);
+  await rehydrateDiscoveredServices(bootModel.discovered);
+  const server = createApiServer(config);
   const port = options.port ?? 18080;
 
   server.listen(port, "127.0.0.1");
@@ -306,6 +310,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     port: resolvedPort,
     url: `http://127.0.0.1:${resolvedPort}`,
     stop: async () => {
+      await stopAllManagedProcesses();
       server.close();
       await once(server, "close");
     },
