@@ -4,6 +4,7 @@ import path from "node:path";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { readStoredState } from "../dist/runtime/state/readState.js";
 import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
@@ -76,6 +77,65 @@ test("GET /api/services/:id/logs returns operator log payload", async () => {
   }
 });
 
+test("service meta routes persist favorites and dependency graph layout across restart", async () => {
+  resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
+  const firstServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const initialResponse = await fetch(`${firstServer.url}/api/services/meta`);
+    const initialBody = await initialResponse.json();
+
+    assert.equal(initialResponse.status, 200);
+    assert.ok(initialBody.services.some((service) => service.id === "echo-service" && service.favorite === false));
+
+    const patchResponse = await fetch(`${firstServer.url}/api/services/echo-service/meta`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        favorite: true,
+        dependencyGraphPosition: { x: 144, y: 288 },
+      }),
+    });
+    const patchBody = await patchResponse.json();
+
+    assert.equal(patchResponse.status, 200);
+    assert.equal(patchBody.serviceId, "echo-service");
+    assert.equal(patchBody.meta.favorite, true);
+    assert.deepEqual(patchBody.meta.dependencyGraphPosition, { x: 144, y: 288 });
+
+    const storedState = await readStoredState(path.join(servicesRoot, "echo-service"));
+    assert.deepEqual(storedState.meta, {
+      favorite: true,
+      dependencyGraphPosition: { x: 144, y: 288 },
+    });
+  } finally {
+    await firstServer.stop();
+    resetLifecycleState();
+  }
+
+  const secondServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${secondServer.url}/api/services/meta`);
+    const body = await response.json();
+    const echoMeta = body.services.find((service) => service.id === "echo-service");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(echoMeta, {
+      id: "echo-service",
+      favorite: true,
+      dependencyGraphPosition: { x: 144, y: 288 },
+    });
+  } finally {
+    await secondServer.stop();
+    resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
 test("managed stdout/stderr are captured into runtime-owned log files and surfaced through API/state", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-logs-");
@@ -136,6 +196,57 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
     );
 
     await postJson(`${apiServer.url}/api/services/loggy-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("live log info and chunk routes expose runtime-owned log files for admin consumers", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-log-reader-");
+  await writeExecutableFixtureService(servicesRoot, "reader-service", {
+    stdoutLines: ["reader stdout"],
+    stderrLines: ["reader stderr"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/reader-service/install`);
+    await postJson(`${apiServer.url}/api/services/reader-service/config`);
+    await postJson(`${apiServer.url}/api/services/reader-service/start`);
+
+    await waitFor(async () => {
+      const response = await fetch(`${apiServer.url}/api/services/reader-service/logs`);
+      const body = await response.json();
+      if (body.logs.entries.some((entry) => entry.message === "reader stdout")) {
+        return body;
+      }
+      return null;
+    });
+
+    const infoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=reader-service&type=default`);
+    const infoBody = await infoResponse.json();
+    const chunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=default&limit=50`);
+    const chunkBody = await chunkResponse.json();
+
+    assert.equal(infoResponse.status, 200);
+    assert.equal(infoBody.serviceId, "reader-service");
+    assert.equal(infoBody.type, "default");
+    assert.deepEqual(infoBody.availableTypes, ["default"]);
+    assert.equal(infoBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
+
+    assert.equal(chunkResponse.status, 200);
+    assert.equal(chunkBody.serviceId, "reader-service");
+    assert.equal(chunkBody.type, "default");
+    assert.equal(typeof chunkBody.totalLines, "number");
+    assert.equal(chunkBody.lines.length > 0, true);
+    assert.equal(chunkBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
+    assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
+    assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stderr\"")));
+
+    await postJson(`${apiServer.url}/api/services/reader-service/stop`);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

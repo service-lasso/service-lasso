@@ -32,6 +32,26 @@ export interface ServiceLogsPayload extends ServiceRuntimeLogPaths {
   };
 }
 
+export interface ServiceLogInfoPayload {
+  serviceId: string;
+  type: "default";
+  path: string;
+  availableTypes: ["default"];
+}
+
+export interface ServiceLogChunkPayload {
+  serviceId: string;
+  type: "default";
+  path: string;
+  totalLines: number;
+  start: number;
+  end: number;
+  hasMore: boolean;
+  nextBefore: number;
+  limit: number;
+  lines: string[];
+}
+
 interface PersistedRuntimeLogEntry {
   level?: "stdout" | "stderr";
   message?: string;
@@ -199,6 +219,16 @@ async function readRuntimeLogEntries(logPath: string): Promise<ServiceLogEntry[]
   }
 }
 
+async function readRuntimeLogLines(logPath: string): Promise<string[]> {
+  try {
+    return (await readFile(logPath, "utf8"))
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
 export async function buildServiceLogs(
   service: DiscoveredService,
   lifecycle: ServiceLifecycleState,
@@ -215,5 +245,43 @@ export async function buildServiceLogs(
     retention: {
       maxArchives: SERVICE_RUNTIME_LOG_ARCHIVE_RETENTION,
     },
+  };
+}
+
+export function buildServiceLogInfo(service: DiscoveredService): ServiceLogInfoPayload {
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+
+  return {
+    serviceId: service.manifest.id,
+    type: "default",
+    path: runtimeLogPaths.logPath,
+    availableTypes: ["default"],
+  };
+}
+
+export async function readServiceLogChunk(
+  service: DiscoveredService,
+  before?: number,
+  limit = 100,
+): Promise<ServiceLogChunkPayload> {
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+  const lines = await readRuntimeLogLines(runtimeLogPaths.logPath);
+  const totalLines = lines.length;
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
+  const end = typeof before === "number" ? Math.max(0, Math.min(totalLines, before)) : totalLines;
+  const start = Math.max(0, end - safeLimit);
+  const slice = lines.slice(start, end);
+
+  return {
+    serviceId: service.manifest.id,
+    type: "default",
+    path: runtimeLogPaths.logPath,
+    totalLines,
+    start,
+    end,
+    hasMore: start > 0,
+    nextBefore: start,
+    limit: safeLimit,
+    lines: slice,
   };
 }

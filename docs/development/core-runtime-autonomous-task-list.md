@@ -153,10 +153,15 @@ Current honest label:
     - demo cannot be satisfied by state flips alone
 
 16. `lasso-@serviceadmin` integration validation
-    status: queued
+    status: in_progress
     proof:
     - admin UI consumes the current runtime/API without special-case hacks
     - released Echo Service artifact is used as the backing service target
+    current bounded checklist:
+    - add runtime compatibility routes for service meta persistence used by favorites and dependency-graph layout
+    - add runtime compatibility routes for live log info and log chunk reads
+    - validate the current dashboard/service-detail/logs consumer surfaces against the runtime API
+    - record any remaining consumer-model gaps as governed follow-up work before moving to package rollout
 
 ### Wave 7: Package and template rollout
 

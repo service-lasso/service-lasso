@@ -54,6 +54,28 @@ export interface ServiceDetailResponse {
   service: ServiceSummary;
 }
 
+export interface ServiceMetaResponse {
+  serviceId: string;
+  meta: {
+    favorite: boolean;
+    dependencyGraphPosition: {
+      x: number;
+      y: number;
+    } | null;
+  };
+}
+
+export interface ServicesMetaResponse {
+  services: Array<{
+    id: string;
+    favorite: boolean;
+    dependencyGraphPosition: {
+      x: number;
+      y: number;
+    } | null;
+  }>;
+}
+
 export interface RuntimeSummaryResponse {
   runtime: {
     servicesRoot: string;
@@ -143,4 +165,24 @@ export interface ServiceMetricsResponse {
       };
     };
   };
+}
+
+export interface ServiceLogInfoResponse {
+  serviceId: string;
+  type: "default";
+  path: string;
+  availableTypes: ["default"];
+}
+
+export interface ServiceLogChunkResponse {
+  serviceId: string;
+  type: "default";
+  path: string;
+  totalLines: number;
+  start: number;
+  end: number;
+  hasMore: boolean;
+  nextBefore: number;
+  limit: number;
+  lines: string[];
 }
