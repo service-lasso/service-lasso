@@ -35,6 +35,7 @@ Explicitly out of scope for this spec:
 - `AC-4F`: The runtime owns a bounded port-negotiation slice so manifests can declare desired ports, runtime config/start can resolve collisions deterministically, and operator/API surfaces can expose the assigned ports and resolved URLs.
 - `AC-4G`: The runtime supports a bounded install/config materialization slice so manifests can declare service-scoped files to generate, `install` can perform a real preparation step on disk, `config` can render effective runtime config with resolved variables, and lifecycle/state output records what was materialized.
 - `AC-4H`: The runtime extends bounded provider-backed execution so at least one provider-managed service can run through its provider path and surface provider/runtime evidence through the API and persisted state.
+- `AC-4I`: The runtime supports a bounded manager-level orchestration slice so `startAll` and `stopAll` can operate across enabled services in deterministic order with explicit skip reasons and direct API proof.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -50,6 +51,7 @@ Required evidence for this spec:
 - direct proof that bounded runtime port negotiation can assign ports, resolve collisions deterministically, and surface resolved network data through the API
 - direct proof that bounded install/config actions can materialize service-scoped files on disk and persist artifact metadata for rerunnable effective config generation
 - direct proof that at least one provider-backed service can execute through its provider path and report provider/runtime evidence through the API
+- direct proof that runtime-level `startAll` / `stopAll` orchestration can start and stop eligible services in deterministic order while reporting explicit skip reasons for ineligible services
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

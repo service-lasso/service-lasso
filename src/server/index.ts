@@ -30,7 +30,12 @@ import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from ".
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
-import type { LifecycleActionResponse, ServiceDetailResponse, ServiceSummary } from "../contracts/api.js";
+import type {
+  LifecycleActionResponse,
+  RuntimeOrchestrationResponse,
+  ServiceDetailResponse,
+  ServiceSummary,
+} from "../contracts/api.js";
 
 export interface ApiServerOptions {
   port?: number;
@@ -71,6 +76,8 @@ async function loadRuntimeModel(servicesRoot: string) {
     graph,
   };
 }
+
+type RuntimeModel = Awaited<ReturnType<typeof loadRuntimeModel>>;
 
 async function createServiceSummary(
   service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
@@ -119,11 +126,9 @@ function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResp
 
 async function executeLifecycleAction(
   action: string,
-  service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
-  registry: Awaited<ReturnType<typeof loadRuntimeModel>>["registry"],
+  service: RuntimeModel["discovered"][number],
+  registry: RuntimeModel["registry"],
 ): Promise<LifecycleActionResponse> {
-  const serviceId = service.manifest.id;
-  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const result = await (async () => {
     switch (action) {
       case "install":
@@ -141,8 +146,23 @@ async function executeLifecycleAction(
     }
   })();
 
+  return await buildLifecycleActionResponse(service, registry, result);
+}
+
+async function buildLifecycleActionResponse(
+  service: RuntimeModel["discovered"][number],
+  registry: RuntimeModel["registry"],
+  result: Awaited<ReturnType<typeof installService>>,
+): Promise<LifecycleActionResponse> {
   const persisted = await writeServiceState(service, result.state);
-  const health = await evaluateServiceHealth(service.manifest, result.state, service.serviceRoot, service, sharedGlobalEnv);
+  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
+  const health = await evaluateServiceHealth(
+    service.manifest,
+    result.state,
+    service.serviceRoot,
+    service,
+    sharedGlobalEnv,
+  );
   const provider = resolveProviderExecution(service, registry);
 
   return {
@@ -154,6 +174,64 @@ async function executeLifecycleAction(
     health,
     statePaths: persisted.paths,
     provider,
+  };
+}
+
+async function executeRuntimeOrchestrationAction(
+  action: "startAll" | "stopAll",
+  runtimeModel: RuntimeModel,
+): Promise<RuntimeOrchestrationResponse> {
+  const orderedServiceIds =
+    action === "startAll"
+      ? runtimeModel.graph.getGlobalStartupOrder()
+      : runtimeModel.graph.getGlobalShutdownOrder();
+  const results: LifecycleActionResponse[] = [];
+  const skipped: RuntimeOrchestrationResponse["skipped"] = [];
+
+  for (const serviceId of orderedServiceIds) {
+    const service = runtimeModel.registry.getById(serviceId);
+
+    if (!service || service.manifest.enabled === false) {
+      continue;
+    }
+
+    const lifecycle = getLifecycleState(serviceId);
+
+    if (action === "startAll") {
+      if (lifecycle.running) {
+        skipped.push({ serviceId, reason: "already_running" });
+        continue;
+      }
+
+      if (!lifecycle.installed) {
+        skipped.push({ serviceId, reason: "not_installed" });
+        continue;
+      }
+
+      if (!lifecycle.configured) {
+        skipped.push({ serviceId, reason: "not_configured" });
+        continue;
+      }
+
+      const result = await startService(service, runtimeModel.registry);
+      results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+      continue;
+    }
+
+    if (!lifecycle.running) {
+      skipped.push({ serviceId, reason: "not_running" });
+      continue;
+    }
+
+    const result = await stopService(service);
+    results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+  }
+
+  return {
+    action,
+    ok: true,
+    results,
+    skipped,
   };
 }
 
@@ -269,6 +347,18 @@ async function routeRequest(
         healthyServices,
       }),
     );
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/api/runtime/actions/")) {
+    const action = url.pathname.split("/").filter(Boolean)[3];
+
+    if (action !== "startAll" && action !== "stopAll") {
+      throw new ApiError("invalid_action", 400, `Unknown runtime action: ${action}`);
+    }
+
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel));
     return;
   }
 

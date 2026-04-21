@@ -88,3 +88,15 @@ export interface ServiceHealthResponse {
   serviceId: string;
   health: ServiceHealthResult;
 }
+
+export interface RuntimeOrchestrationSkippedService {
+  serviceId: string;
+  reason: string;
+}
+
+export interface RuntimeOrchestrationResponse {
+  action: "startAll" | "stopAll";
+  ok: boolean;
+  results: LifecycleActionResponse[];
+  skipped: RuntimeOrchestrationSkippedService[];
+}

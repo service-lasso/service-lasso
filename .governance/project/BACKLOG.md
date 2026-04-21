@@ -36,7 +36,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-026` | `done` | Extend provider-backed execution parity beyond direct executables | `SPEC-002`, `AC-4H` | Landed real `@node` provider-backed execution for the tracked sample service with provider env injection and persisted provider/runtime evidence through the API/state model. |
 | `ISS-027` | `done` | Harden lifecycle depth evidence for restart, crash, and intentional stop paths | `SPEC-002` | Landed bounded termination evidence with deterministic restart/crash/stop runtime state across API and persisted `.state` output. |
 | `ISS-028` | `done` | Add dependency-aware startup ordering | `SPEC-002` | Landed bounded dependency-aware startup sequencing with deterministic order, readiness-aware startup, and no duplicate restarts for running dependencies. |
-| `ISS-029` | `todo` | Add manager-level orchestration actions | `SPEC-002` | Introduce bounded `startAll` / `stopAll` orchestration on top of the dependency-aware startup model before widening further runtime orchestration. |
+| `ISS-029` | `done` | Add manager-level orchestration actions | `SPEC-002`, `AC-4I` | Landed bounded `startAll` / `stopAll` orchestration with deterministic startup/shutdown order, explicit skip reasons, and direct API proof. |
+| `ISS-030` | `todo` | Capture managed stdout/stderr and make runtime logs first-class | `SPEC-002` | Extend the execution supervisor so managed process output becomes stable runtime-owned evidence instead of remaining external-only process output. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -69,7 +70,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-026` | `done` | `ISS-026` | Implement one bounded provider-backed execution path with direct tests | `SPEC-002`, `AC-4H` | The tracked `@node` sample executes through its provider path, provider env reaches the managed process, and provider/runtime evidence is exposed through the API and persisted state |
 | `TASK-027` | `done` | `ISS-027` | Harden lifecycle depth evidence across restart/crash/intentional stop flows | `SPEC-002` | Persisted runtime evidence stays deterministic across restart, crash exits, and intentional stops |
 | `TASK-028` | `done` | `ISS-028` | Implement dependency-aware startup ordering with direct tests | `SPEC-002` | Runtime starts services in dependency order and respects bounded readiness-aware sequencing for dependent services |
-| `TASK-029` | `todo` | `ISS-029` | Implement bounded manager-level orchestration actions with direct tests | `SPEC-002` | Runtime exposes deterministic `startAll` / `stopAll` orchestration aligned with dependency-aware startup sequencing |
+| `TASK-029` | `done` | `ISS-029` | Implement bounded manager-level orchestration actions with direct tests | `SPEC-002`, `AC-4I` | Runtime exposes deterministic `startAll` / `stopAll` orchestration aligned with dependency-aware startup sequencing and explicit skip reasons |
+| `TASK-030` | `todo` | `ISS-030` | Capture managed stdout/stderr into runtime-owned log surfaces | `SPEC-002` | Managed processes write stdout/stderr into stable runtime log outputs that the API and persisted state can report consistently |
 
 ## Next Recommended Item
-The next best item is `TASK-029`: add bounded manager-level orchestration actions so the runtime can build on dependency-aware startup with deterministic `startAll` / `stopAll` behavior.
+The next best item is `TASK-030`: capture managed stdout/stderr into runtime-owned log surfaces so the runtime can prove real process output instead of relying on synthetic/operator-only log views.

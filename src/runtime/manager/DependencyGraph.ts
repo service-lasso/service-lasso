@@ -93,6 +93,27 @@ export class DependencyGraph {
     visit(serviceId);
     return ordered;
   }
+
+  getGlobalStartupOrder(): string[] {
+    const ordered = new Set<string>();
+    const serviceIds = this.#registry
+      .list()
+      .map((service) => service.manifest.id)
+      .sort((left, right) => left.localeCompare(right));
+
+    for (const serviceId of serviceIds) {
+      for (const dependencyId of this.getStartupOrder(serviceId)) {
+        ordered.add(dependencyId);
+      }
+      ordered.add(serviceId);
+    }
+
+    return [...ordered];
+  }
+
+  getGlobalShutdownOrder(): string[] {
+    return [...this.getGlobalStartupOrder()].reverse();
+  }
 }
 
 export function createServiceRegistry(services: DiscoveredService[]): ServiceRegistry {

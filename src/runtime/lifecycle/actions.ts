@@ -177,7 +177,8 @@ export async function startService(
       }
 
       if (!dependencyState.running) {
-        await startService(dependency, registry);
+        const dependencyResult = await startService(dependency, registry);
+        await writeServiceState(dependency, dependencyResult.state);
       }
     }
   }
