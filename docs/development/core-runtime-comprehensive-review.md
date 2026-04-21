@@ -76,7 +76,7 @@ The largest remaining gaps are:
 - broader health/readiness behavior
 - shared `globalenv`
 - runtime-owned port negotiation
-- orchestration such as `reload`, `startAll`, `stopAll`, and `autostart`
+- broader manager/runtime parity beyond the current bounded orchestration slice
 - fuller runtime logging/archival implementation
 
 Separately, the documentation set has important drift issues:
@@ -316,6 +316,7 @@ These donor/runtime concerns are meaningfully represented in the current code an
 - one bounded real execution/supervision path for directly executable services
 - bounded health handling for `process`, `http`, `tcp`, `file`, and `variable`
 - structured per-service `.state` writes
+- bounded manager-level orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
 - operator data surfaces for logs, variables, and network
 - provider relationship resolution/planning for direct, `@node`, and `@python`
 - direct automated verification for the implemented slice
@@ -365,10 +366,6 @@ These major donor/runtime behaviors are not implemented in the current code:
 - shared `globalenv` propagation
 - broader health behavior beyond bounded `process`, `http`, `tcp`, `file`, and `variable`
 - dependency readiness loops and start-chain orchestration
-- manager-level `reload`
-- manager-level `startAll`
-- manager-level `stopAll`
-- `autostart`
 - fuller runtime logging, archival, and retention implementation
 
 ## Major donor behavior areas

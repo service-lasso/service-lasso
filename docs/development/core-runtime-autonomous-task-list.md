@@ -122,7 +122,7 @@ Current honest label:
     - API responses include explicit skip reasons for ineligible services
 
 11. reload/autostart orchestration follow-up
-    status: queued
+    status: done
     proof:
     - `reload` and `autostart` semantics are explicit, deterministic, and test-covered
 
@@ -201,6 +201,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**reload/autostart orchestration follow-up**
+**archival and retention model**
 
-That is the next clean donor-parity step because the runtime now has bounded `startAll` / `stopAll` plus real managed-process log ownership, and the next orchestration gap is to make `reload` and `autostart` explicit and deterministic before widening archival and observability work further.
+That is the next clean donor-parity step because the runtime now has bounded manager-level orchestration plus runtime-owned managed-process logs, and the next observability gap is to make retention and archival explicit instead of leaving log lifetime unmanaged.

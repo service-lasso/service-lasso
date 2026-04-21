@@ -25,6 +25,7 @@ export interface ServiceManifest {
   description: string;
   version?: string;
   enabled?: boolean;
+  autostart?: boolean;
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;

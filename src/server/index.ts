@@ -42,6 +42,7 @@ export interface ApiServerOptions {
   version?: string;
   servicesRoot?: string;
   workspaceRoot?: string;
+  autostart?: boolean;
 }
 
 export interface RunningApiServer {
@@ -71,6 +72,7 @@ async function loadRuntimeModel(servicesRoot: string) {
   const graph = new DependencyGraph(registry);
 
   return {
+    servicesRoot,
     discovered,
     registry,
     graph,
@@ -178,13 +180,80 @@ async function buildLifecycleActionResponse(
 }
 
 async function executeRuntimeOrchestrationAction(
-  action: "startAll" | "stopAll",
+  action: "startAll" | "stopAll" | "autostart" | "reload",
   runtimeModel: RuntimeModel,
 ): Promise<RuntimeOrchestrationResponse> {
+  if (action === "reload") {
+    const stopped: LifecycleActionResponse[] = [];
+    const skipped: RuntimeOrchestrationResponse["skipped"] = [];
+    const runningServiceIds = runtimeModel.graph
+      .getGlobalShutdownOrder()
+      .filter((serviceId) => getLifecycleState(serviceId).running);
+
+    for (const serviceId of runningServiceIds) {
+      const service = runtimeModel.registry.getById(serviceId);
+
+      if (!service) {
+        continue;
+      }
+
+      const result = await stopService(service);
+      stopped.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+    }
+
+    const reloadedModel = await loadRuntimeModel(runtimeModel.servicesRoot);
+    const runningServiceIdSet = new Set(runningServiceIds);
+    const results: LifecycleActionResponse[] = [];
+
+    for (const serviceId of reloadedModel.graph.getGlobalStartupOrder()) {
+      if (!runningServiceIdSet.has(serviceId)) {
+        continue;
+      }
+
+      const service = reloadedModel.registry.getById(serviceId);
+      if (!service) {
+        skipped.push({ serviceId, reason: "missing_after_reload" });
+        continue;
+      }
+
+      if (service.manifest.enabled === false) {
+        skipped.push({ serviceId, reason: "disabled_after_reload" });
+        continue;
+      }
+
+      const lifecycle = getLifecycleState(serviceId);
+      if (!lifecycle.installed) {
+        skipped.push({ serviceId, reason: "not_installed" });
+        continue;
+      }
+
+      if (!lifecycle.configured) {
+        skipped.push({ serviceId, reason: "not_configured" });
+        continue;
+      }
+
+      if (lifecycle.running) {
+        skipped.push({ serviceId, reason: "already_running" });
+        continue;
+      }
+
+      const result = await startService(service, reloadedModel.registry);
+      results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result));
+    }
+
+    return {
+      action,
+      ok: true,
+      results,
+      stopped,
+      skipped,
+    };
+  }
+
   const orderedServiceIds =
-    action === "startAll"
-      ? runtimeModel.graph.getGlobalStartupOrder()
-      : runtimeModel.graph.getGlobalShutdownOrder();
+    action === "stopAll"
+      ? runtimeModel.graph.getGlobalShutdownOrder()
+      : runtimeModel.graph.getGlobalStartupOrder();
   const results: LifecycleActionResponse[] = [];
   const skipped: RuntimeOrchestrationResponse["skipped"] = [];
 
@@ -197,7 +266,12 @@ async function executeRuntimeOrchestrationAction(
 
     const lifecycle = getLifecycleState(serviceId);
 
-    if (action === "startAll") {
+    if (action !== "stopAll") {
+      if (action === "autostart" && service.manifest.autostart !== true) {
+        skipped.push({ serviceId, reason: "autostart_disabled" });
+        continue;
+      }
+
       if (lifecycle.running) {
         skipped.push({ serviceId, reason: "already_running" });
         continue;
@@ -353,7 +427,7 @@ async function routeRequest(
   if (request.method === "POST" && url.pathname.startsWith("/api/runtime/actions/")) {
     const action = url.pathname.split("/").filter(Boolean)[3];
 
-    if (action !== "startAll" && action !== "stopAll") {
+    if (action !== "startAll" && action !== "stopAll" && action !== "autostart" && action !== "reload") {
       throw new ApiError("invalid_action", 400, `Unknown runtime action: ${action}`);
     }
 
@@ -431,6 +505,9 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const bootModel = await loadRuntimeModel(config.servicesRoot);
   await rehydrateDiscoveredServices(bootModel.discovered);
+  if (options.autostart) {
+    await executeRuntimeOrchestrationAction("autostart", bootModel);
+  }
   const server = createApiServer(config);
   const port = options.port ?? 18080;
 

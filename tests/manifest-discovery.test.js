@@ -222,6 +222,30 @@ test("loadServiceManifest accepts bounded globalenv emission maps", async () => 
   }
 });
 
+test("loadServiceManifest accepts bounded autostart flags", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "autostart-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "autostart-service",
+        name: "Autostart Service",
+        description: "Service opting into bounded autostart.",
+        autostart: true,
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.equal(manifest.autostart, true);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded ports declarations", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "port-service", "service.json");

@@ -95,9 +95,10 @@ export interface RuntimeOrchestrationSkippedService {
 }
 
 export interface RuntimeOrchestrationResponse {
-  action: "startAll" | "stopAll";
+  action: "startAll" | "stopAll" | "autostart" | "reload";
   ok: boolean;
   results: LifecycleActionResponse[];
+  stopped?: LifecycleActionResponse[];
   skipped: RuntimeOrchestrationSkippedService[];
 }
 
