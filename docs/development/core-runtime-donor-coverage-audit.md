@@ -39,7 +39,7 @@ The donor runtime is substantially broader in the following areas:
 - runtime-owned port negotiation
 - shared `globalenv` propagation
 - broader health/readiness models
-- manager-level orchestration such as `reload`, `startAll`, `stopAll`, and `autostart`
+- broader manager/runtime parity beyond the current bounded orchestration slice
 - richer logging, archival, and runtime metrics
 
 So the honest project label remains:
@@ -60,6 +60,7 @@ These donor/runtime concerns are meaningfully represented in the current code an
 - one bounded real execution/supervision path for directly executable services
 - bounded health handling for `process`, `http`, `tcp`, `file`, and `variable`
 - structured per-service `.state/` writes
+- bounded manager-level orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
 - operator data surfaces for logs, variables, and network
 - provider relationship resolution/planning for direct, `@node`, and `@python`
 - direct automated verification for the implemented slice
@@ -101,10 +102,6 @@ These major donor/runtime behaviors are not implemented in the current code:
 - `globalenv` export/import propagation across services
 - broader health behavior beyond bounded `process`, `http`, `tcp`, `file`, and `variable`
 - dependency readiness loops and start-chain orchestration
-- manager-level `reload`
-- manager-level `startAll`
-- manager-level `stopAll`
-- `autostart`
 - fuller runtime logging, archival, and retention implementation
 
 ## Donor-to-current mapping
@@ -338,7 +335,7 @@ It is **not** evidence for the unmigrated donor behaviors listed above.
 
 1. The current codebase is no longer bootstrap-only and does satisfy the main bounded intent of the first standalone runtime slice.
 2. The donor runtime remains substantially broader than the current implementation.
-3. The largest missing donor areas are execution, setup, supervision, shared env, ports, and orchestration.
+3. The largest missing donor areas are setup depth, supervision depth, run-level archival/retention, and broader manager/runtime parity.
 4. The migration docs are directionally correct about those missing areas.
 5. `SPEC-002` should be refreshed so its wording reflects the implemented slice rather than the pre-implementation state.
 6. The passing test suite gives strong direct proof for the bounded slice, but should not be used to imply donor parity.

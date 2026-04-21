@@ -238,13 +238,12 @@ This is meaningful progress, but it is **not full donor runtime parity yet**.
 ## What has not been migrated yet
 
 Major donor runtime behavior still remains to be migrated more fully, including:
-- real process execution and supervision
+- deeper process execution and supervision parity
 - full setup/install mechanics such as archive extraction and setup commands
-- runtime-owned port negotiation
-- fuller shared env/globalenv handling
-- broader health types and readiness flow
-- manager-level orchestration like reload/startAll/stopAll/autostart
-- fuller runtime logging implementation
+- fuller shared env/globalenv handling beyond the current bounded slice
+- broader health/readiness flow beyond the current bounded slice
+- fuller runtime logging archival/retention implementation
+- process/runtime metrics and broader manager/runtime parity
 
 Important current boundary:
 - the sibling `lasso-echoservice` harness can already simulate HTTP and TCP health targets for testing and demo hardening

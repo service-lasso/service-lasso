@@ -8,6 +8,7 @@ import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import {
   clearPersistedFixtureState,
   makeTempServicesRoot,
+  writeManifest,
   writeExecutableFixtureService,
 } from "./test-helpers.js";
 
@@ -186,6 +187,147 @@ test("POST /api/runtime/actions/startAll skips ineligible services deterministic
       { serviceId: "bravo-missing-install", reason: "not_installed" },
       { serviceId: "charlie-running", reason: "already_running" },
     ]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/runtime/actions/autostart starts only autostart-eligible services deterministically", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-autostart-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+    autostart: true,
+  });
+  await writeExecutableFixtureService(servicesRoot, "bravo-service");
+  await writeExecutableFixtureService(servicesRoot, "charlie-service", {
+    autostart: true,
+    depend_on: ["alpha-service"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["alpha-service", "bravo-service", "charlie-service"]) {
+      let result = await postJson(`${apiServer.url}/api/services/${serviceId}/install`);
+      assert.equal(result.status, 200);
+      result = await postJson(`${apiServer.url}/api/services/${serviceId}/config`);
+      assert.equal(result.status, 200);
+    }
+
+    const autostart = await postJson(`${apiServer.url}/api/runtime/actions/autostart`);
+    assert.equal(autostart.status, 200);
+    assert.equal(autostart.body.action, "autostart");
+    assert.equal(autostart.body.ok, true);
+    assert.deepEqual(
+      autostart.body.results.map((result) => result.serviceId),
+      ["alpha-service", "charlie-service"],
+    );
+    assert.deepEqual(autostart.body.skipped, [
+      { serviceId: "bravo-service", reason: "autostart_disabled" },
+    ]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime boot autostart starts eligible rehydrated services", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-boot-autostart-");
+  await writeExecutableFixtureService(servicesRoot, "auto-service", {
+    autostart: true,
+  });
+  await writeExecutableFixtureService(servicesRoot, "manual-service");
+
+  const bootstrapServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["auto-service", "manual-service"]) {
+      let result = await postJson(`${bootstrapServer.url}/api/services/${serviceId}/install`);
+      assert.equal(result.status, 200);
+      result = await postJson(`${bootstrapServer.url}/api/services/${serviceId}/config`);
+      assert.equal(result.status, 200);
+    }
+  } finally {
+    await bootstrapServer.stop();
+    resetLifecycleState();
+  }
+
+  const autostartServer = await startApiServer({ port: 0, servicesRoot, autostart: true });
+
+  try {
+    const autoService = await getJson(`${autostartServer.url}/api/services/auto-service`);
+    const manualService = await getJson(`${autostartServer.url}/api/services/manual-service`);
+
+    assert.equal(autoService.status, 200);
+    assert.equal(autoService.body.service.lifecycle.running, true);
+    assert.equal(manualService.status, 200);
+    assert.equal(manualService.body.service.lifecycle.running, false);
+  } finally {
+    await autostartServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/runtime/actions/reload rediscover manifests and restart previously running eligible services", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-reload-");
+  const alpha = await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  const bravo = await writeExecutableFixtureService(servicesRoot, "bravo-service", {
+    depend_on: ["alpha-service"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["alpha-service", "bravo-service"]) {
+      let result = await postJson(`${apiServer.url}/api/services/${serviceId}/install`);
+      assert.equal(result.status, 200);
+      result = await postJson(`${apiServer.url}/api/services/${serviceId}/config`);
+      assert.equal(result.status, 200);
+    }
+
+    let startAll = await postJson(`${apiServer.url}/api/runtime/actions/startAll`);
+    assert.equal(startAll.status, 200);
+
+    await writeManifest(servicesRoot, "bravo-service", {
+      id: "bravo-service",
+      name: "bravo-service",
+      description: "Executable fixture for bravo-service.",
+      enabled: false,
+      executable: process.execPath,
+      args: [path.relative(bravo.serviceRoot, bravo.scriptPath)],
+      depend_on: ["alpha-service"],
+      env: {
+        FIXTURE_EXIT_CODE: "0",
+      },
+      healthcheck: { type: "process" },
+    });
+
+    const reload = await postJson(`${apiServer.url}/api/runtime/actions/reload`);
+    assert.equal(reload.status, 200);
+    assert.equal(reload.body.action, "reload");
+    assert.equal(reload.body.ok, true);
+    assert.deepEqual(
+      reload.body.stopped.map((result) => result.serviceId),
+      ["bravo-service", "alpha-service"],
+    );
+    assert.deepEqual(
+      reload.body.results.map((result) => result.serviceId),
+      ["alpha-service"],
+    );
+    assert.deepEqual(reload.body.skipped, [
+      { serviceId: "bravo-service", reason: "disabled_after_reload" },
+    ]);
+
+    const alphaDetail = await getJson(`${apiServer.url}/api/services/alpha-service`);
+    const bravoDetail = await getJson(`${apiServer.url}/api/services/bravo-service`);
+
+    assert.equal(alphaDetail.body.service.lifecycle.running, true);
+    assert.equal(bravoDetail.body.service.enabled, false);
+    assert.equal(bravoDetail.body.service.lifecycle.running, false);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

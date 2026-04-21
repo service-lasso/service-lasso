@@ -155,17 +155,13 @@ Recommended next migration order after Phase 3:
 2. runtime-owned port negotiation
 3. broader health model (`tcp`, `file`, `variable`, readiness loops)
 4. shared `globalenv` propagation
-5. manager-level orchestration:
-   - `reload`
-   - `startAll`
-   - `stopAll`
-   - `autostart`
-6. fuller runtime logging and archival
+5. fuller runtime logging and archival
+6. process/runtime metrics and deeper supervision parity
 
 Why this order:
 - setup/install and ports are core to real service operation
 - broader health becomes more valuable once real execution exists
-- orchestration should come after the first supervised process path is stable
+- deeper observability should come after the first supervised process path and bounded orchestration are stable
 
 Current harness note:
 - the sibling `lasso-echoservice` repo already provides HTTP and TCP health simulation targets for testing

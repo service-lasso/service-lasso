@@ -224,6 +224,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     description: expectNonEmptyString(record.description, "description", manifestPath),
     version: typeof record.version === "string" ? record.version : undefined,
     enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
+    autostart: typeof record.autostart === "boolean" ? record.autostart : undefined,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
     env: rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined,
