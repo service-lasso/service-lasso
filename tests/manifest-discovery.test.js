@@ -252,6 +252,60 @@ test("loadServiceManifest accepts bounded ports declarations", async () => {
   }
 });
 
+test("loadServiceManifest accepts bounded install/config file materialization", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "materialized-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "materialized-service",
+        name: "Materialized Service",
+        description: "Service with bounded install/config file outputs.",
+        install: {
+          files: [
+            {
+              path: "./runtime/install.txt",
+              content: "installed ${SERVICE_ID}",
+            },
+          ],
+        },
+        config: {
+          files: [
+            {
+              path: "./runtime/config.json",
+              content: "{\"port\":\"${SERVICE_PORT}\"}",
+            },
+          ],
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.install, {
+      files: [
+        {
+          path: "./runtime/install.txt",
+          content: "installed ${SERVICE_ID}",
+        },
+      ],
+    });
+    assert.deepEqual(manifest.config, {
+      files: [
+        {
+          path: "./runtime/config.json",
+          content: "{\"port\":\"${SERVICE_PORT}\"}",
+        },
+      ],
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {

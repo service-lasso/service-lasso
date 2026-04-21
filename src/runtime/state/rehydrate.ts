@@ -5,10 +5,14 @@ import { readStoredState } from "./readState.js";
 
 interface StoredInstallState {
   installed?: boolean;
+  files?: string[];
+  updatedAt?: string | null;
 }
 
 interface StoredConfigState {
   configured?: boolean;
+  files?: string[];
+  updatedAt?: string | null;
 }
 
 interface StoredRuntimeState {
@@ -53,6 +57,14 @@ function parseLifecycleState(snapshot: {
     running,
     lastAction,
     actionHistory,
+    installArtifacts: {
+      files: Array.isArray(install?.files) ? install.files.filter((file): file is string => typeof file === "string") : [],
+      updatedAt: typeof install?.updatedAt === "string" ? install.updatedAt : null,
+    },
+    configArtifacts: {
+      files: Array.isArray(config?.files) ? config.files.filter((file): file is string => typeof file === "string") : [],
+      updatedAt: typeof config?.updatedAt === "string" ? config.updatedAt : null,
+    },
     runtime: {
       pid: null,
       startedAt: typeof runtime?.startedAt === "string" ? runtime.startedAt : null,

@@ -48,6 +48,49 @@ function readHealthcheckReadinessOptions(
   };
 }
 
+function readActionMaterialization(
+  value: unknown,
+  field: "install" | "config",
+  manifestPath: string,
+): ServiceManifest["install"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    record.files !== undefined &&
+    (!Array.isArray(record.files) ||
+      record.files.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== "object" ||
+          Array.isArray(entry) ||
+          typeof (entry as Record<string, unknown>).path !== "string" ||
+          typeof (entry as Record<string, unknown>).content !== "string",
+      ))
+  ) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}.files" to be an array of { path, content } objects.`,
+    );
+  }
+
+  if (!record.files) {
+    return {};
+  }
+
+  return {
+    files: record.files.map((entry) => ({
+      path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
+      content: (entry as Record<string, string>).content,
+    })),
+  };
+}
+
 export function validateServiceManifest(input: unknown, manifestPath: string): ServiceManifest {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected a JSON object.`);
@@ -172,6 +215,9 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
   }
 
+  const install = readActionMaterialization(record.install, "install", manifestPath);
+  const config = readActionMaterialization(record.config, "config", manifestPath);
+
   return {
     id: expectNonEmptyString(record.id, "id", manifestPath),
     name: expectNonEmptyString(record.name, "name", manifestPath),
@@ -192,6 +238,8 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       url: (entry as Record<string, string>).url.trim(),
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
+    install,
+    config,
     execservice: typeof rawExecservice === "string" ? rawExecservice.trim() : undefined,
     executable: typeof rawExecutable === "string" ? rawExecutable.trim() : undefined,
     args: rawArgs?.map((entry) => entry.trim()),

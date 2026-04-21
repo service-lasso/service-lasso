@@ -127,7 +127,7 @@ async function executeLifecycleAction(
   const result = await (async () => {
     switch (action) {
       case "install":
-        return installService(serviceId);
+        return await installService(service, registry);
       case "config":
         return await configService(service, registry);
       case "start":

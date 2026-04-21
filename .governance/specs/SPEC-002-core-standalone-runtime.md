@@ -33,6 +33,8 @@ Explicitly out of scope for this spec:
 - `AC-4D`: The runtime can optionally wait for bounded startup readiness using donor-aligned health retry fields so start/restart flows can distinguish "process launched" from "service became ready".
 - `AC-4E`: The runtime supports a bounded manifest-driven `globalenv` propagation model so services can emit shared env values, the runtime can merge them deterministically, and operator/API surfaces can expose the merged shared env.
 - `AC-4F`: The runtime owns a bounded port-negotiation slice so manifests can declare desired ports, runtime config/start can resolve collisions deterministically, and operator/API surfaces can expose the assigned ports and resolved URLs.
+- `AC-4G`: The runtime supports a bounded install/config materialization slice so manifests can declare service-scoped files to generate, `install` can perform a real preparation step on disk, `config` can render effective runtime config with resolved variables, and lifecycle/state output records what was materialized.
+- `AC-4H`: The runtime extends bounded provider-backed execution so at least one provider-managed service can run through its provider path and surface provider/runtime evidence through the API and persisted state.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -46,6 +48,8 @@ Required evidence for this spec:
 - direct proof that configured readiness wait loops can succeed and time out deterministically during bounded start behavior
 - direct proof that bounded manifest-driven `globalenv` values can be merged and injected into dependent service execution/runtime API output
 - direct proof that bounded runtime port negotiation can assign ports, resolve collisions deterministically, and surface resolved network data through the API
+- direct proof that bounded install/config actions can materialize service-scoped files on disk and persist artifact metadata for rerunnable effective config generation
+- direct proof that at least one provider-backed service can execute through its provider path and report provider/runtime evidence through the API
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

@@ -10,6 +10,15 @@ export interface ServicePortDeclaration {
   [name: string]: number;
 }
 
+export interface ServiceMaterializedFile {
+  path: string;
+  content: string;
+}
+
+export interface ServiceActionMaterialization {
+  files?: ServiceMaterializedFile[];
+}
+
 export interface ServiceManifest {
   id: string;
   name: string;
@@ -22,6 +31,8 @@ export interface ServiceManifest {
   globalenv?: Record<string, string>;
   ports?: ServicePortDeclaration;
   urls?: ServiceEndpoint[];
+  install?: ServiceActionMaterialization;
+  config?: ServiceActionMaterialization;
   execservice?: string;
   executable?: string;
   args?: string[];

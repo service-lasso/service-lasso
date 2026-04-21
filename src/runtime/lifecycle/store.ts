@@ -9,6 +9,14 @@ function createInitialState(): ServiceLifecycleState {
     running: false,
     lastAction: null,
     actionHistory: [],
+    installArtifacts: {
+      files: [],
+      updatedAt: null,
+    },
+    configArtifacts: {
+      files: [],
+      updatedAt: null,
+    },
     runtime: {
       pid: null,
       startedAt: null,
@@ -32,6 +40,14 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
     running: current.running,
     lastAction: current.lastAction,
     actionHistory: [...current.actionHistory],
+    installArtifacts: {
+      files: [...current.installArtifacts.files],
+      updatedAt: current.installArtifacts.updatedAt,
+    },
+    configArtifacts: {
+      files: [...current.configArtifacts.files],
+      updatedAt: current.configArtifacts.updatedAt,
+    },
     runtime: {
       pid: current.runtime.pid,
       startedAt: current.runtime.startedAt,
@@ -49,6 +65,14 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
     running: nextState.running,
     lastAction: nextState.lastAction,
     actionHistory: [...nextState.actionHistory],
+    installArtifacts: {
+      files: [...nextState.installArtifacts.files],
+      updatedAt: nextState.installArtifacts.updatedAt,
+    },
+    configArtifacts: {
+      files: [...nextState.configArtifacts.files],
+      updatedAt: nextState.configArtifacts.updatedAt,
+    },
     runtime: {
       pid: nextState.runtime.pid,
       startedAt: nextState.runtime.startedAt,

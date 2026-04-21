@@ -365,8 +365,14 @@ test("startup rehydrates persisted lifecycle state from service .state files", a
 
   const statePaths = getServiceStatePaths(serviceRoot);
   await mkdir(statePaths.stateRoot, { recursive: true });
-  await writeFile(path.join(statePaths.stateRoot, "install.json"), JSON.stringify({ installed: true, lastAction: "install" }, null, 2));
-  await writeFile(path.join(statePaths.stateRoot, "config.json"), JSON.stringify({ configured: true, lastAction: "config" }, null, 2));
+  await writeFile(
+    path.join(statePaths.stateRoot, "install.json"),
+    JSON.stringify({ installed: true, lastAction: "install", files: ["runtime/install.txt"], updatedAt: "2026-04-20T00:00:00.000Z" }, null, 2),
+  );
+  await writeFile(
+    path.join(statePaths.stateRoot, "config.json"),
+    JSON.stringify({ configured: true, lastAction: "config", files: ["runtime/config.json"], updatedAt: "2026-04-20T00:01:00.000Z" }, null, 2),
+  );
   await writeFile(
     path.join(statePaths.stateRoot, "runtime.json"),
     JSON.stringify(
@@ -397,6 +403,8 @@ test("startup rehydrates persisted lifecycle state from service .state files", a
     assert.equal(detailBody.service.lifecycle.configured, true);
     assert.equal(detailBody.service.lifecycle.running, false);
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, ["install", "config", "start"]);
+    assert.deepEqual(detailBody.service.lifecycle.installArtifacts.files, ["runtime/install.txt"]);
+    assert.deepEqual(detailBody.service.lifecycle.configArtifacts.files, ["runtime/config.json"]);
     assert.equal(detailBody.service.lifecycle.runtime.pid, null);
     assert.equal(detailBody.service.lifecycle.runtime.command, "node runtime/fixture-service.mjs");
     assert.equal(runtimeResponse.status, 200);
