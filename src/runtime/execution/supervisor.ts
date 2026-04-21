@@ -1,13 +1,17 @@
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { buildServiceVariables } from "../operator/variables.js";
+import { getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 
 export interface ManagedProcessHandle {
   pid: number;
   startedAt: string;
   command: string;
+  logs: ServiceRuntimeLogPaths;
 }
 
 interface ManagedProcessRecord {
@@ -18,6 +22,14 @@ interface ManagedProcessRecord {
   stopping: boolean;
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
+  logs: ServiceRuntimeLogPaths;
+  logStreams: {
+    combined: WriteStream;
+    stdout: WriteStream;
+    stderr: WriteStream;
+  };
+  stdoutBuffer: string;
+  stderrBuffer: string;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
 }
 
@@ -35,6 +47,77 @@ interface StartProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
+
+async function prepareRuntimeLogStreams(serviceRoot: string): Promise<{
+  paths: ServiceRuntimeLogPaths;
+  streams: ManagedProcessRecord["logStreams"];
+}> {
+  const paths = getServiceRuntimeLogPaths(serviceRoot);
+  await mkdir(path.dirname(paths.logPath), { recursive: true });
+
+  return {
+    paths,
+    streams: {
+      combined: createWriteStream(paths.logPath, { flags: "w" }),
+      stdout: createWriteStream(paths.stdoutPath, { flags: "w" }),
+      stderr: createWriteStream(paths.stderrPath, { flags: "w" }),
+    },
+  };
+}
+
+async function closeWriteStream(stream: WriteStream): Promise<void> {
+  if (stream.closed) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    stream.end(() => resolve());
+  });
+}
+
+async function closeRuntimeLogStreams(streams: ManagedProcessRecord["logStreams"]): Promise<void> {
+  await Promise.all([closeWriteStream(streams.combined), closeWriteStream(streams.stdout), closeWriteStream(streams.stderr)]);
+}
+
+function writeCombinedLogEntry(stream: WriteStream, level: "stdout" | "stderr", message: string): void {
+  stream.write(`${JSON.stringify({ level, message })}\n`);
+}
+
+function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
+  const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
+    const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
+    const outputStream = level === "stdout" ? record.logStreams.stdout : record.logStreams.stderr;
+    const normalized = record[bufferKey].replace(/\r\n/g, "\n");
+    const parts = normalized.split("\n");
+    const remainder = flushRemainder ? "" : (parts.pop() ?? "");
+
+    for (const line of parts) {
+      outputStream.write(`${line}\n`);
+      writeCombinedLogEntry(record.logStreams.combined, level, line);
+    }
+
+    record[bufferKey] = remainder;
+  };
+
+  record.child.stdout?.setEncoding("utf8");
+  record.child.stderr?.setEncoding("utf8");
+
+  record.child.stdout?.on("data", (chunk: string) => {
+    record.stdoutBuffer += chunk;
+    flushBufferedLines("stdout");
+  });
+
+  record.child.stderr?.on("data", (chunk: string) => {
+    record.stderrBuffer += chunk;
+    flushBufferedLines("stderr");
+  });
+
+  record.exitPromise.finally(async () => {
+    flushBufferedLines("stdout", true);
+    flushBufferedLines("stderr", true);
+    await closeRuntimeLogStreams(record.logStreams);
+  });
+}
 
 function resolveExecutable(service: DiscoveredService, executionPlan: ProviderExecutionPlan): string {
   const executable = executionPlan.executable;
@@ -86,11 +169,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   const args = executionPlan.args;
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
+  const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot);
 
   const child = spawn(executable, args, {
     cwd: service.serviceRoot,
     env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts),
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
 
@@ -108,7 +192,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     child.once("error", reject);
   });
 
-  await spawnPromise;
+  try {
+    await spawnPromise;
+  } catch (error) {
+    await closeRuntimeLogStreams(logStreams);
+    throw error;
+  }
 
   const record: ManagedProcessRecord = {
     child,
@@ -118,10 +207,15 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     stopping: false,
     exitCode: null,
     exitSignal: null,
+    logs: logPaths,
+    logStreams,
+    stdoutBuffer: "",
+    stderrBuffer: "",
     exitPromise,
   };
 
   managedProcesses.set(serviceId, record);
+  attachRuntimeLogCapture(record);
 
   void exitPromise.then(async ({ exitCode, signal }) => {
     const current = managedProcesses.get(serviceId);
@@ -146,6 +240,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     pid: child.pid ?? 0,
     startedAt,
     command,
+    logs: logPaths,
   };
 }
 

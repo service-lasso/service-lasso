@@ -15,6 +15,11 @@ export interface ServiceRuntimeState {
   providerServiceId: string | null;
   lastTermination: "stopped" | "exited" | "crashed" | null;
   ports: Record<string, number>;
+  logs: {
+    logPath: string | null;
+    stdoutPath: string | null;
+    stderrPath: string | null;
+  };
 }
 
 export interface ServiceLifecycleState {

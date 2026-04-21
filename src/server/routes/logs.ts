@@ -1,8 +1,12 @@
+import type { ServiceLogEntryResponse } from "../../contracts/api.js";
+
 export interface ServiceLogsResponse {
   logs: {
     serviceId: string;
     logPath: string;
-    entries: { level: "info"; message: string }[];
+    stdoutPath: string;
+    stderrPath: string;
+    entries: ServiceLogEntryResponse[];
   };
 }
 
