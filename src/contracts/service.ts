@@ -15,6 +15,7 @@ export interface ServiceManifest {
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;
+  globalenv?: Record<string, string>;
   urls?: ServiceEndpoint[];
   execservice?: string;
   executable?: string;

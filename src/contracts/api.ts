@@ -42,6 +42,10 @@ export interface ServiceSummary {
   };
 }
 
+export interface GlobalEnvResponse {
+  globalenv: Record<string, string>;
+}
+
 export interface ServicesResponse {
   services: ServiceSummary[];
 }

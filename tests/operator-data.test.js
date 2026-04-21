@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { readFile, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { clearPersistedFixtureState } from "./test-helpers.js";
+import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
 
@@ -13,6 +14,19 @@ async function postJson(url) {
     status: response.status,
     body: await response.json(),
   };
+}
+
+async function waitFor(readinessCheck, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await readinessCheck();
+    if (result) {
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
 test("service detail includes richer operator metadata", async () => {
@@ -75,6 +89,98 @@ test("GET /api/services/:id/variables returns manifest and derived variables", a
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("GET /api/globalenv returns the merged bounded shared env map", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-globalenv-");
+  const apiServer = await (async () => {
+    await writeManifest(servicesRoot, "emitter-service", {
+      id: "emitter-service",
+      name: "Emitter Service",
+      description: "Emits shared env.",
+      env: {
+        ECHO_MESSAGE: "hello shared env",
+      },
+      globalenv: {
+        SHARED_MESSAGE: "${ECHO_MESSAGE}",
+      },
+    });
+
+    return startApiServer({ port: 0, servicesRoot });
+  })();
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/globalenv`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.globalenv, {
+      SHARED_MESSAGE: "hello shared env",
+    });
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("service variables include merged globalenv entries and managed processes receive them", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-globalenv-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "consumer-service", {
+    captureEnvKeys: ["SHARED_MESSAGE"],
+  });
+
+  await writeManifest(servicesRoot, "emitter-service", {
+    id: "emitter-service",
+    name: "Emitter Service",
+    description: "Emits shared env.",
+    env: {
+      ECHO_MESSAGE: "hello shared env",
+    },
+    globalenv: {
+      SHARED_MESSAGE: "${ECHO_MESSAGE}",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const variablesResponse = await fetch(`${apiServer.url}/api/services/consumer-service/variables`);
+    const variablesBody = await variablesResponse.json();
+
+    assert.equal(variablesResponse.status, 200);
+    assert.ok(
+      variablesBody.variables.variables.some(
+        (entry) => entry.key === "SHARED_MESSAGE" && entry.value === "hello shared env" && entry.scope === "global",
+      ),
+    );
+
+    await postJson(`${apiServer.url}/api/services/consumer-service/install`);
+    await postJson(`${apiServer.url}/api/services/consumer-service/config`);
+    await postJson(`${apiServer.url}/api/services/consumer-service/start`);
+
+    const envSnapshot = JSON.parse(
+      await waitFor(async () => {
+        try {
+          return await readFile(path.join(serviceRoot, "runtime", "env.json"), "utf8");
+        } catch (error) {
+          if ((error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+    assert.equal(envSnapshot.SHARED_MESSAGE, "hello shared env");
+
+    await postJson(`${apiServer.url}/api/services/consumer-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

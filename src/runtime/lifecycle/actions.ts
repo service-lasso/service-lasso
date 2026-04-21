@@ -2,6 +2,8 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import { startManagedProcess, stopManagedProcess } from "../execution/supervisor.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
+import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
+import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
@@ -84,7 +86,10 @@ export function configService(serviceId: string): LifecycleActionResult {
   }));
 }
 
-export async function startService(service: DiscoveredService): Promise<LifecycleActionResult> {
+export async function startService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
@@ -100,8 +105,10 @@ export async function startService(service: DiscoveredService): Promise<Lifecycl
     throw new LifecycleStateError(`Cannot start service "${serviceId}" because no executable is configured.`);
   }
 
+  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
   const handle = await startManagedProcess({
     service,
+    sharedGlobalEnv,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -121,7 +128,7 @@ export async function startService(service: DiscoveredService): Promise<Lifecycl
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service);
+  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     return applyState(
@@ -182,7 +189,10 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
   }));
 }
 
-export async function restartService(service: DiscoveredService): Promise<LifecycleActionResult> {
+export async function restartService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
@@ -199,8 +209,10 @@ export async function restartService(service: DiscoveredService): Promise<Lifecy
     await stopManagedProcess(serviceId);
   }
 
+  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
   const handle = await startManagedProcess({
     service,
+    sharedGlobalEnv,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -220,7 +232,7 @@ export async function restartService(service: DiscoveredService): Promise<Lifecy
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service);
+  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     return applyState(

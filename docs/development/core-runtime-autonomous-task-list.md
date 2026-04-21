@@ -65,7 +65,7 @@ Current honest label:
    - tests prove healthy and unhealthy cases
 
 3. readiness and wait-loop behavior
-   status: in progress
+   status: done
    proof:
    - start flow can wait for configured health readiness within bounded timeout/retry rules
    - tests prove success, timeout, and failure behavior
@@ -73,7 +73,7 @@ Current honest label:
 ### Wave 2: Shared environment and runtime negotiation
 
 4. `globalenv` propagation model
-   status: queued
+   status: in progress
    proof:
    - runtime can read emitted shared env data
    - runtime can surface merged shared env to dependent services or operator API
@@ -199,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**readiness and wait-loop behavior**
+**`globalenv` propagation model**
 
-That is the next smallest clean donor-parity step after bounded `variable`, and it turns the bounded health model into bounded startup-readiness proof.
+That is the next clean donor-parity step after readiness, and it starts moving Service Lasso from isolated service env handling toward bounded shared runtime env propagation.

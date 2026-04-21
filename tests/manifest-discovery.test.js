@@ -191,6 +191,37 @@ test("loadServiceManifest accepts donor-aligned readiness retry fields", async (
   }
 });
 
+test("loadServiceManifest accepts bounded globalenv emission maps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "emitter-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "emitter-service",
+        name: "Emitter Service",
+        description: "Service with bounded globalenv emission.",
+        env: {
+          ECHO_MESSAGE: "hello shared env",
+        },
+        globalenv: {
+          SHARED_MESSAGE: "${ECHO_MESSAGE}",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.globalenv, {
+      SHARED_MESSAGE: "${ECHO_MESSAGE}",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {

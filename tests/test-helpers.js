@@ -37,6 +37,10 @@ export async function writeExecutableFixtureService(
     healthcheck = { type: "process" },
     readyFileAfterMs = null,
     readyFileRelativePath = "./runtime/ready.txt",
+    captureEnvKeys = [],
+    captureEnvFileRelativePath = "./runtime/env.json",
+    env = {},
+    globalenv = {},
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -53,6 +57,10 @@ const exitCode = Number(process.env.FIXTURE_EXIT_CODE ?? "${exitCode}");
 const autoExitMs = Number(process.env.FIXTURE_AUTO_EXIT_MS ?? "${autoExitMs ?? ""}");
 const readyFileRelativePath = process.env.FIXTURE_READY_FILE ?? "";
 const readyFileDelayMs = Number(process.env.FIXTURE_READY_FILE_DELAY_MS ?? "");
+const captureEnvPath = process.env.FIXTURE_CAPTURE_ENV_FILE ?? "";
+const captureEnvKeys = process.env.FIXTURE_CAPTURE_ENV_KEYS
+  ? JSON.parse(process.env.FIXTURE_CAPTURE_ENV_KEYS)
+  : [];
 
 function shutdown() {
   clearInterval(heartbeat);
@@ -65,8 +73,19 @@ async function writeReadyFile() {
   await writeFile(targetPath, "ready");
 }
 
+async function writeEnvSnapshot() {
+  const targetPath = path.resolve(process.cwd(), captureEnvPath);
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  const payload = Object.fromEntries(captureEnvKeys.map((key) => [key, process.env[key] ?? null]));
+  await writeFile(targetPath, JSON.stringify(payload, null, 2));
+}
+
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+if (captureEnvPath && Array.isArray(captureEnvKeys) && captureEnvKeys.length > 0) {
+  void writeEnvSnapshot();
+}
 
 if (readyFileRelativePath && Number.isFinite(readyFileDelayMs) && readyFileDelayMs >= 0) {
   setTimeout(() => {
@@ -91,6 +110,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     args: [path.relative(serviceRoot, scriptPath)],
     env: {
       FIXTURE_EXIT_CODE: String(exitCode),
+      ...env,
       ...(autoExitMs !== null ? { FIXTURE_AUTO_EXIT_MS: String(autoExitMs) } : {}),
       ...(readyFileAfterMs !== null
         ? {
@@ -98,7 +118,14 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
             FIXTURE_READY_FILE_DELAY_MS: String(readyFileAfterMs),
           }
         : {}),
+      ...(captureEnvKeys.length > 0
+        ? {
+            FIXTURE_CAPTURE_ENV_FILE: captureEnvFileRelativePath,
+            FIXTURE_CAPTURE_ENV_KEYS: JSON.stringify(captureEnvKeys),
+          }
+        : {}),
     },
+    globalenv,
     healthcheck,
   });
 
