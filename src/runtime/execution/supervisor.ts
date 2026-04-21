@@ -1,6 +1,7 @@
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { buildServiceVariables } from "../operator/variables.js";
 
 export interface ManagedProcessHandle {
   pid: number;
@@ -21,6 +22,7 @@ interface ManagedProcessRecord {
 
 interface StartProcessOptions {
   service: DiscoveredService;
+  sharedGlobalEnv?: Record<string, string>;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
@@ -48,13 +50,17 @@ function buildCommandString(executable: string, args: string[]): string {
   return [executable, ...args].join(" ");
 }
 
-function buildProcessEnvironment(service: DiscoveredService): NodeJS.ProcessEnv {
+function buildProcessEnvironment(
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+): NodeJS.ProcessEnv {
+  const serviceVariables = Object.fromEntries(
+    buildServiceVariables(service, sharedGlobalEnv).variables.map((entry) => [entry.key, entry.value]),
+  );
+
   return {
     ...process.env,
-    ...service.manifest.env,
-    SERVICE_ID: service.manifest.id,
-    SERVICE_ROOT: service.serviceRoot,
-    SERVICE_STATE_ROOT: path.join(service.serviceRoot, ".state"),
+    ...serviceVariables,
   };
 }
 
@@ -63,7 +69,7 @@ export function hasManagedProcess(serviceId: string): boolean {
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
-  const { service, onExit } = options;
+  const { service, sharedGlobalEnv, onExit } = options;
   const serviceId = service.manifest.id;
 
   if (managedProcesses.has(serviceId)) {
@@ -77,7 +83,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const child = spawn(executable, args, {
     cwd: service.serviceRoot,
-    env: buildProcessEnvironment(service),
+    env: buildProcessEnvironment(service, sharedGlobalEnv),
     stdio: "ignore",
     windowsHide: true,
   });

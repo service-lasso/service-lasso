@@ -5,6 +5,7 @@ import type { ServiceHealthResult, VariableHealthcheck } from "./types.js";
 export async function checkVariableHealth(
   healthcheck: VariableHealthcheck,
   service?: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
 ): Promise<ServiceHealthResult> {
   if (!service) {
     return {
@@ -14,7 +15,7 @@ export async function checkVariableHealth(
     };
   }
 
-  const entry = resolveServiceVariable(service, healthcheck.variable);
+  const entry = resolveServiceVariable(service, healthcheck.variable, sharedGlobalEnv);
   if (!entry || entry.value.trim().length === 0) {
     return {
       type: "variable",

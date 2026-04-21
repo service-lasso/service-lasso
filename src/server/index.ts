@@ -8,6 +8,7 @@ import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
+import { createGlobalEnvResponse } from "./routes/globalenv.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -22,7 +23,7 @@ import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
 import { buildServiceLogs } from "../runtime/operator/logs.js";
-import { buildServiceVariables } from "../runtime/operator/variables.js";
+import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
@@ -75,12 +76,13 @@ async function createServiceSummary(
   service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
   graph: DependencyGraph,
   registry: Awaited<ReturnType<typeof loadRuntimeModel>>["registry"],
+  sharedGlobalEnv: Record<string, string>,
 ): Promise<ServiceSummary> {
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const lifecycle = getLifecycleState(service.manifest.id);
-  const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service);
+  const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
   const logs = buildServiceLogs(service, lifecycle);
-  const variables = buildServiceVariables(service);
+  const variables = buildServiceVariables(service, sharedGlobalEnv);
   const network = buildServiceNetwork(service);
   const provider = resolveProviderExecution(service, registry);
 
@@ -120,6 +122,7 @@ async function executeLifecycleAction(
   registry: Awaited<ReturnType<typeof loadRuntimeModel>>["registry"],
 ): Promise<LifecycleActionResponse> {
   const serviceId = service.manifest.id;
+  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const result = await (async () => {
     switch (action) {
       case "install":
@@ -127,18 +130,18 @@ async function executeLifecycleAction(
       case "config":
         return configService(serviceId);
       case "start":
-        return await startService(service);
+        return await startService(service, registry);
       case "stop":
         return await stopService(service);
       case "restart":
-        return await restartService(service);
+        return await restartService(service, registry);
       default:
         throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
     }
   })();
 
   const persisted = await writeServiceState(service, result.state);
-  const health = await evaluateServiceHealth(service.manifest, result.state, service.serviceRoot, service);
+  const health = await evaluateServiceHealth(service.manifest, result.state, service.serviceRoot, service, sharedGlobalEnv);
   const provider = resolveProviderExecution(service, registry);
 
   return {
@@ -167,8 +170,11 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/services") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
     const services = await Promise.all(
-      runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph, runtimeModel.registry)),
+      runtimeModel.discovered.map((service) =>
+        createServiceSummary(service, runtimeModel.graph, runtimeModel.registry, sharedGlobalEnv),
+      ),
     );
     writeJson(response, 200, createServicesResponse(services));
     return;
@@ -177,6 +183,7 @@ async function routeRequest(
   if (url.pathname.startsWith("/api/services/")) {
     const pathParts = url.pathname.split("/").filter(Boolean);
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
     const serviceId = decodeURIComponent(pathParts[2] ?? "");
     const service = runtimeModel.registry.getById(serviceId);
 
@@ -187,7 +194,7 @@ async function routeRequest(
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "health") {
       const lifecycle = getLifecycleState(serviceId);
-      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service);
+      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
       writeJson(response, 200, createServiceHealthResponse(serviceId, health));
       return;
     }
@@ -198,7 +205,7 @@ async function routeRequest(
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "variables") {
-      writeJson(response, 200, createServiceVariablesResponse(buildServiceVariables(service)));
+      writeJson(response, 200, createServiceVariablesResponse(buildServiceVariables(service, sharedGlobalEnv)));
       return;
     }
 
@@ -211,7 +218,9 @@ async function routeRequest(
       writeJson(
         response,
         200,
-        createServiceDetailResponse(await createServiceSummary(service, runtimeModel.graph, runtimeModel.registry)),
+        createServiceDetailResponse(
+          await createServiceSummary(service, runtimeModel.graph, runtimeModel.registry, sharedGlobalEnv),
+        ),
       );
       return;
     }
@@ -225,8 +234,11 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/runtime") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
     const serviceSummaries = await Promise.all(
-      runtimeModel.discovered.map((service) => createServiceSummary(service, runtimeModel.graph, runtimeModel.registry)),
+      runtimeModel.discovered.map((service) =>
+        createServiceSummary(service, runtimeModel.graph, runtimeModel.registry, sharedGlobalEnv),
+      ),
     );
     const runningServices = serviceSummaries.filter((service) => service.lifecycle?.running).length;
     const healthyServices = serviceSummaries.filter((service) => service.health?.healthy).length;
@@ -262,8 +274,15 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/variables") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    const payload = runtimeModel.discovered.map((service) => buildServiceVariables(service));
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const payload = runtimeModel.discovered.map((service) => buildServiceVariables(service, sharedGlobalEnv));
     writeJson(response, 200, { services: payload });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/globalenv") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, createGlobalEnvResponse(collectRuntimeGlobalEnv(runtimeModel.registry.list())));
     return;
   }
 

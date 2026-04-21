@@ -114,6 +114,17 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"env\" to be a string map.`);
   }
 
+  const rawGlobalEnv = record.globalenv;
+  if (
+    rawGlobalEnv !== undefined &&
+    (!rawGlobalEnv ||
+      typeof rawGlobalEnv !== "object" ||
+      Array.isArray(rawGlobalEnv) ||
+      Object.values(rawGlobalEnv).some((value) => typeof value !== "string"))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"globalenv\" to be a string map.`);
+  }
+
   const rawExecservice = record.execservice;
   if (rawExecservice !== undefined && (typeof rawExecservice !== "string" || rawExecservice.trim().length === 0)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"execservice\" to be a non-empty string.`);
@@ -157,6 +168,9 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
     env: rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined,
+    globalenv: rawGlobalEnv
+      ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
+      : undefined,
     urls: rawUrls?.map((entry) => ({
       label: (entry as Record<string, string>).label.trim(),
       url: (entry as Record<string, string>).url.trim(),

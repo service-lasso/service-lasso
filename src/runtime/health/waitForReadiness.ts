@@ -42,13 +42,17 @@ function resolveReadinessOptions(healthcheck?: ServiceHealthcheck): {
   };
 }
 
-export async function waitForServiceReadiness(service: DiscoveredService): Promise<ReadinessWaitResult> {
+export async function waitForServiceReadiness(
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+): Promise<ReadinessWaitResult> {
   const { enabled, attempts, intervalMs, startPeriodMs } = resolveReadinessOptions(service.manifest.healthcheck);
   let lastHealth = await evaluateServiceHealth(
     service.manifest,
     getLifecycleState(service.manifest.id),
     service.serviceRoot,
     service,
+    sharedGlobalEnv,
   );
 
   if (!enabled) {
@@ -71,6 +75,7 @@ export async function waitForServiceReadiness(service: DiscoveredService): Promi
       getLifecycleState(service.manifest.id),
       service.serviceRoot,
       service,
+      sharedGlobalEnv,
     );
 
     if (lastHealth.healthy) {

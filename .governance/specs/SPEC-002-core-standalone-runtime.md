@@ -31,6 +31,7 @@ Explicitly out of scope for this spec:
 - `AC-4B`: The runtime includes one bounded real execution/supervision path that can start, observe, stop, and persist runtime state for a directly executable service definition.
 - `AC-4C`: The runtime broadens bounded health support beyond `process` and `http` by directly accepting and evaluating at least one additional donor-aligned manifest health type with runnable verification evidence.
 - `AC-4D`: The runtime can optionally wait for bounded startup readiness using donor-aligned health retry fields so start/restart flows can distinguish "process launched" from "service became ready".
+- `AC-4E`: The runtime supports a bounded manifest-driven `globalenv` propagation model so services can emit shared env values, the runtime can merge them deterministically, and operator/API surfaces can expose the merged shared env.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -42,6 +43,7 @@ Required evidence for this spec:
 - direct proof that the bounded execution supervisor can start and stop a real process while persisting runtime state updates
 - direct proof that at least one additional donor-aligned manifest health type can be parsed and evaluated successfully by the runtime
 - direct proof that configured readiness wait loops can succeed and time out deterministically during bounded start behavior
+- direct proof that bounded manifest-driven `globalenv` values can be merged and injected into dependent service execution/runtime API output
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

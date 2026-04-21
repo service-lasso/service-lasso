@@ -13,6 +13,7 @@ export async function evaluateServiceHealth(
   lifecycle: ServiceLifecycleState,
   serviceRoot?: string,
   service?: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
 ): Promise<ServiceHealthResult> {
   const healthcheck = manifest.healthcheck;
 
@@ -33,7 +34,7 @@ export async function evaluateServiceHealth(
   }
 
   if (healthcheck.type === "variable") {
-    return checkVariableHealth(healthcheck, service);
+    return checkVariableHealth(healthcheck, service, sharedGlobalEnv);
   }
 
   return {
