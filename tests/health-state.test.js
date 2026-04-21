@@ -264,6 +264,71 @@ test("file healthcheck lifecycle actions stay 200 when the file is unavailable",
   }
 });
 
+test("GET /api/services/:id/health supports bounded variable healthchecks", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  await writeManifest(servicesRoot, "variable-service", {
+    id: "variable-service",
+    name: "Variable Service",
+    description: "Temporary service for variable health proof.",
+    env: {
+      ECHO_MESSAGE: "hello from variable health",
+    },
+    healthcheck: {
+      type: "variable",
+      variable: "${ECHO_MESSAGE}",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/variable-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "variable-service");
+    assert.equal(body.health.type, "variable");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /resolved ECHO_MESSAGE/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("variable healthcheck lifecycle actions stay 200 when the variable is unavailable", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  await writeExecutableFixtureService(servicesRoot, "variable-health-fixture", {
+    healthcheck: {
+      type: "variable",
+      variable: "${MISSING_VALUE}",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/variable-health-fixture/install`);
+    const config = await postJson(`${apiServer.url}/api/services/variable-health-fixture/config`);
+    const start = await postJson(`${apiServer.url}/api/services/variable-health-fixture/start`);
+    const stop = await postJson(`${apiServer.url}/api/services/variable-health-fixture/stop`);
+
+    for (const response of [install, config, start, stop]) {
+      assert.equal(response.status, 200);
+      assert.equal(response.body.health.type, "variable");
+      assert.equal(response.body.health.healthy, false);
+      assert.match(response.body.health.detail, /did not resolve expected variable/i);
+    }
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
 test("runtime summary reports healthy services", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();

@@ -43,3 +43,14 @@ export function buildServiceVariables(service: DiscoveredService): ServiceVariab
     variables: [...manifestVariables, ...derivedVariables],
   };
 }
+
+function normalizeVariableSelector(selector: string): string {
+  const trimmed = selector.trim();
+  const match = trimmed.match(/^\$\{(.+)\}$/);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+export function resolveServiceVariable(service: DiscoveredService, selector: string): ServiceVariableEntry | undefined {
+  const key = normalizeVariableSelector(selector);
+  return buildServiceVariables(service).variables.find((entry) => entry.key === key);
+}

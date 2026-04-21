@@ -78,7 +78,7 @@ async function createServiceSummary(
 ): Promise<ServiceSummary> {
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const lifecycle = getLifecycleState(service.manifest.id);
-  const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot);
+  const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service);
   const logs = buildServiceLogs(service, lifecycle);
   const variables = buildServiceVariables(service);
   const network = buildServiceNetwork(service);
@@ -138,7 +138,7 @@ async function executeLifecycleAction(
   })();
 
   const persisted = await writeServiceState(service, result.state);
-  const health = await evaluateServiceHealth(service.manifest, result.state, service.serviceRoot);
+  const health = await evaluateServiceHealth(service.manifest, result.state, service.serviceRoot, service);
   const provider = resolveProviderExecution(service, registry);
 
   return {
@@ -187,7 +187,7 @@ async function routeRequest(
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "health") {
       const lifecycle = getLifecycleState(serviceId);
-      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot);
+      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service);
       writeJson(response, 200, createServiceHealthResponse(serviceId, health));
       return;
     }

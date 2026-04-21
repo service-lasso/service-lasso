@@ -248,8 +248,8 @@ Major donor runtime behavior still remains to be migrated more fully, including:
 
 Important current boundary:
 - the sibling `lasso-echoservice` harness can already simulate HTTP and TCP health targets for testing and demo hardening
-- `service-lasso` runtime itself now implements bounded manifest health evaluation for `process`, `http`, `tcp`, and `file`
-- broader donor-health migration work still remains for types such as `variable` plus readiness-loop behavior
+- `service-lasso` runtime itself now implements bounded manifest health evaluation for `process`, `http`, `tcp`, `file`, and `variable`
+- broader donor-health migration work still remains for readiness-loop behavior on top of those bounded checks
 
 Again, that is why the repo should be read as:
 

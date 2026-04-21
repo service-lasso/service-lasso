@@ -28,6 +28,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-018` | `done` | Turn `echo-service` into a runnable Go harness fixture | `SPEC-002`, `AC-4A` | Landed with a Go-based sample service exposing UI and API actions plus log/state/SQLite persistence surfaces. |
 | `ISS-019` | `done` | Broaden bounded runtime health support with donor-aligned manifest types | `SPEC-002`, `AC-4C` | Landed the first broader health slice with bounded `tcp` manifest-health support plus automated and released-harness verification. |
 | `ISS-020` | `done` | Add bounded `file` manifest-health support | `SPEC-002`, `AC-4C` | Landed bounded file-based readiness checks with automated tests and released Echo Service file proof. |
+| `ISS-021` | `done` | Add bounded `variable` manifest-health support | `SPEC-002`, `AC-4C` | Landed bounded variable-presence checks with automated tests and released Echo Service variable proof. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -52,6 +53,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-018` | `done` | `ISS-018` | Implement the `echo-service` Go harness fixture with UI, API, and persistence behaviors | `SPEC-002`, `AC-4A` | `echo-service` now builds and runs as a Go harness with action endpoints, browser UI, logs, state snapshots, and SQLite writes |
 | `TASK-019` | `done` | `ISS-019` | Implement bounded `tcp` manifest-health support with direct tests | `SPEC-002`, `AC-4C` | Runtime accepts `healthcheck.type = tcp`, reports healthy/unhealthy results deterministically, and has direct verification coverage including released Echo Service TCP-port proof |
 | `TASK-020` | `done` | `ISS-020` | Implement bounded `file` manifest-health support with direct tests | `SPEC-002`, `AC-4C` | Runtime accepts `healthcheck.type = file`, reports healthy/unhealthy results deterministically, and has direct verification coverage including released Echo Service file proof |
+| `TASK-021` | `done` | `ISS-021` | Implement bounded `variable` manifest-health support with direct tests | `SPEC-002`, `AC-4C` | Runtime accepts `healthcheck.type = variable`, reports healthy/unhealthy results deterministically, and has direct verification coverage including released Echo Service variable proof |
 
 ## Next Recommended Item
-The next best item is the next bounded donor-health slice after `TASK-020`: add `variable` manifest-health support with deterministic evaluation and direct Echo Service-backed verification.
+The next best item is the next donor-health slice after `TASK-021`: add readiness and wait-loop behavior so the runtime can turn bounded health checks into bounded startup readiness proof.
