@@ -41,6 +41,7 @@ export async function writeExecutableFixtureService(
     captureEnvFileRelativePath = "./runtime/env.json",
     env = {},
     globalenv = {},
+    ports = undefined,
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -126,6 +127,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         : {}),
     },
     globalenv,
+    ports,
     healthcheck,
   });
 

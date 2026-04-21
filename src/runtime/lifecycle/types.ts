@@ -5,6 +5,7 @@ export interface ServiceRuntimeState {
   startedAt: string | null;
   exitCode: number | null;
   command: string | null;
+  ports: Record<string, number>;
 }
 
 export interface ServiceLifecycleState {

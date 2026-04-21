@@ -73,14 +73,14 @@ Current honest label:
 ### Wave 2: Shared environment and runtime negotiation
 
 4. `globalenv` propagation model
-   status: in progress
+   status: done
    proof:
    - runtime can read emitted shared env data
    - runtime can surface merged shared env to dependent services or operator API
    - Echo Service and at least one dependent fixture prove the flow
 
 5. runtime-owned port negotiation
-   status: queued
+   status: in progress
    proof:
    - runtime can reserve or resolve service ports
    - collisions are detected deterministically
@@ -199,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**`globalenv` propagation model**
+**runtime-owned port negotiation**
 
-That is the next clean donor-parity step after readiness, and it starts moving Service Lasso from isolated service env handling toward bounded shared runtime env propagation.
+That is the next clean donor-parity step after bounded shared env, and it starts moving Service Lasso from manifest-only endpoint descriptions toward runtime-assigned network behavior.

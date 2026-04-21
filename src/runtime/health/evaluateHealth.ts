@@ -34,7 +34,12 @@ export async function evaluateServiceHealth(
   }
 
   if (healthcheck.type === "variable") {
-    return checkVariableHealth(healthcheck, service, sharedGlobalEnv);
+    return checkVariableHealth(
+      healthcheck,
+      service,
+      sharedGlobalEnv,
+      Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : manifest.ports ?? {},
+    );
   }
 
   return {

@@ -4,6 +4,7 @@ import { startManagedProcess, stopManagedProcess } from "../execution/supervisor
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
+import { negotiateServicePorts } from "../ports/negotiate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
@@ -71,16 +72,26 @@ export function installService(serviceId: string): LifecycleActionResult {
   }));
 }
 
-export function configService(serviceId: string): LifecycleActionResult {
+export async function configService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+): Promise<LifecycleActionResult> {
+  const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
     throw new LifecycleStateError(`Cannot config service "${serviceId}" before install.`);
   }
 
+  const resolvedPorts = registry ? await negotiateServicePorts(service, registry.list()) : current.runtime.ports;
+
   return applyState(serviceId, "config", (state) => ({
     nextState: {
       ...state,
       configured: true,
+      runtime: {
+        ...state.runtime,
+        ports: resolvedPorts,
+      },
     },
     message: "Config completed.",
   }));
@@ -106,9 +117,15 @@ export async function startService(
   }
 
   const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const resolvedPorts = Object.keys(current.runtime.ports).length > 0
+    ? current.runtime.ports
+    : registry
+      ? await negotiateServicePorts(service, registry.list())
+      : {};
   const handle = await startManagedProcess({
     service,
     sharedGlobalEnv,
+    resolvedPorts,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -125,6 +142,7 @@ export async function startService(
       startedAt: handle.startedAt,
       exitCode: null,
       command: handle.command,
+      ports: resolvedPorts,
     },
   }));
 
@@ -210,9 +228,15 @@ export async function restartService(
   }
 
   const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const resolvedPorts = Object.keys(current.runtime.ports).length > 0
+    ? current.runtime.ports
+    : registry
+      ? await negotiateServicePorts(service, registry.list())
+      : {};
   const handle = await startManagedProcess({
     service,
     sharedGlobalEnv,
+    resolvedPorts,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -229,6 +253,7 @@ export async function restartService(
       startedAt: handle.startedAt,
       exitCode: null,
       command: handle.command,
+      ports: resolvedPorts,
     },
   }));
 

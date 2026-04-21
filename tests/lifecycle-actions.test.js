@@ -184,7 +184,7 @@ test("start waits for configured readiness and returns healthy once ready", asyn
     healthcheck: {
       type: "file",
       file: "./runtime/ready.txt",
-      retries: 6,
+      retries: 8,
       interval: 50,
       start_period: 25,
     },

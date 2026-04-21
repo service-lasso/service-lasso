@@ -14,6 +14,7 @@ function createInitialState(): ServiceLifecycleState {
       startedAt: null,
       exitCode: null,
       command: null,
+      ports: {},
     },
   };
 }
@@ -36,6 +37,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       startedAt: current.runtime.startedAt,
       exitCode: current.runtime.exitCode,
       command: current.runtime.command,
+      ports: { ...current.runtime.ports },
     },
   };
 }
@@ -52,6 +54,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       startedAt: nextState.runtime.startedAt,
       exitCode: nextState.runtime.exitCode,
       command: nextState.runtime.command,
+      ports: { ...nextState.runtime.ports },
     },
   };
 

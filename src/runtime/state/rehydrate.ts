@@ -17,6 +17,7 @@ interface StoredRuntimeState {
   startedAt?: string | null;
   exitCode?: number | null;
   command?: string | null;
+  ports?: Record<string, number>;
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
 }
@@ -57,6 +58,14 @@ function parseLifecycleState(snapshot: {
       startedAt: typeof runtime?.startedAt === "string" ? runtime.startedAt : null,
       exitCode: typeof runtime?.exitCode === "number" ? runtime.exitCode : null,
       command: typeof runtime?.command === "string" ? runtime.command : null,
+      ports:
+        runtime?.ports && typeof runtime.ports === "object" && !Array.isArray(runtime.ports)
+          ? Object.fromEntries(
+              Object.entries(runtime.ports).filter(
+                ([, value]) => typeof value === "number" && Number.isInteger(value) && value > 0,
+              ),
+            )
+          : {},
     },
   };
 }

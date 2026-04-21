@@ -6,6 +6,7 @@ export async function checkVariableHealth(
   healthcheck: VariableHealthcheck,
   service?: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = service?.manifest.ports ?? {},
 ): Promise<ServiceHealthResult> {
   if (!service) {
     return {
@@ -15,7 +16,7 @@ export async function checkVariableHealth(
     };
   }
 
-  const entry = resolveServiceVariable(service, healthcheck.variable, sharedGlobalEnv);
+  const entry = resolveServiceVariable(service, healthcheck.variable, sharedGlobalEnv, resolvedPorts);
   if (!entry || entry.value.trim().length === 0) {
     return {
       type: "variable",

@@ -8,10 +8,13 @@
   "execservice": "@node",
   "executable": "node",
   "args": ["runtime/server.js"],
+  "ports": {
+    "service": 4020
+  },
   "urls": [
     {
       "label": "service",
-      "url": "http://127.0.0.1:4020",
+      "url": "http://127.0.0.1:${SERVICE_PORT}",
       "kind": "local"
     }
   ],

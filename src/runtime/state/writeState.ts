@@ -61,6 +61,7 @@ export async function writeServiceState(
           startedAt: lifecycle.runtime.startedAt,
           exitCode: lifecycle.runtime.exitCode,
           command: lifecycle.runtime.command,
+          ports: lifecycle.runtime.ports,
           lastAction: lifecycle.lastAction,
           actionHistory: lifecycle.actionHistory,
         },

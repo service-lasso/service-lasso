@@ -80,10 +80,11 @@ async function createServiceSummary(
 ): Promise<ServiceSummary> {
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const lifecycle = getLifecycleState(service.manifest.id);
+  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
   const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
   const logs = buildServiceLogs(service, lifecycle);
-  const variables = buildServiceVariables(service, sharedGlobalEnv);
-  const network = buildServiceNetwork(service);
+  const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
+  const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
   const provider = resolveProviderExecution(service, registry);
 
   return {
@@ -128,7 +129,7 @@ async function executeLifecycleAction(
       case "install":
         return installService(serviceId);
       case "config":
-        return configService(serviceId);
+        return await configService(service, registry);
       case "start":
         return await startService(service, registry);
       case "stop":
@@ -205,12 +206,24 @@ async function routeRequest(
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "variables") {
-      writeJson(response, 200, createServiceVariablesResponse(buildServiceVariables(service, sharedGlobalEnv)));
+      const lifecycle = getLifecycleState(serviceId);
+      const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
+      writeJson(
+        response,
+        200,
+        createServiceVariablesResponse(buildServiceVariables(service, sharedGlobalEnv, resolvedPorts)),
+      );
       return;
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "network") {
-      writeJson(response, 200, createServiceNetworkResponse(buildServiceNetwork(service)));
+      const lifecycle = getLifecycleState(serviceId);
+      const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
+      writeJson(
+        response,
+        200,
+        createServiceNetworkResponse(buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts)),
+      );
       return;
     }
 
@@ -275,7 +288,15 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/variables") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
-    const payload = runtimeModel.discovered.map((service) => buildServiceVariables(service, sharedGlobalEnv));
+    const payload = runtimeModel.discovered.map((service) =>
+      buildServiceVariables(
+        service,
+        sharedGlobalEnv,
+        Object.keys(getLifecycleState(service.manifest.id).runtime.ports).length > 0
+          ? getLifecycleState(service.manifest.id).runtime.ports
+          : service.manifest.ports ?? {},
+      ),
+    );
     writeJson(response, 200, { services: payload });
     return;
   }
@@ -288,7 +309,16 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/network") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    const payload = runtimeModel.discovered.map((service) => buildServiceNetwork(service));
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const payload = runtimeModel.discovered.map((service) =>
+      buildServiceNetwork(
+        service,
+        sharedGlobalEnv,
+        Object.keys(getLifecycleState(service.manifest.id).runtime.ports).length > 0
+          ? getLifecycleState(service.manifest.id).runtime.ports
+          : service.manifest.ports ?? {},
+      ),
+    );
     writeJson(response, 200, { services: payload });
     return;
   }

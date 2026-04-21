@@ -30,7 +30,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-020` | `done` | Add bounded `file` manifest-health support | `SPEC-002`, `AC-4C` | Landed bounded file-based readiness checks with automated tests and released Echo Service file proof. |
 | `ISS-021` | `done` | Add bounded `variable` manifest-health support | `SPEC-002`, `AC-4C` | Landed bounded variable-presence checks with automated tests and released Echo Service variable proof. |
 | `ISS-022` | `done` | Add bounded readiness wait-loop behavior for startup health | `SPEC-002`, `AC-4D` | Landed bounded readiness waiting with donor-aligned retry fields, deterministic ready/not-ready outcomes, and automated start/restart verification. |
-| `ISS-023` | `in_progress` | Add bounded manifest-driven globalenv propagation | `SPEC-002`, `AC-4E` | In progress: merge manifest `globalenv` deterministically, expose it through the API, and inject it into managed service execution. |
+| `ISS-023` | `done` | Add bounded manifest-driven globalenv propagation | `SPEC-002`, `AC-4E` | Landed bounded manifest-driven shared env merging, API exposure, and managed-process env injection. |
+| `ISS-024` | `in_progress` | Add bounded runtime-owned port negotiation | `SPEC-002`, `AC-4F` | In progress: negotiate declared ports during config/start, resolve collisions deterministically, and expose assigned ports through network/operator surfaces. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -57,7 +58,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-020` | `done` | `ISS-020` | Implement bounded `file` manifest-health support with direct tests | `SPEC-002`, `AC-4C` | Runtime accepts `healthcheck.type = file`, reports healthy/unhealthy results deterministically, and has direct verification coverage including released Echo Service file proof |
 | `TASK-021` | `done` | `ISS-021` | Implement bounded `variable` manifest-health support with direct tests | `SPEC-002`, `AC-4C` | Runtime accepts `healthcheck.type = variable`, reports healthy/unhealthy results deterministically, and has direct verification coverage including released Echo Service variable proof |
 | `TASK-022` | `done` | `ISS-022` | Implement bounded readiness wait loops for start/restart flows | `SPEC-002`, `AC-4D` | Start/restart can wait on donor-aligned health retries, succeed when readiness becomes healthy, and fail deterministically when the readiness window expires |
-| `TASK-023` | `in_progress` | `ISS-023` | Implement bounded manifest-driven globalenv merging and API/runtime propagation | `SPEC-002`, `AC-4E` | Runtime accepts manifest `globalenv`, merges it deterministically, exposes the merged map through the API, and injects shared env into managed service execution |
+| `TASK-023` | `done` | `ISS-023` | Implement bounded manifest-driven globalenv merging and API/runtime propagation | `SPEC-002`, `AC-4E` | Runtime accepts manifest `globalenv`, merges it deterministically, exposes the merged map through the API, and injects shared env into managed service execution |
+| `TASK-024` | `in_progress` | `ISS-024` | Implement bounded runtime-owned port negotiation and network resolution | `SPEC-002`, `AC-4F` | Runtime accepts manifest port declarations, assigns ports during config/start with deterministic collision handling, and exposes assigned ports plus resolved URLs through the API |
 
 ## Next Recommended Item
-The next best item is `TASK-023`: add bounded manifest-driven `globalenv` propagation so the runtime can move from isolated env handling toward donor-style shared runtime env behavior.
+The next best item is `TASK-024`: add bounded runtime-owned port negotiation so Service Lasso can move from manifest-only URL surfaces toward managed assigned-port behavior.

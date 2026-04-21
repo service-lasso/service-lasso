@@ -195,12 +195,150 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
 
     assert.equal(response.status, 200);
     assert.equal(body.network.serviceId, "echo-service");
+    assert.equal(body.network.ports.service, 4010);
     assert.ok(body.network.endpoints.some((entry) => entry.label === "service"));
     assert.ok(body.network.endpoints.some((entry) => entry.label === "ui"));
+    assert.ok(body.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:4010/health"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("config negotiates colliding ports deterministically and surfaces resolved network endpoints", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-ports-");
+
+  await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+    ports: { service: 43100 },
+    env: { ECHO_PORT: "${SERVICE_PORT}" },
+    urls: undefined,
+  });
+
+  await writeManifest(servicesRoot, "alpha-service", {
+    id: "alpha-service",
+    name: "Alpha Service",
+    description: "First service claiming a port.",
+    executable: process.execPath,
+    args: ["runtime/fixture-service.mjs"],
+    env: {
+      FIXTURE_EXIT_CODE: "0",
+      ECHO_PORT: "${SERVICE_PORT}",
+    },
+    ports: {
+      service: 43100,
+    },
+    urls: [
+      {
+        label: "service",
+        url: "http://127.0.0.1:${SERVICE_PORT}/health",
+      },
+    ],
+    healthcheck: { type: "process" },
+  });
+
+  await writeExecutableFixtureService(servicesRoot, "beta-service", {
+    ports: { service: 43100 },
+    env: { ECHO_PORT: "${SERVICE_PORT}" },
+  });
+  await writeManifest(servicesRoot, "beta-service", {
+    id: "beta-service",
+    name: "Beta Service",
+    description: "Second service colliding on the same preferred port.",
+    executable: process.execPath,
+    args: ["runtime/fixture-service.mjs"],
+    env: {
+      FIXTURE_EXIT_CODE: "0",
+      ECHO_PORT: "${SERVICE_PORT}",
+    },
+    ports: {
+      service: 43100,
+    },
+    urls: [
+      {
+        label: "service",
+        url: "http://127.0.0.1:${SERVICE_PORT}/health",
+      },
+    ],
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/alpha-service/install`);
+    await postJson(`${apiServer.url}/api/services/beta-service/install`);
+
+    const alphaConfig = await postJson(`${apiServer.url}/api/services/alpha-service/config`);
+    const betaConfig = await postJson(`${apiServer.url}/api/services/beta-service/config`);
+
+    assert.equal(alphaConfig.status, 200);
+    assert.equal(betaConfig.status, 200);
+    assert.equal(alphaConfig.body.state.runtime.ports.service, 43100);
+    assert.equal(betaConfig.body.state.runtime.ports.service > 43100, true);
+
+    const alphaNetwork = await fetch(`${apiServer.url}/api/services/alpha-service/network`);
+    const alphaBody = await alphaNetwork.json();
+    const betaNetwork = await fetch(`${apiServer.url}/api/services/beta-service/network`);
+    const betaBody = await betaNetwork.json();
+
+    assert.equal(alphaBody.network.ports.service, 43100);
+    assert.equal(betaBody.network.ports.service > 43100, true);
+    assert.ok(alphaBody.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:43100/health"));
+    assert.ok(
+      betaBody.network.endpoints.some(
+        (entry) => entry.url === `http://127.0.0.1:${betaBody.network.ports.service}/health`,
+      ),
+    );
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed processes receive negotiated port env values", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-ports-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "port-env-service", {
+    captureEnvKeys: ["SERVICE_PORT", "ECHO_PORT"],
+    env: {
+      ECHO_PORT: "${SERVICE_PORT}",
+    },
+    ports: {
+      service: 43120,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/port-env-service/install`);
+    const config = await postJson(`${apiServer.url}/api/services/port-env-service/config`);
+    await postJson(`${apiServer.url}/api/services/port-env-service/start`);
+
+    const envSnapshot = JSON.parse(
+      await waitFor(async () => {
+        try {
+          return await readFile(path.join(serviceRoot, "runtime", "env.json"), "utf8");
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+
+    assert.equal(envSnapshot.SERVICE_PORT, String(config.body.state.runtime.ports.service));
+    assert.equal(envSnapshot.ECHO_PORT, String(config.body.state.runtime.ports.service));
+
+    await postJson(`${apiServer.url}/api/services/port-env-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
