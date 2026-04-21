@@ -33,7 +33,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-023` | `done` | Add bounded manifest-driven globalenv propagation | `SPEC-002`, `AC-4E` | Landed bounded manifest-driven shared env merging, API exposure, and managed-process env injection. |
 | `ISS-024` | `done` | Add bounded runtime-owned port negotiation | `SPEC-002`, `AC-4F` | Landed bounded manifest port declarations, deterministic collision-aware negotiation, and resolved network/variable/runtime surfaces. |
 | `ISS-025` | `done` | Add bounded setup/install mechanics with materialized artifacts | `SPEC-002`, `AC-4G` | Landed bounded manifest-driven install/config file materialization with persisted lifecycle artifact metadata and rerunnable effective config output. |
-| `ISS-026` | `todo` | Extend provider-backed execution parity beyond direct executables | `SPEC-002`, `AC-4H` | Run at least one service through its provider execution path and surface provider-backed runtime evidence through the API. |
+| `ISS-026` | `done` | Extend provider-backed execution parity beyond direct executables | `SPEC-002`, `AC-4H` | Landed real `@node` provider-backed execution for the tracked sample service with provider env injection and persisted provider/runtime evidence through the API/state model. |
+| `ISS-027` | `todo` | Harden lifecycle depth evidence for restart, crash, and intentional stop paths | `SPEC-002` | Keep persisted runtime evidence deterministic across restart, crash exit, and intentional stop flows before broader orchestration work. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -63,7 +64,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-023` | `done` | `ISS-023` | Implement bounded manifest-driven globalenv merging and API/runtime propagation | `SPEC-002`, `AC-4E` | Runtime accepts manifest `globalenv`, merges it deterministically, exposes the merged map through the API, and injects shared env into managed service execution |
 | `TASK-024` | `done` | `ISS-024` | Implement bounded runtime-owned port negotiation and network resolution | `SPEC-002`, `AC-4F` | Runtime accepts manifest port declarations, assigns ports during config/start with deterministic collision handling, and exposes assigned ports plus resolved URLs through the API |
 | `TASK-025` | `done` | `ISS-025` | Implement bounded install/config artifact materialization with direct tests | `SPEC-002`, `AC-4G` | Install/config materialize service-scoped files on disk, persist artifact metadata in lifecycle state, and support rerunnable effective config generation without reinstall |
-| `TASK-026` | `todo` | `ISS-026` | Implement one bounded provider-backed execution path with direct tests | `SPEC-002`, `AC-4H` | At least one provider-backed service executes through its provider path and exposes provider/runtime evidence through the API and persisted state |
+| `TASK-026` | `done` | `ISS-026` | Implement one bounded provider-backed execution path with direct tests | `SPEC-002`, `AC-4H` | The tracked `@node` sample executes through its provider path, provider env reaches the managed process, and provider/runtime evidence is exposed through the API and persisted state |
+| `TASK-027` | `todo` | `ISS-027` | Harden lifecycle depth evidence across restart/crash/intentional stop flows | `SPEC-002` | Persisted runtime evidence stays deterministic across restart, crash exits, and intentional stops |
 
 ## Next Recommended Item
-The next best item is `TASK-026`: extend provider-backed execution parity so Service Lasso can run at least one service through its provider path rather than only direct executable definitions.
+The next best item is `TASK-027`: harden lifecycle depth evidence so restart, crash, and intentional stop flows keep deterministic persisted runtime state before orchestration work widens.

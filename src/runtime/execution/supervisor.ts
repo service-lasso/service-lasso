@@ -2,6 +2,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { buildServiceVariables } from "../operator/variables.js";
+import type { ProviderExecutionPlan } from "../providers/types.js";
 
 export interface ManagedProcessHandle {
   pid: number;
@@ -22,6 +23,7 @@ interface ManagedProcessRecord {
 
 interface StartProcessOptions {
   service: DiscoveredService;
+  executionPlan: ProviderExecutionPlan;
   sharedGlobalEnv?: Record<string, string>;
   resolvedPorts?: Record<string, number>;
   onExit?: (payload: {
@@ -34,13 +36,13 @@ interface StartProcessOptions {
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
 
-function resolveExecutable(service: DiscoveredService): string {
-  const executable = service.manifest.executable;
-  if (!executable) {
-    throw new Error(`Service "${service.manifest.id}" has no executable configured.`);
-  }
+function resolveExecutable(service: DiscoveredService, executionPlan: ProviderExecutionPlan): string {
+  const executable = executionPlan.executable;
 
-  if (path.isAbsolute(executable) || executable.startsWith(".") || executable.includes("/") || executable.includes("\\")) {
+  if (
+    executionPlan.provider === "direct" &&
+    (path.isAbsolute(executable) || executable.startsWith(".") || executable.includes("/") || executable.includes("\\"))
+  ) {
     return path.resolve(service.serviceRoot, executable);
   }
 
@@ -53,6 +55,7 @@ function buildCommandString(executable: string, args: string[]): string {
 
 function buildProcessEnvironment(
   service: DiscoveredService,
+  executionPlan: ProviderExecutionPlan,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
 ): NodeJS.ProcessEnv {
@@ -62,6 +65,7 @@ function buildProcessEnvironment(
 
   return {
     ...process.env,
+    ...executionPlan.providerEnv,
     ...serviceVariables,
   };
 }
@@ -71,21 +75,21 @@ export function hasManagedProcess(serviceId: string): boolean {
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
-  const { service, sharedGlobalEnv, resolvedPorts, onExit } = options;
+  const { service, executionPlan, sharedGlobalEnv, resolvedPorts, onExit } = options;
   const serviceId = service.manifest.id;
 
   if (managedProcesses.has(serviceId)) {
     throw new Error(`Service "${serviceId}" already has a managed process.`);
   }
 
-  const executable = resolveExecutable(service);
-  const args = service.manifest.args ?? [];
+  const executable = resolveExecutable(service, executionPlan);
+  const args = executionPlan.args;
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
 
   const child = spawn(executable, args, {
     cwd: service.serviceRoot,
-    env: buildProcessEnvironment(service, sharedGlobalEnv, resolvedPorts),
+    env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts),
     stdio: "ignore",
     windowsHide: true,
   });

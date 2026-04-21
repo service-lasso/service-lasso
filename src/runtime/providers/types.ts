@@ -6,4 +6,5 @@ export interface ProviderExecutionPlan {
   executable: string;
   args: string[];
   commandPreview: string;
+  providerEnv: Record<string, string>;
 }

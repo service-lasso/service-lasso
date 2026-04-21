@@ -95,7 +95,7 @@ Current honest label:
    - at least one real setup path executes and records outcome
 
 7. provider-backed execution parity
-   status: queued
+   status: done
    proof:
    - at least one provider-backed service is actually executed through its provider path
    - provider-backed state and health are visible through the API
@@ -199,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**provider-backed execution parity**
+**lifecycle depth hardening**
 
-That is the next clean donor-parity step after bounded setup/install mechanics, and it moves Service Lasso beyond direct executables by proving one real provider-managed execution path end to end.
+That is the next clean donor-parity step after provider-backed execution, and it keeps persisted runtime evidence honest across restart, crash, and intentional stop paths before orchestration gets broader.

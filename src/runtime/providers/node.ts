@@ -1,9 +1,12 @@
 import type { ServiceManifest } from "../../contracts/service.js";
 import type { ProviderExecutionPlan } from "./types.js";
 
-export function createNodeExecutionPlan(manifest: ServiceManifest): ProviderExecutionPlan {
-  const executable = manifest.executable ?? "node";
-  const args = manifest.args ?? [];
+export function createNodeExecutionPlan(
+  serviceManifest: ServiceManifest,
+  providerManifest: ServiceManifest,
+): ProviderExecutionPlan {
+  const executable = providerManifest.executable ?? "node";
+  const args = serviceManifest.args ?? [];
 
   return {
     provider: "node",
@@ -11,5 +14,6 @@ export function createNodeExecutionPlan(manifest: ServiceManifest): ProviderExec
     executable,
     args,
     commandPreview: [executable, ...args].join(" ").trim(),
+    providerEnv: providerManifest.env ?? {},
   };
 }
