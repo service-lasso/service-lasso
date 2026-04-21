@@ -147,7 +147,7 @@ Current honest label:
 ### Wave 6: Demo and consumer validation
 
 15. demo-instance hardening
-    status: queued
+    status: done
     proof:
     - demo path proves real execution-backed behavior
     - demo cannot be satisfied by state flips alone
@@ -201,6 +201,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**demo-instance hardening**
+**`lasso-@serviceadmin` integration validation**
 
-That is the next clean delivery step because the runtime now has bounded execution, orchestration, runtime-owned logs, archival/retention, and bounded process/runtime metrics, so the highest-value next proof is an honest end-to-end demo flow that uses those capabilities together.
+That is the next clean delivery step because the runtime now has a bounded end-to-end demo flow with direct regression proof, so the highest-value next check is validating that the first real consumer repo can use the current API/runtime without special-case hacks.

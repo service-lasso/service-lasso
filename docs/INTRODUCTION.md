@@ -233,6 +233,7 @@ The first bounded core slices added so far include:
 - bounded provider planning
 - bounded per-service runtime log archival and retention
 - bounded process/runtime metrics
+- explicit demo start/reset/smoke commands for a reviewable bounded runtime instance
 - first API server layer
 
 This is meaningful progress, but it is **not full donor runtime parity yet**.
@@ -251,6 +252,10 @@ Important current boundary:
 - the sibling `lasso-echoservice` harness can already simulate HTTP and TCP health targets for testing and demo hardening
 - `service-lasso` runtime itself now implements bounded manifest health evaluation for `process`, `http`, `tcp`, `file`, and `variable`
 - broader donor-health migration work still remains for readiness-loop behavior on top of those bounded checks
+
+Current demo note:
+- the repo now provides `npm run demo:start`, `npm run demo:smoke`, and `npm run demo:reset`
+- those commands exercise the bounded direct-service and provider-backed demo flow against explicit `servicesRoot` and `workspaceRoot`
 
 Again, that is why the repo should be read as:
 

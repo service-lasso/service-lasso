@@ -40,6 +40,7 @@ Explicitly out of scope for this spec:
 - `AC-4K`: The runtime extends bounded orchestration with explicit `reload` and `autostart` semantics so services can opt into startup orchestration, startup can trigger autostart deterministically, and runtime `reload` can rediscover manifests while stopping and restarting previously running eligible services with direct API proof.
 - `AC-4L`: The runtime extends bounded observability with explicit per-service runtime-log archival and retention so new managed runs roll forward without unbounded log growth and the logs API can surface retained recent archives deterministically.
 - `AC-4M`: The runtime extends bounded observability with explicit process/runtime metrics so persisted runtime state and API/operator surfaces can report launch, termination, duration, and log-count evidence beyond pid/running state without claiming full donor-depth process-tree metrics.
+- `AC-4N`: The runtime provides one explicit demo-instance quickstart, reset path, and scripted smoke validation flow so a reviewer can exercise the bounded runtime end to end against explicit `servicesRoot` and `workspaceRoot` without manual repo cleanup.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -60,6 +61,7 @@ Required evidence for this spec:
 - direct proof that `autostart`-eligible services can start automatically on runtime boot and through a runtime action, and that `reload` can rediscover manifests while stopping and restarting previously running eligible services deterministically
 - direct proof that prior per-service runtime log files are archived on the next managed start, that retention prunes older archives deterministically, and that the logs API surfaces retained archive metadata
 - direct proof that persisted runtime state and API/operator surfaces expose bounded launch, termination, duration, and log-count metrics that survive runtime restart and remain consistent with current managed log files
+- direct proof that the documented demo-instance smoke flow can start the runtime against explicit roots, exercise one direct service plus one provider-backed service, inspect runtime/operator surfaces, stop the services cleanly, and rerun from a reset state
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

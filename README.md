@@ -89,6 +89,24 @@ npm run test
 npm run dev
 ```
 
+## Demo instance commands
+
+The repo now includes an explicit bounded demo flow that uses the tracked `services/` tree as `servicesRoot` and `workspace/demo-instance/` as the default `workspaceRoot`.
+
+```bash
+npm run demo:start
+npm run demo:smoke
+npm run demo:reset
+```
+
+What these do:
+
+- `npm run demo:start` builds and starts the runtime against the demo roots so a reviewer can inspect `/api/health`, `/api/services`, `/api/runtime`, and `/api/dependencies`
+- `npm run demo:smoke` runs the end-to-end scripted demo proof for the direct `echo-service` path plus the provider-backed `node-sample-service` path
+- `npm run demo:reset` removes demo workspace/state/artifact output so the demo can be rerun cleanly without manual cleanup
+
+The scripted smoke flow is also covered by `tests/demo-instance.test.js`.
+
 ## Donor Reference Snapshot
 
 ## Donor Reference Snapshot

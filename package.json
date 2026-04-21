@@ -13,7 +13,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 tests/**/*.test.js",
     "dev": "npm run build && node --enable-source-maps dist/index.js",
-    "start": "node --enable-source-maps dist/index.js"
+    "start": "node --enable-source-maps dist/index.js",
+    "demo:start": "npm run build && node scripts/demo-start.mjs",
+    "demo:reset": "npm run build && node scripts/demo-reset.mjs",
+    "demo:smoke": "npm run build && node scripts/demo-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

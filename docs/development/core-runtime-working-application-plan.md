@@ -12,16 +12,16 @@ It is based on:
 What is already true:
 - the repo has a real bounded runtime slice
 - `npm test` passes for that bounded slice
-- discovery, validation, registry, lifecycle state, bounded health, operator surfaces, and API startup all exist
+- discovery, validation, registry, execution-backed lifecycle behavior, bounded health, operator surfaces, and API startup all exist
+- the repo now exposes explicit `demo:start`, `demo:smoke`, and `demo:reset` commands for the bounded review/demo flow
 
 What is not true yet:
-- the runtime does not yet launch and supervise real managed processes
 - the docs still blur current behavior and future direction in several places
-- the current demo plan can overstate readiness without proving real execution
+- the first real consumer repo still needs to be validated against the current runtime/API
 
 The honest current label remains:
 
-**bounded core runtime slice implemented; working application not complete yet**
+**bounded working core runtime implemented with explicit demo proof; broader consumer/runtime parity still not complete**
 
 ## Goal
 
@@ -221,12 +221,9 @@ They should remain outside core and never redefine the core runtime contract.
 
 If we are choosing the next best steps right now, the recommended order is:
 
-1. `TASK-012` - normalize API error semantics
-2. `TASK-013` - add explicit runtime config loading for `servicesRoot` and `workspaceRoot`
-3. `TASK-014` - add startup rehydration
-4. `TASK-015` - land the first real execution/supervision slice
-5. tighten the demo-instance plan and run `TASK-016`
-6. refresh the highest-drift docs alongside that work
+1. validate `lasso-@serviceadmin` against the current bounded runtime/API
+2. refresh the highest-drift docs alongside that consumer validation work
+3. establish package boundaries for core + reference apps
 
 ## What "working application" means in this repo
 
@@ -238,6 +235,7 @@ For this repo, "working application" should mean all of the following are true:
 - runtime persists and rehydrates enough state to survive restart meaningfully
 - runtime exposes stable API responses and error contracts
 - runtime can support a credible demo flow with execution evidence
+- repo provides an explicit resettable demo quickstart and scripted smoke proof
 
 It does **not** need to mean full donor parity yet.
 
