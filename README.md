@@ -10,6 +10,7 @@ Start with:
 - `docs/INTRODUCTION.md`
 - `docs/development/core-runtime-storage-model.md`
 - `docs/development/core-runtime-logging-model.md`
+- `docs/development/core-runtime-publishable-package.md`
 
 This repository started as a bootstrap and donor-analysis workspace around a reference snapshot taken from:
 
@@ -27,7 +28,7 @@ At the moment this repo contains:
 - governance and backlog/spec traceability under `.governance/`
 - canonical shared contract/runtime docs under `docs/`
 - the first tracked core runtime source layout and API spine under `src/`
-- a bounded private `packages/core` wrapper package for the future core package boundary
+- a bounded `packages/core` wrapper package for the future core package boundary plus a self-contained staged publish payload for `@service-lasso/service-lasso`
 - direct route tests under `tests/`
 - an ignored donor reference snapshot under `ref/typerefinery-service-manager-donor/`
 
@@ -74,7 +75,8 @@ This slice now establishes the first real API spine, the first canonical manifes
 Current package-boundary note:
 
 - the runtime source still lives in `src/`
-- `packages/core` is now a bounded private wrapper package targeting the current built runtime + CLI
+- `packages/core` remains the bounded in-repo wrapper package targeting the current built runtime + CLI
+- the publishable package is staged separately as a self-contained payload for `@service-lasso/service-lasso`
 - the starter/template apps live outside this repo as sibling repos under `C:\projects\service-lasso`
 
 Note on repo split:
@@ -113,6 +115,24 @@ What these do:
 Current shipped files are documented in:
 
 - `docs/development/core-runtime-release-artifact.md`
+
+## Publishable package commands
+
+The repo now also exposes a bounded self-contained publishable package flow for `@service-lasso/service-lasso`.
+
+```bash
+npm run package:stage
+npm run package:verify
+```
+
+What these do:
+
+- `npm run package:stage` builds and stages `artifacts/npm/service-lasso-package-<version>/` plus a packed `.tgz` inside that folder
+- `npm run package:verify` stages the package, runs `npm pack`, installs it into a temporary consumer, and boots the runtime against explicit runtime roots
+
+Current publish-package details are documented in:
+
+- `docs/development/core-runtime-publishable-package.md`
 
 ## Demo instance commands
 

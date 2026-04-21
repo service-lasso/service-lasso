@@ -193,19 +193,28 @@ Current honest label:
     - the staged artifact can boot the runtime against explicit roots
     - tagged GitHub releases can attach the packaged artifact
 
+20. publishable core package + starter POC matrix
+    status: done
+    proof:
+    - the repo can stage a self-contained `@service-lasso/service-lasso` package payload
+    - `npm pack` works against the staged payload
+    - a temporary consumer can install the packed payload and boot the runtime against explicit roots
+    - GitHub Actions can publish the staged payload to GitHub Packages on tag
+    - each sibling starter repo has an explicit minimal executable POC contract requiring host-owned output plus `lasso-@serviceadmin` against Echo Service
+
 ### Wave 8: Documentation truth pass
 
-20. canonical manifest/reference cleanup
+21. canonical manifest/reference cleanup
     status: queued
     proof:
     - canonical docs no longer overstate unsupported contract fields
 
-21. stale planning/spec cleanup
+22. stale planning/spec cleanup
     status: queued
     proof:
     - README, spec, plan, and migration docs agree with current implementation
 
-22. final donor parity review
+23. final donor parity review
     status: queued
     proof:
     - every donor capability is marked:
@@ -218,6 +227,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**documentation truth pass**
+**starter repo executable POCs**
 
-That is the next clean delivery step because the bounded core package plus sibling template repos now exist, so the remaining work shifts to making the docs/spec/reference set fully honest about the current structure and remaining donor gaps.
+That is the next clean delivery step because the bounded publishable core package now exists, so the highest-value follow-up is to turn the sibling starter repos from documented targets into real runnable hosts that consume the published package and surface Service Admin against Echo Service.

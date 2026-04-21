@@ -74,7 +74,7 @@ async function writeReleaseManifest({ repoRoot, artifactRoot, artifactName, vers
   return manifest;
 }
 
-function runCommand(command, args, options = {}) {
+export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],

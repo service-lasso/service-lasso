@@ -19,6 +19,8 @@
     "start": "node --enable-source-maps dist/index.js",
     "release:artifact": "npm run build && node scripts/release-artifact.mjs",
     "release:verify": "npm run build && node scripts/release-verify.mjs",
+    "package:stage": "npm run build && node scripts/publish-package.mjs",
+    "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
     "demo:start": "npm run build && node scripts/demo-start.mjs",
     "demo:reset": "npm run build && node scripts/demo-reset.mjs",
     "demo:smoke": "npm run build && node scripts/demo-smoke.mjs"

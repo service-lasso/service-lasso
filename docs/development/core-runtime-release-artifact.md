@@ -2,7 +2,10 @@
 
 This document defines the current bounded downloadable release artifact for `service-lasso`.
 
-It is intentionally narrower than a full npm publish or installer rollout.
+It is intentionally distinct from the self-contained publishable package payload.
+
+See also:
+- `docs/development/core-runtime-publishable-package.md`
 
 ## Current artifact purpose
 
@@ -13,7 +16,6 @@ The current release artifact exists to provide:
 - a repeatable package + verification path that GitHub Actions can run
 
 It does not yet claim:
-- public npm publish readiness
 - installer packaging
 - bundled service trees
 - bundled workspace data

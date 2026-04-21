@@ -8,10 +8,11 @@ Service Lasso is the core runtime and contract repository for running local pack
 ## Context
 Bootstrap/governance setup is now in place and remains durable. The first core runtime implementation batch is landed (`#2` to `#8`), and this repository is now in the hardening phase for startup configuration, persistence rehydration, stronger API semantics, and real execution supervision.
 
-The broader three-repo shape is already established:
+The broader multi-repo shape is already established:
 - `service-lasso` = core runtime + canonical shared contract/docs
 - `service-template` = the template for individual services
 - `lasso-@serviceadmin` = the operator UI
+- sibling starter repos = quick-start host templates for web, packager-node, tauri, and bundled delivery
 
 This repo is therefore the place where the real core behavior must live and continue hardening:
 - standalone runtime/server entrypoint
@@ -21,6 +22,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - runtime config loading for `servicesRoot` and `workspaceRoot`
 - state persistence and startup rehydration
 - packaging/release mechanics for the core runtime itself
+- publishable package mechanics so sibling starter repos can consume the core runtime cleanly
 
 ## Constraints
 - Governance/spec/backlog traceability must remain in place while product code starts.
@@ -38,7 +40,7 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Assumptions
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.
-- The current highest-value work is hardening API semantics, config loading, state rehydration, and supervision behavior before broad donor parity pushes.
+- The current highest-value work is finishing honest distribution boundaries: publishable core package flow, executable starter-repo targets, and final documentation truth passes on top of the already-landed bounded runtime.
 - GitHub-backed issues/project board remain the system of record for governed execution tracking.
 - Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 
