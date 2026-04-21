@@ -20,10 +20,12 @@ function createInitialState(): ServiceLifecycleState {
     runtime: {
       pid: null,
       startedAt: null,
+      finishedAt: null,
       exitCode: null,
       command: null,
       provider: null,
       providerServiceId: null,
+      lastTermination: null,
       ports: {},
     },
   };
@@ -53,10 +55,12 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
     runtime: {
       pid: current.runtime.pid,
       startedAt: current.runtime.startedAt,
+      finishedAt: current.runtime.finishedAt,
       exitCode: current.runtime.exitCode,
       command: current.runtime.command,
       provider: current.runtime.provider,
       providerServiceId: current.runtime.providerServiceId,
+      lastTermination: current.runtime.lastTermination,
       ports: { ...current.runtime.ports },
     },
   };
@@ -80,10 +84,12 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
     runtime: {
       pid: nextState.runtime.pid,
       startedAt: nextState.runtime.startedAt,
+      finishedAt: nextState.runtime.finishedAt,
       exitCode: nextState.runtime.exitCode,
       command: nextState.runtime.command,
       provider: nextState.runtime.provider,
       providerServiceId: nextState.runtime.providerServiceId,
+      lastTermination: nextState.runtime.lastTermination,
       ports: { ...nextState.runtime.ports },
     },
   };

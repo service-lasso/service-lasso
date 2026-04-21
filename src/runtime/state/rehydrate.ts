@@ -19,10 +19,12 @@ interface StoredRuntimeState {
   running?: boolean;
   pid?: number | null;
   startedAt?: string | null;
+  finishedAt?: string | null;
   exitCode?: number | null;
   command?: string | null;
   provider?: "direct" | "node" | "python" | null;
   providerServiceId?: string | null;
+  lastTermination?: "stopped" | "exited" | "crashed" | null;
   ports?: Record<string, number>;
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
@@ -70,12 +72,17 @@ function parseLifecycleState(snapshot: {
     runtime: {
       pid: null,
       startedAt: typeof runtime?.startedAt === "string" ? runtime.startedAt : null,
+      finishedAt: typeof runtime?.finishedAt === "string" ? runtime.finishedAt : null,
       exitCode: typeof runtime?.exitCode === "number" ? runtime.exitCode : null,
       command: typeof runtime?.command === "string" ? runtime.command : null,
       provider: runtime?.provider === "direct" || runtime?.provider === "node" || runtime?.provider === "python"
         ? runtime.provider
         : null,
       providerServiceId: typeof runtime?.providerServiceId === "string" ? runtime.providerServiceId : null,
+      lastTermination:
+        runtime?.lastTermination === "stopped" || runtime?.lastTermination === "exited" || runtime?.lastTermination === "crashed"
+          ? runtime.lastTermination
+          : null,
       ports:
         runtime?.ports && typeof runtime.ports === "object" && !Array.isArray(runtime.ports)
           ? Object.fromEntries(

@@ -47,13 +47,16 @@ async function persistProcessExit(
   service: DiscoveredService,
   exitCode: number | null,
 ): Promise<void> {
+  const finishedAt = new Date().toISOString();
   const state = updateRuntimeState(service.manifest.id, (current) => ({
     ...current,
     running: false,
     runtime: {
       ...current.runtime,
       pid: null,
+      finishedAt,
       exitCode: exitCode ?? current.runtime.exitCode,
+      lastTermination: (exitCode ?? current.runtime.exitCode ?? 0) === 0 ? "exited" : "crashed",
     },
   }));
 
@@ -94,6 +97,8 @@ export async function installService(
       runtime: {
         ...current.runtime,
         pid: null,
+        finishedAt: null,
+        lastTermination: null,
       },
     },
     message: "Install completed.",
@@ -173,10 +178,12 @@ export async function startService(
     runtime: {
       pid: handle.pid,
       startedAt: handle.startedAt,
+      finishedAt: null,
       exitCode: null,
       command: handle.command,
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
+      lastTermination: null,
       ports: resolvedPorts,
     },
   }));
@@ -194,7 +201,9 @@ export async function startService(
           runtime: {
             ...state.runtime,
             pid: null,
+            finishedAt: new Date().toISOString(),
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+            lastTermination: "stopped",
           },
         },
         message: readiness.message,
@@ -211,10 +220,12 @@ export async function startService(
         ...state.runtime,
         pid: handle.pid,
         startedAt: handle.startedAt,
+        finishedAt: null,
         exitCode: null,
         command: handle.command,
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
+        lastTermination: null,
       },
     },
     message: readiness.message,
@@ -229,6 +240,7 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
   }
 
   const stopped = await stopManagedProcess(serviceId);
+  const finishedAt = new Date().toISOString();
 
   return applyState(serviceId, "stop", (state) => ({
     nextState: {
@@ -237,7 +249,9 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
       runtime: {
         ...state.runtime,
         pid: null,
+        finishedAt,
         exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+        lastTermination: "stopped",
       },
     },
     message: "Stop completed.",
@@ -290,10 +304,12 @@ export async function restartService(
     runtime: {
       pid: handle.pid,
       startedAt: handle.startedAt,
+      finishedAt: null,
       exitCode: null,
       command: handle.command,
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
+      lastTermination: null,
       ports: resolvedPorts,
     },
   }));
@@ -311,7 +327,9 @@ export async function restartService(
           runtime: {
             ...state.runtime,
             pid: null,
+            finishedAt: new Date().toISOString(),
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+            lastTermination: "stopped",
           },
         },
         message: readiness.message,
@@ -328,10 +346,12 @@ export async function restartService(
         ...state.runtime,
         pid: handle.pid,
         startedAt: handle.startedAt,
+        finishedAt: null,
         exitCode: null,
         command: handle.command,
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
+        lastTermination: null,
       },
     },
     message: readiness.message.replace(/^Start/, "Restart"),

@@ -34,7 +34,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-024` | `done` | Add bounded runtime-owned port negotiation | `SPEC-002`, `AC-4F` | Landed bounded manifest port declarations, deterministic collision-aware negotiation, and resolved network/variable/runtime surfaces. |
 | `ISS-025` | `done` | Add bounded setup/install mechanics with materialized artifacts | `SPEC-002`, `AC-4G` | Landed bounded manifest-driven install/config file materialization with persisted lifecycle artifact metadata and rerunnable effective config output. |
 | `ISS-026` | `done` | Extend provider-backed execution parity beyond direct executables | `SPEC-002`, `AC-4H` | Landed real `@node` provider-backed execution for the tracked sample service with provider env injection and persisted provider/runtime evidence through the API/state model. |
-| `ISS-027` | `todo` | Harden lifecycle depth evidence for restart, crash, and intentional stop paths | `SPEC-002` | Keep persisted runtime evidence deterministic across restart, crash exit, and intentional stop flows before broader orchestration work. |
+| `ISS-027` | `done` | Harden lifecycle depth evidence for restart, crash, and intentional stop paths | `SPEC-002` | Landed bounded termination evidence with deterministic restart/crash/stop runtime state across API and persisted `.state` output. |
+| `ISS-028` | `todo` | Add dependency-aware startup ordering | `SPEC-002` | Start dependent services in dependency order with bounded readiness-aware sequencing before manager-level orchestration widens. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -65,7 +66,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-024` | `done` | `ISS-024` | Implement bounded runtime-owned port negotiation and network resolution | `SPEC-002`, `AC-4F` | Runtime accepts manifest port declarations, assigns ports during config/start with deterministic collision handling, and exposes assigned ports plus resolved URLs through the API |
 | `TASK-025` | `done` | `ISS-025` | Implement bounded install/config artifact materialization with direct tests | `SPEC-002`, `AC-4G` | Install/config materialize service-scoped files on disk, persist artifact metadata in lifecycle state, and support rerunnable effective config generation without reinstall |
 | `TASK-026` | `done` | `ISS-026` | Implement one bounded provider-backed execution path with direct tests | `SPEC-002`, `AC-4H` | The tracked `@node` sample executes through its provider path, provider env reaches the managed process, and provider/runtime evidence is exposed through the API and persisted state |
-| `TASK-027` | `todo` | `ISS-027` | Harden lifecycle depth evidence across restart/crash/intentional stop flows | `SPEC-002` | Persisted runtime evidence stays deterministic across restart, crash exits, and intentional stops |
+| `TASK-027` | `done` | `ISS-027` | Harden lifecycle depth evidence across restart/crash/intentional stop flows | `SPEC-002` | Persisted runtime evidence stays deterministic across restart, crash exits, and intentional stops |
+| `TASK-028` | `todo` | `ISS-028` | Implement dependency-aware startup ordering with direct tests | `SPEC-002` | Runtime starts services in dependency order and respects bounded readiness-aware sequencing for dependent services |
 
 ## Next Recommended Item
-The next best item is `TASK-027`: harden lifecycle depth evidence so restart, crash, and intentional stop flows keep deterministic persisted runtime state before orchestration work widens.
+The next best item is `TASK-028`: add dependency-aware startup ordering so the runtime can begin orchestration with bounded, readiness-aware dependency sequencing.

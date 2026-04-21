@@ -8,10 +8,12 @@ export interface ServiceMaterializedArtifactsState {
 export interface ServiceRuntimeState {
   pid: number | null;
   startedAt: string | null;
+  finishedAt: string | null;
   exitCode: number | null;
   command: string | null;
   provider: "direct" | "node" | "python" | null;
   providerServiceId: string | null;
+  lastTermination: "stopped" | "exited" | "crashed" | null;
   ports: Record<string, number>;
 }
 

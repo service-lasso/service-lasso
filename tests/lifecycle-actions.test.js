@@ -200,6 +200,42 @@ test("intentional stop keeps persisted lifecycle metadata on stop", async () => 
     assert.equal(stored.runtime.lastAction, "stop");
     assert.deepEqual(stored.runtime.actionHistory, ["install", "config", "start", "stop"]);
     assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.lastTermination, "stopped");
+    assert.equal(typeof stored.runtime.finishedAt, "string");
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("restart replaces the running process and clears stale termination evidence", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "restart-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/restart-service/install`);
+    await postJson(`${apiServer.url}/api/services/restart-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/restart-service/start`);
+    const restart = await postJson(`${apiServer.url}/api/services/restart-service/restart`);
+
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(start.status, 200);
+    assert.equal(restart.status, 200);
+    assert.equal(restart.body.state.running, true);
+    assert.equal(restart.body.state.lastAction, "restart");
+    assert.equal(restart.body.state.runtime.pid > 0, true);
+    assert.notEqual(restart.body.state.runtime.pid, start.body.state.runtime.pid);
+    assert.equal(restart.body.state.runtime.finishedAt, null);
+    assert.equal(restart.body.state.runtime.lastTermination, null);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.lastAction, "restart");
+    assert.deepEqual(stored.runtime.actionHistory, ["install", "config", "start", "restart"]);
+    assert.equal(stored.runtime.finishedAt, null);
+    assert.equal(stored.runtime.lastTermination, null);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
