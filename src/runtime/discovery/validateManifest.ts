@@ -52,6 +52,11 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
         type: "file",
         file: expectNonEmptyString(healthRecord.file, "healthcheck.file", manifestPath),
       };
+    } else if (healthRecord.type === "variable") {
+      healthcheck = {
+        type: "variable",
+        variable: expectNonEmptyString(healthRecord.variable, "healthcheck.variable", manifestPath),
+      };
     } else {
       throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);
     }

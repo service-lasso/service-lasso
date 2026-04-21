@@ -28,6 +28,7 @@ Already done:
   - `http`
   - `tcp`
   - `file`
+  - `variable`
 - Echo Service harness repo and released-artifact proof through the runtime
 
 Current honest label:
@@ -57,14 +58,14 @@ Current honest label:
    - released Echo Service artifact can be checked against a real file target
 
 2. bounded `variable` health support
-   status: next
+   status: done
    proof:
    - manifest parsing accepts `healthcheck.type = variable`
    - runtime can evaluate a bounded variable source deterministically
    - tests prove healthy and unhealthy cases
 
 3. readiness and wait-loop behavior
-   status: queued
+   status: next
    proof:
    - start flow can wait for configured health readiness within bounded timeout/retry rules
    - tests prove success, timeout, and failure behavior
@@ -198,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**bounded `variable` health support**
+**readiness and wait-loop behavior**
 
-That is the next smallest clean donor-parity step after bounded `file`, and it keeps the health migration moving with strong Echo Service-backed verification.
+That is the next smallest clean donor-parity step after bounded `variable`, and it turns the bounded health model into bounded startup-readiness proof.

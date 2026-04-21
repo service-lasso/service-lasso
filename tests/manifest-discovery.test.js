@@ -128,6 +128,36 @@ test("loadServiceManifest accepts bounded file healthchecks", async () => {
   }
 });
 
+test("loadServiceManifest accepts bounded variable healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "variable-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "variable-service",
+        name: "Variable Service",
+        description: "Service with bounded variable health.",
+        healthcheck: {
+          type: "variable",
+          variable: "${ECHO_MESSAGE}",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "variable",
+      variable: "${ECHO_MESSAGE}",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {

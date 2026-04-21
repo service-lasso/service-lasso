@@ -18,7 +18,17 @@ export interface FileHealthcheck {
   file: string;
 }
 
-export type ServiceHealthcheck = ProcessHealthcheck | HttpHealthcheck | TcpHealthcheck | FileHealthcheck;
+export interface VariableHealthcheck {
+  type: "variable";
+  variable: string;
+}
+
+export type ServiceHealthcheck =
+  | ProcessHealthcheck
+  | HttpHealthcheck
+  | TcpHealthcheck
+  | FileHealthcheck
+  | VariableHealthcheck;
 
 export interface ServiceHealthResult {
   type: ServiceHealthcheck["type"] | "unknown";

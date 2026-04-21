@@ -25,7 +25,7 @@ Primary current-repo inputs reviewed:
 
 Verification run used for this audit:
 - `npm test`
-- result: `40 passed, 0 failed`
+- result: `43 passed, 0 failed`
 
 ## Bottom line
 
@@ -58,7 +58,7 @@ These donor/runtime concerns are meaningfully represented in the current code an
 - in-memory service registry and dependency graph basics
 - bounded lifecycle actions for `install`, `config`, `start`, `stop`, and `restart`
 - one bounded real execution/supervision path for directly executable services
-- bounded health handling for `process`, `http`, `tcp`, and `file`
+- bounded health handling for `process`, `http`, `tcp`, `file`, and `variable`
 - structured per-service `.state/` writes
 - operator data surfaces for logs, variables, and network
 - provider relationship resolution/planning for direct, `@node`, and `@python`
@@ -75,8 +75,8 @@ These donor/runtime concerns are represented directionally, but not at donor dep
   - current code proves lifecycle state transitions
   - donor code performs execution-backed lifecycle work
 - health model
-  - current code supports `process`, `http`, bounded `tcp`, and bounded `file`
-  - donor code also supports `variable` and readiness waiting loops
+  - current code supports `process`, `http`, bounded `tcp`, bounded `file`, and bounded `variable`
+  - donor code also supports readiness waiting loops
 - provider/runtime behavior
   - current code resolves provider relationships and command previews
   - donor code actually executes through provider/runtime services
@@ -99,7 +99,7 @@ These major donor/runtime behaviors are not implemented in the current code:
 - command-driven setup/install pipeline
 - runtime-owned port reservation, collision handling, and reassignment
 - `globalenv` export/import propagation across services
-- broader health types beyond `process`, `http`, `tcp`, and `file`
+- broader health behavior beyond bounded `process`, `http`, `tcp`, `file`, and `variable`
 - dependency readiness loops and start-chain orchestration
 - manager-level `reload`
 - manager-level `startAll`
@@ -198,15 +198,16 @@ Current implementation covers:
 - bounded `http` health checks
 - bounded `tcp` health checks
 - bounded `file` health checks
+- bounded `variable` health checks
 
 Current implementation does not yet cover:
-- `variable`
 - readiness wait loops tied to actual startup
 
 Related current test-harness note:
 - the sibling `lasso-echoservice` repo already exposes TCP health simulation endpoints and controls for integration testing
 - that harness capability is now paired with bounded `service-lasso` runtime support for manifest `healthcheck.type = tcp`
 - released Echo Service artifacts now also provide direct proof for bounded `service-lasso` runtime support for manifest `healthcheck.type = file`
+- released Echo Service artifacts now also provide direct proof for bounded `service-lasso` runtime support for manifest `healthcheck.type = variable`
 - broader donor health parity still remains open beyond that bounded slice
 
 ## 6. Setup and install mechanics
@@ -313,7 +314,7 @@ So the implementation is ahead of the spec wording.
 Current automated verification status for the bounded core slice:
 
 - command run: `npm test`
-- result: `40 passed, 0 failed`
+- result: `43 passed, 0 failed`
 
 The passing suite directly verifies:
 - API startup
