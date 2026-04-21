@@ -2,6 +2,29 @@
 
 This document captures the intended package boundaries for the next Service Lasso architecture step.
 
+## Current bounded scaffold state
+
+The repo now has a bounded `packages/` workspace scaffold.
+
+What exists now:
+- a private `packages/core` wrapper package using the canonical target name `@service-lasso/service-lasso`
+- placeholder consumer packages for:
+  - `@service-lasso/service-lasso-app-web`
+  - `@service-lasso/service-lasso-packager-node`
+  - `@service-lasso/service-lasso-app-tauri`
+  - `@service-lasso/service-lasso-bundled`
+
+What this scaffold does:
+- makes the package boundary explicit in tracked repo structure
+- keeps the current runtime source in `src/` for now
+- lets the core wrapper package target the current built runtime and CLI without pretending the full source move is already done
+- lets placeholder reference apps depend on the core package without redefining the runtime-root contract
+
+What it does not claim yet:
+- a finished publishable package rollout
+- migrated runtime source under `packages/core/src`
+- real starter-template content inside the reference-app packages
+
 ## Core product boundary
 
 The core runtime should be a publishable Node library + CLI.

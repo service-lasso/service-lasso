@@ -1,0 +1,20 @@
+{
+  "name": "@service-lasso/service-lasso",
+  "version": "0.1.0-private",
+  "private": true,
+  "description": "Bounded workspace wrapper around the current Service Lasso built runtime and CLI.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "bin": {
+    "service-lasso": "./cli.js"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./cli": "./cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

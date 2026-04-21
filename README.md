@@ -27,6 +27,7 @@ At the moment this repo contains:
 - governance and backlog/spec traceability under `.governance/`
 - canonical shared contract/runtime docs under `docs/`
 - the first tracked core runtime source layout and API spine under `src/`
+- a bounded `packages/` workspace scaffold for the future core package plus reference-app templates
 - direct route tests under `tests/`
 - an ignored donor reference snapshot under `ref/typerefinery-service-manager-donor/`
 
@@ -69,6 +70,12 @@ What this slice means:
 - `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, `tests/registry-runtime-state.test.js`, `tests/lifecycle-actions.test.js`, `tests/health-state.test.js`, `tests/operator-data.test.js`, and `tests/provider-execution.test.js` provide direct proof for the API spine, discovery/parsing behavior, runtime state read APIs, lifecycle action path, health/state persistence, operator data surfaces, and provider execution planning
 
 This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, the first operator data surfaces, the first provider execution boundary, and a runnable tracked harness fixture under `services/echo-service/` for later execution/demo hardening. Full real process execution and broader provider catalog expansion are still future work.
+
+Current package-boundary note:
+
+- the runtime source still lives in `src/`
+- `packages/core` is now a bounded private wrapper package targeting the current built runtime + CLI
+- `packages/app-web`, `packages/packager-node`, `packages/app-tauri`, and `packages/bundled` are placeholder consumer packages for later starter-template rollout
 
 Note on repo split:
 - the canonical Echo Service implementation now lives in the sibling repo `C:\projects\service-lasso\lasso-echoservice`
