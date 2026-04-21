@@ -42,8 +42,9 @@ Explicitly out of scope for this spec:
 - `AC-4M`: The runtime extends bounded observability with explicit process/runtime metrics so persisted runtime state and API/operator surfaces can report launch, termination, duration, and log-count evidence beyond pid/running state without claiming full donor-depth process-tree metrics.
 - `AC-4N`: The runtime provides one explicit demo-instance quickstart, reset path, and scripted smoke validation flow so a reviewer can exercise the bounded runtime end to end against explicit `servicesRoot` and `workspaceRoot` without manual repo cleanup.
 - `AC-4O`: The runtime exposes one bounded consumer-compatibility slice for `lasso-@serviceadmin` so the admin UI can use current runtime metadata, log-read, and core dashboard surfaces without consumer-only hacks.
-- `AC-4P`: The repo exposes one bounded package-boundary scaffold so a private `packages/` workspace map exists, a core wrapper package can target the current built runtime + CLI without moving source yet, and reference-app placeholders can consume that core package without redefining the runtime-root contract.
+- `AC-4P`: The repo exposes one bounded package-boundary scaffold so a private `packages/core` wrapper package can target the current built runtime + CLI without moving source yet.
 - `AC-4Q`: The broader reference-app rollout lives outside the core repo so the web, packager-node, tauri, and bundled starters exist as sibling template repos under `C:\projects\service-lasso` and matching GitHub template repos instead of in-repo app placeholder packages.
+- `AC-4R`: The repo exposes one bounded downloadable runtime artifact so the built core runtime, the private core wrapper package, and release metadata can be staged, verified, and attached to tagged GitHub releases without claiming a finished npm publish flow yet.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -68,6 +69,7 @@ Required evidence for this spec:
 - direct proof that the runtime can satisfy the bounded `lasso-@serviceadmin` integration contract for service meta persistence, live log reads, and the current dashboard/service-detail consumer surfaces
 - direct proof that a bounded `packages/` workspace exists with a private core wrapper package exposing the current built runtime/CLI targets without moving the current runtime source yet
 - direct proof that the four bounded reference-app starters exist as sibling repos under `C:\projects\service-lasso`, that the matching GitHub repos exist, and that those GitHub repos are marked as templates for quick-start use
+- direct proof that a bounded release artifact can be staged, that it contains the documented shipped files, that the staged artifact entrypoint can boot against explicit runtime roots, and that tagged GitHub releases can attach that packaged artifact
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

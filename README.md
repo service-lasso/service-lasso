@@ -96,6 +96,24 @@ npm run test
 npm run dev
 ```
 
+## Release artifact commands
+
+The repo now exposes a bounded downloadable runtime artifact flow.
+
+```bash
+npm run release:artifact
+npm run release:verify
+```
+
+What these do:
+
+- `npm run release:artifact` builds and stages `artifacts/service-lasso-<version>/` plus `artifacts/service-lasso-<version>.tar.gz`
+- `npm run release:verify` stages the bounded artifact, verifies the documented shipped files, imports the staged `packages/core` wrapper, and boots the staged runtime entrypoint against explicit runtime roots
+
+Current shipped files are documented in:
+
+- `docs/development/core-runtime-release-artifact.md`
+
 ## Demo instance commands
 
 The repo now includes an explicit bounded demo flow that uses the tracked `services/` tree as `servicesRoot` and `workspace/demo-instance/` as the default `workspaceRoot`.

@@ -25,6 +25,7 @@ Current preferred runtime-root model:
 - `docs/development/core-runtime-working-application-plan.md` - staged next-steps plan for turning the bounded core slice into a genuinely working application
 - `docs/development/core-runtime-autonomous-task-list.md` - comprehensive ordered execution list for finishing donor migration slices, consumer validation, and post-core rollout
 - `docs/development/core-runtime-package-architecture.md` - bounded core package-boundary plan and the current sibling-repo template rollout for reference apps
+- `docs/development/core-runtime-release-artifact.md` - exact definition of the current bounded downloadable runtime artifact and what files it ships
 - `docs/development/serviceadmin-integration-validation.md` - bounded integration validation checklist and current findings for `lasso-@serviceadmin` against the runtime/API
 - `docs/development/core-runtime-state-model-audit.md` - agreed vs provisional audit of the current `.state/` model and its implementation gaps
 - `docs/development/core-runtime-logging-model.md` - canonical logging and archival model using `workspaceRoot/logs/runs/<runId>` for traceability
