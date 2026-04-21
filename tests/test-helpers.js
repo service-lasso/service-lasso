@@ -27,7 +27,10 @@ export async function clearPersistedFixtureState(servicesRoot) {
   await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
-      .map((entry) => removeDirectoryWithRetry(path.join(servicesRoot, entry.name, ".state"))),
+      .flatMap((entry) => [
+        removeDirectoryWithRetry(path.join(servicesRoot, entry.name, ".state")),
+        removeDirectoryWithRetry(path.join(servicesRoot, entry.name, "logs")),
+      ]),
   );
 }
 

@@ -2,6 +2,11 @@
 
 This document defines the recommended logging and archival model for the `service-lasso` core runtime.
 
+Current implementation note:
+- the runtime currently ships a bounded per-service log model under `servicesRoot/<service>/logs/`
+- prior per-service runtime logs are archived on the next managed start with bounded retention
+- the broader `workspaceRoot/logs/runs/<runId>/` model described below remains the target architecture, not the current full implementation
+
 It intentionally uses:
 - `servicesRoot` for the managed services tree
 - `workspaceRoot` for Service Lasso runtime-managed working data

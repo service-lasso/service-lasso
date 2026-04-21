@@ -231,6 +231,7 @@ The first bounded core slices added so far include:
 - first `.state` persistence helpers
 - operator data surfaces
 - bounded provider planning
+- bounded per-service runtime log archival and retention
 - first API server layer
 
 This is meaningful progress, but it is **not full donor runtime parity yet**.
@@ -242,7 +243,7 @@ Major donor runtime behavior still remains to be migrated more fully, including:
 - full setup/install mechanics such as archive extraction and setup commands
 - fuller shared env/globalenv handling beyond the current bounded slice
 - broader health/readiness flow beyond the current bounded slice
-- fuller runtime logging archival/retention implementation
+- fuller run-level `workspaceRoot` logging archival/retention implementation
 - process/runtime metrics and broader manager/runtime parity
 
 Important current boundary:

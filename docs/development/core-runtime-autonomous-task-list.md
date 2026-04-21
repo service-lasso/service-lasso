@@ -135,7 +135,7 @@ Current honest label:
     - runtime log locations are stable and documented
 
 13. archival and retention model
-    status: queued
+    status: done
     proof:
     - run/log retention rules exist and are enforced
 
@@ -201,6 +201,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**archival and retention model**
+**process/runtime metrics**
 
-That is the next clean donor-parity step because the runtime now has bounded manager-level orchestration plus runtime-owned managed-process logs, and the next observability gap is to make retention and archival explicit instead of leaving log lifetime unmanaged.
+That is the next clean donor-parity step because the runtime now has bounded runtime-owned log archival/retention, and the next observability gap is to expose richer execution evidence than pid/running state without jumping prematurely to full donor-depth process-tree metrics.

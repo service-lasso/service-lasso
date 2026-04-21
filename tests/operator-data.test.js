@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
@@ -66,6 +66,8 @@ test("GET /api/services/:id/logs returns operator log payload", async () => {
     assert.equal(body.logs.logPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "service.log")), true);
     assert.equal(body.logs.stdoutPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "stdout.log")), true);
     assert.equal(body.logs.stderrPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "stderr.log")), true);
+    assert.equal(body.logs.retention.maxArchives, 3);
+    assert.deepEqual(body.logs.archives, []);
     assert.deepEqual(body.logs.entries.map((entry) => entry.message), ["echo-service:install", "echo-service:config"]);
   } finally {
     await apiServer.stop();
@@ -103,6 +105,8 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
     });
 
     assert.equal(logsResponse.response.status, 200);
+    assert.equal(logsResponse.body.logs.retention.maxArchives, 3);
+    assert.deepEqual(logsResponse.body.logs.archives, []);
     assert.deepEqual(
       logsResponse.body.logs.entries.map((entry) => `${entry.level}:${entry.message}`).sort(),
       ["stderr:hello stderr", "stdout:hello stdout", "stdout:second stdout"].sort(),
@@ -132,6 +136,70 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
     );
 
     await postJson(`${apiServer.url}/api/services/loggy-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime logs archive previous runs and enforce bounded retention", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-log-archive-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "archive-loggy-service", {
+    stdoutLines: ["archive stdout"],
+    stderrLines: ["archive stderr"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/archive-loggy-service/install`);
+    await postJson(`${apiServer.url}/api/services/archive-loggy-service/config`);
+
+    for (let run = 0; run < 5; run += 1) {
+      const start = await postJson(`${apiServer.url}/api/services/archive-loggy-service/start`);
+      assert.equal(start.status, 200);
+
+      await waitFor(async () => {
+        const response = await fetch(`${apiServer.url}/api/services/archive-loggy-service/logs`);
+        const body = await response.json();
+        if (body.logs.entries.some((entry) => entry.message === "archive stdout")) {
+          return body;
+        }
+        return null;
+      });
+
+      const stop = await postJson(`${apiServer.url}/api/services/archive-loggy-service/stop`);
+      assert.equal(stop.status, 200);
+    }
+
+    const logsResponse = await fetch(`${apiServer.url}/api/services/archive-loggy-service/logs`);
+    const logsBody = await logsResponse.json();
+
+    assert.equal(logsResponse.status, 200);
+    assert.equal(logsBody.logs.retention.maxArchives, 3);
+    assert.equal(logsBody.logs.archives.length, 3);
+    assert.deepEqual(
+      logsBody.logs.entries
+        .filter((entry) => entry.message.length > 0)
+        .map((entry) => `${entry.level}:${entry.message}`)
+        .sort(),
+      ["stderr:archive stderr", "stdout:archive stdout"].sort(),
+    );
+
+    for (const archive of logsBody.logs.archives) {
+      const archivedCombined = await readFile(archive.logPath, "utf8");
+      const archivedStdout = await readFile(archive.stdoutPath, "utf8");
+      const archivedStderr = await readFile(archive.stderrPath, "utf8");
+
+      assert.match(archivedCombined, /archive stdout/);
+      assert.match(archivedCombined, /archive stderr/);
+      assert.match(archivedStdout, /archive stdout/);
+      assert.match(archivedStderr, /archive stderr/);
+    }
+
+    const archiveDirectories = await readdir(path.join(serviceRoot, "logs", "archive"), { withFileTypes: true });
+    assert.equal(archiveDirectories.filter((entry) => entry.isDirectory()).length, 3);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
