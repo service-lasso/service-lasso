@@ -7,7 +7,8 @@ This document captures the intended package boundaries for the next Service Lass
 The repo now has a bounded private `packages/core` wrapper package.
 
 What exists now:
-- a private `packages/core` wrapper package using the canonical target name `@service-lasso/service-lasso`
+- a bounded `packages/core` wrapper package using the canonical target name `@service-lasso/service-lasso`
+- a self-contained staged publish payload for `@service-lasso/service-lasso`
 - sibling reference-app starter repos under `C:\projects\service-lasso` for:
   - `service-lasso-app-web`
   - `service-lasso-packager-node`
@@ -21,7 +22,7 @@ What this scaffold does:
 - keeps the reference-app starters out of the core repo where they belong
 
 What it does not claim yet:
-- a finished public package rollout
+- a finished public npmjs.com rollout
 - migrated runtime source under `packages/core/src`
 - fully implemented starter apps in each sibling template repo
 
@@ -60,12 +61,16 @@ Suggested package name:
 
 Published via npm (`npm publish`) as the canonical reusable runtime package.
 
+Current bounded reality:
+- the repo stages a self-contained publish payload and publishes it through GitHub Packages
+- the in-repo `packages/core` wrapper remains the source-boundary scaffold, not the published payload itself
+
 ### 2) Built Node runtime
 
 Runnable directly from build output:
 
 ```bash
-node dist/runtime/server.js
+node dist/index.js
 ```
 
 ### 3) CLI
@@ -94,6 +99,12 @@ They consume the canonical runtime package and should use the same runtime-root 
 They should never redefine the core contract or replace the core runtime boundary.
 
 Before broad reference-template rollout, the existing sibling consumer repo `lasso-@serviceadmin` should be used as the first post-core integration check against the real runtime/API, ideally backed by released `lasso-echoservice` artifacts.
+
+The first meaningful implementation target for every starter repo is:
+- remain clonable and executable
+- show host-owned output
+- surface `lasso-@serviceadmin`
+- manage `lasso-echoservice` through a real local runtime using published `@service-lasso/service-lasso`
 
 #### A) Web reference app template
 
@@ -251,7 +262,7 @@ service-lasso instance start demo
 Built runtime:
 
 ```bash
-node dist/cli.js dev
+node dist/index.js
 ```
 
 ## Post-core implementation move

@@ -88,6 +88,12 @@ These should live as sibling repos under `C:\projects\service-lasso` and as matc
 These should all consume the same canonical runtime model based on:
 - `servicesRoot`
 - `workspaceRoot`
+
+The next concrete delivery step for those starter repos is:
+- consume published `@service-lasso/service-lasso`
+- remain clonable and executable
+- show host-owned output in addition to the admin UI
+- surface `lasso-@serviceadmin` against a real `lasso-echoservice`-backed runtime
 ## Runtime root model
 
 The preferred runtime root model is now:
@@ -300,6 +306,9 @@ After this introduction, the most useful next docs are:
 
 ### For the longer-term target structure
 - `docs/development/core-runtime-dev-plan.md`
+- `docs/development/core-runtime-package-architecture.md`
+- `docs/development/core-runtime-publishable-package.md`
+- `docs/development/reference-app-poc-matrix.md`
 
 ### For donor migration status
 - `docs/development/core-runtime-migration-plan.md`
