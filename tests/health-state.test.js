@@ -445,8 +445,12 @@ test("managed process exits update lifecycle and persisted runtime state", async
     assert.equal(detailBody.service.lifecycle.running, false);
     assert.equal(detailBody.service.lifecycle.runtime.pid, null);
     assert.equal(detailBody.service.lifecycle.runtime.exitCode, 7);
+    assert.equal(detailBody.service.lifecycle.runtime.lastTermination, "crashed");
+    assert.equal(typeof detailBody.service.lifecycle.runtime.finishedAt, "string");
     assert.equal(stored.runtime.running, false);
     assert.equal(stored.runtime.exitCode, 7);
+    assert.equal(stored.runtime.lastTermination, "crashed");
+    assert.equal(typeof stored.runtime.finishedAt, "string");
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

@@ -101,7 +101,7 @@ Current honest label:
    - provider-backed state and health are visible through the API
 
 8. lifecycle depth hardening
-   status: queued
+   status: done
    proof:
    - restart behavior is deterministic
    - intentional stop, crash exit, and restart evidence remain consistent in persisted state
@@ -199,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**lifecycle depth hardening**
+**dependency-aware startup ordering**
 
-That is the next clean donor-parity step after provider-backed execution, and it keeps persisted runtime evidence honest across restart, crash, and intentional stop paths before orchestration gets broader.
+That is the next clean donor-parity step after lifecycle depth hardening, and it begins the orchestration wave by making service startup respect dependency order and bounded readiness-aware sequencing.
