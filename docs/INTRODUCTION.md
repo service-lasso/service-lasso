@@ -232,6 +232,7 @@ The first bounded core slices added so far include:
 - operator data surfaces
 - bounded provider planning
 - bounded per-service runtime log archival and retention
+- bounded process/runtime metrics
 - first API server layer
 
 This is meaningful progress, but it is **not full donor runtime parity yet**.
@@ -244,7 +245,7 @@ Major donor runtime behavior still remains to be migrated more fully, including:
 - fuller shared env/globalenv handling beyond the current bounded slice
 - broader health/readiness flow beyond the current bounded slice
 - fuller run-level `workspaceRoot` logging archival/retention implementation
-- process/runtime metrics and broader manager/runtime parity
+- donor-depth process/runtime metrics and broader manager/runtime parity
 
 Important current boundary:
 - the sibling `lasso-echoservice` harness can already simulate HTTP and TCP health targets for testing and demo hardening

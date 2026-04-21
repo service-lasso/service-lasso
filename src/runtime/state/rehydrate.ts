@@ -31,6 +31,15 @@ interface StoredRuntimeState {
     stdoutPath?: string | null;
     stderrPath?: string | null;
   };
+  metrics?: {
+    launchCount?: number;
+    stopCount?: number;
+    exitCount?: number;
+    crashCount?: number;
+    restartCount?: number;
+    totalRunDurationMs?: number;
+    lastRunDurationMs?: number | null;
+  };
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
 }
@@ -100,6 +109,16 @@ function parseLifecycleState(snapshot: {
         logPath: typeof runtime?.logs?.logPath === "string" ? runtime.logs.logPath : null,
         stdoutPath: typeof runtime?.logs?.stdoutPath === "string" ? runtime.logs.stdoutPath : null,
         stderrPath: typeof runtime?.logs?.stderrPath === "string" ? runtime.logs.stderrPath : null,
+      },
+      metrics: {
+        launchCount: typeof runtime?.metrics?.launchCount === "number" ? runtime.metrics.launchCount : 0,
+        stopCount: typeof runtime?.metrics?.stopCount === "number" ? runtime.metrics.stopCount : 0,
+        exitCount: typeof runtime?.metrics?.exitCount === "number" ? runtime.metrics.exitCount : 0,
+        crashCount: typeof runtime?.metrics?.crashCount === "number" ? runtime.metrics.crashCount : 0,
+        restartCount: typeof runtime?.metrics?.restartCount === "number" ? runtime.metrics.restartCount : 0,
+        totalRunDurationMs: typeof runtime?.metrics?.totalRunDurationMs === "number" ? runtime.metrics.totalRunDurationMs : 0,
+        lastRunDurationMs:
+          typeof runtime?.metrics?.lastRunDurationMs === "number" ? runtime.metrics.lastRunDurationMs : null,
       },
     },
   };

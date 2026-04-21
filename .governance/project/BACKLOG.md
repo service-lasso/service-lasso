@@ -40,7 +40,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-030` | `done` | Capture managed stdout/stderr and make runtime logs first-class | `SPEC-002`, `AC-4J` | Landed bounded managed stdout/stderr capture into runtime-owned per-service log files with API exposure of recent output and persisted runtime log-path state. |
 | `ISS-031` | `done` | Add bounded `reload` and `autostart` orchestration follow-up | `SPEC-002`, `AC-4K` | Landed bounded `reload` and `autostart` orchestration with manifest opt-in, boot-time autostart, and deterministic reload stop/restart behavior. |
 | `ISS-032` | `done` | Add bounded archival and retention for runtime logs | `SPEC-002`, `AC-4L` | Landed bounded per-service runtime-log archival on next start with deterministic retention pruning and logs API archive metadata. |
-| `ISS-033` | `todo` | Add bounded process/runtime metrics surfaces | `SPEC-002` | Extend runtime evidence beyond pid/running state with bounded process/termination/log metrics that remain stable across restart and API reads. |
+| `ISS-033` | `done` | Add bounded process/runtime metrics surfaces | `SPEC-002`, `AC-4M` | Landed bounded persisted launch/termination/duration metrics plus live log-count metrics through service detail, dedicated metrics routes, and restart-stable runtime state. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -77,7 +77,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-030` | `done` | `ISS-030` | Capture managed stdout/stderr into runtime-owned log surfaces | `SPEC-002`, `AC-4J` | Managed processes write stdout/stderr into stable runtime log outputs that the API and persisted state can report consistently |
 | `TASK-031` | `done` | `ISS-031` | Add bounded `reload` and `autostart` orchestration semantics | `SPEC-002`, `AC-4K` | Runtime exposes explicit, deterministic `reload` and `autostart` behavior on top of the current bounded orchestration model |
 | `TASK-032` | `done` | `ISS-032` | Add bounded archival and retention rules for runtime-owned logs | `SPEC-002`, `AC-4L` | Runtime-owned per-service logs archive prior runs on the next managed start, prune older archives deterministically, and expose retained archive metadata through the logs API |
-| `TASK-033` | `todo` | `ISS-033` | Add bounded process/runtime metrics surfaces | `SPEC-002` | Runtime exposes bounded process/termination/log metrics beyond pid/running state without overclaiming donor-depth process-tree parity |
+| `TASK-033` | `done` | `ISS-033` | Add bounded process/runtime metrics surfaces | `SPEC-002`, `AC-4M` | Runtime exposes bounded launch/termination/duration/log metrics beyond pid/running state, persists the owned metrics across restart, and surfaces them through dedicated metrics routes without overclaiming donor-depth process-tree parity |
 
 ## Next Recommended Item
-The next best item is `TASK-033`: add bounded process/runtime metrics surfaces so the runtime can report richer execution evidence beyond pid/running state while staying within the current bounded supervision slice.
+The next best item is `TASK-016`: run demo-instance hardening and regression verification so the current bounded execution-backed runtime can be proven end to end with the stronger observability now in place.
