@@ -153,10 +153,17 @@ Current honest label:
     - demo cannot be satisfied by state flips alone
 
 16. `lasso-@serviceadmin` integration validation
-    status: queued
+    status: done
     proof:
     - admin UI consumes the current runtime/API without special-case hacks
     - released Echo Service artifact is used as the backing service target
+    current bounded checklist:
+    - add runtime compatibility routes for service meta persistence used by favorites and dependency-graph layout
+    - add runtime compatibility routes for live log info and log chunk reads
+    - add bounded runtime dashboard adapter routes for current summary/services/detail consumer surfaces
+    - patch the admin repo hook/stub layer to consume the bounded runtime adapter instead of the large stub model
+    - run one live consumer smoke against the demo/runtime shape before closing the issue
+    - record any remaining consumer-model gaps as governed follow-up work before moving to package rollout
 
 ### Wave 7: Package and template rollout
 
@@ -201,6 +208,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**`lasso-@serviceadmin` integration validation**
+**core package boundary scaffolding**
 
-That is the next clean delivery step because the runtime now has a bounded end-to-end demo flow with direct regression proof, so the highest-value next check is validating that the first real consumer repo can use the current API/runtime without special-case hacks.
+That is the next clean delivery step because the first real consumer-validation slice is now complete, so the remaining work shifts from consumer proof to package/template rollout.

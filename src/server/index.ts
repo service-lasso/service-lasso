@@ -6,10 +6,17 @@ import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
+import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
 import { createServiceMetricsResponse } from "./routes/metrics.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
+import { createServiceMetaResponse, createServicesMetaResponse } from "./routes/service-meta.js";
+import {
+  createDashboardServiceDetailResponse,
+  createDashboardServicesResponse,
+  createDashboardSummaryResponse,
+} from "./routes/dashboard.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -22,8 +29,15 @@ import {
 import { getLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
+import { buildPersistedServiceMeta, writeServiceMeta } from "../runtime/state/meta.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
-import { buildServiceLogs, getServiceRuntimeLogPaths } from "../runtime/operator/logs.js";
+import {
+  buildServiceLogInfo,
+  buildServiceLogs,
+  getServiceRuntimeLogPaths,
+  readServiceLogChunk,
+} from "../runtime/operator/logs.js";
+import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -33,9 +47,11 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
+  DashboardServiceResponse,
   LifecycleActionResponse,
   RuntimeOrchestrationResponse,
   ServiceDetailResponse,
+  ServicesMetaResponse,
   ServiceSummary,
 } from "../contracts/api.js";
 
@@ -66,6 +82,75 @@ function notFound(response: ServerResponse): void {
     message: "Route not found.",
     statusCode: 404,
   });
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of request) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+
+  if (chunks.length === 0) {
+    return {};
+  }
+
+  const body = Buffer.concat(chunks).toString("utf8").trim();
+  if (body.length === 0) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new ApiError("invalid_json", 400, "Request body must be valid JSON.");
+  }
+}
+
+function parseServiceMetaPatch(
+  input: unknown,
+): { favorite?: boolean; dependencyGraphPosition?: { x: number; y: number } | null } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Service meta patch must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  const patch: { favorite?: boolean; dependencyGraphPosition?: { x: number; y: number } | null } = {};
+
+  if ("favorite" in candidate) {
+    if (typeof candidate.favorite !== "boolean") {
+      throw new ApiError("invalid_body", 400, "\"favorite\" must be a boolean.");
+    }
+    patch.favorite = candidate.favorite;
+  }
+
+  if ("dependencyGraphPosition" in candidate) {
+    if (candidate.dependencyGraphPosition === null) {
+      patch.dependencyGraphPosition = null;
+    } else if (
+      candidate.dependencyGraphPosition &&
+      typeof candidate.dependencyGraphPosition === "object" &&
+      !Array.isArray(candidate.dependencyGraphPosition)
+    ) {
+      const position = candidate.dependencyGraphPosition as Record<string, unknown>;
+      if (typeof position.x !== "number" || typeof position.y !== "number") {
+        throw new ApiError("invalid_body", 400, "\"dependencyGraphPosition\" must contain numeric x/y values.");
+      }
+      patch.dependencyGraphPosition = { x: position.x, y: position.y };
+    } else {
+      throw new ApiError(
+        "invalid_body",
+        400,
+        "\"dependencyGraphPosition\" must be null or an object with numeric x/y values.",
+      );
+    }
+  }
+
+  if (!("favorite" in patch) && !("dependencyGraphPosition" in patch)) {
+    throw new ApiError("invalid_body", 400, "Service meta patch must include \"favorite\" and/or \"dependencyGraphPosition\".");
+  }
+
+  return patch;
 }
 
 async function loadRuntimeModel(servicesRoot: string) {
@@ -335,6 +420,113 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/services/meta") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const payload: ServicesMetaResponse["services"] = await Promise.all(
+      runtimeModel.discovered.map((service) => buildPersistedServiceMeta(service.manifest.id, service.serviceRoot)),
+    );
+    writeJson(response, 200, createServicesMetaResponse(payload));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/dashboard") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const services = await Promise.all(
+      runtimeModel.discovered.map((service) =>
+        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+      ),
+    );
+
+    writeJson(response, 200, createDashboardSummaryResponse(buildDashboardSummary(services)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/dashboard/services") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const services: DashboardServiceResponse[] = await Promise.all(
+      runtimeModel.discovered.map((service) =>
+        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+      ),
+    );
+
+    writeJson(response, 200, createDashboardServicesResponse(services));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/dashboard/services/")) {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const serviceId = decodeURIComponent(url.pathname.split("/").filter(Boolean)[3] ?? "");
+    const service = runtimeModel.registry.getById(serviceId);
+
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    writeJson(
+      response,
+      200,
+      createDashboardServiceDetailResponse(
+        await buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+      ),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/services/log-info") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const serviceId = url.searchParams.get("service");
+    const type = url.searchParams.get("type") ?? "default";
+
+    if (!serviceId) {
+      throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
+    }
+
+    if (type !== "default") {
+      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
+    }
+
+    const service = runtimeModel.registry.getById(serviceId);
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    writeJson(response, 200, createServiceLogInfoResponse(buildServiceLogInfo(service)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/logs/read") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const serviceId = url.searchParams.get("service");
+    const type = url.searchParams.get("type") ?? "default";
+    const beforeParam = url.searchParams.get("before");
+    const limitParam = url.searchParams.get("limit");
+
+    if (!serviceId) {
+      throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
+    }
+
+    if (type !== "default") {
+      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
+    }
+
+    const service = runtimeModel.registry.getById(serviceId);
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    const before = beforeParam === null ? undefined : Number(beforeParam);
+    const limit = limitParam === null ? undefined : Number(limitParam);
+
+    writeJson(response, 200, createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit)));
+    return;
+  }
+
   if (url.pathname.startsWith("/api/services/")) {
     const pathParts = url.pathname.split("/").filter(Boolean);
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
@@ -344,6 +536,22 @@ async function routeRequest(
 
     if (!service) {
       notFound(response);
+      return;
+    }
+
+    if (request.method === "PATCH" && pathParts.length === 4 && pathParts[3] === "meta") {
+      const patch = parseServiceMetaPatch(await readJsonBody(request));
+      const persisted = await writeServiceMeta(service.serviceRoot, patch);
+
+      writeJson(
+        response,
+        200,
+        createServiceMetaResponse(serviceId, {
+          id: serviceId,
+          favorite: persisted.favorite,
+          dependencyGraphPosition: persisted.dependencyGraphPosition,
+        }),
+      );
       return;
     }
 

@@ -68,6 +68,7 @@ export async function writeExecutableFixtureService(
     autostart = undefined,
     ports = undefined,
     depend_on = undefined,
+    urls = undefined,
     install = undefined,
     config = undefined,
   } = options;
@@ -182,6 +183,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     autostart,
     ports,
     depend_on,
+    urls,
     install,
     config,
     healthcheck,
