@@ -6,3 +6,4 @@ ref/typerefinery-service-manager-donor/
 node_modules/
 dist/
 .tmp/
+artifacts/

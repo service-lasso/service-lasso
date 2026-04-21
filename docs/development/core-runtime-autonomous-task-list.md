@@ -185,19 +185,27 @@ Current honest label:
     - each matching GitHub repo is marked as a template repo
     - the core repo no longer carries in-repo app placeholder packages
 
+19. bounded core release artifact definition
+    status: done
+    proof:
+    - the repo can stage one documented downloadable runtime artifact
+    - the staged artifact contains the documented built/runtime/package files and release manifest
+    - the staged artifact can boot the runtime against explicit roots
+    - tagged GitHub releases can attach the packaged artifact
+
 ### Wave 8: Documentation truth pass
 
-19. canonical manifest/reference cleanup
+20. canonical manifest/reference cleanup
     status: queued
     proof:
     - canonical docs no longer overstate unsupported contract fields
 
-20. stale planning/spec cleanup
+21. stale planning/spec cleanup
     status: queued
     proof:
     - README, spec, plan, and migration docs agree with current implementation
 
-21. final donor parity review
+22. final donor parity review
     status: queued
     proof:
     - every donor capability is marked:
