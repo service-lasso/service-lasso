@@ -1,4 +1,5 @@
 import type { DiscoveredService, ServiceEndpoint } from "../../contracts/service.js";
+import { buildServiceVariables } from "./variables.js";
 
 export interface ServiceNetworkEntry {
   label: string;
@@ -8,25 +9,48 @@ export interface ServiceNetworkEntry {
 
 export interface ServiceNetworkPayload {
   serviceId: string;
+  ports: Record<string, number>;
   endpoints: ServiceNetworkEntry[];
 }
 
-function normalizeEndpoint(entry: ServiceEndpoint): ServiceNetworkEntry {
+function renderEndpointUrl(
+  entry: ServiceEndpoint,
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string>,
+  resolvedPorts: Record<string, number>,
+): ServiceNetworkEntry {
+  const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables;
+  const url = entry.url.replace(/\$\{([^}]+)\}/g, (match, key) => {
+    const resolved = variables.find((candidate) => candidate.key === key.trim());
+    return resolved ? resolved.value : match;
+  });
+
   return {
     label: entry.label,
-    url: entry.url,
+    url,
     kind: entry.kind ?? "service",
   };
 }
 
-export function buildServiceNetwork(service: DiscoveredService): ServiceNetworkPayload {
-  const manifestEndpoints = (service.manifest.urls ?? []).map(normalizeEndpoint);
+export function buildServiceNetwork(
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
+): ServiceNetworkPayload {
+  const manifestEndpoints = (service.manifest.urls ?? []).map((entry) =>
+    renderEndpointUrl(entry, service, sharedGlobalEnv, resolvedPorts),
+  );
   const healthEndpoint =
     service.manifest.healthcheck?.type === "http"
       ? [
           {
             label: "health",
-            url: service.manifest.healthcheck.url,
+            url: renderEndpointUrl(
+              { label: "health", url: service.manifest.healthcheck.url, kind: "health" },
+              service,
+              sharedGlobalEnv,
+              resolvedPorts,
+            ).url,
             kind: "health",
           },
         ]
@@ -34,6 +58,7 @@ export function buildServiceNetwork(service: DiscoveredService): ServiceNetworkP
 
   return {
     serviceId: service.manifest.id,
+    ports: { ...resolvedPorts },
     endpoints: [...manifestEndpoints, ...healthEndpoint],
   };
 }

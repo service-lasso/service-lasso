@@ -125,6 +125,19 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"globalenv\" to be a string map.`);
   }
 
+  const rawPorts = record.ports;
+  if (
+    rawPorts !== undefined &&
+    (!rawPorts ||
+      typeof rawPorts !== "object" ||
+      Array.isArray(rawPorts) ||
+      Object.values(rawPorts).some(
+        (value) => typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 65535,
+      ))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"ports\" to be a map of integer port values between 0 and 65535.`);
+  }
+
   const rawExecservice = record.execservice;
   if (rawExecservice !== undefined && (typeof rawExecservice !== "string" || rawExecservice.trim().length === 0)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"execservice\" to be a non-empty string.`);
@@ -170,6 +183,9 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     env: rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined,
     globalenv: rawGlobalEnv
       ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
+      : undefined,
+    ports: rawPorts
+      ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,
     urls: rawUrls?.map((entry) => ({
       label: (entry as Record<string, string>).label.trim(),

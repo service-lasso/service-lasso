@@ -8,20 +8,23 @@
   "args": ["runtime/fixture-harness.mjs"],
   "env": {
     "ECHO_MESSAGE": "hello from echo-service harness",
-    "ECHO_PORT": "4010",
+    "ECHO_PORT": "${SERVICE_PORT}",
     "ECHO_LOG_PATH": "./runtime/echo.log",
     "ECHO_STATE_PATH": "./runtime/state.json",
     "ECHO_DB_PATH": "./runtime/echo.sqlite"
   },
+  "ports": {
+    "service": 4010
+  },
   "urls": [
     {
       "label": "ui",
-      "url": "http://127.0.0.1:4010/",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/",
       "kind": "local"
     },
     {
       "label": "service",
-      "url": "http://127.0.0.1:4010/health",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
       "kind": "local"
     }
   ],

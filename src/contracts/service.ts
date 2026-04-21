@@ -6,6 +6,10 @@ export interface ServiceEndpoint {
   kind?: string;
 }
 
+export interface ServicePortDeclaration {
+  [name: string]: number;
+}
+
 export interface ServiceManifest {
   id: string;
   name: string;
@@ -16,6 +20,7 @@ export interface ServiceManifest {
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
+  ports?: ServicePortDeclaration;
   urls?: ServiceEndpoint[];
   execservice?: string;
   executable?: string;

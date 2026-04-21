@@ -23,6 +23,7 @@ interface ManagedProcessRecord {
 interface StartProcessOptions {
   service: DiscoveredService;
   sharedGlobalEnv?: Record<string, string>;
+  resolvedPorts?: Record<string, number>;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
@@ -53,9 +54,10 @@ function buildCommandString(executable: string, args: string[]): string {
 function buildProcessEnvironment(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = {},
 ): NodeJS.ProcessEnv {
   const serviceVariables = Object.fromEntries(
-    buildServiceVariables(service, sharedGlobalEnv).variables.map((entry) => [entry.key, entry.value]),
+    buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
 
   return {
@@ -69,7 +71,7 @@ export function hasManagedProcess(serviceId: string): boolean {
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
-  const { service, sharedGlobalEnv, onExit } = options;
+  const { service, sharedGlobalEnv, resolvedPorts, onExit } = options;
   const serviceId = service.manifest.id;
 
   if (managedProcesses.has(serviceId)) {
@@ -83,7 +85,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const child = spawn(executable, args, {
     cwd: service.serviceRoot,
-    env: buildProcessEnvironment(service, sharedGlobalEnv),
+    env: buildProcessEnvironment(service, sharedGlobalEnv, resolvedPorts),
     stdio: "ignore",
     windowsHide: true,
   });

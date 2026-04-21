@@ -222,6 +222,36 @@ test("loadServiceManifest accepts bounded globalenv emission maps", async () => 
   }
 });
 
+test("loadServiceManifest accepts bounded ports declarations", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "port-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "port-service",
+        name: "Port Service",
+        description: "Service with bounded port declarations.",
+        ports: {
+          service: 43100,
+          ui: 0,
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.ports, {
+      service: 43100,
+      ui: 0,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {
