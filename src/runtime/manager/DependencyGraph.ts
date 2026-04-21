@@ -59,6 +59,40 @@ export class DependencyGraph {
       dependents,
     };
   }
+
+  getStartupOrder(serviceId: string): string[] {
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const ordered: string[] = [];
+
+    const visit = (currentServiceId: string) => {
+      if (visited.has(currentServiceId)) {
+        return;
+      }
+
+      if (visiting.has(currentServiceId)) {
+        throw new Error(`Dependency cycle detected while resolving startup order for "${serviceId}".`);
+      }
+
+      const service = this.#registry.getById(currentServiceId);
+      if (!service) {
+        throw new Error(`Unknown service id: ${currentServiceId}`);
+      }
+
+      visiting.add(currentServiceId);
+      for (const dependencyId of service.manifest.depend_on ?? []) {
+        visit(dependencyId);
+        if (!ordered.includes(dependencyId)) {
+          ordered.push(dependencyId);
+        }
+      }
+      visiting.delete(currentServiceId);
+      visited.add(currentServiceId);
+    };
+
+    visit(serviceId);
+    return ordered;
+  }
 }
 
 export function createServiceRegistry(services: DiscoveredService[]): ServiceRegistry {
