@@ -168,9 +168,11 @@ Current honest label:
 ### Wave 7: Package and template rollout
 
 17. core package boundary scaffolding
-    status: queued
+    status: done
     proof:
-    - package split exists and remains aligned with the runtime-root model
+    - bounded `packages/` workspace map exists and remains aligned with the runtime-root model
+    - private core wrapper package targets the current built runtime + CLI without moving source prematurely
+    - placeholder reference-app packages consume the core package without redefining `servicesRoot` / `workspaceRoot`
 
 18. reference app/template rollout
     status: queued
@@ -208,6 +210,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**core package boundary scaffolding**
+**reference app/template rollout**
 
-That is the next clean delivery step because the first real consumer-validation slice is now complete, so the remaining work shifts from consumer proof to package/template rollout.
+That is the next clean delivery step because the bounded core package scaffold now exists, so the remaining work shifts from placeholder workspace boundaries to real starter-template packages that consume the core runtime/API.
