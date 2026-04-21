@@ -15,15 +15,16 @@ export function resolveProviderExecution(
     return createDirectExecutionPlan(service.manifest);
   }
 
-  if (!registry.getById(providerServiceId)) {
+  const providerService = registry.getById(providerServiceId);
+  if (!providerService) {
     throw new Error(`Unknown provider service id: ${providerServiceId}`);
   }
 
   switch (providerServiceId) {
     case "@node":
-      return createNodeExecutionPlan(service.manifest);
+      return createNodeExecutionPlan(service.manifest, providerService.manifest);
     case "@python":
-      return createPythonExecutionPlan(service.manifest);
+      return createPythonExecutionPlan(service.manifest, providerService.manifest);
     default:
       throw new Error(`Unsupported provider service id: ${providerServiceId}`);
   }

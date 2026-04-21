@@ -5,6 +5,8 @@ import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
+import { createDirectExecutionPlan } from "../providers/direct.js";
+import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
@@ -56,6 +58,23 @@ async function persistProcessExit(
   }));
 
   await writeServiceState(service, state);
+}
+
+function resolveExecutionPlanForLifecycle(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+) {
+  if (service.manifest.execservice) {
+    if (!registry) {
+      throw new LifecycleStateError(
+        `Cannot start service "${service.manifest.id}" because provider resolution requires a registry context.`,
+      );
+    }
+
+    return resolveProviderExecution(service, registry);
+  }
+
+  return createDirectExecutionPlan(service.manifest);
 }
 
 export async function installService(
@@ -124,7 +143,8 @@ export async function startService(
   if (current.running) {
     throw new LifecycleStateError(`Cannot start service "${serviceId}" because it is already running.`);
   }
-  if (!service.manifest.executable) {
+  const executionPlan = resolveExecutionPlanForLifecycle(service, registry);
+  if (executionPlan.provider === "direct" && !service.manifest.executable) {
     throw new LifecycleStateError(`Cannot start service "${serviceId}" because no executable is configured.`);
   }
 
@@ -136,6 +156,7 @@ export async function startService(
       : {};
   const handle = await startManagedProcess({
     service,
+    executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
     onExit: async ({ exitCode, wasStopping }) => {
@@ -154,6 +175,8 @@ export async function startService(
       startedAt: handle.startedAt,
       exitCode: null,
       command: handle.command,
+      provider: executionPlan.provider,
+      providerServiceId: executionPlan.providerServiceId,
       ports: resolvedPorts,
     },
   }));
@@ -190,6 +213,8 @@ export async function startService(
         startedAt: handle.startedAt,
         exitCode: null,
         command: handle.command,
+        provider: executionPlan.provider,
+        providerServiceId: executionPlan.providerServiceId,
       },
     },
     message: readiness.message,
@@ -231,7 +256,8 @@ export async function restartService(
   if (!current.configured) {
     throw new LifecycleStateError(`Cannot restart service "${serviceId}" before config.`);
   }
-  if (!service.manifest.executable) {
+  const executionPlan = resolveExecutionPlanForLifecycle(service, registry);
+  if (executionPlan.provider === "direct" && !service.manifest.executable) {
     throw new LifecycleStateError(`Cannot restart service "${serviceId}" because no executable is configured.`);
   }
 
@@ -247,6 +273,7 @@ export async function restartService(
       : {};
   const handle = await startManagedProcess({
     service,
+    executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
     onExit: async ({ exitCode, wasStopping }) => {
@@ -265,6 +292,8 @@ export async function restartService(
       startedAt: handle.startedAt,
       exitCode: null,
       command: handle.command,
+      provider: executionPlan.provider,
+      providerServiceId: executionPlan.providerServiceId,
       ports: resolvedPorts,
     },
   }));
@@ -301,6 +330,8 @@ export async function restartService(
         startedAt: handle.startedAt,
         exitCode: null,
         command: handle.command,
+        provider: executionPlan.provider,
+        providerServiceId: executionPlan.providerServiceId,
       },
     },
     message: readiness.message.replace(/^Start/, "Restart"),

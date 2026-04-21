@@ -11,5 +11,6 @@ export function createDirectExecutionPlan(manifest: ServiceManifest): ProviderEx
     executable,
     args,
     commandPreview: [executable, ...args].join(" ").trim(),
+    providerEnv: {},
   };
 }

@@ -1,9 +1,12 @@
 import type { ServiceManifest } from "../../contracts/service.js";
 import type { ProviderExecutionPlan } from "./types.js";
 
-export function createPythonExecutionPlan(manifest: ServiceManifest): ProviderExecutionPlan {
-  const executable = manifest.executable ?? "python";
-  const args = manifest.args ?? [];
+export function createPythonExecutionPlan(
+  serviceManifest: ServiceManifest,
+  providerManifest: ServiceManifest,
+): ProviderExecutionPlan {
+  const executable = providerManifest.executable ?? "python";
+  const args = serviceManifest.args ?? [];
 
   return {
     provider: "python",
@@ -11,5 +14,6 @@ export function createPythonExecutionPlan(manifest: ServiceManifest): ProviderEx
     executable,
     args,
     commandPreview: [executable, ...args].join(" ").trim(),
+    providerEnv: providerManifest.env ?? {},
   };
 }

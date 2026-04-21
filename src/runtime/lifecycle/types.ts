@@ -10,6 +10,8 @@ export interface ServiceRuntimeState {
   startedAt: string | null;
   exitCode: number | null;
   command: string | null;
+  provider: "direct" | "node" | "python" | null;
+  providerServiceId: string | null;
   ports: Record<string, number>;
 }
 

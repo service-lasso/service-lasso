@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { resolveProviderExecution } from "../dist/runtime/providers/resolveProvider.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { clearPersistedFixtureState } from "./test-helpers.js";
+import { readStoredState } from "../dist/runtime/state/readState.js";
 
 const servicesRoot = path.resolve("services");
 
@@ -18,6 +19,19 @@ async function postJson(url) {
     status: response.status,
     body: await response.json(),
   };
+}
+
+async function waitFor(readinessCheck, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await readinessCheck();
+    if (result) {
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
 async function makeTempServicesRoot() {
@@ -69,7 +83,8 @@ test("provider resolution returns node execution for provider-backed services", 
 
   assert.equal(plan.provider, "node");
   assert.equal(plan.providerServiceId, "@node");
-  assert.equal(plan.commandPreview, "node runtime/server.js");
+  assert.equal(plan.commandPreview, "node runtime/server.mjs");
+  assert.equal(plan.providerEnv.NODE_ENV, "development");
 });
 
 test("provider resolution returns python execution for python-backed services", async () => {
@@ -101,6 +116,7 @@ test("provider resolution returns python execution for python-backed services", 
     assert.equal(plan.provider, "python");
     assert.equal(plan.providerServiceId, "@python");
     assert.equal(plan.commandPreview, "python app.py");
+    assert.equal(plan.providerEnv.NODE_ENV, undefined);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -118,11 +134,39 @@ test("provider-backed lifecycle action includes provider details in API response
 
     assert.equal(start.status, 200);
     assert.equal(start.body.provider.provider, "node");
-    assert.equal(start.body.provider.commandPreview, "node runtime/server.js");
+    assert.equal(start.body.provider.commandPreview, "node runtime/server.mjs");
+    assert.equal(start.body.state.runtime.provider, "node");
+    assert.equal(start.body.state.runtime.providerServiceId, "@node");
+    assert.equal(start.body.state.runtime.command, "node runtime/server.mjs");
 
     const detail = await fetch(`${apiServer.url}/api/services/node-sample-service`);
     const detailBody = await detail.json();
     assert.equal(detailBody.service.provider.provider, "node");
+    assert.equal(detailBody.service.lifecycle.runtime.provider, "node");
+    assert.equal(detailBody.service.lifecycle.runtime.providerServiceId, "@node");
+
+    const providerEnvSnapshot = JSON.parse(
+      await waitFor(async () => {
+        try {
+          return await readFile(path.join(servicesRoot, "node-sample-service", ".state", "provider-env.json"), "utf8");
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+    assert.equal(providerEnvSnapshot.NODE_ENV, "development");
+    assert.equal(providerEnvSnapshot.SERVICE_PORT, "4020");
+    assert.equal(providerEnvSnapshot.NODE_SAMPLE_PORT, "4020");
+
+    const stored = await readStoredState(path.join(servicesRoot, "node-sample-service"));
+    assert.equal(stored.runtime.provider, "node");
+    assert.equal(stored.runtime.providerServiceId, "@node");
+
+    const stop = await postJson(`${apiServer.url}/api/services/node-sample-service/stop`);
+    assert.equal(stop.status, 200);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
