@@ -153,7 +153,7 @@ Current honest label:
     - demo cannot be satisfied by state flips alone
 
 16. `lasso-@serviceadmin` integration validation
-    status: in_progress
+    status: done
     proof:
     - admin UI consumes the current runtime/API without special-case hacks
     - released Echo Service artifact is used as the backing service target
@@ -208,6 +208,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**`lasso-@serviceadmin` integration validation**
+**core package boundary scaffolding**
 
-That is the next clean delivery step because the runtime now has a bounded end-to-end demo flow with direct regression proof, so the highest-value next check is validating that the first real consumer repo can use the current API/runtime without special-case hacks.
+That is the next clean delivery step because the first real consumer-validation slice is now complete, so the remaining work shifts from consumer proof to package/template rollout.

@@ -37,7 +37,23 @@ Out of scope for this slice:
    status: done
 
 6. Record any remaining consumer-model gaps as explicit follow-up work before calling the integration slice complete.
-   status: in_progress
+   status: done
+
+## Live smoke checklist
+
+Current bounded live-smoke checklist:
+
+1. Start `service-lasso` against explicit demo roots and confirm `/api/health` plus dashboard routes are reachable.
+   status: done
+
+2. Start at least one real managed demo service so the admin consumer sees non-empty runtime data.
+   status: done
+
+3. Build and serve `lasso-@serviceadmin` with `VITE_SERVICE_LASSO_API_BASE_URL` pointed at the live runtime.
+   status: done
+
+4. Confirm the served admin app loads against the live runtime stack and record the concrete evidence.
+   status: done
 
 ## Current verified outcomes
 
@@ -71,16 +87,24 @@ What that proves:
 - The runtime now exposes bounded dashboard adapter routes for the current admin summary/services/detail model.
 - `lasso-@serviceadmin` now uses the bounded runtime dashboard adapter routes when `VITE_SERVICE_LASSO_API_BASE_URL` is configured, while still preserving the local stub fallback when the runtime API is absent.
 - `lasso-@serviceadmin` unit tests now pass with the encoded log-query expectations and the new runtime dashboard adapter coverage.
+- Live local smoke passed against the real stack:
+  - `service-lasso` runtime on `http://127.0.0.1:18081`
+  - `lasso-@serviceadmin` preview on `http://127.0.0.1:17700`
+  - runtime `/api/health` returned `ok`
+  - runtime `/api/dashboard` reported `4` services and `2` running services
+  - runtime `/api/dashboard/services/echo-service` reported `echo-service` as `running`
+  - runtime log-info route resolved `echo-service` log path successfully
+  - admin preview root `/` returned `200`
+  - admin preview service route `/services/echo-service` returned `200`
 
 ### Still uncovered / partial
 
-- The bounded consumer validation is now proven at build and unit-test level, but it still needs one live integration smoke with the actual runtime/demo shape.
 - The admin UI still depends on the bounded compatibility adapter shape rather than a cleaner long-term dedicated admin contract, so this should be treated as a compatibility bridge rather than the final consumer API design.
 
 ## Next recommended slice
 
 The next clean delivery step is:
 
-**run one live integration smoke with `service-lasso` plus the current demo/runtime shape and `lasso-@serviceadmin` configured against `VITE_SERVICE_LASSO_API_BASE_URL`, then record any remaining real consumer gaps before closing `ISS-034`.**
+**treat `ISS-034` as complete and carry the remaining long-term consumer-contract cleanup into later package/reference-app work rather than blocking core runtime completion on a broader admin-API redesign.**
 
 That should stay bounded to the currently implemented runtime contract rather than inventing a bigger future dashboard schema first.
