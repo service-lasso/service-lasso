@@ -1,12 +1,16 @@
 # Core runtime demo-instance plan
 
-This document defines the practical plan for turning the current bounded `service-lasso` core runtime into a reviewable demo instance.
+This document now doubles as the current demo-instance quickstart and the residual-hardening note for the bounded `service-lasso` demo flow.
 
-It is intentionally narrower than the full product/runtime roadmap. The goal is not "finish Service Lasso" in one jump. The goal is to produce a demoable, testable instance that proves the core runtime shape end to end.
+The original goal was to turn the core runtime into a reviewable demo instance. That bounded goal is now implemented. The current purpose of this document is to show:
+- what the demo proves today
+- which commands are the canonical demo commands
+- what evidence the scripted demo smoke actually checks
+- what still remains outside the bounded demo slice
 
 ## Purpose
 
-The demo instance should let us prove, in one local runnable slice, that `service-lasso` can:
+The demo instance proves, in one local runnable slice, that `service-lasso` can:
 - start a real core API process
 - load a real managed service tree from `services/`
 - expose service/runtime/operator endpoints from that tree
@@ -15,24 +19,45 @@ The demo instance should let us prove, in one local runnable slice, that `servic
 - show provider execution behavior for the demo services
 - give the UI/harness a stable target to exercise
 
-## Current starting point
+## Current demo commands
 
-The repo already has the first bounded core slices in place:
-- API server entrypoint
-- manifest discovery and validation
-- registry and dependency graph
-- bounded lifecycle actions
-- bounded process/http health evaluation
-- `.state` file writing/reading helpers
-- operator data surfaces (logs, variables, network)
-- provider execution planning (direct, node, python)
-- direct tests covering those slices
+Use these commands from the repo root:
 
-What it does **not** yet provide is a full reviewable demo instance with a clear startup model, stable validation flow, and real end-to-end demo semantics.
+```bash
+npm run demo:start
+npm run demo:smoke
+npm run demo:reset
+```
 
-## Demo-instance success bar
+Default demo roots:
+- `servicesRoot = <repo>/services`
+- `workspaceRoot = <repo>/workspace/demo-instance`
 
-The demo instance is good enough when all of the following are true:
+Override flags when needed:
+- `--services-root=<path>`
+- `--workspace-root=<path>`
+- `--port=<number>`
+- `--preserve` for `demo:smoke` if you want to keep demo output after the smoke run
+
+`demo:start`:
+- builds the repo
+- starts the runtime against the demo roots
+- prints the API URL, `servicesRoot`, and `workspaceRoot`
+
+`demo:smoke`:
+- resets the demo roots first
+- starts the runtime against explicit roots
+- exercises the bounded end-to-end flow
+- stops the runtime and resets the demo again unless `--preserve` is set
+
+`demo:reset`:
+- removes the demo workspace
+- removes tracked demo `.state` and `logs` output
+- removes manifest-declared install/config artifact files for the demo service set
+
+## Implemented success bar
+
+The bounded demo instance is considered implemented because all of the following are now true:
 
 1. A reviewer can start the core runtime with one documented command.
 2. The runtime comes up against a known demo `services/` root.
@@ -41,6 +66,25 @@ The demo instance is good enough when all of the following are true:
 5. Structured `.state` files can be inspected before and after lifecycle actions.
 6. The demo can be re-run cleanly without hand-editing the repo.
 7. There is one documented smoke test flow for humans and one scripted validation flow for automation.
+
+Important honesty rule:
+- this demo is execution-backed, not state-flip-only
+- the smoke flow proves one direct managed service path and one provider-backed path
+- passing docs or state-file inspection alone is not enough
+
+## Current demo service set
+
+The bounded demo currently uses:
+- `echo-service` as the direct managed service path
+- `@node` as the runtime provider dependency
+- `node-sample-service` as the provider-backed managed service path
+
+This keeps the demo small while still proving:
+- direct execution
+- provider-backed execution
+- dependency-aware startup
+- runtime/operator surfaces
+- persisted runtime/state/log/metrics evidence
 
 ## Scope boundary for the demo
 
@@ -62,197 +106,71 @@ The demo instance is good enough when all of the following are true:
 - full UI/operator product completion
 - all future runtime hardening work
 
-## Recommended demo-instance shape
+## Current scripted smoke flow
 
-### Runtime mode
-Use the current Node/TypeScript runtime in development mode as the first demo target.
+`npm run demo:smoke` currently verifies all of the following:
 
-### Runtime roots
-The demo path should use both:
-- `servicesRoot`
-- `workspaceRoot`
-
-Preferred first step:
-- keep the current tracked `services/` tree as the default demo `servicesRoot` for now
-- add an explicit demo `workspaceRoot` so runtime-managed logs/work data do not float implicitly
-- tighten the current demo services so they behave like an intentional fixture set rather than just test input
-
-### Demo services
-The first demo set should stay small and explicit:
-- `@node`
-- `@python`
-- one runnable harness service such as `echo-service`, with API + UI surfaces that can simulate lifecycle-adjacent behavior for demo and supervision hardening
-- optionally one HTTP-health demo service if it materially improves the review flow
-
-The demo services should be designed for clarity, not realism overload.
-
-## Phased plan
-
-## Phase 1, stabilize the current demo entry
-
-Goal:
-make the current runtime easy to start and inspect as a demo target.
-
-Required outcomes:
-- document the exact startup command
-- document the default demo URL/port
-- document the main review endpoints
-- confirm the runtime loads the intended `servicesRoot`
-- confirm the runtime writes its working data to the intended `workspaceRoot`
-- add a short reviewer smoke-test checklist
-
-Suggested deliverables:
-- README/demo section or dedicated quickstart section
-- one demo smoke-test doc
-- one tiny helper script if startup is still awkward
-
-Exit evidence:
-- a fresh reviewer can start the runtime and hit `/api/health`, `/api/services`, `/api/runtime`, and `/api/dependencies`
-
-## Phase 2, harden the demo service set
-
-Goal:
-make the demo services feel intentional and reviewable.
-
-Required outcomes:
-- each demo service has a clearly valid `service.json`
-- provider relationships are explicit and understandable
-- operator surfaces return useful demo data
-- health behavior is predictable
-
-Suggested deliverables:
-- tidy current manifests for demo clarity
-- add missing metadata that helps runtime/operator inspection
-- ensure one service clearly demonstrates provider-backed execution
-
-Exit evidence:
-- service detail, variables, network, logs, and provider fields are all meaningful in the demo API output
-
-## Phase 3, add a real demo lifecycle flow
-
-Goal:
-make the demo prove actual state transitions, not just static discovery.
-
-Required outcomes:
-- one demo service has a documented lifecycle walkthrough
-- lifecycle actions update both API-visible state and `.state` files
-- health output reflects the lifecycle state in a reviewable way
-
-Suggested deliverables:
-- one demo walkthrough covering install/config/start/health/stop
-- one script or command block that runs the flow end to end
-- one doc section showing where state files are written
-
-Exit evidence:
-- the lifecycle walkthrough works from a clean starting state and produces the expected files/responses
-
-## Phase 4, add demo reset and rerun support
-
-Goal:
-make the demo repeatable without manual cleanup pain.
-
-Required outcomes:
-- documented reset/cleanup path
-- no mystery leftover state between runs
-- reviewers can rerun the demo cleanly
-
-Suggested deliverables:
-- reset script or documented cleanup command
-- demo-state location docs
-- scripted smoke flow that can be rerun repeatedly
-
-Exit evidence:
-- demo can be run, reset, and run again with the same expected outputs
-
-## Phase 5, add automation-grade demo validation
-
-Goal:
-turn the demo into a reliable proof target for CI/harness/UI work.
-
-Required outcomes:
-- one scripted validation flow exercises the demo instance
-- the scripted flow checks key API responses and lifecycle outcomes
-- the flow is suitable for future CI integration
-
-Suggested deliverables:
-- script under `scripts/`
-- integration test or smoke-test wrapper
-- clear pass/fail output
-
-Exit evidence:
-- one command validates the demo instance behavior without manual inspection
-
-## Highest-priority gaps to close first
-
-These are the most valuable next moves if the goal is a credible demo instance:
-
-1. **Documented startup path**
-   - the runtime already starts, but the demo path should be explicit and reviewer-friendly
-
-2. **Intentional demo service set**
-   - the current `services/` tree should read like a demo fixture set, not just test scaffolding
-
-3. **Lifecycle walkthrough**
-   - reviewers should be able to see a single clean service go through a bounded action sequence
-
-4. **Demo reset path**
-   - reruns should not depend on manual state cleanup guesswork
-
-5. **Scripted smoke validation**
-   - the demo should become a reliable proof target for future UI/harness integration
-
-## Recommended implementation order
-
-1. Document startup + review endpoints
-2. Tighten the demo service manifests
-3. Write the lifecycle walkthrough
-4. Add demo reset/cleanup support
-5. Add scripted smoke validation
-6. Only then expand toward more realistic execution behavior
-
-## Concrete reviewer flow we should target
-
-The first good demo review should look like this:
-
-1. Run one command to start `service-lasso` with both `servicesRoot` and `workspaceRoot`
-2. Open or fetch:
+1. reset the demo roots to a known clean state
+2. start the runtime against explicit `servicesRoot` and `workspaceRoot`
+3. confirm:
    - `/api/health`
    - `/api/services`
    - `/api/runtime`
    - `/api/dependencies`
-3. Inspect one service detail endpoint
-4. Trigger:
+4. run `echo-service` through:
    - `install`
    - `config`
    - `start`
-5. Recheck:
-   - service detail
-   - service health
-   - runtime summary
-   - `.state` files
-6. Trigger `stop`
-7. Recheck runtime + state
-8. Reset the demo cleanly
+5. confirm `echo-service`:
+   - reports healthy
+   - writes runtime logs
+   - exposes runtime metrics
+   - persists `.state/runtime.json`
+6. run `@node` and `node-sample-service` through `install` and `config`
+7. start `node-sample-service`
+8. confirm provider-backed evidence and bounded `@node` dependency launch evidence
+9. confirm aggregate runtime metrics include the exercised services
+10. run runtime `stopAll`
+11. confirm the direct and provider-backed services are stopped cleanly
+12. stop the runtime and reset demo output again by default
 
-If that flow is smooth, the demo instance is already useful.
+The regression wrapper for this flow is:
+- `tests/demo-instance.test.js`
+
+## Quick reviewer flow
+
+For a manual review:
+
+1. Run `npm run demo:start`
+2. Fetch or open:
+   - `/api/health`
+   - `/api/services`
+   - `/api/runtime`
+   - `/api/dependencies`
+3. Run lifecycle actions against `echo-service`:
+   - `install`
+   - `config`
+   - `start`
+   - `stop`
+4. Inspect:
+   - `/api/services/echo-service`
+   - `/api/services/echo-service/health`
+   - `/api/services/echo-service/logs`
+   - `/api/services/echo-service/metrics`
+   - `services/echo-service/.state/`
+5. Run `npm run demo:reset` when done
+
+## Evidence expectations
+
+The minimum honest evidence for this demo slice is:
+- `npm run demo:smoke`
+- `npm test`
+
+Anything weaker should be treated as partial proof only.
 
 ## Relationship to later runtime hardening
 
 This demo plan does **not** replace the broader runtime roadmap.
 
-After the demo instance is working, the next likely hardening tracks are still:
-- better API error/status semantics
-- runtime model loading/validation strategy
-- state rehydration on startup
-- stronger dependency/provider validation
-- broader real execution behavior
-
-Those are important, but they should not block the first good demo instance unless they are directly needed to make the demo credible.
-
-## Recommended next execution item
-
-The next best step is:
-
-**Create the first explicit demo quickstart + smoke-test path for the current runtime.**
-
-That gives the project an immediately reviewable target and makes later hardening easier to validate.
+The bounded demo slice does not replace later hardening work. The main follow-on consumer proof should now be:
+- `lasso-@serviceadmin` integration validation against the current runtime API using the same bounded demo/runtime shape

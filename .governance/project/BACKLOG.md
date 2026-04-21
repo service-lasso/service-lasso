@@ -23,7 +23,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-013` | `done` | Add runtime startup config loading for `servicesRoot` and `workspaceRoot` | `SPEC-002` | Landed with validated startup config resolution, explicit `workspaceRoot`, and invalid-root rejection. |
 | `ISS-014` | `done` | Rehydrate runtime and lifecycle state on startup | `SPEC-002` | Landed with startup rehydration from persisted `.state` records into runtime/detail summaries. |
 | `ISS-015` | `done` | Add real process execution and supervision slice | `SPEC-002`, `AC-4B` | Landed with the first bounded execution supervisor, persisted runtime metadata, and released Echo Service artifact proof through the core runtime. |
-| `ISS-016` | `todo` | Demo-instance hardening and regression verification | `SPEC-002` | Validate demo-readiness loop from startup through multi-service runtime operations. |
+| `ISS-016` | `done` | Demo-instance hardening and regression verification | `SPEC-002`, `AC-4N` | Landed explicit demo start/reset/smoke commands plus regression proof that exercises direct and provider-backed demo services end to end against explicit runtime roots. |
 | `ISS-017` | `todo` | Establish package boundaries for core + reference apps | `SPEC-002` | Define and scaffold `packages/core`, `packages/app-electron`, and `packages/app-node` with explicit core/no-UI-framework boundary. |
 | `ISS-018` | `done` | Turn `echo-service` into a runnable Go harness fixture | `SPEC-002`, `AC-4A` | Landed with a Go-based sample service exposing UI and API actions plus log/state/SQLite persistence surfaces. |
 | `ISS-019` | `done` | Broaden bounded runtime health support with donor-aligned manifest types | `SPEC-002`, `AC-4C` | Landed the first broader health slice with bounded `tcp` manifest-health support plus automated and released-harness verification. |
@@ -41,6 +41,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-031` | `done` | Add bounded `reload` and `autostart` orchestration follow-up | `SPEC-002`, `AC-4K` | Landed bounded `reload` and `autostart` orchestration with manifest opt-in, boot-time autostart, and deterministic reload stop/restart behavior. |
 | `ISS-032` | `done` | Add bounded archival and retention for runtime logs | `SPEC-002`, `AC-4L` | Landed bounded per-service runtime-log archival on next start with deterministic retention pruning and logs API archive metadata. |
 | `ISS-033` | `done` | Add bounded process/runtime metrics surfaces | `SPEC-002`, `AC-4M` | Landed bounded persisted launch/termination/duration metrics plus live log-count metrics through service detail, dedicated metrics routes, and restart-stable runtime state. |
+| `ISS-034` | `todo` | Validate `lasso-@serviceadmin` against the current runtime/API | `SPEC-002` | Use the current bounded runtime plus released Echo Service artifacts as the first real consumer integration proof before package/template rollout. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -60,7 +61,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-013` | `done` | `ISS-013` | Implement runtime config loading + validation (`servicesRoot`, `workspaceRoot`) | `SPEC-002` | Runtime boots from explicit validated roots, surfaces `workspaceRoot`, and rejects missing `servicesRoot` |
 | `TASK-014` | `done` | `ISS-014` | Implement startup rehydration from persisted runtime/lifecycle state | `SPEC-002` | Startup restores persisted lifecycle state and runtime summaries/detail endpoints reflect the rehydrated state |
 | `TASK-015` | `done` | `ISS-015` | Add first bounded execution supervisor for one provider path | `SPEC-002`, `AC-4B` | Real process launch/stop supervision works with persisted runtime state updates and released Echo Service artifacts can be run through the core runtime |
-| `TASK-016` | `todo` | `ISS-016` | Run demo-instance hardening checklist and regression suite | `SPEC-002` | Demo-instance plan checkpoints are met with repeatable validation evidence |
+| `TASK-016` | `done` | `ISS-016` | Run demo-instance hardening checklist and regression suite | `SPEC-002`, `AC-4N` | The repo exposes explicit demo start/reset/smoke commands, the smoke flow validates direct and provider-backed demo services end to end, and the demo can be rerun from a clean reset without manual cleanup |
 | `TASK-017` | `todo` | `ISS-017` | Scaffold package split (`core`, `app-electron`, `app-node`) and baseline build wiring | `SPEC-002` | Monorepo package map exists with core exports/CLI target and reference app placeholders consuming core |
 | `TASK-018` | `done` | `ISS-018` | Implement the `echo-service` Go harness fixture with UI, API, and persistence behaviors | `SPEC-002`, `AC-4A` | `echo-service` now builds and runs as a Go harness with action endpoints, browser UI, logs, state snapshots, and SQLite writes |
 | `TASK-019` | `done` | `ISS-019` | Implement bounded `tcp` manifest-health support with direct tests | `SPEC-002`, `AC-4C` | Runtime accepts `healthcheck.type = tcp`, reports healthy/unhealthy results deterministically, and has direct verification coverage including released Echo Service TCP-port proof |
@@ -78,6 +79,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-031` | `done` | `ISS-031` | Add bounded `reload` and `autostart` orchestration semantics | `SPEC-002`, `AC-4K` | Runtime exposes explicit, deterministic `reload` and `autostart` behavior on top of the current bounded orchestration model |
 | `TASK-032` | `done` | `ISS-032` | Add bounded archival and retention rules for runtime-owned logs | `SPEC-002`, `AC-4L` | Runtime-owned per-service logs archive prior runs on the next managed start, prune older archives deterministically, and expose retained archive metadata through the logs API |
 | `TASK-033` | `done` | `ISS-033` | Add bounded process/runtime metrics surfaces | `SPEC-002`, `AC-4M` | Runtime exposes bounded launch/termination/duration/log metrics beyond pid/running state, persists the owned metrics across restart, and surfaces them through dedicated metrics routes without overclaiming donor-depth process-tree parity |
+| `TASK-034` | `todo` | `ISS-034` | Run `lasso-@serviceadmin` integration validation against the current runtime/API | `SPEC-002` | The admin UI can consume the current runtime/API against the bounded demo/runtime shape without special-case hacks, and any discovered contract gaps are recorded as governed follow-up work |
 
 ## Next Recommended Item
-The next best item is `TASK-016`: run demo-instance hardening and regression verification so the current bounded execution-backed runtime can be proven end to end with the stronger observability now in place.
+The next best item is `TASK-034`: validate `lasso-@serviceadmin` against the current runtime/API now that the bounded demo and regression proof are in place.
