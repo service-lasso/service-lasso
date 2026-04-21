@@ -12,6 +12,11 @@ import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
 import { createServiceMetaResponse, createServicesMetaResponse } from "./routes/service-meta.js";
+import {
+  createDashboardServiceDetailResponse,
+  createDashboardServicesResponse,
+  createDashboardSummaryResponse,
+} from "./routes/dashboard.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -32,6 +37,7 @@ import {
   getServiceRuntimeLogPaths,
   readServiceLogChunk,
 } from "../runtime/operator/logs.js";
+import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -41,6 +47,7 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
+  DashboardServiceResponse,
   LifecycleActionResponse,
   RuntimeOrchestrationResponse,
   ServiceDetailResponse,
@@ -419,6 +426,53 @@ async function routeRequest(
       runtimeModel.discovered.map((service) => buildPersistedServiceMeta(service.manifest.id, service.serviceRoot)),
     );
     writeJson(response, 200, createServicesMetaResponse(payload));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/dashboard") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const services = await Promise.all(
+      runtimeModel.discovered.map((service) =>
+        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+      ),
+    );
+
+    writeJson(response, 200, createDashboardSummaryResponse(buildDashboardSummary(services)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/dashboard/services") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const services: DashboardServiceResponse[] = await Promise.all(
+      runtimeModel.discovered.map((service) =>
+        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+      ),
+    );
+
+    writeJson(response, 200, createDashboardServicesResponse(services));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/dashboard/services/")) {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const serviceId = decodeURIComponent(url.pathname.split("/").filter(Boolean)[3] ?? "");
+    const service = runtimeModel.registry.getById(serviceId);
+
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    writeJson(
+      response,
+      200,
+      createDashboardServiceDetailResponse(
+        await buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+      ),
+    );
     return;
   }
 

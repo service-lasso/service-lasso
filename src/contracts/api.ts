@@ -88,6 +88,130 @@ export interface RuntimeSummaryResponse {
   };
 }
 
+export interface DashboardLinkResponse {
+  label: string;
+  url: string;
+  kind?: "local" | "lan" | "remote" | "admin" | "docs" | "metrics";
+}
+
+export interface DashboardRuntimeHealthResponse {
+  state: "running" | "stopped" | "degraded";
+  health: "healthy" | "warning" | "critical";
+  uptime: string;
+  lastCheckAt: string;
+  lastRestartAt?: string | null;
+  summary: string;
+}
+
+export interface DashboardEndpointResponse {
+  label: string;
+  url: string;
+  bind: string;
+  port: number;
+  protocol: "http" | "https" | "tcp";
+  exposure: "local" | "lan" | "public";
+}
+
+export interface DashboardEnvironmentVariableResponse {
+  key: string;
+  value: string;
+  scope: "global" | "service";
+  secret?: boolean;
+  source?: string;
+}
+
+export interface DashboardMetadataResponse {
+  serviceType: string;
+  runtime: string;
+  version: string;
+  build: string;
+  packageId?: string;
+  installPath?: string;
+  configPath?: string;
+  dataPath?: string;
+  logPath?: string;
+  workPath?: string;
+  profile?: string;
+  imageUrl?: string;
+}
+
+export interface DashboardDependencyResponse {
+  id: string;
+  name: string;
+  status: "running" | "stopped" | "degraded";
+  relation: "depends_on" | "dependent";
+  note?: string;
+}
+
+export interface DashboardLogPreviewEntryResponse {
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  source: "supervisor" | "healthcheck" | "stdout" | "stderr" | "app";
+  message: string;
+}
+
+export interface DashboardActionResponse {
+  id: string;
+  label: string;
+  kind:
+    | "start"
+    | "stop"
+    | "restart"
+    | "reload"
+    | "install"
+    | "uninstall"
+    | "open_logs"
+    | "open_config"
+    | "open_admin";
+}
+
+export interface DashboardServiceResponse {
+  id: string;
+  name: string;
+  status: "running" | "stopped" | "degraded";
+  favorite: boolean;
+  note: string;
+  links: DashboardLinkResponse[];
+  installed: boolean;
+  role: string;
+  runtimeHealth: DashboardRuntimeHealthResponse;
+  endpoints: DashboardEndpointResponse[];
+  metadata: DashboardMetadataResponse;
+  dependencies: DashboardDependencyResponse[];
+  dependents: DashboardDependencyResponse[];
+  environmentVariables: DashboardEnvironmentVariableResponse[];
+  recentLogs: DashboardLogPreviewEntryResponse[];
+  actions: DashboardActionResponse[];
+}
+
+export interface DashboardSummaryResponse {
+  summary: {
+    runtime: {
+      status: "healthy" | "warning";
+      lastReloadedAt: string;
+      warningCount: number;
+    };
+    servicesTotal: number;
+    servicesRunning: number;
+    servicesStopped: number;
+    servicesDegraded: number;
+    networkExposureCount: number;
+    installedCount: number;
+    favorites: DashboardServiceResponse[];
+    others: DashboardServiceResponse[];
+    warnings: string[];
+    problemServices: DashboardServiceResponse[];
+  };
+}
+
+export interface DashboardServicesResponse {
+  services: DashboardServiceResponse[];
+}
+
+export interface DashboardServiceDetailResponse {
+  service: DashboardServiceResponse;
+}
+
 export interface DependenciesResponse {
   dependencies: {
     nodes: { id: string; name: string }[];

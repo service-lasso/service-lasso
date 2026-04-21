@@ -28,6 +28,19 @@ async function postJson(url) {
   };
 }
 
+async function waitFor(readinessCheck, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await readinessCheck();
+    if (result) {
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
+}
+
 test("GET /api/health returns core API health", async () => {
   const apiServer = await startApiServer({ port: 0, version: "test-version" });
 
@@ -65,6 +78,111 @@ test("GET /api/services returns discovered services from the tracked services ro
   } finally {
     await apiServer.stop();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("dashboard adapter routes expose bounded admin-facing service and summary shapes", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-dashboard-adapter-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+    stdoutLines: ["alpha ready"],
+    stderrLines: ["alpha warn"],
+    ports: {
+      service: 43140,
+    },
+    urls: [
+      {
+        label: "service",
+        url: "http://127.0.0.1:${SERVICE_PORT}/",
+        kind: "local",
+      },
+    ],
+  });
+  await writeExecutableFixtureService(servicesRoot, "bravo-service", {
+    depend_on: ["alpha-service"],
+    ports: {
+      service: 43141,
+    },
+    urls: [
+      {
+        label: "service",
+        url: "http://127.0.0.1:${SERVICE_PORT}/",
+        kind: "local",
+      },
+    ],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["alpha-service", "bravo-service"]) {
+      let result = await postJson(`${apiServer.url}/api/services/${serviceId}/install`);
+      assert.equal(result.status, 200);
+      result = await postJson(`${apiServer.url}/api/services/${serviceId}/config`);
+      assert.equal(result.status, 200);
+    }
+
+    let result = await postJson(`${apiServer.url}/api/services/alpha-service/start`);
+    assert.equal(result.status, 200);
+
+    const favoriteResponse = await fetch(`${apiServer.url}/api/services/alpha-service/meta`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        favorite: true,
+      }),
+    });
+    assert.equal(favoriteResponse.status, 200);
+
+    await waitFor(async () => {
+      const response = await getJson(`${apiServer.url}/api/dashboard/services/alpha-service`);
+      if (response.body.service.recentLogs.some((entry) => entry.message === "alpha ready")) {
+        return response;
+      }
+      return null;
+    });
+
+    const summary = await getJson(`${apiServer.url}/api/dashboard`);
+    const services = await getJson(`${apiServer.url}/api/dashboard/services`);
+    const alphaDetail = await getJson(`${apiServer.url}/api/dashboard/services/alpha-service`);
+    const bravoDetail = await getJson(`${apiServer.url}/api/dashboard/services/bravo-service`);
+
+    assert.equal(summary.status, 200);
+    assert.equal(summary.body.summary.servicesTotal, 2);
+    assert.equal(summary.body.summary.servicesRunning, 1);
+    assert.equal(summary.body.summary.servicesStopped, 1);
+    assert.equal(summary.body.summary.favorites.length, 1);
+    assert.equal(summary.body.summary.favorites[0].id, "alpha-service");
+    assert.ok(summary.body.summary.warnings.includes("At least one managed service is currently stopped."));
+
+    assert.equal(services.status, 200);
+    assert.equal(Array.isArray(services.body.services), true);
+    assert.equal(services.body.services.length, 2);
+
+    assert.equal(alphaDetail.status, 200);
+    assert.equal(alphaDetail.body.service.id, "alpha-service");
+    assert.equal(alphaDetail.body.service.favorite, true);
+    assert.equal(alphaDetail.body.service.status, "running");
+    assert.equal(alphaDetail.body.service.installed, true);
+    assert.equal(alphaDetail.body.service.role.length > 0, true);
+    assert.equal(alphaDetail.body.service.metadata.installPath.endsWith(path.join("services", "alpha-service")), true);
+    assert.equal(alphaDetail.body.service.metadata.configPath.endsWith(path.join("services", "alpha-service", "service.json")), true);
+    assert.equal(alphaDetail.body.service.metadata.logPath.endsWith(path.join("services", "alpha-service", "logs", "runtime", "service.log")), true);
+    assert.ok(alphaDetail.body.service.links.some((link) => link.label === "service"));
+    assert.ok(alphaDetail.body.service.endpoints.some((endpoint) => endpoint.port === 43140));
+    assert.ok(alphaDetail.body.service.environmentVariables.some((entry) => entry.key === "SERVICE_PORT"));
+    assert.ok(alphaDetail.body.service.recentLogs.some((entry) => entry.message === "alpha ready" && entry.source === "stdout"));
+    assert.ok(alphaDetail.body.service.actions.some((action) => action.kind === "open_logs"));
+    assert.ok(alphaDetail.body.service.dependents.some((entry) => entry.id === "bravo-service" && entry.status === "stopped"));
+
+    assert.equal(bravoDetail.status, 200);
+    assert.equal(bravoDetail.body.service.status, "stopped");
+    assert.ok(bravoDetail.body.service.dependencies.some((entry) => entry.id === "alpha-service" && entry.status === "running"));
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
