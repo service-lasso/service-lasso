@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import path from "node:path";
+import { readFile, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -73,6 +74,102 @@ test("lifecycle actions execute in the expected bounded order", async () => {
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, ["install", "config", "start", "restart", "stop"]);
     assert.equal(detailBody.service.lifecycle.lastAction, "stop");
     assert.equal(detailBody.service.lifecycle.runtime.exitCode, 0);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("install and config materialize bounded on-disk artifacts and persist them in lifecycle state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "materialized-service", {
+    ports: {
+      service: 41234,
+    },
+    install: {
+      files: [
+        {
+          path: "./runtime/install.txt",
+          content: "installed ${SERVICE_ID}",
+        },
+      ],
+    },
+    config: {
+      files: [
+        {
+          path: "./runtime/config.env",
+          content: "SERVICE_PORT=${SERVICE_PORT}\nSERVICE_ROOT=${SERVICE_ROOT}\n",
+        },
+      ],
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/materialized-service/install`);
+    const config = await postJson(`${apiServer.url}/api/services/materialized-service/config`);
+
+    const installPath = path.join(serviceRoot, "runtime", "install.txt");
+    const configPath = path.join(serviceRoot, "runtime", "config.env");
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 200);
+    assert.deepEqual(install.body.state.installArtifacts.files, ["runtime/install.txt"]);
+    assert.equal(typeof install.body.state.installArtifacts.updatedAt, "string");
+    assert.equal(await readFile(installPath, "utf8"), "installed materialized-service");
+
+    assert.equal(config.status, 200);
+    assert.deepEqual(config.body.state.configArtifacts.files, ["runtime/config.env"]);
+    assert.equal(typeof config.body.state.configArtifacts.updatedAt, "string");
+    assert.equal(await readFile(configPath, "utf8"), `SERVICE_PORT=41234\nSERVICE_ROOT=${serviceRoot}\n`);
+    assert.deepEqual(stored.install.files, ["runtime/install.txt"]);
+    assert.deepEqual(stored.config.files, ["runtime/config.env"]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("config can rerun without reinstall and rewrites effective config artifacts", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "rerunnable-config-service", {
+    ports: {
+      service: 41235,
+    },
+    config: {
+      files: [
+        {
+          path: "./runtime/config.env",
+          content: "SERVICE_PORT=${SERVICE_PORT}\nSERVICE_ID=${SERVICE_ID}\n",
+        },
+      ],
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/rerunnable-config-service/install`);
+
+    const firstConfig = await postJson(`${apiServer.url}/api/services/rerunnable-config-service/config`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const secondConfig = await postJson(`${apiServer.url}/api/services/rerunnable-config-service/config`);
+
+    const configPath = path.join(serviceRoot, "runtime", "config.env");
+    const detailResponse = await fetch(`${apiServer.url}/api/services/rerunnable-config-service`);
+    const detailBody = await detailResponse.json();
+
+    assert.equal(firstConfig.status, 200);
+    assert.equal(secondConfig.status, 200);
+    assert.equal(secondConfig.body.state.configured, true);
+    assert.deepEqual(secondConfig.body.state.actionHistory, ["install", "config", "config"]);
+    assert.equal(await readFile(configPath, "utf8"), "SERVICE_PORT=41235\nSERVICE_ID=rerunnable-config-service\n");
+    assert.equal(detailResponse.status, 200);
+    assert.deepEqual(detailBody.service.lifecycle.configArtifacts.files, ["runtime/config.env"]);
+    assert.equal(typeof detailBody.service.lifecycle.configArtifacts.updatedAt, "string");
   } finally {
     await apiServer.stop();
     resetLifecycleState();

@@ -80,7 +80,7 @@ Current honest label:
    - Echo Service and at least one dependent fixture prove the flow
 
 5. runtime-owned port negotiation
-   status: in progress
+   status: done
    proof:
    - runtime can reserve or resolve service ports
    - collisions are detected deterministically
@@ -89,7 +89,7 @@ Current honest label:
 ### Wave 3: Setup and lifecycle depth
 
 6. bounded setup/install mechanics
-   status: queued
+   status: done
    proof:
    - setup/install is more than state recording
    - at least one real setup path executes and records outcome
@@ -199,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**runtime-owned port negotiation**
+**provider-backed execution parity**
 
-That is the next clean donor-parity step after bounded shared env, and it starts moving Service Lasso from manifest-only endpoint descriptions toward runtime-assigned network behavior.
+That is the next clean donor-parity step after bounded setup/install mechanics, and it moves Service Lasso beyond direct executables by proving one real provider-managed execution path end to end.

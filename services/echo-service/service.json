@@ -13,6 +13,22 @@
     "ECHO_STATE_PATH": "./runtime/state.json",
     "ECHO_DB_PATH": "./runtime/echo.sqlite"
   },
+  "install": {
+    "files": [
+      {
+        "path": "./runtime/install.txt",
+        "content": "installed ${SERVICE_ID}\n"
+      }
+    ]
+  },
+  "config": {
+    "files": [
+      {
+        "path": "./runtime/config.json",
+        "content": "{\n  \"serviceId\": \"${SERVICE_ID}\",\n  \"port\": \"${SERVICE_PORT}\",\n  \"logPath\": \"${ECHO_LOG_PATH}\",\n  \"statePath\": \"${ECHO_STATE_PATH}\",\n  \"dbPath\": \"${ECHO_DB_PATH}\"\n}\n"
+      }
+    ]
+  },
   "ports": {
     "service": 4010
   },

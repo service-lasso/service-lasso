@@ -1,5 +1,10 @@
 export type LifecycleAction = "install" | "config" | "start" | "stop" | "restart";
 
+export interface ServiceMaterializedArtifactsState {
+  files: string[];
+  updatedAt: string | null;
+}
+
 export interface ServiceRuntimeState {
   pid: number | null;
   startedAt: string | null;
@@ -14,6 +19,8 @@ export interface ServiceLifecycleState {
   running: boolean;
   lastAction: LifecycleAction | null;
   actionHistory: LifecycleAction[];
+  installArtifacts: ServiceMaterializedArtifactsState;
+  configArtifacts: ServiceMaterializedArtifactsState;
   runtime: ServiceRuntimeState;
 }
 

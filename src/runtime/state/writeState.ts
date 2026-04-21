@@ -36,6 +36,8 @@ export async function writeServiceState(
         {
           installed: lifecycle.installed,
           lastAction: lifecycle.lastAction,
+          files: lifecycle.installArtifacts.files,
+          updatedAt: lifecycle.installArtifacts.updatedAt,
         },
         null,
         2,
@@ -47,6 +49,8 @@ export async function writeServiceState(
         {
           configured: lifecycle.configured,
           lastAction: lifecycle.lastAction,
+          files: lifecycle.configArtifacts.files,
+          updatedAt: lifecycle.configArtifacts.updatedAt,
         },
         null,
         2,

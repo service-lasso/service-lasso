@@ -2,13 +2,32 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 
+async function removeDirectoryWithRetry(targetPath, attempts = 5) {
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      await rm(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error)) {
+        throw error;
+      }
+
+      if ((error.code !== "EPERM" && error.code !== "EBUSY") || index === attempts - 1) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 50 * (index + 1)));
+    }
+  }
+}
+
 export async function clearPersistedFixtureState(servicesRoot) {
   const entries = await readdir(servicesRoot, { withFileTypes: true });
 
   await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
-      .map((entry) => rm(path.join(servicesRoot, entry.name, ".state"), { recursive: true, force: true })),
+      .map((entry) => removeDirectoryWithRetry(path.join(servicesRoot, entry.name, ".state"))),
   );
 }
 
@@ -42,6 +61,8 @@ export async function writeExecutableFixtureService(
     env = {},
     globalenv = {},
     ports = undefined,
+    install = undefined,
+    config = undefined,
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -128,6 +149,8 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     },
     globalenv,
     ports,
+    install,
+    config,
     healthcheck,
   });
 

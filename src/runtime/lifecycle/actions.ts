@@ -5,6 +5,7 @@ import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
+import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
@@ -57,12 +58,20 @@ async function persistProcessExit(
   await writeServiceState(service, state);
 }
 
-export function installService(serviceId: string): LifecycleActionResult {
+export async function installService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+): Promise<LifecycleActionResult> {
+  const serviceId = service.manifest.id;
+  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv);
+
   return applyState(serviceId, "install", (current) => ({
     nextState: {
       ...current,
       installed: true,
       running: false,
+      installArtifacts: artifacts,
       runtime: {
         ...current.runtime,
         pid: null,
@@ -83,11 +92,14 @@ export async function configService(
   }
 
   const resolvedPorts = registry ? await negotiateServicePorts(service, registry.list()) : current.runtime.ports;
+  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const artifacts = await materializeConfigArtifacts(service, sharedGlobalEnv, resolvedPorts);
 
   return applyState(serviceId, "config", (state) => ({
     nextState: {
       ...state,
       configured: true,
+      configArtifacts: artifacts,
       runtime: {
         ...state.runtime,
         ports: resolvedPorts,
