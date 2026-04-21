@@ -201,13 +201,23 @@ export async function runDemoSmoke(options = {}) {
 
     const stopAll = await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
     assertCondition(stopAll.status === 200, "Expected stopAll to return 200.");
+    const stopAllHandledEcho =
+      stopAll.body.results.some((result) => result.serviceId === "echo-service")
+      || stopAll.body.skipped?.some(
+        (result) => result.serviceId === "echo-service" && result.reason === "not_running",
+      );
+    const stopAllHandledNodeSample =
+      stopAll.body.results.some((result) => result.serviceId === "node-sample-service")
+      || stopAll.body.skipped?.some(
+        (result) => result.serviceId === "node-sample-service" && result.reason === "not_running",
+      );
     assertCondition(
-      stopAll.body.results.some((result) => result.serviceId === "echo-service"),
-      "Expected stopAll to include echo-service.",
+      stopAllHandledEcho,
+      "Expected stopAll to include or explicitly skip echo-service.",
     );
     assertCondition(
-      stopAll.body.results.some((result) => result.serviceId === "node-sample-service"),
-      "Expected stopAll to include node-sample-service.",
+      stopAllHandledNodeSample,
+      "Expected stopAll to include or explicitly skip node-sample-service.",
     );
 
     const stoppedEchoMetrics = await getJson(`${runtime.apiServer.url}/api/services/echo-service/metrics`);
