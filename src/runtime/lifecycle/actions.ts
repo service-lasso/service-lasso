@@ -13,6 +13,61 @@ import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
 
+function calculateRunDurationMs(startedAt: string | null, finishedAt: string): number | null {
+  if (!startedAt) {
+    return null;
+  }
+
+  const startedMs = Date.parse(startedAt);
+  const finishedMs = Date.parse(finishedAt);
+
+  if (!Number.isFinite(startedMs) || !Number.isFinite(finishedMs)) {
+    return null;
+  }
+
+  return Math.max(0, finishedMs - startedMs);
+}
+
+function applyRunCompletionMetrics(
+  current: ServiceLifecycleState,
+  finishedAt: string,
+  termination: "stopped" | "exited" | "crashed",
+): ServiceLifecycleState["runtime"]["metrics"] {
+  const runDurationMs = calculateRunDurationMs(current.runtime.startedAt, finishedAt);
+
+  return {
+    ...current.runtime.metrics,
+    stopCount: current.runtime.metrics.stopCount + (termination === "stopped" ? 1 : 0),
+    exitCount: current.runtime.metrics.exitCount + (termination === "exited" ? 1 : 0),
+    crashCount: current.runtime.metrics.crashCount + (termination === "crashed" ? 1 : 0),
+    totalRunDurationMs: current.runtime.metrics.totalRunDurationMs + (runDurationMs ?? 0),
+    lastRunDurationMs: runDurationMs,
+  };
+}
+
+function applyProcessLaunchMetrics(
+  current: ServiceLifecycleState,
+  action: "start" | "restart",
+  startedAt: string,
+): ServiceLifecycleState["runtime"]["metrics"] {
+  let totalRunDurationMs = current.runtime.metrics.totalRunDurationMs;
+  let lastRunDurationMs = current.runtime.metrics.lastRunDurationMs;
+
+  if (action === "restart" && current.running) {
+    const previousRunDurationMs = calculateRunDurationMs(current.runtime.startedAt, startedAt);
+    totalRunDurationMs += previousRunDurationMs ?? 0;
+    lastRunDurationMs = previousRunDurationMs;
+  }
+
+  return {
+    ...current.runtime.metrics,
+    launchCount: current.runtime.metrics.launchCount + 1,
+    restartCount: current.runtime.metrics.restartCount + (action === "restart" ? 1 : 0),
+    totalRunDurationMs,
+    lastRunDurationMs,
+  };
+}
+
 function applyState(
   serviceId: string,
   action: LifecycleAction,
@@ -49,6 +104,7 @@ async function persistProcessExit(
   exitCode: number | null,
 ): Promise<void> {
   const finishedAt = new Date().toISOString();
+  const termination = (exitCode ?? getLifecycleState(service.manifest.id).runtime.exitCode ?? 0) === 0 ? "exited" : "crashed";
   const state = updateRuntimeState(service.manifest.id, (current) => ({
     ...current,
     running: false,
@@ -57,7 +113,8 @@ async function persistProcessExit(
       pid: null,
       finishedAt,
       exitCode: exitCode ?? current.runtime.exitCode,
-      lastTermination: (exitCode ?? current.runtime.exitCode ?? 0) === 0 ? "exited" : "crashed",
+      lastTermination: termination,
+      metrics: applyRunCompletionMetrics(current, finishedAt, termination),
     },
   }));
 
@@ -221,6 +278,7 @@ export async function startService(
         stdoutPath: handle.logs.stdoutPath,
         stderrPath: handle.logs.stderrPath,
       },
+      metrics: applyProcessLaunchMetrics(state, "start", handle.startedAt),
     },
   }));
 
@@ -240,6 +298,7 @@ export async function startService(
             finishedAt: new Date().toISOString(),
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
             lastTermination: "stopped",
+            metrics: applyRunCompletionMetrics(state, new Date().toISOString(), "stopped"),
           },
         },
         message: readiness.message,
@@ -288,6 +347,7 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
         finishedAt,
         exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
         lastTermination: "stopped",
+        metrics: applyRunCompletionMetrics(state, finishedAt, "stopped"),
       },
     },
     message: "Stop completed.",
@@ -353,6 +413,7 @@ export async function restartService(
         stdoutPath: handle.logs.stdoutPath,
         stderrPath: handle.logs.stderrPath,
       },
+      metrics: applyProcessLaunchMetrics(state, "restart", handle.startedAt),
     },
   }));
 
@@ -372,6 +433,7 @@ export async function restartService(
             finishedAt: new Date().toISOString(),
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
             lastTermination: "stopped",
+            metrics: applyRunCompletionMetrics(state, new Date().toISOString(), "stopped"),
           },
         },
         message: readiness.message,

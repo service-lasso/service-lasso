@@ -140,7 +140,7 @@ Current honest label:
     - run/log retention rules exist and are enforced
 
 14. process/runtime metrics
-    status: queued
+    status: done
     proof:
     - runtime exposes bounded process evidence beyond pid/running state
 
@@ -201,6 +201,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**process/runtime metrics**
+**demo-instance hardening**
 
-That is the next clean donor-parity step because the runtime now has bounded runtime-owned log archival/retention, and the next observability gap is to expose richer execution evidence than pid/running state without jumping prematurely to full donor-depth process-tree metrics.
+That is the next clean delivery step because the runtime now has bounded execution, orchestration, runtime-owned logs, archival/retention, and bounded process/runtime metrics, so the highest-value next proof is an honest end-to-end demo flow that uses those capabilities together.

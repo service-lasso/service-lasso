@@ -5,6 +5,16 @@ export interface ServiceMaterializedArtifactsState {
   updatedAt: string | null;
 }
 
+export interface ServiceRuntimeMetricsState {
+  launchCount: number;
+  stopCount: number;
+  exitCount: number;
+  crashCount: number;
+  restartCount: number;
+  totalRunDurationMs: number;
+  lastRunDurationMs: number | null;
+}
+
 export interface ServiceRuntimeState {
   pid: number | null;
   startedAt: string | null;
@@ -20,6 +30,7 @@ export interface ServiceRuntimeState {
     stdoutPath: string | null;
     stderrPath: string | null;
   };
+  metrics: ServiceRuntimeMetricsState;
 }
 
 export interface ServiceLifecycleState {

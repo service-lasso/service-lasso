@@ -71,6 +71,7 @@ export async function writeServiceState(
           lastTermination: lifecycle.runtime.lastTermination,
           ports: lifecycle.runtime.ports,
           logs: lifecycle.runtime.logs,
+          metrics: lifecycle.runtime.metrics,
           lastAction: lifecycle.lastAction,
           actionHistory: lifecycle.actionHistory,
         },

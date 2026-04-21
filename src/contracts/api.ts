@@ -106,3 +106,41 @@ export interface ServiceLogEntryResponse {
   level: "info" | "stdout" | "stderr";
   message: string;
 }
+
+export interface ServiceMetricsResponse {
+  metrics: {
+    serviceId: string;
+    process: {
+      running: boolean;
+      pid: number | null;
+      command: string | null;
+      provider: "direct" | "node" | "python" | null;
+      providerServiceId: string | null;
+      startedAt: string | null;
+      finishedAt: string | null;
+      currentRunDurationMs: number | null;
+      lastRunDurationMs: number | null;
+      totalRunDurationMs: number;
+      launchCount: number;
+      stopCount: number;
+      exitCount: number;
+      crashCount: number;
+      restartCount: number;
+      lastTermination: "stopped" | "exited" | "crashed" | null;
+    };
+    logs: {
+      current: {
+        logPath: string;
+        stdoutPath: string;
+        stderrPath: string;
+        combinedEntries: number;
+        stdoutLines: number;
+        stderrLines: number;
+      };
+      archives: {
+        count: number;
+        maxArchives: number;
+      };
+    };
+  };
+}

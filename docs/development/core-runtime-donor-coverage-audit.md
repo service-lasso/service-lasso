@@ -25,7 +25,7 @@ Primary current-repo inputs reviewed:
 
 Verification run used for this audit:
 - `npm test`
-- result: `66 passed, 0 failed`
+- result: `67 passed, 0 failed`
 
 ## Bottom line
 
@@ -84,6 +84,9 @@ These donor/runtime concerns are represented directionally, but not at donor dep
 - logging
   - current code captures bounded managed stdout/stderr into runtime-owned per-service log files, archives prior per-service runs on the next managed start, retains a bounded recent archive set, and exposes recent output plus archive metadata through the API
   - donor code still goes broader with run-level logging, archival, and retention behavior
+- process/runtime metrics
+  - current code now persists bounded launch, termination, and duration counters and exposes those plus live log-count metrics through API/operator surfaces
+  - donor code still goes broader with process-tree stats, memory metrics, and fuller runtime telemetry
 - state model
   - current code writes the first structured `.state/` slice
   - donor code includes PID/runtime/process evidence and startup recovery concerns not yet implemented here
@@ -95,7 +98,7 @@ These major donor/runtime behaviors are not implemented in the current code:
 - full donor-depth stop/kill/restart control over managed processes
 - exit handling and `ignoreexiterror` behavior
 - PID file management as a real runtime contract
-- process-tree tracking and memory/process metrics
+- donor-depth process-tree tracking and memory/process metrics
 - archive extraction via `setuparchive`
 - command-driven setup/install pipeline
 - runtime-owned port reservation, collision handling, and reassignment
@@ -304,6 +307,7 @@ Current code covers:
 - persisted runtime log-path state for managed services
 - bounded per-service runtime-log archival on the next managed start
 - bounded per-service archive retention pruning with API-visible archive metadata
+- bounded persisted launch/termination/duration metrics plus live log-count metrics through dedicated metrics routes and service detail output
 
 Current docs define a preferred future model:
 - `docs/development/core-runtime-logging-model.md`
@@ -334,7 +338,7 @@ So the implementation is ahead of the spec wording.
 Current automated verification status for the bounded core slice:
 
 - command run: `npm test`
-- result: `66 passed, 0 failed`
+- result: `67 passed, 0 failed`
 
 The passing suite directly verifies:
 - API startup
@@ -353,6 +357,7 @@ The passing suite directly verifies:
 - bounded port negotiation
 - bounded orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
 - bounded per-service runtime-log archival and retention
+- bounded process/runtime metrics
 
 This is strong evidence for the currently implemented slice.
 
@@ -362,7 +367,7 @@ It is **not** evidence for the unmigrated donor behaviors listed above.
 
 1. The current codebase is no longer bootstrap-only and does satisfy the main bounded intent of the first standalone runtime slice.
 2. The donor runtime remains substantially broader than the current implementation.
-3. The largest missing donor areas are setup depth, supervision depth, process/runtime metrics, and broader manager/runtime parity.
+3. The largest missing donor areas are setup depth, supervision depth, donor-depth process-tree/runtime telemetry, and broader manager/runtime parity.
 4. The migration docs are directionally correct about those missing areas.
 5. `SPEC-002` should be refreshed so its wording reflects the implemented slice rather than the pre-implementation state.
 6. The passing test suite gives strong direct proof for the bounded slice, but should not be used to imply donor parity.
@@ -373,10 +378,10 @@ It is **not** evidence for the unmigrated donor behaviors listed above.
 2. Keep using `docs/development/core-runtime-migration-plan.md` as the main donor-gap tracker.
 3. Choose the next major migration unit explicitly rather than mixing several donor gaps at once.
 4. Prefer one of these as the next bounded execution item:
-   - process/runtime metrics
-   - deeper supervision parity
    - demo-instance hardening
+   - deeper supervision parity
    - `lasso-@serviceadmin` integration validation
+   - package-boundary/reference-app follow-through
 
 ## Final judgment
 

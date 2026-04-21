@@ -207,6 +207,84 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
   }
 });
 
+test("service metrics surface persisted process evidence and survive runtime restart", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-metrics-");
+  await writeExecutableFixtureService(servicesRoot, "metric-service", {
+    stdoutLines: ["metric stdout"],
+    stderrLines: ["metric stderr"],
+    autoExitMs: 75,
+    exitCode: 3,
+  });
+
+  const firstServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${firstServer.url}/api/services/metric-service/install`);
+    await postJson(`${firstServer.url}/api/services/metric-service/config`);
+    const start = await postJson(`${firstServer.url}/api/services/metric-service/start`);
+    assert.equal(start.status, 200);
+
+    const metricsResponse = await waitFor(async () => {
+      const response = await fetch(`${firstServer.url}/api/services/metric-service/metrics`);
+      const body = await response.json();
+
+      if (body.metrics.process.crashCount === 1) {
+        return { response, body };
+      }
+
+      return null;
+    }, 2_000);
+
+    assert.equal(metricsResponse.response.status, 200);
+    assert.equal(metricsResponse.body.metrics.serviceId, "metric-service");
+    assert.equal(metricsResponse.body.metrics.process.running, false);
+    assert.equal(metricsResponse.body.metrics.process.launchCount, 1);
+    assert.equal(metricsResponse.body.metrics.process.crashCount, 1);
+    assert.equal(metricsResponse.body.metrics.process.stopCount, 0);
+    assert.equal(metricsResponse.body.metrics.process.exitCount, 0);
+    assert.equal(metricsResponse.body.metrics.process.restartCount, 0);
+    assert.equal(metricsResponse.body.metrics.process.lastTermination, "crashed");
+    assert.equal(typeof metricsResponse.body.metrics.process.lastRunDurationMs, "number");
+    assert.equal(metricsResponse.body.metrics.process.currentRunDurationMs, null);
+    assert.equal(metricsResponse.body.metrics.logs.current.stdoutLines, 1);
+    assert.equal(metricsResponse.body.metrics.logs.current.stderrLines, 1);
+    assert.equal(metricsResponse.body.metrics.logs.current.combinedEntries >= 2, true);
+    assert.equal(metricsResponse.body.metrics.logs.archives.count, 0);
+  } finally {
+    await firstServer.stop();
+    resetLifecycleState();
+  }
+
+  const secondServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const detailResponse = await fetch(`${secondServer.url}/api/services/metric-service`);
+    const detailBody = await detailResponse.json();
+    const metricsResponse = await fetch(`${secondServer.url}/api/services/metric-service/metrics`);
+    const metricsBody = await metricsResponse.json();
+    const aggregateResponse = await fetch(`${secondServer.url}/api/metrics`);
+    const aggregateBody = await aggregateResponse.json();
+
+    assert.equal(detailResponse.status, 200);
+    assert.equal(detailBody.service.lifecycle.runtime.metrics.launchCount, 1);
+    assert.equal(detailBody.service.lifecycle.runtime.metrics.crashCount, 1);
+    assert.equal(detailBody.service.lifecycle.runtime.metrics.lastRunDurationMs >= 0, true);
+
+    assert.equal(metricsResponse.status, 200);
+    assert.equal(metricsBody.metrics.process.launchCount, 1);
+    assert.equal(metricsBody.metrics.process.crashCount, 1);
+    assert.equal(metricsBody.metrics.process.running, false);
+
+    assert.equal(aggregateResponse.status, 200);
+    assert.ok(aggregateBody.services.some((service) => service.serviceId === "metric-service"));
+  } finally {
+    await secondServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services/:id/variables returns manifest and derived variables", async () => {
   resetLifecycleState();
   await clearPersistedFixtureState(servicesRoot);

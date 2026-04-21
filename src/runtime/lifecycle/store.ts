@@ -32,6 +32,15 @@ function createInitialState(): ServiceLifecycleState {
         stdoutPath: null,
         stderrPath: null,
       },
+      metrics: {
+        launchCount: 0,
+        stopCount: 0,
+        exitCount: 0,
+        crashCount: 0,
+        restartCount: 0,
+        totalRunDurationMs: 0,
+        lastRunDurationMs: null,
+      },
     },
   };
 }
@@ -72,6 +81,15 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
         stdoutPath: current.runtime.logs.stdoutPath,
         stderrPath: current.runtime.logs.stderrPath,
       },
+      metrics: {
+        launchCount: current.runtime.metrics.launchCount,
+        stopCount: current.runtime.metrics.stopCount,
+        exitCount: current.runtime.metrics.exitCount,
+        crashCount: current.runtime.metrics.crashCount,
+        restartCount: current.runtime.metrics.restartCount,
+        totalRunDurationMs: current.runtime.metrics.totalRunDurationMs,
+        lastRunDurationMs: current.runtime.metrics.lastRunDurationMs,
+      },
     },
   };
 }
@@ -105,6 +123,15 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
         logPath: nextState.runtime.logs.logPath,
         stdoutPath: nextState.runtime.logs.stdoutPath,
         stderrPath: nextState.runtime.logs.stderrPath,
+      },
+      metrics: {
+        launchCount: nextState.runtime.metrics.launchCount,
+        stopCount: nextState.runtime.metrics.stopCount,
+        exitCount: nextState.runtime.metrics.exitCount,
+        crashCount: nextState.runtime.metrics.crashCount,
+        restartCount: nextState.runtime.metrics.restartCount,
+        totalRunDurationMs: nextState.runtime.metrics.totalRunDurationMs,
+        lastRunDurationMs: nextState.runtime.metrics.lastRunDurationMs,
       },
     },
   };

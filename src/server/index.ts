@@ -6,6 +6,7 @@ import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
+import { createServiceMetricsResponse } from "./routes/metrics.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
@@ -23,6 +24,7 @@ import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
 import { buildServiceLogs, getServiceRuntimeLogPaths } from "../runtime/operator/logs.js";
+import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
@@ -357,6 +359,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "metrics") {
+      writeJson(response, 200, createServiceMetricsResponse(await buildServiceMetrics(service, getLifecycleState(serviceId))));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "variables") {
       const lifecycle = getLifecycleState(serviceId);
       const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
@@ -482,6 +489,15 @@ async function routeRequest(
           ? getLifecycleState(service.manifest.id).runtime.ports
           : service.manifest.ports ?? {},
       ),
+    );
+    writeJson(response, 200, { services: payload });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/metrics") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const payload = await Promise.all(
+      runtimeModel.discovered.map((service) => buildServiceMetrics(service, getLifecycleState(service.manifest.id))),
     );
     writeJson(response, 200, { services: payload });
     return;

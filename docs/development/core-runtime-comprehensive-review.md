@@ -32,7 +32,7 @@ These assumptions were used consistently throughout the review:
 Automated verification was run during the review:
 
 - command: `npm test`
-- result: `66 passed, 0 failed`
+- result: `67 passed, 0 failed`
 
 What that test run directly proves:
 - API startup
@@ -51,6 +51,7 @@ What that test run directly proves:
 - bounded port negotiation
 - bounded orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
 - bounded per-service runtime-log archival and retention
+- bounded process/runtime metrics
 
 What that test run does **not** prove:
 - full donor-depth process supervision parity
@@ -80,7 +81,7 @@ The largest remaining gaps are:
 - broader health/provider/runtime parity beyond the current bounded slice
 - broader manager/runtime parity beyond the current bounded orchestration slice
 - fuller run-level `workspaceRoot` logging/archival implementation
-- process/runtime metrics
+- donor-depth process-tree/runtime telemetry
 
 Separately, the documentation set has important drift issues:
 - canonical manifest docs are broader than the runtime really supports
@@ -326,6 +327,7 @@ These donor/runtime concerns are meaningfully represented in the current code an
 - structured per-service `.state` writes
 - bounded manager-level orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
 - operator data surfaces for logs, variables, and network
+- bounded process/runtime metrics
 - provider relationship resolution/planning for direct, `@node`, and `@python`
 - direct automated verification for the implemented slice
 
@@ -358,6 +360,10 @@ These donor/runtime concerns are represented directionally, but not at donor dep
   - current code writes the first structured `.state/` slice
   - donor code includes PID/runtime/process evidence and startup recovery concerns not yet implemented here
 
+- process/runtime telemetry
+  - current code exposes bounded launch, termination, duration, and log-count metrics
+  - donor code still goes broader with process-tree stats, memory telemetry, and richer runtime evidence
+
 ## What is not covered yet
 
 These major donor/runtime behaviors are not implemented in the current code:
@@ -365,7 +371,7 @@ These major donor/runtime behaviors are not implemented in the current code:
 - full donor-depth stop/kill/restart control over managed processes
 - exit handling and `ignoreexiterror`
 - PID file management as a real runtime concern
-- process-tree tracking and runtime metrics
+- donor-depth process-tree tracking and runtime telemetry
 - archive extraction via `setuparchive`
 - command-driven setup/install pipeline
 - donor-depth runtime-owned port reservation/reassignment beyond the bounded negotiated slice
@@ -632,10 +638,10 @@ That label is supported by:
 
 1. Choose the next bounded major migration unit explicitly.
 2. Prefer one of these as the next execution item:
-   - process/runtime metrics
-   - deeper supervision parity
    - demo-instance hardening
+   - deeper supervision parity
    - `lasso-@serviceadmin` integration validation
+   - package-boundary/reference-app follow-through
 
 ## Final judgment
 
