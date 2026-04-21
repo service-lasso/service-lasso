@@ -72,16 +72,18 @@ Post-core validation note:
 
 ## Reference app templates after core
 
-Once the core runtime is built and stable, Service Lasso should also provide reference app packages that showcase integration and give other teams a template starting point.
+Once the core runtime is built and stable, Service Lasso should also provide reference app starter repos that showcase integration and give other teams a template starting point.
 
 These reference apps are not the core runtime.
 They are example consumers of the core runtime/API that prove the integration story and make adoption easier.
 
-Planned reference app/template packages include:
+Planned reference app/template repos include:
 - `@service-lasso/service-lasso-app-web`
 - `@service-lasso/service-lasso-packager-node`
 - `@service-lasso/service-lasso-app-tauri`
 - `@service-lasso/service-lasso-bundled`
+
+These should live as sibling repos under `C:\projects\service-lasso` and as matching GitHub template repos.
 
 These should all consume the same canonical runtime model based on:
 - `servicesRoot`

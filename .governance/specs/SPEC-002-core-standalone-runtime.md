@@ -43,6 +43,7 @@ Explicitly out of scope for this spec:
 - `AC-4N`: The runtime provides one explicit demo-instance quickstart, reset path, and scripted smoke validation flow so a reviewer can exercise the bounded runtime end to end against explicit `servicesRoot` and `workspaceRoot` without manual repo cleanup.
 - `AC-4O`: The runtime exposes one bounded consumer-compatibility slice for `lasso-@serviceadmin` so the admin UI can use current runtime metadata, log-read, and core dashboard surfaces without consumer-only hacks.
 - `AC-4P`: The repo exposes one bounded package-boundary scaffold so a private `packages/` workspace map exists, a core wrapper package can target the current built runtime + CLI without moving source yet, and reference-app placeholders can consume that core package without redefining the runtime-root contract.
+- `AC-4Q`: The broader reference-app rollout lives outside the core repo so the web, packager-node, tauri, and bundled starters exist as sibling template repos under `C:\projects\service-lasso` and matching GitHub template repos instead of in-repo app placeholder packages.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -65,7 +66,8 @@ Required evidence for this spec:
 - direct proof that persisted runtime state and API/operator surfaces expose bounded launch, termination, duration, and log-count metrics that survive runtime restart and remain consistent with current managed log files
 - direct proof that the documented demo-instance smoke flow can start the runtime against explicit roots, exercise one direct service plus one provider-backed service, inspect runtime/operator surfaces, stop the services cleanly, and rerun from a reset state
 - direct proof that the runtime can satisfy the bounded `lasso-@serviceadmin` integration contract for service meta persistence, live log reads, and the current dashboard/service-detail consumer surfaces
-- direct proof that a bounded `packages/` workspace exists with a private core wrapper package exposing the current built runtime/CLI targets and placeholder reference-app packages consuming the core package
+- direct proof that a bounded `packages/` workspace exists with a private core wrapper package exposing the current built runtime/CLI targets without moving the current runtime source yet
+- direct proof that the four bounded reference-app starters exist as sibling repos under `C:\projects\service-lasso`, that the matching GitHub repos exist, and that those GitHub repos are marked as templates for quick-start use
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

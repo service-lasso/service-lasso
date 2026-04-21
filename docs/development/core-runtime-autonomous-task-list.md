@@ -170,20 +170,20 @@ Current honest label:
 17. core package boundary scaffolding
     status: done
     proof:
-    - bounded `packages/` workspace map exists and remains aligned with the runtime-root model
+    - bounded `packages/core` wrapper exists and remains aligned with the runtime-root model
     - private core wrapper package targets the current built runtime + CLI without moving source prematurely
-    - placeholder reference-app packages consume the core package without redefining `servicesRoot` / `workspaceRoot`
 
 18. reference app/template rollout
-    status: queued
+    status: done
     scope:
     - `@service-lasso/service-lasso-app-web`
     - `@service-lasso/service-lasso-packager-node`
     - `@service-lasso/service-lasso-app-tauri`
     - `@service-lasso/service-lasso-bundled`
     proof:
-    - each stays outside core
-    - each consumes the canonical runtime/API cleanly
+    - each lives as a sibling repo under `C:\projects\service-lasso`
+    - each matching GitHub repo is marked as a template repo
+    - the core repo no longer carries in-repo app placeholder packages
 
 ### Wave 8: Documentation truth pass
 
@@ -210,6 +210,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**reference app/template rollout**
+**documentation truth pass**
 
-That is the next clean delivery step because the bounded core package scaffold now exists, so the remaining work shifts from placeholder workspace boundaries to real starter-template packages that consume the core runtime/API.
+That is the next clean delivery step because the bounded core package plus sibling template repos now exist, so the remaining work shifts to making the docs/spec/reference set fully honest about the current structure and remaining donor gaps.

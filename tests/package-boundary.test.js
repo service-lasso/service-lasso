@@ -16,7 +16,7 @@ async function readJson(relativePath) {
 test("root package declares the bounded workspace map", async () => {
   const packageJson = await readJson("package.json");
 
-  assert.deepEqual(packageJson.workspaces, ["packages/*"]);
+  assert.deepEqual(packageJson.workspaces, ["packages/core"]);
 });
 
 test("core wrapper package exposes the canonical package boundary", async () => {
@@ -30,17 +30,15 @@ test("core wrapper package exposes the canonical package boundary", async () => 
   assert.equal(typeof coreModule.startApiServer, "function");
 });
 
-test("placeholder reference-app packages consume the core package", async () => {
-  const packagePaths = [
-    "packages/app-web/package.json",
-    "packages/packager-node/package.json",
-    "packages/app-tauri/package.json",
-    "packages/bundled/package.json",
+test("reference-app placeholder packages are not carried inside the core repo", async () => {
+  const appPlaceholderPaths = [
+    path.join(repoRoot, "packages/app-web/package.json"),
+    path.join(repoRoot, "packages/packager-node/package.json"),
+    path.join(repoRoot, "packages/app-tauri/package.json"),
+    path.join(repoRoot, "packages/bundled/package.json"),
   ];
 
-  for (const packagePath of packagePaths) {
-    const packageJson = await readJson(packagePath);
-
-    assert.equal(packageJson.dependencies["@service-lasso/service-lasso"], "file:../core");
+  for (const packagePath of appPlaceholderPaths) {
+    await assert.rejects(readFile(packagePath, "utf8"));
   }
 });
