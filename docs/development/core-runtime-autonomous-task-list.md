@@ -65,7 +65,7 @@ Current honest label:
    - tests prove healthy and unhealthy cases
 
 3. readiness and wait-loop behavior
-   status: next
+   status: in progress
    proof:
    - start flow can wait for configured health readiness within bounded timeout/retry rules
    - tests prove success, timeout, and failure behavior

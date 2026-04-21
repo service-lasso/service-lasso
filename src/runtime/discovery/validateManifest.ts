@@ -9,6 +9,45 @@ function expectNonEmptyString(value: unknown, field: string, manifestPath: strin
   return value.trim();
 }
 
+function expectOptionalWholeNumber(
+  value: unknown,
+  field: string,
+  manifestPath: string,
+  minimum = 0,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value < minimum) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}" to be an integer greater than or equal to ${minimum}.`,
+    );
+  }
+
+  return value;
+}
+
+function readHealthcheckReadinessOptions(
+  healthRecord: Record<string, unknown>,
+  manifestPath: string,
+): Record<string, number> {
+  const interval = expectOptionalWholeNumber(healthRecord.interval, "healthcheck.interval", manifestPath, 1);
+  const retries = expectOptionalWholeNumber(healthRecord.retries, "healthcheck.retries", manifestPath, 1);
+  const startPeriod = expectOptionalWholeNumber(
+    healthRecord.start_period,
+    "healthcheck.start_period",
+    manifestPath,
+    0,
+  );
+
+  return {
+    ...(interval !== undefined ? { interval } : {}),
+    ...(retries !== undefined ? { retries } : {}),
+    ...(startPeriod !== undefined ? { start_period: startPeriod } : {}),
+  };
+}
+
 export function validateServiceManifest(input: unknown, manifestPath: string): ServiceManifest {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected a JSON object.`);
@@ -33,29 +72,34 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     }
 
     const healthRecord = rawHealthcheck as Record<string, unknown>;
+    const readinessOptions = readHealthcheckReadinessOptions(healthRecord, manifestPath);
     if (healthRecord.type === "process") {
-      healthcheck = { type: "process" };
+      healthcheck = { type: "process", ...readinessOptions };
     } else if (healthRecord.type === "http") {
       healthcheck = {
         type: "http",
         url: expectNonEmptyString(healthRecord.url, "healthcheck.url", manifestPath),
         expected_status:
           typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
+        ...readinessOptions,
       };
     } else if (healthRecord.type === "tcp") {
       healthcheck = {
         type: "tcp",
         address: expectNonEmptyString(healthRecord.address, "healthcheck.address", manifestPath),
+        ...readinessOptions,
       };
     } else if (healthRecord.type === "file") {
       healthcheck = {
         type: "file",
         file: expectNonEmptyString(healthRecord.file, "healthcheck.file", manifestPath),
+        ...readinessOptions,
       };
     } else if (healthRecord.type === "variable") {
       healthcheck = {
         type: "variable",
         variable: expectNonEmptyString(healthRecord.variable, "healthcheck.variable", manifestPath),
+        ...readinessOptions,
       };
     } else {
       throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);

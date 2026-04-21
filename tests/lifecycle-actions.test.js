@@ -174,3 +174,81 @@ test("runtime summary reflects running services after lifecycle actions", async 
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("start waits for configured readiness and returns healthy once ready", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  await writeExecutableFixtureService(servicesRoot, "ready-file-service", {
+    readyFileAfterMs: 120,
+    readyFileRelativePath: "./runtime/ready.txt",
+    healthcheck: {
+      type: "file",
+      file: "./runtime/ready.txt",
+      retries: 6,
+      interval: 50,
+      start_period: 25,
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/ready-file-service/install`);
+    await postJson(`${apiServer.url}/api/services/ready-file-service/config`);
+
+    const startedAt = Date.now();
+    const start = await postJson(`${apiServer.url}/api/services/ready-file-service/start`);
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, true);
+    assert.equal(start.body.state.running, true);
+    assert.equal(start.body.health.type, "file");
+    assert.equal(start.body.health.healthy, true);
+    assert.match(start.body.message, /readiness succeeded/i);
+    assert.ok(elapsedMs >= 75);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("start returns a deterministic non-ready result when readiness times out", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "not-ready-service", {
+    healthcheck: {
+      type: "file",
+      file: "./runtime/ready.txt",
+      retries: 3,
+      interval: 25,
+      start_period: 10,
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/not-ready-service/install`);
+    await postJson(`${apiServer.url}/api/services/not-ready-service/config`);
+
+    const start = await postJson(`${apiServer.url}/api/services/not-ready-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, false);
+    assert.equal(start.body.action, "start");
+    assert.equal(start.body.state.running, false);
+    assert.equal(start.body.state.runtime.pid, null);
+    assert.equal(start.body.health.type, "file");
+    assert.equal(start.body.health.healthy, false);
+    assert.match(start.body.message, /did not become ready/i);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.lastAction, "start");
+    assert.equal(stored.runtime.running, false);
+    assert.deepEqual(stored.runtime.actionHistory, ["install", "config", "start"]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
