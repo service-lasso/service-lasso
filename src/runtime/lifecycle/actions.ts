@@ -1,6 +1,7 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import { startManagedProcess, stopManagedProcess } from "../execution/supervisor.js";
+import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
@@ -9,6 +10,7 @@ function applyState(
   serviceId: string,
   action: LifecycleAction,
   recipe: (current: ServiceLifecycleState) => { nextState: ServiceLifecycleState; message: string },
+  ok = true,
 ): LifecycleActionResult {
   const current = getLifecycleState(serviceId);
   const { nextState, message } = recipe(current);
@@ -19,7 +21,7 @@ function applyState(
   });
 
   return {
-    ok: true,
+    ok,
     action,
     serviceId,
     state,
@@ -108,18 +110,52 @@ export async function startService(service: DiscoveredService): Promise<Lifecycl
     },
   });
 
+  updateRuntimeState(serviceId, (state) => ({
+    ...state,
+    running: true,
+    runtime: {
+      pid: handle.pid,
+      startedAt: handle.startedAt,
+      exitCode: null,
+      command: handle.command,
+    },
+  }));
+
+  const readiness = await waitForServiceReadiness(service);
+  if (!readiness.ready) {
+    const stopped = await stopManagedProcess(serviceId);
+    return applyState(
+      serviceId,
+      "start",
+      (state) => ({
+        nextState: {
+          ...state,
+          running: false,
+          runtime: {
+            ...state.runtime,
+            pid: null,
+            exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+          },
+        },
+        message: readiness.message,
+      }),
+      false,
+    );
+  }
+
   return applyState(serviceId, "start", (state) => ({
     nextState: {
       ...state,
       running: true,
       runtime: {
+        ...state.runtime,
         pid: handle.pid,
         startedAt: handle.startedAt,
         exitCode: null,
         command: handle.command,
       },
     },
-    message: "Start completed.",
+    message: readiness.message,
   }));
 }
 
@@ -173,17 +209,51 @@ export async function restartService(service: DiscoveredService): Promise<Lifecy
     },
   });
 
+  updateRuntimeState(serviceId, (state) => ({
+    ...state,
+    running: true,
+    runtime: {
+      pid: handle.pid,
+      startedAt: handle.startedAt,
+      exitCode: null,
+      command: handle.command,
+    },
+  }));
+
+  const readiness = await waitForServiceReadiness(service);
+  if (!readiness.ready) {
+    const stopped = await stopManagedProcess(serviceId);
+    return applyState(
+      serviceId,
+      "restart",
+      (state) => ({
+        nextState: {
+          ...state,
+          running: false,
+          runtime: {
+            ...state.runtime,
+            pid: null,
+            exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+          },
+        },
+        message: readiness.message,
+      }),
+      false,
+    );
+  }
+
   return applyState(serviceId, "restart", (state) => ({
     nextState: {
       ...state,
       running: true,
       runtime: {
+        ...state.runtime,
         pid: handle.pid,
         startedAt: handle.startedAt,
         exitCode: null,
         command: handle.command,
       },
     },
-    message: "Restart completed.",
+    message: readiness.message.replace(/^Start/, "Restart"),
   }));
 }

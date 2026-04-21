@@ -35,6 +35,8 @@ export async function writeExecutableFixtureService(
     autoExitMs = null,
     exitCode = 0,
     healthcheck = { type: "process" },
+    readyFileAfterMs = null,
+    readyFileRelativePath = "./runtime/ready.txt",
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -43,17 +45,34 @@ export async function writeExecutableFixtureService(
 
   const scriptPath = path.join(runtimeRoot, "fixture-service.mjs");
   const scriptSource = `
+import path from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+
 const heartbeat = setInterval(() => {}, 1000);
 const exitCode = Number(process.env.FIXTURE_EXIT_CODE ?? "${exitCode}");
 const autoExitMs = Number(process.env.FIXTURE_AUTO_EXIT_MS ?? "${autoExitMs ?? ""}");
+const readyFileRelativePath = process.env.FIXTURE_READY_FILE ?? "";
+const readyFileDelayMs = Number(process.env.FIXTURE_READY_FILE_DELAY_MS ?? "");
 
 function shutdown() {
   clearInterval(heartbeat);
   process.exit(0);
 }
 
+async function writeReadyFile() {
+  const targetPath = path.resolve(process.cwd(), readyFileRelativePath);
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, "ready");
+}
+
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+if (readyFileRelativePath && Number.isFinite(readyFileDelayMs) && readyFileDelayMs >= 0) {
+  setTimeout(() => {
+    void writeReadyFile();
+  }, readyFileDelayMs);
+}
 
 if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
   setTimeout(() => {
@@ -73,6 +92,12 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     env: {
       FIXTURE_EXIT_CODE: String(exitCode),
       ...(autoExitMs !== null ? { FIXTURE_AUTO_EXIT_MS: String(autoExitMs) } : {}),
+      ...(readyFileAfterMs !== null
+        ? {
+            FIXTURE_READY_FILE: readyFileRelativePath,
+            FIXTURE_READY_FILE_DELAY_MS: String(readyFileAfterMs),
+          }
+        : {}),
     },
     healthcheck,
   });

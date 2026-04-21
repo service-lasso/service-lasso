@@ -158,6 +158,39 @@ test("loadServiceManifest accepts bounded variable healthchecks", async () => {
   }
 });
 
+test("loadServiceManifest accepts donor-aligned readiness retry fields", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "http-ready-service", {
+      id: "http-ready-service",
+      name: "HTTP Ready Service",
+      description: "Manifest proving readiness retry parsing.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/health",
+        expected_status: 200,
+        retries: 5,
+        interval: 250,
+        start_period: 100,
+      },
+    });
+
+    const manifest = await loadServiceManifest(path.join(servicesRoot, "http-ready-service", "service.json"));
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "http",
+      url: "http://127.0.0.1:18080/health",
+      expected_status: 200,
+      retries: 5,
+      interval: 250,
+      start_period: 100,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {
