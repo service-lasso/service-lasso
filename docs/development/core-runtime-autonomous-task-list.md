@@ -109,7 +109,7 @@ Current honest label:
 ### Wave 4: Orchestration parity
 
 9. dependency-aware startup ordering
-   status: queued
+   status: done
    proof:
    - runtime can start services in dependency order
    - readiness-aware dependency startup is covered by tests
@@ -199,6 +199,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**dependency-aware startup ordering**
+**manager-level orchestration**
 
-That is the next clean donor-parity step after lifecycle depth hardening, and it begins the orchestration wave by making service startup respect dependency order and bounded readiness-aware sequencing.
+That is the next clean donor-parity step after dependency-aware startup ordering, and it builds the first bounded orchestration surface on top of deterministic dependency-aware startup.

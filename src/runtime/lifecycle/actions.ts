@@ -2,6 +2,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import { startManagedProcess, stopManagedProcess } from "../execution/supervisor.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
+import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
@@ -151,6 +152,34 @@ export async function startService(
   const executionPlan = resolveExecutionPlanForLifecycle(service, registry);
   if (executionPlan.provider === "direct" && !service.manifest.executable) {
     throw new LifecycleStateError(`Cannot start service "${serviceId}" because no executable is configured.`);
+  }
+
+  if (registry) {
+    const dependencyGraph = new DependencyGraph(registry);
+    const dependencyOrder = dependencyGraph.getStartupOrder(serviceId);
+
+    for (const dependencyId of dependencyOrder) {
+      const dependency = registry.getById(dependencyId);
+      if (!dependency) {
+        throw new LifecycleStateError(`Cannot start service "${serviceId}" because dependency "${dependencyId}" was not found.`);
+      }
+
+      const dependencyState = getLifecycleState(dependencyId);
+      if (!dependencyState.installed) {
+        throw new LifecycleStateError(
+          `Cannot start service "${serviceId}" because dependency "${dependencyId}" is not installed.`,
+        );
+      }
+      if (!dependencyState.configured) {
+        throw new LifecycleStateError(
+          `Cannot start service "${serviceId}" because dependency "${dependencyId}" is not configured.`,
+        );
+      }
+
+      if (!dependencyState.running) {
+        await startService(dependency, registry);
+      }
+    }
   }
 
   const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};

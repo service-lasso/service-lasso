@@ -35,7 +35,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-025` | `done` | Add bounded setup/install mechanics with materialized artifacts | `SPEC-002`, `AC-4G` | Landed bounded manifest-driven install/config file materialization with persisted lifecycle artifact metadata and rerunnable effective config output. |
 | `ISS-026` | `done` | Extend provider-backed execution parity beyond direct executables | `SPEC-002`, `AC-4H` | Landed real `@node` provider-backed execution for the tracked sample service with provider env injection and persisted provider/runtime evidence through the API/state model. |
 | `ISS-027` | `done` | Harden lifecycle depth evidence for restart, crash, and intentional stop paths | `SPEC-002` | Landed bounded termination evidence with deterministic restart/crash/stop runtime state across API and persisted `.state` output. |
-| `ISS-028` | `todo` | Add dependency-aware startup ordering | `SPEC-002` | Start dependent services in dependency order with bounded readiness-aware sequencing before manager-level orchestration widens. |
+| `ISS-028` | `done` | Add dependency-aware startup ordering | `SPEC-002` | Landed bounded dependency-aware startup sequencing with deterministic order, readiness-aware startup, and no duplicate restarts for running dependencies. |
+| `ISS-029` | `todo` | Add manager-level orchestration actions | `SPEC-002` | Introduce bounded `startAll` / `stopAll` orchestration on top of the dependency-aware startup model before widening further runtime orchestration. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -67,7 +68,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-025` | `done` | `ISS-025` | Implement bounded install/config artifact materialization with direct tests | `SPEC-002`, `AC-4G` | Install/config materialize service-scoped files on disk, persist artifact metadata in lifecycle state, and support rerunnable effective config generation without reinstall |
 | `TASK-026` | `done` | `ISS-026` | Implement one bounded provider-backed execution path with direct tests | `SPEC-002`, `AC-4H` | The tracked `@node` sample executes through its provider path, provider env reaches the managed process, and provider/runtime evidence is exposed through the API and persisted state |
 | `TASK-027` | `done` | `ISS-027` | Harden lifecycle depth evidence across restart/crash/intentional stop flows | `SPEC-002` | Persisted runtime evidence stays deterministic across restart, crash exits, and intentional stops |
-| `TASK-028` | `todo` | `ISS-028` | Implement dependency-aware startup ordering with direct tests | `SPEC-002` | Runtime starts services in dependency order and respects bounded readiness-aware sequencing for dependent services |
+| `TASK-028` | `done` | `ISS-028` | Implement dependency-aware startup ordering with direct tests | `SPEC-002` | Runtime starts services in dependency order and respects bounded readiness-aware sequencing for dependent services |
+| `TASK-029` | `todo` | `ISS-029` | Implement bounded manager-level orchestration actions with direct tests | `SPEC-002` | Runtime exposes deterministic `startAll` / `stopAll` orchestration aligned with dependency-aware startup sequencing |
 
 ## Next Recommended Item
-The next best item is `TASK-028`: add dependency-aware startup ordering so the runtime can begin orchestration with bounded, readiness-aware dependency sequencing.
+The next best item is `TASK-029`: add bounded manager-level orchestration actions so the runtime can build on dependency-aware startup with deterministic `startAll` / `stopAll` behavior.

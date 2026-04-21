@@ -128,6 +128,8 @@ test("provider-backed lifecycle action includes provider details in API response
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
+    await postJson(`${apiServer.url}/api/services/@node/install`);
+    await postJson(`${apiServer.url}/api/services/@node/config`);
     await postJson(`${apiServer.url}/api/services/node-sample-service/install`);
     await postJson(`${apiServer.url}/api/services/node-sample-service/config`);
     const start = await postJson(`${apiServer.url}/api/services/node-sample-service/start`);
