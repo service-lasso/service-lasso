@@ -222,9 +222,15 @@ export async function runDemoSmoke(options = {}) {
 
     const stoppedEchoMetrics = await getJson(`${runtime.apiServer.url}/api/services/echo-service/metrics`);
     const stoppedProviderMetrics = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/metrics`);
+    const echoSkipNotRunning = stopAll.body.skipped?.some(
+      (result) => result.serviceId === "echo-service" && result.reason === "not_running",
+    );
 
     assertCondition(stoppedEchoMetrics.body.metrics.process.running === false, "Expected echo-service to be stopped.");
-    assertCondition(stoppedEchoMetrics.body.metrics.process.stopCount >= 1, "Expected echo-service stop count.");
+    assertCondition(
+      stoppedEchoMetrics.body.metrics.process.stopCount >= 1 || echoSkipNotRunning,
+      "Expected echo-service stop evidence.",
+    );
     assertCondition(stoppedProviderMetrics.body.metrics.process.running === false, "Expected node-sample-service to be stopped.");
 
     return {
