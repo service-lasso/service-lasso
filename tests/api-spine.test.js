@@ -4,10 +4,23 @@ import path from "node:path";
 import os from "node:os";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
-import { clearPersistedFixtureState } from "./test-helpers.js";
+import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import {
+  clearPersistedFixtureState,
+  makeTempServicesRoot,
+  writeExecutableFixtureService,
+} from "./test-helpers.js";
 
 async function getJson(url) {
   const response = await fetch(url);
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function postJson(url) {
+  const response = await fetch(url, { method: "POST" });
   return {
     status: response.status,
     body: await response.json(),
@@ -97,4 +110,85 @@ test("runtime rejects a missing servicesRoot during startup validation", async (
   );
 
   await rm(tempRoot, { recursive: true, force: true });
+});
+
+test("POST /api/runtime/actions/startAll and stopAll orchestrate eligible services in deterministic order", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-actions-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  await writeExecutableFixtureService(servicesRoot, "bravo-service", {
+    depend_on: ["alpha-service"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["alpha-service", "bravo-service"]) {
+      let result = await postJson(`${apiServer.url}/api/services/${serviceId}/install`);
+      assert.equal(result.status, 200);
+      result = await postJson(`${apiServer.url}/api/services/${serviceId}/config`);
+      assert.equal(result.status, 200);
+    }
+
+    const startAll = await postJson(`${apiServer.url}/api/runtime/actions/startAll`);
+    assert.equal(startAll.status, 200);
+    assert.equal(startAll.body.action, "startAll");
+    assert.equal(startAll.body.ok, true);
+    assert.deepEqual(
+      startAll.body.results.map((result) => result.serviceId),
+      ["alpha-service", "bravo-service"],
+    );
+    assert.deepEqual(startAll.body.skipped, []);
+    assert.equal(startAll.body.results[0].state.running, true);
+    assert.equal(startAll.body.results[1].state.running, true);
+
+    const stopAll = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`);
+    assert.equal(stopAll.status, 200);
+    assert.equal(stopAll.body.action, "stopAll");
+    assert.equal(stopAll.body.ok, true);
+    assert.deepEqual(
+      stopAll.body.results.map((result) => result.serviceId),
+      ["bravo-service", "alpha-service"],
+    );
+    assert.deepEqual(stopAll.body.skipped, []);
+    assert.equal(stopAll.body.results[0].state.running, false);
+    assert.equal(stopAll.body.results[1].state.running, false);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/runtime/actions/startAll skips ineligible services deterministically", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-skips-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-installed-only");
+  await writeExecutableFixtureService(servicesRoot, "bravo-missing-install");
+  await writeExecutableFixtureService(servicesRoot, "charlie-running");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    let result = await postJson(`${apiServer.url}/api/services/alpha-installed-only/install`);
+    assert.equal(result.status, 200);
+
+    for (const action of ["install", "config", "start"]) {
+      result = await postJson(`${apiServer.url}/api/services/charlie-running/${action}`);
+      assert.equal(result.status, 200);
+    }
+
+    const startAll = await postJson(`${apiServer.url}/api/runtime/actions/startAll`);
+    assert.equal(startAll.status, 200);
+    assert.equal(startAll.body.action, "startAll");
+    assert.equal(startAll.body.ok, true);
+    assert.deepEqual(startAll.body.results, []);
+    assert.deepEqual(startAll.body.skipped, [
+      { serviceId: "alpha-installed-only", reason: "not_configured" },
+      { serviceId: "bravo-missing-install", reason: "not_installed" },
+      { serviceId: "charlie-running", reason: "already_running" },
+    ]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });

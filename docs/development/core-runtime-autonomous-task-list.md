@@ -114,43 +114,45 @@ Current honest label:
    - runtime can start services in dependency order
    - readiness-aware dependency startup is covered by tests
 
-10. manager-level orchestration
-    status: queued
-    scope:
-    - `startAll`
-    - `stopAll`
-    - `reload`
-    - `autostart`
+10. manager-level orchestration (`startAll` / `stopAll`)
+    status: done
     proof:
-    - orchestration behavior is deterministic and test-covered
+    - runtime-level orchestration starts eligible services in deterministic dependency-aware order
+    - runtime-level orchestration stops running services in deterministic shutdown order
+    - API responses include explicit skip reasons for ineligible services
+
+11. reload/autostart orchestration follow-up
+    status: queued
+    proof:
+    - `reload` and `autostart` semantics are explicit, deterministic, and test-covered
 
 ### Wave 5: Runtime observability parity
 
-11. stdout/stderr capture and runtime log ownership
+12. stdout/stderr capture and runtime log ownership
     status: queued
     proof:
     - managed process output is captured
     - runtime log locations are stable and documented
 
-12. archival and retention model
+13. archival and retention model
     status: queued
     proof:
     - run/log retention rules exist and are enforced
 
-13. process/runtime metrics
+14. process/runtime metrics
     status: queued
     proof:
     - runtime exposes bounded process evidence beyond pid/running state
 
 ### Wave 6: Demo and consumer validation
 
-14. demo-instance hardening
+15. demo-instance hardening
     status: queued
     proof:
     - demo path proves real execution-backed behavior
     - demo cannot be satisfied by state flips alone
 
-15. `lasso-@serviceadmin` integration validation
+16. `lasso-@serviceadmin` integration validation
     status: queued
     proof:
     - admin UI consumes the current runtime/API without special-case hacks
@@ -158,12 +160,12 @@ Current honest label:
 
 ### Wave 7: Package and template rollout
 
-16. core package boundary scaffolding
+17. core package boundary scaffolding
     status: queued
     proof:
     - package split exists and remains aligned with the runtime-root model
 
-17. reference app/template rollout
+18. reference app/template rollout
     status: queued
     scope:
     - `@service-lasso/service-lasso-app-web`
@@ -176,17 +178,17 @@ Current honest label:
 
 ### Wave 8: Documentation truth pass
 
-18. canonical manifest/reference cleanup
+19. canonical manifest/reference cleanup
     status: queued
     proof:
     - canonical docs no longer overstate unsupported contract fields
 
-19. stale planning/spec cleanup
+20. stale planning/spec cleanup
     status: queued
     proof:
     - README, spec, plan, and migration docs agree with current implementation
 
-20. final donor parity review
+21. final donor parity review
     status: queued
     proof:
     - every donor capability is marked:
@@ -199,6 +201,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**manager-level orchestration**
+**stdout/stderr capture and runtime log ownership**
 
-That is the next clean donor-parity step after dependency-aware startup ordering, and it builds the first bounded orchestration surface on top of deterministic dependency-aware startup.
+That is the next clean donor-parity step after bounded manager-level orchestration, because the runtime now needs first-class ownership of real managed-process output before deeper orchestration, retention, and operator parity can be claimed.
