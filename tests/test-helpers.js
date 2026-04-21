@@ -58,6 +58,8 @@ export async function writeExecutableFixtureService(
     readyFileRelativePath = "./runtime/ready.txt",
     captureEnvKeys = [],
     captureEnvFileRelativePath = "./runtime/env.json",
+    stdoutLines = [],
+    stderrLines = [],
     env = {},
     globalenv = {},
     ports = undefined,
@@ -84,6 +86,12 @@ const captureEnvPath = process.env.FIXTURE_CAPTURE_ENV_FILE ?? "";
 const captureEnvKeys = process.env.FIXTURE_CAPTURE_ENV_KEYS
   ? JSON.parse(process.env.FIXTURE_CAPTURE_ENV_KEYS)
   : [];
+const stdoutLines = process.env.FIXTURE_STDOUT_LINES
+  ? JSON.parse(process.env.FIXTURE_STDOUT_LINES)
+  : [];
+const stderrLines = process.env.FIXTURE_STDERR_LINES
+  ? JSON.parse(process.env.FIXTURE_STDERR_LINES)
+  : [];
 
 function shutdown() {
   clearInterval(heartbeat);
@@ -108,6 +116,14 @@ process.on("SIGINT", shutdown);
 
 if (captureEnvPath && Array.isArray(captureEnvKeys) && captureEnvKeys.length > 0) {
   void writeEnvSnapshot();
+}
+
+for (const line of stdoutLines) {
+  console.log(String(line));
+}
+
+for (const line of stderrLines) {
+  console.error(String(line));
 }
 
 if (readyFileRelativePath && Number.isFinite(readyFileDelayMs) && readyFileDelayMs >= 0) {
@@ -145,6 +161,16 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         ? {
             FIXTURE_CAPTURE_ENV_FILE: captureEnvFileRelativePath,
             FIXTURE_CAPTURE_ENV_KEYS: JSON.stringify(captureEnvKeys),
+          }
+        : {}),
+      ...(stdoutLines.length > 0
+        ? {
+            FIXTURE_STDOUT_LINES: JSON.stringify(stdoutLines),
+          }
+        : {}),
+      ...(stderrLines.length > 0
+        ? {
+            FIXTURE_STDERR_LINES: JSON.stringify(stderrLines),
           }
         : {}),
     },

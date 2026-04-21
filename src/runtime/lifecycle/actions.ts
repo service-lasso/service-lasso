@@ -206,6 +206,7 @@ export async function startService(
     ...state,
     running: true,
     runtime: {
+      ...state.runtime,
       pid: handle.pid,
       startedAt: handle.startedAt,
       finishedAt: null,
@@ -215,6 +216,11 @@ export async function startService(
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
       ports: resolvedPorts,
+      logs: {
+        logPath: handle.logs.logPath,
+        stdoutPath: handle.logs.stdoutPath,
+        stderrPath: handle.logs.stderrPath,
+      },
     },
   }));
 
@@ -332,6 +338,7 @@ export async function restartService(
     ...state,
     running: true,
     runtime: {
+      ...state.runtime,
       pid: handle.pid,
       startedAt: handle.startedAt,
       finishedAt: null,
@@ -341,6 +348,11 @@ export async function restartService(
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
       ports: resolvedPorts,
+      logs: {
+        logPath: handle.logs.logPath,
+        stdoutPath: handle.logs.stdoutPath,
+        stderrPath: handle.logs.stderrPath,
+      },
     },
   }));
 

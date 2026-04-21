@@ -188,7 +188,7 @@ Key evidence:
 - `docs/INTRODUCTION.md` says the preferred runtime root model is now `servicesRoot` plus `workspaceRoot`
 - `docs/README.md` repeats that as the current preferred model
 - actual runtime root types still expose `dataRoot` and `stateRoot`
-- operator log paths are still service-local in current code and tests
+- runtime logs now use a bounded service-local runtime path in current code and tests rather than the broader `workspaceRoot` run layout described in the design docs
 
 Relevant files:
 - `docs/INTRODUCTION.md`
@@ -342,8 +342,8 @@ These donor/runtime concerns are represented directionally, but not at donor dep
   - donor code actually executes through provider/runtime services
 
 - logging
-  - current code exposes bounded operator log payloads
-  - donor code writes real runtime and service logs with archival behavior
+  - current code now captures bounded managed stdout/stderr into runtime-owned per-service log files and exposes recent output through the API
+  - donor code still goes broader with run-level logging, archival, and retention behavior
 
 - state model
   - current code writes the first structured `.state/` slice

@@ -22,7 +22,7 @@ import { getLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
-import { buildServiceLogs } from "../runtime/operator/logs.js";
+import { buildServiceLogs, getServiceRuntimeLogPaths } from "../runtime/operator/logs.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
@@ -89,7 +89,7 @@ async function createServiceSummary(
   const lifecycle = getLifecycleState(service.manifest.id);
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
   const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-  const logs = buildServiceLogs(service, lifecycle);
+  const runtimeLogs = getServiceRuntimeLogPaths(service.serviceRoot);
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
   const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
   const provider = resolveProviderExecution(service, registry);
@@ -111,7 +111,7 @@ async function createServiceSummary(
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
     operator: {
-      logPath: logs.logPath,
+      logPath: lifecycle.runtime.logs.logPath ?? runtimeLogs.logPath,
       variableCount: variables.variables.length,
       endpointCount: network.endpoints.length,
     },
@@ -279,7 +279,7 @@ async function routeRequest(
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "logs") {
-      writeJson(response, 200, createServiceLogsResponse(buildServiceLogs(service, getLifecycleState(serviceId))));
+      writeJson(response, 200, createServiceLogsResponse(await buildServiceLogs(service, getLifecycleState(serviceId))));
       return;
     }
 

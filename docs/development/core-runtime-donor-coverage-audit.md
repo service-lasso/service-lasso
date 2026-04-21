@@ -81,8 +81,8 @@ These donor/runtime concerns are represented directionally, but not at donor dep
   - current code resolves provider relationships and command previews
   - donor code actually executes through provider/runtime services
 - logging
-  - current code exposes bounded operator log payloads
-  - donor code writes real runtime/service logs with archival behavior
+  - current code captures bounded managed stdout/stderr into runtime-owned per-service log files and exposes recent output through the API
+  - donor code still goes broader with run-level logging, archival, and retention behavior
 - state model
   - current code writes the first structured `.state/` slice
   - donor code includes PID/runtime/process evidence and startup recovery concerns not yet implemented here
@@ -280,15 +280,17 @@ Current code only exposes bounded manifest env plus a few derived variables.
 - old-log cleanup
 
 ### Current status
-- partially covered in docs only, not implementation
+- partially covered
 
 Current code covers:
-- bounded operator log surfaces
+- bounded managed stdout/stderr capture for supervised processes
+- bounded API log surfaces backed by captured process output
+- persisted runtime log-path state for managed services
 
 Current docs define a preferred future model:
 - `docs/development/core-runtime-logging-model.md`
 
-Current implementation does not yet realize that model.
+Current implementation does not yet realize the broader run-level archival model described there.
 
 ## SPEC-002 coverage judgment
 

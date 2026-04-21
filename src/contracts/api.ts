@@ -100,3 +100,8 @@ export interface RuntimeOrchestrationResponse {
   results: LifecycleActionResponse[];
   skipped: RuntimeOrchestrationSkippedService[];
 }
+
+export interface ServiceLogEntryResponse {
+  level: "info" | "stdout" | "stderr";
+  message: string;
+}

@@ -37,7 +37,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-027` | `done` | Harden lifecycle depth evidence for restart, crash, and intentional stop paths | `SPEC-002` | Landed bounded termination evidence with deterministic restart/crash/stop runtime state across API and persisted `.state` output. |
 | `ISS-028` | `done` | Add dependency-aware startup ordering | `SPEC-002` | Landed bounded dependency-aware startup sequencing with deterministic order, readiness-aware startup, and no duplicate restarts for running dependencies. |
 | `ISS-029` | `done` | Add manager-level orchestration actions | `SPEC-002`, `AC-4I` | Landed bounded `startAll` / `stopAll` orchestration with deterministic startup/shutdown order, explicit skip reasons, and direct API proof. |
-| `ISS-030` | `todo` | Capture managed stdout/stderr and make runtime logs first-class | `SPEC-002` | Extend the execution supervisor so managed process output becomes stable runtime-owned evidence instead of remaining external-only process output. |
+| `ISS-030` | `done` | Capture managed stdout/stderr and make runtime logs first-class | `SPEC-002`, `AC-4J` | Landed bounded managed stdout/stderr capture into runtime-owned per-service log files with API exposure of recent output and persisted runtime log-path state. |
+| `ISS-031` | `todo` | Add bounded `reload` and `autostart` orchestration follow-up | `SPEC-002` | Extend the bounded orchestration slice with explicit `reload` and `autostart` semantics built on the current dependency-aware lifecycle model. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -71,7 +72,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-027` | `done` | `ISS-027` | Harden lifecycle depth evidence across restart/crash/intentional stop flows | `SPEC-002` | Persisted runtime evidence stays deterministic across restart, crash exits, and intentional stops |
 | `TASK-028` | `done` | `ISS-028` | Implement dependency-aware startup ordering with direct tests | `SPEC-002` | Runtime starts services in dependency order and respects bounded readiness-aware sequencing for dependent services |
 | `TASK-029` | `done` | `ISS-029` | Implement bounded manager-level orchestration actions with direct tests | `SPEC-002`, `AC-4I` | Runtime exposes deterministic `startAll` / `stopAll` orchestration aligned with dependency-aware startup sequencing and explicit skip reasons |
-| `TASK-030` | `todo` | `ISS-030` | Capture managed stdout/stderr into runtime-owned log surfaces | `SPEC-002` | Managed processes write stdout/stderr into stable runtime log outputs that the API and persisted state can report consistently |
+| `TASK-030` | `done` | `ISS-030` | Capture managed stdout/stderr into runtime-owned log surfaces | `SPEC-002`, `AC-4J` | Managed processes write stdout/stderr into stable runtime log outputs that the API and persisted state can report consistently |
+| `TASK-031` | `todo` | `ISS-031` | Add bounded `reload` and `autostart` orchestration semantics | `SPEC-002` | Runtime exposes explicit, deterministic `reload` and `autostart` behavior on top of the current bounded orchestration model |
 
 ## Next Recommended Item
-The next best item is `TASK-030`: capture managed stdout/stderr into runtime-owned log surfaces so the runtime can prove real process output instead of relying on synthetic/operator-only log views.
+The next best item is `TASK-031`: add bounded `reload` and `autostart` orchestration semantics so the current orchestration slice can widen without mixing that behavior into unrelated observability work.

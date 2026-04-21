@@ -26,6 +26,11 @@ interface StoredRuntimeState {
   providerServiceId?: string | null;
   lastTermination?: "stopped" | "exited" | "crashed" | null;
   ports?: Record<string, number>;
+  logs?: {
+    logPath?: string | null;
+    stdoutPath?: string | null;
+    stderrPath?: string | null;
+  };
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
 }
@@ -91,6 +96,11 @@ function parseLifecycleState(snapshot: {
               ),
             )
           : {},
+      logs: {
+        logPath: typeof runtime?.logs?.logPath === "string" ? runtime.logs.logPath : null,
+        stdoutPath: typeof runtime?.logs?.stdoutPath === "string" ? runtime.logs.stdoutPath : null,
+        stderrPath: typeof runtime?.logs?.stderrPath === "string" ? runtime.logs.stderrPath : null,
+      },
     },
   };
 }

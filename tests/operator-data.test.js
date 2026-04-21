@@ -39,7 +39,7 @@ test("service detail includes richer operator metadata", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.service.operator.logPath.endsWith(path.join("services", "echo-service", "logs", "service.log")), true);
+    assert.equal(body.service.operator.logPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "service.log")), true);
     assert.equal(body.service.operator.variableCount >= 3, true);
     assert.equal(body.service.operator.endpointCount >= 2, true);
   } finally {
@@ -63,12 +63,79 @@ test("GET /api/services/:id/logs returns operator log payload", async () => {
 
     assert.equal(response.status, 200);
     assert.equal(body.logs.serviceId, "echo-service");
-    assert.equal(body.logs.logPath.endsWith(path.join("services", "echo-service", "logs", "service.log")), true);
+    assert.equal(body.logs.logPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "service.log")), true);
+    assert.equal(body.logs.stdoutPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "stdout.log")), true);
+    assert.equal(body.logs.stderrPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "stderr.log")), true);
     assert.deepEqual(body.logs.entries.map((entry) => entry.message), ["echo-service:install", "echo-service:config"]);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("managed stdout/stderr are captured into runtime-owned log files and surfaced through API/state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-logs-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "loggy-service", {
+    stdoutLines: ["hello stdout", "second stdout"],
+    stderrLines: ["hello stderr"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/loggy-service/install`);
+    await postJson(`${apiServer.url}/api/services/loggy-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/loggy-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.state.runtime.logs.logPath.endsWith(path.join("loggy-service", "logs", "runtime", "service.log")), true);
+    assert.equal(start.body.state.runtime.logs.stdoutPath.endsWith(path.join("loggy-service", "logs", "runtime", "stdout.log")), true);
+    assert.equal(start.body.state.runtime.logs.stderrPath.endsWith(path.join("loggy-service", "logs", "runtime", "stderr.log")), true);
+
+    const logsResponse = await waitFor(async () => {
+      const response = await fetch(`${apiServer.url}/api/services/loggy-service/logs`);
+      const body = await response.json();
+      if (body.logs.entries.some((entry) => entry.level === "stdout") && body.logs.entries.some((entry) => entry.level === "stderr")) {
+        return { response, body };
+      }
+      return null;
+    });
+
+    assert.equal(logsResponse.response.status, 200);
+    assert.deepEqual(
+      logsResponse.body.logs.entries.map((entry) => `${entry.level}:${entry.message}`).sort(),
+      ["stderr:hello stderr", "stdout:hello stdout", "stdout:second stdout"].sort(),
+    );
+
+    const detailResponse = await fetch(`${apiServer.url}/api/services/loggy-service`);
+    const detailBody = await detailResponse.json();
+    assert.equal(detailResponse.status, 200);
+    assert.equal(
+      detailBody.service.lifecycle.runtime.logs.logPath.endsWith(path.join("loggy-service", "logs", "runtime", "service.log")),
+      true,
+    );
+
+    const stdoutContents = await readFile(path.join(serviceRoot, "logs", "runtime", "stdout.log"), "utf8");
+    const stderrContents = await readFile(path.join(serviceRoot, "logs", "runtime", "stderr.log"), "utf8");
+    const combinedContents = await readFile(path.join(serviceRoot, "logs", "runtime", "service.log"), "utf8");
+    const persistedRuntime = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
+
+    assert.match(stdoutContents, /hello stdout/);
+    assert.match(stdoutContents, /second stdout/);
+    assert.match(stderrContents, /hello stderr/);
+    assert.match(combinedContents, /"level":"stdout"/);
+    assert.match(combinedContents, /"level":"stderr"/);
+    assert.equal(
+      persistedRuntime.logs.logPath.endsWith(path.join("loggy-service", "logs", "runtime", "service.log")),
+      true,
+    );
+
+    await postJson(`${apiServer.url}/api/services/loggy-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

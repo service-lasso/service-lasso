@@ -129,7 +129,7 @@ Current honest label:
 ### Wave 5: Runtime observability parity
 
 12. stdout/stderr capture and runtime log ownership
-    status: queued
+    status: done
     proof:
     - managed process output is captured
     - runtime log locations are stable and documented
@@ -201,6 +201,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**stdout/stderr capture and runtime log ownership**
+**reload/autostart orchestration follow-up**
 
-That is the next clean donor-parity step after bounded manager-level orchestration, because the runtime now needs first-class ownership of real managed-process output before deeper orchestration, retention, and operator parity can be claimed.
+That is the next clean donor-parity step because the runtime now has bounded `startAll` / `stopAll` plus real managed-process log ownership, and the next orchestration gap is to make `reload` and `autostart` explicit and deterministic before widening archival and observability work further.
