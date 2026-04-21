@@ -7,6 +7,17 @@ export interface ServiceLogsResponse {
     stdoutPath: string;
     stderrPath: string;
     entries: ServiceLogEntryResponse[];
+    archives: {
+      archiveId: string;
+      archivedAt: string;
+      directoryPath: string;
+      logPath: string;
+      stdoutPath: string;
+      stderrPath: string;
+    }[];
+    retention: {
+      maxArchives: number;
+    };
   };
 }
 

@@ -4,7 +4,7 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { buildServiceVariables } from "../operator/variables.js";
-import { getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
+import { archiveRuntimeLogs, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 
 export interface ManagedProcessHandle {
@@ -31,6 +31,7 @@ interface ManagedProcessRecord {
   stdoutBuffer: string;
   stderrBuffer: string;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  finalizePromise: Promise<void>;
 }
 
 interface StartProcessOptions {
@@ -47,11 +48,13 @@ interface StartProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
+const managedProcessFinalizers = new Map<string, Promise<void>>();
 
 async function prepareRuntimeLogStreams(serviceRoot: string): Promise<{
   paths: ServiceRuntimeLogPaths;
   streams: ManagedProcessRecord["logStreams"];
 }> {
+  await archiveRuntimeLogs(serviceRoot);
   const paths = getServiceRuntimeLogPaths(serviceRoot);
   await mkdir(path.dirname(paths.logPath), { recursive: true });
 
@@ -112,7 +115,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     flushBufferedLines("stderr");
   });
 
-  record.exitPromise.finally(async () => {
+  record.finalizePromise = record.exitPromise.then(async () => {
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
     await closeRuntimeLogStreams(record.logStreams);
@@ -160,6 +163,11 @@ export function hasManagedProcess(serviceId: string): boolean {
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
   const { service, executionPlan, sharedGlobalEnv, resolvedPorts, onExit } = options;
   const serviceId = service.manifest.id;
+
+  const priorFinalizer = managedProcessFinalizers.get(serviceId);
+  if (priorFinalizer) {
+    await priorFinalizer;
+  }
 
   if (managedProcesses.has(serviceId)) {
     throw new Error(`Service "${serviceId}" already has a managed process.`);
@@ -212,10 +220,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     stdoutBuffer: "",
     stderrBuffer: "",
     exitPromise,
+    finalizePromise: Promise.resolve(),
   };
 
   managedProcesses.set(serviceId, record);
   attachRuntimeLogCapture(record);
+  managedProcessFinalizers.set(serviceId, record.finalizePromise);
 
   void exitPromise.then(async ({ exitCode, signal }) => {
     const current = managedProcesses.get(serviceId);
@@ -233,6 +243,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         signal,
         wasStopping: record.stopping,
       });
+    }
+  });
+
+  void record.finalizePromise.finally(() => {
+    if (managedProcessFinalizers.get(serviceId) === record.finalizePromise) {
+      managedProcessFinalizers.delete(serviceId);
     }
   });
 
@@ -268,7 +284,13 @@ export async function stopManagedProcess(
     }, timeoutMs).unref?.();
   });
 
-  return Promise.race([record.exitPromise, timeoutPromise]);
+  const result = await Promise.race([record.exitPromise, timeoutPromise]);
+  const finalizer = managedProcessFinalizers.get(serviceId);
+  if (finalizer) {
+    await finalizer;
+  }
+
+  return result;
 }
 
 export async function stopAllManagedProcesses(): Promise<void> {

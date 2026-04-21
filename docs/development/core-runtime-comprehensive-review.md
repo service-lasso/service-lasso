@@ -32,7 +32,7 @@ These assumptions were used consistently throughout the review:
 Automated verification was run during the review:
 
 - command: `npm test`
-- result: `43 passed, 0 failed`
+- result: `66 passed, 0 failed`
 
 What that test run directly proves:
 - API startup
@@ -42,15 +42,19 @@ What that test run directly proves:
 - lifecycle ordering and guardrails
 - state writes
 - bounded `process`, `http`, `tcp`, `file`, and `variable` health behavior
+- bounded readiness wait-loop behavior
 - runtime summary behavior
 - operator logs/variables/network surfaces
 - provider resolution and provider-backed response payloads
+- bounded install/config materialization
+- bounded `globalenv` propagation
+- bounded port negotiation
+- bounded orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
+- bounded per-service runtime-log archival and retention
 
 What that test run does **not** prove:
 - full donor-depth process supervision parity
 - archive/setup mechanics
-- runtime-owned port negotiation
-- shared `globalenv` propagation
 - broader donor parity
 
 ## Executive summary
@@ -73,11 +77,10 @@ But the project is **not** at donor runtime parity.
 The largest remaining gaps are:
 - real process spawning and supervision
 - setup/install execution mechanics
-- broader health/readiness behavior
-- shared `globalenv`
-- runtime-owned port negotiation
+- broader health/provider/runtime parity beyond the current bounded slice
 - broader manager/runtime parity beyond the current bounded orchestration slice
-- fuller runtime logging/archival implementation
+- fuller run-level `workspaceRoot` logging/archival implementation
+- process/runtime metrics
 
 Separately, the documentation set has important drift issues:
 - canonical manifest docs are broader than the runtime really supports
@@ -314,7 +317,12 @@ These donor/runtime concerns are meaningfully represented in the current code an
 - in-memory service registry and dependency graph basics
 - bounded lifecycle actions for `install`, `config`, `start`, `stop`, and `restart`
 - one bounded real execution/supervision path for directly executable services
+- bounded provider-backed execution through `@node`
 - bounded health handling for `process`, `http`, `tcp`, `file`, and `variable`
+- bounded readiness wait loops
+- bounded manifest-driven `globalenv`
+- bounded runtime-owned port negotiation
+- bounded install/config materialization
 - structured per-service `.state` writes
 - bounded manager-level orchestration for `startAll`, `stopAll`, `reload`, and `autostart`
 - operator data surfaces for logs, variables, and network
@@ -326,12 +334,12 @@ These donor/runtime concerns are meaningfully represented in the current code an
 These donor/runtime concerns are represented directionally, but not at donor depth:
 
 - dependency behavior
-  - current code models dependencies and exposes them via API
-  - donor code also performs dependency startup and wait orchestration
+  - current code models dependencies, exposes them via API, and performs bounded dependency-aware startup ordering with readiness waits
+  - donor code still goes broader with deeper recursive orchestration and manager parity
 
 - lifecycle behavior
-  - current code proves lifecycle state transitions
-  - donor code performs execution-backed lifecycle work
+  - current code now proves bounded execution-backed lifecycle work for direct and one provider-backed path
+  - donor code still goes broader with deeper supervision and action breadth
 
 - health model
   - current code supports `process`, `http`, bounded `tcp`, bounded `file`, and bounded `variable`
@@ -339,11 +347,11 @@ These donor/runtime concerns are represented directionally, but not at donor dep
   - the sibling `lasso-echoservice` harness provides direct integration proof for the bounded `tcp`, `file`, and `variable` slices
 
 - provider/runtime behavior
-  - current code resolves provider relationships and command previews
-  - donor code actually executes through provider/runtime services
+  - current code resolves provider relationships and executes through one bounded provider-managed path
+  - donor code still goes broader with fuller provider/runtime parity
 
 - logging
-  - current code now captures bounded managed stdout/stderr into runtime-owned per-service log files and exposes recent output through the API
+  - current code now captures bounded managed stdout/stderr into runtime-owned per-service log files, archives prior per-service runs on the next managed start, retains a bounded recent archive set, and exposes recent output plus archive metadata through the API
   - donor code still goes broader with run-level logging, archival, and retention behavior
 
 - state model
@@ -360,13 +368,11 @@ These major donor/runtime behaviors are not implemented in the current code:
 - process-tree tracking and runtime metrics
 - archive extraction via `setuparchive`
 - command-driven setup/install pipeline
-- runtime-owned port reservation
-- port collision handling
-- dynamic port reassignment
-- shared `globalenv` propagation
+- donor-depth runtime-owned port reservation/reassignment beyond the bounded negotiated slice
+- broader shared `globalenv` export/import parity beyond the bounded merged-env slice
 - broader health behavior beyond bounded `process`, `http`, `tcp`, `file`, and `variable`
 - dependency readiness loops and start-chain orchestration
-- fuller runtime logging, archival, and retention implementation
+- fuller run-level `workspaceRoot` logging, archival, and retention implementation
 
 ## Major donor behavior areas
 
@@ -394,11 +400,11 @@ Current status:
 Current implementation covers:
 - standalone runtime entrypoint
 - bounded API server startup
+- bounded `startAll`, `stopAll`, `reload`, and `autostart`
 
 Current implementation does not yet cover:
 - donor manager orchestration depth
 - donor admin/UI surface
-- autostart behavior
 
 ## 3. Registry and dependency graph
 
@@ -422,9 +428,10 @@ Current status:
 Current implementation covers:
 - bounded lifecycle state transitions
 - sequencing guardrails
+- bounded execution-backed lifecycle behavior for direct and one provider-backed path
+- bounded install/config materialization
 
 Current implementation does not yet cover:
-- execution-backed lifecycle behavior
 - broader actions such as uninstall/update/rollback/reset
 
 ## 5. Health behavior
@@ -445,6 +452,7 @@ Current implementation covers:
 - bounded `tcp`
 - bounded `file`
 - bounded `variable`
+- bounded readiness wait loops
 
 Related current harness capability:
 - the released `lasso-echoservice` binary already exposes TCP health simulation endpoints and controls
@@ -462,7 +470,16 @@ Donor behavior:
 - provider-aware setup behavior
 
 Current status:
-- not covered beyond bounded state semantics
+- partially covered
+
+Current implementation covers:
+- bounded install/config file materialization on disk
+- persisted install/config artifact metadata for rerunnable config generation
+
+Current implementation does not yet cover:
+- archive extraction
+- command-driven setup/install execution depth
+- provider-aware setup parity beyond the bounded file-materialization slice
 
 ## 7. Process supervision
 
@@ -474,7 +491,16 @@ Donor behavior:
 - process-tree stats
 
 Current status:
-- not covered
+- partially covered
+
+Current implementation covers:
+- one bounded child-process supervision path
+- bounded provider-backed execution through one provider path
+- deterministic termination evidence and runtime-owned log capture
+
+Current implementation does not yet cover:
+- process-tree statistics
+- fuller donor runtime supervision depth
 
 ## 8. Port negotiation
 
@@ -484,7 +510,15 @@ Donor behavior:
 - replacement ports can be assigned
 
 Current status:
-- not covered
+- partially covered
+
+Current implementation covers:
+- bounded manifest-driven port declarations
+- deterministic runtime-owned port negotiation during config/start
+- bounded collision handling and resolved network/operator surfaces
+
+Current implementation does not yet cover:
+- donor-depth replacement/reassignment semantics beyond the bounded negotiated slice
 
 ## 9. Shared environment model
 
@@ -494,7 +528,15 @@ Donor behavior:
 - merged env is pushed back into services
 
 Current status:
-- not covered
+- partially covered
+
+Current implementation covers:
+- bounded manifest-driven `globalenv` emission
+- deterministic merged shared env exposure through the API
+- shared env injection into managed service execution and variable-health resolution
+
+Current implementation does not yet cover:
+- broader cross-service export/import behavior beyond the current bounded merged-env slice
 
 ## 10. Logging and archival
 
@@ -505,15 +547,17 @@ Donor behavior:
 - old-log cleanup
 
 Current status:
-- partially covered in docs only, not implementation
+- partially covered
 
 Current implementation covers:
-- bounded operator log surfaces
+- bounded managed stdout/stderr capture into runtime-owned per-service log files
+- bounded per-service runtime-log archival on the next managed start
+- bounded per-service archive retention pruning with API-visible archive metadata
 
 Current docs define a preferred future model:
 - `docs/development/core-runtime-logging-model.md`
 
-Current implementation does not yet realize that model.
+Current implementation does not yet realize the broader run-level `workspaceRoot` model described there.
 
 ## SPEC-002 coverage judgment
 
@@ -588,10 +632,10 @@ That label is supported by:
 
 1. Choose the next bounded major migration unit explicitly.
 2. Prefer one of these as the next execution item:
-   - execution-backed demo path
-   - setup/install mechanics
-   - process supervision
-   - runtime-owned port negotiation
+   - process/runtime metrics
+   - deeper supervision parity
+   - demo-instance hardening
+   - `lasso-@serviceadmin` integration validation
 
 ## Final judgment
 

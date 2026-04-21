@@ -38,6 +38,7 @@ Explicitly out of scope for this spec:
 - `AC-4I`: The runtime supports a bounded manager-level orchestration slice so `startAll` and `stopAll` can operate across enabled services in deterministic order with explicit skip reasons and direct API proof.
 - `AC-4J`: The runtime owns a bounded managed-log slice so supervised processes write stdout/stderr into stable runtime-owned log files, the API exposes real recent log output, and persisted runtime state records the runtime log locations.
 - `AC-4K`: The runtime extends bounded orchestration with explicit `reload` and `autostart` semantics so services can opt into startup orchestration, startup can trigger autostart deterministically, and runtime `reload` can rediscover manifests while stopping and restarting previously running eligible services with direct API proof.
+- `AC-4L`: The runtime extends bounded observability with explicit per-service runtime-log archival and retention so new managed runs roll forward without unbounded log growth and the logs API can surface retained recent archives deterministically.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -56,6 +57,7 @@ Required evidence for this spec:
 - direct proof that runtime-level `startAll` / `stopAll` orchestration can start and stop eligible services in deterministic order while reporting explicit skip reasons for ineligible services
 - direct proof that supervised processes write real stdout/stderr output into runtime-owned log files, that the logs API exposes recent captured output, and that persisted runtime state records the runtime log paths
 - direct proof that `autostart`-eligible services can start automatically on runtime boot and through a runtime action, and that `reload` can rediscover manifests while stopping and restarting previously running eligible services deterministically
+- direct proof that prior per-service runtime log files are archived on the next managed start, that retention prunes older archives deterministically, and that the logs API surfaces retained archive metadata
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
