@@ -162,6 +162,7 @@ Current honest label:
     - add runtime compatibility routes for live log info and log chunk reads
     - add bounded runtime dashboard adapter routes for current summary/services/detail consumer surfaces
     - patch the admin repo hook/stub layer to consume the bounded runtime adapter instead of the large stub model
+    - run one live consumer smoke against the demo/runtime shape before closing the issue
     - record any remaining consumer-model gaps as governed follow-up work before moving to package rollout
 
 ### Wave 7: Package and template rollout

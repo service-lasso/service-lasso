@@ -28,13 +28,13 @@ Out of scope for this slice:
    status: done
 
 3. Validate the current `lasso-@serviceadmin` logs contract against the runtime.
-   status: partial
+   status: done
 
 4. Add a bounded runtime-backed dashboard adapter for the current dashboard / services / service-detail consumer model.
    status: done
 
 5. Validate the current `lasso-@serviceadmin` consumer against the bounded runtime adapter routes.
-   status: in_progress
+   status: done
 
 6. Record any remaining consumer-model gaps as explicit follow-up work before calling the integration slice complete.
    status: in_progress
@@ -69,26 +69,18 @@ What that proves:
 - `lasso-@serviceadmin` builds successfully with the current codebase.
 - The logs provider contract shape matches the runtime routes that now exist.
 - The runtime now exposes bounded dashboard adapter routes for the current admin summary/services/detail model.
-
-### Invalidated
-
-- `lasso-@serviceadmin` log-provider tests currently fail because they assert unencoded `@serviceadmin` query-string values, while the actual URL builder correctly emits `%40serviceadmin`.
-
-This is a consumer-test expectation mismatch, not a `service-lasso` route-shape mismatch.
+- `lasso-@serviceadmin` now uses the bounded runtime dashboard adapter routes when `VITE_SERVICE_LASSO_API_BASE_URL` is configured, while still preserving the local stub fallback when the runtime API is absent.
+- `lasso-@serviceadmin` unit tests now pass with the encoded log-query expectations and the new runtime dashboard adapter coverage.
 
 ### Still uncovered / partial
 
-- The main dashboard, services list, dependencies view, runtime page, variables page, network page, and service-detail page are still powered by the admin UI's large stub-backed dashboard model.
-- Those pages do not yet consume the new bounded runtime adapter routes as their primary data source, even when `VITE_SERVICE_LASSO_API_BASE_URL` is configured.
-- The admin repo still needs its hook/stub layer updated to switch from stub data to:
-  - `GET /api/dashboard`
-  - `GET /api/dashboard/services`
-  - `GET /api/dashboard/services/:serviceId`
+- The bounded consumer validation is now proven at build and unit-test level, but it still needs one live integration smoke with the actual runtime/demo shape.
+- The admin UI still depends on the bounded compatibility adapter shape rather than a cleaner long-term dedicated admin contract, so this should be treated as a compatibility bridge rather than the final consumer API design.
 
 ## Next recommended slice
 
 The next clean delivery step is:
 
-**patch `lasso-@serviceadmin` to consume the bounded runtime dashboard adapter routes instead of the large stub model, then rerun the consumer validation against the demo/runtime shape.**
+**run one live integration smoke with `service-lasso` plus the current demo/runtime shape and `lasso-@serviceadmin` configured against `VITE_SERVICE_LASSO_API_BASE_URL`, then record any remaining real consumer gaps before closing `ISS-034`.**
 
 That should stay bounded to the currently implemented runtime contract rather than inventing a bigger future dashboard schema first.
