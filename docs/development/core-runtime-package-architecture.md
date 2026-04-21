@@ -4,26 +4,26 @@ This document captures the intended package boundaries for the next Service Lass
 
 ## Current bounded scaffold state
 
-The repo now has a bounded `packages/` workspace scaffold.
+The repo now has a bounded private `packages/core` wrapper package.
 
 What exists now:
 - a private `packages/core` wrapper package using the canonical target name `@service-lasso/service-lasso`
-- placeholder consumer packages for:
-  - `@service-lasso/service-lasso-app-web`
-  - `@service-lasso/service-lasso-packager-node`
-  - `@service-lasso/service-lasso-app-tauri`
-  - `@service-lasso/service-lasso-bundled`
+- sibling reference-app starter repos under `C:\projects\service-lasso` for:
+  - `service-lasso-app-web`
+  - `service-lasso-packager-node`
+  - `service-lasso-app-tauri`
+  - `service-lasso-bundled`
 
 What this scaffold does:
-- makes the package boundary explicit in tracked repo structure
+- makes the core package boundary explicit in tracked repo structure
 - keeps the current runtime source in `src/` for now
 - lets the core wrapper package target the current built runtime and CLI without pretending the full source move is already done
-- lets placeholder reference apps depend on the core package without redefining the runtime-root contract
+- keeps the reference-app starters out of the core repo where they belong
 
 What it does not claim yet:
-- a finished publishable package rollout
+- a finished public package rollout
 - migrated runtime source under `packages/core/src`
-- real starter-template content inside the reference-app packages
+- fully implemented starter apps in each sibling template repo
 
 ## Core product boundary
 
@@ -77,7 +77,7 @@ npx service-lasso
 # or global install
 ```
 
-### 4) Reference apps packages (separate from core)
+### 4) Reference app repos (separate from core)
 
 Once the core runtime is built and stable, additional reference app packages should be created to showcase integration patterns.
 
@@ -86,7 +86,7 @@ These reference apps are required because they should act as:
 - template starting points that teams can clone or adapt for their own apps
 - proof that the runtime integrates cleanly across multiple host/distribution styles
 
-These packages remain outside core.
+These starters remain outside core as sibling repos.
 They consume the canonical runtime package and should use the same runtime-root model:
 - `servicesRoot`
 - `workspaceRoot`
@@ -163,20 +163,13 @@ Recommended rollout order:
 4. `@service-lasso/service-lasso-app-tauri`
 5. `@service-lasso/service-lasso-bundled`
 
-## Initial package map
+## Current core package map
 
-Preferred initial split:
+Current bounded split:
 
 1. `packages/core`
-2. `packages/app-web`
-3. `packages/packager-node`
 
-Optional later split:
-
-4. `packages/app-tauri`
-5. `packages/bundled`
-
-This keeps runtime as the source of truth while validating reference wrappers without polluting core.
+This keeps runtime as the source of truth while avoiding in-repo reference-app drift.
 
 ## Build approach for core
 
@@ -263,10 +256,10 @@ node dist/cli.js dev
 
 ## Post-core implementation move
 
-After the core runtime is built and stable, move cleaned runtime code toward `packages/core/src`, then bring up the reference app/template packages as thin consumers of the core package:
-- `packages/app-web`
-- `packages/packager-node`
-- `packages/app-tauri`
-- `packages/bundled`
+After the core runtime package is stable, either keep the bounded wrapper approach or move cleaned runtime code toward `packages/core/src`.
 
-These should be maintained as starter templates for downstream teams, not just one-off internal demos.
+Reference apps should continue to be maintained as sibling starter-template repos, not in-repo packages:
+- `C:\projects\service-lasso\service-lasso-app-web`
+- `C:\projects\service-lasso\service-lasso-packager-node`
+- `C:\projects\service-lasso\service-lasso-app-tauri`
+- `C:\projects\service-lasso\service-lasso-bundled`

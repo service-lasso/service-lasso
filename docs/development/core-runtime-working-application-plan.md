@@ -199,6 +199,7 @@ Objective:
 - prove integration patterns and give other teams a ready starting point
 
 These should be created once the core runtime is working and stable, not before.
+They should live outside the core repo as sibling repos under `C:\projects\service-lasso` and as matching GitHub template repos.
 
 Required post-core reference app/template packages:
 - `@service-lasso/service-lasso-app-web`

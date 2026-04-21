@@ -27,7 +27,7 @@ At the moment this repo contains:
 - governance and backlog/spec traceability under `.governance/`
 - canonical shared contract/runtime docs under `docs/`
 - the first tracked core runtime source layout and API spine under `src/`
-- a bounded `packages/` workspace scaffold for the future core package plus reference-app templates
+- a bounded private `packages/core` wrapper package for the future core package boundary
 - direct route tests under `tests/`
 - an ignored donor reference snapshot under `ref/typerefinery-service-manager-donor/`
 
@@ -75,7 +75,7 @@ Current package-boundary note:
 
 - the runtime source still lives in `src/`
 - `packages/core` is now a bounded private wrapper package targeting the current built runtime + CLI
-- `packages/app-web`, `packages/packager-node`, `packages/app-tauri`, and `packages/bundled` are placeholder consumer packages for later starter-template rollout
+- the starter/template apps live outside this repo as sibling repos under `C:\projects\service-lasso`
 
 Note on repo split:
 - the canonical Echo Service implementation now lives in the sibling repo `C:\projects\service-lasso\lasso-echoservice`
