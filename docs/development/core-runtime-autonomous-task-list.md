@@ -195,7 +195,7 @@ Current honest label:
     - the repo can stage one documented downloadable runtime artifact
     - the staged artifact contains the documented built/runtime/package files and release manifest
     - the staged artifact can boot the runtime against explicit roots
-    - tagged GitHub releases can attach the packaged artifact
+    - protected-branch GitHub release flows can attach the packaged artifact
 
 20. publishable core package + starter POC matrix
     status: done
@@ -203,13 +203,13 @@ Current honest label:
     - the repo can stage a self-contained `@service-lasso/service-lasso` package payload
     - `npm pack` works against the staged payload
     - a temporary consumer can install the packed payload and boot the runtime against explicit roots
-    - GitHub Actions can publish the staged payload to GitHub Packages on tag
+    - GitHub Actions can publish the staged payload to GitHub Packages from the protected-branch release flow
     - each sibling starter repo has an explicit minimal executable POC contract requiring host-owned output plus `lasso-@serviceadmin` against Echo Service
 
 ### Wave 8: Distribution remediation
 
 21. protected-branch release/version pipeline normalization
-    status: queued
+    status: done
     proof:
     - core release and package flows create `yyyy.m.d-<shortsha>` versions from protected-branch pushes without manual tags
     - docs/readmes stop claiming tag-driven release flow as the normal path
@@ -257,6 +257,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**protected-branch release/version pipeline normalization**
+**reference-app naming and repo-lineup normalization**
 
-That is the next clean delivery step because the repo still describes and automates releases using a tag-driven model that conflicts with the project's `yyyy.m.d-<shortsha>` service release pattern.
+That is the next clean delivery step because the release baseline is now corrected, so the highest-value follow-up is to stop carrying migration-era repo identities such as `packager-node` and `bundled` as if they were the canonical app lineup.

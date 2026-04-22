@@ -29,6 +29,9 @@ This remediation is only complete when:
 
 ### 1. `ISS-042` / `TASK-042`
 
+Status:
+- done
+
 Title:
 - replace tag-driven release workflows with protected-branch timestamped versions
 
@@ -120,9 +123,9 @@ Required evidence:
 
 ## Immediate next item
 
-Start with `ISS-042` / `TASK-042`.
+Next:
+- `ISS-043` / `TASK-043`
 
 Why:
-- the current release/package workflows still encode the wrong operational model
-- fixing the version/release pipeline first gives the repo migration and manifest-install work a stable release baseline
-- it also removes the current contradiction between documented release behavior and the `yyyy.m.d-<shortsha>` pattern used by the service repos
+- the release/version baseline is now corrected
+- the next highest-value fix is removing migration-era repo identities before deeper manifest/install work spreads them further

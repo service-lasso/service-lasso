@@ -36,6 +36,10 @@ The packaged archive is currently:
 The staged folder is currently:
 - `artifacts/service-lasso-<version>/`
 
+Version rule:
+- local staging/verification defaults to `package.json.version`
+- protected-branch release runs on `main` use `yyyy.m.d-<shortsha>`
+
 ## Why these files ship
 
 - `dist/` contains the built runtime entrypoint and runtime/server modules
@@ -98,7 +102,7 @@ The repo workflow should:
 4. upload:
    - `artifacts/service-lasso-<version>/`
    - `artifacts/service-lasso-<version>.tar.gz`
-5. if the run is for a tag, attach the `.tar.gz` to the GitHub release
+5. on each protected-branch push to `main`, create or update the GitHub release named `yyyy.m.d-<shortsha>` and attach the `.tar.gz`
 
 ## Honest current label
 

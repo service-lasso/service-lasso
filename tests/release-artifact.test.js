@@ -20,7 +20,7 @@ test("bounded release artifact can be staged and verified", async () => {
       outputRoot,
     });
 
-    assert.match(staged.artifactName, /^service-lasso-\d+\.\d+\.\d+$/);
+    assert.match(staged.artifactName, /^service-lasso-[0-9A-Za-z.-]+$/);
     assert.equal(staged.manifest.entrypoints.runtime, "dist/index.js");
     assert.equal(staged.manifest.entrypoints.corePackage, "packages/core/index.js");
 
