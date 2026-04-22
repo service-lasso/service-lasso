@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Check out repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -39,13 +39,13 @@ jobs:
           echo "artifact_name=service-lasso-$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Upload staged artifact folder
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.release_version.outputs.artifact_name }}
           path: artifacts/${{ steps.release_version.outputs.artifact_name }}
 
       - name: Upload packaged archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.release_version.outputs.artifact_name }}-archive
           path: artifacts/${{ steps.release_version.outputs.artifact_name }}.tar.gz
