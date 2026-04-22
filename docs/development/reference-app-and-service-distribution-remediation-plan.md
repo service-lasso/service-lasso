@@ -309,5 +309,4 @@ The manifest/install gap is now closed for the bounded first slice:
 
 The highest-value next implementation step is now:
 
-**finish the bundled/preloaded versus bootstrap-download split so the sibling app artifacts prove "already included" versus "download on install" honestly.**
-That is now the main remaining distribution-behavior gap behind the confusion.
+**completed:** the canonical `service-lasso-app-node` starter now proves source-template, bootstrap-download, and preloaded/no-download artifact modes honestly, and the old `service-lasso-bundled` repo identity can be retired.
