@@ -61,15 +61,29 @@ Execution order:
    - `service-lasso-app-node` now exists locally and on GitHub
    - it is template-enabled
    - it reuses the proven plain-Node host implementation and passes local `npm test` plus `npm run release:verify`
+   - `service-lasso-packager-node` can now be retired because the canonical replacement exists
 2. create the canonical `service-lasso-app-electron` starter repo
+   planned approach:
+   - seed it from the current desktop-host shape in `service-lasso-app-tauri`
+   - keep the bounded Node-host + embedded admin pattern
+   - replace Tauri-specific next-step scaffolding with Electron-specific scaffolding
+   current progress:
+   - `service-lasso-app-electron` now exists locally and on GitHub
+   - it is template-enabled
+   - it reuses the proven desktop-host implementation pattern and passes local `npm test` plus `npm run release:verify`
 3. create packaging-target starter repos only if they are still needed after the host-type repos exist:
    - `service-lasso-app-packager-pkg`
    - `service-lasso-app-packager-sea`
    - `service-lasso-app-packager-nexe`
+   current decision:
+   - defer until there is a real implementation reason beyond naming; the host-type repos now exist and remain the primary canonical lineup
 4. update core docs and starter docs to point only at the normalized lineup
 5. retire deprecated repos explicitly:
    - `service-lasso-packager-node`
    - `service-lasso-bundled`
+   current blocker:
+   - local `service-lasso-packager-node` is deleted
+   - remote GitHub repo deletion is blocked until the acting token has `delete_repo`
 
 Intent:
 - separate app host type from packaging target
