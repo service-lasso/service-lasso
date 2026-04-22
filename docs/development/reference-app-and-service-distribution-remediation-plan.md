@@ -8,6 +8,23 @@ This document records the corrective plan for three linked gaps:
 
 The goal is to stop carrying those decisions only in chat and turn them into one explicit remediation plan.
 
+## Governed execution map
+
+This remediation now runs through four governed execution issues:
+
+1. `ISS-042` / `TASK-042`
+   - replace tag-driven release workflows with protected-branch timestamped versions
+2. `ISS-043` / `TASK-043`
+   - normalize reference-app repo names and retire deprecated starter repos
+3. `ISS-044` / `TASK-044`
+   - implement manifest-owned release/install metadata and non-start acquire flow
+4. `ISS-045` / `TASK-045`
+   - split bundled/no-download and bootstrap-download outputs honestly
+
+The execution-order checklist for these items lives in:
+
+- `docs/development/reference-app-service-distribution-task-list.md`
+
 ## Why this plan exists
 
 The current repo and sibling starter repos have drifted in two different ways:

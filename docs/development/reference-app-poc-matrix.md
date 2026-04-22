@@ -1,11 +1,13 @@
 # Reference app POC matrix
 
-This document captures the first meaningful POC contract for the sibling starter repos:
+This document captures the first meaningful POC contract for the canonical sibling app-host repos:
 
 - `service-lasso-app-web`
-- `service-lasso-packager-node`
+- `service-lasso-app-node`
+- `service-lasso-app-electron`
 - `service-lasso-app-tauri`
-- `service-lasso-bundled`
+
+Packaging-target repos such as `service-lasso-app-packager-pkg`, `service-lasso-app-packager-sea`, and `service-lasso-app-packager-nexe` should inherit the same host/runtime contract from the canonical app-host repo they package.
 
 Each starter should remain:
 - clonable
@@ -45,7 +47,7 @@ Minimal POC should:
 - point Service Admin at the local runtime API
 - manage Echo Service through the embedded/proxied admin UI
 
-### `service-lasso-packager-node`
+### `service-lasso-app-node`
 
 Minimal POC should:
 - run one Node host command
@@ -53,6 +55,15 @@ Minimal POC should:
 - start the local runtime
 - serve or proxy Service Admin
 - manage Echo Service through the exposed admin UI
+
+### `service-lasso-app-electron`
+
+Minimal POC should:
+- launch a desktop shell
+- show a host-owned Electron shell/window first
+- start or supervise the local runtime
+- render or surface Service Admin from the Electron app
+- manage Echo Service through the Electron-hosted admin UI
 
 ### `service-lasso-app-tauri`
 
@@ -62,15 +73,6 @@ Minimal POC should:
 - start or supervise the local runtime
 - render Service Admin in the app window
 - manage Echo Service through the desktop-hosted admin UI
-
-### `service-lasso-bundled`
-
-Minimal POC should:
-- unpack or stage one local bundle
-- run one launcher command
-- show bundle-owned startup/status output
-- expose Service Admin locally
-- manage Echo Service through the bundled runtime/UI shape
 
 ## What does not count as enough
 
@@ -83,6 +85,6 @@ These do not satisfy the POC by themselves:
 
 ## Honest current boundary
 
-At the moment, these starter repos are still template repos with bounded release pipelines.
+At the moment, some starter repos still use migration-era names and template-era scaffolding.
 
 This matrix defines the next implementation target for them.

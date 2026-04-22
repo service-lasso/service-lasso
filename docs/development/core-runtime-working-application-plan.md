@@ -203,9 +203,13 @@ They should live outside the core repo as sibling repos under `C:\projects\servi
 
 Required post-core reference app/template packages:
 - `@service-lasso/service-lasso-app-web`
-- `@service-lasso/service-lasso-packager-node`
+- `@service-lasso/service-lasso-app-node`
+- `@service-lasso/service-lasso-app-electron`
 - `@service-lasso/service-lasso-app-tauri`
-- `@service-lasso/service-lasso-bundled`
+- packaging-target repos when they are justified by a real delivery need:
+  - `@service-lasso/service-lasso-app-packager-pkg`
+  - `@service-lasso/service-lasso-app-packager-sea`
+  - `@service-lasso/service-lasso-app-packager-nexe`
 
 These should act as:
 - integration showcases
