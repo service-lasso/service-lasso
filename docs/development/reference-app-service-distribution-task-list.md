@@ -53,7 +53,7 @@ Required evidence:
 ### 2. `ISS-043` / `TASK-043`
 
 Status:
-- in progress
+- done
 
 Title:
 - normalize reference-app repo names and retire deprecated starter repos
@@ -88,9 +88,9 @@ Execution order:
 5. retire deprecated repos explicitly:
    - `service-lasso-packager-node`
    - `service-lasso-bundled`
-   current blocker:
+   current outcome:
    - local `service-lasso-packager-node` is deleted
-   - remote GitHub repo deletion is blocked until the acting token has `delete_repo`
+   - remote `service-lasso-packager-node` is explicitly deprecated, redirected to `service-lasso-app-node`, and archived on GitHub
    current decision:
    - `service-lasso-bundled` is not part of the canonical lineup
    - final retirement or repurposing of that repo belongs with `ISS-045`, because its remaining value is tied to honest bundled-versus-bootstrap artifact behavior
@@ -121,6 +121,12 @@ Required evidence:
 - canonical repos exist locally and on GitHub
 - deprecated repos are archived/deleted explicitly
 - all core docs/reference docs point only at the normalized lineup
+
+Completion outcome:
+- `service-lasso-app-node` exists locally and on GitHub as the canonical plain-Node host repo
+- `service-lasso-app-electron` exists locally and on GitHub as the canonical Electron host repo
+- `service-lasso-packager-node` is removed locally and archived remotely with an explicit deprecation redirect
+- `service-lasso-bundled` is no longer treated as part of the canonical lineup and is deferred to `ISS-045` only as an artifact-mode decision
 
 ### 3. `ISS-044` / `TASK-044`
 
@@ -164,8 +170,8 @@ Required evidence:
 ## Immediate next item
 
 Next:
-- `ISS-043` / `TASK-043`
+- `ISS-044` / `TASK-044`
 
 Why:
-- the release/version baseline is now corrected
-- the next highest-value fix is removing migration-era repo identities before deeper manifest/install work spreads them further
+- the repo-lineup naming baseline is now corrected
+- the next highest-value fix is making `service.json` the real release/install source of truth before more starter-app behavior grows around transitional scaffolding
