@@ -56,6 +56,11 @@ Minimal POC should:
 - serve or proxy Service Admin
 - manage Echo Service through the exposed admin UI
 
+Current artifact-mode proof:
+- `*-source.tar.gz` = starter-template source artifact
+- `*-runtime.tar.gz` = runnable bootstrap-download artifact
+- `*-preloaded.tar.gz` = runnable preloaded/no-download artifact
+
 ### `service-lasso-app-electron`
 
 Minimal POC should:

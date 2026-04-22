@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
@@ -139,6 +139,15 @@ async function extractArchive(
   });
 }
 
+async function fileExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function acquireInstallArtifact(service: DiscoveredService): Promise<AcquiredArtifactState | null> {
   const artifact = service.manifest.artifact;
   if (!artifact) {
@@ -152,7 +161,10 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
   const archivePath = path.join(paths.artifacts, releaseSegment, resolved.assetName);
   const extractedPath = path.join(paths.extracted, "current");
 
-  await downloadToFile(resolved.assetUrl, archivePath);
+  await mkdir(path.dirname(archivePath), { recursive: true });
+  if (!(await fileExists(archivePath))) {
+    await downloadToFile(resolved.assetUrl, archivePath);
+  }
   await extractArchive(archivePath, definition.archiveType, extractedPath);
 
   return {

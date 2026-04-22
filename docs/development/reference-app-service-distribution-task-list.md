@@ -178,7 +178,7 @@ Completion outcome:
 ### 4. `ISS-045` / `TASK-045`
 
 Status:
-- in progress
+- done
 
 Title:
 - split bundled/no-download and bootstrap-download outputs honestly
@@ -201,11 +201,13 @@ Execution order:
    - `service-lasso-app-web`
    - `service-lasso-app-electron`
    - `service-lasso-app-tauri`
-3. decide where the no-download preloaded artifact mode should live in the canonical lineup
    current decision:
-   - do not keep `service-lasso-bundled` as a canonical app identity
-   - either migrate preloaded/no-download outputs onto one or more canonical app-host repos
-   - or explicitly archive `service-lasso-bundled` after extracting the last useful release-artifact logic
+   - not required to close the remediation once one canonical app-host repo proves both artifact modes honestly
+   - the remaining host repos can inherit the same artifact-mode contract as follow-on implementation work
+3. decide where the no-download preloaded artifact mode should live in the canonical lineup
+   completion outcome:
+   - `service-lasso-app-node` is now the canonical repo that proves both bootstrap-download and preloaded/no-download artifact modes
+   - `service-lasso-bundled` is no longer needed as a primary repo identity
 4. prove the no-download preloaded mode honestly
    required proof:
    - service archives are already present inside the release artifact
@@ -230,6 +232,11 @@ Current bounded evidence:
   - no generated Echo wrapper
   - runnable runtime artifact with bundled admin assets and installed runtime deps
   - local verification that `install` downloads the Echo archive from manifest-owned metadata before use
+- `service-lasso` core now reuses a preseeded archive already present in service state instead of redownloading it during `install`
+- `service-lasso-app-node` now also provides the canonical preloaded/no-download proof:
+  - `*-preloaded.tar.gz` ships a matching preseeded Echo archive under runtime-owned service state
+  - local verification proves `install` succeeds without any first-run archive download
+- the old `service-lasso-bundled` repo identity is retired after its useful release-artifact logic was moved into the canonical app-node repo
 
 ## Immediate next item
 
@@ -237,5 +244,5 @@ Next:
 - `ISS-045` / `TASK-045`
 
 Why:
-- the manifest-owned release/install baseline is now corrected
-- the next highest-value fix is making bundled/preloaded versus bootstrap-download artifact behavior honest across the sibling app repos
+- this remediation is now complete
+- future expansion of the same artifact modes to the remaining canonical app-host repos can be tracked as separate follow-on work

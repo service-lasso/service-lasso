@@ -37,6 +37,7 @@ function createZipWithRuntimeScript() {
 }
 
 async function startFakeGitHubReleaseServer(assetName, assetBytes) {
+  let requestCount = 0;
   const server = createServer((request, response) => {
     if (!request.url) {
       response.statusCode = 404;
@@ -62,6 +63,7 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes) {
     }
 
     if (url.pathname === `/downloads/${assetName}`) {
+      requestCount += 1;
       response.statusCode = 200;
       response.end(assetBytes);
       return;
@@ -75,6 +77,7 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes) {
   return {
     server,
     baseUrl: `http://127.0.0.1:${server.address().port}`,
+    getRequestCount: () => requestCount,
     stop: async () => {
       await new Promise((resolve) => server.close(resolve));
     },
@@ -192,6 +195,56 @@ test("start can use the installed artifact command when the manifest has no chec
     assert.match(start.body.state.runtime.command, /node|node\.exe/i);
     assert.equal(stop.status, 200);
     assert.equal(stop.body.state.running, false);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install reuses a preloaded archive without downloading it again", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript());
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", {
+    id: "downloaded-service",
+    name: "Downloaded Service",
+    description: "Service installed from a preloaded archive without redownloading it.",
+    artifact: {
+      kind: "archive",
+      source: {
+        type: "github-release",
+        repo: "service-lasso/acquire-fixture",
+        channel: "latest",
+        api_base_url: releaseServer.baseUrl,
+      },
+      platforms: {
+        default: {
+          assetName,
+          archiveType: "zip",
+          command: process.execPath,
+          args: ["./runtime/downloaded-service.mjs"],
+        },
+      },
+    },
+    healthcheck: {
+      type: "process",
+    },
+  });
+  const preloadedArchiveDir = path.join(serviceRoot, ".state", "artifacts", "2026.4.23-fixture");
+  await mkdir(preloadedArchiveDir, { recursive: true });
+  await writeFile(path.join(preloadedArchiveDir, assetName), createZipWithRuntimeScript());
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 200);
+    assert.equal(stored.install?.artifact?.archivePath?.endsWith(assetName), true);
+    assert.equal(releaseServer.getRequestCount(), 0);
   } finally {
     await apiServer.stop();
     await releaseServer.stop();
