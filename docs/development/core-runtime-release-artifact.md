@@ -26,7 +26,9 @@ Each staged artifact contains:
 - `LICENSE`
 - `README.md`
 - `package.json`
+- `package-lock.json`
 - `dist/`
+- `node_modules/`
 - `packages/core/`
 - `release-artifact.json`
 
@@ -43,8 +45,10 @@ Version rule:
 ## Why these files ship
 
 - `dist/` contains the built runtime entrypoint and runtime/server modules
+- `node_modules/` contains the production runtime dependencies required by the bounded archive-acquire/install path
 - `packages/core/` contains the bounded `@service-lasso/service-lasso` wrapper package and CLI bridge
 - `package.json` records the current version and runtime engine requirement
+- `package-lock.json` keeps the staged runtime dependency tree reproducible
 - `README.md` and `LICENSE` give top-level runtime context and licensing
 - `release-artifact.json` is the explicit shipped-file manifest
 
@@ -57,7 +61,6 @@ The bounded artifact does not bundle:
 - `services/`
 - `workspace/`
 - `ref/`
-- `node_modules/`
 
 Consumers are expected to provide their own:
 - `servicesRoot`

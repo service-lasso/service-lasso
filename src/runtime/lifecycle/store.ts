@@ -12,6 +12,19 @@ function createInitialState(): ServiceLifecycleState {
     installArtifacts: {
       files: [],
       updatedAt: null,
+      artifact: {
+        sourceType: null,
+        repo: null,
+        channel: null,
+        tag: null,
+        assetName: null,
+        assetUrl: null,
+        archiveType: null,
+        archivePath: null,
+        extractedPath: null,
+        command: null,
+        args: [],
+      },
     },
     configArtifacts: {
       files: [],
@@ -61,6 +74,23 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
     installArtifacts: {
       files: [...current.installArtifacts.files],
       updatedAt: current.installArtifacts.updatedAt,
+      ...(current.installArtifacts.artifact
+        ? {
+            artifact: {
+              sourceType: current.installArtifacts.artifact.sourceType,
+              repo: current.installArtifacts.artifact.repo,
+              channel: current.installArtifacts.artifact.channel,
+              tag: current.installArtifacts.artifact.tag,
+              assetName: current.installArtifacts.artifact.assetName,
+              assetUrl: current.installArtifacts.artifact.assetUrl,
+              archiveType: current.installArtifacts.artifact.archiveType,
+              archivePath: current.installArtifacts.artifact.archivePath,
+              extractedPath: current.installArtifacts.artifact.extractedPath,
+              command: current.installArtifacts.artifact.command,
+              args: [...current.installArtifacts.artifact.args],
+            },
+          }
+        : {}),
     },
     configArtifacts: {
       files: [...current.configArtifacts.files],
@@ -104,6 +134,23 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
     installArtifacts: {
       files: [...nextState.installArtifacts.files],
       updatedAt: nextState.installArtifacts.updatedAt,
+      ...(nextState.installArtifacts.artifact
+        ? {
+            artifact: {
+              sourceType: nextState.installArtifacts.artifact.sourceType,
+              repo: nextState.installArtifacts.artifact.repo,
+              channel: nextState.installArtifacts.artifact.channel,
+              tag: nextState.installArtifacts.artifact.tag,
+              assetName: nextState.installArtifacts.artifact.assetName,
+              assetUrl: nextState.installArtifacts.artifact.assetUrl,
+              archiveType: nextState.installArtifacts.artifact.archiveType,
+              archivePath: nextState.installArtifacts.artifact.archivePath,
+              extractedPath: nextState.installArtifacts.artifact.extractedPath,
+              command: nextState.installArtifacts.artifact.command,
+              args: [...nextState.installArtifacts.artifact.args],
+            },
+          }
+        : {}),
     },
     configArtifacts: {
       files: [...nextState.configArtifacts.files],

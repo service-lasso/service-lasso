@@ -8,6 +8,7 @@ import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
+import { acquireInstallArtifact } from "../setup/acquire.js";
 import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
@@ -123,6 +124,7 @@ async function persistProcessExit(
 
 function resolveExecutionPlanForLifecycle(
   service: DiscoveredService,
+  current: ServiceLifecycleState,
   registry?: ServiceRegistry,
 ) {
   if (service.manifest.execservice) {
@@ -135,7 +137,7 @@ function resolveExecutionPlanForLifecycle(
     return resolveProviderExecution(service, registry);
   }
 
-  return createDirectExecutionPlan(service.manifest);
+  return createDirectExecutionPlan(service.manifest, current.installArtifacts.artifact);
 }
 
 export async function installService(
@@ -144,6 +146,7 @@ export async function installService(
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const acquiredArtifact = await acquireInstallArtifact(service);
   const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv);
 
   return applyState(serviceId, "install", (current) => ({
@@ -151,7 +154,10 @@ export async function installService(
       ...current,
       installed: true,
       running: false,
-      installArtifacts: artifacts,
+      installArtifacts: {
+        ...artifacts,
+        artifact: acquiredArtifact ?? current.installArtifacts.artifact,
+      },
       runtime: {
         ...current.runtime,
         pid: null,
@@ -206,8 +212,12 @@ export async function startService(
   if (current.running) {
     throw new LifecycleStateError(`Cannot start service "${serviceId}" because it is already running.`);
   }
-  const executionPlan = resolveExecutionPlanForLifecycle(service, registry);
-  if (executionPlan.provider === "direct" && !service.manifest.executable) {
+  const executionPlan = resolveExecutionPlanForLifecycle(service, current, registry);
+  if (
+    executionPlan.provider === "direct" &&
+    !service.manifest.executable &&
+    !current.installArtifacts.artifact?.command
+  ) {
     throw new LifecycleStateError(`Cannot start service "${serviceId}" because no executable is configured.`);
   }
 
@@ -366,8 +376,12 @@ export async function restartService(
   if (!current.configured) {
     throw new LifecycleStateError(`Cannot restart service "${serviceId}" before config.`);
   }
-  const executionPlan = resolveExecutionPlanForLifecycle(service, registry);
-  if (executionPlan.provider === "direct" && !service.manifest.executable) {
+  const executionPlan = resolveExecutionPlanForLifecycle(service, current, registry);
+  if (
+    executionPlan.provider === "direct" &&
+    !service.manifest.executable &&
+    !current.installArtifacts.artifact?.command
+  ) {
     throw new LifecycleStateError(`Cannot restart service "${serviceId}" because no executable is configured.`);
   }
 

@@ -25,7 +25,12 @@
     "demo:reset": "npm run build && node scripts/demo-reset.mjs",
     "demo:smoke": "npm run build && node scripts/demo-smoke.mjs"
   },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "tar": "^7.5.2"
+  },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/node": "^24.5.2",
     "typescript": "^5.9.2"
   }

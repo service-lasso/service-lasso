@@ -330,6 +330,64 @@ test("loadServiceManifest accepts bounded install/config file materialization", 
   }
 });
 
+test("loadServiceManifest accepts bounded manifest-owned archive artifact metadata", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "artifact-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "artifact-service",
+        name: "Artifact Service",
+        description: "Service with manifest-owned release metadata.",
+        artifact: {
+          kind: "archive",
+          source: {
+            type: "github-release",
+            repo: "service-lasso/example-service",
+            channel: "latest",
+          },
+          platforms: {
+            default: {
+              assetName: "artifact-service.zip",
+              archiveType: "zip",
+              command: process.execPath,
+              args: ["./runtime/artifact-service.mjs"],
+            },
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.artifact, {
+      kind: "archive",
+      source: {
+        type: "github-release",
+        repo: "service-lasso/example-service",
+        channel: "latest",
+        tag: undefined,
+        serviceManifestAssetUrl: undefined,
+        api_base_url: undefined,
+      },
+      platforms: {
+        default: {
+          assetName: "artifact-service.zip",
+          assetUrl: undefined,
+          archiveType: "zip",
+          command: process.execPath,
+          args: ["./runtime/artifact-service.mjs"],
+        },
+      },
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services returns manifest-backed data from the configured services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const apiServer = await (async () => {

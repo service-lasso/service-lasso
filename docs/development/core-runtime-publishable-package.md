@@ -58,6 +58,7 @@ The bounded publish flow solves that by staging a self-contained payload that in
 - built runtime output
 - package entrypoints
 - package metadata
+- package dependency declarations for runtime archive acquisition/extraction
 - package-level manifest metadata
 
 ## Current packaged files

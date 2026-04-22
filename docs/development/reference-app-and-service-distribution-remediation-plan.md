@@ -302,8 +302,12 @@ This remediation should only be considered complete when all of these are true:
 
 ## Immediate next action
 
-The highest-value next implementation step is:
+The manifest/install gap is now closed for the bounded first slice:
 
-**extend the core `service-lasso` manifest contract and install path so `service.json` can actually own release/download/install metadata end to end.**
+- `service.json` now carries one bounded first-class `artifact` block in the real core contract
+- `install` can acquire/download and unpack an archive from manifest-owned metadata without forcing `start`
 
-That is the main implementation gap behind the confusion.
+The highest-value next implementation step is now:
+
+**finish the bundled/preloaded versus bootstrap-download split so the sibling app artifacts prove "already included" versus "download on install" honestly.**
+That is now the main remaining distribution-behavior gap behind the confusion.

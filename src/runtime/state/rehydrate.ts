@@ -7,6 +7,19 @@ interface StoredInstallState {
   installed?: boolean;
   files?: string[];
   updatedAt?: string | null;
+  artifact?: {
+    sourceType?: "github-release" | null;
+    repo?: string | null;
+    channel?: string | null;
+    tag?: string | null;
+    assetName?: string | null;
+    assetUrl?: string | null;
+    archiveType?: "zip" | "tar.gz" | "tgz" | null;
+    archivePath?: string | null;
+    extractedPath?: string | null;
+    command?: string | null;
+    args?: string[];
+  };
 }
 
 interface StoredConfigState {
@@ -78,6 +91,26 @@ function parseLifecycleState(snapshot: {
     installArtifacts: {
       files: Array.isArray(install?.files) ? install.files.filter((file): file is string => typeof file === "string") : [],
       updatedAt: typeof install?.updatedAt === "string" ? install.updatedAt : null,
+      artifact: {
+        sourceType: install?.artifact?.sourceType === "github-release" ? install.artifact.sourceType : null,
+        repo: typeof install?.artifact?.repo === "string" ? install.artifact.repo : null,
+        channel: typeof install?.artifact?.channel === "string" ? install.artifact.channel : null,
+        tag: typeof install?.artifact?.tag === "string" ? install.artifact.tag : null,
+        assetName: typeof install?.artifact?.assetName === "string" ? install.artifact.assetName : null,
+        assetUrl: typeof install?.artifact?.assetUrl === "string" ? install.artifact.assetUrl : null,
+        archiveType:
+          install?.artifact?.archiveType === "zip" ||
+          install?.artifact?.archiveType === "tar.gz" ||
+          install?.artifact?.archiveType === "tgz"
+            ? install.artifact.archiveType
+            : null,
+        archivePath: typeof install?.artifact?.archivePath === "string" ? install.artifact.archivePath : null,
+        extractedPath: typeof install?.artifact?.extractedPath === "string" ? install.artifact.extractedPath : null,
+        command: typeof install?.artifact?.command === "string" ? install.artifact.command : null,
+        args: Array.isArray(install?.artifact?.args)
+          ? install.artifact.args.filter((entry): entry is string => typeof entry === "string")
+          : [],
+      },
     },
     configArtifacts: {
       files: Array.isArray(config?.files) ? config.files.filter((file): file is string => typeof file === "string") : [],

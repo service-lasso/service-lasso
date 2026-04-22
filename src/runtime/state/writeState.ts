@@ -38,6 +38,7 @@ export async function writeServiceState(
           lastAction: lifecycle.lastAction,
           files: lifecycle.installArtifacts.files,
           updatedAt: lifecycle.installArtifacts.updatedAt,
+          artifact: lifecycle.installArtifacts.artifact,
         },
         null,
         2,

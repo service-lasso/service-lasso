@@ -3,6 +3,19 @@ export type LifecycleAction = "install" | "config" | "start" | "stop" | "restart
 export interface ServiceMaterializedArtifactsState {
   files: string[];
   updatedAt: string | null;
+  artifact?: {
+    sourceType: "github-release" | null;
+    repo: string | null;
+    channel: string | null;
+    tag: string | null;
+    assetName: string | null;
+    assetUrl: string | null;
+    archiveType: "zip" | "tar.gz" | "tgz" | null;
+    archivePath: string | null;
+    extractedPath: string | null;
+    command: string | null;
+    args: string[];
+  };
 }
 
 export interface ServiceRuntimeMetricsState {

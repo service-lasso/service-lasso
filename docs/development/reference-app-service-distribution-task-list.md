@@ -130,8 +130,29 @@ Completion outcome:
 
 ### 3. `ISS-044` / `TASK-044`
 
+Status:
+- done
+
 Title:
 - implement manifest-owned release/install metadata and non-start acquire flow
+
+Execution order:
+1. lock one bounded first-class `artifact` shape inside `service.json`
+   current bounded target:
+   - `artifact.kind = "archive"`
+   - `artifact.source.type = "github-release"`
+   - one bounded source block with repo/channel-or-tag metadata
+   - one bounded platform map with release asset and runtime command metadata
+2. extend the validator and manifest contract to accept that bounded shape
+3. implement `install` as a true non-start acquire action
+   bounded behavior:
+   - resolve the current platform asset from `service.json`
+   - acquire/download the archive from manifest-owned metadata
+   - unpack it into a runtime-owned install location
+   - persist install/acquire metadata separately from runtime start state
+4. let direct execution fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
+5. prove the flow with direct local tests using a fake release source
+6. update core docs, spec/backlog evidence, and follow-on starter expectations
 
 Intent:
 - make `service.json` the only canonical source for service release/download/install metadata
@@ -147,6 +168,12 @@ Required evidence:
 - direct tests for manifest validation of the new fields
 - direct tests for acquire/install without start
 - documentation updates in core docs and `service-template`
+
+Completion outcome:
+- the core manifest contract now accepts one bounded first-class `artifact` block inside `service.json`
+- `install` can resolve current-platform archive metadata from the manifest, acquire/download the archive, unpack it into a runtime-owned install location, and persist install metadata without forcing `start`
+- direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
+- direct tests now prove manifest parsing plus install-without-start and start-from-installed-artifact behavior using a local fake release source
 
 ### 4. `ISS-045` / `TASK-045`
 
@@ -170,8 +197,8 @@ Required evidence:
 ## Immediate next item
 
 Next:
-- `ISS-044` / `TASK-044`
+- `ISS-045` / `TASK-045`
 
 Why:
-- the repo-lineup naming baseline is now corrected
-- the next highest-value fix is making `service.json` the real release/install source of truth before more starter-app behavior grows around transitional scaffolding
+- the manifest-owned release/install baseline is now corrected
+- the next highest-value fix is making bundled/preloaded versus bootstrap-download artifact behavior honest across the sibling app repos

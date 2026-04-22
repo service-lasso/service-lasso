@@ -253,8 +253,10 @@ Today this repo contains:
 
 The first bounded core slices added so far include:
 - manifest discovery and validation
+- bounded manifest-owned release/install metadata in `service.json`
 - service registry and dependency graph basics
 - bounded lifecycle actions
+- non-start install-time archive acquisition and unpack
 - bounded health handling
 - first `.state` persistence helpers
 - operator data surfaces
@@ -270,7 +272,7 @@ This is meaningful progress, but it is **not full donor runtime parity yet**.
 
 Major donor runtime behavior still remains to be migrated more fully, including:
 - deeper process execution and supervision parity
-- full setup/install mechanics such as archive extraction and setup commands
+- fuller setup/install mechanics such as setup-command execution, broader source types, update flows, and rollback
 - fuller shared env/globalenv handling beyond the current bounded slice
 - broader health/readiness flow beyond the current bounded slice
 - fuller run-level `workspaceRoot` logging archival/retention implementation
