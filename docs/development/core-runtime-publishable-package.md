@@ -19,6 +19,9 @@ Current registry target:
 Current package manager assumption:
 - npm
 
+Current package page:
+- `https://github.com/service-lasso/service-lasso/pkgs/npm/service-lasso`
+
 Consumer auth example:
 
 ```bash
@@ -26,6 +29,20 @@ npm config set @service-lasso:registry https://npm.pkg.github.com
 ```
 
 Authentication still needs a token with package-read access in the consuming environment.
+
+For GitHub Actions in sibling starter repos, the official path is:
+- use `GITHUB_TOKEN`
+- grant the consuming repository package read access on the package settings page
+- keep the workflow permissions at `packages: read`
+
+Current repositories that need this access are:
+- `service-lasso-app-web`
+- `service-lasso-packager-node`
+- `service-lasso-app-tauri`
+- `service-lasso-bundled`
+
+Without that package setting, cross-repo workflow installs fail with:
+- `403 Permission permission_denied: read_package`
 
 ## Why this exists
 
@@ -109,6 +126,14 @@ The publish workflow should:
 4. run `npm run package:verify`
 5. upload the staged publishable package folder
 6. on tags, publish the staged package to GitHub Packages
+
+For sibling starter repos consuming the package through GitHub Actions:
+1. set workflow permissions to `packages: read`
+2. configure `actions/setup-node` with:
+   - `registry-url: https://npm.pkg.github.com`
+   - `scope: "@service-lasso"`
+3. pass `NODE_AUTH_TOKEN: ${{ github.token }}`
+4. ensure the package settings page grants that repository GitHub Actions access
 
 ## Consumer assumption
 
