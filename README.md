@@ -134,6 +134,11 @@ Current publish-package details are documented in:
 
 - `docs/development/core-runtime-publishable-package.md`
 
+GitHub Packages note:
+
+- the core package page is `https://github.com/service-lasso/service-lasso/pkgs/npm/service-lasso`
+- sibling starter repos that install `@service-lasso/service-lasso` through Actions must be granted package read access in that package's settings under GitHub Actions access / repository access control
+
 ## Demo instance commands
 
 The repo now includes an explicit bounded demo flow that uses the tracked `services/` tree as `servicesRoot` and `workspace/demo-instance/` as the default `workspaceRoot`.
