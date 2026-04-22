@@ -310,3 +310,20 @@ The manifest/install gap is now closed for the bounded first slice:
 The highest-value next implementation step is now:
 
 **completed:** the canonical `service-lasso-app-node` starter now proves source-template, bootstrap-download, and preloaded/no-download artifact modes honestly, and the old `service-lasso-bundled` repo identity can be retired.
+
+## Governed follow-on queue
+
+The remediation itself is complete, and the next ideas are now tracked as explicit governed items rather than chat-only suggestions:
+
+1. `ISS-046` / `TASK-046`
+   - apply the honest `source` / `runtime` / `preloaded` artifact contract to `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri`
+2. `ISS-047` / `TASK-047`
+   - add a first-class CLI/service-install surface so Service Lasso can acquire/install from manifest-owned `artifact` metadata without `start`
+3. `ISS-048` / `TASK-048`
+   - finish deleting the deprecated `service-lasso-bundled` remote repo and scrub remaining forward-looking references
+4. `ISS-049` / `TASK-049`
+   - make an explicit governed go/no-go decision on packaging-target repos such as `pkg`, `sea`, and `nexe`
+
+The executable breakdown for these follow-ons lives in:
+
+- `docs/development/reference-app-service-distribution-task-list.md`

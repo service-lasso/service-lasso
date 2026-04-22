@@ -238,11 +238,102 @@ Current bounded evidence:
   - local verification proves `install` succeeds without any first-run archive download
 - the old `service-lasso-bundled` repo identity is retired after its useful release-artifact logic was moved into the canonical app-node repo
 
-## Immediate next item
+## Post-remediation follow-ons
 
-Next:
-- `ISS-045` / `TASK-045`
+The initial remediation is complete, but the next work should not live only in chat.
 
-Why:
-- this remediation is now complete
-- future expansion of the same artifact modes to the remaining canonical app-host repos can be tracked as separate follow-on work
+These items are now the ready-to-pick-up follow-on queue:
+
+### 5. `ISS-046` / `TASK-046`
+
+Status:
+- todo
+
+Title:
+- fan the honest artifact-mode contract through the remaining canonical app-host repos
+
+Intent:
+- keep `service-lasso-app-node` from becoming a one-off special case
+- make the canonical app-host repos behave consistently around source/bootstrap/preloaded outputs
+
+Execution order:
+1. upgrade `service-lasso-app-web` to stage and verify:
+   - `*-source.tar.gz`
+   - `*-runtime.tar.gz`
+   - `*-preloaded.tar.gz`
+2. upgrade `service-lasso-app-electron` to the same artifact contract
+3. upgrade `service-lasso-app-tauri` to the same artifact contract
+4. verify that all three repos use tracked `services/*/service.json` inventory plus manifest-owned `artifact` metadata instead of transitional scaffolding
+5. update release docs and POC docs so the artifact modes are described consistently
+
+Required evidence:
+- each repo passes `npm test`
+- each repo passes `npm run release:verify`
+- each repo has release docs that classify `source`, `runtime`, and `preloaded` modes honestly
+
+### 6. `ISS-047` / `TASK-047`
+
+Status:
+- todo
+
+Title:
+- add a first-class CLI/service-install surface for acquire without start
+
+Intent:
+- stop making install-without-start available only through the API/runtime internals
+- give operators and reference apps a supported command path for explicit acquisition
+
+Execution order:
+1. define the bounded CLI contract and docs
+2. wire the CLI to the existing manifest-owned acquire/install flow
+3. add direct verification for:
+   - acquire/install without start
+   - repeated install when an archive is already present
+4. document how reference apps can use the CLI during packaging/preload steps
+
+Required evidence:
+- direct tests for the CLI install/acquire path
+- docs showing the supported command
+- local verification against the bounded archive flow
+
+### 7. `ISS-048` / `TASK-048`
+
+Status:
+- todo
+
+Title:
+- complete retirement of the deprecated bundled repo identity
+
+Intent:
+- finish the cleanup after the canonical artifact-mode proof moved to `service-lasso-app-node`
+
+Execution order:
+1. delete the remote `service-lasso-bundled` repo
+2. remove any remaining canonical references that still imply it is part of the active lineup
+3. verify the normalized lineup remains the only one presented in docs and repo matrices
+
+Required evidence:
+- the remote repo no longer exists
+- doc/reference scans show only the normalized canonical lineup in forward-looking guidance
+
+### 8. `ISS-049` / `TASK-049`
+
+Status:
+- todo
+
+Title:
+- make an explicit go/no-go decision on packaging-target repos
+
+Intent:
+- stop leaving `pkg` / `sea` / `nexe` packaging targets as implied future work
+
+Execution order:
+1. record the real decision criteria for creating packaging-target repos
+2. choose one of:
+   - create the justified repos with a bounded contract
+   - defer them explicitly with recorded reasons
+3. update the docs so packaging-target repos are either real tracked work or explicitly deferred
+
+Required evidence:
+- the backlog/docs show an explicit decision rather than vague placeholders
+- any created packaging-target repos have a bounded documented contract
