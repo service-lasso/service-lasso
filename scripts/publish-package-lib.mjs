@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url";
 import {
   createTemporaryOutputRoot,
   ensureBuildOutput,
-  getReleaseVersion,
   runCommand,
 } from "./release-artifact-lib.mjs";
+import { getReleaseVersion, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 
@@ -98,6 +98,7 @@ async function writePublishScaffold({ artifactRoot, version }) {
     artifactName: getPublishedPackageArtifactName(version),
     packageName: packageJson.name,
     version,
+    versionSource: process.env[RELEASE_VERSION_ENV]?.trim() ? RELEASE_VERSION_ENV : "package.json",
     artifactKind: "bounded-npm-publish-payload",
     registry: packageJson.publishConfig.registry,
     shippedFiles: [

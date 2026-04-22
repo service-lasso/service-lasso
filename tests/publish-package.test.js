@@ -20,7 +20,7 @@ test("publishable core package can be staged and consumed by a temp project", as
       outputRoot,
     });
 
-    assert.match(staged.artifactName, /^service-lasso-package-\d+\.\d+\.\d+$/);
+    assert.match(staged.artifactName, /^service-lasso-package-[0-9A-Za-z.-]+$/);
     assert.equal(staged.manifest.packageName, "@service-lasso/service-lasso");
     assert.equal(staged.manifest.artifactKind, "bounded-npm-publish-payload");
 

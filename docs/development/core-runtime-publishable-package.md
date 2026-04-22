@@ -78,6 +78,10 @@ Current staged folder:
 Current packed archive:
 - `artifacts/npm/service-lasso-package-<version>/service-lasso-service-lasso-<version>.tgz`
 
+Version rule:
+- local staging/verification defaults to `package.json.version`
+- protected-branch publish runs on `main` use `yyyy.m.d-<shortsha>`
+
 ## Entrypoints
 
 Current package entrypoints are:
@@ -129,7 +133,7 @@ The publish workflow should:
 3. run `npm run release:verify`
 4. run `npm run package:verify`
 5. upload the staged publishable package folder
-6. on protected-branch release flow, publish the staged package to GitHub Packages using the repository version pattern rather than manual tag creation
+6. on each protected-branch push to `main`, publish the staged package to GitHub Packages using the repository version pattern `yyyy.m.d-<shortsha>` rather than manual tag creation
 
 For sibling starter repos consuming the package through GitHub Actions:
 1. set workflow permissions to `packages: read`

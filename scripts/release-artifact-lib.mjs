@@ -1,8 +1,9 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
 
 export const RELEASE_FILES = [
   "LICENSE",
@@ -11,16 +12,6 @@ export const RELEASE_FILES = [
   "dist",
   "packages/core",
 ];
-
-export async function readRootPackageJson(repoRoot) {
-  const packageJsonPath = path.join(repoRoot, "package.json");
-  return JSON.parse(await readFile(packageJsonPath, "utf8"));
-}
-
-export async function getReleaseVersion(repoRoot) {
-  const packageJson = await readRootPackageJson(repoRoot);
-  return packageJson.version;
-}
 
 export async function ensureBuildOutput(repoRoot) {
   const distPath = path.join(repoRoot, "dist", "index.js");
@@ -45,6 +36,7 @@ async function writeReleaseManifest({ repoRoot, artifactRoot, artifactName, vers
   const manifest = {
     artifactName,
     version,
+    versionSource: process.env[RELEASE_VERSION_ENV]?.trim() ? RELEASE_VERSION_ENV : "package.json",
     node: packageJson.engines?.node ?? ">=22",
     packageBoundary: "@service-lasso/service-lasso",
     artifactKind: "bounded-runtime-download",

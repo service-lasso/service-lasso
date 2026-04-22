@@ -124,6 +124,11 @@ What these do:
 - `npm run release:artifact` builds and stages `artifacts/service-lasso-<version>/` plus `artifacts/service-lasso-<version>.tar.gz`
 - `npm run release:verify` stages the bounded artifact, verifies the documented shipped files, imports the staged `packages/core` wrapper, and boots the staged runtime entrypoint against explicit runtime roots
 
+Protected-branch release note:
+
+- local commands default to the repo `package.json` version for staging and verification
+- the protected-branch release workflows on `main` compute the shipped version as `yyyy.m.d-<shortsha>` and create the GitHub release automatically from that push
+
 Current shipped files are documented in:
 
 - `docs/development/core-runtime-release-artifact.md`
@@ -141,6 +146,11 @@ What these do:
 
 - `npm run package:stage` builds and stages `artifacts/npm/service-lasso-package-<version>/` plus a packed `.tgz` inside that folder
 - `npm run package:verify` stages the package, runs `npm pack`, installs it into a temporary consumer, and boots the runtime against explicit runtime roots
+
+Protected-branch publish note:
+
+- local commands default to the repo `package.json` version for staging and verification
+- the protected-branch publish workflow on `main` computes the published package version as `yyyy.m.d-<shortsha>` and publishes that version to GitHub Packages automatically from the push
 
 Current publish-package details are documented in:
 
