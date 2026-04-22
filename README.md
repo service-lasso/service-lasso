@@ -72,6 +72,11 @@ What this slice means:
 
 This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, the first operator data surfaces, the first provider execution boundary, and a runnable tracked harness fixture under `services/echo-service/` for later execution/demo hardening. Full real process execution and broader provider catalog expansion are still future work.
 
+Current manifest/install note:
+- the core runtime now accepts a bounded first-class `artifact` block inside `service.json`
+- `install` can acquire/download and unpack manifest-owned archive payloads without forcing `start`
+- direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
+
 Current package-boundary note:
 
 - the runtime source still lives in `src/`
@@ -123,6 +128,9 @@ What these do:
 
 - `npm run release:artifact` builds and stages `artifacts/service-lasso-<version>/` plus `artifacts/service-lasso-<version>.tar.gz`
 - `npm run release:verify` stages the bounded artifact, verifies the documented shipped files, imports the staged `packages/core` wrapper, and boots the staged runtime entrypoint against explicit runtime roots
+
+Current runtime dependency note:
+- the staged runtime artifact now includes production `node_modules/` because the bounded acquire/install flow depends on archive-handling libraries at runtime
 
 Protected-branch release note:
 

@@ -15,5 +15,6 @@ export function createNodeExecutionPlan(
     args,
     commandPreview: [executable, ...args].join(" ").trim(),
     providerEnv: providerManifest.env ?? {},
+    commandRoot: null,
   };
 }

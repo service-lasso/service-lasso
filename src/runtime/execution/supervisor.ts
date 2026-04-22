@@ -124,12 +124,13 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
 
 function resolveExecutable(service: DiscoveredService, executionPlan: ProviderExecutionPlan): string {
   const executable = executionPlan.executable;
+  const commandRoot = executionPlan.commandRoot ?? service.serviceRoot;
 
   if (
     executionPlan.provider === "direct" &&
     (path.isAbsolute(executable) || executable.startsWith(".") || executable.includes("/") || executable.includes("\\"))
   ) {
-    return path.resolve(service.serviceRoot, executable);
+    return path.resolve(commandRoot, executable);
   }
 
   return executable;

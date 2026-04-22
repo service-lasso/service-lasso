@@ -91,6 +91,127 @@ function readActionMaterialization(
   };
 }
 
+function readArtifact(value: unknown, manifestPath: string): ServiceManifest["artifact"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "artifact" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "archive") {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "artifact.kind" to be "archive".`);
+  }
+
+  if (!record.source || typeof record.source !== "object" || Array.isArray(record.source)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "artifact.source" to be an object.`);
+  }
+
+  const sourceRecord = record.source as Record<string, unknown>;
+  if (sourceRecord.type !== "github-release") {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "artifact.source.type" to be "github-release".`,
+    );
+  }
+
+  if (!record.platforms || typeof record.platforms !== "object" || Array.isArray(record.platforms)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "artifact.platforms" to be an object.`);
+  }
+
+  const platformEntries = Object.entries(record.platforms as Record<string, unknown>);
+  if (platformEntries.length === 0) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "artifact.platforms" to define at least one platform entry.`);
+  }
+
+  const platforms = Object.fromEntries(
+    platformEntries.map(([platform, candidate]) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}" to be an object.`,
+        );
+      }
+
+      const platformRecord = candidate as Record<string, unknown>;
+      const archiveType = platformRecord.archiveType;
+      if (archiveType !== "zip" && archiveType !== "tar.gz" && archiveType !== "tgz") {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.archiveType" to be one of "zip", "tar.gz", or "tgz".`,
+        );
+      }
+
+      if (
+        platformRecord.assetName !== undefined &&
+        (typeof platformRecord.assetName !== "string" || platformRecord.assetName.trim().length === 0)
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.assetName" to be a non-empty string when present.`,
+        );
+      }
+
+      if (
+        platformRecord.assetUrl !== undefined &&
+        (typeof platformRecord.assetUrl !== "string" || platformRecord.assetUrl.trim().length === 0)
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.assetUrl" to be a non-empty string when present.`,
+        );
+      }
+
+      if (
+        platformRecord.command !== undefined &&
+        (typeof platformRecord.command !== "string" || platformRecord.command.trim().length === 0)
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.command" to be a non-empty string when present.`,
+        );
+      }
+
+      if (
+        platformRecord.args !== undefined &&
+        (!Array.isArray(platformRecord.args) || platformRecord.args.some((entry) => typeof entry !== "string"))
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.args" to be an array of strings when present.`,
+        );
+      }
+
+      if (platformRecord.assetName === undefined && platformRecord.assetUrl === undefined) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}" to define "assetName" and/or "assetUrl".`,
+        );
+      }
+
+      return [
+        platform.trim(),
+        {
+          assetName: typeof platformRecord.assetName === "string" ? platformRecord.assetName.trim() : undefined,
+          assetUrl: typeof platformRecord.assetUrl === "string" ? platformRecord.assetUrl.trim() : undefined,
+          archiveType: archiveType as "zip" | "tar.gz" | "tgz",
+          command: typeof platformRecord.command === "string" ? platformRecord.command.trim() : undefined,
+          args: Array.isArray(platformRecord.args) ? platformRecord.args.map((entry) => entry.trim()) : undefined,
+        },
+      ];
+    }),
+  );
+
+  return {
+    kind: "archive",
+    source: {
+      type: "github-release",
+      repo: expectNonEmptyString(sourceRecord.repo, "artifact.source.repo", manifestPath),
+      channel: typeof sourceRecord.channel === "string" ? sourceRecord.channel.trim() : undefined,
+      tag: typeof sourceRecord.tag === "string" ? sourceRecord.tag.trim() : undefined,
+      serviceManifestAssetUrl:
+        typeof sourceRecord.serviceManifestAssetUrl === "string" ? sourceRecord.serviceManifestAssetUrl.trim() : undefined,
+      api_base_url:
+        typeof sourceRecord.api_base_url === "string" ? sourceRecord.api_base_url.trim() : undefined,
+    },
+    platforms,
+  };
+}
+
 export function validateServiceManifest(input: unknown, manifestPath: string): ServiceManifest {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected a JSON object.`);
@@ -215,6 +336,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
   }
 
+  const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);
   const config = readActionMaterialization(record.config, "config", manifestPath);
 
@@ -239,6 +361,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       url: (entry as Record<string, string>).url.trim(),
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
+    artifact,
     install,
     config,
     execservice: typeof rawExecservice === "string" ? rawExecservice.trim() : undefined,

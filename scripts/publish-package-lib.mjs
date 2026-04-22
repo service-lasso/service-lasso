@@ -7,7 +7,7 @@ import {
   ensureBuildOutput,
   runCommand,
 } from "./release-artifact-lib.mjs";
-import { getReleaseVersion, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
+import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 
@@ -40,7 +40,7 @@ export function getPublishedPackageArtifactName(version) {
   return `service-lasso-package-${version}`;
 }
 
-function buildPublishedPackageJson(version) {
+function buildPublishedPackageJson(version, rootPackageJson) {
   return {
     name: "@service-lasso/service-lasso",
     version,
@@ -69,6 +69,7 @@ function buildPublishedPackageJson(version) {
     engines: {
       node: ">=22",
     },
+    dependencies: rootPackageJson.dependencies ?? {},
     publishConfig: {
       registry: "https://npm.pkg.github.com",
       access: "restricted",
@@ -92,8 +93,9 @@ async function copyPublishPath(repoRoot, artifactRoot, relativePath) {
   await cp(sourcePath, targetPath, { recursive: true });
 }
 
-async function writePublishScaffold({ artifactRoot, version }) {
-  const packageJson = buildPublishedPackageJson(version);
+async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
+  const rootPackageJson = await readRootPackageJson(repoRoot);
+  const packageJson = buildPublishedPackageJson(version, rootPackageJson);
   const manifest = {
     artifactName: getPublishedPackageArtifactName(version),
     packageName: packageJson.name,
@@ -212,6 +214,7 @@ export async function stagePublishedPackage({
   }
 
   const manifest = await writePublishScaffold({
+    repoRoot,
     artifactRoot,
     version: resolvedVersion,
   });

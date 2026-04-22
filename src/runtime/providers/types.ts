@@ -7,4 +7,5 @@ export interface ProviderExecutionPlan {
   args: string[];
   commandPreview: string;
   providerEnv: Record<string, string>;
+  commandRoot: string | null;
 }

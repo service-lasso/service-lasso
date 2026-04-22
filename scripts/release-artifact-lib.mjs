@@ -9,6 +9,7 @@ export const RELEASE_FILES = [
   "LICENSE",
   "README.md",
   "package.json",
+  "package-lock.json",
   "dist",
   "packages/core",
 ];
@@ -40,7 +41,7 @@ async function writeReleaseManifest({ repoRoot, artifactRoot, artifactName, vers
     node: packageJson.engines?.node ?? ">=22",
     packageBoundary: "@service-lasso/service-lasso",
     artifactKind: "bounded-runtime-download",
-    shippedFiles: RELEASE_FILES,
+    shippedFiles: [...RELEASE_FILES, "node_modules"],
     entrypoints: {
       runtime: "dist/index.js",
       corePackage: "packages/core/index.js",
@@ -54,6 +55,7 @@ async function writeReleaseManifest({ repoRoot, artifactRoot, artifactName, vers
       "This artifact is a bounded runtime download, not a finished npm publish payload.",
       "No service trees or workspace data are bundled into the artifact.",
       "The private core wrapper package remains a scaffold around the current built runtime.",
+      "Production runtime dependencies are installed into node_modules so the staged artifact can boot directly.",
     ],
   };
 
@@ -100,6 +102,27 @@ export function runCommand(command, args, options = {}) {
   });
 }
 
+function escapeWindowsCmdArg(value) {
+  if (/^[A-Za-z0-9_./:=@-]+$/.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+export function runNpmCommand(args, options = {}) {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
+  if (process.platform !== "win32") {
+    return runCommand(npmCommand, args, options);
+  }
+
+  const comspec = process.env.ComSpec ?? "cmd.exe";
+  const commandLine = [npmCommand, ...args].map(escapeWindowsCmdArg).join(" ");
+
+  return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
+}
+
 export async function createReleaseArchive(outputRoot, artifactName) {
   const archivePath = path.join(outputRoot, `${artifactName}.tar.gz`);
   await rm(archivePath, { force: true });
@@ -123,6 +146,10 @@ export async function stageReleaseArtifact({
   for (const relativePath of RELEASE_FILES) {
     await copyReleasePath(repoRoot, artifactRoot, relativePath);
   }
+
+  await runNpmCommand(["install", "--omit=dev"], {
+    cwd: artifactRoot,
+  });
 
   const manifest = await writeReleaseManifest({
     repoRoot,

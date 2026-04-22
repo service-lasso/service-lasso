@@ -215,13 +215,13 @@ Current honest label:
     - docs/readmes stop claiming tag-driven release flow as the normal path
 
 22. reference-app naming and repo-lineup normalization
-    status: queued
+    status: done
     proof:
     - canonical host-type and packaging-target repos exist
     - deprecated starter repos are retired and no longer referenced as canonical
 
 23. canonical `service.json` release/install contract + non-start acquire
-    status: queued
+    status: done
     proof:
     - release/install metadata lives in `service.json`
     - core can acquire/install without forcing `start`
@@ -259,4 +259,10 @@ The next implementation slice from this list is:
 
 **reference-app naming and repo-lineup normalization**
 
-That is the next clean delivery step because the release baseline is now corrected, so the highest-value follow-up is to stop carrying migration-era repo identities such as `packager-node` and `bundled` as if they were the canonical app lineup.
+That item is now done.
+
+The next clean delivery step is:
+
+**bundled/preloaded versus bootstrap-download output split**
+
+That is the next highest-value follow-up because the core manifest/install baseline is now corrected, so the remaining drift is in how the sibling app artifacts classify and prove no-download versus download-on-install behavior.
