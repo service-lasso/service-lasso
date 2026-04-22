@@ -128,9 +128,11 @@ Important rule:
 Current repo handling should be:
 
 - keep `service-lasso-app-web`
+- keep `service-lasso-app-node`
+- keep `service-lasso-app-electron`
 - keep `service-lasso-app-tauri`
-- replace or rename `service-lasso-packager-node` to `service-lasso-app-node`
-- stop treating `service-lasso-bundled` as the canonical name for an app type
+- retire `service-lasso-packager-node` after migration to `service-lasso-app-node`
+- stop treating `service-lasso-bundled` as the canonical name for an app type or repo lineup entry
 
 `bundled` may still describe an artifact mode, but it should not be the primary app-type identity.
 
@@ -268,12 +270,16 @@ Current recommendation:
 
 - `service-lasso-app-web`
   - keep as the browser-facing host
+- `service-lasso-app-node`
+  - keep as the plain Node host
+- `service-lasso-app-electron`
+  - keep as the Electron desktop host
 - `service-lasso-app-tauri`
   - keep as the Tauri desktop host
 - `service-lasso-packager-node`
-  - replace or rename to `service-lasso-app-node`
+  - retire after migration to `service-lasso-app-node`
 - `service-lasso-bundled`
-  - stop treating as the canonical app identity
+  - stop treating as the canonical app identity or baseline repo
   - either:
     - retire/archive the name after migration
     - or keep it only as an artifact/distribution label, not the main host identity

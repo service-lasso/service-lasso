@@ -180,7 +180,7 @@ Current honest label:
     - `@service-lasso/service-lasso-app-node`
     - `@service-lasso/service-lasso-app-electron`
     - `@service-lasso/service-lasso-app-tauri`
-    - packaging-target repos when needed:
+    - optional packaging-target repos when needed:
       - `@service-lasso/service-lasso-app-packager-pkg`
       - `@service-lasso/service-lasso-app-packager-sea`
       - `@service-lasso/service-lasso-app-packager-nexe`

@@ -14,7 +14,8 @@ What exists now:
 Current correction note:
 - the sibling repo lineup is under active remediation
 - the long-term canonical repo set is defined below under app host types and packaging targets
-- older repo names such as `service-lasso-packager-node` and `service-lasso-bundled` are migration-era names, not the final naming model
+- older repo names such as `service-lasso-packager-node` are migration-era names, not the final naming model
+- `bundled` is an artifact-mode label, not a canonical app-host repo name
 
 What this scaffold does:
 - makes the core package boundary explicit in tracked repo structure
@@ -179,7 +180,7 @@ Recommended rollout order:
 3. `@service-lasso/service-lasso-app-node`
 4. `@service-lasso/service-lasso-app-electron`
 5. `@service-lasso/service-lasso-app-tauri`
-6. packaging-target repos only when there is a real implementation reason:
+6. optional packaging-target repos only when there is a real implementation reason:
    - `@service-lasso/service-lasso-app-packager-pkg`
    - `@service-lasso/service-lasso-app-packager-sea`
    - `@service-lasso/service-lasso-app-packager-nexe`
@@ -238,7 +239,7 @@ This preserves a self-contained runtime without coupling core to one UI framewor
 - Node reference: `@service-lasso/service-lasso-app-node`
 - Electron reference: `@service-lasso/service-lasso-app-electron`
 - Tauri reference: `@service-lasso/service-lasso-app-tauri`
-- Packaging target references:
+- Optional packaging-target references:
   - `@service-lasso/service-lasso-app-packager-pkg`
   - `@service-lasso/service-lasso-app-packager-sea`
   - `@service-lasso/service-lasso-app-packager-nexe`
@@ -288,6 +289,8 @@ Reference apps should continue to be maintained as sibling starter-template repo
 - `C:\projects\service-lasso\service-lasso-app-node`
 - `C:\projects\service-lasso\service-lasso-app-electron`
 - `C:\projects\service-lasso\service-lasso-app-tauri`
+
+Packaging-target repos are optional later additions rather than part of the baseline canonical lineup:
 - `C:\projects\service-lasso\service-lasso-app-packager-pkg`
 - `C:\projects\service-lasso\service-lasso-app-packager-sea`
 - `C:\projects\service-lasso\service-lasso-app-packager-nexe`

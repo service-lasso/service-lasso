@@ -52,8 +52,48 @@ Required evidence:
 
 ### 2. `ISS-043` / `TASK-043`
 
+Status:
+- done
+
 Title:
 - normalize reference-app repo names and retire deprecated starter repos
+
+Execution order:
+1. promote `service-lasso-packager-node` into the canonical `service-lasso-app-node` repo
+   current progress:
+   - `service-lasso-app-node` now exists locally and on GitHub
+   - it is template-enabled
+   - it reuses the proven plain-Node host implementation and passes local `npm test` plus `npm run release:verify`
+   - `service-lasso-packager-node` can now be retired because the canonical replacement exists
+2. create the canonical `service-lasso-app-electron` starter repo
+   planned approach:
+   - seed it from the current desktop-host shape in `service-lasso-app-tauri`
+   - keep the bounded Node-host + embedded admin pattern
+   - replace Tauri-specific next-step scaffolding with Electron-specific scaffolding
+   current progress:
+   - `service-lasso-app-electron` now exists locally and on GitHub
+   - it is template-enabled
+   - it reuses the proven desktop-host implementation pattern and passes local `npm test` plus `npm run release:verify`
+3. create packaging-target starter repos only if they are still needed after the host-type repos exist:
+   - `service-lasso-app-packager-pkg`
+   - `service-lasso-app-packager-sea`
+   - `service-lasso-app-packager-nexe`
+   current decision:
+   - defer until there is a real implementation reason beyond naming; the host-type repos now exist and remain the primary canonical lineup
+4. update core docs and starter docs to point only at the normalized lineup
+   current progress:
+   - the core forward-looking docs now describe the canonical app-host lineup as `app-web`, `app-node`, `app-electron`, and `app-tauri`
+   - packaging-target repos are now described as optional later additions rather than part of the baseline lineup
+   - old names remain only in remediation/history context where they still matter for retirement tracking
+5. retire deprecated repos explicitly:
+   - `service-lasso-packager-node`
+   - `service-lasso-bundled`
+   current outcome:
+   - local `service-lasso-packager-node` is deleted
+   - remote `service-lasso-packager-node` is explicitly deprecated, redirected to `service-lasso-app-node`, and archived on GitHub
+   current decision:
+   - `service-lasso-bundled` is not part of the canonical lineup
+   - final retirement or repurposing of that repo belongs with `ISS-045`, because its remaining value is tied to honest bundled-versus-bootstrap artifact behavior
 
 Intent:
 - separate app host type from packaging target
@@ -65,7 +105,7 @@ Canonical app-host repos:
 - `service-lasso-app-electron`
 - `service-lasso-app-tauri`
 
-Canonical packaging-target repos:
+Optional packaging-target repos:
 - `service-lasso-app-packager-pkg`
 - `service-lasso-app-packager-sea`
 - `service-lasso-app-packager-nexe`
@@ -81,6 +121,12 @@ Required evidence:
 - canonical repos exist locally and on GitHub
 - deprecated repos are archived/deleted explicitly
 - all core docs/reference docs point only at the normalized lineup
+
+Completion outcome:
+- `service-lasso-app-node` exists locally and on GitHub as the canonical plain-Node host repo
+- `service-lasso-app-electron` exists locally and on GitHub as the canonical Electron host repo
+- `service-lasso-packager-node` is removed locally and archived remotely with an explicit deprecation redirect
+- `service-lasso-bundled` is no longer treated as part of the canonical lineup and is deferred to `ISS-045` only as an artifact-mode decision
 
 ### 3. `ISS-044` / `TASK-044`
 
@@ -124,8 +170,8 @@ Required evidence:
 ## Immediate next item
 
 Next:
-- `ISS-043` / `TASK-043`
+- `ISS-044` / `TASK-044`
 
 Why:
-- the release/version baseline is now corrected
-- the next highest-value fix is removing migration-era repo identities before deeper manifest/install work spreads them further
+- the repo-lineup naming baseline is now corrected
+- the next highest-value fix is making `service.json` the real release/install source of truth before more starter-app behavior grows around transitional scaffolding
