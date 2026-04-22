@@ -177,11 +177,41 @@ Completion outcome:
 
 ### 4. `ISS-045` / `TASK-045`
 
+Status:
+- in progress
+
 Title:
 - split bundled/no-download and bootstrap-download outputs honestly
 
 Intent:
 - make bundled behavior a property of the artifact, not a vague repo name
+
+Execution order:
+1. convert one canonical app-host repo into the first honest bootstrap-download proof
+   current target:
+   - `service-lasso-app-node`
+   current progress:
+   - the generated local Echo wrapper has been removed from the app-node starter
+   - `services/echo-service/service.json` now owns the bounded archive metadata directly
+   - the app-node release flow now stages:
+     - `*-source.tar.gz`
+     - `*-runtime.tar.gz`
+   - the runnable runtime artifact now proves install/download before use through manifest-owned metadata and local verification
+2. fan the same bootstrap-download contract through the remaining canonical host repos:
+   - `service-lasso-app-web`
+   - `service-lasso-app-electron`
+   - `service-lasso-app-tauri`
+3. decide where the no-download preloaded artifact mode should live in the canonical lineup
+   current decision:
+   - do not keep `service-lasso-bundled` as a canonical app identity
+   - either migrate preloaded/no-download outputs onto one or more canonical app-host repos
+   - or explicitly archive `service-lasso-bundled` after extracting the last useful release-artifact logic
+4. prove the no-download preloaded mode honestly
+   required proof:
+   - service archives are already present inside the release artifact
+   - install/start does not trigger a network fetch on first use
+5. update the canonical docs and repo matrix so artifact mode and repo identity stay separate
+6. retire or archive the old bundled repo identity once the canonical app-host repos cover both modes
 
 Required outcomes:
 - bundled/preloaded outputs include all required service payloads
@@ -193,6 +223,13 @@ Required evidence:
 - runnable proof that bundled/preloaded mode starts without downloading service archives
 - runnable proof that bootstrap-download mode acquires service payloads from manifest-owned metadata
 - release docs for the canonical app repos classify their artifact mode honestly
+
+Current bounded evidence:
+- `service-lasso-app-node` now provides the first canonical bootstrap-download proof:
+  - tracked `services/` inventory copied directly into the prepared `servicesRoot`
+  - no generated Echo wrapper
+  - runnable runtime artifact with bundled admin assets and installed runtime deps
+  - local verification that `install` downloads the Echo archive from manifest-owned metadata before use
 
 ## Immediate next item
 
