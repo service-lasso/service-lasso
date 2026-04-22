@@ -12,7 +12,7 @@ The broader multi-repo shape is already established:
 - `service-lasso` = core runtime + canonical shared contract/docs
 - `service-template` = the template for individual services
 - `lasso-@serviceadmin` = the operator UI
-- sibling starter repos = quick-start host templates for web, packager-node, tauri, and bundled delivery
+- sibling app-host and packaging-target repos = quick-start consumers around the core runtime, with the exact canonical lineup under active remediation
 
 This repo is therefore the place where the real core behavior must live and continue hardening:
 - standalone runtime/server entrypoint
@@ -40,7 +40,7 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Assumptions
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.
-- The current highest-value work is finishing honest distribution boundaries: publishable core package flow, executable starter-repo targets, and final documentation truth passes on top of the already-landed bounded runtime.
+- The current highest-value work is finishing honest distribution boundaries: canonical reference-app naming, manifest-owned release/install metadata in `service.json`, truthful bundled-versus-bootstrap behavior, and protected-branch release/version flows that no longer depend on manual tags.
 - GitHub-backed issues/project board remain the system of record for governed execution tracking.
 - Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 

@@ -79,11 +79,19 @@ They are example consumers of the core runtime/API that prove the integration st
 
 Planned reference app/template repos include:
 - `@service-lasso/service-lasso-app-web`
-- `@service-lasso/service-lasso-packager-node`
+- `@service-lasso/service-lasso-app-node`
+- `@service-lasso/service-lasso-app-electron`
 - `@service-lasso/service-lasso-app-tauri`
-- `@service-lasso/service-lasso-bundled`
+- packaging-target repos only when needed:
+  - `@service-lasso/service-lasso-app-packager-pkg`
+  - `@service-lasso/service-lasso-app-packager-sea`
+  - `@service-lasso/service-lasso-app-packager-nexe`
 
 These should live as sibling repos under `C:\projects\service-lasso` and as matching GitHub template repos.
+
+Current correction note:
+- older repo names such as `service-lasso-packager-node` and `service-lasso-bundled` are migration-era names
+- the canonical model is app host type first, packaging target second
 
 These should all consume the same canonical runtime model based on:
 - `servicesRoot`

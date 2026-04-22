@@ -26,6 +26,7 @@ Current preferred runtime-root model:
 - `docs/development/core-runtime-autonomous-task-list.md` - comprehensive ordered execution list for finishing donor migration slices, consumer validation, and post-core rollout
 - `docs/development/core-runtime-package-architecture.md` - bounded core package-boundary plan and the current sibling-repo template rollout for reference apps
 - `docs/development/reference-app-and-service-distribution-remediation-plan.md` - corrective plan for reference-app naming, canonical `service.json` release/install metadata, and bundled versus download/install behavior
+- `docs/development/reference-app-service-distribution-task-list.md` - governed execution order for the four active distribution-remediation workstreams
 - `docs/development/core-runtime-release-artifact.md` - exact definition of the current bounded downloadable runtime artifact and what files it ships
 - `docs/development/core-runtime-publishable-package.md` - exact definition of the current bounded self-contained publishable `@service-lasso/service-lasso` package payload and how it is verified/published
 - `docs/development/reference-app-poc-matrix.md` - shared minimum POC contract for the sibling starter repos around host output, Echo Service, and Service Admin

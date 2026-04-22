@@ -177,9 +177,13 @@ Current honest label:
     status: done
     scope:
     - `@service-lasso/service-lasso-app-web`
-    - `@service-lasso/service-lasso-packager-node`
+    - `@service-lasso/service-lasso-app-node`
+    - `@service-lasso/service-lasso-app-electron`
     - `@service-lasso/service-lasso-app-tauri`
-    - `@service-lasso/service-lasso-bundled`
+    - packaging-target repos when needed:
+      - `@service-lasso/service-lasso-app-packager-pkg`
+      - `@service-lasso/service-lasso-app-packager-sea`
+      - `@service-lasso/service-lasso-app-packager-nexe`
     proof:
     - each lives as a sibling repo under `C:\projects\service-lasso`
     - each matching GitHub repo is marked as a template repo
@@ -202,19 +206,45 @@ Current honest label:
     - GitHub Actions can publish the staged payload to GitHub Packages on tag
     - each sibling starter repo has an explicit minimal executable POC contract requiring host-owned output plus `lasso-@serviceadmin` against Echo Service
 
-### Wave 8: Documentation truth pass
+### Wave 8: Distribution remediation
 
-21. canonical manifest/reference cleanup
+21. protected-branch release/version pipeline normalization
+    status: queued
+    proof:
+    - core release and package flows create `yyyy.m.d-<shortsha>` versions from protected-branch pushes without manual tags
+    - docs/readmes stop claiming tag-driven release flow as the normal path
+
+22. reference-app naming and repo-lineup normalization
+    status: queued
+    proof:
+    - canonical host-type and packaging-target repos exist
+    - deprecated starter repos are retired and no longer referenced as canonical
+
+23. canonical `service.json` release/install contract + non-start acquire
+    status: queued
+    proof:
+    - release/install metadata lives in `service.json`
+    - core can acquire/install without forcing `start`
+
+24. bundled/preloaded versus bootstrap-download output split
+    status: queued
+    proof:
+    - bundled/preloaded artifacts prove no first-run download
+    - bootstrap-download artifacts prove manifest-driven install/download
+
+### Wave 9: Documentation truth pass
+
+25. canonical manifest/reference cleanup
     status: queued
     proof:
     - canonical docs no longer overstate unsupported contract fields
 
-22. stale planning/spec cleanup
+26. stale planning/spec cleanup
     status: queued
     proof:
     - README, spec, plan, and migration docs agree with current implementation
 
-23. final donor parity review
+27. final donor parity review
     status: queued
     proof:
     - every donor capability is marked:
@@ -227,6 +257,6 @@ Current honest label:
 
 The next implementation slice from this list is:
 
-**starter repo executable POCs**
+**protected-branch release/version pipeline normalization**
 
-That is the next clean delivery step because the bounded publishable core package now exists, so the highest-value follow-up is to turn the sibling starter repos from documented targets into real runnable hosts that consume the published package and surface Service Admin against Echo Service.
+That is the next clean delivery step because the repo still describes and automates releases using a tag-driven model that conflicts with the project's `yyyy.m.d-<shortsha>` service release pattern.

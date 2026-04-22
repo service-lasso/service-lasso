@@ -46,6 +46,10 @@ Explicitly out of scope for this spec:
 - `AC-4Q`: The broader reference-app rollout lives outside the core repo so the web, packager-node, tauri, and bundled starters exist as sibling template repos under `C:\projects\service-lasso` and matching GitHub template repos instead of in-repo app placeholder packages.
 - `AC-4R`: The repo exposes one bounded downloadable runtime artifact so the built core runtime, the private core wrapper package, and release metadata can be staged, verified, and attached to tagged GitHub releases without claiming a finished npm publish flow yet.
 - `AC-4S`: The repo exposes one bounded self-contained publishable `@service-lasso/service-lasso` package payload so sibling starter repos can consume the core runtime through GitHub Packages, and the starter rollout has an explicit minimal POC contract around host output, Echo Service, and Service Admin.
+- `AC-4T`: The repo documents one governed remediation execution plan that separates reference-app host types, packaging targets, bundled/no-download behavior, and canonical `service.json` ownership so future repo and pipeline changes stop depending on chat-only intent.
+- `AC-4U`: The core manifest contract grows first-class release/install metadata inside `service.json`, and the runtime can acquire/install a service from that manifest without requiring `start`.
+- `AC-4V`: Core and sibling app release flows stop depending on manual tag creation and instead produce releases from protected-branch pushes using the project's timestamped `yyyy.m.d-<shortsha>` version pattern with direct artifact/package proof.
+- `AC-4W`: The sibling app repo lineup is normalized to canonical host-type and packaging-target names, deprecated starter repos are retired, and bundled/preloaded outputs honestly prove "no first-run download" behavior.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -73,6 +77,10 @@ Required evidence for this spec:
 - direct proof that a bounded release artifact can be staged, that it contains the documented shipped files, that the staged artifact entrypoint can boot against explicit runtime roots, and that tagged GitHub releases can attach that packaged artifact
 - direct proof that a self-contained publishable `@service-lasso/service-lasso` payload can be staged, packed, installed into a temporary consumer, and boot the runtime against explicit runtime roots
 - explicit documentation that each sibling starter repo's first meaningful POC remains clonable/executable, shows host-owned output, and can surface `lasso-@serviceadmin` against a real `lasso-echoservice`-backed runtime
+- direct proof that the remediation execution list, backlog, and package/reference docs all agree on the four active workstreams around naming, manifest ownership, bundled semantics, and release versioning
+- direct proof that core release/package workflows create timestamped `yyyy.m.d-<shortsha>` release versions from protected-branch pushes without requiring manual tag creation
+- direct proof that the core runtime can install/acquire a service from manifest-owned release metadata without starting it
+- direct proof that the canonical sibling app repos and packaging-target repos exist with the expected names, while deprecated/vague starter repos are retired or archived explicitly
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented

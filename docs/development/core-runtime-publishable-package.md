@@ -37,9 +37,13 @@ For GitHub Actions in sibling starter repos, the official path is:
 
 Current repositories that need this access are:
 - `service-lasso-app-web`
-- `service-lasso-packager-node`
+- `service-lasso-app-node`
+- `service-lasso-app-electron`
 - `service-lasso-app-tauri`
-- `service-lasso-bundled`
+- packaging-target repos when they exist:
+  - `service-lasso-app-packager-pkg`
+  - `service-lasso-app-packager-sea`
+  - `service-lasso-app-packager-nexe`
 
 Without that package setting, cross-repo workflow installs fail with:
 - `403 Permission permission_denied: read_package`
@@ -125,7 +129,7 @@ The publish workflow should:
 3. run `npm run release:verify`
 4. run `npm run package:verify`
 5. upload the staged publishable package folder
-6. on tags, publish the staged package to GitHub Packages
+6. on protected-branch release flow, publish the staged package to GitHub Packages using the repository version pattern rather than manual tag creation
 
 For sibling starter repos consuming the package through GitHub Actions:
 1. set workflow permissions to `packages: read`

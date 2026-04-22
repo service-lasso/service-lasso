@@ -9,11 +9,12 @@ The repo now has a bounded private `packages/core` wrapper package.
 What exists now:
 - a bounded `packages/core` wrapper package using the canonical target name `@service-lasso/service-lasso`
 - a self-contained staged publish payload for `@service-lasso/service-lasso`
-- sibling reference-app starter repos under `C:\projects\service-lasso` for:
-  - `service-lasso-app-web`
-  - `service-lasso-packager-node`
-  - `service-lasso-app-tauri`
-  - `service-lasso-bundled`
+- sibling reference-app starter repos under `C:\projects\service-lasso`
+
+Current correction note:
+- the sibling repo lineup is under active remediation
+- the long-term canonical repo set is defined below under app host types and packaging targets
+- older repo names such as `service-lasso-packager-node` and `service-lasso-bundled` are migration-era names, not the final naming model
 
 What this scaffold does:
 - makes the core package boundary explicit in tracked repo structure
@@ -130,23 +131,18 @@ Dependency direction:
 - `@service-lasso/service-lasso-app-web` -> `@service-lasso/service-lasso`
 - never the reverse
 
-#### B) Node packager/reference template
+#### B) Node app reference template
 
 Suggested package:
-- `@service-lasso/service-lasso-packager-node`
+- `@service-lasso/service-lasso-app-node`
 
 Purpose:
-- demonstrate a plain Node packaging/distribution path for Service Lasso
-- provide a template for teams who want a non-Electron, non-Tauri starting point
-- stay close to real runtime behavior while packaging for practical use
-
-Likely packaging styles:
-- `pkg`
-- `nexe`
-- tar/zip distribution with Node runtime expectation
+- demonstrate a plain Node host for Service Lasso
+- provide a template for teams who want a non-Electron, non-Tauri app starting point
+- stay close to real runtime behavior without mixing in packaging-target naming
 
 Dependency direction:
-- `@service-lasso/service-lasso-packager-node` -> `@service-lasso/service-lasso`
+- `@service-lasso/service-lasso-app-node` -> `@service-lasso/service-lasso`
 - never the reverse
 
 #### C) Tauri desktop alternative template
@@ -163,26 +159,30 @@ Dependency direction:
 - `@service-lasso/service-lasso-app-tauri` -> `@service-lasso/service-lasso`
 - never the reverse
 
-#### D) Bundled standalone distribution template
+#### D) Electron desktop reference template
 
 Suggested package:
-- `@service-lasso/service-lasso-bundled`
+- `@service-lasso/service-lasso-app-electron`
 
 Purpose:
-- demonstrate a packaged standalone distribution path
-- provide a template for building a more turnkey bundled delivery of Service Lasso
-- showcase how to distribute the runtime as a packaged product without pushing packaging logic into core
+- provide the Electron desktop host shape explicitly
+- keep desktop host identity separate from packaging/distribution mode
+- avoid using vague distribution labels as the primary repo identity
 
 Dependency direction:
-- `@service-lasso/service-lasso-bundled` -> `@service-lasso/service-lasso`
+- `@service-lasso/service-lasso-app-electron` -> `@service-lasso/service-lasso`
 - never the reverse
 
 Recommended rollout order:
 1. core npm module
 2. `@service-lasso/service-lasso-app-web`
-3. `@service-lasso/service-lasso-packager-node`
-4. `@service-lasso/service-lasso-app-tauri`
-5. `@service-lasso/service-lasso-bundled`
+3. `@service-lasso/service-lasso-app-node`
+4. `@service-lasso/service-lasso-app-electron`
+5. `@service-lasso/service-lasso-app-tauri`
+6. packaging-target repos only when there is a real implementation reason:
+   - `@service-lasso/service-lasso-app-packager-pkg`
+   - `@service-lasso/service-lasso-app-packager-sea`
+   - `@service-lasso/service-lasso-app-packager-nexe`
 
 ## Current core package map
 
@@ -235,9 +235,13 @@ This preserves a self-contained runtime without coupling core to one UI framewor
 
 - Core: `@service-lasso/service-lasso`
 - Web reference: `@service-lasso/service-lasso-app-web`
-- Node packager reference: `@service-lasso/service-lasso-packager-node`
+- Node reference: `@service-lasso/service-lasso-app-node`
+- Electron reference: `@service-lasso/service-lasso-app-electron`
 - Tauri reference: `@service-lasso/service-lasso-app-tauri`
-- Bundled reference: `@service-lasso/service-lasso-bundled`
+- Packaging target references:
+  - `@service-lasso/service-lasso-app-packager-pkg`
+  - `@service-lasso/service-lasso-app-packager-sea`
+  - `@service-lasso/service-lasso-app-packager-nexe`
 
 Optional later:
 - `@service-lasso/service-lasso-ui`
@@ -281,6 +285,9 @@ After the core runtime package is stable, either keep the bounded wrapper approa
 
 Reference apps should continue to be maintained as sibling starter-template repos, not in-repo packages:
 - `C:\projects\service-lasso\service-lasso-app-web`
-- `C:\projects\service-lasso\service-lasso-packager-node`
+- `C:\projects\service-lasso\service-lasso-app-node`
+- `C:\projects\service-lasso\service-lasso-app-electron`
 - `C:\projects\service-lasso\service-lasso-app-tauri`
-- `C:\projects\service-lasso\service-lasso-bundled`
+- `C:\projects\service-lasso\service-lasso-app-packager-pkg`
+- `C:\projects\service-lasso\service-lasso-app-packager-sea`
+- `C:\projects\service-lasso\service-lasso-app-packager-nexe`
