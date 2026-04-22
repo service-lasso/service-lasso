@@ -52,6 +52,9 @@ Required evidence:
 
 ### 2. `ISS-043` / `TASK-043`
 
+Status:
+- in progress
+
 Title:
 - normalize reference-app repo names and retire deprecated starter repos
 
@@ -78,12 +81,19 @@ Execution order:
    current decision:
    - defer until there is a real implementation reason beyond naming; the host-type repos now exist and remain the primary canonical lineup
 4. update core docs and starter docs to point only at the normalized lineup
+   current progress:
+   - the core forward-looking docs now describe the canonical app-host lineup as `app-web`, `app-node`, `app-electron`, and `app-tauri`
+   - packaging-target repos are now described as optional later additions rather than part of the baseline lineup
+   - old names remain only in remediation/history context where they still matter for retirement tracking
 5. retire deprecated repos explicitly:
    - `service-lasso-packager-node`
    - `service-lasso-bundled`
    current blocker:
    - local `service-lasso-packager-node` is deleted
    - remote GitHub repo deletion is blocked until the acting token has `delete_repo`
+   current decision:
+   - `service-lasso-bundled` is not part of the canonical lineup
+   - final retirement or repurposing of that repo belongs with `ISS-045`, because its remaining value is tied to honest bundled-versus-bootstrap artifact behavior
 
 Intent:
 - separate app host type from packaging target
@@ -95,7 +105,7 @@ Canonical app-host repos:
 - `service-lasso-app-electron`
 - `service-lasso-app-tauri`
 
-Canonical packaging-target repos:
+Optional packaging-target repos:
 - `service-lasso-app-packager-pkg`
 - `service-lasso-app-packager-sea`
 - `service-lasso-app-packager-nexe`

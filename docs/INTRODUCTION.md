@@ -82,7 +82,7 @@ Planned reference app/template repos include:
 - `@service-lasso/service-lasso-app-node`
 - `@service-lasso/service-lasso-app-electron`
 - `@service-lasso/service-lasso-app-tauri`
-- packaging-target repos only when needed:
+- optional packaging-target repos only when there is a real delivery need:
   - `@service-lasso/service-lasso-app-packager-pkg`
   - `@service-lasso/service-lasso-app-packager-sea`
   - `@service-lasso/service-lasso-app-packager-nexe`
@@ -90,7 +90,8 @@ Planned reference app/template repos include:
 These should live as sibling repos under `C:\projects\service-lasso` and as matching GitHub template repos.
 
 Current correction note:
-- older repo names such as `service-lasso-packager-node` and `service-lasso-bundled` are migration-era names
+- older repo names such as `service-lasso-packager-node` are migration-era names
+- labels such as `bundled` describe an artifact mode, not a canonical app-host repo name
 - the canonical model is app host type first, packaging target second
 
 These should all consume the same canonical runtime model based on:

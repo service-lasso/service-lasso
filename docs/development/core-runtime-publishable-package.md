@@ -40,7 +40,7 @@ Current repositories that need this access are:
 - `service-lasso-app-node`
 - `service-lasso-app-electron`
 - `service-lasso-app-tauri`
-- packaging-target repos when they exist:
+- optional packaging-target repos when they exist:
   - `service-lasso-app-packager-pkg`
   - `service-lasso-app-packager-sea`
   - `service-lasso-app-packager-nexe`

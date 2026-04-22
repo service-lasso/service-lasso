@@ -206,7 +206,7 @@ Required post-core reference app/template packages:
 - `@service-lasso/service-lasso-app-node`
 - `@service-lasso/service-lasso-app-electron`
 - `@service-lasso/service-lasso-app-tauri`
-- packaging-target repos when they are justified by a real delivery need:
+- optional packaging-target repos when they are justified by a real delivery need:
   - `@service-lasso/service-lasso-app-packager-pkg`
   - `@service-lasso/service-lasso-app-packager-sea`
   - `@service-lasso/service-lasso-app-packager-nexe`
