@@ -55,6 +55,22 @@ Required evidence:
 Title:
 - normalize reference-app repo names and retire deprecated starter repos
 
+Execution order:
+1. promote `service-lasso-packager-node` into the canonical `service-lasso-app-node` repo
+   current progress:
+   - `service-lasso-app-node` now exists locally and on GitHub
+   - it is template-enabled
+   - it reuses the proven plain-Node host implementation and passes local `npm test` plus `npm run release:verify`
+2. create the canonical `service-lasso-app-electron` starter repo
+3. create packaging-target starter repos only if they are still needed after the host-type repos exist:
+   - `service-lasso-app-packager-pkg`
+   - `service-lasso-app-packager-sea`
+   - `service-lasso-app-packager-nexe`
+4. update core docs and starter docs to point only at the normalized lineup
+5. retire deprecated repos explicitly:
+   - `service-lasso-packager-node`
+   - `service-lasso-bundled`
+
 Intent:
 - separate app host type from packaging target
 - stop using vague repo identities as the canonical model
