@@ -89,6 +89,17 @@ These should all consume the same canonical runtime model based on:
 - `servicesRoot`
 - `workspaceRoot`
 
+Reference app inventory rule:
+- each reference app repo should own a tracked `services/` folder for the services that app intends to manage
+- `services/` is part of the app repo contract, not something inferred from sibling repos at runtime
+- if a reference app includes `service-admin`, it should also carry the service manifests needed to satisfy Service Admin's declared service dependencies
+- the current baseline inventory for the starter repos is:
+  - `services/echo-service/service.json`
+  - `services/service-admin/service.json`
+  - `services/@node/service.json`
+  - `services/@traefik/service.json`
+- environment settings like `VITE_SERVICE_LASSO_API_BASE_URL` remain app/runtime configuration, not extra service manifests
+
 The next concrete delivery step for those starter repos is:
 - consume published `@service-lasso/service-lasso`
 - remain clonable and executable
