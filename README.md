@@ -79,6 +79,18 @@ Current package-boundary note:
 - the publishable package is staged separately as a self-contained payload for `@service-lasso/service-lasso`
 - the starter/template apps live outside this repo as sibling repos under `C:\projects\service-lasso`
 
+Reference app inventory rule:
+
+- every repo that uses Service Lasso should own its own tracked `services/` folder
+- that folder should contain the service manifests for the exact services that repo intends to manage
+- if a repo includes `services/service-admin/service.json`, it should also include the manifests needed to satisfy Service Admin's service dependencies
+- the current baseline stack for the reference repos is:
+  - `services/echo-service/service.json`
+  - `services/service-admin/service.json`
+  - `services/@node/service.json`
+  - `services/@traefik/service.json`
+- runtime env such as `VITE_SERVICE_LASSO_API_BASE_URL` still belongs in app/runtime config, not as separate service manifests
+
 Note on repo split:
 - the canonical Echo Service implementation now lives in the sibling repo `C:\projects\service-lasso\lasso-echoservice`
 - `service-lasso/services/echo-service/` remains a thin local fixture manifest so the core repo stays self-contained for discovery/runtime tests
