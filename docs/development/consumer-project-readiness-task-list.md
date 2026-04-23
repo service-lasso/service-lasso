@@ -15,7 +15,7 @@ The core runtime and public service acquisition paths are working, but external 
 | ID | Status | Linked issue | Outcome needed | Evidence required |
 | --- | --- | --- | --- | --- |
 | `CONSUMER-001` | `blocked` | `#69` | Other projects can install `@service-lasso/service-lasso` from GitHub Packages using the documented auth path. | Clean temp consumer install from `npm.pkg.github.com`, `service-lasso --version`, and `service-lasso help`. |
-| `CONSUMER-002` | `todo` | `#71` | Public release-backed Echo Service proves HTTP and TCP health mode transitions through Service Lasso runtime health. | Runtime-managed Echo Service HTTP and TCP health scenarios using public release assets. |
+| `CONSUMER-002` | `done` | `#71` | Public release-backed Echo Service proves HTTP and TCP health mode transitions through Service Lasso runtime health. | 2026-04-24: `npm run verify:echo-health` exercised the public `2026.4.20-a417abd` Echo release archive with runtime-observed HTTP 200 -> 500 -> 200 health and TCP reachable -> unreachable -> reachable health. |
 | `CONSUMER-003` | `todo` | `#58` | Reference apps are validated as cloneable templates. | Fresh clone/install/test/release-verify for `app-node`, `app-web`, `app-electron`, `app-tauri`, and `app-packager-pkg`. |
 | `CONSUMER-004` | `todo` | `#58` | Reference app release outputs are validated as usable artifacts. | Source/bootstrap-download/preloaded artifacts exercised where each repo ships them. |
 | `CONSUMER-005` | `todo` | `#58` | Service Admin is reachable from reference app hosts, not only from its own repo. | App-host URL check for host shell plus `/admin/` route against a live runtime. |
