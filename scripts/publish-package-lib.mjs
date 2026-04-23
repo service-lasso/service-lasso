@@ -2,6 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promi
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   createTemporaryOutputRoot,
   ensureBuildOutput,
@@ -10,6 +11,8 @@ import {
 import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
+const PACKAGE_STAGE_LOCK_TIMEOUT_MS = 120_000;
+const PACKAGE_STAGE_LOCK_STALE_MS = 600_000;
 
 function escapeWindowsCmdArg(value) {
   if (/^[A-Za-z0-9_./:=@-]+$/.test(value)) {
@@ -38,6 +41,66 @@ export const PUBLISH_FILES = [
 
 export function getPublishedPackageArtifactName(version) {
   return `service-lasso-package-${version}`;
+}
+
+async function readOptionalLockMetadata(lockPath) {
+  try {
+    return await readFile(lockPath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function acquirePackageStageLock(outputRoot) {
+  await mkdir(outputRoot, { recursive: true });
+
+  const lockRoot = path.join(outputRoot, ".stage.lock");
+  const lockOwnerPath = path.join(lockRoot, "owner.json");
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < PACKAGE_STAGE_LOCK_TIMEOUT_MS) {
+    try {
+      await mkdir(lockRoot);
+      await writeFile(
+        lockOwnerPath,
+        JSON.stringify({
+          pid: process.pid,
+          createdAt: new Date().toISOString(),
+        }, null, 2) + "\n",
+        "utf8",
+      );
+      return async () => {
+        await rm(lockRoot, { recursive: true, force: true });
+      };
+    } catch (error) {
+      if (!error || typeof error !== "object" || error.code !== "EEXIST") {
+        throw error;
+      }
+
+      const lockStat = await stat(lockRoot).catch(() => null);
+      if (lockStat && Date.now() - lockStat.mtimeMs > PACKAGE_STAGE_LOCK_STALE_MS) {
+        await rm(lockRoot, { recursive: true, force: true });
+        continue;
+      }
+
+      await delay(100);
+    }
+  }
+
+  const metadata = await readOptionalLockMetadata(lockOwnerPath);
+  throw new Error(
+    `Timed out waiting for package staging lock at ${lockRoot}.` +
+      (metadata ? ` Current lock metadata: ${metadata}` : ""),
+  );
+}
+
+async function withPackageStageLock(outputRoot, callback) {
+  const release = await acquirePackageStageLock(outputRoot);
+  try {
+    return await callback();
+  } finally {
+    await release();
+  }
 }
 
 function buildPublishedPackageJson(version, rootPackageJson) {
@@ -201,47 +264,49 @@ export async function stagePublishedPackage({
   outputRoot = path.join(repoRoot, "artifacts", "npm"),
   version,
 } = {}) {
-  const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
-  const artifactName = getPublishedPackageArtifactName(resolvedVersion);
-  const artifactRoot = path.join(outputRoot, artifactName);
+  return await withPackageStageLock(outputRoot, async () => {
+    const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
+    const artifactName = getPublishedPackageArtifactName(resolvedVersion);
+    const artifactRoot = path.join(outputRoot, artifactName);
 
-  await ensureBuildOutput(repoRoot);
-  await rm(artifactRoot, { recursive: true, force: true });
-  await mkdir(outputRoot, { recursive: true });
+    await ensureBuildOutput(repoRoot);
+    await rm(artifactRoot, { recursive: true, force: true });
+    await mkdir(outputRoot, { recursive: true });
 
-  for (const relativePath of PUBLISH_FILES) {
-    await copyPublishPath(repoRoot, artifactRoot, relativePath);
-  }
+    for (const relativePath of PUBLISH_FILES) {
+      await copyPublishPath(repoRoot, artifactRoot, relativePath);
+    }
 
-  const manifest = await writePublishScaffold({
-    repoRoot,
-    artifactRoot,
-    version: resolvedVersion,
+    const manifest = await writePublishScaffold({
+      repoRoot,
+      artifactRoot,
+      version: resolvedVersion,
+    });
+
+    const packResult = await runNpmCommand(["pack"], {
+      cwd: artifactRoot,
+    });
+
+    const packageArchiveName = packResult.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1);
+
+    if (!packageArchiveName) {
+      throw new Error("npm pack did not report the generated archive name.");
+    }
+
+    const packageArchivePath = path.join(artifactRoot, packageArchiveName);
+    await stat(packageArchivePath);
+
+    return {
+      artifactName,
+      artifactRoot,
+      packageArchivePath,
+      manifest,
+    };
   });
-
-  const packResult = await runNpmCommand(["pack"], {
-    cwd: artifactRoot,
-  });
-
-  const packageArchiveName = packResult.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .at(-1);
-
-  if (!packageArchiveName) {
-    throw new Error("npm pack did not report the generated archive name.");
-  }
-
-  const packageArchivePath = path.join(artifactRoot, packageArchiveName);
-  await stat(packageArchivePath);
-
-  return {
-    artifactName,
-    artifactRoot,
-    packageArchivePath,
-    manifest,
-  };
 }
 
 export async function verifyPublishedPackage({
