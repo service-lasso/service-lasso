@@ -347,7 +347,7 @@ Current blocker:
 ### 8. `ISS-049` / `TASK-049`
 
 Status:
-- todo
+- done
 
 Title:
 - make an explicit go/no-go decision on packaging-target repos
@@ -357,14 +357,27 @@ Intent:
 
 Execution order:
 1. record the real decision criteria for creating packaging-target repos
+   outcome:
+   - packaging repos should only exist when they express a delivery technology that the canonical app-host repos do not already cover clearly
 2. choose one of:
    - create the justified repos with a bounded contract
    - defer them explicitly with recorded reasons
+   outcome:
+   - `service-lasso-app-packager-pkg` is justified as the first bounded packaging-target repo because it proves a real `pkg` launcher around the canonical Node host
+   - `service-lasso-app-packager-sea` and `service-lasso-app-packager-nexe` stay deferred until there is a proven delivery need beyond the canonical Node host plus `pkg` path
 3. update the docs so packaging-target repos are either real tracked work or explicitly deferred
+   outcome:
+   - the core docs now describe `app-packager-pkg` as the current bounded packaging-target repo
+   - `SEA` and `nexe` are documented as deferred, not implied
 
 Required evidence:
 - the backlog/docs show an explicit decision rather than vague placeholders
 - any created packaging-target repos have a bounded documented contract
+
+Completion outcome:
+- `service-lasso-app-packager-pkg` now exists locally and on GitHub as a template-enabled packaging-target repo created from `service-lasso-app-node`
+- it adds a bounded `pkg` wrapper with honest `source`, `runtime`, and `preloaded` artifacts plus protected-branch `yyyy.m.d-<shortsha>` release versioning
+- `service-lasso-app-packager-sea` and `service-lasso-app-packager-nexe` remain explicitly deferred until a real implementation need exists
 
 ### 9. `ISS-050` / `TASK-050`
 

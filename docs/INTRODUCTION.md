@@ -82,8 +82,9 @@ Planned reference app/template repos include:
 - `@service-lasso/service-lasso-app-node`
 - `@service-lasso/service-lasso-app-electron`
 - `@service-lasso/service-lasso-app-tauri`
-- optional packaging-target repos only when there is a real delivery need:
+- current bounded packaging-target repo:
   - `@service-lasso/service-lasso-app-packager-pkg`
+- explicitly deferred packaging-target repos until a real delivery need exists:
   - `@service-lasso/service-lasso-app-packager-sea`
   - `@service-lasso/service-lasso-app-packager-nexe`
 

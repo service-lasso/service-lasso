@@ -180,8 +180,9 @@ Current honest label:
     - `@service-lasso/service-lasso-app-node`
     - `@service-lasso/service-lasso-app-electron`
     - `@service-lasso/service-lasso-app-tauri`
-    - optional packaging-target repos when needed:
+    - current bounded packaging-target repo:
       - `@service-lasso/service-lasso-app-packager-pkg`
+    - deferred packaging-target repos:
       - `@service-lasso/service-lasso-app-packager-sea`
       - `@service-lasso/service-lasso-app-packager-nexe`
     proof:
