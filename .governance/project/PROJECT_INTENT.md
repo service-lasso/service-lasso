@@ -3,35 +3,60 @@
 Use this file to capture the project-specific intent that governance cannot provide.
 
 ## Purpose
-This repository exists to establish a governed starting point for Service Lasso while stakeholder-validated product intent is still incomplete.
+Service Lasso is the core runtime and contract repository for running local packaged services under one governed manager. Its job is to define and implement the shared service model, discover service manifests, orchestrate install/config/start/stop/health behavior, and provide the reusable runtime surface that service repos and the Service Admin UI depend on.
 
 ## Context
-This repository started from an almost empty baseline with only a placeholder README and no validated product brief. The current intent is therefore provisional: establish durable governance, Git workflow, and tracking artifacts before any product implementation begins. GitHub is the current system of record for repository workflow, issue tracking, and project-board setup during bootstrap.
+Bootstrap/governance setup is now in place and remains durable. The first core runtime implementation batch is landed (`#2` to `#8`), and this repository is now in the hardening phase for startup configuration, persistence rehydration, stronger API semantics, and real execution supervision.
+
+The broader multi-repo shape is already established:
+- `service-lasso` = core runtime + canonical shared contract/docs
+- `service-template` = the template for individual services
+- `lasso-@serviceadmin` = the operator UI
+- sibling app-host and packaging-target repos = quick-start consumers around the core runtime, with the exact canonical lineup under active remediation
+
+This repo is therefore the place where the real core behavior must live and continue hardening:
+- standalone runtime/server entrypoint
+- manifest discovery and parsing
+- service lifecycle orchestration
+- dependency/env/health semantics
+- runtime config loading for `servicesRoot` and `workspaceRoot`
+- state persistence and startup rehydration
+- packaging/release mechanics for the core runtime itself
+- publishable package mechanics so sibling starter repos can consume the core runtime cleanly
 
 ## Constraints
-- Governance artifacts must be established before product code.
+- Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
-- Product scope is currently too vague to lock into a feature-first implementation spec.
-- Bootstrap update mode must preserve valid existing artifacts and repair stale or missing ones.
-- No provider-native rules directory was present at bootstrap, so `.governance/` remains the only active rules location for now.
+- The donor material under `ref/` is reference input, not the product itself.
+- Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.
+- Branch-protection verification is still partially degraded on the current GitHub hosting tier and must remain documented honestly.
+- `.governance/` remains the canonical governance source of truth for this repo.
 
 ## Risks
-- The product problem could be guessed incorrectly from the repository name, causing bootstrap artifacts to smuggle in unvalidated scope.
-- GitHub workflow/bootstrap artifacts could drift from the live repository state if they are not reconciled after automation steps.
-- Branch-protection or project-board expectations could appear satisfied locally while remaining incomplete remotely.
-- Verification could become shallow if implementation starts before bootstrap blockers and provisional assumptions are made explicit.
+- The donor runtime is useful but overloaded; transplanting it blindly would import too much accidental architecture.
+- Staying in analysis/doc mode too long would create false progress without a running core.
+- Starting too broadly could mix manifest redesign, runtime implementation, provider integration, and release plumbing into one hard-to-verify change.
+- Missing Windows payload/runtime assumptions from the donor snapshot could block a naive parity-first implementation.
 
 ## Assumptions
-- Stakeholder-validated product intent will be captured in a follow-on feature spec before product code is written.
-- GitHub-backed issue tracking and project boards are acceptable workflow tools for bootstrap and adoption work.
-- Repo-local bootstrap artifacts should stay durable even when GitHub automation is available.
-- Existing governance rules copied into `.governance/rules/` remain valid unless superseded by live canonical sources.
+- The first trustworthy milestone, a runnable standalone core slice, is now achieved.
+- The current highest-value work is finishing honest distribution boundaries: canonical reference-app naming, manifest-owned release/install metadata in `service.json`, truthful bundled-versus-bootstrap behavior, and protected-branch release/version flows that no longer depend on manual tags.
+- GitHub-backed issues/project board remain the system of record for governed execution tracking.
+- Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 
 ## Key Behaviors
-- Bootstrap runs should classify starting repo state, commit policy, and GitHub capability before claiming progress.
-- Governance, Git workflow, and GitHub board artifacts should remain traceable and reviewable from the start.
-- Product behavior should not be invented when intent is still too vague; bootstrap should use a governance/setup spec instead.
-- New work should be introduced through specs, backlog items, and durable status artifacts rather than undocumented chat decisions.
+- The core runtime should discover canonical `service.json` manifests and treat them as operational contract files, not passive metadata.
+- The core runtime should expose a standalone execution surface independent of Electron-specific donor assumptions.
+- Service lifecycle work should converge on explicit actions such as install, config, start, stop, and health/status reporting.
+- Dependency, env, and health semantics should remain explicit and reviewable through docs/specs as implementation hardens.
+- Product implementation should proceed through bounded specs/issues rather than broad donor dumps or undocumented chat intent.
 
 ## Verification Expectations
-Before product code, verification should focus on artifact completeness and live-state reconciliation: active governance rules, provisional-but-honest project intent, a valid `SPEC-001`, a backlog mapped to that spec, strict Git workflow artifacts, GitHub preflight reporting, timestamped bootstrap status/feedback artifacts, and final confirmation that the local docs match the live git/GitHub state.
+Core product work should be verified with direct runnable evidence, not only documentation updates.
+
+For the first runtime slice, expected proof should include:
+- tracked source artifacts for the standalone core runtime
+- direct local execution evidence that the runtime starts successfully
+- direct proof that manifest discovery/parsing works against defined fixture/sample services
+- documented residual gaps/blockers for anything not yet implemented
+- backlog/spec traceability updated to distinguish shipped runtime behavior from still-reference-only donor behavior

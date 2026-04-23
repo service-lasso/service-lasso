@@ -1,0 +1,27 @@
+{
+  "id": "node-sample-service",
+  "name": "Node Sample Service",
+  "description": "Tracked provider-backed sample service used to prove real @node execution through the core runtime.",
+  "version": "0.1.0",
+  "enabled": true,
+  "depend_on": ["@node"],
+  "execservice": "@node",
+  "args": ["runtime/server.mjs"],
+  "env": {
+    "NODE_SAMPLE_ENV_PATH": "./.state/provider-env.json",
+    "NODE_SAMPLE_PORT": "${SERVICE_PORT}"
+  },
+  "ports": {
+    "service": 4020
+  },
+  "urls": [
+    {
+      "label": "service",
+      "url": "http://127.0.0.1:${SERVICE_PORT}",
+      "kind": "local"
+    }
+  ],
+  "healthcheck": {
+    "type": "process"
+  }
+}

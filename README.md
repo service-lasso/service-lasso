@@ -1,22 +1,215 @@
 # service-lasso
 
-Service Lasso is being bootstrapped around a donor/reference snapshot taken from:
+Service Lasso is the core runtime and contract repository for the Service Lasso project.
+
+Preferred runtime configuration model:
+- `servicesRoot` = where services live
+- `workspaceRoot` = where Service Lasso stores runtime-managed working data
+
+Start with:
+- `docs/INTRODUCTION.md`
+- `docs/development/core-runtime-storage-model.md`
+- `docs/development/core-runtime-logging-model.md`
+- `docs/development/core-runtime-publishable-package.md`
+
+This repository started as a bootstrap and donor-analysis workspace around a reference snapshot taken from:
 
 - donor repo: `C:\projects\typerefinery-ai\typerefinery-develop`
 - donor focus: the standalone service-manager runtime and its managed `services/` tree
 
-This repo is still in **analysis / transplant planning** mode.
-It is **not yet a runnable application**.
+That bootstrap phase is now preserved in repo history, but the repo has moved into the first real product implementation phase under:
+
+- `.governance/specs/SPEC-002-core-standalone-runtime.md`
 
 ## Current State
 
 At the moment this repo contains:
 
-- governance/bootstrap scaffolding under `.governance/`
-- project notes and bootstrap adoption tracking
+- governance and backlog/spec traceability under `.governance/`
+- canonical shared contract/runtime docs under `docs/`
+- the first tracked core runtime source layout and API spine under `src/`
+- a bounded `packages/core` wrapper package for the future core package boundary plus a self-contained staged publish payload for `@service-lasso/service-lasso`
+- direct route tests under `tests/`
 - an ignored donor reference snapshot under `ref/typerefinery-service-manager-donor/`
 
-The donor reference material is intentionally **not tracked in git**.
+The donor reference material is intentionally **not tracked in git** and remains reference input, not product code.
+
+## First tracked core runtime layout
+
+The first bounded product slice establishes the repo as a real codebase without claiming full runtime behavior yet.
+
+Current tracked source layout:
+
+```text
+src/
+  contracts/
+    api.ts
+    service-root.ts
+  fixtures/
+    README.md
+    services.ts
+  runtime/
+    app.ts
+    layout.ts
+  server/
+    index.ts
+    routes/
+      health.ts
+      services.ts
+  index.ts
+tests/
+  api-spine.test.js
+```
+
+What this slice means:
+
+- `src/index.ts` starts the current bounded development-mode API process
+- `src/server/` holds the first real API boundary for the core repo
+- `src/runtime/` now includes the first manifest discovery/parsing boundary under `src/runtime/discovery/`, the first in-memory registry/dependency model under `src/runtime/manager/`, the first bounded lifecycle action path under `src/runtime/lifecycle/`, the first bounded health evaluation under `src/runtime/health/`, the first structured `.state` persistence layer under `src/runtime/state/`, the first operator-data builders under `src/runtime/operator/`, and the first explicit provider execution boundary under `src/runtime/providers/`
+- `src/contracts/` holds shared API/runtime contract types
+- tracked sample manifests now live under `services/*/service.json`
+- `tests/api-spine.test.js`, `tests/manifest-discovery.test.js`, `tests/registry-runtime-state.test.js`, `tests/lifecycle-actions.test.js`, `tests/health-state.test.js`, `tests/operator-data.test.js`, and `tests/provider-execution.test.js` provide direct proof for the API spine, discovery/parsing behavior, runtime state read APIs, lifecycle action path, health/state persistence, operator data surfaces, and provider execution planning
+
+This slice now establishes the first real API spine, the first canonical manifest discovery/parsing path, the first in-memory runtime state model, the first bounded lifecycle actions, the first health + `.state` persistence layer, the first operator data surfaces, the first provider execution boundary, and a runnable tracked harness fixture under `services/echo-service/` for later execution/demo hardening. Full real process execution and broader provider catalog expansion are still future work.
+
+Current manifest/install note:
+- the core runtime now accepts a bounded first-class `artifact` block inside `service.json`
+- `install` can acquire/download and unpack manifest-owned archive payloads without forcing `start`
+- direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
+
+Current package-boundary note:
+
+- the runtime source still lives in `src/`
+- `packages/core` remains the bounded in-repo wrapper package targeting the current built runtime + CLI
+- the publishable package is staged separately as a self-contained payload for `@service-lasso/service-lasso`
+- the starter/template apps live outside this repo as sibling repos under `C:\projects\service-lasso`
+
+Reference app inventory rule:
+
+- every repo that uses Service Lasso should own its own tracked `services/` folder
+- that folder should contain the service manifests for the exact services that repo intends to manage
+- if a repo includes `services/service-admin/service.json`, it should also include the manifests needed to satisfy Service Admin's service dependencies
+- the current baseline stack for the reference repos is:
+  - `services/echo-service/service.json`
+  - `services/service-admin/service.json`
+  - `services/@node/service.json`
+  - `services/@traefik/service.json`
+- runtime env such as `VITE_SERVICE_LASSO_API_BASE_URL` still belongs in app/runtime config, not as separate service manifests
+
+Note on repo split:
+- the canonical Echo Service implementation now lives in the sibling repo `C:\projects\service-lasso\lasso-echoservice`
+- `service-lasso/services/echo-service/` remains a thin local fixture manifest so the core repo stays self-contained for discovery/runtime tests
+- the sibling Echo Service repo now includes harness-only HTTP and TCP health simulation endpoints for runtime testing, and `service-lasso` itself now evaluates bounded manifest health types `process`, `http`, `tcp`, `file`, and `variable`
+
+For the detailed layout note, see:
+
+- `docs/development/core-runtime-layout.md`
+
+## Local development commands
+
+```bash
+npm install
+npm run typecheck
+npm run build
+npm run test
+npm run dev
+```
+
+## CLI commands
+
+The bounded core package/runtime now exposes a supported CLI surface in addition to the API server boot path.
+
+Start the bounded API runtime:
+
+```bash
+service-lasso
+```
+
+Acquire/install a service from manifest-owned `artifact` metadata without starting it:
+
+```bash
+service-lasso install echo-service --services-root ./services --workspace-root ./workspace
+```
+
+Machine-readable install output is also supported:
+
+```bash
+service-lasso install echo-service --services-root ./services --workspace-root ./workspace --json
+```
+
+## Release artifact commands
+
+The repo now exposes a bounded downloadable runtime artifact flow.
+
+```bash
+npm run release:artifact
+npm run release:verify
+```
+
+What these do:
+
+- `npm run release:artifact` builds and stages `artifacts/service-lasso-<version>/` plus `artifacts/service-lasso-<version>.tar.gz`
+- `npm run release:verify` stages the bounded artifact, verifies the documented shipped files, imports the staged `packages/core` wrapper, and boots the staged runtime entrypoint against explicit runtime roots
+
+Current runtime dependency note:
+- the staged runtime artifact now includes production `node_modules/` because the bounded acquire/install flow depends on archive-handling libraries at runtime
+
+Protected-branch release note:
+
+- local commands default to the repo `package.json` version for staging and verification
+- the protected-branch release workflows on `main` compute the shipped version as `yyyy.m.d-<shortsha>` and create the GitHub release automatically from that push
+
+Current shipped files are documented in:
+
+- `docs/development/core-runtime-release-artifact.md`
+
+## Publishable package commands
+
+The repo now also exposes a bounded self-contained publishable package flow for `@service-lasso/service-lasso`.
+
+```bash
+npm run package:stage
+npm run package:verify
+```
+
+What these do:
+
+- `npm run package:stage` builds and stages `artifacts/npm/service-lasso-package-<version>/` plus a packed `.tgz` inside that folder
+- `npm run package:verify` stages the package, runs `npm pack`, installs it into a temporary consumer, and boots the runtime against explicit runtime roots
+
+Protected-branch publish note:
+
+- local commands default to the repo `package.json` version for staging and verification
+- the protected-branch publish workflow on `main` computes the published package version as `yyyy.m.d-<shortsha>` and publishes that version to GitHub Packages automatically from the push
+
+Current publish-package details are documented in:
+
+- `docs/development/core-runtime-publishable-package.md`
+
+GitHub Packages note:
+
+- the core package page is `https://github.com/service-lasso/service-lasso/pkgs/npm/service-lasso`
+- sibling starter repos that install `@service-lasso/service-lasso` through Actions must be granted package read access in that package's settings under GitHub Actions access / repository access control
+
+## Demo instance commands
+
+The repo now includes an explicit bounded demo flow that uses the tracked `services/` tree as `servicesRoot` and `workspace/demo-instance/` as the default `workspaceRoot`.
+
+```bash
+npm run demo:start
+npm run demo:smoke
+npm run demo:reset
+```
+
+What these do:
+
+- `npm run demo:start` builds and starts the runtime against the demo roots so a reviewer can inspect `/api/health`, `/api/services`, `/api/runtime`, and `/api/dependencies`
+- `npm run demo:smoke` runs the end-to-end scripted demo proof for the direct `echo-service` path plus the provider-backed `node-sample-service` path
+- `npm run demo:reset` removes demo workspace/state/artifact output so the demo can be rerun cleanly without manual cleanup
+
+The scripted smoke flow is also covered by `tests/demo-instance.test.js`.
+
+## Donor Reference Snapshot
 
 ## Donor Reference Snapshot
 

@@ -1,0 +1,37 @@
+{
+  "name": "service-lasso",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core runtime and contract repository for Service Lasso.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/core"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 tests/**/*.test.js",
+    "dev": "npm run build && node --enable-source-maps dist/index.js",
+    "start": "node --enable-source-maps dist/index.js",
+    "release:artifact": "npm run build && node scripts/release-artifact.mjs",
+    "release:verify": "npm run build && node scripts/release-verify.mjs",
+    "package:stage": "npm run build && node scripts/publish-package.mjs",
+    "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
+    "demo:start": "npm run build && node scripts/demo-start.mjs",
+    "demo:reset": "npm run build && node scripts/demo-reset.mjs",
+    "demo:smoke": "npm run build && node scripts/demo-smoke.mjs"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "tar": "^7.5.2"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  }
+}
