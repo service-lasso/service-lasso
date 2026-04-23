@@ -54,12 +54,12 @@ Do not treat green repo tests as release readiness by themselves.
 
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
-| Service Admin is available where reference apps require it | app can open or link to admin UI | Pending | |
-| Service Admin consumes runtime services | admin service list/detail surfaces load from runtime API | Pending | |
-| Echo Service UI is reachable | harness UI opens from runtime-managed service | Pending | |
-| Echo Service stdout/stderr actions are captured | Service Lasso logs show emitted stdout/stderr lines | Pending | |
-| Echo Service health modes are observable | HTTP/TCP health mode changes affect runtime-observed health | Pending | |
-| Echo Service crash/error/abort paths are observable | runtime records failure state and remains manageable | Pending | |
+| Service Admin is available where reference apps require it | app can open or link to admin UI | Pending | App-host live routing remains to be validated in the reference-app pass. |
+| Service Admin consumes runtime services | admin service list/detail surfaces load from runtime API | Verified | 2026-04-24: `service-lasso/lasso-serviceadmin` is public; local `npm test` passed 27 tests including runtime dashboard adapter coverage, and `npm run build` passed. |
+| Echo Service UI is reachable | harness UI opens from runtime-managed service | Verified | 2026-04-24: runtime-managed Echo Service installed/configured/started from the public release-backed manifest and `GET http://127.0.0.1:4010/` returned `200` with Echo Service UI content. |
+| Echo Service stdout/stderr actions are captured | Service Lasso logs show emitted stdout/stderr lines | Verified | 2026-04-24: runtime-managed Echo Service `/action/write-stdout` and `/action/write-stderr` returned `200`, and `/api/services/echo-service/logs` contained the emitted validation lines. |
+| Echo Service health modes are observable | HTTP/TCP health mode changes affect runtime-observed health | Invalidated | 2026-04-24: the public release-backed Echo Service exposes HTTP/TCP health controls, but the current reference manifest uses `process` health so those modes do not affect runtime-observed health; tracked as issue `#71`. |
+| Echo Service crash/error/abort paths are observable | runtime records failure state and remains manageable | Verified | 2026-04-24: `/action/error` returned `500` while runtime still reported the service running and stoppable; `/action/abort` caused runtime state to report `running=false`, `lastTermination=crashed`, `exitCode=2`, and `crashCount=1`. |
 
 ## Reference Apps
 
@@ -127,3 +127,7 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: `service-lasso/lasso-echoservice` was made public; unauthenticated real Echo Service acquisition from `service-lasso-app-node/services/echo-service/service.json` now installs `echo-service-win32.zip` from `2026.4.20-a417abd`, persists runtime-owned archive/extract state, leaves the source manifest state-free, and reuses the archive on a second install.
 - 2026-04-24: public repository visibility was confirmed for `service-lasso/service-lasso`, `service-lasso/lasso-echoservice`, `service-lasso/lasso-serviceadmin`, `service-lasso/service-lasso-app-node`, `service-lasso/service-lasso-app-web`, `service-lasso/service-lasso-app-electron`, `service-lasso/service-lasso-app-tauri`, `service-lasso/service-lasso-app-packager-pkg`, and `service-lasso/service-template`.
 - 2026-04-24: GitHub Packages access remains blocked after public repo visibility: unauthenticated `npm view @service-lasso/service-lasso --registry=https://npm.pkg.github.com versions --json` returns `E401`, and the current `gh auth token` in a temporary `.npmrc` returns `E403 permission_denied`; tracked as issue `#69`.
+- 2026-04-24: Echo Service harness validation passed in its own repo with `go test ./...` and `pwsh -NoLogo -NoProfile -File .\scripts\verify.ps1`.
+- 2026-04-24: runtime-managed Echo Service validation from the public release-backed app-node manifest proved install/config/start/stop, UI reachability, stdout/stderr log capture, process health, error response manageability, and abort/crash state recording.
+- 2026-04-24: `service-lasso/lasso-serviceadmin` validation passed with `npm test` (27 tests) and `npm run build`; runtime dashboard adapter coverage is present in the admin repo tests.
+- 2026-04-24: Echo Service HTTP/TCP health-mode validation through runtime is invalidated for the current release-backed reference manifest because it uses `process` health; tracked as issue `#71`.
