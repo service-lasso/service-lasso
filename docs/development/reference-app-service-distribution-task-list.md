@@ -382,7 +382,7 @@ Completion outcome:
 ### 9. `ISS-050` / `TASK-050`
 
 Status:
-- todo
+- done
 
 Title:
 - add a host-owned service listing widget to each canonical app-host sample UI
@@ -408,3 +408,10 @@ Required evidence:
 - direct tests cover the widget/API path in each canonical app-host repo
 - smoke proof shows the widget rendering against a running runtime in each repo
 - docs describe the widget as a host-owned runtime API example rather than a second admin surface
+
+Completion outcome:
+- `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri` now each render a bounded host-owned service listing widget in the sample shell
+- each host exposes a same-origin `/api/runtime-services` route that proxies the Service Lasso runtime `/api/services` response instead of hard-coding service content
+- each widget renders service identity, lifecycle state, and health summary while keeping the embedded Service Admin surface visually and conceptually separate
+- each repo documents the widget in its README, minimal POC, release artifact notes, and task list
+- each repo merged its issue branch to `main`, archived the active branch under `archived/ISS-050-*`, and has green post-merge CI plus release workflow evidence
