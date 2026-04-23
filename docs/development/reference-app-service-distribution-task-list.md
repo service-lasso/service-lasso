@@ -90,7 +90,7 @@ Execution order:
    - `service-lasso-bundled`
    current outcome:
    - local `service-lasso-packager-node` is deleted
-   - remote `service-lasso-packager-node` is explicitly deprecated, redirected to `service-lasso-app-node`, and archived on GitHub
+   - remote `service-lasso-packager-node` is deleted on GitHub after migration to `service-lasso-app-node`
    current decision:
    - `service-lasso-bundled` is not part of the canonical lineup
    - final retirement or repurposing of that repo belongs with `ISS-045`, because its remaining value is tied to honest bundled-versus-bootstrap artifact behavior
@@ -125,7 +125,7 @@ Required evidence:
 Completion outcome:
 - `service-lasso-app-node` exists locally and on GitHub as the canonical plain-Node host repo
 - `service-lasso-app-electron` exists locally and on GitHub as the canonical Electron host repo
-- `service-lasso-packager-node` is removed locally and archived remotely with an explicit deprecation redirect
+- `service-lasso-packager-node` is removed locally and deleted remotely after migration to `service-lasso-app-node`
 - `service-lasso-bundled` is no longer treated as part of the canonical lineup and is deferred to `ISS-045` only as an artifact-mode decision
 
 ### 3. `ISS-044` / `TASK-044`
