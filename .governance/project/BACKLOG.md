@@ -61,6 +61,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-057` | `in_progress` | End-to-end release readiness and fresh consumer validation | `SPEC-002`, `AC-4X` | GitHub issue: `#58`. Establish and execute a consumer-oriented validation matrix for core package/release artifacts, service acquisition, Echo Service, Service Admin, and canonical reference-app repos before claiming release readiness. |
 | `ISS-060` | `done` | Packaged CLI reports source fallback version instead of package version | `SPEC-002`, `AC-4X` | GitHub issue: `#60`. Packaged CLI/runtime version defaults now resolve from the shipped package metadata, and package verification asserts both CLI `--version` and runtime health version from a temporary consumer install. |
 | `ISS-063` | `done` | Release artifact boot ignores explicit runtime roots outside source repo | `SPEC-002`, `AC-4X` | GitHub issue: `#63`. Runtime app startup now honors explicit env roots, and release verification boots the staged artifact from the artifact directory with explicit service/workspace roots instead of relying on source-repo cwd defaults. |
+| `ISS-066` | `todo` | Service acquisition cannot download private GitHub release assets | `SPEC-002`, `AC-4U`, `AC-4X` | GitHub issue: `#66`. `ISS-057` Echo Service acquisition validation found the release-backed manifest points at valid assets in private `service-lasso/lasso-echoservice`, but unauthenticated archive fetch receives `404` and the runtime has no authenticated GitHub release asset download path yet. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -118,6 +119,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-057` | `in_progress` | `ISS-057` | Create and execute the release-readiness validation matrix | `SPEC-002`, `AC-4X` | Planning/checklist branch establishes the validation matrix; execution evidence remains required before `ISS-057` can be closed. |
 | `TASK-060` | `done` | `ISS-060` | Fix packaged CLI/runtime version reporting | `SPEC-002`, `AC-4X` | `npm test` and versioned `npm run package:verify` prove the staged package reports its own release version instead of the source fallback. |
 | `TASK-063` | `done` | `ISS-063` | Make extracted release artifacts boot with explicit runtime roots | `SPEC-002`, `AC-4X` | `npm test` passed with 85 tests, and `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-envroot2 npm run release:verify` proved staged release artifacts boot with explicit service/workspace roots outside source-repo cwd assumptions. |
+| `TASK-066` | `todo` | `ISS-066` | Add authenticated acquisition for private GitHub release assets | `SPEC-002`, `AC-4U`, `AC-4X` | Pending. |
 
 ## Next Recommended Item
 Execute `TASK-057`: run the release-readiness validation matrix from clean consumer contexts and create focused follow-up issues for every failed, blocked, or unproven scenario.

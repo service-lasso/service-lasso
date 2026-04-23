@@ -35,7 +35,7 @@ Do not treat green repo tests as release readiness by themselves.
 | GitHub Packages install works | clean consumer installs `@service-lasso/service-lasso` from `npm.pkg.github.com` | Blocked | 2026-04-24: `npm view @service-lasso/service-lasso --registry=https://npm.pkg.github.com versions --json` returns `E401` without npm auth and `E403 permission_denied: read_package` with the current `gh auth token`; requires a token/account with GitHub Packages read scope/access. |
 | Installed CLI starts | consumer can run `service-lasso --help` and start runtime | Verified | 2026-04-24: clean consumer installed staged `.tgz`; `npx service-lasso help` worked; package API boot worked through `startApiServer`. |
 | Packaged CLI reports release version | consumer can run `service-lasso --version` and see the installed package version | Verified | 2026-04-24: issue `#60` fixed the packaged version resolver; `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-fixver2 npm run package:verify` passed and `node artifacts/npm/service-lasso-package-2026.4.24-fixver2/cli.js --version` returned `2026.4.24-fixver2`. |
-| CLI install works without start | consumer can run `service-lasso install <serviceId>` | Pending | |
+| CLI install works without start | consumer can run `service-lasso install <serviceId>` | Verified | 2026-04-24: `npm test` covers `service-lasso install <serviceId>` against manifest-owned artifact metadata, and package verification exercises the installed CLI from a temporary consumer package. |
 | Runtime lists services | consumer runtime reports configured services through API | Verified | 2026-04-24: installed package API probe returned 4 services, including `echo-service`. |
 | Runtime starts and stops Echo Service | start/stop works from installed package context | Verified | 2026-04-24: installed package API probe ran `install`, `config`, `start`, and `stop` for `echo-service`; final detail showed `echoRunning: false`. |
 
@@ -43,12 +43,12 @@ Do not treat green repo tests as release readiness by themselves.
 
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
-| `services/<serviceId>/service.json` is sufficient | no sidecar release-source metadata is required | Pending | |
-| Echo Service downloads from manifest artifact metadata | archive resolves from GitHub release metadata in `service.json` | Pending | |
-| Installed state is recorded separately from source manifest | install metadata persists in runtime-owned state | Pending | |
-| Repeat install avoids unnecessary redownload | second install reuses existing archive/payload where valid | Pending | |
-| Bad archive URL fails clearly | deterministic error is reported and persisted as appropriate | Pending | |
-| Missing release artifact fails clearly | deterministic error is reported and follow-up is tracked if behavior is weak | Pending | |
+| `services/<serviceId>/service.json` is sufficient | no sidecar release-source metadata is required | Verified | 2026-04-24: acquisition tests construct only `services/downloaded-service/service.json` with first-class `artifact` metadata; reference app `service-lasso-app-node/services/echo-service/service.json` also carries the release metadata directly. No `release-source.json` sidecar is needed. |
+| Echo Service downloads from manifest artifact metadata | archive resolves from GitHub release metadata in `service.json` | Invalidated | 2026-04-24: real acquisition using `service-lasso-app-node/services/echo-service/service.json` failed because `service-lasso/lasso-echoservice` is private and unauthenticated archive fetch returns `404`; focused follow-up issue `#66`. |
+| Installed state is recorded separately from source manifest | install metadata persists in runtime-owned state | Verified | 2026-04-24: `tests/install-acquire.test.js` asserts archive/extract metadata is persisted in runtime-owned `.state/install.json`, while the source manifest remains the input contract. |
+| Repeat install avoids unnecessary redownload | second install reuses existing archive/payload where valid | Verified | 2026-04-24: `tests/install-acquire.test.js` verifies a preloaded archive under `.state/artifacts/<release>` is reused and the fake release server receives zero download requests. |
+| Bad archive URL fails clearly | deterministic error is reported and persisted as appropriate | Verified | 2026-04-24: added regression coverage for a resolved artifact download returning `404`; the install API returns a deterministic failure message and does not persist install state. |
+| Missing release artifact fails clearly | deterministic error is reported and follow-up is tracked if behavior is weak | Verified | 2026-04-24: added regression coverage for release metadata missing the requested asset; the install API returns a deterministic failure message and does not persist install state. |
 
 ## Service Admin And Echo Service
 
@@ -88,9 +88,9 @@ Validate each repo:
 
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
-| Missing GitHub package access | install failure is understandable and documented | Pending | |
-| Missing service release artifact | acquisition failure is deterministic | Pending | |
-| Bad archive URL | acquisition failure is deterministic | Pending | |
+| Missing GitHub package access | install failure is understandable and documented | Blocked | 2026-04-24: GitHub Packages validation remains blocked by available credentials: unauthenticated npm returns `E401`, and the current `gh auth token` returns `E403 permission_denied: read_package`. |
+| Missing service release artifact | acquisition failure is deterministic | Verified | 2026-04-24: `tests/install-acquire.test.js` covers a release metadata payload that lacks the requested asset and confirms install state is not persisted. |
+| Bad archive URL | acquisition failure is deterministic | Verified | 2026-04-24: `tests/install-acquire.test.js` covers a resolved archive URL returning `404` and confirms install state is not persisted. |
 | Port conflict | runtime reports conflict or negotiates according to manifest rules | Pending | |
 | Offline preloaded startup | preloaded artifact starts without network access | Pending | |
 | Repeated install/start/stop | repeated lifecycle stays stable | Pending | |
@@ -121,3 +121,6 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: downloaded/extracted `2026.4.23-6641d6a` artifact boot failed with explicit `SERVICE_LASSO_SERVICES_ROOT` / `SERVICE_LASSO_WORKSPACE_ROOT`, because the entrypoint tried to use missing artifact-local `services/`; tracked as issue `#63`.
 - 2026-04-24: issue `#63` fixed release artifact boot by allowing env-provided runtime roots through `startRuntimeApp`; `npm test` passed with 85 tests and `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-envroot2 npm run release:verify` proved the staged artifact boots from its own directory while using explicit source/service and temporary workspace roots.
 - 2026-04-24: GitHub Packages install validation is blocked by available credentials: unauthenticated npm returns `E401`, and the current `gh auth token` returns `E403 permission_denied: read_package`.
+- 2026-04-24: Service acquisition mechanics were expanded with deterministic regression coverage for manifest-owned install, installed state persistence, preloaded archive reuse, missing release assets, and bad archive URLs; targeted `node --test --test-concurrency=1 tests/install-acquire.test.js` passed with 5 tests.
+- 2026-04-24: real Echo Service acquisition from `service-lasso-app-node/services/echo-service/service.json` invalidated the current private-release path: `gh release view 2026.4.20-a417abd --repo service-lasso/lasso-echoservice` shows the assets exist, but unauthenticated fetch of `echo-service-win32.zip` returns `404`; tracked as issue `#66`.
+- 2026-04-24: after the service-acquisition validation update, `npm test` passed with 87 tests, `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-acquire1 npm run package:verify` passed, and `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-acquire1 npm run release:verify` passed.
