@@ -64,6 +64,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-066` | `superseded` | Service acquisition cannot download private GitHub release assets | `SPEC-002`, `AC-4U`, `AC-4X` | GitHub issue: `#66`. Superseded for current release-readiness because `service-lasso/lasso-echoservice` is now public and unauthenticated Echo Service acquisition from the reference manifest succeeds; private-release auth can be reopened as a future product requirement if needed. |
 | `ISS-069` | `blocked` | GitHub Packages install remains blocked by npm auth/package access | `SPEC-002`, `AC-4S`, `AC-4X` | GitHub issue: `#69`. After repos were made public, `npm.pkg.github.com` still returns `E401` without auth and `E403 permission_denied` with the current `gh` token, so clean package install remains blocked on package access/token configuration rather than package build output. |
 | `ISS-071` | `done` | Release-backed Echo Service manifest does not prove HTTP/TCP health modes through runtime | `SPEC-002`, `AC-4C`, `AC-4X` | GitHub issue: `#71`. `npm run verify:echo-health` now proves public release-backed Echo HTTP health status transitions and TCP listener reachability transitions through runtime-observed health. |
+| `ISS-075` | `todo` | Reference app validation races on shared core package staging | `SPEC-002`, `AC-4X` | GitHub issue: `#75`. Parallel multi-repo reference-app validation can race while each repo stages the same core package output path; sequential validation passes, but the orchestration path needs isolation or explicit serialization. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -124,6 +125,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-066` | `superseded` | `ISS-066` | Add authenticated acquisition for private GitHub release assets | `SPEC-002`, `AC-4U`, `AC-4X` | Superseded for current release-readiness by making `service-lasso/lasso-echoservice` public; real Echo Service acquisition from the reference-app manifest now succeeds without auth. |
 | `TASK-069` | `blocked` | `ISS-069` | Verify GitHub Packages install from a clean consumer | `SPEC-002`, `AC-4S`, `AC-4X` | Blocked on GitHub Packages auth/package access configuration; unauthenticated npm returns `E401` and the current `gh` token returns `E403 permission_denied`. |
 | `TASK-071` | `done` | `ISS-071` | Add release-backed Echo Service HTTP/TCP health validation through runtime | `SPEC-002`, `AC-4C`, `AC-4X` | `npm run verify:echo-health` installs and starts the public Echo Service release archive, proves runtime-observed HTTP `200 -> 500 -> 200`, and proves TCP `connected -> ECONNREFUSED -> connected`. |
+| `TASK-075` | `todo` | `ISS-075` | Remove or serialize shared core package staging races in reference-app validation | `SPEC-002`, `AC-4X` | Pending. |
 
 ## Next Recommended Item
 Execute `TASK-057`: run the release-readiness validation matrix from clean consumer contexts and create focused follow-up issues for every failed, blocked, or unproven scenario.

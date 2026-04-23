@@ -73,15 +73,15 @@ Validate each repo:
 
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
-| Fresh clone works | clean checkout can install dependencies | Pending | |
-| Repo tests pass | repo-local test command succeeds | Pending | |
-| Release verification passes | repo-local release verification command succeeds | Pending | |
-| Source/template mode works | user can run from source/template checkout | Pending | |
-| Bootstrap-download artifact works | app can acquire service payloads from manifest release metadata | Pending | |
-| Preloaded/no-download artifact works offline | app starts with included service payloads and performs no first-run download | Pending | |
-| Host-owned output is visible | app shows its own UI/output, not only Service Admin | Pending | |
-| Service listing widget works | app lists services through Service Lasso API | Pending | |
-| Service Admin is reachable | app can access Service Admin UI | Pending | |
+| Fresh clone works | clean checkout can install dependencies | Blocked | 2026-04-24: fresh clone of `service-lasso-app-node` succeeded, but `npm ci` failed with GitHub Packages `E401`; this remains blocked by `#69` and applies to templates that install `@service-lasso/service-lasso` from `npm.pkg.github.com`. |
+| Repo tests pass | repo-local test command succeeds | Verified | 2026-04-24: sequential `npm test` passed for all five reference repos: `app-node` 4 tests, `app-web` 6, `app-electron` 6, `app-tauri` 6, and `app-packager-pkg` 4. Parallel multi-repo validation exposed shared staging contention tracked as `#75`. |
+| Release verification passes | repo-local release verification command succeeds | Verified | 2026-04-24: sequential `npm run release:verify` passed for all five reference repos. |
+| Source/template mode works | user can run from source/template checkout | Blocked | Prepared local source checks pass, but true fresh source checkout install remains blocked by GitHub Packages auth/package access in `#69`. |
+| Bootstrap-download artifact works | app can acquire service payloads from manifest release metadata | Verified | 2026-04-24: each reference repo `npm run release:verify` exercised runtime/bootstrap-download artifacts and verified Echo Service archive acquisition from manifest-owned metadata. |
+| Preloaded/no-download artifact works offline | app starts with included service payloads and performs no first-run download | Verified | 2026-04-24: each reference repo `npm run release:verify` exercised preloaded artifacts and verified zero first-run service archive downloads. |
+| Host-owned output is visible | app shows its own UI/output, not only Service Admin | Verified | 2026-04-24: reference-app host tests passed for shell/status routes across all five repos. |
+| Service listing widget works | app lists services through Service Lasso API | Verified | 2026-04-24: `app-web`, `app-electron`, and `app-tauri` tests passed their host-owned `/api/runtime-services` proxy/widget coverage; `app-node` and `app-packager-pkg` host-status coverage passed for their bounded host shape. |
+| Service Admin is reachable | app can access Service Admin UI | Verified | 2026-04-24: host tests and release verification passed mounted Service Admin payload checks for all five reference repos. |
 | Echo Service can be installed/started/stopped | app exercises Service Lasso lifecycle against Echo Service | Pending | |
 
 ## Failure Scenarios
@@ -96,6 +96,7 @@ Validate each repo:
 | Repeated install/start/stop | repeated lifecycle stays stable | Pending | |
 | Service crash/error/abort | runtime exposes failure state and logs | Pending | |
 | Packaged CLI version mismatch | installed CLI reports the staged package version | Verified | Issue `#60` fixed the mismatch; package verification now asserts the temporary installed CLI reports the staged package version and the runtime health version matches the package version. |
+| Parallel reference-app validation | multi-repo validation can run without shared staging races | Invalidated | 2026-04-24: parallel `npm test` across the five reference repos produced Windows `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures because multiple repos stage the same core package path at once; sequential validation passed; tracked as issue `#75`. |
 
 ## Execution Order
 
@@ -133,3 +134,7 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: `service-lasso/lasso-serviceadmin` validation passed with `npm test` (27 tests) and `npm run build`; runtime dashboard adapter coverage is present in the admin repo tests.
 - 2026-04-24: Echo Service HTTP/TCP health-mode validation through runtime is invalidated for the current release-backed reference manifest because it uses `process` health; tracked as issue `#71`.
 - 2026-04-24: issue `#71` is resolved by `npm run verify:echo-health`, which installs and starts the public Echo Service release archive from `service.json` artifact metadata, validates runtime-observed HTTP health `200 -> 500 -> 200`, and validates TCP health `connected -> ECONNREFUSED -> connected`. TCP proof is listener reachability/unreachability because the current runtime TCP health contract checks connection success rather than response payload.
+- 2026-04-24: prepared local reference-app validation passed sequentially: `npm test` passed in `service-lasso-app-node` (4 tests), `service-lasso-app-web` (6), `service-lasso-app-electron` (6), `service-lasso-app-tauri` (6), and `service-lasso-app-packager-pkg` (4).
+- 2026-04-24: sequential `npm run release:verify` passed in all five reference repos, verifying source, runtime/bootstrap-download, and preloaded/no-download artifacts plus mounted Service Admin payloads. `service-lasso-app-packager-pkg` verified Windows runtime/preloaded wrapper artifacts.
+- 2026-04-24: fresh clone of `service-lasso-app-node` succeeded, but `npm ci` failed with GitHub Packages `E401`; true external fresh-clone use remains blocked by package auth/access issue `#69`.
+- 2026-04-24: parallel `npm test` across all five reference repos invalidated the current multi-repo validation harness because shared core package staging produced `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures on Windows; tracked as issue `#75`. Sequential validation remains the current reliable path.
