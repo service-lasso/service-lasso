@@ -285,7 +285,7 @@ Completion outcome:
 ### 6. `ISS-047` / `TASK-047`
 
 Status:
-- todo
+- done
 
 Title:
 - add a first-class CLI/service-install surface for acquire without start
@@ -306,6 +306,15 @@ Required evidence:
 - direct tests for the CLI install/acquire path
 - docs showing the supported command
 - local verification against the bounded archive flow
+
+Completion outcome:
+- the core package/runtime now exposes a bounded supported CLI surface:
+  - `service-lasso install <serviceId> --services-root <path> --workspace-root <path>`
+- the CLI reuses the same manifest-owned `artifact` install flow as the bounded runtime/API path instead of inventing a parallel acquisition implementation
+- repeated CLI installs reuse the already downloaded archive when it is present in runtime-owned service state
+- direct CLI tests now prove:
+  - acquire/install without `start`
+  - repeated install without redownloading the archive
 
 ### 7. `ISS-048` / `TASK-048`
 

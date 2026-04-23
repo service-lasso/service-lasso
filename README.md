@@ -115,6 +115,28 @@ npm run test
 npm run dev
 ```
 
+## CLI commands
+
+The bounded core package/runtime now exposes a supported CLI surface in addition to the API server boot path.
+
+Start the bounded API runtime:
+
+```bash
+service-lasso
+```
+
+Acquire/install a service from manifest-owned `artifact` metadata without starting it:
+
+```bash
+service-lasso install echo-service --services-root ./services --workspace-root ./workspace
+```
+
+Machine-readable install output is also supported:
+
+```bash
+service-lasso install echo-service --services-root ./services --workspace-root ./workspace --json
+```
+
 ## Release artifact commands
 
 The repo now exposes a bounded downloadable runtime artifact flow.
