@@ -36,8 +36,10 @@ function createZipWithRuntimeScript() {
   return zip.toBuffer();
 }
 
-async function startFakeGitHubReleaseServer(assetName, assetBytes) {
+async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {}) {
   let requestCount = 0;
+  const releaseAssetName = options.releaseAssetName ?? assetName;
+  const downloadStatus = options.downloadStatus ?? 200;
   const server = createServer((request, response) => {
     if (!request.url) {
       response.statusCode = 404;
@@ -54,8 +56,8 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes) {
         tag_name: "2026.4.23-fixture",
         assets: [
           {
-            name: assetName,
-            browser_download_url: `${baseUrl}/downloads/${assetName}`,
+            name: releaseAssetName,
+            browser_download_url: `${baseUrl}/downloads/${releaseAssetName}`,
           },
         ],
       }));
@@ -64,7 +66,7 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes) {
 
     if (url.pathname === `/downloads/${assetName}`) {
       requestCount += 1;
-      response.statusCode = 200;
+      response.statusCode = downloadStatus;
       response.end(assetBytes);
       return;
     }
@@ -92,15 +94,11 @@ async function postJson(url) {
   };
 }
 
-test("install can acquire and unpack a manifest-owned release artifact without starting the service", async () => {
-  resetLifecycleState();
-  const { root, servicesRoot } = await makeTempServicesRoot();
-  const assetName = "downloaded-service.zip";
-  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript());
-  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", {
+function createReleaseBackedManifest(releaseServer, assetName, description = "Service installed from manifest-owned release metadata.") {
+  return {
     id: "downloaded-service",
     name: "Downloaded Service",
-    description: "Service installed from manifest-owned release metadata.",
+    description,
     artifact: {
       kind: "archive",
       source: {
@@ -121,7 +119,15 @@ test("install can acquire and unpack a manifest-owned release artifact without s
     healthcheck: {
       type: "process",
     },
-  });
+  };
+}
+
+test("install can acquire and unpack a manifest-owned release artifact without starting the service", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript());
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", createReleaseBackedManifest(releaseServer, assetName));
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -155,31 +161,11 @@ test("start can use the installed artifact command when the manifest has no chec
   const { root, servicesRoot } = await makeTempServicesRoot();
   const assetName = "downloaded-service.zip";
   const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript());
-  await writeManifest(servicesRoot, "downloaded-service", {
-    id: "downloaded-service",
-    name: "Downloaded Service",
-    description: "Service started from an installed artifact command.",
-    artifact: {
-      kind: "archive",
-      source: {
-        type: "github-release",
-        repo: "service-lasso/acquire-fixture",
-        channel: "latest",
-        api_base_url: releaseServer.baseUrl,
-      },
-      platforms: {
-        default: {
-          assetName,
-          archiveType: "zip",
-          command: process.execPath,
-          args: ["./runtime/downloaded-service.mjs"],
-        },
-      },
-    },
-    healthcheck: {
-      type: "process",
-    },
-  });
+  await writeManifest(
+    servicesRoot,
+    "downloaded-service",
+    createReleaseBackedManifest(releaseServer, assetName, "Service started from an installed artifact command."),
+  );
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -208,31 +194,11 @@ test("install reuses a preloaded archive without downloading it again", async ()
   const { root, servicesRoot } = await makeTempServicesRoot();
   const assetName = "downloaded-service.zip";
   const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript());
-  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", {
-    id: "downloaded-service",
-    name: "Downloaded Service",
-    description: "Service installed from a preloaded archive without redownloading it.",
-    artifact: {
-      kind: "archive",
-      source: {
-        type: "github-release",
-        repo: "service-lasso/acquire-fixture",
-        channel: "latest",
-        api_base_url: releaseServer.baseUrl,
-      },
-      platforms: {
-        default: {
-          assetName,
-          archiveType: "zip",
-          command: process.execPath,
-          args: ["./runtime/downloaded-service.mjs"],
-        },
-      },
-    },
-    healthcheck: {
-      type: "process",
-    },
-  });
+  const serviceRoot = await writeManifest(
+    servicesRoot,
+    "downloaded-service",
+    createReleaseBackedManifest(releaseServer, assetName, "Service installed from a preloaded archive without redownloading it."),
+  );
   const preloadedArchiveDir = path.join(serviceRoot, ".state", "artifacts", "2026.4.23-fixture");
   await mkdir(preloadedArchiveDir, { recursive: true });
   await writeFile(path.join(preloadedArchiveDir, assetName), createZipWithRuntimeScript());
@@ -245,6 +211,60 @@ test("install reuses a preloaded archive without downloading it again", async ()
     assert.equal(install.status, 200);
     assert.equal(stored.install?.artifact?.archivePath?.endsWith(assetName), true);
     assert.equal(releaseServer.getRequestCount(), 0);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install fails clearly when release metadata does not contain the requested artifact", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript(), {
+    releaseAssetName: "other-service.zip",
+  });
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", createReleaseBackedManifest(releaseServer, assetName));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 500);
+    assert.equal(install.body.error, "internal_error");
+    assert.match(install.body.message, /did not contain asset "downloaded-service\.zip"/);
+    assert.equal(stored.install, null);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install fails clearly when the resolved artifact download URL is bad", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript(), {
+    downloadStatus: 404,
+  });
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", createReleaseBackedManifest(releaseServer, assetName));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 500);
+    assert.equal(install.body.error, "internal_error");
+    assert.match(install.body.message, /Failed to download service artifact/);
+    assert.match(install.body.message, /404/);
+    assert.equal(stored.install, null);
+    assert.equal(releaseServer.getRequestCount(), 1);
   } finally {
     await apiServer.stop();
     await releaseServer.stop();
