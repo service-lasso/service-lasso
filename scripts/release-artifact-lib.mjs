@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -34,6 +34,20 @@ async function copyReleasePath(repoRoot, artifactRoot, relativePath) {
 
 async function writeReleaseManifest({ repoRoot, artifactRoot, artifactName, version }) {
   const packageJson = await readRootPackageJson(repoRoot);
+  await writeFile(
+    path.join(artifactRoot, "package.json"),
+    `${JSON.stringify({ ...packageJson, version }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const packageLockPath = path.join(artifactRoot, "package-lock.json");
+  const packageLock = JSON.parse(await readFile(packageLockPath, "utf8"));
+  packageLock.version = version;
+  if (packageLock.packages?.[""]) {
+    packageLock.packages[""].version = version;
+  }
+  await writeFile(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`, "utf8");
+
   const manifest = {
     artifactName,
     version,
@@ -190,56 +204,71 @@ export async function verifyStagedArtifact({
     throw new Error("staged core wrapper does not expose createRuntime()");
   }
 
+  const bootWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-release-workspace-"));
   const bootLogNeedle = "[service-lasso] core API spine started";
   const child = spawn(process.execPath, [path.join(stagedRoot, "dist", "index.js")], {
-    cwd: repoRoot,
+    cwd: stagedRoot,
     env: {
       ...process.env,
       SERVICE_LASSO_PORT: String(bootPort),
+      SERVICE_LASSO_SERVICES_ROOT: path.join(repoRoot, "services"),
+      SERVICE_LASSO_WORKSPACE_ROOT: bootWorkspaceRoot,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const booted = await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error("staged runtime did not boot within 10 seconds"));
-    }, 10_000);
+  try {
+    const booted = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("staged runtime did not boot within 10 seconds"));
+      }, 10_000);
 
-    let stdout = "";
-    let stderr = "";
+      let stdout = "";
+      let stderr = "";
 
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-      if (stdout.includes(bootLogNeedle)) {
+      child.stdout?.on("data", (chunk) => {
+        stdout += chunk.toString();
+        if (stdout.includes(bootLogNeedle)) {
+          clearTimeout(timeout);
+          resolve({ stdout, stderr });
+        }
+      });
+
+      child.stderr?.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on("error", (error) => {
         clearTimeout(timeout);
-        resolve({ stdout, stderr });
-      }
+        reject(error);
+      });
+
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`staged runtime exited before boot completed with code ${code}`));
+      });
     });
 
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+    const healthResponse = await fetch(`http://127.0.0.1:${bootPort}/api/health`);
+    const health = await healthResponse.json();
+    if (health?.api?.version !== resolvedVersion) {
+      throw new Error(`staged runtime health version ${health?.api?.version} did not match ${resolvedVersion}.`);
+    }
 
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("close", resolve));
 
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      reject(new Error(`staged runtime exited before boot completed with code ${code}`));
-    });
-  });
-
-  child.kill("SIGTERM");
-  await new Promise((resolve) => child.once("close", resolve));
-
-  return {
-    artifactName,
-    stagedRoot,
-    stagedArchivePath,
-    booted,
-  };
+    return {
+      artifactName,
+      stagedRoot,
+      stagedArchivePath,
+      booted,
+      health,
+    };
+  } finally {
+    child.kill("SIGTERM");
+    await rm(bootWorkspaceRoot, { recursive: true, force: true });
+  }
 }
 
 export async function createTemporaryOutputRoot(prefix = "service-lasso-release-") {

@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
+import { startRuntimeApp } from "../dist/runtime/app.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import {
   clearPersistedFixtureState,
@@ -208,6 +209,42 @@ test("runtime boots from explicit servicesRoot and workspaceRoot config", async 
       await apiServer.stop();
     }
   } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime app honors servicesRoot and workspaceRoot environment overrides", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-app-env-config-"));
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const previousServicesRoot = process.env.SERVICE_LASSO_SERVICES_ROOT;
+  const previousWorkspaceRoot = process.env.SERVICE_LASSO_WORKSPACE_ROOT;
+
+  process.env.SERVICE_LASSO_SERVICES_ROOT = path.resolve("services");
+  process.env.SERVICE_LASSO_WORKSPACE_ROOT = workspaceRoot;
+
+  try {
+    const app = await startRuntimeApp({ port: 0, version: "env-config-test" });
+
+    try {
+      const result = await getJson(`${app.apiServer.url}/api/runtime`);
+
+      assert.equal(result.status, 200);
+      assert.equal(result.body.runtime.servicesRoot, path.resolve("services"));
+      assert.equal(result.body.runtime.workspaceRoot, path.resolve(workspaceRoot));
+    } finally {
+      await app.apiServer.stop();
+    }
+  } finally {
+    if (previousServicesRoot === undefined) {
+      delete process.env.SERVICE_LASSO_SERVICES_ROOT;
+    } else {
+      process.env.SERVICE_LASSO_SERVICES_ROOT = previousServicesRoot;
+    }
+    if (previousWorkspaceRoot === undefined) {
+      delete process.env.SERVICE_LASSO_WORKSPACE_ROOT;
+    } else {
+      process.env.SERVICE_LASSO_WORKSPACE_ROOT = previousWorkspaceRoot;
+    }
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
