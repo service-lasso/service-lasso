@@ -57,6 +57,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-047` | `todo` | Add an explicit CLI/service-install surface for acquire without start | `SPEC-002`, `AC-4U` | Expose a supported CLI path that can acquire/install services from manifest-owned `artifact` metadata without forcing `start`, with direct verification against the bounded archive flow. |
 | `ISS-048` | `todo` | Complete retirement of the deprecated bundled repo identity | `SPEC-002`, `AC-4T`, `AC-4W` | Finish the remote deletion of `service-lasso-bundled`, remove any lingering references, and keep the canonical lineup limited to the real app-host repos. |
 | `ISS-049` | `todo` | Decide whether packaging-target repos are needed and create them only if justified | `SPEC-002`, `AC-4T`, `AC-4W` | Treat `service-lasso-app-packager-pkg`, `service-lasso-app-packager-sea`, and `service-lasso-app-packager-nexe` as explicit governed follow-on work instead of implied future repos. |
+| `ISS-050` | `todo` | Add a host-owned service listing widget to each canonical app-host sample UI | `SPEC-002`, `AC-4W` | Add a small runtime-API-driven services widget to `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri` so each sample host demonstrates direct API usage without duplicating the full Service Admin UI. GitHub issue: `#47`. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -110,8 +111,10 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-047` | `todo` | `ISS-047` | Implement and verify a CLI install/acquire path that does not require service start | `SPEC-002`, `AC-4U` | A documented CLI command can acquire/install a service from `service.json` artifact metadata without starting it, and direct tests prove the flow |
 | `TASK-048` | `todo` | `ISS-048` | Delete the remote bundled repo and scrub remaining deprecated references | `SPEC-002`, `AC-4T`, `AC-4W` | The `service-lasso-bundled` GitHub repo is deleted, any remaining canonical-doc references are removed, and the normalized lineup remains the only one presented |
 | `TASK-049` | `todo` | `ISS-049` | Make an explicit go/no-go decision on packaging-target repos | `SPEC-002`, `AC-4T`, `AC-4W` | The project either creates the justified packaging-target repos with a bounded contract or records an explicit decision not to create them yet |
+| `TASK-050` | `todo` | `ISS-050` | Add a runtime-backed services widget to the app-host sample UIs | `SPEC-002`, `AC-4W` | `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri` each render a bounded host-owned service listing widget that consumes the runtime API, stays distinct from Service Admin, and is covered by direct tests plus smoke proof |
 
 ## Next Recommended Item
 1. `TASK-047` / `ISS-047` — add a first-class CLI install/acquire surface that can fetch/install without `start`
 2. `TASK-048` / `ISS-048` — complete the remote deletion of the deprecated bundled repo identity
 3. `TASK-049` / `ISS-049` — make an explicit governed decision on packaging-target repos instead of leaving them implicit
+4. `TASK-050` / `ISS-050` — add a small runtime-API-driven services widget to each canonical app-host sample UI

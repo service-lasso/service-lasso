@@ -348,3 +348,33 @@ Execution order:
 Required evidence:
 - the backlog/docs show an explicit decision rather than vague placeholders
 - any created packaging-target repos have a bounded documented contract
+
+### 9. `ISS-050` / `TASK-050`
+
+Status:
+- todo
+
+Title:
+- add a host-owned service listing widget to each canonical app-host sample UI
+
+Intent:
+- show direct runtime API usage in the sample app shells instead of leaving the host-owned UI as static framing only
+- keep the host shell and Service Admin roles clearly separate
+
+Execution order:
+1. define one bounded widget contract shared across:
+   - `service-lasso-app-web`
+   - `service-lasso-app-electron`
+   - `service-lasso-app-tauri`
+2. fetch runtime service data from the existing Service Lasso API instead of hard-coding service content
+3. render a small host-owned widget that shows enough proof of API use, such as:
+   - service id/name
+   - lifecycle state
+   - health summary
+4. keep the existing embedded Service Admin surface intact and visually separate from the widget
+5. update repo docs/release-artifact docs to mention the widget as part of the sample-host proof
+
+Required evidence:
+- direct tests cover the widget/API path in each canonical app-host repo
+- smoke proof shows the widget rendering against a running runtime in each repo
+- docs describe the widget as a host-owned runtime API example rather than a second admin surface
