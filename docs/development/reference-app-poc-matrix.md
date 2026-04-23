@@ -7,7 +7,11 @@ This document captures the first meaningful POC contract for the canonical sibli
 - `service-lasso-app-electron`
 - `service-lasso-app-tauri`
 
-If packaging-target repos are added later, such as `service-lasso-app-packager-pkg`, `service-lasso-app-packager-sea`, and `service-lasso-app-packager-nexe`, they should inherit the same host/runtime contract from the canonical app-host repo they package.
+The current packaging-target repo, `service-lasso-app-packager-pkg`, inherits the same host/runtime contract from the canonical app-host repo it packages.
+
+Deferred packaging-target repos, if they are ever created later, should follow the same rule:
+- `service-lasso-app-packager-sea`
+- `service-lasso-app-packager-nexe`
 
 Each starter should remain:
 - clonable

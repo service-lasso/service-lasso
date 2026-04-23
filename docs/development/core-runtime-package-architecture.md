@@ -180,8 +180,9 @@ Recommended rollout order:
 3. `@service-lasso/service-lasso-app-node`
 4. `@service-lasso/service-lasso-app-electron`
 5. `@service-lasso/service-lasso-app-tauri`
-6. optional packaging-target repos only when there is a real implementation reason:
+6. current bounded packaging-target repo:
    - `@service-lasso/service-lasso-app-packager-pkg`
+7. explicitly deferred packaging-target repos until there is a real implementation reason:
    - `@service-lasso/service-lasso-app-packager-sea`
    - `@service-lasso/service-lasso-app-packager-nexe`
 
@@ -290,7 +291,9 @@ Reference apps should continue to be maintained as sibling starter-template repo
 - `C:\projects\service-lasso\service-lasso-app-electron`
 - `C:\projects\service-lasso\service-lasso-app-tauri`
 
-Packaging-target repos are optional later additions rather than part of the baseline canonical lineup:
+Current packaging-target repo:
 - `C:\projects\service-lasso\service-lasso-app-packager-pkg`
+
+Deferred packaging-target repos:
 - `C:\projects\service-lasso\service-lasso-app-packager-sea`
 - `C:\projects\service-lasso\service-lasso-app-packager-nexe`

@@ -119,6 +119,10 @@ These names describe how a given app is packaged/distributed:
 - `service-lasso-app-packager-sea`
 - `service-lasso-app-packager-nexe`
 
+Current decision:
+- `service-lasso-app-packager-pkg` is the first bounded packaging-target repo
+- `service-lasso-app-packager-sea` and `service-lasso-app-packager-nexe` stay deferred until a real delivery need exists beyond the canonical Node host plus `pkg` wrapper path
+
 Important rule:
 - app host type and packaging target are different concerns
 - packaging-target repos should not replace the app-type definition
