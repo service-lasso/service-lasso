@@ -33,7 +33,7 @@ Do not treat green repo tests as release readiness by themselves.
 | GitHub release artifact has expected shape | artifact includes built runtime, package payload, docs, metadata | Pending | Requires validation against a GitHub release created from a protected-branch push, not only local staged artifacts. |
 | GitHub Packages install works | clean consumer installs `@service-lasso/service-lasso` from `npm.pkg.github.com` | Pending | |
 | Installed CLI starts | consumer can run `service-lasso --help` and start runtime | Verified | 2026-04-24: clean consumer installed staged `.tgz`; `npx service-lasso help` worked; package API boot worked through `startApiServer`. |
-| Packaged CLI reports release version | consumer can run `service-lasso --version` and see the installed package version | Invalidated | 2026-04-24: staged package version was `2026.4.24-a4674fb`, but `npx service-lasso --version` returned `0.1.0`; follow-up issue `#60`. |
+| Packaged CLI reports release version | consumer can run `service-lasso --version` and see the installed package version | Verified | 2026-04-24: issue `#60` fixed the packaged version resolver; `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-fixver2 npm run package:verify` passed and `node artifacts/npm/service-lasso-package-2026.4.24-fixver2/cli.js --version` returned `2026.4.24-fixver2`. |
 | CLI install works without start | consumer can run `service-lasso install <serviceId>` | Pending | |
 | Runtime lists services | consumer runtime reports configured services through API | Verified | 2026-04-24: installed package API probe returned 4 services, including `echo-service`. |
 | Runtime starts and stops Echo Service | start/stop works from installed package context | Verified | 2026-04-24: installed package API probe ran `install`, `config`, `start`, and `stop` for `echo-service`; final detail showed `echoRunning: false`. |
@@ -94,7 +94,7 @@ Validate each repo:
 | Offline preloaded startup | preloaded artifact starts without network access | Pending | |
 | Repeated install/start/stop | repeated lifecycle stays stable | Pending | |
 | Service crash/error/abort | runtime exposes failure state and logs | Pending | |
-| Packaged CLI version mismatch | installed CLI reports the staged package version | Invalidated | Follow-up issue `#60`: staged `2026.4.24-a4674fb` package reports `0.1.0` from `npx service-lasso --version`. |
+| Packaged CLI version mismatch | installed CLI reports the staged package version | Verified | Issue `#60` fixed the mismatch; package verification now asserts the temporary installed CLI reports the staged package version and the runtime health version matches the package version. |
 
 ## Execution Order
 
@@ -115,3 +115,4 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: versioned artifact validation with `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-a4674fb` produced and verified `service-lasso-2026.4.24-a4674fb.tar.gz` plus `service-lasso-package-2026.4.24-a4674fb`.
 - 2026-04-24: clean CLI consumer installed `service-lasso-service-lasso-2026.4.24-a4674fb.tgz`; `npx service-lasso help` worked, but `npx service-lasso --version` returned `0.1.0`, tracked as issue `#60`.
 - 2026-04-24: clean API consumer installed the staged package, booted the runtime at `http://127.0.0.1:18192`, listed 4 services, and ran `echo-service` through `install`, `config`, `start`, and `stop`.
+- 2026-04-24: issue `#60` fixed package version reporting by resolving version from the shipped package metadata; `npm test` passed with 84 tests, `SERVICE_LASSO_RELEASE_VERSION=2026.4.24-fixver2 npm run package:verify` passed, and the staged package CLI returned `2026.4.24-fixver2`.
