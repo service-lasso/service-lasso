@@ -48,7 +48,7 @@ Prepared local validation passed when run sequentially:
 - `service-lasso-app-tauri`: `npm test` passed 6 tests; `npm run release:verify` passed.
 - `service-lasso-app-packager-pkg`: `npm test` passed 4 tests; `npm run release:verify` passed.
 
-Parallel multi-repo validation currently races on the shared core package staging directory and is tracked as `#75`. Until that is fixed, run reference-app release validation sequentially.
+Parallel multi-repo validation previously raced on the shared core package staging directory. Issue `#75` fixed that by staging each reference repo's local core package into an isolated output root and copying the `.tgz` into the app artifact before install; parallel `npm test` now passes across all five reference repos.
 
 ## Stop Rule
 

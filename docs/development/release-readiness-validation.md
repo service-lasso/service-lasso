@@ -74,7 +74,7 @@ Validate each repo:
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
 | Fresh clone works | clean checkout can install dependencies | Blocked | 2026-04-24: fresh clone of `service-lasso-app-node` succeeded, but `npm ci` failed with GitHub Packages `E401`; this remains blocked by `#69` and applies to templates that install `@service-lasso/service-lasso` from `npm.pkg.github.com`. |
-| Repo tests pass | repo-local test command succeeds | Verified | 2026-04-24: sequential `npm test` passed for all five reference repos: `app-node` 4 tests, `app-web` 6, `app-electron` 6, `app-tauri` 6, and `app-packager-pkg` 4. Parallel multi-repo validation exposed shared staging contention tracked as `#75`. |
+| Repo tests pass | repo-local test command succeeds | Verified | 2026-04-24: sequential and parallel `npm test` passed for all five reference repos: `app-node` 4 tests, `app-web` 6, `app-electron` 6, `app-tauri` 6, and `app-packager-pkg` 4. Shared staging contention was fixed under `#75`. |
 | Release verification passes | repo-local release verification command succeeds | Verified | 2026-04-24: sequential `npm run release:verify` passed for all five reference repos. |
 | Source/template mode works | user can run from source/template checkout | Blocked | Prepared local source checks pass, but true fresh source checkout install remains blocked by GitHub Packages auth/package access in `#69`. |
 | Bootstrap-download artifact works | app can acquire service payloads from manifest release metadata | Verified | 2026-04-24: each reference repo `npm run release:verify` exercised runtime/bootstrap-download artifacts and verified Echo Service archive acquisition from manifest-owned metadata. |
@@ -96,7 +96,7 @@ Validate each repo:
 | Repeated install/start/stop | repeated lifecycle stays stable | Pending | |
 | Service crash/error/abort | runtime exposes failure state and logs | Pending | |
 | Packaged CLI version mismatch | installed CLI reports the staged package version | Verified | Issue `#60` fixed the mismatch; package verification now asserts the temporary installed CLI reports the staged package version and the runtime health version matches the package version. |
-| Parallel reference-app validation | multi-repo validation can run without shared staging races | Invalidated | 2026-04-24: parallel `npm test` across the five reference repos produced Windows `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures because multiple repos stage the same core package path at once; sequential validation passed; tracked as issue `#75`. |
+| Parallel reference-app validation | multi-repo validation can run without shared staging races | Verified | 2026-04-24: issue `#75` fixed the shared staging race by adding isolated core package output support and having each reference repo copy the staged `.tgz` into its own app artifact before install; parallel `npm test` now passes across all five reference repos. |
 
 ## Execution Order
 
@@ -138,3 +138,4 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: sequential `npm run release:verify` passed in all five reference repos, verifying source, runtime/bootstrap-download, and preloaded/no-download artifacts plus mounted Service Admin payloads. `service-lasso-app-packager-pkg` verified Windows runtime/preloaded wrapper artifacts.
 - 2026-04-24: fresh clone of `service-lasso-app-node` succeeded, but `npm ci` failed with GitHub Packages `E401`; true external fresh-clone use remains blocked by package auth/access issue `#69`.
 - 2026-04-24: parallel `npm test` across all five reference repos invalidated the current multi-repo validation harness because shared core package staging produced `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures on Windows; tracked as issue `#75`. Sequential validation remains the current reliable path.
+- 2026-04-24: issue `#75` fixed the parallel reference-app validation race. Core targeted `node --test --test-concurrency=1 tests/package-staging-lock.test.js` passed, and parallel `npm test` passed across `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg`.
