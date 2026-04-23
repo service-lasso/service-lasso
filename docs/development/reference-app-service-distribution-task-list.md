@@ -319,7 +319,7 @@ Completion outcome:
 ### 7. `ISS-048` / `TASK-048`
 
 Status:
-- todo
+- blocked
 
 Title:
 - complete retirement of the deprecated bundled repo identity
@@ -335,6 +335,14 @@ Execution order:
 Required evidence:
 - the remote repo no longer exists
 - doc/reference scans show only the normalized canonical lineup in forward-looking guidance
+
+Current blocker:
+- attempted remote deletion with:
+  - `gh repo delete service-lasso/service-lasso-bundled --yes`
+- GitHub returned:
+  - `HTTP 403: Must have admin rights to Repository.`
+  - `This API operation needs the "delete_repo" scope.`
+- current core-doc scans already show the normalized canonical lineup in forward-looking guidance, so the only remaining completion step is remote deletion plus a final verification pass after credentials are fixed
 
 ### 8. `ISS-049` / `TASK-049`
 
