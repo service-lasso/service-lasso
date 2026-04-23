@@ -40,7 +40,7 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Assumptions
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.
-- The current highest-value work is finishing honest distribution boundaries: canonical reference-app naming, manifest-owned release/install metadata in `service.json`, truthful bundled-versus-bootstrap behavior, and protected-branch release/version flows that no longer depend on manual tags.
+- The current highest-value work is proving release readiness from a clean consumer perspective: package install, GitHub release artifacts, manifest-owned service acquisition, Service Admin integration, Echo Service behavior, and canonical reference-app source/bootstrap/preloaded outputs.
 - GitHub-backed issues/project board remain the system of record for governed execution tracking.
 - Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 
