@@ -1,9 +1,10 @@
 import { startRuntimeApp } from "./runtime/app.js";
+import { resolveRuntimeVersion } from "./runtime/version.js";
 
 async function main(): Promise<void> {
   const app = await startRuntimeApp({
     port: Number(process.env.SERVICE_LASSO_PORT ?? 18080),
-    version: process.env.npm_package_version ?? "0.1.0",
+    version: resolveRuntimeVersion(),
   });
 
   console.log("[service-lasso] core API spine started");

@@ -298,9 +298,15 @@ export async function verifyPublishedPackage({
         `const servicesRoot = ${JSON.stringify(servicesRoot)};`,
         `const workspaceRoot = ${JSON.stringify(workspaceRoot)};`,
         `const port = ${bootPort};`,
+        `const expectedVersion = ${JSON.stringify(resolvedVersion)};`,
         "",
         "const api = await startApiServer({ servicesRoot, workspaceRoot, port });",
-        'console.log(JSON.stringify({ ok: true, url: api.url }));',
+        'const healthResponse = await fetch(`${api.url}/api/health`);',
+        "const health = await healthResponse.json();",
+        "if (health.api.version !== expectedVersion) {",
+        '  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);',
+        "}",
+        "console.log(JSON.stringify({ ok: true, url: api.url, version: health.api.version }));",
         "await api.stop();",
         "",
       ].join("\n"),
@@ -308,6 +314,11 @@ export async function verifyPublishedPackage({
     );
 
     const probe = await runCommand(process.execPath, [probePath], { cwd: consumerRoot });
+    const cliVersion = await runCommand(
+      process.execPath,
+      [path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", "cli.js"), "--version"],
+      { cwd: consumerRoot },
+    );
     const lastLine = probe.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -319,11 +330,19 @@ export async function verifyPublishedPackage({
       throw new Error("consumer probe did not report a successful package boot.");
     }
 
+    const reportedVersion = cliVersion.stdout.trim();
+    if (reportedVersion !== resolvedVersion) {
+      throw new Error(`packaged CLI reported version ${reportedVersion}, expected ${resolvedVersion}.`);
+    }
+
     return {
       artifactName,
       stagedRoot,
       stagedArchivePath,
-      summary,
+      summary: {
+        ...summary,
+        cliVersion: reportedVersion,
+      },
     };
   } finally {
     await rm(consumerRoot, { recursive: true, force: true });

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { mkdir, stat } from "node:fs/promises";
 import { DEFAULT_SERVICES_ROOT, DEFAULT_WORKSPACE_ROOT, type ServiceRootConfig } from "../contracts/service-root.js";
+import { resolveRuntimeVersion } from "./version.js";
 
 export interface RuntimeConfigOptions {
   servicesRoot?: string;
@@ -40,7 +41,7 @@ export function resolveRuntimeConfig(options: RuntimeConfigOptions = {}): Runtim
       options.workspaceRoot ?? process.env.SERVICE_LASSO_WORKSPACE_ROOT,
       DEFAULT_WORKSPACE_ROOT,
     ),
-    version: options.version ?? "0.1.0",
+    version: options.version ?? resolveRuntimeVersion(),
   };
 }
 
