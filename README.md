@@ -189,7 +189,41 @@ Current publish-package details are documented in:
 GitHub Packages note:
 
 - the core package page is `https://github.com/service-lasso/service-lasso/pkgs/npm/service-lasso`
+- GitHub Packages' npm registry requires authentication for installs, including public packages
+- local consumers should configure the `@service-lasso` scope and authenticate with a token that has `read:packages`
 - sibling starter repos that install `@service-lasso/service-lasso` through Actions must be granted package read access in that package's settings under GitHub Actions access / repository access control
+
+Local consumer `.npmrc` example:
+
+```ini
+@service-lasso:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Local install example:
+
+```bash
+export NODE_AUTH_TOKEN=<classic-pat-with-read-packages>
+npm install @service-lasso/service-lasso
+```
+
+GitHub Actions consumer example:
+
+```yaml
+permissions:
+  contents: read
+  packages: read
+
+steps:
+  - uses: actions/setup-node@v5
+    with:
+      node-version: 22
+      registry-url: https://npm.pkg.github.com
+      scope: "@service-lasso"
+  - run: npm ci
+    env:
+      NODE_AUTH_TOKEN: ${{ github.token }}
+```
 
 ## Demo instance commands
 

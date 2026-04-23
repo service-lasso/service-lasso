@@ -29,6 +29,7 @@ Current preferred runtime-root model:
 - `docs/development/reference-app-service-distribution-task-list.md` - governed execution order for the four active distribution-remediation workstreams
 - `docs/development/core-runtime-release-artifact.md` - exact definition of the current bounded downloadable runtime artifact and what files it ships
 - `docs/development/core-runtime-publishable-package.md` - exact definition of the current bounded self-contained publishable `@service-lasso/service-lasso` package payload and how it is verified/published
+- `docs/development/consumer-project-readiness-task-list.md` - remaining task list for using Service Lasso from other projects
 - `docs/development/reference-app-poc-matrix.md` - shared minimum POC contract for the sibling starter repos around host output, Echo Service, and Service Admin
 - `docs/development/serviceadmin-integration-validation.md` - bounded integration validation checklist and current findings for `lasso-@serviceadmin` against the runtime/API
 - `docs/development/core-runtime-state-model-audit.md` - agreed vs provisional audit of the current `.state/` model and its implementation gaps
