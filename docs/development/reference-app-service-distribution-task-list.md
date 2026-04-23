@@ -247,7 +247,7 @@ These items are now the ready-to-pick-up follow-on queue:
 ### 5. `ISS-046` / `TASK-046`
 
 Status:
-- todo
+- done
 
 Title:
 - fan the honest artifact-mode contract through the remaining canonical app-host repos
@@ -270,6 +270,17 @@ Required evidence:
 - each repo passes `npm test`
 - each repo passes `npm run release:verify`
 - each repo has release docs that classify `source`, `runtime`, and `preloaded` modes honestly
+
+Completion outcome:
+- `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri` now match `service-lasso-app-node` by shipping:
+  - `*-source.tar.gz`
+  - `*-runtime.tar.gz`
+  - `*-preloaded.tar.gz`
+- all three repos now use tracked `services/*/service.json` inventory plus manifest-owned `artifact` metadata instead of generated Echo wrapper manifests
+- all three repos now verify the artifact contract through:
+  - `npm test`
+  - `npm run release:verify`
+- all three repos now document the artifact modes honestly and use the timestamped `yyyy.m.d-<shortsha>` release pattern on `main`
 
 ### 6. `ISS-047` / `TASK-047`
 

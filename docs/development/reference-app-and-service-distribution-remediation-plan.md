@@ -316,7 +316,7 @@ The highest-value next implementation step is now:
 The remediation itself is complete, and the next ideas are now tracked as explicit governed items rather than chat-only suggestions:
 
 1. `ISS-046` / `TASK-046`
-   - apply the honest `source` / `runtime` / `preloaded` artifact contract to `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri`
+   - completed: the honest `source` / `runtime` / `preloaded` artifact contract now also applies to `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri`
 2. `ISS-047` / `TASK-047`
    - add a first-class CLI/service-install surface so Service Lasso can acquire/install from manifest-owned `artifact` metadata without `start`
 3. `ISS-048` / `TASK-048`
