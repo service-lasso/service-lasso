@@ -102,6 +102,18 @@ CLI use:
 service-lasso
 ```
 
+Acquire/install a service without starting it:
+
+```bash
+service-lasso install echo-service --services-root ./services --workspace-root ./workspace
+```
+
+Machine-readable install output:
+
+```bash
+service-lasso install echo-service --services-root ./services --workspace-root ./workspace --json
+```
+
 ## Local commands
 
 Stage the publishable package:
@@ -123,6 +135,7 @@ The bounded verification step must prove:
 - `npm pack` succeeds for the staged package
 - the packed `.tgz` exists
 - the staged package exports `createRuntime` and `startApiServer`
+- the staged package ships the supported `service-lasso` CLI entrypoint
 - a temporary consumer can install the packed `.tgz`
 - the temporary consumer can boot the runtime against explicit `servicesRoot` and `workspaceRoot`
 

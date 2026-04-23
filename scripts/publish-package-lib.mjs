@@ -161,7 +161,7 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
     [
       "#!/usr/bin/env node",
       "",
-      "await import(\"./dist/index.js\");",
+      "await import(\"./dist/cli.js\");",
       "",
     ].join("\n"),
     "utf8",
