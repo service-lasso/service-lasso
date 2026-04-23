@@ -28,7 +28,23 @@ Consumer auth example:
 npm config set @service-lasso:registry https://npm.pkg.github.com
 ```
 
-Authentication still needs a token with package-read access in the consuming environment.
+GitHub Packages' npm registry requires authentication to install packages, including public packages. Authentication still needs a token with package-read access in the consuming environment.
+
+Local project `.npmrc` example:
+
+```ini
+@service-lasso:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Local install example:
+
+```bash
+export NODE_AUTH_TOKEN=<classic-pat-with-read-packages>
+npm install @service-lasso/service-lasso
+```
+
+Use a classic GitHub PAT with `read:packages` for local consumer installs. Do not commit tokens into project files.
 
 For GitHub Actions in sibling starter repos, the official path is:
 - use `GITHUB_TOKEN`
