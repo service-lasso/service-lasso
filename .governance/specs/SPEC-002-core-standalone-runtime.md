@@ -50,6 +50,7 @@ Explicitly out of scope for this spec:
 - `AC-4U`: The core manifest contract grows first-class release/install metadata inside `service.json`, and the runtime can acquire/install a service from that manifest without requiring `start`.
 - `AC-4V`: Core and sibling app release flows stop depending on manual tag creation and instead produce releases from protected-branch pushes using the project's timestamped `yyyy.m.d-<shortsha>` version pattern with direct artifact/package proof.
 - `AC-4W`: The sibling app repo lineup is normalized to canonical host-type and packaging-target names, deprecated starter repos are retired, and bundled/preloaded outputs honestly prove "no first-run download" behavior.
+- `AC-4X`: Release readiness is proven from a fresh consumer perspective across the core package, GitHub release artifacts, service acquisition, Echo Service, Service Admin, and canonical reference-app repos, with every failed, blocked, or unproven scenario converted into tracked follow-up work.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -81,6 +82,7 @@ Required evidence for this spec:
 - direct proof that core release/package workflows create timestamped `yyyy.m.d-<shortsha>` release versions from protected-branch pushes without requiring manual tag creation
 - direct proof that the core runtime can install/acquire a service from manifest-owned release metadata without starting it, including a supported CLI path in addition to the bounded runtime/API flow
 - direct proof that the canonical sibling app repos and packaging-target repos exist with the expected names, while deprecated/vague starter repos are retired or archived explicitly
+- direct proof that clean consumer installs and release artifacts work end to end across `@service-lasso/service-lasso`, Echo Service, Service Admin, and the canonical reference-app repos, including source/template, bootstrap-download, and preloaded/no-download modes
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
@@ -96,6 +98,7 @@ Suggested verification layers for this spec:
 - `.governance/specs/SPEC-002-core-standalone-runtime.md`
 - `README.md`
 - canonical runtime/manifest docs under `docs/reference/`
+- release-readiness validation docs under `docs/development/`
 - any new build/run/release docs created for the core runtime
 
 ## Verification
