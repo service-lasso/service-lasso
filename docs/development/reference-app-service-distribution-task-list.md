@@ -337,11 +337,16 @@ Required evidence:
 - doc/reference scans show only the normalized canonical lineup in forward-looking guidance
 
 Current blocker:
-- attempted remote deletion with:
+- previous remote deletion attempt used:
   - `gh repo delete service-lasso/service-lasso-bundled --yes`
 - GitHub returned:
   - `HTTP 403: Must have admin rights to Repository.`
   - `This API operation needs the "delete_repo" scope.`
+- current verification confirms:
+  - `service-lasso/service-lasso-bundled` still exists remotely
+  - the repo is archived
+  - current auth has `ADMIN` permission
+  - the active token scopes are `gist`, `project`, `read:org`, `repo`, and `workflow`, but not `delete_repo`
 - current core-doc scans already show the normalized canonical lineup in forward-looking guidance, so the only remaining completion step is remote deletion plus a final verification pass after credentials are fixed
 
 ### 8. `ISS-049` / `TASK-049`
