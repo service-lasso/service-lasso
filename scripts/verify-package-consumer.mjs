@@ -62,7 +62,7 @@ try {
 
   await writeFile(path.join(consumerRoot, ".npmrc"), buildScopedRegistryConfig(registry), "utf8");
 
-  const npmView = await runNpmCommand(["view", packageSpec, "version", "--registry", registry], {
+  const npmView = await runNpmCommand(["view", packageSpec, "version"], {
     cwd: consumerRoot,
     env: npmEnv,
   });
@@ -72,7 +72,7 @@ try {
     .filter(Boolean)
     .at(-1);
 
-  await runNpmCommand(["install", packageSpec, "--registry", registry], {
+  await runNpmCommand(["install", packageSpec], {
     cwd: consumerRoot,
     env: npmEnv,
   });
