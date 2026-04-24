@@ -6,6 +6,8 @@ import {
   classifyPackageAccessFailure,
   DEFAULT_REGISTRY,
   getMissingTokenSummary,
+  GITHUB_PACKAGES_REGISTRY,
+  registryRequiresToken,
 } from "../scripts/verify-package-consumer-lib.mjs";
 
 test("buildPackageSpec returns the scoped package with and without a version", () => {
@@ -16,8 +18,20 @@ test("buildPackageSpec returns the scoped package with and without a version", (
 test("buildScopedRegistryConfig writes a scoped npmrc entry for the registry host", () => {
   assert.equal(
     buildScopedRegistryConfig(DEFAULT_REGISTRY),
+    "@service-lasso:registry=https://registry.npmjs.org\n",
+  );
+});
+
+test("buildScopedRegistryConfig can include auth for authenticated registries", () => {
+  assert.equal(
+    buildScopedRegistryConfig(GITHUB_PACKAGES_REGISTRY, { includeAuth: true }),
     "@service-lasso:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
   );
+});
+
+test("registryRequiresToken is only true for GitHub Packages", () => {
+  assert.equal(registryRequiresToken(DEFAULT_REGISTRY), false);
+  assert.equal(registryRequiresToken(GITHUB_PACKAGES_REGISTRY), true);
 });
 
 test("classifyPackageAccessFailure recognizes missing authentication", () => {
