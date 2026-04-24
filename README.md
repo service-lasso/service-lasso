@@ -176,60 +176,55 @@ What these do:
 
 - `npm run package:stage` builds and stages `artifacts/npm/service-lasso-package-<version>/` plus a packed `.tgz` inside that folder
 - `npm run package:verify` stages the package, runs `npm pack`, installs it into a temporary consumer, and boots the runtime against explicit runtime roots
-- `npm run verify:package-consumer` verifies an install directly from `npm.pkg.github.com` using `NODE_AUTH_TOKEN`, then runs `service-lasso --version` and `service-lasso help` from the installed package
+- `npm run verify:package-consumer` verifies an install directly from `registry.npmjs.org`, then runs `service-lasso --version` and `service-lasso help` from the installed package
 
 Protected-branch publish note:
 
 - local commands default to the repo `package.json` version for staging and verification
-- the protected-branch publish workflow on `main` computes the published package version as `yyyy.m.d-<shortsha>` and publishes that version to GitHub Packages automatically from the push
+- the protected-branch publish workflow on `main` computes the published package version as `yyyy.m.d-<shortsha>` and publishes that version to the public npm registry automatically from the push when `NPM_TOKEN` is configured
 
 Current publish-package details are documented in:
 
 - `docs/development/core-runtime-publishable-package.md`
 
-GitHub Packages note:
+Public npm package note:
 
-- the core package page is `https://github.com/service-lasso/service-lasso/pkgs/npm/service-lasso`
-- GitHub Packages' npm registry requires authentication for installs, including public packages
-- local consumers should configure the `@service-lasso` scope and authenticate with a token that has `read:packages`
-- sibling starter repos that install `@service-lasso/service-lasso` through Actions must be granted package read access in that package's settings under GitHub Actions access / repository access control
+- the core package page is `https://www.npmjs.com/package/@service-lasso/service-lasso`
+- public npm consumers install from `https://registry.npmjs.org`
+- local consumers do not need a scoped `.npmrc` or GitHub package token for the public npm path
+- the GitHub Packages package remains historical/internal evidence and still requires auth if explicitly used
 
-Local consumer `.npmrc` example:
+Local install example:
+
+```bash
+npm install @service-lasso/service-lasso
+```
+
+Optional GitHub Packages `.npmrc` example for legacy/internal consumers:
 
 ```ini
 @service-lasso:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
-Local install example:
-
-```bash
-export NODE_AUTH_TOKEN=<classic-pat-with-read-packages>
-npm install @service-lasso/service-lasso
-```
-
-GitHub Actions consumer example:
+GitHub Actions consumer example for public npm:
 
 ```yaml
 permissions:
   contents: read
-  packages: read
 
 steps:
   - uses: actions/setup-node@v5
     with:
       node-version: 22
-      registry-url: https://npm.pkg.github.com
-      scope: "@service-lasso"
+      registry-url: https://registry.npmjs.org
   - run: npm ci
-    env:
-      NODE_AUTH_TOKEN: ${{ github.token }}
 ```
 
 Direct package-consumer proof:
 
-- `.github/workflows/verify-package-consumer.yml` runs the registry install verifier on demand with `GITHUB_TOKEN` and `packages: read`
-- `.github/workflows/publish-package.yml` now re-installs the just-published version from GitHub Packages after publish and runs the same verifier
+- `.github/workflows/verify-package-consumer.yml` runs the registry install verifier on demand against npmjs by default
+- `.github/workflows/publish-package.yml` re-installs the just-published npmjs version after publish and runs the same verifier
 
 ## Demo instance commands
 

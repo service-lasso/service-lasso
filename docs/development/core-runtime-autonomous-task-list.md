@@ -204,7 +204,7 @@ Current honest label:
     - the repo can stage a self-contained `@service-lasso/service-lasso` package payload
     - `npm pack` works against the staged payload
     - a temporary consumer can install the packed payload and boot the runtime against explicit roots
-    - GitHub Actions can publish the staged payload to GitHub Packages from the protected-branch release flow
+    - GitHub Actions can publish the staged payload to the configured package registry from the protected-branch release flow
     - each sibling starter repo has an explicit minimal executable POC contract requiring host-owned output plus `lasso-@serviceadmin` against Echo Service
 
 ### Wave 8: Distribution remediation

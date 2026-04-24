@@ -1,20 +1,28 @@
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
-export const DEFAULT_REGISTRY = "https://npm.pkg.github.com";
+export const NPMJS_REGISTRY = "https://registry.npmjs.org";
+export const GITHUB_PACKAGES_REGISTRY = "https://npm.pkg.github.com";
+export const DEFAULT_REGISTRY = NPMJS_REGISTRY;
 
 export function buildPackageSpec(version) {
   const trimmedVersion = version?.trim();
   return trimmedVersion ? `${PACKAGE_NAME}@${trimmedVersion}` : PACKAGE_NAME;
 }
 
-export function buildScopedRegistryConfig(registry = DEFAULT_REGISTRY) {
+export function buildScopedRegistryConfig(registry = DEFAULT_REGISTRY, { includeAuth = false } = {}) {
   const registryUrl = new URL(registry);
   const normalizedRegistry = registry.replace(/\/+$/, "");
+  const lines = [`@service-lasso:registry=${normalizedRegistry}`];
 
-  return [
-    `@service-lasso:registry=${normalizedRegistry}`,
-    `//${registryUrl.host}/:_authToken=\${NODE_AUTH_TOKEN}`,
-    "",
-  ].join("\n");
+  if (includeAuth) {
+    lines.push(`//${registryUrl.host}/:_authToken=\${NODE_AUTH_TOKEN}`);
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function registryRequiresToken(registry = DEFAULT_REGISTRY) {
+  return registry.replace(/\/+$/, "") === GITHUB_PACKAGES_REGISTRY;
 }
 
 export function classifyPackageAccessFailure(errorText) {
@@ -28,7 +36,7 @@ export function classifyPackageAccessFailure(errorText) {
     return {
       code: "missing_auth",
       message:
-        "GitHub Packages npm installs require authentication. Provide NODE_AUTH_TOKEN with a classic PAT that has read:packages for local use, or use GITHUB_TOKEN with packages: read in GitHub Actions.",
+        "The selected package registry requires authentication. Provide NODE_AUTH_TOKEN with a token that can read the package, or use the public npm registry for anonymous public installs.",
     };
   }
 
@@ -41,7 +49,7 @@ export function classifyPackageAccessFailure(errorText) {
     return {
       code: "insufficient_scope",
       message:
-        "The provided token is authenticated but cannot read the package. Local use needs a classic PAT with read:packages; cross-repo GitHub Actions also need package access granted in the package settings page.",
+        "The provided token is authenticated but cannot read the package. For GitHub Packages use a classic PAT with read:packages or GITHUB_TOKEN with packages: read and package access granted.",
     };
   }
 
@@ -49,7 +57,7 @@ export function classifyPackageAccessFailure(errorText) {
     return {
       code: "not_found_or_inaccessible",
       message:
-        "The package could not be resolved from GitHub Packages. Confirm the published version exists and that the token can see the package from this workflow or consumer repository.",
+        "The package could not be resolved from the selected registry. Confirm the published version exists and that the registry matches the package publish target.",
     };
   }
 

@@ -24,9 +24,9 @@ What this scaffold does:
 - keeps the reference-app starters out of the core repo where they belong
 
 What it does not claim yet:
-- a finished public npmjs.com rollout
 - migrated runtime source under `packages/core/src`
 - fully implemented starter apps in each sibling template repo
+- protected-branch npmjs publish proof before `NPM_TOKEN` is configured
 
 ## Core product boundary
 
@@ -64,7 +64,7 @@ Suggested package name:
 Published via npm (`npm publish`) as the canonical reusable runtime package.
 
 Current bounded reality:
-- the repo stages a self-contained publish payload and publishes it through GitHub Packages
+- the repo stages a self-contained publish payload and targets public npmjs as the default publish/consumer registry
 - the in-repo `packages/core` wrapper remains the source-boundary scaffold, not the published payload itself
 
 ### 2) Built Node runtime

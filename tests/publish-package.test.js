@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import {
   createTemporaryOutputRoot,
   stagePublishedPackage,
@@ -23,6 +23,11 @@ test("publishable core package can be staged and consumed by a temp project", as
     assert.match(staged.artifactName, /^service-lasso-package-[0-9A-Za-z.-]+$/);
     assert.equal(staged.manifest.packageName, "@service-lasso/service-lasso");
     assert.equal(staged.manifest.artifactKind, "bounded-npm-publish-payload");
+    assert.equal(staged.manifest.registry, "https://registry.npmjs.org");
+
+    const stagedPackageJson = JSON.parse(await readFile(path.join(staged.artifactRoot, "package.json"), "utf8"));
+    assert.equal(stagedPackageJson.publishConfig.registry, "https://registry.npmjs.org");
+    assert.equal(stagedPackageJson.publishConfig.access, "public");
 
     const verified = await verifyPublishedPackage({
       repoRoot,

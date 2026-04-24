@@ -11,6 +11,7 @@ import {
 import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
+export const NPMJS_REGISTRY = "https://registry.npmjs.org";
 const PACKAGE_STAGE_LOCK_TIMEOUT_MS = 120_000;
 const PACKAGE_STAGE_LOCK_STALE_MS = 600_000;
 
@@ -134,8 +135,8 @@ function buildPublishedPackageJson(version, rootPackageJson) {
     },
     dependencies: rootPackageJson.dependencies ?? {},
     publishConfig: {
-      registry: "https://npm.pkg.github.com",
-      access: "restricted",
+      registry: NPMJS_REGISTRY,
+      access: "public",
     },
     repository: {
       type: "git",
@@ -180,7 +181,7 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
       runtime: "dist/index.js",
     },
     notes: [
-      "This payload is self-contained and publishable to GitHub Packages.",
+      "This payload is self-contained and publishable to the public npm registry.",
       "Consumers must still provide servicesRoot and workspaceRoot at runtime.",
       "This does not bundle services, workspace data, or the starter repos.",
     ],

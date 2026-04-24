@@ -9,6 +9,7 @@ import {
   classifyPackageAccessFailure,
   DEFAULT_REGISTRY,
   getMissingTokenSummary,
+  registryRequiresToken,
 } from "./verify-package-consumer-lib.mjs";
 
 function parseArgs(argv) {
@@ -39,8 +40,9 @@ function parseArgs(argv) {
 
 const { version, registry } = parseArgs(process.argv.slice(2));
 const token = process.env.NODE_AUTH_TOKEN?.trim() ?? "";
+const includeAuth = Boolean(token);
 
-if (!token) {
+if (registryRequiresToken(registry) && !token) {
   console.error("[service-lasso] package consumer verification is blocked: NODE_AUTH_TOKEN is missing.");
   console.log(JSON.stringify(getMissingTokenSummary()));
   process.exit(2);
@@ -60,7 +62,7 @@ try {
     "utf8",
   );
 
-  await writeFile(path.join(consumerRoot, ".npmrc"), buildScopedRegistryConfig(registry), "utf8");
+  await writeFile(path.join(consumerRoot, ".npmrc"), buildScopedRegistryConfig(registry, { includeAuth }), "utf8");
 
   const npmView = await runNpmCommand(["view", packageSpec, "version"], {
     cwd: consumerRoot,
