@@ -10,15 +10,17 @@ Service Lasso is not fully consumer-ready until the tasks below are classified w
 
 The core runtime, public service acquisition paths, release-backed Echo health proof, and reference-app release artifacts are working.
 
-External fresh-clone usage remains blocked until GitHub Packages auth/package access is verified, because the app templates install `@service-lasso/service-lasso` from `npm.pkg.github.com`.
+GitHub Packages auth/package access is now verified for the documented GitHub Actions path.
+
+External fresh-clone local usage still needs a classic PAT with `read:packages`, so the remaining consumer-readiness work is now about end-to-end fresh local/project proof rather than package-auth uncertainty.
 
 ## Task List
 
 | ID | Status | Linked issue | Outcome needed | Evidence required |
 | --- | --- | --- | --- | --- |
-| `CONSUMER-001` | `blocked` | `#69` | Other projects can install `@service-lasso/service-lasso` from GitHub Packages using the documented auth path. | Clean temp consumer install from `npm.pkg.github.com`, `service-lasso --version`, and `service-lasso help`. |
+| `CONSUMER-001` | `done` | `#69` | Other projects can install `@service-lasso/service-lasso` from GitHub Packages using the documented auth path. | 2026-04-24: PR workflow run `24872832811` (`Verify Package Consumer`) succeeded with `GITHUB_TOKEN` + `packages: read`, installed `@service-lasso/service-lasso` from `npm.pkg.github.com`, and ran `service-lasso --version` plus `service-lasso help`. |
 | `CONSUMER-002` | `done` | `#71` | Public release-backed Echo Service proves HTTP and TCP health mode transitions through Service Lasso runtime health. | 2026-04-24: `npm run verify:echo-health` exercised the public `2026.4.20-a417abd` Echo release archive with runtime-observed HTTP 200 -> 500 -> 200 health and TCP reachable -> unreachable -> reachable health. |
-| `CONSUMER-003` | `blocked` | `#58`, `#69` | Reference apps are validated as cloneable templates. | 2026-04-24: prepared local repo tests passed sequentially for `app-node`, `app-web`, `app-electron`, `app-tauri`, and `app-packager-pkg`; fresh clone of `service-lasso-app-node` reached `npm ci` but failed with GitHub Packages `E401`, so true external clone/install remains blocked by `#69`. |
+| `CONSUMER-003` | `blocked` | `#58` | Reference apps are validated as cloneable templates. | 2026-04-24: prepared local repo tests passed sequentially for `app-node`, `app-web`, `app-electron`, `app-tauri`, and `app-packager-pkg`; GitHub Packages auth is now proven by workflow run `24872832811`, but a true fresh local external reference-app clone with a classic PAT has not yet been rerun. |
 | `CONSUMER-004` | `done` | `#58` | Reference app release outputs are validated as usable artifacts. | 2026-04-24: sequential `npm run release:verify` passed for all five reference repos, verifying source, runtime/bootstrap-download, and preloaded/no-download artifacts where shipped. |
 | `CONSUMER-005` | `done` | `#58` | Service Admin is reachable from reference app hosts, not only from its own repo. | 2026-04-24: reference-app host tests and release verification passed with mounted Service Admin payload checks for all five repos. |
 | `CONSUMER-006` | `todo` | `#58` | `develop` is promoted to `main` only after readiness evidence is current. | Promotion PR, green release/package workflows, timestamped GitHub release, and package publish evidence. |
@@ -28,10 +30,14 @@ External fresh-clone usage remains blocked until GitHub Packages auth/package ac
 
 GitHub Packages for npm requires authentication for installs, including public packages. That means a normal project must provide an auth token before `npm install @service-lasso/service-lasso` can work from `npm.pkg.github.com`.
 
-Current local validation is blocked because:
+Current local validation still needs an explicit user token because:
 
 - unauthenticated npm returns `E401`.
 - the current `gh auth token` returns `E403 permission_denied`.
+
+Current verified non-local path:
+
+- 2026-04-24: workflow run `24872832811` (`https://github.com/service-lasso/service-lasso/actions/runs/24872832811`) succeeded with `GITHUB_TOKEN` and `packages: read`, proving the documented GitHub Actions install path can install the package and run the CLI from `npm.pkg.github.com`.
 
 Required external action:
 
