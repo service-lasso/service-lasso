@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Check out repo
@@ -22,8 +21,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          registry-url: https://npm.pkg.github.com
-          scope: "@service-lasso"
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: npm ci
@@ -52,10 +50,8 @@ jobs:
 
       - name: Check whether package version already exists
         id: package_exists
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
-          if npm view @service-lasso/service-lasso@${{ steps.publish_version.outputs.version }} version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+          if npm view @service-lasso/service-lasso@${{ steps.publish_version.outputs.version }} version --registry https://registry.npmjs.org >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -67,15 +63,25 @@ jobs:
           name: ${{ steps.publish_version.outputs.artifact_name }}
           path: artifacts/npm/${{ steps.publish_version.outputs.artifact_name }}
 
-      - name: Publish package to GitHub Packages
+      - name: Check npm token is configured
+        if: steps.package_exists.outputs.exists != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "NPM_TOKEN repository secret is required to publish @service-lasso/service-lasso to npm." >&2
+            exit 1
+          fi
+
+      - name: Publish package to npm
         if: steps.package_exists.outputs.exists != 'true'
         working-directory: artifacts/npm/${{ steps.publish_version.outputs.artifact_name }}
         env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
-        run: npm publish
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
 
-      - name: Verify published package from GitHub Packages
+      - name: Verify published package from npm
         env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
           SERVICE_LASSO_VERIFY_PACKAGE_VERSION: ${{ steps.publish_version.outputs.version }}
+          SERVICE_LASSO_VERIFY_PACKAGE_REGISTRY: https://registry.npmjs.org
         run: npm run verify:package-consumer
