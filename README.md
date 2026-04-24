@@ -176,6 +176,7 @@ What these do:
 
 - `npm run package:stage` builds and stages `artifacts/npm/service-lasso-package-<version>/` plus a packed `.tgz` inside that folder
 - `npm run package:verify` stages the package, runs `npm pack`, installs it into a temporary consumer, and boots the runtime against explicit runtime roots
+- `npm run verify:package-consumer` verifies an install directly from `npm.pkg.github.com` using `NODE_AUTH_TOKEN`, then runs `service-lasso --version` and `service-lasso help` from the installed package
 
 Protected-branch publish note:
 
@@ -224,6 +225,11 @@ steps:
     env:
       NODE_AUTH_TOKEN: ${{ github.token }}
 ```
+
+Direct package-consumer proof:
+
+- `.github/workflows/verify-package-consumer.yml` runs the registry install verifier on demand with `GITHUB_TOKEN` and `packages: read`
+- `.github/workflows/publish-package.yml` now re-installs the just-published version from GitHub Packages after publish and runs the same verifier
 
 ## Demo instance commands
 
