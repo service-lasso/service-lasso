@@ -1,0 +1,14 @@
+{
+  "id": "@traefik",
+  "name": "Traefik Router",
+  "description": "Baseline edge/router placeholder. It is disabled until a canonical release-backed Traefik service repo/artifact exists.",
+  "version": "0.1.0",
+  "enabled": false,
+  "urls": [
+    {
+      "label": "docs",
+      "url": "https://traefik.io",
+      "kind": "external"
+    }
+  ]
+}

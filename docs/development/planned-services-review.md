@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-24
 
-Linked issues: `#91`, `#93`
+Linked issues: `#91`, `#93`, `#97`, `#102`
 
 ## Summary
 
@@ -31,11 +31,11 @@ Java is a separate core-completion gap rather than a starter baseline dependency
 | Service | Role | Current status | Gap |
 | --- | --- | --- | --- |
 | `echo-service` | Real managed harness/service for install, lifecycle, logs, state, SQLite, HTTP/TCP health, and UI validation. | Implemented and released in `service-lasso/lasso-echoservice`; used by core and all reference apps. | No baseline gap. |
-| `service-admin` | Operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; all reference apps include `services/service-admin/service.json`. | Needs fresh canonical repo/pipeline validation before final release-readiness closure; dependency inventory is incomplete if `@node` / `@traefik` remain declared dependencies. |
-| `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Implemented as a bounded provider path in core; manifest exists in core `services/@node/service.json` and `service-template/services/@node/service.json`. | Missing from all canonical reference app `services/` inventories. |
+| `service-admin` | Operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; release-backed manifest exists in core `services/service-admin/service.json`; all reference apps include `services/service-admin/service.json`. | Needs fresh canonical repo/pipeline validation before final release-readiness closure; full clean-clone orchestration remains under `#98` / `#99`. |
+| `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Implemented as a bounded local/no-download provider path in core; manifest exists in core `services/@node/service.json` and `service-template/services/@node/service.json`. | Missing from all canonical reference app `services/` inventories; explicitly classified as local/no-download until a separate runtime-distribution requirement exists. |
 | `@python` | Runtime/provider utility service for Python-backed services. | Manifest exists in core `services/@python/service.json`; docs mention provider planning. | Not part of the current starter baseline, but should be explicitly classified as optional/future for app inventories. |
 | `@java` | Runtime/provider utility service for Java/JVM-backed services. | Donor source exists at `ref/typerefinery-service-manager-donor/services/_java`; docs mention Java apps through `execservice: java`; donor Keycloak notes depend on Java. | No core `services/@java/service.json`, no dedicated service repo, no release pipeline/artifact, no install/acquire proof, and no Java-backed runtime/provider proof. Tracked by issue `#93`. |
-| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Manifest exists in `service-template/services/@traefik/service.json`; docs list it in starter baseline. | Missing from core `services/` and all canonical reference app `services/` inventories; no dedicated implementation/release proof exists yet. |
+| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Disabled placeholder manifest exists in core `services/@traefik/service.json`; manifest exists in `service-template/services/@traefik/service.json`; docs list it in starter baseline. | No dedicated implementation/release proof exists yet. Issue `#102` tracks the canonical release-backed Traefik service repo/artifact needed before `@traefik` can be a real running baseline service. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 | `@localcert` | Future local certificate/bootstrap utility based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 
@@ -47,11 +47,12 @@ Core repo currently has:
 - `services/@node/service.json`
 - `services/@python/service.json`
 - `services/node-sample-service/service.json`
+- `services/service-admin/service.json`
+- `services/@traefik/service.json`
 
 Core repo does not currently have:
 
 - `services/@java/service.json`
-- `services/@traefik/service.json`
 - `services/@archive/service.json`
 - `services/@localcert/service.json`
 
