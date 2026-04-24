@@ -7,7 +7,7 @@ It exists because a complete governed backlog is not the same as consumer-ready 
 ## Status
 
 - Mode: Development, release verification checkpoint
-- Current state: execution in progress with core package, external consumer smoke, service acquisition, Echo Service, Service Admin, and reference-app template evidence captured; remaining pending rows stay explicit below
+- Current state: execution in progress with core package, external consumer smoke, service acquisition, Echo Service, Service Admin, reference-app template evidence, and failure/lifecycle smoke evidence captured; remaining pending rows stay explicit below
 - Governing spec: `SPEC-002`, `AC-4X`
 - GitHub issue: `#58`
 
@@ -56,7 +56,7 @@ Do not treat green repo tests as release readiness by themselves.
 
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
-| Service Admin is available where reference apps require it | app can open or link to admin UI | Pending | App-host live routing remains to be validated in the reference-app pass. |
+| Service Admin is available where reference apps require it | app can open or link to admin UI | Verified | 2026-04-24: reference-app host tests and release verification passed mounted Service Admin payload checks for all five canonical app repos; the reference-app matrix also marks Service Admin reachability verified. |
 | Service Admin consumes runtime services | admin service list/detail surfaces load from runtime API | Verified | 2026-04-24: `service-lasso/lasso-serviceadmin` is public; local `npm test` passed 27 tests including runtime dashboard adapter coverage, and `npm run build` passed. |
 | Echo Service UI is reachable | harness UI opens from runtime-managed service | Verified | 2026-04-24: runtime-managed Echo Service installed/configured/started from the public release-backed manifest and `GET http://127.0.0.1:4010/` returned `200` with Echo Service UI content. |
 | Echo Service stdout/stderr actions are captured | Service Lasso logs show emitted stdout/stderr lines | Verified | 2026-04-24: runtime-managed Echo Service `/action/write-stdout` and `/action/write-stderr` returned `200`, and `/api/services/echo-service/logs` contained the emitted validation lines. |
@@ -84,7 +84,7 @@ Validate each repo:
 | Host-owned output is visible | app shows its own UI/output, not only Service Admin | Verified | 2026-04-24: reference-app host tests passed for shell/status routes across all five repos. |
 | Service listing widget works | app lists services through Service Lasso API | Verified | 2026-04-24: `app-web`, `app-electron`, and `app-tauri` tests passed their host-owned `/api/runtime-services` proxy/widget coverage; `app-node` and `app-packager-pkg` host-status coverage passed for their bounded host shape. |
 | Service Admin is reachable | app can access Service Admin UI | Verified | 2026-04-24: host tests and release verification passed mounted Service Admin payload checks for all five reference repos. |
-| Echo Service can be installed/started/stopped | app exercises Service Lasso lifecycle against Echo Service | Pending | |
+| Echo Service can be installed/started/stopped | app exercises Service Lasso lifecycle against Echo Service | Blocked | Existing release verification proves artifact install/start/stop flows, and clean external package smoke proves runtime lifecycle, but a deterministic live source-host smoke for all five reference apps is still missing. Tracked as issue `#89` after the ad-hoc Windows harness exposed stale local app `node_modules` and process-cleanup leakage. |
 
 ## Failure Scenarios
 
@@ -94,10 +94,10 @@ Validate each repo:
 | Missing npm publish token | protected-branch package workflow fails before publish with actionable guidance | Verified | 2026-04-24: earlier publish workflow attempts failed clearly for missing/invalid npm publishing credentials, then run `24876054960` succeeded after `NPM_TOKEN` was replaced with a CI-publishable token. |
 | Missing service release artifact | acquisition failure is deterministic | Verified | 2026-04-24: `tests/install-acquire.test.js` covers a release metadata payload that lacks the requested asset and confirms install state is not persisted. |
 | Bad archive URL | acquisition failure is deterministic | Verified | 2026-04-24: `tests/install-acquire.test.js` covers a resolved archive URL returning `404` and confirms install state is not persisted. |
-| Port conflict | runtime reports conflict or negotiates according to manifest rules | Pending | |
-| Offline preloaded startup | preloaded artifact starts without network access | Pending | |
-| Repeated install/start/stop | repeated lifecycle stays stable | Pending | |
-| Service crash/error/abort | runtime exposes failure state and logs | Pending | |
+| Port conflict | runtime reports conflict or negotiates according to manifest rules | Verified | 2026-04-24: clean external consumer smoke installed `@service-lasso/service-lasso@2026.4.24-a663bb0`, configured two services with the same preferred `service` port `43100`, and runtime negotiation kept alpha at `43100` while assigning beta `43101` with matching network endpoint output. |
+| Offline preloaded startup | preloaded artifact starts without network access | Verified | 2026-04-24: clean external consumer smoke preseeded the Echo archive under `.state/artifacts/2026.4.20-a417abd/`, changed the manifest asset URL to dead `http://127.0.0.1:9/should-not-be-downloaded.zip`, and `install` still succeeded by reusing the preloaded archive path. |
+| Repeated install/start/stop | repeated lifecycle stays stable | Verified | 2026-04-24: clean external consumer smoke installed/configured the public Echo Service release and completed two consecutive start/stop cycles through the installed package API. |
+| Service crash/error/abort | runtime exposes failure state and logs | Verified | 2026-04-24: clean external consumer smoke started the public Echo Service release, confirmed `/action/error` returned `500` while runtime remained manageable, then `/action/abort` produced `running=false`, `lastTermination=crashed`, `exitCode=2`, and `crashCount=1`. |
 | Packaged CLI version mismatch | installed CLI reports the staged package version | Verified | Issue `#60` fixed the mismatch; package verification now asserts the temporary installed CLI reports the staged package version and the runtime health version matches the package version. |
 | Parallel reference-app validation | multi-repo validation can run without shared staging races | Verified | 2026-04-24: issue `#75` fixed the shared staging race by adding isolated core package output support and having each reference repo copy the staged `.tgz` into its own app artifact before install; parallel `npm test` now passes across all five reference repos. |
 
@@ -147,3 +147,5 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: issue `#75` fixed the parallel reference-app validation race. Core targeted `node --test --test-concurrency=1 tests/package-staging-lock.test.js` passed, and parallel `npm test` passed across `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg`.
 - 2026-04-24: all five canonical reference apps were migrated to the public npmjs package path and merged through PRs: `service-lasso-app-node#5`, `service-lasso-app-web#16`, `service-lasso-app-electron#5`, `service-lasso-app-tauri#15`, and `service-lasso-app-packager-pkg#7`. Fresh clones from GitHub in `C:\projects\service-lasso\.tmp\reference-npmjs-fresh-clone-20260424` passed `npm ci` and `npm test` for app refs `075651d`, `e44d905`, `f736984`, `e420c6d`, and `7e7da44`, with lockfiles resolving `@service-lasso/service-lasso@2026.4.24-a663bb0` from `registry.npmjs.org`.
 - 2026-04-24: clean external consumer project smoke passed in `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424`: installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public Echo Service and Service Admin manifests from `service-lasso-app-node`, verified `npx service-lasso --version`, ran `npx service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`.
+- 2026-04-24: clean external failure/lifecycle smoke passed in `C:\projects\service-lasso\.tmp\iss-057-failure-lifecycle-smoke-20260424`: installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs; verified port collision negotiation `43100 -> 43101`; verified repeated Echo install/config/start/stop; verified preloaded/no-download install with dead asset URL `http://127.0.0.1:9/should-not-be-downloaded.zip`; and verified Echo error/abort state with `500`, `lastTermination=crashed`, `exitCode=2`, and `crashCount=1`.
+- 2026-04-24: direct live reference-app source-host lifecycle proof remains blocked by deterministic harness work tracked as issue `#89`. The first local attempt was invalid because local app-node `node_modules` still contained stale `@service-lasso/service-lasso@0.1.0`; the fresh-clone attempt reached host/admin/runtime surfaces but the ad-hoc Windows process cleanup leaked child processes and timed out.

@@ -87,3 +87,8 @@ Do not close `ISS-057` until:
 - every row above is verified, blocked with exact external action, invalidated with a follow-up issue, or explicitly deferred.
 - `docs/development/release-readiness-validation.md` has matching evidence.
 - the repo is back on clean `develop` after each work slice.
+
+## Remaining ISS-057 Work
+
+- `CONSUMER-006`: promote `develop` to `main` only after the readiness matrix is current, then wait for release/package workflows and record release evidence.
+- `#89`: add a deterministic live reference-app lifecycle smoke so all five canonical app hosts prove Echo Service install/config/start/stop through their app-owned runtime without stale local dependencies or leaked child processes.
