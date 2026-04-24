@@ -52,6 +52,7 @@ Explicitly out of scope for this spec:
 - `AC-4W`: The sibling app repo lineup is normalized to canonical host-type and packaging-target names, deprecated starter repos are retired, and bundled/preloaded outputs honestly prove "no first-run download" behavior.
 - `AC-4X`: Release readiness is proven from a fresh consumer perspective across the core package, GitHub release artifacts, service acquisition, Echo Service, Service Admin, and canonical reference-app repos, with every failed, blocked, or unproven scenario converted into tracked follow-up work.
 - `AC-4Y`: Core service completion planning explicitly classifies donor-aligned runtime/provider services such as `@node`, `@python`, `@java`, `@traefik`, `@archive`, and `@localcert` as implemented, baseline, optional, or deferred, with implementation-grade follow-up issues for anything required before core completion can be claimed.
+- `AC-4Z`: A clean clone of `service-lasso` has one documented baseline start path that can acquire, configure, and start the expected baseline services from their canonical service repos where downloads are required: `@traefik`, `@node`, `echo-service`, and `service-admin`. Any baseline service that is intentionally local/no-download must be explicitly documented as such, and any missing capability must be tracked as a release-readiness blocker before core completion is claimed.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -85,6 +86,7 @@ Required evidence for this spec:
 - direct proof that the canonical sibling app repos and packaging-target repos exist with the expected names, while deprecated/vague starter repos are retired or archived explicitly
 - direct proof that clean consumer installs and release artifacts work end to end across `@service-lasso/service-lasso`, Echo Service, Service Admin, and the canonical reference-app repos, including source/template, bootstrap-download, and preloaded/no-download modes
 - documentation and backlog proof that donor-aligned core runtime/provider services are classified explicitly, including a tracked Java runtime service path for donor `_java` rather than leaving Java only in reference material
+- direct clean-clone proof for the documented baseline start path, including service acquisition where manifests point at release artifacts, dependency-aware install/config/start sequencing, and runtime API evidence that `@traefik`, `@node`, `echo-service`, and `service-admin` reached their expected final states or were explicitly classified as local/no-download/deferred
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
