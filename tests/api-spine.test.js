@@ -69,10 +69,10 @@ test("GET /api/services returns discovered services from the tracked services ro
 
     assert.equal(result.status, 200);
     assert.ok(Array.isArray(result.body.services));
-    assert.equal(result.body.services.length, 4);
+    assert.equal(result.body.services.length, 6);
     assert.deepEqual(
       result.body.services.map((service) => service.id),
-      ["@node", "@python", "echo-service", "node-sample-service"],
+      ["@node", "@python", "@traefik", "echo-service", "node-sample-service", "service-admin"],
     );
     assert.equal(result.body.services[0].status, "discovered");
     assert.equal(result.body.services[0].source, "manifest");
