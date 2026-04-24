@@ -7,6 +7,18 @@ on:
         description: Optional published package version to verify from GitHub Packages
         required: false
         type: string
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/verify-package-consumer.yml
+      - .github/workflows/publish-package.yml
+      - README.md
+      - docs/development/core-runtime-publishable-package.md
+      - package.json
+      - scripts/verify-package-consumer-lib.mjs
+      - scripts/verify-package-consumer.mjs
+      - tests/verify-package-consumer.test.js
 
 jobs:
   verify-package-consumer:
