@@ -10,11 +10,10 @@ export interface RuntimeApp {
 }
 
 export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<RuntimeApp> {
-  const defaults = createDefaultServiceRootConfig();
   const serviceRoot = await ensureRuntimeConfig(
     resolveRuntimeConfig({
-      servicesRoot: options.servicesRoot ?? defaults.servicesRoot,
-      workspaceRoot: options.workspaceRoot ?? defaults.workspaceRoot,
+      servicesRoot: options.servicesRoot,
+      workspaceRoot: options.workspaceRoot,
       version: options.version,
     }),
   );

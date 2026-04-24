@@ -1,0 +1,49 @@
+name: Verify Package Consumer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional published package version to verify from GitHub Packages
+        required: false
+        type: string
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/verify-package-consumer.yml
+      - .github/workflows/publish-package.yml
+      - README.md
+      - docs/development/core-runtime-publishable-package.md
+      - package.json
+      - scripts/verify-package-consumer-lib.mjs
+      - scripts/verify-package-consumer.mjs
+      - tests/verify-package-consumer.test.js
+
+jobs:
+  verify-package-consumer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@service-lasso"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify GitHub Packages consumer install
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          SERVICE_LASSO_VERIFY_PACKAGE_VERSION: ${{ inputs.version }}
+        run: npm run verify:package-consumer

@@ -90,7 +90,7 @@ Execution order:
    - `service-lasso-bundled`
    current outcome:
    - local `service-lasso-packager-node` is deleted
-   - remote `service-lasso-packager-node` is explicitly deprecated, redirected to `service-lasso-app-node`, and archived on GitHub
+   - remote `service-lasso-packager-node` is deleted on GitHub after migration to `service-lasso-app-node`
    current decision:
    - `service-lasso-bundled` is not part of the canonical lineup
    - final retirement or repurposing of that repo belongs with `ISS-045`, because its remaining value is tied to honest bundled-versus-bootstrap artifact behavior
@@ -125,7 +125,7 @@ Required evidence:
 Completion outcome:
 - `service-lasso-app-node` exists locally and on GitHub as the canonical plain-Node host repo
 - `service-lasso-app-electron` exists locally and on GitHub as the canonical Electron host repo
-- `service-lasso-packager-node` is removed locally and archived remotely with an explicit deprecation redirect
+- `service-lasso-packager-node` is removed locally and deleted remotely after migration to `service-lasso-app-node`
 - `service-lasso-bundled` is no longer treated as part of the canonical lineup and is deferred to `ISS-045` only as an artifact-mode decision
 
 ### 3. `ISS-044` / `TASK-044`
@@ -319,7 +319,7 @@ Completion outcome:
 ### 7. `ISS-048` / `TASK-048`
 
 Status:
-- blocked
+- done
 
 Title:
 - complete retirement of the deprecated bundled repo identity
@@ -336,13 +336,15 @@ Required evidence:
 - the remote repo no longer exists
 - doc/reference scans show only the normalized canonical lineup in forward-looking guidance
 
-Current blocker:
-- attempted remote deletion with:
-  - `gh repo delete service-lasso/service-lasso-bundled --yes`
-- GitHub returned:
-  - `HTTP 403: Must have admin rights to Repository.`
-  - `This API operation needs the "delete_repo" scope.`
-- current core-doc scans already show the normalized canonical lineup in forward-looking guidance, so the only remaining completion step is remote deletion plus a final verification pass after credentials are fixed
+Completion outcome:
+- the deprecated `service-lasso/service-lasso-bundled` remote repo has been deleted
+- `gh repo view service-lasso/service-lasso-bundled` now returns not found/no access
+- remaining `service-lasso-bundled` references are historical/remediation traceability, not active canonical-lineup guidance
+- the normalized canonical app-host lineup remains:
+  - `service-lasso-app-web`
+  - `service-lasso-app-node`
+  - `service-lasso-app-electron`
+  - `service-lasso-app-tauri`
 
 ### 8. `ISS-049` / `TASK-049`
 
@@ -382,7 +384,7 @@ Completion outcome:
 ### 9. `ISS-050` / `TASK-050`
 
 Status:
-- todo
+- done
 
 Title:
 - add a host-owned service listing widget to each canonical app-host sample UI
@@ -408,3 +410,10 @@ Required evidence:
 - direct tests cover the widget/API path in each canonical app-host repo
 - smoke proof shows the widget rendering against a running runtime in each repo
 - docs describe the widget as a host-owned runtime API example rather than a second admin surface
+
+Completion outcome:
+- `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri` now each render a bounded host-owned service listing widget in the sample shell
+- each host exposes a same-origin `/api/runtime-services` route that proxies the Service Lasso runtime `/api/services` response instead of hard-coding service content
+- each widget renders service identity, lifecycle state, and health summary while keeping the embedded Service Admin surface visually and conceptually separate
+- each repo documents the widget in its README, minimal POC, release artifact notes, and task list
+- each repo merged its issue branch to `main`, archived the active branch under `archived/ISS-050-*`, and has green post-merge CI plus release workflow evidence

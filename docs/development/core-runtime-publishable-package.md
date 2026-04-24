@@ -28,7 +28,23 @@ Consumer auth example:
 npm config set @service-lasso:registry https://npm.pkg.github.com
 ```
 
-Authentication still needs a token with package-read access in the consuming environment.
+GitHub Packages' npm registry requires authentication to install packages, including public packages. Authentication still needs a token with package-read access in the consuming environment.
+
+Local project `.npmrc` example:
+
+```ini
+@service-lasso:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Local install example:
+
+```bash
+export NODE_AUTH_TOKEN=<classic-pat-with-read-packages>
+npm install @service-lasso/service-lasso
+```
+
+Use a classic GitHub PAT with `read:packages` for local consumer installs. Do not commit tokens into project files.
 
 For GitHub Actions in sibling starter repos, the official path is:
 - use `GITHUB_TOKEN`
@@ -129,6 +145,13 @@ Stage and verify the publishable package:
 npm run package:verify
 ```
 
+Verify a direct GitHub Packages install from a clean temporary consumer:
+
+```bash
+export NODE_AUTH_TOKEN=<classic-pat-with-read-packages>
+npm run verify:package-consumer
+```
+
 ## Verification standard
 
 The bounded verification step must prove:
@@ -139,6 +162,8 @@ The bounded verification step must prove:
 - the staged package ships the supported `service-lasso` CLI entrypoint
 - a temporary consumer can install the packed `.tgz`
 - the temporary consumer can boot the runtime against explicit `servicesRoot` and `workspaceRoot`
+- a registry-backed consumer can install from `npm.pkg.github.com` when `NODE_AUTH_TOKEN` has package-read access
+- the registry-installed CLI can run `service-lasso --version` and `service-lasso help`
 
 ## GitHub Actions behavior
 
@@ -157,6 +182,10 @@ For sibling starter repos consuming the package through GitHub Actions:
    - `scope: "@service-lasso"`
 3. pass `NODE_AUTH_TOKEN: ${{ github.token }}`
 4. ensure the package settings page grants that repository GitHub Actions access
+
+Core automation now carries two direct registry-consumer proof paths:
+1. `.github/workflows/verify-package-consumer.yml` can be dispatched manually against any branch that contains the verifier.
+2. `.github/workflows/publish-package.yml` re-installs the published version from GitHub Packages after `npm publish` and runs the same verifier automatically.
 
 ## Consumer assumption
 

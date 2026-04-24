@@ -1,5 +1,6 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
+import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
   command: "serve" | "install" | "help" | "version";
@@ -139,6 +140,7 @@ function printInstallResult(result: Awaited<ReturnType<typeof installServiceFrom
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const parsed = parseCliArgs(argv);
+  const runtimeVersion = resolveRuntimeVersion();
 
   if (parsed.command === "help") {
     console.log(usageText());
@@ -146,7 +148,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   if (parsed.command === "version") {
-    console.log(process.env.npm_package_version ?? "0.1.0");
+    console.log(runtimeVersion);
     return;
   }
 
@@ -155,7 +157,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       serviceId: parsed.serviceId!,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
-      version: process.env.npm_package_version ?? "0.1.0",
+      version: runtimeVersion,
     });
     printInstallResult(result, parsed.json);
     return;
@@ -165,7 +167,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     port: parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080),
     servicesRoot: parsed.servicesRoot,
     workspaceRoot: parsed.workspaceRoot,
-    version: process.env.npm_package_version ?? "0.1.0",
+    version: runtimeVersion,
   });
 
   console.log("[service-lasso] core API spine started");

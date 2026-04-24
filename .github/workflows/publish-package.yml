@@ -73,3 +73,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
         run: npm publish
+
+      - name: Verify published package from GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          SERVICE_LASSO_VERIFY_PACKAGE_VERSION: ${{ steps.publish_version.outputs.version }}
+        run: npm run verify:package-consumer
