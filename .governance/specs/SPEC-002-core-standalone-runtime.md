@@ -51,6 +51,7 @@ Explicitly out of scope for this spec:
 - `AC-4V`: Core and sibling app release flows stop depending on manual tag creation and instead produce releases from protected-branch pushes using the project's timestamped `yyyy.m.d-<shortsha>` version pattern with direct artifact/package proof.
 - `AC-4W`: The sibling app repo lineup is normalized to canonical host-type and packaging-target names, deprecated starter repos are retired, and bundled/preloaded outputs honestly prove "no first-run download" behavior.
 - `AC-4X`: Release readiness is proven from a fresh consumer perspective across the core package, GitHub release artifacts, service acquisition, Echo Service, Service Admin, and canonical reference-app repos, with every failed, blocked, or unproven scenario converted into tracked follow-up work.
+- `AC-4Y`: Core service completion planning explicitly classifies donor-aligned runtime/provider services such as `@node`, `@python`, `@java`, `@traefik`, `@archive`, and `@localcert` as implemented, baseline, optional, or deferred, with implementation-grade follow-up issues for anything required before core completion can be claimed.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -83,6 +84,7 @@ Required evidence for this spec:
 - direct proof that the core runtime can install/acquire a service from manifest-owned release metadata without starting it, including a supported CLI path in addition to the bounded runtime/API flow
 - direct proof that the canonical sibling app repos and packaging-target repos exist with the expected names, while deprecated/vague starter repos are retired or archived explicitly
 - direct proof that clean consumer installs and release artifacts work end to end across `@service-lasso/service-lasso`, Echo Service, Service Admin, and the canonical reference-app repos, including source/template, bootstrap-download, and preloaded/no-download modes
+- documentation and backlog proof that donor-aligned core runtime/provider services are classified explicitly, including a tracked Java runtime service path for donor `_java` rather than leaving Java only in reference material
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
