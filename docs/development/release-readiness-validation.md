@@ -7,7 +7,7 @@ It exists because a complete governed backlog is not the same as consumer-ready 
 ## Status
 
 - Mode: Development, release verification checkpoint
-- Current state: checklist established; execution pending
+- Current state: execution in progress with core package, service acquisition, Echo Service, Service Admin, and reference-app template evidence captured; remaining pending rows stay explicit below
 - Governing spec: `SPEC-002`, `AC-4X`
 - GitHub issue: `#58`
 
@@ -74,10 +74,10 @@ Validate each repo:
 
 | Scenario | Required proof | Status | Evidence |
 | --- | --- | --- | --- |
-| Fresh clone works | clean checkout can install dependencies | Blocked | 2026-04-24: fresh clone of `service-lasso-app-node` succeeded, but `npm ci` failed locally without package auth. Issue `#69` is resolved for the documented GitHub Actions path, and issue `#80` now tracks moving fresh local clone validation to public npmjs without GitHub Packages auth. |
+| Fresh clone works | clean checkout can install dependencies | Verified | 2026-04-24: fresh clones from GitHub passed `npm ci` and `npm test` against public npmjs for `service-lasso-app-node` (`075651d`), `service-lasso-app-web` (`e44d905`), `service-lasso-app-electron` (`f736984`), `service-lasso-app-tauri` (`e420c6d`), and `service-lasso-app-packager-pkg` (`7e7da44`). |
 | Repo tests pass | repo-local test command succeeds | Verified | 2026-04-24: sequential and parallel `npm test` passed for all five reference repos: `app-node` 4 tests, `app-web` 6, `app-electron` 6, `app-tauri` 6, and `app-packager-pkg` 4. Shared staging contention was fixed under `#75`. |
 | Release verification passes | repo-local release verification command succeeds | Verified | 2026-04-24: sequential `npm run release:verify` passed for all five reference repos. |
-| Source/template mode works | user can run from source/template checkout | Blocked | Prepared local source checks pass, and issue `#69` now proves the GitHub Actions auth path; a true fresh local source checkout should be rerun against public npmjs after issue `#80` publishes. |
+| Source/template mode works | user can run from source/template checkout | Verified | 2026-04-24: same fresh-clone validation proved source/template install and tests from public npmjs without GitHub Packages auth; each lockfile resolves `@service-lasso/service-lasso@2026.4.24-a663bb0` from `registry.npmjs.org`. |
 | Bootstrap-download artifact works | app can acquire service payloads from manifest release metadata | Verified | 2026-04-24: each reference repo `npm run release:verify` exercised runtime/bootstrap-download artifacts and verified Echo Service archive acquisition from manifest-owned metadata. |
 | Preloaded/no-download artifact works offline | app starts with included service payloads and performs no first-run download | Verified | 2026-04-24: each reference repo `npm run release:verify` exercised preloaded artifacts and verified zero first-run service archive downloads. |
 | Host-owned output is visible | app shows its own UI/output, not only Service Admin | Verified | 2026-04-24: reference-app host tests passed for shell/status routes across all five repos. |
@@ -144,3 +144,4 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: fresh clone of `service-lasso-app-node` succeeded, but `npm ci` failed locally with GitHub Packages `E401`; auth/path proof is covered by issue `#69`, and issue `#80` changes the next fresh-clone proof target to public npmjs without GitHub Packages auth.
 - 2026-04-24: parallel `npm test` across all five reference repos invalidated the current multi-repo validation harness because shared core package staging produced `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures on Windows; tracked as issue `#75`. Sequential validation remains the current reliable path.
 - 2026-04-24: issue `#75` fixed the parallel reference-app validation race. Core targeted `node --test --test-concurrency=1 tests/package-staging-lock.test.js` passed, and parallel `npm test` passed across `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg`.
+- 2026-04-24: all five canonical reference apps were migrated to the public npmjs package path and merged through PRs: `service-lasso-app-node#5`, `service-lasso-app-web#16`, `service-lasso-app-electron#5`, `service-lasso-app-tauri#15`, and `service-lasso-app-packager-pkg#7`. Fresh clones from GitHub in `C:\projects\service-lasso\.tmp\reference-npmjs-fresh-clone-20260424` passed `npm ci` and `npm test` for app refs `075651d`, `e44d905`, `f736984`, `e420c6d`, and `7e7da44`, with lockfiles resolving `@service-lasso/service-lasso@2026.4.24-a663bb0` from `registry.npmjs.org`.
