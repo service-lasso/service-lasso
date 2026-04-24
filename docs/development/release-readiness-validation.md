@@ -7,7 +7,7 @@ It exists because a complete governed backlog is not the same as consumer-ready 
 ## Status
 
 - Mode: Development, release verification checkpoint
-- Current state: execution in progress with core package, service acquisition, Echo Service, Service Admin, and reference-app template evidence captured; remaining pending rows stay explicit below
+- Current state: execution in progress with core package, external consumer smoke, service acquisition, Echo Service, Service Admin, and reference-app template evidence captured; remaining pending rows stay explicit below
 - Governing spec: `SPEC-002`, `AC-4X`
 - GitHub issue: `#58`
 
@@ -39,6 +39,7 @@ Do not treat green repo tests as release readiness by themselves.
 | CLI install works without start | consumer can run `service-lasso install <serviceId>` | Verified | 2026-04-24: `npm test` covers `service-lasso install <serviceId>` against manifest-owned artifact metadata, and package verification exercises the installed CLI from a temporary consumer package. |
 | Runtime lists services | consumer runtime reports configured services through API | Verified | 2026-04-24: installed package API probe returned 4 services, including `echo-service`. |
 | Runtime starts and stops Echo Service | start/stop works from installed package context | Verified | 2026-04-24: installed package API probe ran `install`, `config`, `start`, and `stop` for `echo-service`; final detail showed `echoRunning: false`. |
+| Fresh external project smoke works | clean consumer project installs package, uses public manifests, and drives lifecycle through CLI/API | Verified | 2026-04-24: clean temp project installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public Echo Service and Service Admin manifests from `service-lasso-app-node`, verified CLI version, ran `service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched Echo UI from `http://127.0.0.1:4010/`. |
 
 ## Service Acquisition
 
@@ -145,3 +146,4 @@ Record exact commands, dates, commit SHAs, release versions, artifact names, and
 - 2026-04-24: parallel `npm test` across all five reference repos invalidated the current multi-repo validation harness because shared core package staging produced `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures on Windows; tracked as issue `#75`. Sequential validation remains the current reliable path.
 - 2026-04-24: issue `#75` fixed the parallel reference-app validation race. Core targeted `node --test --test-concurrency=1 tests/package-staging-lock.test.js` passed, and parallel `npm test` passed across `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg`.
 - 2026-04-24: all five canonical reference apps were migrated to the public npmjs package path and merged through PRs: `service-lasso-app-node#5`, `service-lasso-app-web#16`, `service-lasso-app-electron#5`, `service-lasso-app-tauri#15`, and `service-lasso-app-packager-pkg#7`. Fresh clones from GitHub in `C:\projects\service-lasso\.tmp\reference-npmjs-fresh-clone-20260424` passed `npm ci` and `npm test` for app refs `075651d`, `e44d905`, `f736984`, `e420c6d`, and `7e7da44`, with lockfiles resolving `@service-lasso/service-lasso@2026.4.24-a663bb0` from `registry.npmjs.org`.
+- 2026-04-24: clean external consumer project smoke passed in `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424`: installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public Echo Service and Service Admin manifests from `service-lasso-app-node`, verified `npx service-lasso --version`, ran `npx service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`.
