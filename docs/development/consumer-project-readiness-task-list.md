@@ -12,7 +12,7 @@ The core runtime, public service acquisition paths, release-backed Echo health p
 
 The consumer default has moved to public npmjs in code/docs/workflows so fresh projects can install `@service-lasso/service-lasso` without GitHub Packages auth after publish.
 
-External fresh-clone local usage remains blocked on public npm publish proof until `NPM_TOKEN` is configured and the next `main` publish workflow publishes the package to `registry.npmjs.org`.
+External fresh-clone local usage can now use the public npmjs package path without GitHub Packages auth.
 
 ## Task List
 
@@ -25,7 +25,7 @@ External fresh-clone local usage remains blocked on public npm publish proof unt
 | `CONSUMER-005` | `done` | `#58` | Service Admin is reachable from reference app hosts, not only from its own repo. | 2026-04-24: reference-app host tests and release verification passed with mounted Service Admin payload checks for all five repos. |
 | `CONSUMER-006` | `todo` | `#58` | `develop` is promoted to `main` only after readiness evidence is current. | Promotion PR, green release/package workflows, timestamped GitHub release, and package publish evidence. |
 | `CONSUMER-007` | `todo` | `#58` | A fresh external project can use the released package and public service manifests. | Clean project smoke with documented package auth, `services/echo-service/service.json`, install/start/stop, and runtime API checks. |
-| `CONSUMER-008` | `blocked` | `#80` | Other projects can install `@service-lasso/service-lasso` from public npm without GitHub Packages auth. | Code/docs/workflows now stage `publishConfig.registry=https://registry.npmjs.org`; remaining evidence requires `NPM_TOKEN` and `npm run verify:package-consumer` against npmjs after the protected-branch publish. |
+| `CONSUMER-008` | `done` | `#80` | Other projects can install `@service-lasso/service-lasso` from public npm without GitHub Packages auth. | 2026-04-24: Publish workflow run `24876054960` published and verified `@service-lasso/service-lasso@2026.4.24-a663bb0`; local unauthenticated `npm view`, clean temp `npm install`, and `npm run verify:package-consumer` passed against npmjs. |
 
 ## Public npmjs Path
 
@@ -35,9 +35,9 @@ Public npmjs is the default consumer path. Normal projects should be able to use
 npm install @service-lasso/service-lasso
 ```
 
-Current blocker:
+Current verified version:
 
-- `NPM_TOKEN` must be added as a repository secret before the `main` publish workflow can publish `@service-lasso/service-lasso` to `https://registry.npmjs.org`.
+- `@service-lasso/service-lasso@2026.4.24-a663bb0`
 
 ## GitHub Packages Legacy Constraint
 
