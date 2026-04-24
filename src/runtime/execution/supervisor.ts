@@ -188,7 +188,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   });
 
   const exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once("exit", (exitCode, signal) => {
+    child.once("close", (exitCode, signal) => {
       resolve({
         exitCode: typeof exitCode === "number" ? exitCode : null,
         signal,
