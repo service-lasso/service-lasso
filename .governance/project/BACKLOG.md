@@ -66,6 +66,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-071` | `done` | Release-backed Echo Service manifest does not prove HTTP/TCP health modes through runtime | `SPEC-002`, `AC-4C`, `AC-4X` | GitHub issue: `#71`. `npm run verify:echo-health` now proves public release-backed Echo HTTP health status transitions and TCP listener reachability transitions through runtime-observed health. |
 | `ISS-075` | `done` | Reference app validation races on shared core package staging | `SPEC-002`, `AC-4X` | GitHub issue: `#75`. Core package staging now supports isolated output roots, reference repos copy the staged package into each app artifact before install, and parallel multi-repo validation passes. |
 | `ISS-080` | `blocked` | Publish Service Lasso to public npm registry | `SPEC-002`, `AC-4S`, `AC-4X` | GitHub issue: `#80`. Code/docs/workflows now target public npmjs by default; protected-branch publish proof is blocked until `NPM_TOKEN` exists and a `main` workflow publishes `@service-lasso/service-lasso` to `registry.npmjs.org`. |
+| `ISS-083` | `done` | Fix managed log stream finalization race in CI | `SPEC-002`, `AC-4J`, `AC-4X` | GitHub issue: `#83`. Managed-process finalization now waits for child `close` so stdout/stderr streams finish before runtime log streams are flushed and ended. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -128,6 +129,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-071` | `done` | `ISS-071` | Add release-backed Echo Service HTTP/TCP health validation through runtime | `SPEC-002`, `AC-4C`, `AC-4X` | `npm run verify:echo-health` installs and starts the public Echo Service release archive, proves runtime-observed HTTP `200 -> 500 -> 200`, and proves TCP `connected -> ECONNREFUSED -> connected`. |
 | `TASK-075` | `done` | `ISS-075` | Remove or serialize shared core package staging races in reference-app validation | `SPEC-002`, `AC-4X` | Core `node --test --test-concurrency=1 tests/package-staging-lock.test.js` passed, and parallel `npm test` passed across all five reference repos without `EBUSY` / `ENOTEMPTY` / missing `.tgz` failures. |
 | `TASK-080` | `blocked` | `ISS-080` | Publish the core package to public npmjs by default | `SPEC-002`, `AC-4S`, `AC-4X` | Implementation proof: `npm run build`, targeted package tests, `npm run package:verify`, `npm test`, and `npm run release:verify` passed. Remaining proof requires `NPM_TOKEN` and a protected-branch publish to npmjs. |
+| `TASK-083` | `done` | `ISS-083` | Wait for child stdio close before finalizing runtime log streams | `SPEC-002`, `AC-4J`, `AC-4X` | Local proof: `node --test --test-concurrency=1 tests/demo-instance.test.js` and `npm test` passed. Publish workflow rerun proof follows after promotion. |
 
 ## Next Recommended Item
 Execute `TASK-057`: run the release-readiness validation matrix from clean consumer contexts and create focused follow-up issues for every failed, blocked, or unproven scenario.
