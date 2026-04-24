@@ -68,6 +68,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-080` | `done` | Publish Service Lasso to public npm registry | `SPEC-002`, `AC-4S`, `AC-4X` | GitHub issue: `#80`. Publish workflow run `24876054960` published `@service-lasso/service-lasso@2026.4.24-a663bb0` to public npmjs and verified the registry-installed CLI. Local unauthenticated `npm view`, clean temp `npm install`, and `npm run verify:package-consumer` also passed against `registry.npmjs.org`. |
 | `ISS-083` | `done` | Fix managed log stream finalization race in CI | `SPEC-002`, `AC-4J`, `AC-4X` | GitHub issue: `#83`. Managed-process finalization now waits for child `close` so stdout/stderr streams finish before runtime log streams are flushed and ended. |
 | `ISS-089` | `ready` | Add deterministic live reference-app lifecycle smoke | `SPEC-002`, `AC-4X` | GitHub issue: `#89`. Add a repeatable fresh-clone/source-host smoke for all canonical reference apps that proves host shell, Service Admin route, runtime service list, and Echo Service install/config/start/stop with deterministic child-process cleanup. |
+| `ISS-091` | `ready` | Align reference-app baseline service inventories with docs | `SPEC-002`, `AC-4W`, `AC-4X` | GitHub issue: `#91`. Docs and `service-template` say app/reference repos should carry `echo-service`, `service-admin`, `@node`, and `@traefik`; current canonical reference apps only carry `echo-service` and `service-admin`. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
