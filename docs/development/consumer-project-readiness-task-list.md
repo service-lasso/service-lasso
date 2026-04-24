@@ -20,7 +20,7 @@ External fresh-clone local usage can now use the public npmjs package path witho
 | --- | --- | --- | --- | --- |
 | `CONSUMER-001` | `done` | `#69` | Other projects can install `@service-lasso/service-lasso` from GitHub Packages using the documented auth path. | 2026-04-24: PR workflow run `24872832811` (`Verify Package Consumer`) succeeded with `GITHUB_TOKEN` + `packages: read`, installed `@service-lasso/service-lasso` from `npm.pkg.github.com`, and ran `service-lasso --version` plus `service-lasso help`. |
 | `CONSUMER-002` | `done` | `#71` | Public release-backed Echo Service proves HTTP and TCP health mode transitions through Service Lasso runtime health. | 2026-04-24: `npm run verify:echo-health` exercised the public `2026.4.20-a417abd` Echo release archive with runtime-observed HTTP 200 -> 500 -> 200 health and TCP reachable -> unreachable -> reachable health. |
-| `CONSUMER-003` | `blocked` | `#58` | Reference apps are validated as cloneable templates. | 2026-04-24: prepared local repo tests passed sequentially for `app-node`, `app-web`, `app-electron`, `app-tauri`, and `app-packager-pkg`; GitHub Packages auth is proven by workflow run `24872832811`, but true fresh local external reference-app clone validation should now rerun against the public npmjs package after `#80` publishes. |
+| `CONSUMER-003` | `done` | `#58` | Reference apps are validated as cloneable templates. | 2026-04-24: fresh clones from GitHub passed `npm ci` and `npm test` against public npmjs for `service-lasso-app-node` (`075651d`), `service-lasso-app-web` (`e44d905`), `service-lasso-app-electron` (`f736984`), `service-lasso-app-tauri` (`e420c6d`), and `service-lasso-app-packager-pkg` (`7e7da44`). Lockfiles resolve `@service-lasso/service-lasso@2026.4.24-a663bb0` from `registry.npmjs.org` without GitHub Packages auth. |
 | `CONSUMER-004` | `done` | `#58` | Reference app release outputs are validated as usable artifacts. | 2026-04-24: sequential `npm run release:verify` passed for all five reference repos, verifying source, runtime/bootstrap-download, and preloaded/no-download artifacts where shipped. |
 | `CONSUMER-005` | `done` | `#58` | Service Admin is reachable from reference app hosts, not only from its own repo. | 2026-04-24: reference-app host tests and release verification passed with mounted Service Admin payload checks for all five repos. |
 | `CONSUMER-006` | `todo` | `#58` | `develop` is promoted to `main` only after readiness evidence is current. | Promotion PR, green release/package workflows, timestamped GitHub release, and package publish evidence. |
@@ -61,6 +61,14 @@ Prepared local validation passed when run sequentially:
 - `service-lasso-app-electron`: `npm test` passed 6 tests; `npm run release:verify` passed.
 - `service-lasso-app-tauri`: `npm test` passed 6 tests; `npm run release:verify` passed.
 - `service-lasso-app-packager-pkg`: `npm test` passed 4 tests; `npm run release:verify` passed.
+
+Fresh-clone public npmjs validation passed from `C:\projects\service-lasso\.tmp\reference-npmjs-fresh-clone-20260424`:
+
+- `service-lasso-app-node` at `075651d`: `npm ci` and `npm test` passed.
+- `service-lasso-app-web` at `e44d905`: `npm ci` and `npm test` passed.
+- `service-lasso-app-electron` at `f736984`: `npm ci` and `npm test` passed.
+- `service-lasso-app-tauri` at `e420c6d`: `npm ci` and `npm test` passed.
+- `service-lasso-app-packager-pkg` at `7e7da44`: `npm ci` and `npm test` passed.
 
 Parallel multi-repo validation previously raced on the shared core package staging directory. Issue `#75` fixed that by staging each reference repo's local core package into an isolated output root and copying the `.tgz` into the app artifact before install; parallel `npm test` now passes across all five reference repos.
 
