@@ -106,14 +106,21 @@ try {
 } catch (error) {
   const detail = error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
   const failure = classifyPackageAccessFailure(detail);
+  const detailPreview = detail
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 
   console.error(`[service-lasso] package consumer verification failed: ${failure.message}`);
+  console.error(`[service-lasso] failure detail: ${detailPreview.join(" | ")}`);
   console.log(
     JSON.stringify({
       ok: false,
       classification: "blocked",
       registry,
       packageSpec,
+      detailPreview,
       ...failure,
     }),
   );

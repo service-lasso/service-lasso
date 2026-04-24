@@ -30,6 +30,11 @@ test("classifyPackageAccessFailure recognizes insufficient package scope", () =>
   assert.equal(classified.code, "insufficient_scope");
 });
 
+test("classifyPackageAccessFailure recognizes inaccessible package lookups", () => {
+  const classified = classifyPackageAccessFailure("npm error code E404\npackage not found");
+  assert.equal(classified.code, "not_found_or_inaccessible");
+});
+
 test("getMissingTokenSummary reports the missing-token blocker explicitly", () => {
   const summary = getMissingTokenSummary();
   assert.equal(summary.ok, false);

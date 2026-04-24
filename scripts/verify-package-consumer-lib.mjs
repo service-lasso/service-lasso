@@ -45,6 +45,14 @@ export function classifyPackageAccessFailure(errorText) {
     };
   }
 
+  if (/E404/i.test(text) || /not found/i.test(text) || /no match found/i.test(text)) {
+    return {
+      code: "not_found_or_inaccessible",
+      message:
+        "The package could not be resolved from GitHub Packages. Confirm the published version exists and that the token can see the package from this workflow or consumer repository.",
+    };
+  }
+
   return {
     code: "unknown_failure",
     message:
