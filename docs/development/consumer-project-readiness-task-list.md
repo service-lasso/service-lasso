@@ -24,7 +24,7 @@ External fresh-clone local usage can now use the public npmjs package path witho
 | `CONSUMER-004` | `done` | `#58` | Reference app release outputs are validated as usable artifacts. | 2026-04-24: sequential `npm run release:verify` passed for all five reference repos, verifying source, runtime/bootstrap-download, and preloaded/no-download artifacts where shipped. |
 | `CONSUMER-005` | `done` | `#58` | Service Admin is reachable from reference app hosts, not only from its own repo. | 2026-04-24: reference-app host tests and release verification passed with mounted Service Admin payload checks for all five repos. |
 | `CONSUMER-006` | `todo` | `#58` | `develop` is promoted to `main` only after readiness evidence is current. | Promotion PR, green release/package workflows, timestamped GitHub release, and package publish evidence. |
-| `CONSUMER-007` | `todo` | `#58` | A fresh external project can use the released package and public service manifests. | Clean project smoke with documented package auth, `services/echo-service/service.json`, install/start/stop, and runtime API checks. |
+| `CONSUMER-007` | `done` | `#58` | A fresh external project can use the released package and public service manifests. | 2026-04-24: clean external project at `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424` installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public `services/echo-service/service.json` and `services/service-admin/service.json` from `service-lasso-app-node`, verified `service-lasso --version`, ran `service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`. |
 | `CONSUMER-008` | `done` | `#80` | Other projects can install `@service-lasso/service-lasso` from public npm without GitHub Packages auth. | 2026-04-24: Publish workflow run `24876054960` published and verified `@service-lasso/service-lasso@2026.4.24-a663bb0`; local unauthenticated `npm view`, clean temp `npm install`, and `npm run verify:package-consumer` passed against npmjs. |
 
 ## Public npmjs Path
@@ -69,6 +69,14 @@ Fresh-clone public npmjs validation passed from `C:\projects\service-lasso\.tmp\
 - `service-lasso-app-electron` at `f736984`: `npm ci` and `npm test` passed.
 - `service-lasso-app-tauri` at `e420c6d`: `npm ci` and `npm test` passed.
 - `service-lasso-app-packager-pkg` at `7e7da44`: `npm ci` and `npm test` passed.
+
+Fresh external project validation passed from `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424`:
+
+- `npm install @service-lasso/service-lasso@2026.4.24-a663bb0 --registry=https://registry.npmjs.org` passed without GitHub Packages auth.
+- Public manifests were downloaded from `service-lasso-app-node/main/services/echo-service/service.json` and `service-lasso-app-node/main/services/service-admin/service.json`.
+- `npx service-lasso --version` returned `2026.4.24-a663bb0`.
+- `npx service-lasso install echo-service --services-root <temp-services> --workspace-root <temp-workspace> --json` acquired `echo-service-win32.zip` from `service-lasso/lasso-echoservice@2026.4.20-a417abd`.
+- The installed package API listed `echo-service` and `service-admin`, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`.
 
 Parallel multi-repo validation previously raced on the shared core package staging directory. Issue `#75` fixed that by staging each reference repo's local core package into an isolated output root and copying the `.tgz` into the app artifact before install; parallel `npm test` now passes across all five reference repos.
 
