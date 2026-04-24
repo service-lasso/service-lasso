@@ -112,8 +112,11 @@ npm install
 npm run typecheck
 npm run build
 npm run test
+npm start
 npm run dev
 ```
+
+`npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
 
 ## CLI commands
 
