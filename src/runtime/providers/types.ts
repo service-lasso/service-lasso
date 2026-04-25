@@ -1,4 +1,4 @@
-export type ProviderKind = "direct" | "node" | "python";
+export type ProviderKind = "direct" | "node" | "python" | "java";
 
 export interface ProviderExecutionPlan {
   provider: ProviderKind;

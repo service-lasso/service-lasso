@@ -1,0 +1,24 @@
+{
+  "id": "@java",
+  "name": "Java Runtime",
+  "description": "Bounded local/no-download Java runtime provider. This declares the provider contract without bundling or redistributing a JRE.",
+  "version": "0.1.0",
+  "enabled": true,
+  "executable": "java",
+  "args": ["--version"],
+  "env": {
+    "JAVA": "java",
+    "JAVA_HOME": ""
+  },
+  "globalenv": {
+    "JAVA": "java",
+    "JAVA_HOME": ""
+  },
+  "urls": [
+    {
+      "label": "docs",
+      "url": "https://adoptium.net/",
+      "kind": "external"
+    }
+  ]
+}

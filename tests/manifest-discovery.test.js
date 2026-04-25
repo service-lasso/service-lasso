@@ -58,6 +58,8 @@ test("core services root declares the clean-clone baseline inventory", async () 
   );
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.artifact, undefined);
+  assert.equal(byId.get("@java")?.executable, "java");
+  assert.equal(byId.get("@java")?.artifact, undefined);
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");

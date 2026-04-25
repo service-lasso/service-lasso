@@ -64,6 +64,7 @@ but a clean clone does not have `dist/index.js` until the TypeScript build has r
 Initial `service-lasso/services/` manifests observed during issue `#95`:
 
 - `services/@node/service.json`
+- `services/@java/service.json`
 - `services/@python/service.json`
 - `services/echo-service/service.json`
 - `services/node-sample-service/service.json`
@@ -73,7 +74,7 @@ Missing from the expected clean-clone baseline:
 - `services/@traefik/service.json`
 - `services/service-admin/service.json`
 
-Issue `#97` added those manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`.
+Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#93` adds `@java` as a bounded local/no-download provider outside the starter baseline.
 
 Current `services/echo-service/service.json` is a local fixture manifest. It does not currently prove the expected release-backed download path from `service-lasso/lasso-echoservice`.
 

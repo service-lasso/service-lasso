@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
+import type { ProviderKind } from "../providers/types.js";
 import {
   getServiceRuntimeLogPaths,
   listRuntimeLogArchives,
@@ -13,7 +14,7 @@ export interface ServiceMetricsPayload {
     running: boolean;
     pid: number | null;
     command: string | null;
-    provider: "direct" | "node" | "python" | null;
+    provider: ProviderKind | null;
     providerServiceId: string | null;
     startedAt: string | null;
     finishedAt: string | null;

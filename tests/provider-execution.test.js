@@ -122,6 +122,43 @@ test("provider resolution returns python execution for python-backed services", 
   }
 });
 
+test("provider resolution returns java execution for java-backed services", async () => {
+  const { tempRoot, root } = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(root, "@java", {
+      id: "@java",
+      name: "Java Runtime",
+      description: "Java provider",
+      executable: "java",
+      env: {
+        JAVA_HOME: "local-java-home",
+      },
+    });
+    await writeManifest(root, "java-service", {
+      id: "java-service",
+      name: "Java Service",
+      description: "Java-backed service",
+      execservice: "@java",
+      args: ["-jar", "app.jar"],
+    });
+
+    const discovered = await discoverServices(root);
+    const registry = createServiceRegistry(discovered);
+    const javaService = registry.getById("java-service");
+
+    assert.ok(javaService);
+    const plan = resolveProviderExecution(javaService, registry);
+
+    assert.equal(plan.provider, "java");
+    assert.equal(plan.providerServiceId, "@java");
+    assert.equal(plan.commandPreview, "java -jar app.jar");
+    assert.equal(plan.providerEnv.JAVA_HOME, "local-java-home");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("provider-backed lifecycle action includes provider details in API responses", async () => {
   resetLifecycleState();
   await clearPersistedFixtureState(servicesRoot);
@@ -173,6 +210,106 @@ test("provider-backed lifecycle action includes provider details in API response
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("java provider-backed lifecycle action records bounded provider evidence", async () => {
+  resetLifecycleState();
+  const { tempRoot, root } = await makeTempServicesRoot();
+
+  try {
+    const serviceRoot = path.join(root, "java-sample-service");
+    await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+    await writeFile(
+      path.join(serviceRoot, "runtime", "server.mjs"),
+      [
+        "import { mkdir, writeFile } from 'node:fs/promises';",
+        "import path from 'node:path';",
+        "const envPath = process.env.JAVA_SAMPLE_ENV_PATH;",
+        "if (envPath) {",
+        "  await mkdir(path.dirname(envPath), { recursive: true });",
+        "  await writeFile(envPath, JSON.stringify({ JAVA_HOME: process.env.JAVA_HOME, SERVICE_PORT: process.env.SERVICE_PORT }, null, 2));",
+        "}",
+        "const heartbeat = setInterval(() => {}, 1000);",
+        "function shutdown() { clearInterval(heartbeat); process.exit(0); }",
+        "process.on('SIGINT', shutdown);",
+        "process.on('SIGTERM', shutdown);",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await writeManifest(root, "@java", {
+      id: "@java",
+      name: "Java Runtime",
+      description: "Java provider shim for lifecycle proof",
+      executable: process.execPath,
+      env: {
+        JAVA_HOME: "test-java-home",
+      },
+    });
+    await writeManifest(root, "java-sample-service", {
+      id: "java-sample-service",
+      name: "Java Sample Service",
+      description: "Bounded Java-provider lifecycle proof.",
+      depend_on: ["@java"],
+      execservice: "@java",
+      args: ["runtime/server.mjs"],
+      env: {
+        JAVA_SAMPLE_ENV_PATH: "./.state/provider-env.json",
+        JAVA_SAMPLE_PORT: "${SERVICE_PORT}",
+      },
+      ports: {
+        service: 4140,
+      },
+      healthcheck: {
+        type: "process",
+      },
+    });
+
+    const apiServer = await startApiServer({ port: 0, servicesRoot: root });
+
+    try {
+      await postJson(`${apiServer.url}/api/services/@java/install`);
+      await postJson(`${apiServer.url}/api/services/@java/config`);
+      await postJson(`${apiServer.url}/api/services/java-sample-service/install`);
+      await postJson(`${apiServer.url}/api/services/java-sample-service/config`);
+      const start = await postJson(`${apiServer.url}/api/services/java-sample-service/start`);
+
+      assert.equal(start.status, 200);
+      assert.equal(start.body.provider.provider, "java");
+      assert.equal(start.body.provider.providerServiceId, "@java");
+      assert.equal(start.body.state.runtime.provider, "java");
+      assert.equal(start.body.state.runtime.providerServiceId, "@java");
+      assert.match(start.body.provider.commandPreview, /runtime\/server\.mjs/);
+
+      const providerEnvSnapshot = JSON.parse(
+        await waitFor(async () => {
+          try {
+            return await readFile(path.join(serviceRoot, ".state", "provider-env.json"), "utf8");
+          } catch (error) {
+            if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+              return null;
+            }
+            throw error;
+          }
+        }),
+      );
+      assert.equal(providerEnvSnapshot.JAVA_HOME, "test-java-home");
+      assert.equal(providerEnvSnapshot.SERVICE_PORT, "4140");
+
+      const stored = await readStoredState(serviceRoot);
+      assert.equal(stored.runtime.provider, "java");
+      assert.equal(stored.runtime.providerServiceId, "@java");
+
+      const stop = await postJson(`${apiServer.url}/api/services/java-sample-service/stop`);
+      assert.equal(stop.status, 200);
+    } finally {
+      await apiServer.stop();
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
   }
 });
 

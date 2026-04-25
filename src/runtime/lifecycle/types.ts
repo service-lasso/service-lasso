@@ -1,3 +1,5 @@
+import type { ProviderKind } from "../providers/types.js";
+
 export type LifecycleAction = "install" | "config" | "start" | "stop" | "restart";
 
 export interface ServiceMaterializedArtifactsState {
@@ -34,7 +36,7 @@ export interface ServiceRuntimeState {
   finishedAt: string | null;
   exitCode: number | null;
   command: string | null;
-  provider: "direct" | "node" | "python" | null;
+  provider: ProviderKind | null;
   providerServiceId: string | null;
   lastTermination: "stopped" | "exited" | "crashed" | null;
   ports: Record<string, number>;
