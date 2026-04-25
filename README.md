@@ -128,6 +128,14 @@ Start the bounded API runtime:
 service-lasso
 ```
 
+Bootstrap the documented baseline inventory and leave the API running:
+
+```bash
+service-lasso start --services-root ./services --workspace-root ./workspace
+```
+
+`service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; disabled services such as the current `@traefik` placeholder are reported as skipped/deferred until their release-backed service repo exists.
+
 Acquire/install a service from manifest-owned `artifact` metadata without starting it:
 
 ```bash
