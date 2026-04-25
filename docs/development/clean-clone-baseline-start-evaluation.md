@@ -106,8 +106,8 @@ Current implemented capability:
 
 Current missing capability:
 
-- the deterministic baseline-start smoke still uses fixtures for `@node`, `echo-service`, and `service-admin`; fully live reference-app lifecycle proof remains tracked by `#89`.
-- deterministic live reference-app lifecycle proof remains tracked by `#89`.
+- the deterministic baseline-start smoke still uses fixtures for `@node`, `echo-service`, and `service-admin`; fully live reference-app lifecycle proof is now covered by `npm run verify:reference-app-lifecycle` from issue `#89`.
+- deterministic live reference-app lifecycle proof passed on 2026-04-25 for all five canonical reference apps through `npm run verify:reference-app-lifecycle`.
 
 ## Gap Issues
 

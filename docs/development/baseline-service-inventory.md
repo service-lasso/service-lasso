@@ -1,8 +1,8 @@
 # Baseline Service Inventory
 
-Date: 2026-04-24
+Date: 2026-04-25
 
-Linked issues: `#97`, `#102`
+Linked issues: `#89`, `#91`, `#97`, `#102`
 
 OpenSpec binding: `SPEC-002`, `AC-4U`, `AC-4Y`, `AC-4Z`
 
@@ -28,13 +28,12 @@ Expected baseline IDs:
 
 ## Remaining Gap
 
-This does not complete the full clean-clone start use case yet.
+The scoped baseline inventory is aligned across core, service-template, and canonical reference apps. Live reference-app lifecycle proof is covered by `npm run verify:reference-app-lifecycle`.
 
 Remaining issues:
 
-- `#91`: align the canonical reference-app/service-template inventories with the baseline decision.
-- `#89`: add deterministic live reference-app lifecycle smoke.
 - `#58`: finish end-to-end release readiness and fresh consumer validation.
+- `#93`: complete or explicitly defer the donor-aligned Java runtime service path before claiming core service inventory completion.
 
 ## Verification Target
 
@@ -44,3 +43,4 @@ For this inventory slice:
 - release-backed manifests must include `artifact` metadata
 - local/no-download services must be explicitly classified
 - `service-lasso install @traefik`, `service-lasso install echo-service`, and `service-lasso install service-admin` must acquire their configured release artifacts
+- `npm run verify:reference-app-lifecycle` must fresh-clone the canonical reference apps and prove host/admin/runtime readiness plus Echo Service install/config/start/stop through each app-owned runtime

@@ -113,12 +113,14 @@ npm run typecheck
 npm run build
 npm run test
 npm run verify:baseline-start
+npm run verify:reference-app-lifecycle
 npm start
 npm run dev
 ```
 
 `npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
 `npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with generated `@node`, `echo-service`, and `service-admin` fixtures plus the release-backed `@traefik` artifact.
+`npm run verify:reference-app-lifecycle` fresh-clones the canonical reference apps, starts each app-owned runtime with a deterministic Service Admin dist, and proves Echo Service install/config/start/stop plus process cleanup through that app host.
 
 ## CLI commands
 

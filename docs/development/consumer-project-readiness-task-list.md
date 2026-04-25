@@ -8,7 +8,7 @@ It is linked to `ISS-057` / GitHub issue `#58` and must stay aligned with `docs/
 
 Service Lasso is not fully consumer-ready until the tasks below are classified with evidence.
 
-The core runtime, public service acquisition paths, release-backed Echo health proof, reference-app release artifacts, and GitHub Packages authenticated workflow path are working.
+The core runtime, public service acquisition paths, release-backed Echo health proof, reference-app release artifacts, live reference-app lifecycle smoke, and GitHub Packages authenticated workflow path are working.
 
 The consumer default has moved to public npmjs in code/docs/workflows so fresh projects can install `@service-lasso/service-lasso` without GitHub Packages auth after publish.
 
@@ -26,6 +26,7 @@ External fresh-clone local usage can now use the public npmjs package path witho
 | `CONSUMER-006` | `todo` | `#58` | `develop` is promoted to `main` only after readiness evidence is current. | Promotion PR, green release/package workflows, timestamped GitHub release, and package publish evidence. |
 | `CONSUMER-007` | `done` | `#58` | A fresh external project can use the released package and public service manifests. | 2026-04-24: clean external project at `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424` installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public `services/echo-service/service.json` and `services/service-admin/service.json` from `service-lasso-app-node`, verified `service-lasso --version`, ran `service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`. |
 | `CONSUMER-008` | `done` | `#80` | Other projects can install `@service-lasso/service-lasso` from public npm without GitHub Packages auth. | 2026-04-24: Publish workflow run `24876054960` published and verified `@service-lasso/service-lasso@2026.4.24-a663bb0`; local unauthenticated `npm view`, clean temp `npm install`, and `npm run verify:package-consumer` passed against npmjs. |
+| `CONSUMER-009` | `done` | `#89` | Each canonical reference app can drive Echo Service through its own app-owned runtime. | 2026-04-25: `npm run verify:reference-app-lifecycle` fresh-cloned all five canonical reference apps, mounted a deterministic Service Admin dist, verified host/admin/runtime readiness, verified `echo-service` and `service-admin` discovery, and installed/configured/started/stopped Echo Service through each app-owned runtime. |
 
 ## Public npmjs Path
 
@@ -80,6 +81,12 @@ Fresh external project validation passed from `C:\projects\service-lasso\.tmp\co
 
 Parallel multi-repo validation previously raced on the shared core package staging directory. Issue `#75` fixed that by staging each reference repo's local core package into an isolated output root and copying the `.tgz` into the app artifact before install; parallel `npm test` now passes across all five reference repos.
 
+Live source-host lifecycle validation now passes from this repo:
+
+- `npm run verify:reference-app-lifecycle` fresh-clones all five canonical reference apps from GitHub.
+- The smoke verifies host shell, mounted Service Admin route, app-owned runtime API health, runtime service discovery for `echo-service` and `service-admin`, Echo Service install/config/start/stop, and app/runtime process cleanup.
+- On Windows, temp clone directories can be left for OS cleanup after ports/processes are proven stopped to avoid transient `EBUSY` false failures from `node_modules` file handles.
+
 ## Stop Rule
 
 Do not close `ISS-057` until:
@@ -91,4 +98,3 @@ Do not close `ISS-057` until:
 ## Remaining ISS-057 Work
 
 - `CONSUMER-006`: promote `develop` to `main` only after the readiness matrix is current, then wait for release/package workflows and record release evidence.
-- `#89`: add a deterministic live reference-app lifecycle smoke so all five canonical app hosts prove Echo Service install/config/start/stop through their app-owned runtime without stale local dependencies or leaked child processes.
