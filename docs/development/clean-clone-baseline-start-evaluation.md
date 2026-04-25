@@ -2,6 +2,8 @@
 
 Date: 2026-04-24
 
+Latest update: 2026-04-25
+
 Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`
 
 OpenSpec binding: `SPEC-002`, `AC-4Z`
@@ -19,9 +21,17 @@ Expected baseline services:
 
 ## Current Answer
 
-No.
+Partial.
 
-As of this evaluation, a clean clone does not have a single working start path that downloads, configures, and starts `@traefik`, `@node`, `echo-service`, and `service-admin`.
+The documented command name is now:
+
+```powershell
+service-lasso start --services-root ./services --workspace-root ./workspace
+```
+
+As of 2026-04-25, the core CLI has a bounded baseline bootstrap command that installs, configures, and starts the baseline inventory in dependency order, then leaves the API running.
+
+Remaining gap: `@traefik` is still an intentionally disabled placeholder until `#102` creates the canonical release-backed Traefik service repo/artifact. The command reports disabled baseline services as skipped/deferred instead of pretending they started.
 
 ## Evidence
 
@@ -75,6 +85,7 @@ Current CLI commands:
 
 - `service-lasso`
 - `service-lasso serve`
+- `service-lasso start`
 - `service-lasso install <serviceId>`
 - `service-lasso help`
 - `service-lasso --version`
@@ -85,9 +96,15 @@ Current capability:
 - The CLI can acquire/install one service from manifest-owned artifact metadata.
 - The API can run `startAll` after services are installed and configured.
 
+Current implemented capability:
+
+- `service-lasso start` discovers the baseline services, installs/configures/starts enabled services in dependency order, reports skipped disabled services, and leaves the API running.
+- `tests/bootstrap-start.test.js` proves install/config/start sequencing and rerun idempotency against a four-service baseline fixture.
+
 Current missing capability:
 
-- There is no single user-facing clean-clone command that discovers the baseline, downloads required release artifacts, installs services, configures services, starts services in dependency order, and leaves the API running.
+- a deterministic clean-clone smoke that runs the built CLI command end to end from a fresh checkout is still tracked by `#99`.
+- release-backed Traefik acquisition/start remains blocked on `#102`.
 
 ## Gap Issues
 

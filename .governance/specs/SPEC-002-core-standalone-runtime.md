@@ -120,3 +120,4 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - The first runtime slice should stay intentionally bounded: prove a runnable standalone core before widening into full donor parity or broad manifest redesign.
 - Donor material under `ref/` remains useful evidence and reference input, but implemented behavior must now move into tracked repo source with direct verification.
 - The tracked fixture set may evolve from static manifest-only samples into runnable harness services when that improves direct verification for runtime hardening and later supervision work.
+- 2026-04-25: `#98` adds `service-lasso start` as the documented baseline bootstrap command. It directly verifies dependency-aware install/config/start sequencing and rerun idempotency with fixture services, while the real `@traefik` baseline remains deferred to `#102`.
