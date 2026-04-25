@@ -150,7 +150,13 @@ export async function runDemoSmoke(options = {}) {
       assertCondition(result.status === 200, `Expected echo-service ${action} to return 200.`);
     }
 
-    const echoHealth = await getJson(`${runtime.apiServer.url}/api/services/echo-service/health`);
+    const echoHealth = await waitFor(async () => {
+      const result = await getJson(`${runtime.apiServer.url}/api/services/echo-service/health`);
+      if (result.body.health.healthy === true) {
+        return result;
+      }
+      return null;
+    });
     const echoLogs = await waitFor(async () => {
       const result = await getJson(`${runtime.apiServer.url}/api/services/echo-service/logs`);
       if (result.body.logs.entries.length > 0) {
