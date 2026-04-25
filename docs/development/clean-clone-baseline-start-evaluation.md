@@ -100,11 +100,13 @@ Current implemented capability:
 
 - `service-lasso start` discovers the baseline services, installs/configures/starts enabled services in dependency order, reports skipped disabled services, and leaves the API running.
 - `tests/bootstrap-start.test.js` proves install/config/start sequencing and rerun idempotency against a four-service baseline fixture.
+- `npm run verify:baseline-start` builds the CLI and runs the documented `service-lasso start` command end to end against generated baseline fixtures for `@node`, `@traefik`, `echo-service`, and `service-admin`.
+- `.github/workflows/baseline-start-smoke.yml` runs that same command-level smoke on pull requests to `develop` and on manual dispatch.
 
 Current missing capability:
 
-- a deterministic clean-clone smoke that runs the built CLI command end to end from a fresh checkout is still tracked by `#99`.
 - release-backed Traefik acquisition/start remains blocked on `#102`.
+- the deterministic baseline-start smoke is intentionally fixture-backed; full clean-clone proof against real release-backed service repos remains blocked until the baseline inventory includes canonical release-backed `@traefik`.
 
 ## Gap Issues
 
@@ -114,6 +116,7 @@ The clean-clone baseline start use case is split into these implementation-grade
 - `#97`: add release-backed baseline service manifests to the core services root.
 - `#98`: add a bootstrap start command for baseline service install/config/start.
 - `#99`: add deterministic clean-clone baseline start smoke verification.
+- `#102`: create the canonical release-backed `@traefik` service repo/artifact and include it in the baseline release-backed proof.
 
 ## Completion Target
 

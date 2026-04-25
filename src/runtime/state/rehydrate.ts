@@ -1,5 +1,6 @@
 import type { DiscoveredService } from "../../contracts/service.js";
-import { setLifecycleState } from "../lifecycle/store.js";
+import { hasManagedProcess } from "../execution/supervisor.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, ServiceLifecycleState } from "../lifecycle/types.js";
 import { readStoredState } from "./readState.js";
 
@@ -162,7 +163,20 @@ export async function rehydrateLifecycleState(service: DiscoveredService): Promi
   const state = parseLifecycleState(snapshot);
 
   if (state) {
-    setLifecycleState(service.manifest.id, state);
+    const serviceId = service.manifest.id;
+    const current = getLifecycleState(serviceId);
+    const nextState =
+      hasManagedProcess(serviceId) && current.running
+        ? {
+            ...state,
+            running: true,
+            lastAction: current.lastAction ?? state.lastAction,
+            actionHistory: current.actionHistory.length > state.actionHistory.length ? current.actionHistory : state.actionHistory,
+            runtime: current.runtime,
+          }
+        : state;
+
+    setLifecycleState(serviceId, nextState);
   }
 
   return state;
