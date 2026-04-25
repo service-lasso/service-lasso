@@ -227,10 +227,10 @@ Current honest label:
     - release/install metadata lives in `service.json`
     - core can acquire/install without forcing `start`
 
-24. bundled/preloaded versus bootstrap-download output split
+24. bundled versus bootstrap-download output split
     status: queued
     proof:
-    - bundled/preloaded artifacts prove no first-run download
+    - bundled artifacts prove no first-run download
     - bootstrap-download artifacts prove manifest-driven install/download
 
 ### Wave 9: Documentation truth pass
@@ -264,6 +264,6 @@ That item is now done.
 
 The next clean delivery step is:
 
-**bundled/preloaded versus bootstrap-download output split**
+**bundled versus bootstrap-download output split**
 
 That is the next highest-value follow-up because the core manifest/install baseline is now corrected, so the remaining drift is in how the sibling app artifacts classify and prove no-download versus download-on-install behavior.
