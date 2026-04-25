@@ -94,7 +94,7 @@ Current correction note:
 - older repo names such as `service-lasso-packager-node` are migration-era names
 - labels such as `bundled` describe an artifact mode, not a canonical app-host repo name
 - the canonical model is app host type first, packaging target second
-- the current canonical artifact-mode proof now lives in `service-lasso-app-node`, which ships source, bootstrap-download, and preloaded/no-download artifacts from one host repo
+- the current canonical artifact-mode proof now lives in `service-lasso-app-node`, which ships source, bootstrap-download, and bundled/no-download artifacts from one host repo
 
 These should all consume the same canonical runtime model based on:
 - `servicesRoot`

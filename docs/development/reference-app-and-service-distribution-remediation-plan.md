@@ -72,7 +72,7 @@ Current problem:
 
 Required correction:
 - `bundled` must mean the app ships with everything it needs already included
-- no first-run service download should be required for the bundled/preloaded mode
+- no first-run service download should be required for the bundled mode
 - Service Lasso should be able to install/download a service without starting it
 
 ## Required end state
@@ -165,7 +165,7 @@ It does not mean:
 
 ## Correct bundled/download model
 
-### Bundled / preloaded mode
+### Bundled mode
 
 Bundled means:
 - the app ships with the runtime
@@ -261,7 +261,7 @@ Deliverables:
 
 Make release artifacts prove the two modes honestly:
 
-- bundled/preloaded = no first-run download
+- bundled = no first-run download
 - lightweight/bootstrap-download = first install/download allowed
 
 Deliverables:
@@ -300,7 +300,7 @@ This remediation should only be considered complete when all of these are true:
 - `service.json` is the only canonical service manifest for release/install metadata
 - no sidecar release-source files remain in the starter repos
 - core supports install/download without start
-- bundled/preloaded outputs prove no first-run download
+- bundled outputs prove no first-run download
 - bootstrap-download outputs prove install/download before use
 - reference repos are aligned to the corrected host-type vs packaging-target model
 
@@ -313,14 +313,21 @@ The manifest/install gap is now closed for the bounded first slice:
 
 The highest-value next implementation step is now:
 
-**completed:** the canonical `service-lasso-app-node` starter now proves source-template, bootstrap-download, and preloaded/no-download artifact modes honestly, and the old `service-lasso-bundled` repo identity can be retired.
+**completed:** the canonical `service-lasso-app-node` starter now proves source-template, bootstrap-download, and bundled/no-download artifact modes honestly, and the old `service-lasso-bundled` repo identity can be retired.
 
 ## Governed follow-on queue
 
 The remediation itself is complete, and the next ideas are now tracked as explicit governed items rather than chat-only suggestions:
 
 1. `ISS-046` / `TASK-046`
-   - completed: the honest `source` / `runtime` / `preloaded` artifact contract now also applies to `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri`
+   - completed: the honest `source` / `runtime` / `bundled` artifact contract now also applies to `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri`
+   - terminology cleanup follow-through:
+     - `service-lasso-app-node#6`
+     - `service-lasso-app-web#17`
+     - `service-lasso-app-electron#6`
+     - `service-lasso-app-tauri#16`
+     - `service-lasso-app-packager-pkg#8`
+     - `service-template#3`
 2. `ISS-047` / `TASK-047`
    - add a first-class CLI/service-install surface so Service Lasso can acquire/install from manifest-owned `artifact` metadata without `start`
 3. `ISS-048` / `TASK-048`
