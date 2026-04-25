@@ -31,7 +31,7 @@ service-lasso start --services-root ./services --workspace-root ./workspace
 
 As of 2026-04-25, the core CLI has a bounded baseline bootstrap command that installs, configures, and starts the baseline inventory in dependency order, then leaves the API running.
 
-Remaining gap: `@traefik` is still an intentionally disabled placeholder until `#102` creates the canonical release-backed Traefik service repo/artifact. The command reports disabled baseline services as skipped/deferred instead of pretending they started.
+`@traefik` now points at the canonical `service-lasso/lasso-traefik@2026.4.25-5301df9` release artifact. The command can acquire, configure, and start Traefik as a real release-backed baseline service.
 
 ## Evidence
 
@@ -73,7 +73,7 @@ Missing from the expected clean-clone baseline:
 - `services/@traefik/service.json`
 - `services/service-admin/service.json`
 
-Issue `#97` adds those manifest IDs to the core services root. `@traefik` remains a disabled placeholder until issue `#102` creates a canonical release-backed Traefik service repo/artifact.
+Issue `#97` added those manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`.
 
 Current `services/echo-service/service.json` is a local fixture manifest. It does not currently prove the expected release-backed download path from `service-lasso/lasso-echoservice`.
 
@@ -100,13 +100,14 @@ Current implemented capability:
 
 - `service-lasso start` discovers the baseline services, installs/configures/starts enabled services in dependency order, reports skipped disabled services, and leaves the API running.
 - `tests/bootstrap-start.test.js` proves install/config/start sequencing and rerun idempotency against a four-service baseline fixture.
-- `npm run verify:baseline-start` builds the CLI and runs the documented `service-lasso start` command end to end against generated baseline fixtures for `@node`, `@traefik`, `echo-service`, and `service-admin`.
+- `npm run verify:baseline-start` builds the CLI and runs the documented `service-lasso start` command end to end against generated baseline fixtures for `@node`, `echo-service`, and `service-admin`, plus the real release-backed `@traefik` artifact.
 - `.github/workflows/baseline-start-smoke.yml` runs that same command-level smoke on pull requests to `develop` and on manual dispatch.
+- `npm run verify:traefik-release` directly proves the public Traefik release archive can be acquired, configured, started, and observed healthy through the runtime API.
 
 Current missing capability:
 
-- release-backed Traefik acquisition/start remains blocked on `#102`.
-- the deterministic baseline-start smoke is intentionally fixture-backed; full clean-clone proof against real release-backed service repos remains blocked until the baseline inventory includes canonical release-backed `@traefik`.
+- the deterministic baseline-start smoke still uses fixtures for `@node`, `echo-service`, and `service-admin`; fully live reference-app lifecycle proof remains tracked by `#89`.
+- reference-app and service-template baseline inventory alignment remains tracked by `#91`.
 
 ## Gap Issues
 

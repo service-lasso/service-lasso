@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
+const traefikReleaseVersion = "2026.4.25-5301df9";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,6 +166,99 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
   });
 }
 
+function traefikPlatformArtifact() {
+  switch (process.platform) {
+    case "win32":
+      return {
+        assetName: "lasso-traefik-win32.zip",
+        archiveType: "zip",
+        command: ".\\traefik.exe",
+        args: ["--configFile=runtime/traefik.yml"],
+      };
+    case "darwin":
+      return {
+        assetName: "lasso-traefik-darwin.tar.gz",
+        archiveType: "tar.gz",
+        command: "./traefik",
+        args: ["--configFile=runtime/traefik.yml"],
+      };
+    default:
+      return {
+        assetName: "lasso-traefik-linux.tar.gz",
+        archiveType: "tar.gz",
+        command: "./traefik",
+        args: ["--configFile=runtime/traefik.yml"],
+      };
+  }
+}
+
+async function writeTraefikService(servicesRoot, ports, options = {}) {
+  const serviceId = "@traefik";
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(serviceRoot, { recursive: true });
+  await writeJson(path.join(serviceRoot, "service.json"), {
+    id: serviceId,
+    name: "Traefik Router",
+    description: "Release-backed Traefik baseline smoke fixture.",
+    version: traefikReleaseVersion,
+    enabled: true,
+    depend_on: options.depend_on,
+    ports: {
+      web: ports.web,
+      admin: ports.admin,
+    },
+    artifact: {
+      kind: "archive",
+      source: {
+        type: "github-release",
+        repo: "service-lasso/lasso-traefik",
+        tag: traefikReleaseVersion,
+      },
+      platforms: {
+        [process.platform]: traefikPlatformArtifact(),
+      },
+    },
+    install: {
+      files: [
+        {
+          path: "./runtime/dynamic.yml",
+          content: "http:\n  routers: {}\n  services: {}\n",
+        },
+      ],
+    },
+    config: {
+      files: [
+        {
+          path: "./runtime/traefik.yml",
+          content:
+            "entryPoints:\n" +
+            "  web:\n" +
+            "    address: \"127.0.0.1:${WEB_PORT}\"\n" +
+            "  traefik:\n" +
+            "    address: \"127.0.0.1:${ADMIN_PORT}\"\n" +
+            "api:\n" +
+            "  dashboard: true\n" +
+            "ping:\n" +
+            "  entryPoint: traefik\n" +
+            "providers:\n" +
+            "  file:\n" +
+            "    filename: \"./runtime/dynamic.yml\"\n" +
+            "    watch: true\n" +
+            "log:\n" +
+            "  level: INFO\n",
+        },
+      ],
+    },
+    healthcheck: {
+      type: "http",
+      url: `http://127.0.0.1:${ports.admin}/ping`,
+      expected_status: 200,
+      retries: 80,
+      interval: 250,
+    },
+  });
+}
+
 function startCli({ servicesRoot, workspaceRoot, port }) {
   const child = spawn(
     process.execPath,
@@ -223,6 +317,8 @@ const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-baseline-st
 const servicesRoot = path.join(tempRoot, "services");
 const workspaceRoot = path.join(tempRoot, "workspace");
 const apiPort = await reserveLoopbackPort();
+const traefikAdminPort = await reserveLoopbackPort();
+const traefikWebPort = await reserveLoopbackPort();
 const echoPort = await reserveLoopbackPort();
 const adminPort = await reserveLoopbackPort();
 let cli = null;
@@ -231,7 +327,7 @@ let servicesStopped = false;
 try {
   await mkdir(servicesRoot, { recursive: true });
   await writeLongRunningService(servicesRoot, "@node");
-  await writeLongRunningService(servicesRoot, "@traefik", { depend_on: ["@node"] });
+  await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort }, { depend_on: ["@node"] });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
     ports: { service: echoPort },
@@ -275,6 +371,8 @@ try {
   assert(echo.ok, "Echo Service health surface was not reachable.");
   const admin = await fetch(`http://127.0.0.1:${adminPort}/health`);
   assert(admin.ok, "Service Admin health surface was not reachable.");
+  const traefik = await fetch(`http://127.0.0.1:${traefikAdminPort}/ping`);
+  assert(traefik.ok, "Traefik release-backed ping surface was not reachable.");
 
   await postJson(`http://127.0.0.1:${apiPort}/api/runtime/actions/stopAll`);
   servicesStopped = true;
