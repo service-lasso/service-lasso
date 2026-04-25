@@ -112,11 +112,13 @@ npm install
 npm run typecheck
 npm run build
 npm run test
+npm run verify:baseline-start
 npm start
 npm run dev
 ```
 
 `npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
+`npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with generated `@node`, `@traefik`, `echo-service`, and `service-admin` fixtures.
 
 ## CLI commands
 
@@ -135,6 +137,14 @@ service-lasso start --services-root ./services --workspace-root ./workspace
 ```
 
 `service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; disabled services such as the current `@traefik` placeholder are reported as skipped/deferred until their release-backed service repo exists.
+
+The command-level smoke for this path is:
+
+```bash
+npm run verify:baseline-start
+```
+
+That smoke runs against generated local fixtures so it can be deterministic in CI. Full release-backed baseline proof still depends on the canonical Traefik service repo/artifact work tracked separately.
 
 Acquire/install a service from manifest-owned `artifact` metadata without starting it:
 
