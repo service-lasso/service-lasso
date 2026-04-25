@@ -33,7 +33,6 @@ The scoped baseline inventory is aligned across core, service-template, and cano
 Remaining issues:
 
 - `#58`: finish end-to-end release readiness and fresh consumer validation.
-- `#93`: complete or explicitly defer the donor-aligned Java runtime service path before claiming core service inventory completion.
 
 ## Verification Target
 

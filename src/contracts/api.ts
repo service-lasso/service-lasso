@@ -260,7 +260,7 @@ export interface ServiceMetricsResponse {
       running: boolean;
       pid: number | null;
       command: string | null;
-      provider: "direct" | "node" | "python" | null;
+      provider: ProviderExecutionPlan["provider"] | null;
       providerServiceId: string | null;
       startedAt: string | null;
       finishedAt: string | null;

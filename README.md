@@ -578,7 +578,7 @@ Examples:
 - `cms` → depends on `totaljs-flow,totaljs-messageservice,mongo,nginx`
 - `typedb-init` → depends on `typedb`
 - `typedb-sample` → depends on `python,typedb,typedb-init`
-- `keycloak` → depends on `postgredb` and runs via `java`
+- `keycloak` → depends on `postgredb` and runs via Java; the core runtime now models that provider as bounded `execservice: "@java"` support, while release-backed JRE redistribution remains deferred
 
 This confirms that the donor `services/` tree is a coordinated service runtime, not a loose collection of examples.
 

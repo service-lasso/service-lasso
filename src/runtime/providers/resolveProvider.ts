@@ -1,6 +1,7 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { createDirectExecutionPlan } from "./direct.js";
+import { createJavaExecutionPlan } from "./java.js";
 import { createNodeExecutionPlan } from "./node.js";
 import { createPythonExecutionPlan } from "./python.js";
 import type { ProviderExecutionPlan } from "./types.js";
@@ -25,6 +26,8 @@ export function resolveProviderExecution(
       return createNodeExecutionPlan(service.manifest, providerService.manifest);
     case "@python":
       return createPythonExecutionPlan(service.manifest, providerService.manifest);
+    case "@java":
+      return createJavaExecutionPlan(service.manifest, providerService.manifest);
     default:
       throw new Error(`Unsupported provider service id: ${providerServiceId}`);
   }

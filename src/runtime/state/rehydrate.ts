@@ -2,6 +2,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, ServiceLifecycleState } from "../lifecycle/types.js";
+import type { ProviderKind } from "../providers/types.js";
 import { readStoredState } from "./readState.js";
 
 interface StoredInstallState {
@@ -36,7 +37,7 @@ interface StoredRuntimeState {
   finishedAt?: string | null;
   exitCode?: number | null;
   command?: string | null;
-  provider?: "direct" | "node" | "python" | null;
+  provider?: ProviderKind | null;
   providerServiceId?: string | null;
   lastTermination?: "stopped" | "exited" | "crashed" | null;
   ports?: Record<string, number>;
@@ -60,6 +61,10 @@ interface StoredRuntimeState {
 
 function isLifecycleAction(value: unknown): value is LifecycleAction {
   return value === "install" || value === "config" || value === "start" || value === "stop" || value === "restart";
+}
+
+function isProviderKind(value: unknown): value is ProviderKind {
+  return value === "direct" || value === "node" || value === "python" || value === "java";
 }
 
 function parseLifecycleState(snapshot: {
@@ -123,9 +128,7 @@ function parseLifecycleState(snapshot: {
       finishedAt: typeof runtime?.finishedAt === "string" ? runtime.finishedAt : null,
       exitCode: typeof runtime?.exitCode === "number" ? runtime.exitCode : null,
       command: typeof runtime?.command === "string" ? runtime.command : null,
-      provider: runtime?.provider === "direct" || runtime?.provider === "node" || runtime?.provider === "python"
-        ? runtime.provider
-        : null,
+      provider: isProviderKind(runtime?.provider) ? runtime.provider : null,
       providerServiceId: typeof runtime?.providerServiceId === "string" ? runtime.providerServiceId : null,
       lastTermination:
         runtime?.lastTermination === "stopped" || runtime?.lastTermination === "exited" || runtime?.lastTermination === "crashed"
