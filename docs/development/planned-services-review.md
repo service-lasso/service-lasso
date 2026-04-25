@@ -22,7 +22,7 @@ Current canonical reference app repos only include:
 - `services/echo-service/service.json`
 - `services/service-admin/service.json`
 
-This is a real gap because `service-template/services/service-admin/service.json` declares `depend_on: ["@node", "@traefik"]`, while the app repos that include `service-admin` do not carry those dependency manifests.
+The prior inventory gap is now closed for the scoped reference repos: `service-template`, `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg` carry `echo-service`, `service-admin`, `@node`, and release-backed `@traefik`.
 
 Java is a separate core-completion gap rather than a starter baseline dependency today. Donor/reference material includes `_java`, docs describe Java-backed apps through `execservice: java`, and donor notes identify Keycloak as a Java-backed service, but core currently has no `@java` manifest, service repo, release artifact, or runtime proof.
 
@@ -104,7 +104,7 @@ Resolve issue `#93` before claiming donor-aligned core runtime service planning 
 Core completion should proceed in this order:
 
 1. Close remaining release-readiness evidence gaps for the already implemented core package and current service repos: deterministic live reference-app lifecycle smoke, promotion evidence, and fresh `lasso-serviceadmin` validation.
-2. Resolve baseline app inventory alignment under `#91`: add `@node` and the release-backed `@traefik` manifest to canonical app repos/templates where Service Admin expects them.
+2. Add deterministic live reference-app lifecycle smoke under `#89` now that the scoped reference repos carry the same baseline inventory.
 3. Finish core runtime service inventory tracking under `#93`: promote Java from donor/reference-only material into an explicit `@java` manifest/repo/release/runtime-proof plan, or record a deliberate deferral.
 4. Decide the next donor-aligned runtime utility wave after baseline closure: `@python` provider depth, `@archive`, and `@localcert`.
 5. Only after the runtime services are proven, plan dependent app/service migrations such as Keycloak so they consume released runtime services instead of inheriting donor assumptions.

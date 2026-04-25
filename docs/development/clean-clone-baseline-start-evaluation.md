@@ -107,7 +107,7 @@ Current implemented capability:
 Current missing capability:
 
 - the deterministic baseline-start smoke still uses fixtures for `@node`, `echo-service`, and `service-admin`; fully live reference-app lifecycle proof remains tracked by `#89`.
-- reference-app and service-template baseline inventory alignment remains tracked by `#91`.
+- deterministic live reference-app lifecycle proof remains tracked by `#89`.
 
 ## Gap Issues
 
