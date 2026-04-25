@@ -202,4 +202,11 @@ This is a:
 
 **bounded self-contained publishable package payload**
 
-It now targets the public npm registry. The protected-branch publish proof remains blocked until the repository has a valid `NPM_TOKEN` secret and the next `main` publish workflow completes.
+It now targets the public npm registry.
+
+Current verified public npm version:
+- `@service-lasso/service-lasso@2026.4.24-a663bb0`
+
+Evidence:
+- publish workflow run `24876054960` published and verified the package from npmjs
+- local unauthenticated `npm view`, clean temp `npm install`, and `npm run verify:package-consumer` passed against `https://registry.npmjs.org`

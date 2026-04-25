@@ -25,10 +25,14 @@ Examples:
 Uses a Node runtime or Node executable.
 
 ### Java application
-Uses a Java runtime via `execservice: java`.
+Uses a Java runtime via `execservice: "@java"`.
+
+Current core status:
+- `@java` exists as a bounded local/no-download provider manifest.
+- release-backed JRE redistribution is deferred until the project chooses a vendor, license, platform, and update strategy.
 
 ### Python application
-Uses a Python runtime via `execservice: python`.
+Uses a Python runtime via `execservice: "@python"`.
 
 ### CLI or secondary-runtime application
 Uses another service's CLI/runtime variant.
@@ -42,10 +46,10 @@ Example shape:
 Provides runtime/tooling to other services rather than acting as an end-user app.
 
 Examples:
-- node
-- java
-- python
-- archive
+- `@node`
+- `@java`
+- `@python`
+- `@archive`
 
 ### Operator or UI application
 Human-facing admin UI or dashboard service.

@@ -7,7 +7,7 @@ It covers four linked workstreams:
 1. protected-branch release/version pipeline normalization
 2. reference-app naming and repo-lineup normalization
 3. canonical `service.json` release/install metadata in core
-4. honest bundled/preloaded versus bootstrap-download outputs
+4. honest bundled versus bootstrap-download outputs
 
 It is based on:
 - `.governance/specs/SPEC-002-core-standalone-runtime.md`
@@ -21,7 +21,7 @@ This remediation is only complete when:
 - releases and packages are created from protected-branch pushes using `yyyy.m.d-<shortsha>`
 - `service.json` is the only canonical service manifest for release/install metadata
 - core can acquire/install a service without forcing `start`
-- bundled/preloaded outputs prove no first-run download
+- bundled outputs prove no first-run download
 - bootstrap-download outputs prove manifest-driven install/download
 - deprecated starter repos are retired and the canonical repo lineup is the only one referenced
 
@@ -204,11 +204,11 @@ Execution order:
    current decision:
    - not required to close the remediation once one canonical app-host repo proves both artifact modes honestly
    - the remaining host repos can inherit the same artifact-mode contract as follow-on implementation work
-3. decide where the no-download preloaded artifact mode should live in the canonical lineup
+3. decide where the no-download bundled artifact mode should live in the canonical lineup
    completion outcome:
-   - `service-lasso-app-node` is now the canonical repo that proves both bootstrap-download and preloaded/no-download artifact modes
+   - `service-lasso-app-node` is now the canonical repo that proves both bootstrap-download and bundled/no-download artifact modes
    - `service-lasso-bundled` is no longer needed as a primary repo identity
-4. prove the no-download preloaded mode honestly
+4. prove the no-download bundled mode honestly
    required proof:
    - service archives are already present inside the release artifact
    - install/start does not trigger a network fetch on first use
@@ -216,13 +216,13 @@ Execution order:
 6. retire or archive the old bundled repo identity once the canonical app-host repos cover both modes
 
 Required outcomes:
-- bundled/preloaded outputs include all required service payloads
+- bundled outputs include all required service payloads
 - bootstrap-download outputs rely on manifest-driven acquisition from the same `services/` inventory
-- no first-run download occurs in bundled/preloaded mode
+- no first-run download occurs in bundled mode
 - reference-app release artifacts are documented and verified accordingly
 
 Required evidence:
-- runnable proof that bundled/preloaded mode starts without downloading service archives
+- runnable proof that bundled mode starts without downloading service archives
 - runnable proof that bootstrap-download mode acquires service payloads from manifest-owned metadata
 - release docs for the canonical app repos classify their artifact mode honestly
 
@@ -233,8 +233,8 @@ Current bounded evidence:
   - runnable runtime artifact with bundled admin assets and installed runtime deps
   - local verification that `install` downloads the Echo archive from manifest-owned metadata before use
 - `service-lasso` core now reuses a preseeded archive already present in service state instead of redownloading it during `install`
-- `service-lasso-app-node` now also provides the canonical preloaded/no-download proof:
-  - `*-preloaded.tar.gz` ships a matching preseeded Echo archive under runtime-owned service state
+- `service-lasso-app-node` now also provides the canonical bundled/no-download proof:
+  - `*-bundled.tar.gz` ships a matching acquired Echo archive under `services/echo-service/.state/artifacts/<tag>/<assetName>`
   - local verification proves `install` succeeds without any first-run archive download
 - the old `service-lasso-bundled` repo identity is retired after its useful release-artifact logic was moved into the canonical app-node repo
 
@@ -254,13 +254,13 @@ Title:
 
 Intent:
 - keep `service-lasso-app-node` from becoming a one-off special case
-- make the canonical app-host repos behave consistently around source/bootstrap/preloaded outputs
+- make the canonical app-host repos behave consistently around source/bootstrap/bundled outputs
 
 Execution order:
 1. upgrade `service-lasso-app-web` to stage and verify:
    - `*-source.tar.gz`
    - `*-runtime.tar.gz`
-   - `*-preloaded.tar.gz`
+   - `*-bundled.tar.gz`
 2. upgrade `service-lasso-app-electron` to the same artifact contract
 3. upgrade `service-lasso-app-tauri` to the same artifact contract
 4. verify that all three repos use tracked `services/*/service.json` inventory plus manifest-owned `artifact` metadata instead of transitional scaffolding
@@ -269,13 +269,13 @@ Execution order:
 Required evidence:
 - each repo passes `npm test`
 - each repo passes `npm run release:verify`
-- each repo has release docs that classify `source`, `runtime`, and `preloaded` modes honestly
+- each repo has release docs that classify `source`, `runtime`, and `bundled` modes honestly
 
 Completion outcome:
 - `service-lasso-app-web`, `service-lasso-app-electron`, and `service-lasso-app-tauri` now match `service-lasso-app-node` by shipping:
   - `*-source.tar.gz`
   - `*-runtime.tar.gz`
-  - `*-preloaded.tar.gz`
+  - `*-bundled.tar.gz`
 - all three repos now use tracked `services/*/service.json` inventory plus manifest-owned `artifact` metadata instead of generated Echo wrapper manifests
 - all three repos now verify the artifact contract through:
   - `npm test`
@@ -378,7 +378,7 @@ Required evidence:
 
 Completion outcome:
 - `service-lasso-app-packager-pkg` now exists locally and on GitHub as a template-enabled packaging-target repo created from `service-lasso-app-node`
-- it adds a bounded `pkg` wrapper with honest `source`, `runtime`, and `preloaded` artifacts plus protected-branch `yyyy.m.d-<shortsha>` release versioning
+- it adds a bounded `pkg` wrapper with honest `source`, `runtime`, and `bundled` artifacts plus protected-branch `yyyy.m.d-<shortsha>` release versioning
 - `service-lasso-app-packager-sea` and `service-lasso-app-packager-nexe` remain explicitly deferred until a real implementation need exists
 
 ### 9. `ISS-050` / `TASK-050`

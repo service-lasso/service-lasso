@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { loadServiceManifest } from "../dist/runtime/discovery/loadManifest.js";
 import { startApiServer } from "../dist/server/index.js";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function makeTempServicesRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-services-"));
@@ -43,6 +46,23 @@ test("discoverServices loads valid service manifests from a services root", asyn
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }
+});
+
+test("core services root declares the clean-clone baseline inventory", async () => {
+  const services = await discoverServices(path.join(repoRoot, "services"));
+  const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
+
+  assert.deepEqual(
+    ["@node", "@traefik", "echo-service", "service-admin"].filter((serviceId) => !byId.has(serviceId)),
+    [],
+  );
+  assert.equal(byId.get("@node")?.executable, "node");
+  assert.equal(byId.get("@node")?.artifact, undefined);
+  assert.equal(byId.get("@java")?.executable, "java");
+  assert.equal(byId.get("@java")?.artifact, undefined);
+  assert.equal(byId.get("@traefik")?.enabled, true);
+  assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
+  assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
 });
 
 test("loadServiceManifest fails explicitly for malformed manifests", async () => {

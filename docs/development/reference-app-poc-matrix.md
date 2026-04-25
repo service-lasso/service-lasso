@@ -63,7 +63,7 @@ Minimal POC should:
 Current artifact-mode proof:
 - `*-source.tar.gz` = starter-template source artifact
 - `*-runtime.tar.gz` = runnable bootstrap-download artifact
-- `*-preloaded.tar.gz` = runnable preloaded/no-download artifact
+- `*-bundled.tar.gz` = runnable bundled/no-download artifact
 
 ### `service-lasso-app-electron`
 

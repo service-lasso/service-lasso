@@ -112,8 +112,15 @@ npm install
 npm run typecheck
 npm run build
 npm run test
+npm run verify:baseline-start
+npm run verify:reference-app-lifecycle
+npm start
 npm run dev
 ```
+
+`npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
+`npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with generated `@node`, `echo-service`, and `service-admin` fixtures plus the release-backed `@traefik` artifact.
+`npm run verify:reference-app-lifecycle` fresh-clones the canonical reference apps, starts each app-owned runtime with a deterministic Service Admin dist, and proves Echo Service install/config/start/stop plus process cleanup through that app host.
 
 ## CLI commands
 
@@ -124,6 +131,22 @@ Start the bounded API runtime:
 ```bash
 service-lasso
 ```
+
+Bootstrap the documented baseline inventory and leave the API running:
+
+```bash
+service-lasso start --services-root ./services --workspace-root ./workspace
+```
+
+`service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; `@traefik`, `echo-service`, and `service-admin` use release-backed service artifacts, while `@node` is a local/no-download runtime provider.
+
+The command-level smoke for this path is:
+
+```bash
+npm run verify:baseline-start
+```
+
+That smoke keeps local fixtures for the non-Traefik harness services so it can stay deterministic in CI, and it now downloads and starts the canonical `service-lasso/lasso-traefik` release artifact for `@traefik`.
 
 Acquire/install a service from manifest-owned `artifact` metadata without starting it:
 
@@ -555,7 +578,7 @@ Examples:
 - `cms` → depends on `totaljs-flow,totaljs-messageservice,mongo,nginx`
 - `typedb-init` → depends on `typedb`
 - `typedb-sample` → depends on `python,typedb,typedb-init`
-- `keycloak` → depends on `postgredb` and runs via `java`
+- `keycloak` → depends on `postgredb` and runs via Java; the core runtime now models that provider as bounded `execservice: "@java"` support, while release-backed JRE redistribution remains deferred
 
 This confirms that the donor `services/` tree is a coordinated service runtime, not a loose collection of examples.
 

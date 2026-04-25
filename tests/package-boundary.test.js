@@ -19,6 +19,12 @@ test("root package declares the bounded workspace map", async () => {
   assert.deepEqual(packageJson.workspaces, ["packages/core"]);
 });
 
+test("npm start builds before launching the runtime entrypoint", async () => {
+  const packageJson = await readJson("package.json");
+
+  assert.equal(packageJson.scripts.start, "npm run build && node --enable-source-maps dist/index.js");
+});
+
 test("core wrapper package exposes the canonical package boundary", async () => {
   const packageJson = await readJson("packages/core/package.json");
   const coreModule = await import(pathToFileURL(path.join(repoRoot, "packages/core/index.js")).href);

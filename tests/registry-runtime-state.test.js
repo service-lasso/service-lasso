@@ -29,10 +29,13 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const registry = createServiceRegistry(discovered);
   const graph = new DependencyGraph(registry);
 
-  assert.equal(registry.count(), 4);
-  assert.equal(registry.countEnabled(), 4);
+  assert.equal(registry.count(), 7);
+  assert.equal(registry.countEnabled(), 7);
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
+  assert.ok(registry.getById("service-admin"));
+  assert.ok(registry.getById("@java"));
+  assert.equal(registry.getById("@traefik")?.manifest.enabled, true);
 
   const echoSummary = graph.getServiceDependencies("echo-service");
   assert.deepEqual(echoSummary.dependencies, []);
@@ -40,12 +43,17 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
 
   const nodeSummary = graph.getServiceDependencies("@node");
   assert.deepEqual(nodeSummary.dependencies, []);
-  assert.deepEqual(nodeSummary.dependents, ["node-sample-service"]);
+  assert.deepEqual(nodeSummary.dependents, ["node-sample-service", "service-admin"]);
 
   const nodeSampleSummary = graph.getServiceDependencies("node-sample-service");
   assert.deepEqual(nodeSampleSummary.dependencies, ["@node"]);
   assert.deepEqual(nodeSampleSummary.dependents, []);
   assert.deepEqual(graph.getStartupOrder("node-sample-service"), ["@node"]);
+
+  const serviceAdminSummary = graph.getServiceDependencies("service-admin");
+  assert.deepEqual(serviceAdminSummary.dependencies, ["@node"]);
+  assert.deepEqual(serviceAdminSummary.dependents, []);
+  assert.deepEqual(graph.getStartupOrder("service-admin"), ["@node"]);
 });
 
 test("GET /api/services/:id returns discovered service detail with dependency context", async () => {
@@ -79,9 +87,9 @@ test("GET /api/runtime returns runtime summary state", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.runtime.totalServices, 4);
-    assert.equal(body.runtime.enabledServices, 4);
-    assert.equal(body.runtime.dependencyEdges, 1);
+    assert.equal(body.runtime.totalServices, 7);
+    assert.equal(body.runtime.enabledServices, 7);
+    assert.equal(body.runtime.dependencyEdges, 2);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {
     await apiServer.stop();
@@ -100,8 +108,11 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 4);
-    assert.deepEqual(body.dependencies.edges, [{ from: "@node", to: "node-sample-service" }]);
+    assert.equal(body.dependencies.nodes.length, 7);
+    assert.deepEqual(body.dependencies.edges, [
+      { from: "@node", to: "node-sample-service" },
+      { from: "@node", to: "service-admin" },
+    ]);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
