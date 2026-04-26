@@ -35,7 +35,7 @@ As of 2026-04-25, the core CLI has a bounded baseline bootstrap command that ins
 
 Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
 
-The remaining baseline-start gap is `#159`: `@node` is intentionally local/no-download, but the current checked-in manifest still behaves like a short-lived command service (`node --version`) rather than a long-running managed service or explicitly skipped provider validation.
+Issue `#159` fixed the remaining provider-state ambiguity for `@node`: it is intentionally local/no-download with `role: "provider"`, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured.
 
 ## Historical Evidence
 
@@ -82,7 +82,7 @@ Issue `#97` added the baseline manifest IDs to the core services root. Issue `#1
 
 Current `services/echo-service/service.json` carries both a local fixture fallback and release artifact metadata. Install/acquire uses the release-backed artifact metadata from `service-lasso/lasso-echoservice`.
 
-Current `services/@node/service.json` is a local/no-download runtime/provider fixture. Its final baseline-start state still needs to be made explicit under `#159`.
+Current `services/@node/service.json` is a local/no-download runtime/provider fixture with `role: "provider"`.
 
 ## 2026-04-27 Direct Checked-In Manifest Proof
 
@@ -100,9 +100,9 @@ Observed after issue `#158` fix:
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.25-5301df9` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
 | `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
-| `@node` | yes | yes | no | no | local/no-download provider; tracked under `#159` |
+| `@node` | yes | yes | no | yes | local/no-download provider with `role: "provider"` |
 
-This directly verifies that release-backed `@traefik`, `echo-service`, and `service-admin` are acquired from their configured GitHub releases and remain running/healthy after the baseline start path. It does not yet close the `@node` provider-state gap.
+This directly verifies that release-backed `@traefik`, `echo-service`, and `service-admin` are acquired from their configured GitHub releases and remain running/healthy after the baseline start path. It also verifies the expected `@node` provider outcome: installed/configured, not launched as a managed daemon, and provider-health true.
 
 ## Current CLI/API Capability
 
@@ -131,8 +131,8 @@ Current implemented capability:
 
 Current missing capability:
 
-- the deterministic baseline-start smoke still uses fixtures for `@node`, `echo-service`, and `service-admin`; direct checked-in-manifest proof now covers release-backed `echo-service` and `service-admin` after `#158`
-- `@node` local/no-download provider behavior still needs an explicit non-false final state under `#159`
+- the deterministic baseline-start smoke still uses generated fixtures for `echo-service` and `service-admin`; direct checked-in-manifest proof covers release-backed `echo-service` and `service-admin` after `#158`
+- `@node` local/no-download provider behavior is now explicit after `#159`
 - deterministic live reference-app lifecycle proof passed on 2026-04-25 for all five canonical reference apps through `npm run verify:reference-app-lifecycle`
 
 ## Gap Issues

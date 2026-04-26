@@ -107,11 +107,14 @@ export interface ServiceArchiveArtifact {
   platforms: Record<string, ServiceArtifactPlatform>;
 }
 
+export type ServiceRole = "service" | "provider";
+
 export interface ServiceManifest {
   id: string;
   name: string;
   description: string;
   version?: string;
+  role?: ServiceRole;
   enabled?: boolean;
   autostart?: boolean;
   depend_on?: string[];

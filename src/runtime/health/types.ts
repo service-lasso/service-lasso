@@ -37,7 +37,7 @@ export type ServiceHealthcheck =
   | VariableHealthcheck;
 
 export interface ServiceHealthResult {
-  type: ServiceHealthcheck["type"] | "unknown";
+  type: ServiceHealthcheck["type"] | "provider" | "unknown";
   healthy: boolean;
   detail: string;
 }

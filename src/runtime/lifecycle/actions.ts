@@ -13,6 +13,7 @@ import { appendServiceRecoveryHistoryEvents } from "../recovery/history.js";
 import { acquireInstallArtifact } from "../setup/acquire.js";
 import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
+import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
 
@@ -243,6 +244,10 @@ export async function startService(
         throw new LifecycleStateError(
           `Cannot start service "${serviceId}" because dependency "${dependencyId}" is not configured.`,
         );
+      }
+
+      if (!dependencyState.running && isProviderRole(dependency.manifest)) {
+        continue;
       }
 
       if (!dependencyState.running) {
