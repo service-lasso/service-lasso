@@ -47,6 +47,12 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
+import {
+  checkServiceUpdatesForCli,
+  downloadServiceUpdateCandidate,
+  installServiceUpdateCandidate,
+  listServiceUpdateStates,
+} from "../runtime/updates/actions.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
@@ -156,6 +162,36 @@ function parseServiceMetaPatch(
   }
 
   return patch;
+}
+
+function parseUpdateCheckBody(input: unknown): { serviceId?: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Update check body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (candidate.serviceId !== undefined && typeof candidate.serviceId !== "string") {
+    throw new ApiError("invalid_body", 400, "\"serviceId\" must be a string when present.");
+  }
+
+  return {
+    serviceId: typeof candidate.serviceId === "string" ? candidate.serviceId : undefined,
+  };
+}
+
+function parseUpdateInstallBody(input: unknown): { force?: boolean } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Update install body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (candidate.force !== undefined && typeof candidate.force !== "boolean") {
+    throw new ApiError("invalid_body", 400, "\"force\" must be a boolean when present.");
+  }
+
+  return {
+    force: typeof candidate.force === "boolean" ? candidate.force : undefined,
+  };
 }
 
 async function loadRuntimeModel(servicesRoot: string) {
@@ -427,6 +463,22 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/updates") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, {
+      action: "list",
+      services: await listServiceUpdateStates(runtimeModel.registry.list()),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/updates/check") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const body = parseUpdateCheckBody(await readJsonBody(request));
+    writeJson(response, 200, await checkServiceUpdatesForCli(runtimeModel.registry.list(), body.serviceId));
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/services/meta") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const payload: ServicesMetaResponse["services"] = await Promise.all(
@@ -598,6 +650,25 @@ async function routeRequest(
         200,
         createServiceNetworkResponse(buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts)),
       );
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
+      writeJson(response, 200, {
+        serviceId,
+        update: await readServiceUpdateState(service),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "download") {
+      writeJson(response, 200, await downloadServiceUpdateCandidate(service));
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "install") {
+      const body = parseUpdateInstallBody(await readJsonBody(request));
+      writeJson(response, 200, await installServiceUpdateCandidate(service, { force: body.force }));
       return;
     }
 

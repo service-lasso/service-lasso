@@ -57,6 +57,7 @@ Explicitly out of scope for this spec:
 - `AC-4AB`: The manifest contract defines a bounded service update policy shape, and the runtime can perform read-only update discovery for `github-release` artifact sources, classifying pinned, latest, update-available, unavailable, and check-failed states without downloading or installing artifacts.
 - `AC-4AC`: The runtime persists bounded per-service update state separately from active install state, including last check evidence, available release metadata, downloaded candidate metadata, deferred install reasons, and failure evidence, while corrupt or missing update state degrades safely.
 - `AC-4AD`: The CLI exposes bounded operator update commands for listing persisted update state, checking release sources, downloading update candidates, and explicitly installing candidates with clear human output and stable JSON output.
+- `AC-4AE`: The runtime API exposes bounded update status and actions so app hosts and Service Admin can list persisted update state, check release sources, download candidates, and install candidates without shelling out to the CLI.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -98,6 +99,7 @@ Required evidence for this spec:
 - direct proof that valid update policies parse into typed runtime contracts, unsafe active/pinned combinations are rejected, and read-only update discovery classifies pinned, latest, update-available, unavailable, and check-failed release states through deterministic fake GitHub release metadata
 - direct proof that update state writes and rehydrates from `.state/updates.json`, distinguishes available/downloaded/deferred/failed state, does not mutate active `install.json` artifact metadata, and safely ignores missing or corrupt update state
 - direct proof that `service-lasso updates list/check/download/install` supports human and JSON output, persists state transitions, downloads candidates without changing active install metadata, blocks install when policy disallows it, and supports explicit forced install
+- direct proof that update API routes return persisted state, check updates, download candidates without mutating active install metadata, install with policy/force behavior, and return structured errors for invalid request bodies or missing services
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
@@ -143,3 +145,4 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - 2026-04-26: `#121` and `#122` add the first bounded service update-management slice. `service.json` now accepts explicit `updates` policy, unsafe active/pinned combinations are rejected, and read-only GitHub-release discovery can classify pinned/latest/update-available/unavailable/check-failed states without downloading or installing artifacts.
 - 2026-04-26: `#123` adds bounded durable update state under `.state/updates.json`. Check results, available releases, downloaded candidates, install deferrals, and failures are stored separately from active installed artifact metadata and rehydrate through service detail output.
 - 2026-04-26: `#124` adds bounded update CLI commands. Operators can list/check updates, download candidates, and explicitly install a candidate with human or JSON output while scheduler, maintenance-window policy, dedicated API routes, and Service Admin notifications remain tracked separately.
+- 2026-04-26: `#125` adds bounded runtime API routes for update status, checks, candidate downloads, and candidate installs. App hosts and Service Admin can now call backend update actions directly; scheduler, maintenance-window safety, and UI notifications remain tracked separately.
