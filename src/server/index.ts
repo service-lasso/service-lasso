@@ -45,6 +45,8 @@ import { resolveProviderExecution } from "../runtime/providers/resolveProvider.j
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
+import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
@@ -228,6 +230,7 @@ async function createServiceSummary(
   const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
   const provider = resolveProviderExecution(service, registry);
   const updates = await readServiceUpdateState(service);
+  const recovery = await readServiceRecoveryHistory(service);
 
   return {
     id: service.manifest.id,
@@ -244,6 +247,7 @@ async function createServiceSummary(
     lifecycle,
     health,
     updates,
+    recovery,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
     operator: {
@@ -476,6 +480,18 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/recovery") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, {
+      action: "status",
+      services: await Promise.all(runtimeModel.registry.list().map(async (service) => ({
+        serviceId: service.manifest.id,
+        recovery: await readServiceRecoveryHistory(service),
+      }))),
+    });
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/updates/check") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const body = parseUpdateCheckBody(await readJsonBody(request));
@@ -661,6 +677,23 @@ async function routeRequest(
       writeJson(response, 200, {
         serviceId,
         update: await readServiceUpdateState(service),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "recovery") {
+      writeJson(response, 200, {
+        serviceId,
+        recovery: await readServiceRecoveryHistory(service),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "recovery" && pathParts[4] === "doctor") {
+      writeJson(response, 200, {
+        serviceId,
+        doctor: await runAndRecordDoctorPreflight(service),
+        recovery: await readServiceRecoveryHistory(service),
       });
       return;
     }

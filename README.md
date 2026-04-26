@@ -181,6 +181,20 @@ Update CLI notes:
 - `updates install` installs a downloaded or resolvable candidate only when policy allows, unless `--force` is provided
 - `--json` emits machine-readable status, versions, and recommended action data
 
+Inspect recovery history and run doctor/preflight checks without restarting a service:
+
+```bash
+service-lasso recovery status --services-root ./services --workspace-root ./workspace
+service-lasso recovery status echo-service --services-root ./services --workspace-root ./workspace --json
+service-lasso recovery doctor echo-service --services-root ./services --workspace-root ./workspace
+```
+
+Recovery CLI notes:
+
+- `recovery status` reads persisted `.state/recovery.json` for one service or all discovered services
+- `recovery doctor` runs the configured `doctor.steps` directly and appends the result to recovery history
+- `--json` emits the bounded history and doctor result shape used by app hosts
+
 The same bounded update surface is available through the runtime API for app hosts and Service Admin consumers:
 
 ```text
@@ -189,6 +203,14 @@ GET  /api/services/:id/updates
 POST /api/updates/check
 POST /api/services/:id/update/download
 POST /api/services/:id/update/install
+```
+
+The same bounded recovery surface is available through the runtime API:
+
+```text
+GET  /api/recovery
+GET  /api/services/:id/recovery
+POST /api/services/:id/recovery/doctor
 ```
 
 Hosts that want periodic update work can opt in when starting the API server by passing `updateScheduler: true`. The scheduler respects per-service `updates.checkIntervalSeconds`, skips disabled/pinned services, suppresses duplicate in-flight work, and uses the same update state/actions as the CLI and API.
