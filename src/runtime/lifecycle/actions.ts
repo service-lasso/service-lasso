@@ -8,6 +8,7 @@ import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
+import { assertDoctorPreflightAllowsRestart } from "../recovery/doctor.js";
 import { acquireInstallArtifact } from "../setup/acquire.js";
 import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
@@ -384,6 +385,7 @@ export async function restartService(
   ) {
     throw new LifecycleStateError(`Cannot restart service "${serviceId}" because no executable is configured.`);
   }
+  await assertDoctorPreflightAllowsRestart(service);
 
   if (current.running) {
     await stopManagedProcess(serviceId);
