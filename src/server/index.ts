@@ -45,6 +45,7 @@ import { resolveProviderExecution } from "../runtime/providers/resolveProvider.j
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
@@ -61,12 +62,15 @@ export interface ApiServerOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
   autostart?: boolean;
+  monitor?: boolean;
+  monitorIntervalMs?: number;
 }
 
 export interface RunningApiServer {
   server: Server;
   port: number;
   url: string;
+  monitor: RuntimeServiceMonitor | null;
   stop: () => Promise<void>;
 }
 
@@ -732,11 +736,18 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   if (options.autostart) {
     await executeRuntimeOrchestrationAction("autostart", bootModel);
   }
+  const monitor = options.monitor
+    ? createRuntimeServiceMonitor({
+        registry: bootModel.registry,
+        intervalMs: options.monitorIntervalMs,
+      })
+    : null;
   const server = createApiServer(config);
   const port = options.port ?? 18080;
 
   server.listen(port, "127.0.0.1");
   await once(server, "listening");
+  monitor?.start();
 
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -749,7 +760,9 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     server,
     port: resolvedPort,
     url: `http://127.0.0.1:${resolvedPort}`,
+    monitor,
     stop: async () => {
+      monitor?.stop();
       await stopAllManagedProcesses();
       server.close();
       await once(server, "close");

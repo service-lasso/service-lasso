@@ -15,6 +15,15 @@ The first implemented slice is intentionally contract-only:
 
 No automatic restart, monitor loop, doctor execution, or hook execution is enabled by this contract alone.
 
+The second implemented slice adds the first bounded runtime monitor:
+
+- the API server can opt into starting a monitor loop
+- only services with `monitoring.enabled` and `restartPolicy.enabled` are eligible
+- crashed services can be restarted when `restartPolicy.onCrash` is true
+- unhealthy services can be restarted when `restartPolicy.onUnhealthy` is true and the configured threshold is reached
+- restart attempts respect `maxAttempts`, `backoffSeconds`, and duplicate in-flight protection
+- monitor events are currently in-memory return values and console messages; durable recovery history remains tracked separately
+
 ## Manifest Shape
 
 Example:
@@ -87,11 +96,10 @@ Bounded hook and doctor definitions support:
 
 ## Follow-On Issues
 
-- `#132`: runtime service monitor and auto-restart loop
+- `#132`: runtime service monitor and auto-restart loop - first bounded slice implemented
 - `#133`: doctor/preflight execution before restart or upgrade
 - `#134`: pre-upgrade, post-upgrade, and rollback hook execution
 - `#135`: persisted recovery, doctor, restart, and hook history
 - `#136`: CLI and API surfaces
 - `#137`: Service Admin UI status
 - `#138`: end-to-end recovery and hook verification
-
