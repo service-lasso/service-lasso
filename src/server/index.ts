@@ -46,6 +46,7 @@ import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from ".
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
+import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
@@ -186,6 +187,7 @@ async function createServiceSummary(
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
   const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
   const provider = resolveProviderExecution(service, registry);
+  const updates = await readServiceUpdateState(service);
 
   return {
     id: service.manifest.id,
@@ -201,6 +203,7 @@ async function createServiceSummary(
     dependents: dependencySummary.dependents,
     lifecycle,
     health,
+    updates,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
     operator: {
