@@ -1,5 +1,8 @@
-import type { ServiceManifest } from "../../contracts/service.js";
+import type { ServiceHookFailurePolicy, ServiceHookStep, ServiceManifest } from "../../contracts/service.js";
 import type { ServiceHealthcheck } from "../health/types.js";
+
+const hookFailurePolicies = new Set(["block", "warn", "continue"]);
+const hookPhases = new Set(["preRestart", "postRestart", "preUpgrade", "postUpgrade", "rollback", "onFailure"]);
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -26,6 +29,36 @@ function expectOptionalWholeNumber(
   }
 
   return value;
+}
+
+function expectOptionalBoolean(value: unknown, field: string, manifestPath: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a boolean when present.`);
+  }
+
+  return value;
+}
+
+function expectOptionalFailurePolicy(
+  value: unknown,
+  field: string,
+  manifestPath: string,
+): ServiceHookFailurePolicy | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || !hookFailurePolicies.has(value)) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}" to be one of "block", "warn", or "continue".`,
+    );
+  }
+
+  return value as ServiceHookFailurePolicy;
 }
 
 function readHealthcheckReadinessOptions(
@@ -88,6 +121,131 @@ function readActionMaterialization(
       path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
       content: (entry as Record<string, string>).content,
     })),
+  };
+}
+
+function readStringMap(value: unknown, field: string, manifestPath: string): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some((entry) => typeof entry !== "string")) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a string map.`);
+  }
+
+  return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
+}
+
+function readHookSteps(value: unknown, field: string, manifestPath: string): ServiceHookStep[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an array of hook step objects.`);
+  }
+
+  return value.map((entry, index) => {
+    const stepField = `${field}[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${stepField}" to be an object.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    const args = record.args;
+    if (args !== undefined && (!Array.isArray(args) || args.some((arg) => typeof arg !== "string"))) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${stepField}.args" to be an array of strings when present.`);
+    }
+
+    return {
+      name: expectNonEmptyString(record.name, `${stepField}.name`, manifestPath),
+      command: expectNonEmptyString(record.command, `${stepField}.command`, manifestPath),
+      args: Array.isArray(args) ? args.map((arg) => (arg as string).trim()) : undefined,
+      cwd: typeof record.cwd === "string" ? record.cwd.trim() : undefined,
+      timeoutSeconds: expectOptionalWholeNumber(record.timeoutSeconds, `${stepField}.timeoutSeconds`, manifestPath, 1),
+      failurePolicy: expectOptionalFailurePolicy(record.failurePolicy, `${stepField}.failurePolicy`, manifestPath),
+      env: readStringMap(record.env, `${stepField}.env`, manifestPath),
+    };
+  });
+}
+
+function readMonitoringPolicy(value: unknown, manifestPath: string): ServiceManifest["monitoring"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "monitoring" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    enabled: expectOptionalBoolean(record.enabled, "monitoring.enabled", manifestPath),
+    intervalSeconds: expectOptionalWholeNumber(record.intervalSeconds, "monitoring.intervalSeconds", manifestPath, 1),
+    unhealthyThreshold: expectOptionalWholeNumber(record.unhealthyThreshold, "monitoring.unhealthyThreshold", manifestPath, 1),
+    startupGraceSeconds: expectOptionalWholeNumber(record.startupGraceSeconds, "monitoring.startupGraceSeconds", manifestPath, 0),
+  };
+}
+
+function readRestartPolicy(value: unknown, manifestPath: string): ServiceManifest["restartPolicy"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "restartPolicy" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    enabled: expectOptionalBoolean(record.enabled, "restartPolicy.enabled", manifestPath),
+    onCrash: expectOptionalBoolean(record.onCrash, "restartPolicy.onCrash", manifestPath),
+    onUnhealthy: expectOptionalBoolean(record.onUnhealthy, "restartPolicy.onUnhealthy", manifestPath),
+    maxAttempts: expectOptionalWholeNumber(record.maxAttempts, "restartPolicy.maxAttempts", manifestPath, 0),
+    backoffSeconds: expectOptionalWholeNumber(record.backoffSeconds, "restartPolicy.backoffSeconds", manifestPath, 0),
+  };
+}
+
+function readDoctorPolicy(value: unknown, manifestPath: string): ServiceManifest["doctor"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "doctor" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    enabled: expectOptionalBoolean(record.enabled, "doctor.enabled", manifestPath),
+    timeoutSeconds: expectOptionalWholeNumber(record.timeoutSeconds, "doctor.timeoutSeconds", manifestPath, 1),
+    failurePolicy: expectOptionalFailurePolicy(record.failurePolicy, "doctor.failurePolicy", manifestPath),
+    steps: readHookSteps(record.steps, "doctor.steps", manifestPath),
+  };
+}
+
+function readLifecycleHooks(value: unknown, manifestPath: string): ServiceManifest["hooks"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "hooks" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const unsupported = Object.keys(record).find((key) => !hookPhases.has(key));
+  if (unsupported) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: unsupported hooks phase "${unsupported}".`);
+  }
+
+  return {
+    preRestart: readHookSteps(record.preRestart, "hooks.preRestart", manifestPath),
+    postRestart: readHookSteps(record.postRestart, "hooks.postRestart", manifestPath),
+    preUpgrade: readHookSteps(record.preUpgrade, "hooks.preUpgrade", manifestPath),
+    postUpgrade: readHookSteps(record.postUpgrade, "hooks.postUpgrade", manifestPath),
+    rollback: readHookSteps(record.rollback, "hooks.rollback", manifestPath),
+    onFailure: readHookSteps(record.onFailure, "hooks.onFailure", manifestPath),
   };
 }
 
@@ -339,6 +497,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);
   const config = readActionMaterialization(record.config, "config", manifestPath);
+  const monitoring = readMonitoringPolicy(record.monitoring, manifestPath);
+  const restartPolicy = readRestartPolicy(record.restartPolicy, manifestPath);
+  const doctor = readDoctorPolicy(record.doctor, manifestPath);
+  const hooks = readLifecycleHooks(record.hooks, manifestPath);
 
   return {
     id: expectNonEmptyString(record.id, "id", manifestPath),
@@ -361,6 +523,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       url: (entry as Record<string, string>).url.trim(),
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
+    monitoring,
+    restartPolicy,
+    doctor,
+    hooks,
     artifact,
     install,
     config,

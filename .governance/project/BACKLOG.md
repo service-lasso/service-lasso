@@ -76,6 +76,25 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-098` | `done` | Add bootstrap start command for baseline service install/config/start | `SPEC-002`, `AC-4I`, `AC-4U`, `AC-4X`, `AC-4Z` | GitHub issue: `#98`. PR `#108` landed `service-lasso start`, dependency-aware baseline install/config/start sequencing, rerun idempotency proof, and runtime API availability after bootstrap. |
 | `ISS-099` | `done` | Add deterministic clean-clone baseline start smoke test | `SPEC-002`, `AC-4X`, `AC-4Z` | GitHub issue: `#99`. PR `#109` landed `npm run verify:baseline-start`, the PR smoke workflow, deterministic cleanup, and live release-backed `@traefik` inclusion after `#102`. |
 | `ISS-102` | `done` | Create release-backed Traefik service repo | `SPEC-002`, `AC-4U`, `AC-4Y`, `AC-4Z` | GitHub issue: `#102`. `service-lasso/lasso-traefik` publishes release `2026.4.25-5301df9` with Windows/Linux/macOS archives and `service.json`; core `@traefik` now installs, configures, starts, and verifies healthy from that release. |
+| `ISS-120` | `ready` | Plan service update management feature | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#120`. Parent issue for update checking, candidate download, scheduled install, CLI/API/Admin messaging, and release-backed verification. |
+| `ISS-121` | `ready` | Add service update manifest policy contract | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#121`. Defines the update policy contract before update discovery/execution work. |
+| `ISS-122` | `ready` | Add update discovery and version comparison for service release sources | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#122`. Checks GitHub release sources and classifies installed/current/latest status without modifying artifacts. |
+| `ISS-123` | `ready` | Persist service update state and downloaded update candidates | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#123`. Tracks last check, available version, downloaded candidate, failures, and deferred reasons. |
+| `ISS-124` | `ready` | Add CLI and console output for service update status and actions | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#124`. Adds operator-facing update check/list/download/install commands and output. |
+| `ISS-125` | `ready` | Add runtime API for service update check, download, install, and status | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#125`. Adds backend update surfaces for app hosts and Service Admin. |
+| `ISS-126` | `ready` | Add policy-driven periodic service update scheduler | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#126`. Adds opt-in periodic checks/download/install behavior after policy and state exist. |
+| `ISS-127` | `ready` | Add maintenance windows and running-service safety for update installs | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#127`. Defines safe install windows, running-service handling, and failure behavior. |
+| `ISS-128` | `ready` | Surface service update notifications in Service Admin UI | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#128`. Coordinates core update API with Service Admin UI messaging. |
+| `ISS-129` | `ready` | Add end-to-end update verification with Echo Service release fixtures | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#129`. Adds deterministic and release-backed update verification. |
+| `ISS-130` | `ready` | Plan service recovery, doctor, and upgrade hook feature | `SPEC-002`, `AC-4AA` | GitHub issue: `#130`. Parent issue for monitoring, auto-restart, doctor/preflight, upgrade hooks, state, surfaces, and verification. |
+| `ISS-131` | `in_review` | Add service monitoring, restart policy, and hook manifest contract | `SPEC-002`, `AC-4AA` | GitHub issue: `#131`. Adds validation-only manifest contract for monitoring, restart policy, doctor steps, and restart/upgrade hooks. |
+| `ISS-132` | `ready` | Add runtime service monitor and auto-restart loop | `SPEC-002`, `AC-4AA` | GitHub issue: `#132`. Implements opt-in monitoring and policy-driven restart after the manifest contract lands. |
+| `ISS-133` | `ready` | Add doctor/preflight steps before service restart or upgrade | `SPEC-002`, `AC-4AA` | GitHub issue: `#133`. Executes bounded doctor steps with timeout and failure policy. |
+| `ISS-134` | `ready` | Add pre-upgrade, post-upgrade, and rollback hook execution | `SPEC-002`, `AC-4AA` | GitHub issue: `#134`. Integrates bounded upgrade hooks with update install behavior. |
+| `ISS-135` | `ready` | Persist recovery, doctor, restart, and hook history | `SPEC-002`, `AC-4AA` | GitHub issue: `#135`. Adds durable recovery/hook state and history. |
+| `ISS-136` | `ready` | Add CLI and API surfaces for recovery, doctor, and hook results | `SPEC-002`, `AC-4AA` | GitHub issue: `#136`. Exposes recovery and doctor status/actions to operators and app hosts. |
+| `ISS-137` | `ready` | Surface recovery, doctor, and upgrade hook status in Service Admin UI | `SPEC-002`, `AC-4AA` | GitHub issue: `#137`. Coordinates Service Admin recovery status and actions. |
+| `ISS-138` | `ready` | Add end-to-end recovery and hook verification with Echo Service scenarios | `SPEC-002`, `AC-4AA` | GitHub issue: `#138`. Adds deterministic and harness-backed recovery verification. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -148,6 +167,25 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-098` | `done` | `ISS-098` | Add baseline bootstrap start orchestration | `SPEC-002`, `AC-4I`, `AC-4U`, `AC-4X`, `AC-4Z` | PR `#108` landed `service-lasso start`, dependency-aware baseline install/config/start sequencing, rerun idempotency proof, and runtime API availability after bootstrap. |
 | `TASK-099` | `done` | `ISS-099` | Add clean-clone baseline start smoke automation | `SPEC-002`, `AC-4X`, `AC-4Z` | `npm run verify:baseline-start` passed locally with generated baseline fixtures, release-backed `@traefik`, and deterministic cleanup; `.github/workflows/baseline-start-smoke.yml` runs the same command on PRs to `develop`. |
 | `TASK-102` | `done` | `ISS-102` | Create the canonical release-backed `@traefik` service repo | `SPEC-002`, `AC-4U`, `AC-4Y`, `AC-4Z` | `service-lasso/lasso-traefik` release `2026.4.25-5301df9` passed Windows/Linux/macOS CI and published archives plus `service.json`; core `npm run verify:traefik-release`, `npm run verify:baseline-start`, and `npm test` passed. |
+| `TASK-120` | `ready` | `ISS-120` | Coordinate the service update-management feature plan | `SPEC-002`, `SPEC_GAP` | Parent issue exists with child issues `#121` through `#129`; implementation evidence lands in child tasks. |
+| `TASK-121` | `ready` | `ISS-121` | Add update policy manifest contract | `SPEC-002`, `SPEC_GAP` | Exit requires typed manifest contract, validation tests, and docs for pinned versus tracked update policy. |
+| `TASK-122` | `ready` | `ISS-122` | Add update discovery and version comparison | `SPEC-002`, `SPEC_GAP` | Exit requires deterministic release-source checks and installed/latest status classification. |
+| `TASK-123` | `ready` | `ISS-123` | Persist update state and downloaded candidates | `SPEC-002`, `SPEC_GAP` | Exit requires durable update-state tests and separation from active installed artifact state. |
+| `TASK-124` | `ready` | `ISS-124` | Add update CLI and console output | `SPEC-002`, `SPEC_GAP` | Exit requires human/JSON CLI tests for update status and actions. |
+| `TASK-125` | `ready` | `ISS-125` | Add update runtime API surfaces | `SPEC-002`, `SPEC_GAP` | Exit requires route tests for update status/check/download/install. |
+| `TASK-126` | `ready` | `ISS-126` | Add policy-driven update scheduler | `SPEC-002`, `SPEC_GAP` | Exit requires deterministic scheduler tests for notify, download, install, and shutdown behavior. |
+| `TASK-127` | `ready` | `ISS-127` | Add update install windows and running-service safety | `SPEC-002`, `SPEC_GAP` | Exit requires eligibility tests for maintenance windows, running-service policy, and failed install safety. |
+| `TASK-128` | `ready` | `ISS-128` | Add Service Admin update notifications | `SPEC-002`, `SPEC_GAP` | Exit requires Service Admin integration evidence against the update API. |
+| `TASK-129` | `ready` | `ISS-129` | Add end-to-end update verification | `SPEC-002`, `SPEC_GAP` | Exit requires deterministic update lifecycle tests and optional release-backed Echo proof. |
+| `TASK-130` | `ready` | `ISS-130` | Coordinate recovery, doctor, and upgrade-hook feature plan | `SPEC-002`, `AC-4AA` | Parent issue exists with child issues `#131` through `#138`; implementation evidence lands in child tasks. |
+| `TASK-131` | `in_review` | `ISS-131` | Add recovery/doctor/hook manifest contract | `SPEC-002`, `AC-4AA` | `npm test` passed 103/103 after adding typed manifest fields, validation tests, docs, and no runtime monitor/hook execution yet. |
+| `TASK-132` | `ready` | `ISS-132` | Add runtime monitor and auto-restart loop | `SPEC-002`, `AC-4AA` | Exit requires opt-in monitor loop tests for crash/unhealthy restart, backoff, max attempts, and shutdown. |
+| `TASK-133` | `ready` | `ISS-133` | Execute doctor/preflight steps before restart or upgrade | `SPEC-002`, `AC-4AA` | Exit requires pass/fail/block/warn/timeout doctor tests. |
+| `TASK-134` | `ready` | `ISS-134` | Execute pre-upgrade, post-upgrade, and rollback hooks | `SPEC-002`, `AC-4AA` | Exit requires hook execution tests around update install success/failure paths. |
+| `TASK-135` | `ready` | `ISS-135` | Persist recovery, doctor, restart, and hook history | `SPEC-002`, `AC-4AA` | Exit requires recovery-state rehydrate and retention tests. |
+| `TASK-136` | `ready` | `ISS-136` | Add recovery CLI and API surfaces | `SPEC-002`, `AC-4AA` | Exit requires CLI/API tests for recovery status and manual doctor execution. |
+| `TASK-137` | `ready` | `ISS-137` | Add Service Admin recovery status | `SPEC-002`, `AC-4AA` | Exit requires Service Admin integration evidence against recovery API surfaces. |
+| `TASK-138` | `ready` | `ISS-138` | Add recovery and hook end-to-end verification | `SPEC-002`, `AC-4AA` | Exit requires deterministic recovery/hook tests and optional Echo harness proof. |
 
 ## Next Recommended Item
-Promote `develop` to `main`, wait for release/package workflows, record evidence on issue `#58`, then close `ISS-057`.
+Complete `ISS-131` / `TASK-131`, then continue to `ISS-132` for the opt-in runtime monitor and auto-restart loop.
