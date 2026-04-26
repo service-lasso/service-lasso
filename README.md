@@ -76,6 +76,9 @@ Current manifest/install note:
 - the core runtime now accepts a bounded first-class `artifact` block inside `service.json`
 - `install` can acquire/download and unpack manifest-owned archive payloads without forcing `start`
 - direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
+- the manifest contract now accepts an explicit `updates` block for pinned versus moving release policy, and the runtime has a read-only update discovery function for `github-release` sources
+- update checks and future candidates persist under `.state/updates.json`, separate from active installed artifact metadata in `.state/install.json`
+- an opt-in update scheduler can periodically apply per-service `updates.mode` policy for notify, download, or install actions, including maintenance-window and running-service safety for install-mode updates
 
 Current package-boundary note:
 
@@ -114,13 +117,15 @@ npm run build
 npm run test
 npm run verify:baseline-start
 npm run verify:reference-app-lifecycle
+npm run verify:recovery-hooks
 npm start
 npm run dev
 ```
 
 `npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
-`npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with generated `@node`, `echo-service`, and `service-admin` fixtures plus the release-backed `@traefik` artifact.
+`npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with a generated local/no-download `@node` provider fixture, generated `echo-service` and `service-admin` fixtures, plus the release-backed `@traefik` artifact.
 `npm run verify:reference-app-lifecycle` fresh-clones the canonical reference apps, starts each app-owned runtime with a deterministic Service Admin dist, and proves Echo Service install/config/start/stop plus process cleanup through that app host.
+`npm run verify:recovery-hooks` builds the runtime and runs the deterministic Echo-style recovery/hook E2E proof for monitor restart, doctor, update hooks, API, CLI, and `.state/recovery.json` agreement.
 
 ## CLI commands
 
@@ -138,7 +143,7 @@ Bootstrap the documented baseline inventory and leave the API running:
 service-lasso start --services-root ./services --workspace-root ./workspace
 ```
 
-`service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; `@traefik`, `echo-service`, and `service-admin` use release-backed service artifacts, while `@node` is a local/no-download runtime provider.
+`service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; `@traefik`, `echo-service`, and `service-admin` use release-backed service artifacts, while `@node` is a local/no-download runtime provider with `role: "provider"` and is not launched as a managed daemon.
 
 The command-level smoke for this path is:
 
@@ -159,6 +164,77 @@ Machine-readable install output is also supported:
 ```bash
 service-lasso install echo-service --services-root ./services --workspace-root ./workspace --json
 ```
+
+Inspect and act on service updates:
+
+```bash
+service-lasso updates list --services-root ./services --workspace-root ./workspace
+service-lasso updates check --services-root ./services --workspace-root ./workspace
+service-lasso updates check echo-service --services-root ./services --workspace-root ./workspace --json
+service-lasso updates download echo-service --services-root ./services --workspace-root ./workspace
+service-lasso updates install echo-service --services-root ./services --workspace-root ./workspace --force
+```
+
+Update CLI notes:
+
+- `updates list` reads persisted `.state/updates.json` without calling release sources
+- `updates check` calls the configured release source, persists the result, and prints clear human lines such as `echo-service: update available X -> Y`
+- `updates download` stores a candidate under `.state/update-candidates/` without installing it
+- `updates install` installs a downloaded or resolvable candidate only when policy allows, unless `--force` is provided
+- `--json` emits machine-readable status, versions, and recommended action data
+
+Inspect recovery history and run doctor/preflight checks without restarting a service:
+
+```bash
+service-lasso recovery status --services-root ./services --workspace-root ./workspace
+service-lasso recovery status echo-service --services-root ./services --workspace-root ./workspace --json
+service-lasso recovery doctor echo-service --services-root ./services --workspace-root ./workspace
+```
+
+Recovery CLI notes:
+
+- `recovery status` reads persisted `.state/recovery.json` for one service or all discovered services
+- `recovery doctor` runs the configured `doctor.steps` directly and appends the result to recovery history
+- `--json` emits the bounded history and doctor result shape used by app hosts
+
+The same bounded update surface is available through the runtime API for app hosts and Service Admin consumers:
+
+```text
+GET  /api/updates
+GET  /api/services/:id/updates
+POST /api/updates/check
+POST /api/services/:id/update/download
+POST /api/services/:id/update/install
+```
+
+The same bounded recovery surface is available through the runtime API:
+
+```text
+GET  /api/recovery
+GET  /api/services/:id/recovery
+POST /api/services/:id/recovery/doctor
+```
+
+Hosts that want periodic update work can opt in when starting the API server by passing `updateScheduler: true`. The scheduler respects per-service `updates.checkIntervalSeconds`, skips disabled/pinned services, suppresses duplicate in-flight work, and uses the same update state/actions as the CLI and API.
+
+Deterministic update lifecycle coverage runs as part of `npm test`. For explicit live release-backed proof against the public Echo Service GitHub releases, run:
+
+```bash
+npm run verify:service-updates
+```
+
+Recovery and hook lifecycle coverage runs as part of `npm test`. For an explicit deterministic Echo-style recovery/hook proof, run:
+
+```bash
+npm run verify:recovery-hooks
+```
+
+Install-mode update safety:
+
+- `updates.installWindow` controls when automatic installs are eligible
+- `updates.runningService` controls whether a running service is deferred or stopped/restarted for install
+- deferred installs persist `installDeferred` evidence in `.state/updates.json`
+- explicit force remains the operator bypass for manual install commands/API calls
 
 ## Release artifact commands
 

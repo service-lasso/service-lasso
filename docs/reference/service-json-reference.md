@@ -126,6 +126,20 @@ Short operator-facing description.
 ### `enabled`
 Whether the service is enabled by default.
 
+### `role`
+Declares whether the manifest describes a normal managed service or a local runtime provider.
+
+Supported values:
+- `service` or omitted: a normal service that can be installed, configured, started, stopped, and health-checked as a managed process when execution metadata is present
+- `provider`: a local/no-download runtime provider such as `@node`, `@python`, or `@java`
+
+Provider-role services are installed/configured so their variables and dependency contract are available, but baseline start does not launch them as long-running daemon processes unless a later provider contract explicitly requires that.
+
+Example:
+```json
+"role": "provider"
+```
+
 ### `version`
 Current package/version identity for the service.
 
@@ -406,6 +420,53 @@ Sample:
 ```
 
 ## Other important manifest aspects
+
+### Release artifacts and update policy
+Current core manifests use first-class `artifact` metadata when a service archive should be acquired from a GitHub release.
+
+Pinned example:
+```json
+"artifact": {
+  "kind": "archive",
+  "source": {
+    "type": "github-release",
+    "repo": "service-lasso/lasso-echoservice",
+    "tag": "2026.4.20-a417abd"
+  },
+  "platforms": {
+    "win32": {
+      "assetName": "echo-service-win32.zip",
+      "archiveType": "zip"
+    }
+  }
+}
+```
+
+If `artifact.source.tag` is present and no active `updates` policy is declared, Service Lasso treats the service as pinned.
+
+Moving update checks require an explicit `updates` block:
+```json
+"updates": {
+  "enabled": true,
+  "mode": "notify",
+  "track": "latest",
+  "checkIntervalSeconds": 3600
+}
+```
+
+Supported `updates.mode` values:
+- `disabled`
+- `notify`
+- `download`
+- `install`
+
+Current core status:
+- `notify` can be used by the read-only update discovery function to classify `pinned`, `latest`, `update_available`, `unavailable`, or `check_failed`
+- `download` downloads candidates without installing them
+- `install` can install candidates through CLI/API or the opt-in scheduler when policy and safety gates allow
+- `install` mode must declare an `installWindow` and `runningService` policy
+- `installWindow` is enforced before automatic install work; out-of-window installs are deferred before download/extract
+- `runningService` controls whether a running service is deferred or stopped/restarted during install
 
 ### Environment generation
 Current broader Service Lasso direction includes:

@@ -66,11 +66,15 @@ export async function writeExecutableFixtureService(
     env = {},
     globalenv = {},
     autostart = undefined,
+    monitoring = undefined,
+    restartPolicy = undefined,
+    doctor = undefined,
     ports = undefined,
     depend_on = undefined,
     urls = undefined,
     install = undefined,
     config = undefined,
+    role = undefined,
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -150,6 +154,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     id: serviceId,
     name: serviceId,
     description: `Executable fixture for ${serviceId}.`,
+    role,
     executable: process.execPath,
     args: [path.relative(serviceRoot, scriptPath)],
     env: {
@@ -181,12 +186,15 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     },
     globalenv,
     autostart,
+    monitoring,
+    restartPolicy,
+    doctor,
     ports,
     depend_on,
     urls,
     install,
     config,
-    healthcheck,
+    healthcheck: healthcheck === null ? undefined : healthcheck,
   });
 
   return { serviceRoot, scriptPath };

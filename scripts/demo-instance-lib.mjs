@@ -194,12 +194,12 @@ export async function runDemoSmoke(options = {}) {
     assertCondition(providerMetrics.body.metrics.process.provider === "node", "Expected node-sample-service metrics provider.");
     assertCondition(providerMetrics.body.metrics.process.launchCount === 1, "Expected node-sample-service launch count to be 1.");
     assertCondition(nodeProviderDetail.body.service.id === "@node", "Expected @node provider detail to be available.");
-    assertCondition(nodeProviderMetrics.body.metrics.process.launchCount >= 1, "Expected @node dependency to have launch evidence.");
-    assertCondition(
-      nodeProviderMetrics.body.metrics.process.lastTermination === "exited"
-        || nodeProviderMetrics.body.metrics.process.running === true,
-      "Expected @node dependency to show bounded launch or running evidence.",
-    );
+    assertCondition(nodeProviderDetail.body.service.lifecycle.installed === true, "Expected @node provider to be installed.");
+    assertCondition(nodeProviderDetail.body.service.lifecycle.configured === true, "Expected @node provider to be configured.");
+    assertCondition(nodeProviderDetail.body.service.lifecycle.running === false, "Expected @node provider not to run as a daemon.");
+    assertCondition(nodeProviderDetail.body.service.health.healthy === true, "Expected @node provider health to be ready.");
+    assertCondition(nodeProviderDetail.body.service.health.type === "provider", "Expected @node provider health type.");
+    assertCondition(nodeProviderMetrics.body.metrics.process.launchCount === 0, "Expected @node provider to have no daemon launch evidence.");
     assertCondition(
       aggregateMetrics.body.services.some((service) => service.serviceId === "echo-service"),
       "Expected aggregate metrics to include echo-service.",

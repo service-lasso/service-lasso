@@ -9,6 +9,7 @@ import { discoverServices } from "../discovery/discoverServices.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
 import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
+import { isProviderRole } from "../roles.js";
 
 export const DEFAULT_BASELINE_SERVICE_IDS = ["@traefik", "@node", "echo-service", "service-admin"] as const;
 
@@ -48,6 +49,10 @@ function formatActionFailure(serviceId: string, action: LifecycleAction, error: 
 }
 
 function shouldStartService(service: DiscoveredService, state: ServiceLifecycleState): boolean {
+  if (isProviderRole(service.manifest)) {
+    return false;
+  }
+
   return Boolean(service.manifest.execservice || service.manifest.executable || state.installArtifacts.artifact?.command);
 }
 
@@ -141,7 +146,13 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
     if (state.running || hasManagedProcess(serviceId)) {
       actions.push({ action: "start", status: "skipped", message: "Already running." });
     } else if (!shouldStartService(service, state)) {
-      actions.push({ action: "start", status: "skipped", message: "No executable or artifact command is configured." });
+      actions.push({
+        action: "start",
+        status: "skipped",
+        message: isProviderRole(service.manifest)
+          ? "Provider role does not require a managed daemon process."
+          : "No executable or artifact command is configured.",
+      });
     } else {
       const result = await runLifecycleAction(service, registry, "start");
       await writeServiceState(service, result.state);

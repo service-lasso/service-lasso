@@ -8,9 +8,12 @@ import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
+import { assertDoctorPreflightAllowsRestart } from "../recovery/doctor.js";
+import { appendServiceRecoveryHistoryEvents } from "../recovery/history.js";
 import { acquireInstallArtifact } from "../setup/acquire.js";
 import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
+import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
 
@@ -243,6 +246,10 @@ export async function startService(
         );
       }
 
+      if (!dependencyState.running && isProviderRole(dependency.manifest)) {
+        continue;
+      }
+
       if (!dependencyState.running) {
         const dependencyResult = await startService(dependency, registry);
         await writeServiceState(dependency, dependencyResult.state);
@@ -384,6 +391,7 @@ export async function restartService(
   ) {
     throw new LifecycleStateError(`Cannot restart service "${serviceId}" because no executable is configured.`);
   }
+  await assertDoctorPreflightAllowsRestart(service);
 
   if (current.running) {
     await stopManagedProcess(serviceId);
@@ -434,7 +442,7 @@ export async function restartService(
   const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
-    return applyState(
+    const failedResult = applyState(
       serviceId,
       "restart",
       (state) => ({
@@ -454,9 +462,17 @@ export async function restartService(
       }),
       false,
     );
+    await appendServiceRecoveryHistoryEvents(service, [{
+      kind: "restart",
+      serviceId,
+      ok: false,
+      message: failedResult.message,
+      at: new Date().toISOString(),
+    }]);
+    return failedResult;
   }
 
-  return applyState(serviceId, "restart", (state) => ({
+  const result = applyState(serviceId, "restart", (state) => ({
     nextState: {
       ...state,
       running: true,
@@ -474,4 +490,12 @@ export async function restartService(
     },
     message: readiness.message.replace(/^Start/, "Restart"),
   }));
+  await appendServiceRecoveryHistoryEvents(service, [{
+    kind: "restart",
+    serviceId,
+    ok: result.ok,
+    message: result.message,
+    at: new Date().toISOString(),
+  }]);
+  return result;
 }

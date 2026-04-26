@@ -28,6 +28,7 @@ Current preferred runtime-root model:
 - `docs/development/reference-app-and-service-distribution-remediation-plan.md` - corrective plan for reference-app naming, canonical `service.json` release/install metadata, and bundled versus download/install behavior
 - `docs/development/planned-services-review.md` - current planned-service inventory review and reference-app baseline gaps
 - `docs/development/java-runtime-service-plan.md` - bounded `@java` provider decision, donor `_java` analysis, and deferred release-backed JRE repo plan
+- `docs/development/service-recovery-doctor-upgrade-hooks-plan.md` - recovery, doctor/preflight, restart-policy, and upgrade-hook contract plan
 - `docs/development/reference-app-service-distribution-task-list.md` - governed execution order for the four active distribution-remediation workstreams
 - `docs/development/core-runtime-release-artifact.md` - exact definition of the current bounded downloadable runtime artifact and what files it ships
 - `docs/development/core-runtime-publishable-package.md` - exact definition of the current bounded self-contained publishable `@service-lasso/service-lasso` package payload and how it is verified/published

@@ -19,6 +19,69 @@ export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
 }
 
+export type ServiceHookFailurePolicy = "block" | "warn" | "continue";
+
+export interface ServiceHookStep {
+  name: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  timeoutSeconds?: number;
+  failurePolicy?: ServiceHookFailurePolicy;
+  env?: Record<string, string>;
+}
+
+export interface ServiceMonitoringPolicy {
+  enabled?: boolean;
+  intervalSeconds?: number;
+  unhealthyThreshold?: number;
+  startupGraceSeconds?: number;
+}
+
+export interface ServiceRestartPolicy {
+  enabled?: boolean;
+  onCrash?: boolean;
+  onUnhealthy?: boolean;
+  maxAttempts?: number;
+  backoffSeconds?: number;
+}
+
+export interface ServiceDoctorPolicy {
+  enabled?: boolean;
+  timeoutSeconds?: number;
+  failurePolicy?: ServiceHookFailurePolicy;
+  steps?: ServiceHookStep[];
+}
+
+export interface ServiceLifecycleHooks {
+  preRestart?: ServiceHookStep[];
+  postRestart?: ServiceHookStep[];
+  preUpgrade?: ServiceHookStep[];
+  postUpgrade?: ServiceHookStep[];
+  rollback?: ServiceHookStep[];
+  onFailure?: ServiceHookStep[];
+}
+
+export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
+export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
+export type ServiceUpdateWindowDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+export interface ServiceUpdateInstallWindow {
+  days?: ServiceUpdateWindowDay[];
+  start: string;
+  end: string;
+  timezone?: string;
+}
+
+export interface ServiceUpdatePolicy {
+  enabled?: boolean;
+  mode?: ServiceUpdateMode;
+  track?: "pinned" | "latest" | (string & {});
+  checkIntervalSeconds?: number;
+  installWindow?: ServiceUpdateInstallWindow;
+  runningService?: ServiceUpdateRunningServicePolicy;
+}
+
 export type ServiceArtifactArchiveType = "zip" | "tar.gz" | "tgz";
 
 export interface ServiceArtifactSource {
@@ -44,11 +107,14 @@ export interface ServiceArchiveArtifact {
   platforms: Record<string, ServiceArtifactPlatform>;
 }
 
+export type ServiceRole = "service" | "provider";
+
 export interface ServiceManifest {
   id: string;
   name: string;
   description: string;
   version?: string;
+  role?: ServiceRole;
   enabled?: boolean;
   autostart?: boolean;
   depend_on?: string[];
@@ -57,6 +123,11 @@ export interface ServiceManifest {
   globalenv?: Record<string, string>;
   ports?: ServicePortDeclaration;
   urls?: ServiceEndpoint[];
+  monitoring?: ServiceMonitoringPolicy;
+  restartPolicy?: ServiceRestartPolicy;
+  doctor?: ServiceDoctorPolicy;
+  hooks?: ServiceLifecycleHooks;
+  updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;
   config?: ServiceActionMaterialization;

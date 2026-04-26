@@ -45,6 +45,17 @@ import { resolveProviderExecution } from "../runtime/providers/resolveProvider.j
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
+import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
+import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
+import { readServiceUpdateState } from "../runtime/updates/state.js";
+import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
+import {
+  checkServiceUpdatesForCli,
+  downloadServiceUpdateCandidate,
+  installServiceUpdateCandidate,
+  listServiceUpdateStates,
+} from "../runtime/updates/actions.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
@@ -61,12 +72,18 @@ export interface ApiServerOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
   autostart?: boolean;
+  monitor?: boolean;
+  monitorIntervalMs?: number;
+  updateScheduler?: boolean;
+  updateSchedulerIntervalMs?: number;
 }
 
 export interface RunningApiServer {
   server: Server;
   port: number;
   url: string;
+  monitor: RuntimeServiceMonitor | null;
+  updateScheduler: RuntimeUpdateScheduler | null;
   stop: () => Promise<void>;
 }
 
@@ -153,6 +170,36 @@ function parseServiceMetaPatch(
   return patch;
 }
 
+function parseUpdateCheckBody(input: unknown): { serviceId?: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Update check body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (candidate.serviceId !== undefined && typeof candidate.serviceId !== "string") {
+    throw new ApiError("invalid_body", 400, "\"serviceId\" must be a string when present.");
+  }
+
+  return {
+    serviceId: typeof candidate.serviceId === "string" ? candidate.serviceId : undefined,
+  };
+}
+
+function parseUpdateInstallBody(input: unknown): { force?: boolean } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Update install body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (candidate.force !== undefined && typeof candidate.force !== "boolean") {
+    throw new ApiError("invalid_body", 400, "\"force\" must be a boolean when present.");
+  }
+
+  return {
+    force: typeof candidate.force === "boolean" ? candidate.force : undefined,
+  };
+}
+
 async function loadRuntimeModel(servicesRoot: string) {
   const discovered = await discoverServices(servicesRoot);
   const registry = createServiceRegistry(discovered);
@@ -182,6 +229,8 @@ async function createServiceSummary(
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
   const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
   const provider = resolveProviderExecution(service, registry);
+  const updates = await readServiceUpdateState(service);
+  const recovery = await readServiceRecoveryHistory(service);
 
   return {
     id: service.manifest.id,
@@ -197,6 +246,8 @@ async function createServiceSummary(
     dependents: dependencySummary.dependents,
     lifecycle,
     health,
+    updates,
+    recovery,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
     operator: {
@@ -420,6 +471,34 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/updates") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, {
+      action: "list",
+      services: await listServiceUpdateStates(runtimeModel.registry.list()),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/recovery") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, {
+      action: "status",
+      services: await Promise.all(runtimeModel.registry.list().map(async (service) => ({
+        serviceId: service.manifest.id,
+        recovery: await readServiceRecoveryHistory(service),
+      }))),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/updates/check") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const body = parseUpdateCheckBody(await readJsonBody(request));
+    writeJson(response, 200, await checkServiceUpdatesForCli(runtimeModel.registry.list(), body.serviceId));
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/services/meta") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const payload: ServicesMetaResponse["services"] = await Promise.all(
@@ -594,6 +673,42 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
+      writeJson(response, 200, {
+        serviceId,
+        update: await readServiceUpdateState(service),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "recovery") {
+      writeJson(response, 200, {
+        serviceId,
+        recovery: await readServiceRecoveryHistory(service),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "recovery" && pathParts[4] === "doctor") {
+      writeJson(response, 200, {
+        serviceId,
+        doctor: await runAndRecordDoctorPreflight(service),
+        recovery: await readServiceRecoveryHistory(service),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "download") {
+      writeJson(response, 200, await downloadServiceUpdateCandidate(service));
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "install") {
+      const body = parseUpdateInstallBody(await readJsonBody(request));
+      writeJson(response, 200, await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry }));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 3) {
       writeJson(
         response,
@@ -732,11 +847,25 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   if (options.autostart) {
     await executeRuntimeOrchestrationAction("autostart", bootModel);
   }
+  const monitor = options.monitor
+    ? createRuntimeServiceMonitor({
+        registry: bootModel.registry,
+        intervalMs: options.monitorIntervalMs,
+      })
+    : null;
+  const updateScheduler = options.updateScheduler
+    ? createRuntimeUpdateScheduler({
+        registry: bootModel.registry,
+        intervalMs: options.updateSchedulerIntervalMs,
+      })
+    : null;
   const server = createApiServer(config);
   const port = options.port ?? 18080;
 
   server.listen(port, "127.0.0.1");
   await once(server, "listening");
+  monitor?.start();
+  updateScheduler?.start();
 
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -749,7 +878,11 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     server,
     port: resolvedPort,
     url: `http://127.0.0.1:${resolvedPort}`,
+    monitor,
+    updateScheduler,
     stop: async () => {
+      monitor?.stop();
+      updateScheduler?.stop();
       await stopAllManagedProcesses();
       server.close();
       await once(server, "close");

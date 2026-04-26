@@ -5,10 +5,13 @@ export interface ServiceStatePaths {
   service: string;
   meta: string;
   install: string;
+  updates: string;
+  recovery: string;
   config: string;
   runtime: string;
   backups: string;
   artifacts: string;
+  updateCandidates: string;
   extracted: string;
 }
 
@@ -20,10 +23,13 @@ export function getServiceStatePaths(serviceRoot: string): ServiceStatePaths {
     service: path.join(stateRoot, "service.json"),
     meta: path.join(stateRoot, "meta.json"),
     install: path.join(stateRoot, "install.json"),
+    updates: path.join(stateRoot, "updates.json"),
+    recovery: path.join(stateRoot, "recovery.json"),
     config: path.join(stateRoot, "config.json"),
     runtime: path.join(stateRoot, "runtime.json"),
     backups: path.join(stateRoot, "backups"),
     artifacts: path.join(stateRoot, "artifacts"),
+    updateCandidates: path.join(stateRoot, "update-candidates"),
     extracted: path.join(stateRoot, "extracted"),
   };
 }
