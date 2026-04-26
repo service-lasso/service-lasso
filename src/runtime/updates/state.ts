@@ -79,6 +79,12 @@ export interface InstallDeferredInput {
   deferredAt?: string;
 }
 
+export interface UpdateFailureInput {
+  reason: string;
+  sourceStatus?: string | null;
+  failedAt?: string;
+}
+
 export const EMPTY_UPDATE_STATE: Omit<ServiceUpdateState, "serviceId"> = {
   state: "installed",
   updatedAt: "",
@@ -355,6 +361,26 @@ export async function persistUpdateInstallDeferred(
       reason: deferred.reason,
       deferredAt,
       nextEligibleAt: deferred.nextEligibleAt ?? null,
+    },
+  });
+}
+
+export async function persistUpdateFailure(
+  service: DiscoveredService,
+  failure: UpdateFailureInput,
+): Promise<ServiceUpdateState> {
+  const existing = await readServiceUpdateState(service);
+  const failedAt = failure.failedAt ?? nowIso();
+
+  return await writeServiceUpdateState(service, {
+    ...existing,
+    serviceId: service.manifest.id,
+    state: "failed",
+    updatedAt: failedAt,
+    failed: {
+      reason: failure.reason,
+      failedAt,
+      sourceStatus: failure.sourceStatus ?? null,
     },
   });
 }

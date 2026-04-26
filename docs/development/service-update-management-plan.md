@@ -16,6 +16,7 @@ The first implemented slices are intentionally bounded:
 - `#126` adds an opt-in runtime scheduler for policy-driven notify, download, and install actions
 - `#127` adds maintenance-window and running-service safety for update installs
 - `#128` surfaces update notifications and bounded update actions in Service Admin
+- `#129` adds deterministic E2E verification and an opt-in live Echo Service release verifier
 
 ## Manifest Shape
 
@@ -198,9 +199,11 @@ Running-service behavior:
 - `stop-start` and `restart` stop the running service, install the candidate, and start it again
 - explicit force bypasses the automated running-service safety gate
 
-Current boundary:
+Verification:
 
-- End-to-end update lifecycle proof remains under `#129`
+- `tests/update-e2e.test.js` proves installed-old, latest-installed, download failure, install failure, and outside-window paths against deterministic release fixtures
+- the E2E tests assert CLI/API agreement, persisted `.state/updates.json`, active `.state/install.json`, and runtime install metadata
+- download and install failures persist `failed` update state with `download_failed` or `install_failed` evidence
 
 ## Service Admin Surface
 
@@ -219,6 +222,18 @@ Evidence:
 - `service-lasso/lasso-serviceadmin#12` merged the UI slice
 - `npm test`, `npm run build`, and `npm run lint` passed locally in the Service Admin repo before merge
 
+## Live Release Verification
+
+Normal `npm test` stays deterministic and does not require live GitHub release state.
+
+For explicit release-backed proof, run:
+
+```bash
+npm run verify:service-updates
+```
+
+The verifier creates a temporary Echo Service manifest pinned to older release `2026.4.20-4c2201a`, tracks `latest`, and uses the public `service-lasso/lasso-echoservice` GitHub release API/assets to prove check, download, install, persisted update state, and active install metadata against the current platform artifact.
+
 ## Follow-On Issues
 
-- `#129`: end-to-end update verification
+- Recovery/doctor/upgrade-hook work continues under `#130` through `#138`

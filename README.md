@@ -193,6 +193,12 @@ POST /api/services/:id/update/install
 
 Hosts that want periodic update work can opt in when starting the API server by passing `updateScheduler: true`. The scheduler respects per-service `updates.checkIntervalSeconds`, skips disabled/pinned services, suppresses duplicate in-flight work, and uses the same update state/actions as the CLI and API.
 
+Deterministic update lifecycle coverage runs as part of `npm test`. For explicit live release-backed proof against the public Echo Service GitHub releases, run:
+
+```bash
+npm run verify:service-updates
+```
+
 Install-mode update safety:
 
 - `updates.installWindow` controls when automatic installs are eligible
