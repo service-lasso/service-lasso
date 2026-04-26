@@ -179,7 +179,7 @@ Declares `hooks` such as `preRestart`, `postRestart`, `preUpgrade`, `postUpgrade
 Current core status:
 - the manifest contract accepts bounded hook definitions
 - update install executes `preUpgrade` and `postUpgrade` hooks, records bounded hook results in update state, and invokes `rollback` plus `onFailure` hooks for failed upgrade simulations
-- durable recovery/history storage remains tracked separately
+- monitor, doctor, restart, and hook execution evidence is persisted in `.state/recovery.json` with bounded retention
 
 ## 9. Update policy type
 

@@ -176,6 +176,8 @@ test("update install runs pre-upgrade and post-upgrade hooks before reporting su
     assert.deepEqual(hookLog.trim().split(/\r?\n/), ["pre", "post"]);
     assert.deepEqual(stored.updates.hookResults.map((entry) => entry.phase), ["preUpgrade", "postUpgrade"]);
     assert.equal(stored.updates.hookResults.every((entry) => entry.ok), true);
+    assert.deepEqual(stored.recovery.events.map((entry) => entry.kind), ["hook", "hook"]);
+    assert.deepEqual(stored.recovery.events.map((entry) => entry.phase), ["preUpgrade", "postUpgrade"]);
   } finally {
     await releaseServer.stop();
     resetLifecycleState();
@@ -209,6 +211,8 @@ test("blocking pre-upgrade hook prevents update install and persists failure evi
     assert.equal(stored.updates.failed.sourceStatus, "pre_upgrade_hook_failed");
     assert.equal(stored.updates.hookResults[0].phase, "preUpgrade");
     assert.equal(stored.updates.hookResults[0].blocked, true);
+    assert.equal(stored.recovery.events[0].kind, "hook");
+    assert.equal(stored.recovery.events[0].blocked, true);
   } finally {
     await releaseServer.stop();
     resetLifecycleState();
@@ -260,6 +264,7 @@ test("blocking post-upgrade hook reports failed install and invokes rollback/on-
     assert.equal(stored.updates.failed.sourceStatus, "post_upgrade_hook_failed");
     assert.deepEqual(stored.updates.hookResults.map((entry) => entry.phase), ["postUpgrade", "rollback", "onFailure"]);
     assert.deepEqual(hookLog.trim().split(/\r?\n/), ["rollback", "failure"]);
+    assert.deepEqual(stored.recovery.events.map((entry) => entry.phase), ["postUpgrade", "rollback", "onFailure"]);
   } finally {
     await releaseServer.stop();
     resetLifecycleState();
@@ -292,6 +297,8 @@ test("timed out upgrade hook is treated as a blocking hook failure", async () =>
     assert.equal(stored.updates.state, "failed");
     assert.equal(stored.updates.failed.sourceStatus, "pre_upgrade_hook_failed");
     assert.equal(stored.updates.hookResults[0].steps[0].timedOut, true);
+    assert.equal(stored.recovery.events[0].kind, "hook");
+    assert.equal(stored.recovery.events[0].steps[0].timedOut, true);
   } finally {
     await releaseServer.stop();
     resetLifecycleState();

@@ -2,6 +2,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { DiscoveredService, ServiceDoctorPolicy, ServiceHookFailurePolicy, ServiceHookStep } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
+import { appendServiceRecoveryHistoryEvents } from "./history.js";
 
 export interface DoctorStepResult {
   name: string;
@@ -130,6 +131,15 @@ export async function runDoctorPreflight(service: DiscoveredService): Promise<Do
 
 export async function assertDoctorPreflightAllowsRestart(service: DiscoveredService): Promise<DoctorRunResult> {
   const result = await runDoctorPreflight(service);
+  await appendServiceRecoveryHistoryEvents(service, [{
+    kind: "doctor",
+    serviceId: service.manifest.id,
+    ok: result.ok,
+    blocked: result.blocked,
+    steps: result.steps,
+    at: new Date().toISOString(),
+  }]);
+
   if (result.blocked) {
     const failed = result.steps.find((step) => !step.ok && step.failurePolicy === "block");
     throw new LifecycleStateError(
@@ -139,4 +149,3 @@ export async function assertDoctorPreflightAllowsRestart(service: DiscoveredServ
 
   return result;
 }
-
