@@ -14,6 +14,7 @@ const hookPhases = new Set(["preRestart", "postRestart", "preUpgrade", "postUpgr
 const updateModes = new Set(["disabled", "notify", "download", "install"]);
 const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-start", "restart"]);
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+const serviceRoles = new Set(["service", "provider"]);
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -620,6 +621,11 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"args\" to be an array of strings.`);
   }
 
+  const rawRole = record.role;
+  if (rawRole !== undefined && (typeof rawRole !== "string" || !serviceRoles.has(rawRole))) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "role" to be one of "service" or "provider".`);
+  }
+
   const rawUrls = record.urls;
   if (
     rawUrls !== undefined &&
@@ -650,6 +656,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     name: expectNonEmptyString(record.name, "name", manifestPath),
     description: expectNonEmptyString(record.description, "description", manifestPath),
     version: typeof record.version === "string" ? record.version : undefined,
+    role: rawRole as ServiceManifest["role"],
     enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
     autostart: typeof record.autostart === "boolean" ? record.autostart : undefined,
     depend_on: dependOn?.map((dependency) => dependency.trim()),

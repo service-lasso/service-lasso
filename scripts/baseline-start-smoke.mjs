@@ -119,6 +119,40 @@ async function writeLongRunningService(servicesRoot, serviceId, options = {}) {
   });
 }
 
+async function writeProviderService(servicesRoot, serviceId) {
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+  await writeJson(path.join(serviceRoot, "service.json"), {
+    id: serviceId,
+    name: serviceId,
+    description: `Baseline smoke provider fixture for ${serviceId}.`,
+    role: "provider",
+    enabled: true,
+    executable: process.execPath,
+    args: ["--version"],
+    install: {
+      files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }],
+    },
+    config: {
+      files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
+    },
+  });
+}
+
+function assertBaselineServiceSummary(service) {
+  assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
+  assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
+
+  if (service.serviceId === "@node") {
+    const startAction = service.actions.find((action) => action.action === "start");
+    assert(startAction?.status === "skipped", "@node provider start was not skipped in CLI summary.");
+    assert(service.state.running === false, "@node provider should not be marked running in CLI summary.");
+    return;
+  }
+
+  assert(service.state.running === true, `${service.serviceId} was not running in CLI summary.`);
+}
+
 async function writeHttpService(servicesRoot, serviceId, portName, options = {}) {
   const serviceRoot = path.join(servicesRoot, serviceId);
   const runtimeRoot = path.join(serviceRoot, "runtime");
@@ -326,7 +360,7 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
-  await writeLongRunningService(servicesRoot, "@node");
+  await writeProviderService(servicesRoot, "@node");
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort }, { depend_on: ["@node"] });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
@@ -346,9 +380,7 @@ try {
   assert(health.status === "ok" && health.api?.status === "up", "API health did not report status=ok/api=up.");
   const cliSummary = await waitForCliSummary(cli);
   for (const service of cliSummary.services) {
-    assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
-    assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
-    assert(service.state.running === true, `${service.serviceId} was not running in CLI summary.`);
+    assertBaselineServiceSummary(service);
   }
 
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
@@ -363,8 +395,12 @@ try {
     const service = detail.service;
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
-    assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
+    if (serviceId === "@node") {
+      assert(service.lifecycle?.running === false, "@node provider should not be marked running.");
+    } else {
+      assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
+    }
   }
 
   const echo = await fetch(`http://127.0.0.1:${echoPort}/health`);

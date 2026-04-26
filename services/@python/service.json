@@ -3,6 +3,7 @@
   "name": "Python Runtime",
   "description": "Tracked fixture runtime provider used for manifest discovery.",
   "version": "0.1.0",
+  "role": "provider",
   "enabled": true,
   "executable": "python",
   "args": ["--version"]

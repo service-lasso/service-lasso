@@ -57,9 +57,12 @@ test("core services root declares the clean-clone baseline inventory", async () 
     [],
   );
   assert.equal(byId.get("@node")?.executable, "node");
+  assert.equal(byId.get("@node")?.role, "provider");
   assert.equal(byId.get("@node")?.artifact, undefined);
   assert.equal(byId.get("@java")?.executable, "java");
+  assert.equal(byId.get("@java")?.role, "provider");
   assert.equal(byId.get("@java")?.artifact, undefined);
+  assert.equal(byId.get("@python")?.role, "provider");
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
@@ -261,6 +264,32 @@ test("loadServiceManifest accepts bounded autostart flags", async () => {
     const manifest = await loadServiceManifest(manifestPath);
 
     assert.equal(manifest.autostart, true);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts provider service roles", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "@node", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "@node",
+        name: "Node Runtime",
+        description: "Local runtime provider.",
+        role: "provider",
+        executable: "node",
+        args: ["--version"],
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.equal(manifest.role, "provider");
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

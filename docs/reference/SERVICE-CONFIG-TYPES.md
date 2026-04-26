@@ -51,6 +51,14 @@ Examples:
 - `@python`
 - `@archive`
 
+Current core provider services use:
+
+```json
+"role": "provider"
+```
+
+That means Service Lasso should install/configure the provider manifest and expose its dependency/env contract, but baseline start should not falsely mark it as a long-running daemon. A provider with no explicit healthcheck is considered healthy once installed/configured.
+
 ### Operator or UI application
 Human-facing admin UI or dashboard service.
 

@@ -123,7 +123,7 @@ npm run dev
 ```
 
 `npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
-`npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with generated `@node`, `echo-service`, and `service-admin` fixtures plus the release-backed `@traefik` artifact.
+`npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with a generated local/no-download `@node` provider fixture, generated `echo-service` and `service-admin` fixtures, plus the release-backed `@traefik` artifact.
 `npm run verify:reference-app-lifecycle` fresh-clones the canonical reference apps, starts each app-owned runtime with a deterministic Service Admin dist, and proves Echo Service install/config/start/stop plus process cleanup through that app host.
 `npm run verify:recovery-hooks` builds the runtime and runs the deterministic Echo-style recovery/hook E2E proof for monitor restart, doctor, update hooks, API, CLI, and `.state/recovery.json` agreement.
 
@@ -143,7 +143,7 @@ Bootstrap the documented baseline inventory and leave the API running:
 service-lasso start --services-root ./services --workspace-root ./workspace
 ```
 
-`service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; `@traefik`, `echo-service`, and `service-admin` use release-backed service artifacts, while `@node` is a local/no-download runtime provider.
+`service-lasso start` is the clean-clone baseline command name for `#98`. It installs, configures, and starts the baseline services in dependency order, then starts the core API for Service Admin and app consumers. The current baseline is `@traefik`, `@node`, `echo-service`, and `service-admin`; `@traefik`, `echo-service`, and `service-admin` use release-backed service artifacts, while `@node` is a local/no-download runtime provider with `role: "provider"` and is not launched as a managed daemon.
 
 The command-level smoke for this path is:
 

@@ -7,6 +7,7 @@ import { checkProcessHealth } from "./checkProcess.js";
 import { checkTcpHealth } from "./checkTcp.js";
 import { checkVariableHealth } from "./checkVariable.js";
 import type { ServiceHealthResult } from "./types.js";
+import { isProviderRole } from "../roles.js";
 
 export async function evaluateServiceHealth(
   manifest: ServiceManifest,
@@ -16,6 +17,17 @@ export async function evaluateServiceHealth(
   sharedGlobalEnv: Record<string, string> = {},
 ): Promise<ServiceHealthResult> {
   const healthcheck = manifest.healthcheck;
+
+  if (!healthcheck && isProviderRole(manifest)) {
+    const ready = lifecycle.installed && lifecycle.configured;
+    return {
+      type: "provider",
+      healthy: ready,
+      detail: ready
+        ? "Provider is installed/configured and does not require a managed daemon process."
+        : "Provider is not installed/configured yet.",
+    };
+  }
 
   if (!healthcheck || healthcheck.type === "process") {
     return checkProcessHealth(lifecycle);

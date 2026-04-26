@@ -126,6 +126,20 @@ Short operator-facing description.
 ### `enabled`
 Whether the service is enabled by default.
 
+### `role`
+Declares whether the manifest describes a normal managed service or a local runtime provider.
+
+Supported values:
+- `service` or omitted: a normal service that can be installed, configured, started, stopped, and health-checked as a managed process when execution metadata is present
+- `provider`: a local/no-download runtime provider such as `@node`, `@python`, or `@java`
+
+Provider-role services are installed/configured so their variables and dependency contract are available, but baseline start does not launch them as long-running daemon processes unless a later provider contract explicitly requires that.
+
+Example:
+```json
+"role": "provider"
+```
+
 ### `version`
 Current package/version identity for the service.
 
