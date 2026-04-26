@@ -76,6 +76,7 @@ Current manifest/install note:
 - the core runtime now accepts a bounded first-class `artifact` block inside `service.json`
 - `install` can acquire/download and unpack manifest-owned archive payloads without forcing `start`
 - direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
+- the manifest contract now accepts an explicit `updates` block for pinned versus moving release policy, and the runtime has a read-only update discovery function for `github-release` sources
 
 Current package-boundary note:
 

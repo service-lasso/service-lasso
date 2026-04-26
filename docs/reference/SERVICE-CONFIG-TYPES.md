@@ -180,7 +180,31 @@ Current core status:
 - the manifest contract accepts bounded hook definitions
 - hook execution and rollback integration remain future runtime/update work
 
-## 9. Recommended doc framing
+## 9. Update policy type
+
+### Pinned release service
+Declares `artifact.source.tag` and no active `updates` policy. Service Lasso treats this as pinned by default.
+
+Current core status:
+- the manifest contract preserves existing pinned manifests without requiring an `updates` block
+- read-only update discovery reports these services as `pinned`
+
+### Notify-only tracked service
+Declares `updates.mode: "notify"` and `updates.track: "latest"` or a named release channel/tag.
+
+Current core status:
+- read-only discovery can resolve the tracked GitHub release, compare it with installed artifact state, and report `latest`, `update_available`, `unavailable`, or `check_failed`
+- no archive download or install happens during discovery
+
+### Download-only or install-capable service
+Declares future `updates.mode: "download"` or `updates.mode: "install"`.
+
+Current core status:
+- the manifest contract validates these modes
+- install mode must also declare `installWindow` and `runningService`
+- scheduler, candidate download, installation, API/CLI output, and Service Admin notifications remain tracked under follow-on update issues
+
+## 10. Recommended doc framing
 
 For docs, these patterns are best treated as orthogonal dimensions rather than mutually exclusive service classes.
 
@@ -190,7 +214,8 @@ A single service can be:
 - that imports local env
 - exports global env
 - depends on other services
-- and exposes install/config/start/stop actions
+- exposes install/config/start/stop actions
+- and opts into notify/download/install update policy
 
 That means the cleanest later documentation structure is:
 1. execution/runtime type
@@ -201,3 +226,4 @@ That means the cleanest later documentation structure is:
 6. executable/command model
 7. lifecycle/action model
 8. recovery/doctor/hook model
+9. update policy model

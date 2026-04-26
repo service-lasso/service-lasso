@@ -62,6 +62,26 @@ export interface ServiceLifecycleHooks {
   onFailure?: ServiceHookStep[];
 }
 
+export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
+export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
+export type ServiceUpdateWindowDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+export interface ServiceUpdateInstallWindow {
+  days?: ServiceUpdateWindowDay[];
+  start: string;
+  end: string;
+  timezone?: string;
+}
+
+export interface ServiceUpdatePolicy {
+  enabled?: boolean;
+  mode?: ServiceUpdateMode;
+  track?: "pinned" | "latest" | (string & {});
+  checkIntervalSeconds?: number;
+  installWindow?: ServiceUpdateInstallWindow;
+  runningService?: ServiceUpdateRunningServicePolicy;
+}
+
 export type ServiceArtifactArchiveType = "zip" | "tar.gz" | "tgz";
 
 export interface ServiceArtifactSource {
@@ -104,6 +124,7 @@ export interface ServiceManifest {
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;
   hooks?: ServiceLifecycleHooks;
+  updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;
   config?: ServiceActionMaterialization;

@@ -1,8 +1,19 @@
-import type { ServiceHookFailurePolicy, ServiceHookStep, ServiceManifest } from "../../contracts/service.js";
+import type {
+  ServiceHookFailurePolicy,
+  ServiceHookStep,
+  ServiceManifest,
+  ServiceUpdateInstallWindow,
+  ServiceUpdateMode,
+  ServiceUpdateRunningServicePolicy,
+  ServiceUpdateWindowDay,
+} from "../../contracts/service.js";
 import type { ServiceHealthcheck } from "../health/types.js";
 
 const hookFailurePolicies = new Set(["block", "warn", "continue"]);
 const hookPhases = new Set(["preRestart", "postRestart", "preUpgrade", "postUpgrade", "rollback", "onFailure"]);
+const updateModes = new Set(["disabled", "notify", "download", "install"]);
+const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-start", "restart"]);
+const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -246,6 +257,137 @@ function readLifecycleHooks(value: unknown, manifestPath: string): ServiceManife
     postUpgrade: readHookSteps(record.postUpgrade, "hooks.postUpgrade", manifestPath),
     rollback: readHookSteps(record.rollback, "hooks.rollback", manifestPath),
     onFailure: readHookSteps(record.onFailure, "hooks.onFailure", manifestPath),
+  };
+}
+
+function expectTimeOfDay(value: unknown, field: string, manifestPath: string): string {
+  const candidate = expectNonEmptyString(value, field, manifestPath);
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(candidate)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to use HH:mm 24-hour time.`);
+  }
+
+  return candidate;
+}
+
+function readUpdateInstallWindow(
+  value: unknown,
+  manifestPath: string,
+): ServiceUpdateInstallWindow | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "updates.installWindow" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const days = record.days;
+  if (days !== undefined) {
+    if (!Array.isArray(days) || days.some((day) => typeof day !== "string" || !updateWindowDays.has(day))) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "updates.installWindow.days" to contain weekday values mon through sun.`,
+      );
+    }
+  }
+
+  return {
+    days: Array.isArray(days) ? days.map((day) => day as ServiceUpdateWindowDay) : undefined,
+    start: expectTimeOfDay(record.start, "updates.installWindow.start", manifestPath),
+    end: expectTimeOfDay(record.end, "updates.installWindow.end", manifestPath),
+    timezone: typeof record.timezone === "string" ? record.timezone.trim() : undefined,
+  };
+}
+
+function readUpdatePolicy(
+  value: unknown,
+  artifact: ServiceManifest["artifact"],
+  manifestPath: string,
+): ServiceManifest["updates"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "updates" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const enabled = expectOptionalBoolean(record.enabled, "updates.enabled", manifestPath);
+  const rawMode = record.mode;
+  if (rawMode !== undefined && (typeof rawMode !== "string" || !updateModes.has(rawMode))) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "updates.mode" to be one of "disabled", "notify", "download", or "install".`,
+    );
+  }
+  const mode = rawMode as ServiceUpdateMode | undefined;
+  const rawTrack = record.track;
+  const track =
+    rawTrack === undefined ? undefined : expectNonEmptyString(rawTrack, "updates.track", manifestPath);
+  const checkIntervalSeconds = expectOptionalWholeNumber(
+    record.checkIntervalSeconds,
+    "updates.checkIntervalSeconds",
+    manifestPath,
+    60,
+  );
+  const installWindow = readUpdateInstallWindow(record.installWindow, manifestPath);
+  const rawRunningService = record.runningService;
+  if (
+    rawRunningService !== undefined &&
+    (typeof rawRunningService !== "string" || !updateRunningServicePolicies.has(rawRunningService))
+  ) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "updates.runningService" to be one of "skip", "require-stopped", "stop-start", or "restart".`,
+    );
+  }
+  const runningService = rawRunningService as ServiceUpdateRunningServicePolicy | undefined;
+
+  if (enabled === false && mode !== undefined && mode !== "disabled") {
+    throw new Error(`Invalid service manifest at ${manifestPath}: "updates.enabled" false can only use mode "disabled".`);
+  }
+
+  if (enabled === true && mode === "disabled") {
+    throw new Error(`Invalid service manifest at ${manifestPath}: "updates.enabled" true cannot use mode "disabled".`);
+  }
+
+  if (mode === "disabled" && track !== undefined && track !== "pinned") {
+    throw new Error(`Invalid service manifest at ${manifestPath}: disabled updates cannot track a moving release source.`);
+  }
+
+  if (mode !== "install" && installWindow !== undefined) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: "updates.installWindow" is only valid with mode "install".`);
+  }
+
+  if (mode !== "install" && runningService !== undefined) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: "updates.runningService" is only valid with mode "install".`);
+  }
+
+  const activeMode = mode === "notify" || mode === "download" || mode === "install";
+  if (activeMode) {
+    if (!artifact) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: active updates require manifest "artifact" metadata.`);
+    }
+
+    if (track === undefined || track === "pinned") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: active updates require "updates.track" to be "latest" or a named channel/tag.`,
+      );
+    }
+  }
+
+  if (mode === "install" && (!installWindow || !runningService)) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: install-mode updates require both "updates.installWindow" and "updates.runningService".`,
+    );
+  }
+
+  return {
+    enabled,
+    mode,
+    track,
+    checkIntervalSeconds,
+    installWindow,
+    runningService,
   };
 }
 
@@ -501,6 +643,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const restartPolicy = readRestartPolicy(record.restartPolicy, manifestPath);
   const doctor = readDoctorPolicy(record.doctor, manifestPath);
   const hooks = readLifecycleHooks(record.hooks, manifestPath);
+  const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
 
   return {
     id: expectNonEmptyString(record.id, "id", manifestPath),
@@ -527,6 +670,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     restartPolicy,
     doctor,
     hooks,
+    updates,
     artifact,
     install,
     config,
