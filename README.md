@@ -78,6 +78,7 @@ Current manifest/install note:
 - direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
 - the manifest contract now accepts an explicit `updates` block for pinned versus moving release policy, and the runtime has a read-only update discovery function for `github-release` sources
 - update checks and future candidates persist under `.state/updates.json`, separate from active installed artifact metadata in `.state/install.json`
+- an opt-in update scheduler can periodically apply per-service `updates.mode` policy for notify, download, or install actions; maintenance-window and running-service safety are still tracked separately
 
 Current package-boundary note:
 
@@ -189,6 +190,8 @@ POST /api/updates/check
 POST /api/services/:id/update/download
 POST /api/services/:id/update/install
 ```
+
+Hosts that want periodic update work can opt in when starting the API server by passing `updateScheduler: true`. The scheduler respects per-service `updates.checkIntervalSeconds`, skips disabled/pinned services, suppresses duplicate in-flight work, and uses the same update state/actions as the CLI and API. It does not yet enforce maintenance-window or running-service safety; those rules are tracked as the next update-management slice.
 
 ## Release artifact commands
 
