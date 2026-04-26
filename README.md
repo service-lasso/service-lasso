@@ -77,6 +77,7 @@ Current manifest/install note:
 - `install` can acquire/download and unpack manifest-owned archive payloads without forcing `start`
 - direct execution can fall back to the installed artifact command when the manifest relies on installed runtime payload instead of a checked-in executable
 - the manifest contract now accepts an explicit `updates` block for pinned versus moving release policy, and the runtime has a read-only update discovery function for `github-release` sources
+- update checks and future candidates persist under `.state/updates.json`, separate from active installed artifact metadata in `.state/install.json`
 
 Current package-boundary note:
 

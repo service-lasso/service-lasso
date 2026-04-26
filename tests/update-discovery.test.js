@@ -3,13 +3,21 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { startApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { loadServiceManifest } from "../dist/runtime/discovery/loadManifest.js";
+import { readStoredState } from "../dist/runtime/state/readState.js";
 import {
   checkServiceUpdate,
   compareTimestampedReleaseTags,
 } from "../dist/runtime/updates/check.js";
+import {
+  persistDownloadedUpdateCandidate,
+  persistUpdateCheckResult,
+  persistUpdateInstallDeferred,
+  readServiceUpdateState,
+} from "../dist/runtime/updates/state.js";
 
 async function makeTempServicesRoot() {
   return await mkdtemp(path.join(os.tmpdir(), "service-lasso-updates-"));
@@ -358,4 +366,197 @@ test("timestamped release tags compare conservatively by date", () => {
   assert.equal(compareTimestampedReleaseTags("2026.4.24-bbbbbbb", "2026.4.24-bbbbbbb"), 0);
   assert.equal(compareTimestampedReleaseTags("2026.4.24-aaaaaaa", "2026.4.24-bbbbbbb"), null);
   assert.equal(compareTimestampedReleaseTags("v1.0.0", "2026.4.24-bbbbbbb"), null);
+});
+
+test("update check results persist durable operator state", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      updates: {
+        mode: "notify",
+        track: "latest",
+      },
+    }));
+    await writeInstalledArtifact(serviceRoot, {
+      sourceType: "github-release",
+      repo: "service-lasso/update-fixture",
+      tag: "2026.4.20-old",
+      assetName: "update-fixture.zip",
+    });
+    const [service] = await discoverServices(servicesRoot);
+    const result = await checkServiceUpdate(service);
+
+    const persisted = await persistUpdateCheckResult(service, result);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(persisted.state, "available");
+    assert.equal(persisted.lastCheck.status, "update_available");
+    assert.equal(persisted.lastCheck.sourceRepo, "service-lasso/update-fixture");
+    assert.equal(persisted.lastCheck.installedTag, "2026.4.20-old");
+    assert.equal(persisted.available.tag, "2026.4.24-new");
+    assert.equal(stored.updates.state, "available");
+    assert.equal(JSON.parse(await readFile(path.join(serviceRoot, ".state", "updates.json"), "utf8")).available.tag, "2026.4.24-new");
+  } finally {
+    await releaseServer.stop();
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("downloaded candidate state stays separate from active installed artifact state", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      updates: {
+        mode: "download",
+        track: "latest",
+      },
+    }));
+    await writeInstalledArtifact(serviceRoot, {
+      sourceType: "github-release",
+      repo: "service-lasso/update-fixture",
+      tag: "2026.4.20-old",
+      assetName: "update-fixture.zip",
+      archivePath: "active/old.zip",
+    });
+    const [service] = await discoverServices(servicesRoot);
+    const before = await readStoredState(serviceRoot);
+
+    const persisted = await persistDownloadedUpdateCandidate(service, {
+      tag: "2026.4.24-new",
+      version: "2026.4.24-new",
+      assetName: "update-fixture.zip",
+      assetUrl: "https://example.test/update-fixture.zip",
+      archivePath: "candidates/2026.4.24-new/update-fixture.zip",
+      extractedPath: "candidates/2026.4.24-new/extracted",
+      downloadedAt: "2026-04-24T00:00:00.000Z",
+    });
+    const after = await readStoredState(serviceRoot);
+
+    assert.equal(persisted.state, "downloadedCandidate");
+    assert.equal(persisted.downloadedCandidate.tag, "2026.4.24-new");
+    assert.deepEqual(after.install, before.install);
+    assert.equal(after.updates.downloadedCandidate.archivePath, "candidates/2026.4.24-new/update-fixture.zip");
+  } finally {
+    await releaseServer.stop();
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("install deferred update state persists enough operator evidence", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      updates: {
+        mode: "install",
+        track: "latest",
+        installWindow: {
+          start: "02:00",
+          end: "04:00",
+        },
+        runningService: "restart",
+      },
+    }));
+    const [service] = await discoverServices(servicesRoot);
+
+    const persisted = await persistUpdateInstallDeferred(service, {
+      reason: "outside install window",
+      deferredAt: "2026-04-24T05:00:00.000Z",
+      nextEligibleAt: "2026-04-25T02:00:00.000Z",
+    });
+    const reloaded = await readServiceUpdateState(service);
+
+    assert.equal(persisted.state, "installDeferred");
+    assert.equal(reloaded.installDeferred.reason, "outside install window");
+    assert.equal(reloaded.installDeferred.nextEligibleAt, "2026-04-25T02:00:00.000Z");
+  } finally {
+    await releaseServer.stop();
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("missing or corrupt update state degrades safely", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer));
+    const [service] = await discoverServices(servicesRoot);
+
+    const missing = await readServiceUpdateState(service);
+    await mkdir(path.join(serviceRoot, ".state"), { recursive: true });
+    await writeFile(path.join(serviceRoot, ".state", "updates.json"), "{not valid json");
+    const corrupt = await readServiceUpdateState(service);
+
+    assert.equal(missing.state, "installed");
+    assert.equal(corrupt.state, "installed");
+    assert.equal(corrupt.lastCheck, null);
+  } finally {
+    await releaseServer.stop();
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("service detail rehydrates persisted update state after runtime restart", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      updates: {
+        mode: "notify",
+        track: "latest",
+      },
+    }));
+    const [service] = await discoverServices(servicesRoot);
+    await persistUpdateCheckResult(service, {
+      serviceId: "update-fixture",
+      status: "update_available",
+      reason: "Tracked release differs from the installed release tag.",
+      mode: "notify",
+      source: {
+        type: "github-release",
+        repo: "service-lasso/update-fixture",
+        track: "latest",
+        apiBaseUrl: releaseServer.baseUrl,
+      },
+      current: {
+        manifestTag: "2026.4.20-old",
+        installedTag: "2026.4.20-old",
+        version: "2026.4.20-old",
+        assetName: "update-fixture.zip",
+      },
+      available: {
+        tag: "2026.4.24-new",
+        version: "2026.4.24-new",
+        releaseUrl: "https://example.test/releases/2026.4.24-new",
+        publishedAt: "2026-04-24T00:00:00.000Z",
+        assetNames: ["update-fixture.zip"],
+        matchedAssetName: "update-fixture.zip",
+        assetUrl: "https://example.test/downloads/update-fixture.zip",
+      },
+      checkedAt: "2026-04-24T00:00:00.000Z",
+    });
+    const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+    try {
+      const response = await fetch(`${apiServer.url}/api/services/update-fixture`);
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(body.service.updates.state, "available");
+      assert.equal(body.service.updates.lastCheck.latestTag, "2026.4.24-new");
+      assert.equal(body.service.updates.available.assetName, "update-fixture.zip");
+    } finally {
+      await apiServer.stop();
+    }
+  } finally {
+    await releaseServer.stop();
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
 });

@@ -10,7 +10,8 @@ The first implemented slices are intentionally bounded:
 
 - `#121` adds an explicit `updates` policy block to `service.json`
 - `#122` adds read-only discovery for `github-release` artifact sources
-- no scheduler, candidate download, install, API route, CLI command, or Service Admin notification is enabled by these slices alone
+- `#123` adds durable per-service update state under `.state/updates.json`
+- no scheduler, archive download implementation, install execution, dedicated API route, CLI command, or Service Admin notification is enabled by these slices alone
 
 ## Manifest Shape
 
@@ -95,9 +96,30 @@ Current status classifications:
 
 The first source implementation is bounded to `artifact.source.type = "github-release"`.
 
+## Persisted Update State
+
+Service Lasso persists update state separately from active install state:
+
+```text
+services/<service-id>/.state/updates.json
+```
+
+This file records:
+
+- `lastCheck`: checked time, status, reason, source repo, track, installed tag, manifest tag, and latest tag
+- `available`: latest release/candidate metadata from discovery
+- `downloadedCandidate`: candidate archive/extract metadata once later download work stores a candidate
+- `installDeferred`: operator-facing reason and next eligible time when install must wait
+- `failed`: structured failure reason and timestamp
+
+Important boundary:
+
+- `.state/install.json` remains the active installed artifact state
+- `.state/updates.json` may describe a newer candidate that has not been installed
+- corrupt or missing update state returns an empty installed/no-update view instead of blocking normal lifecycle operations
+
 ## Follow-On Issues
 
-- `#123`: persist update state and downloaded candidates
 - `#124`: CLI and console output
 - `#125`: runtime API surfaces
 - `#126`: policy-driven scheduler
