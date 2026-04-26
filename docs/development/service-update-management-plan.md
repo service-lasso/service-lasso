@@ -15,7 +15,7 @@ The first implemented slices are intentionally bounded:
 - `#125` adds runtime API endpoints for status, check, download, and install actions
 - `#126` adds an opt-in runtime scheduler for policy-driven notify, download, and install actions
 - `#127` adds maintenance-window and running-service safety for update installs
-- no Service Admin notification is enabled by these slices alone
+- `#128` surfaces update notifications and bounded update actions in Service Admin
 
 ## Manifest Shape
 
@@ -143,10 +143,6 @@ Current behavior:
 - human output distinguishes latest, update available, downloaded candidate, deferred install, and failed checks
 - JSON output includes machine-readable status, version/source fields, and recommended action for checks
 
-Deferred behavior:
-
-- Service Admin notifications remain under `#128`
-
 ## Runtime API Surface
 
 Supported endpoints:
@@ -204,9 +200,25 @@ Running-service behavior:
 
 Current boundary:
 
-- Service Admin notification UX remains under `#128`
+- End-to-end update lifecycle proof remains under `#129`
+
+## Service Admin Surface
+
+Service Admin consumes the same bounded update API/state as app hosts and the CLI.
+
+Current behavior:
+
+- dashboard cards show a global update notification banner when persisted state reports available, downloaded, deferred, or failed update work
+- service cards, the services table, and service detail show per-service update badges and descriptions
+- supported states are `installed`, `available`, `downloadedCandidate`, `installDeferred`, and `failed`
+- service detail exposes allowed check, download, and install buttons that call `POST /api/updates/check`, `POST /api/services/:id/update/download`, and `POST /api/services/:id/update/install`
+- Service Admin keeps update action wiring bounded to the runtime API and does not shell out to the CLI
+
+Evidence:
+
+- `service-lasso/lasso-serviceadmin#12` merged the UI slice
+- `npm test`, `npm run build`, and `npm run lint` passed locally in the Service Admin repo before merge
 
 ## Follow-On Issues
 
-- `#128`: Service Admin notifications
 - `#129`: end-to-end update verification
