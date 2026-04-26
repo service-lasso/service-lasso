@@ -87,8 +87,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-128` | `ready` | Surface service update notifications in Service Admin UI | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#128`. Coordinates core update API with Service Admin UI messaging. |
 | `ISS-129` | `ready` | Add end-to-end update verification with Echo Service release fixtures | `SPEC-002`, `SPEC_GAP` | GitHub issue: `#129`. Adds deterministic and release-backed update verification. |
 | `ISS-130` | `ready` | Plan service recovery, doctor, and upgrade hook feature | `SPEC-002`, `AC-4AA` | GitHub issue: `#130`. Parent issue for monitoring, auto-restart, doctor/preflight, upgrade hooks, state, surfaces, and verification. |
-| `ISS-131` | `in_review` | Add service monitoring, restart policy, and hook manifest contract | `SPEC-002`, `AC-4AA` | GitHub issue: `#131`. Adds validation-only manifest contract for monitoring, restart policy, doctor steps, and restart/upgrade hooks. |
-| `ISS-132` | `ready` | Add runtime service monitor and auto-restart loop | `SPEC-002`, `AC-4AA` | GitHub issue: `#132`. Implements opt-in monitoring and policy-driven restart after the manifest contract lands. |
+| `ISS-131` | `done` | Add service monitoring, restart policy, and hook manifest contract | `SPEC-002`, `AC-4AA` | GitHub issue: `#131`. Adds validation-only manifest contract for monitoring, restart policy, doctor steps, and restart/upgrade hooks. |
+| `ISS-132` | `in_review` | Add runtime service monitor and auto-restart loop | `SPEC-002`, `AC-4AA` | GitHub issue: `#132`. Implements opt-in monitoring and policy-driven restart after the manifest contract lands. |
 | `ISS-133` | `ready` | Add doctor/preflight steps before service restart or upgrade | `SPEC-002`, `AC-4AA` | GitHub issue: `#133`. Executes bounded doctor steps with timeout and failure policy. |
 | `ISS-134` | `ready` | Add pre-upgrade, post-upgrade, and rollback hook execution | `SPEC-002`, `AC-4AA` | GitHub issue: `#134`. Integrates bounded upgrade hooks with update install behavior. |
 | `ISS-135` | `ready` | Persist recovery, doctor, restart, and hook history | `SPEC-002`, `AC-4AA` | GitHub issue: `#135`. Adds durable recovery/hook state and history. |
@@ -178,8 +178,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-128` | `ready` | `ISS-128` | Add Service Admin update notifications | `SPEC-002`, `SPEC_GAP` | Exit requires Service Admin integration evidence against the update API. |
 | `TASK-129` | `ready` | `ISS-129` | Add end-to-end update verification | `SPEC-002`, `SPEC_GAP` | Exit requires deterministic update lifecycle tests and optional release-backed Echo proof. |
 | `TASK-130` | `ready` | `ISS-130` | Coordinate recovery, doctor, and upgrade-hook feature plan | `SPEC-002`, `AC-4AA` | Parent issue exists with child issues `#131` through `#138`; implementation evidence lands in child tasks. |
-| `TASK-131` | `in_review` | `ISS-131` | Add recovery/doctor/hook manifest contract | `SPEC-002`, `AC-4AA` | `npm test` passed 103/103 after adding typed manifest fields, validation tests, docs, and no runtime monitor/hook execution yet. |
-| `TASK-132` | `ready` | `ISS-132` | Add runtime monitor and auto-restart loop | `SPEC-002`, `AC-4AA` | Exit requires opt-in monitor loop tests for crash/unhealthy restart, backoff, max attempts, and shutdown. |
+| `TASK-131` | `done` | `ISS-131` | Add recovery/doctor/hook manifest contract | `SPEC-002`, `AC-4AA` | PR `#139` merged; `npm test` passed 103/103 after adding typed manifest fields, validation tests, docs, and no runtime monitor/hook execution yet. |
+| `TASK-132` | `in_review` | `ISS-132` | Add runtime monitor and auto-restart loop | `SPEC-002`, `AC-4AA` | Targeted monitor verification passed after adding opt-in monitor loop tests for crash restart, max-attempt skip, and server monitor start/stop. |
 | `TASK-133` | `ready` | `ISS-133` | Execute doctor/preflight steps before restart or upgrade | `SPEC-002`, `AC-4AA` | Exit requires pass/fail/block/warn/timeout doctor tests. |
 | `TASK-134` | `ready` | `ISS-134` | Execute pre-upgrade, post-upgrade, and rollback hooks | `SPEC-002`, `AC-4AA` | Exit requires hook execution tests around update install success/failure paths. |
 | `TASK-135` | `ready` | `ISS-135` | Persist recovery, doctor, restart, and hook history | `SPEC-002`, `AC-4AA` | Exit requires recovery-state rehydrate and retention tests. |
@@ -188,4 +188,4 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-138` | `ready` | `ISS-138` | Add recovery and hook end-to-end verification | `SPEC-002`, `AC-4AA` | Exit requires deterministic recovery/hook tests and optional Echo harness proof. |
 
 ## Next Recommended Item
-Complete `ISS-131` / `TASK-131`, then continue to `ISS-132` for the opt-in runtime monitor and auto-restart loop.
+Complete `ISS-132` / `TASK-132`, then continue to `ISS-133` for bounded doctor/preflight execution.
