@@ -24,6 +24,14 @@ The second implemented slice adds the first bounded runtime monitor:
 - restart attempts respect `maxAttempts`, `backoffSeconds`, and duplicate in-flight protection
 - monitor events are currently in-memory return values and console messages; durable recovery history remains tracked separately
 
+The third implemented slice adds restart doctor/preflight execution:
+
+- configured `doctor.steps` run before `restart`
+- `block` policy prevents restart before the current service process is stopped or replaced
+- `warn` policy records the failed step result internally and allows restart to continue
+- step execution is bounded by `timeoutSeconds`
+- durable doctor result state and manual doctor CLI/API surfaces remain tracked separately
+
 ## Manifest Shape
 
 Example:
@@ -97,7 +105,7 @@ Bounded hook and doctor definitions support:
 ## Follow-On Issues
 
 - `#132`: runtime service monitor and auto-restart loop - first bounded slice implemented
-- `#133`: doctor/preflight execution before restart or upgrade
+- `#133`: doctor/preflight execution before restart or upgrade - restart preflight implemented
 - `#134`: pre-upgrade, post-upgrade, and rollback hook execution
 - `#135`: persisted recovery, doctor, restart, and hook history
 - `#136`: CLI and API surfaces

@@ -91,6 +91,7 @@ Required evidence for this spec:
 - direct clean-clone proof for the documented baseline start path, including service acquisition where manifests point at release artifacts, dependency-aware install/config/start sequencing, and runtime API evidence that `@traefik`, `@node`, `echo-service`, and `service-admin` reached their expected final states or were explicitly classified as local/no-download/deferred
 - direct proof that valid recovery/doctor/hook manifest policies parse into typed runtime contracts, invalid unsafe shapes are rejected, and existing manifests remain valid without opting into automatic restart or hook execution
 - direct proof that an opt-in runtime monitor can start/stop cleanly, skip ineligible services deterministically, and restart a crashed service when explicit monitoring and restart policy allow it
+- direct proof that configured doctor/preflight steps run before restart, block restart when policy requires, and can warn/continue without replacing the service process prematurely
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
@@ -132,3 +133,4 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - 2026-04-25: `#93` promotes Java from donor/reference-only material into bounded core provider support. Core now has `services/@java/service.json`, provider resolution for `execservice: "@java"`, lifecycle/runtime evidence for Java-provider-backed execution, and an explicit deferred release-backed JRE repo plan.
 - 2026-04-26: `#131` adds the bounded manifest contract for future service recovery, doctor/preflight steps, restart policy, and upgrade/restart hooks. This contract is validation-only; runtime monitoring and hook execution remain tracked under `#132` through `#138`.
 - 2026-04-26: `#132` adds the first bounded opt-in runtime monitor loop. It can be started/stopped by the API server, evaluates explicit `monitoring` + `restartPolicy` service policy, restarts crashed services when allowed, and reports deterministic skip/restart events. Persisted recovery history and operator surfaces remain tracked under `#135` and `#136`.
+- 2026-04-26: `#133` adds bounded doctor/preflight execution before restart. Passing doctor steps allow restart, block-policy failures prevent restart before the existing process is replaced, and warn-policy failures continue while remaining visible to later recovery-state work.
