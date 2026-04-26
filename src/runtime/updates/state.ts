@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { appendServiceRecoveryHistoryEvents } from "../recovery/history.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import type { ServiceUpdateCheckResult } from "./check.js";
 
@@ -491,6 +492,16 @@ export async function appendUpdateHookResults(
   }
 
   const recordedAt = nowIso();
+  await appendServiceRecoveryHistoryEvents(service, hookResults.map((result) => ({
+    kind: "hook",
+    serviceId: service.manifest.id,
+    phase: result.phase,
+    ok: result.ok,
+    blocked: result.blocked,
+    steps: result.steps,
+    at: recordedAt,
+  })));
+
   return await writeServiceUpdateState(service, {
     ...existing,
     serviceId: service.manifest.id,

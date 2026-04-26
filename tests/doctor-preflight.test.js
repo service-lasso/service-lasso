@@ -7,6 +7,7 @@ import { configService, installService, restartService, startService } from "../
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
+import { readStoredState } from "../dist/runtime/state/readState.js";
 import { writeServiceState } from "../dist/runtime/state/writeState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
@@ -48,10 +49,14 @@ test("restart runs passing doctor preflight before replacing the service process
 
     const result = await restartService(service, registry);
     await writeServiceState(service, result.state);
+    const stored = await readStoredState(service.serviceRoot);
 
     assert.equal(result.ok, true);
     assert.equal(result.state.running, true);
     assert.equal(result.state.runtime.metrics.restartCount, 1);
+    assert.deepEqual(stored.recovery.events.map((event) => event.kind), ["doctor", "restart"]);
+    assert.equal(stored.recovery.events[0].ok, true);
+    assert.equal(stored.recovery.events[1].ok, true);
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
@@ -80,10 +85,14 @@ test("restart is blocked when doctor preflight fails with block policy", async (
       /Doctor preflight blocked restart for service "doctor-block-service" at step "doctor-fail"/,
     );
     const after = getLifecycleState("doctor-block-service");
+    const stored = await readStoredState(service.serviceRoot);
 
     assert.equal(after.running, true);
     assert.equal(after.runtime.pid, before.runtime.pid);
     assert.equal(after.runtime.metrics.restartCount, 0);
+    assert.equal(stored.recovery.events.length, 1);
+    assert.equal(stored.recovery.events[0].kind, "doctor");
+    assert.equal(stored.recovery.events[0].blocked, true);
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
@@ -108,13 +117,16 @@ test("restart continues when doctor preflight fails with warn policy", async () 
 
     const result = await restartService(service, registry);
     await writeServiceState(service, result.state);
+    const stored = await readStoredState(service.serviceRoot);
 
     assert.equal(result.ok, true);
     assert.equal(result.state.running, true);
     assert.equal(result.state.runtime.metrics.restartCount, 1);
+    assert.deepEqual(stored.recovery.events.map((event) => event.kind), ["doctor", "restart"]);
+    assert.equal(stored.recovery.events[0].ok, true);
+    assert.equal(stored.recovery.events[0].steps[0].ok, false);
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
-

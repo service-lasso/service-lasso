@@ -8,6 +8,7 @@ import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createRuntimeServiceMonitor } from "../dist/runtime/recovery/monitor.js";
 import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
+import { readStoredState } from "../dist/runtime/state/readState.js";
 import { writeServiceState } from "../dist/runtime/state/writeState.js";
 import { startApiServer } from "../dist/server/index.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
@@ -78,6 +79,9 @@ test("runtime monitor restarts a crashed service when policy allows", async () =
     assert.equal(event?.reason, "crashed");
     assert.equal(getLifecycleState("crash-restart-service").running, true);
     assert.equal(getLifecycleState("crash-restart-service").runtime.metrics.restartCount, 1);
+    const stored = await readStoredState(service.serviceRoot);
+    assert.equal(stored.recovery.events.at(-1).kind, "monitor");
+    assert.equal(stored.recovery.events.at(-1).reason, "crashed");
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
@@ -118,6 +122,9 @@ test("runtime monitor skips restart when maxAttempts is already exhausted", asyn
     assert.equal(event?.action, "skip");
     assert.equal(event?.reason, "max_attempts");
     assert.equal(getLifecycleState("max-attempt-service").running, false);
+    const stored = await readStoredState(service.serviceRoot);
+    assert.equal(stored.recovery.events.at(-1).kind, "monitor");
+    assert.equal(stored.recovery.events.at(-1).reason, "max_attempts");
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
@@ -140,4 +147,3 @@ test("API server can start and stop the opt-in runtime monitor cleanly", async (
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
-

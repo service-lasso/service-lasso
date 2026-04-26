@@ -22,15 +22,15 @@ The second implemented slice adds the first bounded runtime monitor:
 - crashed services can be restarted when `restartPolicy.onCrash` is true
 - unhealthy services can be restarted when `restartPolicy.onUnhealthy` is true and the configured threshold is reached
 - restart attempts respect `maxAttempts`, `backoffSeconds`, and duplicate in-flight protection
-- monitor events are currently in-memory return values and console messages; durable recovery history remains tracked separately
+- monitor decisions are returned to callers and persisted into bounded recovery history
 
 The third implemented slice adds restart doctor/preflight execution:
 
 - configured `doctor.steps` run before `restart`
 - `block` policy prevents restart before the current service process is stopped or replaced
-- `warn` policy records the failed step result internally and allows restart to continue
+- `warn` policy records the failed step result and allows restart to continue
 - step execution is bounded by `timeoutSeconds`
-- durable doctor result state and manual doctor CLI/API surfaces remain tracked separately
+- doctor results are persisted into bounded recovery history; manual doctor CLI/API surfaces remain tracked separately
 
 The fourth implemented slice adds upgrade-hook execution around update install:
 
@@ -39,7 +39,14 @@ The fourth implemented slice adds upgrade-hook execution around update install:
 - required hook failures prevent update install from reporting success
 - failed upgrade simulations run `rollback` and `onFailure` hook phases when configured
 - hook run evidence is recorded in `.state/updates.json` under `hookResults`
-- durable recovery-history storage remains tracked separately under `#135`
+- hook run evidence is also persisted into bounded recovery history
+
+The fifth implemented slice adds durable recovery history:
+
+- `.state/recovery.json` stores bounded event history per service
+- monitor decisions, doctor runs, restart outcomes, and upgrade hook phase results append to the same history file
+- history loading normalizes missing or partial state so operators can rehydrate persisted evidence safely
+- retention defaults to the latest 100 events per service to prevent unbounded monitor growth
 
 ## Manifest Shape
 
@@ -116,7 +123,7 @@ Bounded hook and doctor definitions support:
 - `#132`: runtime service monitor and auto-restart loop - first bounded slice implemented
 - `#133`: doctor/preflight execution before restart or upgrade - restart preflight implemented
 - `#134`: pre-upgrade, post-upgrade, and rollback hook execution - implemented for update install
-- `#135`: persisted recovery, doctor, restart, and hook history
+- `#135`: persisted recovery, doctor, restart, and hook history - implemented
 - `#136`: CLI and API surfaces
 - `#137`: Service Admin UI status
 - `#138`: end-to-end recovery and hook verification

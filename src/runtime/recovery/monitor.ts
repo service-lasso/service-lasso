@@ -5,6 +5,7 @@ import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 import { writeServiceState } from "../state/writeState.js";
+import { appendServiceRecoveryHistoryEvents } from "./history.js";
 
 export type ServiceMonitorEventAction = "restart" | "skip" | "healthy";
 export type ServiceMonitorEventReason =
@@ -182,7 +183,16 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
     const events: ServiceMonitorEvent[] = [];
 
     for (const service of options.registry.list()) {
-      events.push(await inspectService(service));
+      const event = await inspectService(service);
+      events.push(event);
+      await appendServiceRecoveryHistoryEvents(service, [{
+        kind: "monitor",
+        serviceId: service.manifest.id,
+        action: event.action,
+        reason: event.reason,
+        message: event.message,
+        at: event.at,
+      }]);
     }
 
     return events;
