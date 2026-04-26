@@ -672,7 +672,7 @@ async function routeRequest(
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "install") {
       const body = parseUpdateInstallBody(await readJsonBody(request));
-      writeJson(response, 200, await installServiceUpdateCandidate(service, { force: body.force }));
+      writeJson(response, 200, await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry }));
       return;
     }
 

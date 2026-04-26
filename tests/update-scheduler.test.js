@@ -10,7 +10,9 @@ import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.j
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { startApiServer } from "../dist/server/index.js";
 import { createRuntimeUpdateScheduler } from "../dist/runtime/updates/scheduler.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { installServiceUpdateCandidate } from "../dist/runtime/updates/actions.js";
+import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 
 async function makeTempServicesRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-update-scheduler-"));
@@ -49,7 +51,7 @@ async function writeInstalledArtifact(serviceRoot, tag = "2026.4.20-old") {
 
 function createZipWithRuntimeScript() {
   const zip = new AdmZip();
-  zip.addFile("runtime/update-fixture.mjs", Buffer.from('console.log("updated");\n', "utf8"));
+  zip.addFile("runtime/update-fixture.mjs", Buffer.from('console.log("updated");\nsetInterval(() => {}, 1000);\n', "utf8"));
   return zip.toBuffer();
 }
 
@@ -262,6 +264,137 @@ test("update scheduler install mode installs candidates", async () => {
     assert.equal(stored.install.artifact.tag, "2026.4.24-new");
     assert.equal(stored.updates.state, "installed");
   } finally {
+    resetLifecycleState();
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update install defers outside maintenance window before downloading", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      mode: "install",
+      track: "latest",
+      installWindow: {
+        days: ["tue"],
+        start: "02:00",
+        end: "03:00",
+        timezone: "UTC",
+      },
+      runningService: "restart",
+    }));
+    await writeInstalledArtifact(serviceRoot);
+    const registry = await prepareRegistry(servicesRoot);
+    const scheduler = createRuntimeUpdateScheduler({
+      registry,
+      logger: { log: () => undefined, warn: () => undefined },
+      now: () => new Date("2026-04-20T01:00:00Z"),
+    });
+
+    const events = await scheduler.runOnce({ force: true });
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(events[0].action, "skip");
+    assert.equal(events[0].reason, "install_deferred");
+    assert.equal(stored.updates.state, "installDeferred");
+    assert.match(stored.updates.installDeferred.reason, /outside updates\.installWindow/);
+    assert.ok(stored.updates.installDeferred.nextEligibleAt);
+    assert.equal(releaseServer.getDownloadRequests(), 0);
+  } finally {
+    resetLifecycleState();
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update install defers when running service policy requires stopped service", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      mode: "install",
+      track: "latest",
+      installWindow: {
+        start: "00:00",
+        end: "00:00",
+        timezone: "UTC",
+      },
+      runningService: "require-stopped",
+    }));
+    await writeInstalledArtifact(serviceRoot);
+    const registry = await prepareRegistry(servicesRoot);
+    const service = registry.getById("update-fixture");
+    setLifecycleState("update-fixture", {
+      ...getLifecycleState("update-fixture"),
+      installed: true,
+      configured: true,
+      running: true,
+    });
+
+    await assert.rejects(
+      () => installServiceUpdateCandidate(service, {
+        registry,
+        now: () => new Date("2026-04-20T01:00:00Z"),
+      }),
+      /blocked because the service is running/,
+    );
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(stored.updates.state, "installDeferred");
+    assert.match(stored.updates.installDeferred.reason, /require-stopped/);
+    assert.equal(releaseServer.getDownloadRequests(), 0);
+  } finally {
+    resetLifecycleState();
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update install can stop and restart a running service when policy allows", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      mode: "install",
+      track: "latest",
+      installWindow: {
+        start: "00:00",
+        end: "00:00",
+        timezone: "UTC",
+      },
+      runningService: "restart",
+    }));
+    await writeInstalledArtifact(serviceRoot);
+    const registry = await prepareRegistry(servicesRoot);
+    const service = registry.getById("update-fixture");
+    setLifecycleState("update-fixture", {
+      ...getLifecycleState("update-fixture"),
+      installed: true,
+      configured: true,
+      running: true,
+    });
+
+    const result = await installServiceUpdateCandidate(service, {
+      registry,
+      now: () => new Date("2026-04-20T01:00:00Z"),
+    });
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(result.stoppedForInstall, true);
+    assert.equal(result.restartedAfterInstall, true);
+    assert.equal(result.state.running, true);
+    assert.equal(stored.install.artifact.tag, "2026.4.24-new");
+    assert.equal(stored.updates.state, "installed");
+  } finally {
+    await stopAllManagedProcesses();
     resetLifecycleState();
     await releaseServer.stop();
     await rm(root, { recursive: true, force: true });

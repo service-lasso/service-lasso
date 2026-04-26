@@ -90,7 +90,7 @@ export async function runUpdatesCliAction(options: UpdatesCliOptions): Promise<U
   }
 
   return {
-    ...(await installServiceUpdateCandidate(service, { force: options.force })),
+    ...(await installServiceUpdateCandidate(service, { force: options.force, registry })),
     servicesRoot: runtimeConfig.servicesRoot,
     workspaceRoot: runtimeConfig.workspaceRoot,
   };

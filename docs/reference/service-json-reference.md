@@ -448,8 +448,11 @@ Supported `updates.mode` values:
 
 Current core status:
 - `notify` can be used by the read-only update discovery function to classify `pinned`, `latest`, `update_available`, `unavailable`, or `check_failed`
-- `download` and `install` are contract-level modes for follow-on scheduler/download/install work
+- `download` downloads candidates without installing them
+- `install` can install candidates through CLI/API or the opt-in scheduler when policy and safety gates allow
 - `install` mode must declare an `installWindow` and `runningService` policy
+- `installWindow` is enforced before automatic install work; out-of-window installs are deferred before download/extract
+- `runningService` controls whether a running service is deferred or stopped/restarted during install
 
 ### Environment generation
 Current broader Service Lasso direction includes:

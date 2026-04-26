@@ -197,12 +197,14 @@ Current core status:
 - no archive download or install happens during discovery
 
 ### Download-only or install-capable service
-Declares future `updates.mode: "download"` or `updates.mode: "install"`.
+Declares `updates.mode: "download"` or `updates.mode: "install"`.
 
 Current core status:
 - the manifest contract validates these modes
 - install mode must also declare `installWindow` and `runningService`
-- scheduler, candidate download, installation, API/CLI output, and Service Admin notifications remain tracked under follow-on update issues
+- CLI/API and the opt-in scheduler can download candidates and install them through the shared update action
+- install-mode scheduler work enforces `installWindow` and `runningService` safety before download/extract
+- Service Admin notifications remain tracked under follow-on update issues
 
 ## 10. Recommended doc framing
 
