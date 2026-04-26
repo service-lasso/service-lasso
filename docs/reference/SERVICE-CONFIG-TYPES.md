@@ -150,7 +150,37 @@ Has a meaningful `install` phase.
 ### Restart-capable service
 Declares an explicit `restart` action.
 
-## 8. Recommended doc framing
+## 8. Recovery / doctor / hook contract type
+
+### Monitored service
+Declares `monitoring` policy so future runtime monitor work can decide whether a service is eligible for periodic health checks.
+
+Current core status:
+- the manifest contract accepts bounded `monitoring` fields
+- no automatic monitor loop is enabled by this contract alone
+
+### Auto-restart-capable service
+Declares `restartPolicy` with explicit crash/unhealthy restart intent, maximum attempts, and backoff.
+
+Current core status:
+- the manifest contract accepts bounded `restartPolicy` fields
+- automatic restart execution remains future runtime work
+
+### Doctor/preflight service
+Declares `doctor` steps that can be used before restart or upgrade flows.
+
+Current core status:
+- the manifest contract accepts bounded doctor step definitions with timeout and failure policy
+- doctor step execution remains future runtime work
+
+### Hooked lifecycle service
+Declares `hooks` such as `preRestart`, `postRestart`, `preUpgrade`, `postUpgrade`, `rollback`, and `onFailure`.
+
+Current core status:
+- the manifest contract accepts bounded hook definitions
+- hook execution and rollback integration remain future runtime/update work
+
+## 9. Recommended doc framing
 
 For docs, these patterns are best treated as orthogonal dimensions rather than mutually exclusive service classes.
 
@@ -170,3 +200,4 @@ That means the cleanest later documentation structure is:
 5. dependency model
 6. executable/command model
 7. lifecycle/action model
+8. recovery/doctor/hook model

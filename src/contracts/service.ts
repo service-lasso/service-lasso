@@ -19,6 +19,49 @@ export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
 }
 
+export type ServiceHookFailurePolicy = "block" | "warn" | "continue";
+
+export interface ServiceHookStep {
+  name: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  timeoutSeconds?: number;
+  failurePolicy?: ServiceHookFailurePolicy;
+  env?: Record<string, string>;
+}
+
+export interface ServiceMonitoringPolicy {
+  enabled?: boolean;
+  intervalSeconds?: number;
+  unhealthyThreshold?: number;
+  startupGraceSeconds?: number;
+}
+
+export interface ServiceRestartPolicy {
+  enabled?: boolean;
+  onCrash?: boolean;
+  onUnhealthy?: boolean;
+  maxAttempts?: number;
+  backoffSeconds?: number;
+}
+
+export interface ServiceDoctorPolicy {
+  enabled?: boolean;
+  timeoutSeconds?: number;
+  failurePolicy?: ServiceHookFailurePolicy;
+  steps?: ServiceHookStep[];
+}
+
+export interface ServiceLifecycleHooks {
+  preRestart?: ServiceHookStep[];
+  postRestart?: ServiceHookStep[];
+  preUpgrade?: ServiceHookStep[];
+  postUpgrade?: ServiceHookStep[];
+  rollback?: ServiceHookStep[];
+  onFailure?: ServiceHookStep[];
+}
+
 export type ServiceArtifactArchiveType = "zip" | "tar.gz" | "tgz";
 
 export interface ServiceArtifactSource {
@@ -57,6 +100,10 @@ export interface ServiceManifest {
   globalenv?: Record<string, string>;
   ports?: ServicePortDeclaration;
   urls?: ServiceEndpoint[];
+  monitoring?: ServiceMonitoringPolicy;
+  restartPolicy?: ServiceRestartPolicy;
+  doctor?: ServiceDoctorPolicy;
+  hooks?: ServiceLifecycleHooks;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;
   config?: ServiceActionMaterialization;
