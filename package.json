@@ -24,6 +24,7 @@
     "verify:package-consumer": "npm run build && node scripts/verify-package-consumer.mjs",
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
     "verify:reference-app-lifecycle": "npm run build && node scripts/verify-reference-app-lifecycle.mjs",
+    "verify:service-updates": "npm run build && node scripts/verify-service-updates.mjs",
     "verify:echo-health": "npm run build && node scripts/verify-release-backed-echo-health.mjs",
     "verify:traefik-release": "npm run build && node scripts/verify-release-backed-traefik.mjs",
     "demo:start": "npm run build && node scripts/demo-start.mjs",

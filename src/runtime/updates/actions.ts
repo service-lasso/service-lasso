@@ -18,6 +18,7 @@ import { writeServiceState } from "../state/writeState.js";
 import { checkServiceUpdate, type ServiceUpdateCheckResult } from "./check.js";
 import {
   persistDownloadedUpdateCandidate,
+  persistUpdateFailure,
   persistUpdateCheckResult,
   persistUpdateInstallDeferred,
   readServiceUpdateState,
@@ -298,7 +299,15 @@ export async function downloadServiceUpdateCandidate(
   const paths = getServiceStatePaths(service.serviceRoot);
   const releaseSegment = result.available.tag.replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.updateCandidates, releaseSegment, result.available.matchedAssetName);
-  await downloadToFile(result.available.assetUrl, archivePath);
+  try {
+    await downloadToFile(result.available.assetUrl, archivePath);
+  } catch (error) {
+    await persistUpdateFailure(service, {
+      reason: error instanceof Error ? error.message : "Failed to download update candidate.",
+      sourceStatus: "download_failed",
+    });
+    throw error;
+  }
   const update = await persistDownloadedUpdateCandidate(service, {
     tag: result.available.tag,
     version: result.available.version,
@@ -352,7 +361,15 @@ export async function installServiceUpdateCandidate(
   const platform = getCurrentPlatformArtifact(artifact);
   const paths = getServiceStatePaths(service.serviceRoot);
   const extractedPath = path.join(paths.extracted, "current");
-  await extractArchive(candidate.archivePath, platform.archiveType, extractedPath);
+  try {
+    await extractArchive(candidate.archivePath, platform.archiveType, extractedPath);
+  } catch (error) {
+    await persistUpdateFailure(service, {
+      reason: error instanceof Error ? error.message : "Failed to install update candidate.",
+      sourceStatus: "install_failed",
+    });
+    throw error;
+  }
 
   const current = getLifecycleState(service.manifest.id);
   const installedAt = new Date().toISOString();
