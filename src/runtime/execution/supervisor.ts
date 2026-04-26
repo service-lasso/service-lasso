@@ -136,6 +136,23 @@ function resolveExecutable(service: DiscoveredService, executionPlan: ProviderEx
   return executable;
 }
 
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function resolveWorkingDirectory(service: DiscoveredService, executionPlan: ProviderExecutionPlan, executable: string): string {
+  if (!executionPlan.commandRoot) {
+    return service.serviceRoot;
+  }
+
+  // Archive executables often consume Service-Lasso-materialized config from the service root,
+  // while plain launchers such as `node` need artifact-relative payload args.
+  return path.isAbsolute(executable) && isPathInside(executionPlan.commandRoot, executable)
+    ? service.serviceRoot
+    : executionPlan.commandRoot;
+}
+
 function buildCommandString(executable: string, args: string[]): string {
   return [executable, ...args].join(" ");
 }
@@ -164,7 +181,6 @@ export function hasManagedProcess(serviceId: string): boolean {
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
   const { service, executionPlan, sharedGlobalEnv, resolvedPorts, onExit } = options;
   const serviceId = service.manifest.id;
-  const commandRoot = executionPlan.commandRoot ?? service.serviceRoot;
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
   if (priorFinalizer) {
@@ -176,13 +192,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   }
 
   const executable = resolveExecutable(service, executionPlan);
+  const workingDirectory = resolveWorkingDirectory(service, executionPlan, executable);
   const args = executionPlan.args;
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot);
 
   const child = spawn(executable, args, {
-    cwd: commandRoot,
+    cwd: workingDirectory,
     env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,

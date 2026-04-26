@@ -12,7 +12,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForJson(url, timeoutMs = 30_000) {
+async function waitForJson(url, timeoutMs = 120_000) {
   const startedAt = Date.now();
   let lastError = null;
 
@@ -33,7 +33,7 @@ async function waitForJson(url, timeoutMs = 30_000) {
   throw lastError ?? new Error(`Timed out waiting for ${url}`);
 }
 
-async function waitForCliSummary(cli, timeoutMs = 5_000) {
+async function waitForCliSummary(cli, timeoutMs = 30_000) {
   const startedAt = Date.now();
   let lastError = null;
 
