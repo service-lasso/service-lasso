@@ -9,8 +9,11 @@ export function createDirectExecutionPlan(
     extractedPath: string | null;
   },
 ): ProviderExecutionPlan {
-  const executable = manifest.executable ?? installedArtifact?.command ?? manifest.id;
-  const args = manifest.args ?? (manifest.executable ? [] : installedArtifact?.args ?? []);
+  const executable = installedArtifact?.command ?? manifest.executable ?? manifest.id;
+  const args = installedArtifact?.command ? installedArtifact.args : manifest.args ?? [];
+  const commandRoot = installedArtifact?.command
+    ? installedArtifact.extractedPath
+    : null;
 
   return {
     provider: "direct",
@@ -19,6 +22,6 @@ export function createDirectExecutionPlan(
     args,
     commandPreview: [executable, ...args].join(" ").trim(),
     providerEnv: {},
-    commandRoot: manifest.executable ? null : installedArtifact?.extractedPath ?? null,
+    commandRoot,
   };
 }

@@ -164,6 +164,7 @@ export function hasManagedProcess(serviceId: string): boolean {
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
   const { service, executionPlan, sharedGlobalEnv, resolvedPorts, onExit } = options;
   const serviceId = service.manifest.id;
+  const commandRoot = executionPlan.commandRoot ?? service.serviceRoot;
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
   if (priorFinalizer) {
@@ -181,7 +182,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot);
 
   const child = spawn(executable, args, {
-    cwd: service.serviceRoot,
+    cwd: commandRoot,
     env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,

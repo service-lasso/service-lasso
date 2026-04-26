@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import AdmZip from "adm-zip";
 import { startApiServer } from "../dist/server/index.js";
@@ -34,6 +34,42 @@ function createZipWithRuntimeScript() {
     ].join("\n"), "utf8"),
   );
   return zip.toBuffer();
+}
+
+function createZipWithObservableRuntimeScript() {
+  const zip = new AdmZip();
+  zip.addFile(
+    "runtime/downloaded-service.mjs",
+    Buffer.from([
+      'import { writeFileSync } from "node:fs";',
+      'import path from "node:path";',
+      'writeFileSync(path.join(process.cwd(), "artifact-cwd.txt"), process.cwd());',
+      'const heartbeat = setInterval(() => {}, 1000);',
+      'process.on("SIGTERM", () => { clearInterval(heartbeat); process.exit(0); });',
+      'console.log("observable-artifact-started");',
+    ].join("\n"), "utf8"),
+  );
+  return zip.toBuffer();
+}
+
+async function waitFor(readinessCheck, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const result = await readinessCheck();
+      if (result) {
+        return result;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw lastError ?? new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
 async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {}) {
@@ -181,6 +217,42 @@ test("start can use the installed artifact command when the manifest has no chec
     assert.match(start.body.state.runtime.command, /node|node\.exe/i);
     assert.equal(stop.status, 200);
     assert.equal(stop.body.state.running, false);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("start prefers an installed artifact command over a checked-in fixture command", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithObservableRuntimeScript());
+  await writeManifest(servicesRoot, "downloaded-service", {
+    ...createReleaseBackedManifest(releaseServer, assetName, "Service should run from the installed artifact."),
+    executable: process.execPath,
+    args: ["./runtime/local-fixture-should-not-run.mjs"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const config = await postJson(`${apiServer.url}/api/services/downloaded-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/downloaded-service/start`);
+    const extractedPath = install.body.state.installArtifacts.artifact.extractedPath;
+    const cwdProofPath = path.join(extractedPath, "artifact-cwd.txt");
+    const cwdProof = await waitFor(() => readFile(cwdProofPath, "utf8"));
+    const stop = await postJson(`${apiServer.url}/api/services/downloaded-service/stop`);
+
+    assert.equal(config.status, 200);
+    assert.equal(start.status, 200);
+    assert.equal(start.body.state.running, true);
+    assert.equal(cwdProof, extractedPath);
+    assert.match(start.body.state.runtime.command, /downloaded-service\.mjs/);
+    assert.doesNotMatch(start.body.state.runtime.command, /local-fixture-should-not-run/);
+    assert.equal(stop.status, 200);
   } finally {
     await apiServer.stop();
     await releaseServer.stop();
