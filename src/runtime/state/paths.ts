@@ -10,6 +10,7 @@ export interface ServiceStatePaths {
   runtime: string;
   backups: string;
   artifacts: string;
+  updateCandidates: string;
   extracted: string;
 }
 
@@ -26,6 +27,7 @@ export function getServiceStatePaths(serviceRoot: string): ServiceStatePaths {
     runtime: path.join(stateRoot, "runtime.json"),
     backups: path.join(stateRoot, "backups"),
     artifacts: path.join(stateRoot, "artifacts"),
+    updateCandidates: path.join(stateRoot, "update-candidates"),
     extracted: path.join(stateRoot, "extracted"),
   };
 }

@@ -1,6 +1,6 @@
 # Service Update Management Plan
 
-This document captures the governed plan for GitHub issue `#120` and the first implemented slices in `#121` and `#122`.
+This document captures the governed plan for GitHub issue `#120` and the implemented update-management slices.
 
 ## Goal
 
@@ -11,7 +11,8 @@ The first implemented slices are intentionally bounded:
 - `#121` adds an explicit `updates` policy block to `service.json`
 - `#122` adds read-only discovery for `github-release` artifact sources
 - `#123` adds durable per-service update state under `.state/updates.json`
-- no scheduler, archive download implementation, install execution, dedicated API route, CLI command, or Service Admin notification is enabled by these slices alone
+- `#124` adds operator CLI commands for listing, checking, downloading, and installing update candidates
+- no scheduler, dedicated API route, maintenance-window engine, or Service Admin notification is enabled by these slices alone
 
 ## Manifest Shape
 
@@ -118,9 +119,36 @@ Important boundary:
 - `.state/updates.json` may describe a newer candidate that has not been installed
 - corrupt or missing update state returns an empty installed/no-update view instead of blocking normal lifecycle operations
 
+## CLI Surface
+
+Supported commands:
+
+```bash
+service-lasso updates list [--json]
+service-lasso updates check [serviceId] [--json]
+service-lasso updates download <serviceId> [--json]
+service-lasso updates install <serviceId> [--force] [--json]
+```
+
+Current behavior:
+
+- `list` reads persisted update state only
+- `check` performs read-only release discovery and persists the result
+- `download` downloads the candidate archive into `.state/update-candidates/` and records `downloadedCandidate`
+- `install` installs a downloaded or resolvable candidate when `updates.mode` is `install`
+- `install --force` allows an explicit operator override when policy is not install mode
+- human output distinguishes latest, update available, downloaded candidate, deferred install, and failed checks
+- JSON output includes machine-readable status, version/source fields, and recommended action for checks
+
+Deferred behavior:
+
+- scheduled checking remains under `#126`
+- maintenance-window/running-service safety remains under `#127`
+- dedicated API routes remain under `#125`
+- Service Admin notifications remain under `#128`
+
 ## Follow-On Issues
 
-- `#124`: CLI and console output
 - `#125`: runtime API surfaces
 - `#126`: policy-driven scheduler
 - `#127`: install windows and running-service safety
