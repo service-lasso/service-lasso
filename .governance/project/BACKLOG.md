@@ -92,7 +92,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-133` | `in_review` | Add doctor/preflight steps before service restart or upgrade | `SPEC-002`, `AC-4AA` | GitHub issue: `#133`. Executes bounded doctor steps with timeout and failure policy. |
 | `ISS-134` | `done` | Add pre-upgrade, post-upgrade, and rollback hook execution | `SPEC-002`, `AC-4AA` | GitHub issue: `#134`. Bounded update install now runs pre-upgrade/post-upgrade hooks, persists hook run evidence in update state, blocks success on required hook failure, and invokes rollback/onFailure hooks for failed upgrade simulations. |
 | `ISS-135` | `done` | Persist recovery, doctor, restart, and hook history | `SPEC-002`, `AC-4AA` | GitHub issue: `#135`. PR `#151` merged; adds `.state/recovery.json` durable monitor/doctor/restart/hook history with rehydrate and retention coverage. |
-| `ISS-136` | `in_review` | Add CLI and API surfaces for recovery, doctor, and hook results | `SPEC-002`, `AC-4AA` | GitHub issue: `#136`. Adds `recovery status`, `recovery doctor`, `GET /api/recovery`, `GET /api/services/:id/recovery`, and `POST /api/services/:id/recovery/doctor`. |
+| `ISS-136` | `done` | Add CLI and API surfaces for recovery, doctor, and hook results | `SPEC-002`, `AC-4AA` | GitHub issue: `#136`. PR `#153` merged; adds `recovery status`, `recovery doctor`, `GET /api/recovery`, `GET /api/services/:id/recovery`, and `POST /api/services/:id/recovery/doctor`. |
 | `ISS-137` | `ready` | Surface recovery, doctor, and upgrade hook status in Service Admin UI | `SPEC-002`, `AC-4AA` | GitHub issue: `#137`. Coordinates Service Admin recovery status and actions. |
 | `ISS-138` | `ready` | Add end-to-end recovery and hook verification with Echo Service scenarios | `SPEC-002`, `AC-4AA` | GitHub issue: `#138`. Adds deterministic and harness-backed recovery verification. |
 
@@ -183,7 +183,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-133` | `done` | `ISS-133` | Execute doctor/preflight steps before restart or upgrade | `SPEC-002`, `AC-4AA` | PR `#141` merged; targeted doctor verification passed for pass, block, and warn policies before restart. |
 | `TASK-134` | `done` | `ISS-134` | Execute pre-upgrade, post-upgrade, and rollback hooks | `SPEC-002`, `AC-4AA` | Targeted tests prove pre/post hook success, blocking pre-upgrade failure, blocking post-upgrade failure with rollback/onFailure invocation, and timeout failure. |
 | `TASK-135` | `done` | `ISS-135` | Persist recovery, doctor, restart, and hook history | `SPEC-002`, `AC-4AA` | PR `#151` merged; targeted tests and `npm test` prove rehydrate, retention, monitor, doctor, restart, and hook persistence. |
-| `TASK-136` | `in_review` | `ISS-136` | Add recovery CLI and API surfaces | `SPEC-002`, `AC-4AA` | Targeted API/CLI tests prove recovery status and manual doctor execution persist and read `.state/recovery.json`. |
+| `TASK-136` | `done` | `ISS-136` | Add recovery CLI and API surfaces | `SPEC-002`, `AC-4AA` | PR `#153` merged; targeted API/CLI tests and `npm test` prove recovery status and manual doctor execution persist and read `.state/recovery.json`. |
 | `TASK-137` | `ready` | `ISS-137` | Add Service Admin recovery status | `SPEC-002`, `AC-4AA` | Exit requires Service Admin integration evidence against recovery API surfaces. |
 | `TASK-138` | `ready` | `ISS-138` | Add recovery and hook end-to-end verification | `SPEC-002`, `AC-4AA` | Exit requires deterministic recovery/hook tests and optional Echo harness proof. |
 
