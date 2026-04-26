@@ -2,11 +2,17 @@ import path from "node:path";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
-import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
+import type {
+  DiscoveredService,
+  ServiceArchiveArtifact,
+  ServiceArtifactPlatform,
+  ServiceUpdateInstallWindow,
+} from "../../contracts/service.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
+import { startService, stopService } from "../lifecycle/actions.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import { writeServiceState } from "../state/writeState.js";
 import { checkServiceUpdate, type ServiceUpdateCheckResult } from "./check.js";
@@ -48,6 +54,26 @@ export interface UpdateInstallActionResult {
   update: ServiceUpdateState;
   state: ServiceLifecycleState;
   forced: boolean;
+  stoppedForInstall: boolean;
+  restartedAfterInstall: boolean;
+}
+
+export interface UpdateInstallOptions {
+  force?: boolean;
+  registry?: ServiceRegistry;
+  now?: () => Date;
+}
+
+const windowDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+export class UpdateInstallDeferredError extends Error {
+  readonly update: ServiceUpdateState;
+
+  constructor(message: string, update: ServiceUpdateState) {
+    super(message);
+    this.name = "UpdateInstallDeferredError";
+    this.update = update;
+  }
 }
 
 function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): ServiceArtifactPlatform {
@@ -71,6 +97,124 @@ function findService(registry: ServiceRegistry, serviceId: string): DiscoveredSe
   }
 
   return service;
+}
+
+function parseTimeOfDayMinutes(value: string): number {
+  const [hour, minute] = value.split(":").map((part) => Number.parseInt(part, 10));
+  return hour * 60 + minute;
+}
+
+function getZonedClock(date: Date, timezone?: string): { day: string; minutes: number } {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  const day = parts.weekday?.slice(0, 3).toLowerCase();
+  const hour = Number.parseInt(parts.hour ?? "", 10);
+  const minute = Number.parseInt(parts.minute ?? "", 10);
+
+  if (!day || !Number.isFinite(hour) || !Number.isFinite(minute)) {
+    throw new Error("Unable to evaluate update install window for the configured timezone.");
+  }
+
+  return {
+    day,
+    minutes: hour * 60 + minute,
+  };
+}
+
+function isInWindow(window: ServiceUpdateInstallWindow, now: Date): boolean {
+  const clock = getZonedClock(now, window.timezone);
+  const start = parseTimeOfDayMinutes(window.start);
+  const end = parseTimeOfDayMinutes(window.end);
+  const days = new Set(window.days ?? windowDays);
+  const dayIndex = windowDays.indexOf(clock.day as (typeof windowDays)[number]);
+  const previousDay = windowDays[(dayIndex + windowDays.length - 1) % windowDays.length];
+
+  if (start === end) {
+    return days.has(clock.day as (typeof windowDays)[number]);
+  }
+
+  if (start < end) {
+    return days.has(clock.day as (typeof windowDays)[number]) && clock.minutes >= start && clock.minutes < end;
+  }
+
+  return (
+    (days.has(clock.day as (typeof windowDays)[number]) && clock.minutes >= start) ||
+    (days.has(previousDay) && clock.minutes < end)
+  );
+}
+
+function findNextEligibleAt(window: ServiceUpdateInstallWindow, now: Date): string | null {
+  const cursor = new Date(now.getTime() + 60_000);
+  const maxChecks = 8 * 24 * 60;
+
+  for (let index = 0; index < maxChecks; index += 1) {
+    if (isInWindow(window, cursor)) {
+      return cursor.toISOString();
+    }
+    cursor.setUTCMinutes(cursor.getUTCMinutes() + 1, 0, 0);
+  }
+
+  return null;
+}
+
+async function assertInstallWindowAllows(
+  service: DiscoveredService,
+  options: UpdateInstallOptions,
+): Promise<void> {
+  if (options.force === true) {
+    return;
+  }
+
+  const window = service.manifest.updates?.installWindow;
+  if (!window) {
+    return;
+  }
+
+  const now = options.now?.() ?? new Date();
+  if (isInWindow(window, now)) {
+    return;
+  }
+
+  const nextEligibleAt = findNextEligibleAt(window, now);
+  const update = await persistUpdateInstallDeferred(service, {
+    reason: `Current time is outside updates.installWindow (${window.start}-${window.end}${window.timezone ? ` ${window.timezone}` : ""}).`,
+    nextEligibleAt,
+  });
+  throw new UpdateInstallDeferredError(`Update install for "${service.manifest.id}" is outside the configured install window.`, update);
+}
+
+async function stopRunningServiceForInstall(
+  service: DiscoveredService,
+  options: UpdateInstallOptions,
+): Promise<{ stoppedForInstall: boolean; restartAfterInstall: boolean }> {
+  const current = getLifecycleState(service.manifest.id);
+  if (options.force === true || !current.running) {
+    return {
+      stoppedForInstall: false,
+      restartAfterInstall: false,
+    };
+  }
+
+  const policy = service.manifest.updates?.runningService ?? "skip";
+  if (policy === "skip" || policy === "require-stopped") {
+    const update = await persistUpdateInstallDeferred(service, {
+      reason: `Service is running and updates.runningService is "${policy}".`,
+    });
+    throw new UpdateInstallDeferredError(`Update install for "${service.manifest.id}" is blocked because the service is running.`, update);
+  }
+
+  const stopped = await stopService(service);
+  await writeServiceState(service, stopped.state);
+  return {
+    stoppedForInstall: true,
+    restartAfterInstall: true,
+  };
 }
 
 async function downloadToFile(assetUrl: string, destinationPath: string): Promise<void> {
@@ -178,7 +322,7 @@ export async function downloadServiceUpdateCandidate(
 
 export async function installServiceUpdateCandidate(
   service: DiscoveredService,
-  options: { force?: boolean } = {},
+  options: UpdateInstallOptions = {},
 ): Promise<UpdateInstallActionResult> {
   const artifact = service.manifest.artifact;
   if (!artifact) {
@@ -187,12 +331,14 @@ export async function installServiceUpdateCandidate(
 
   const canInstallByPolicy = service.manifest.updates?.mode === "install";
   if (!canInstallByPolicy && options.force !== true) {
-    await persistUpdateInstallDeferred(service, {
+    const update = await persistUpdateInstallDeferred(service, {
       reason: `updates.mode is "${service.manifest.updates?.mode ?? "disabled"}"; use --force to install explicitly.`,
     });
-    throw new Error(`Update install for "${service.manifest.id}" is blocked by policy. Use --force to override.`);
+    throw new UpdateInstallDeferredError(`Update install for "${service.manifest.id}" is blocked by policy. Use --force to override.`, update);
   }
 
+  await assertInstallWindowAllows(service, options);
+  const runningSafety = await stopRunningServiceForInstall(service, options);
   let update = await readServiceUpdateState(service);
   if (!update.downloadedCandidate) {
     update = (await downloadServiceUpdateCandidate(service)).update;
@@ -270,12 +416,22 @@ export async function installServiceUpdateCandidate(
     installDeferred: null,
     failed: null,
   });
+  let finalState = nextState;
+  let restartedAfterInstall = false;
+  if (runningSafety.restartAfterInstall) {
+    const restarted = await startService(service, options.registry);
+    await writeServiceState(service, restarted.state);
+    finalState = restarted.state;
+    restartedAfterInstall = restarted.ok;
+  }
 
   return {
     action: "install",
     serviceId: service.manifest.id,
     update: nextUpdateState,
-    state: nextState,
+    state: finalState,
     forced: options.force === true,
+    stoppedForInstall: runningSafety.stoppedForInstall,
+    restartedAfterInstall,
   };
 }

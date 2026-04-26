@@ -14,7 +14,8 @@ The first implemented slices are intentionally bounded:
 - `#124` adds operator CLI commands for listing, checking, downloading, and installing update candidates
 - `#125` adds runtime API endpoints for status, check, download, and install actions
 - `#126` adds an opt-in runtime scheduler for policy-driven notify, download, and install actions
-- no maintenance-window engine or Service Admin notification is enabled by these slices alone
+- `#127` adds maintenance-window and running-service safety for update installs
+- no Service Admin notification is enabled by these slices alone
 
 ## Manifest Shape
 
@@ -72,7 +73,7 @@ Example future install policy:
 - `disabled`: do not check for moving releases
 - `notify`: check and report availability only
 - `download`: download candidates without installing
-- `install`: install candidates when policy allows
+- `install`: install candidates when policy, maintenance window, and running-service safety allow
 
 Active modes require:
 
@@ -144,7 +145,6 @@ Current behavior:
 
 Deferred behavior:
 
-- maintenance-window/running-service safety remains under `#127`
 - Service Admin notifications remain under `#128`
 
 ## Runtime API Surface
@@ -178,17 +178,35 @@ Current behavior:
 - `notify` mode checks the release source, persists `.state/updates.json`, and logs update-available or failure messages
 - `download` mode downloads the candidate into `.state/update-candidates/` and records `downloadedCandidate`
 - `install` mode installs a resolvable candidate through the same install action used by CLI/API update commands
+- install-mode scheduler work reports `install_deferred` when a maintenance window or running-service policy blocks installation
 - `checkIntervalSeconds` throttles repeated work unless a caller uses `runOnce({ force: true })`
 - duplicate in-flight work for the same service is suppressed
 - API server start/stop wiring starts and stops the scheduler cleanly when explicitly enabled
 
+## Install Safety
+
+Install-mode updates must pass two safety gates unless the operator uses an explicit force path such as `service-lasso updates install <serviceId> --force`.
+
+Maintenance window behavior:
+
+- `updates.installWindow.start` and `updates.installWindow.end` are evaluated as local time in `updates.installWindow.timezone` when provided
+- `updates.installWindow.days` restricts eligible days when provided
+- windows that cross midnight are supported
+- start and end with the same time means the full allowed day is eligible
+- outside-window installs are deferred before candidate download or extraction
+- deferred installs persist `installDeferred.reason` and best-effort `nextEligibleAt` in `.state/updates.json`
+
+Running-service behavior:
+
+- `skip` and `require-stopped` defer when the service is currently running
+- `stop-start` and `restart` stop the running service, install the candidate, and start it again
+- explicit force bypasses the automated running-service safety gate
+
 Current boundary:
 
-- the scheduler does not yet enforce maintenance windows or running-service safety; that remains under `#127`
 - Service Admin notification UX remains under `#128`
 
 ## Follow-On Issues
 
-- `#127`: install windows and running-service safety
 - `#128`: Service Admin notifications
 - `#129`: end-to-end update verification

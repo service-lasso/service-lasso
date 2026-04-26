@@ -4,6 +4,7 @@ import { checkServiceUpdate } from "./check.js";
 import {
   downloadServiceUpdateCandidate,
   installServiceUpdateCandidate,
+  UpdateInstallDeferredError,
 } from "./actions.js";
 import { persistUpdateCheckResult } from "./state.js";
 
@@ -17,6 +18,7 @@ export type UpdateSchedulerEventReason =
   | "update_available"
   | "downloaded"
   | "installed"
+  | "install_deferred"
   | "check_failed"
   | "unavailable"
   | "action_failed";
@@ -131,13 +133,18 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
         return createEvent(service, "download", "downloaded", mode, message, now);
       }
 
-      const result = await installServiceUpdateCandidate(service);
+      const result = await installServiceUpdateCandidate(service, { registry: options.registry });
       lastCheckedAtMs.set(serviceId, currentTimeMs);
       const message = `Service "${serviceId}" installed update ${result.state.installArtifacts.artifact?.tag ?? "unknown"}.`;
       logger.log(`[service-lasso] ${message}`);
       return createEvent(service, "install", "installed", mode, message, now);
     } catch (error) {
       lastCheckedAtMs.set(serviceId, currentTimeMs);
+      if (error instanceof UpdateInstallDeferredError) {
+        logger.log(`[service-lasso] Update install deferred for "${serviceId}": ${error.message}`);
+        return createEvent(service, "skip", "install_deferred", mode, error.message, now);
+      }
+
       const message = error instanceof Error ? error.message : String(error);
       logger.warn(`[service-lasso] Update scheduler action failed for "${serviceId}": ${message}`);
       return createEvent(service, "skip", "action_failed", mode, message, now);
