@@ -13,10 +13,12 @@ import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
 import { startService, stopService } from "../lifecycle/actions.js";
+import { runLifecycleHookPhase, type LifecycleHookPhaseResult, type ServiceHookPhase } from "../recovery/hooks.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import { writeServiceState } from "../state/writeState.js";
 import { checkServiceUpdate, type ServiceUpdateCheckResult } from "./check.js";
 import {
+  appendUpdateHookResults,
   persistDownloadedUpdateCandidate,
   persistUpdateFailure,
   persistUpdateCheckResult,
@@ -218,6 +220,44 @@ async function stopRunningServiceForInstall(
   };
 }
 
+async function recordHookPhase(
+  service: DiscoveredService,
+  phase: ServiceHookPhase,
+): Promise<LifecycleHookPhaseResult> {
+  const result = await runLifecycleHookPhase(service, phase);
+  if (result.steps.length > 0) {
+    await appendUpdateHookResults(service, [result]);
+  }
+  return result;
+}
+
+async function recordFailureHooks(service: DiscoveredService): Promise<void> {
+  await recordHookPhase(service, "rollback");
+  await recordHookPhase(service, "onFailure");
+}
+
+function findBlockingHookStep(result: LifecycleHookPhaseResult): string {
+  return result.steps.find((step) => !step.ok && step.failurePolicy === "block")?.name ?? "unknown";
+}
+
+async function assertHookPhaseAllowsUpgrade(
+  service: DiscoveredService,
+  phase: ServiceHookPhase,
+  sourceStatus: string,
+): Promise<void> {
+  const result = await recordHookPhase(service, phase);
+  if (!result.blocked) {
+    return;
+  }
+
+  await persistUpdateFailure(service, {
+    reason: `${phase} hook blocked update install at step "${findBlockingHookStep(result)}".`,
+    sourceStatus,
+  });
+  await recordFailureHooks(service);
+  throw new Error(`${phase} hook blocked update install for "${service.manifest.id}".`);
+}
+
 async function downloadToFile(assetUrl: string, destinationPath: string): Promise<void> {
   const response = await fetch(assetUrl);
   if (!response.ok) {
@@ -361,6 +401,7 @@ export async function installServiceUpdateCandidate(
   const platform = getCurrentPlatformArtifact(artifact);
   const paths = getServiceStatePaths(service.serviceRoot);
   const extractedPath = path.join(paths.extracted, "current");
+  await assertHookPhaseAllowsUpgrade(service, "preUpgrade", "pre_upgrade_hook_failed");
   try {
     await extractArchive(candidate.archivePath, platform.archiveType, extractedPath);
   } catch (error) {
@@ -368,6 +409,7 @@ export async function installServiceUpdateCandidate(
       reason: error instanceof Error ? error.message : "Failed to install update candidate.",
       sourceStatus: "install_failed",
     });
+    await recordFailureHooks(service);
     throw error;
   }
 
@@ -425,7 +467,7 @@ export async function installServiceUpdateCandidate(
     },
     checkedAt: installedAt,
   });
-  const nextUpdateState = await writeServiceUpdateState(service, {
+  await writeServiceUpdateState(service, {
     ...installedUpdateState,
     state: "installed",
     updatedAt: installedAt,
@@ -441,11 +483,13 @@ export async function installServiceUpdateCandidate(
     finalState = restarted.state;
     restartedAfterInstall = restarted.ok;
   }
+  await assertHookPhaseAllowsUpgrade(service, "postUpgrade", "post_upgrade_hook_failed");
+  const finalUpdateState = await readServiceUpdateState(service);
 
   return {
     action: "install",
     serviceId: service.manifest.id,
-    update: nextUpdateState,
+    update: finalUpdateState,
     state: finalState,
     forced: options.force === true,
     stoppedForInstall: runningSafety.stoppedForInstall,

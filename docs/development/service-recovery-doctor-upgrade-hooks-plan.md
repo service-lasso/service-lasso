@@ -1,6 +1,6 @@
 # Service Recovery, Doctor, And Upgrade Hooks Plan
 
-This document captures the governed plan for GitHub issue `#130` and the first contract slice in `#131`.
+This document captures the governed plan for GitHub issue `#130` and the implemented recovery/doctor/upgrade-hook slices.
 
 ## Goal
 
@@ -13,7 +13,7 @@ The first implemented slice is intentionally contract-only:
 - `doctor` describes bounded preflight steps with timeout and failure policy
 - `hooks` describes bounded lifecycle hook phases for restart and upgrade flows
 
-No automatic restart, monitor loop, doctor execution, or hook execution is enabled by this contract alone.
+The contract alone did not enable runtime behavior; the follow-on slices below add bounded runtime execution.
 
 The second implemented slice adds the first bounded runtime monitor:
 
@@ -31,6 +31,15 @@ The third implemented slice adds restart doctor/preflight execution:
 - `warn` policy records the failed step result internally and allows restart to continue
 - step execution is bounded by `timeoutSeconds`
 - durable doctor result state and manual doctor CLI/API surfaces remain tracked separately
+
+The fourth implemented slice adds upgrade-hook execution around update install:
+
+- `preUpgrade` runs after update policy/window/running-service gates pass and before the candidate archive is extracted
+- `postUpgrade` runs after the candidate is installed and any required stop/start safety work has completed
+- required hook failures prevent update install from reporting success
+- failed upgrade simulations run `rollback` and `onFailure` hook phases when configured
+- hook run evidence is recorded in `.state/updates.json` under `hookResults`
+- durable recovery-history storage remains tracked separately under `#135`
 
 ## Manifest Shape
 
@@ -89,24 +98,24 @@ Example:
 
 - `preRestart`
 - `postRestart`
-- `preUpgrade`
-- `postUpgrade`
-- `rollback`
-- `onFailure`
+- `preUpgrade`: executed before update candidate extraction
+- `postUpgrade`: executed after update candidate installation
+- `rollback`: executed when a guarded upgrade path fails after hook execution begins
+- `onFailure`: executed after rollback for failed upgrade simulations
 
 ## Failure Policy
 
 Bounded hook and doctor definitions support:
 
-- `block`: a failed step should block the guarded operation once execution exists
-- `warn`: a failed step should be visible but not block by default
-- `continue`: a failed step should be recorded while continuing the guarded operation
+- `block`: a failed step blocks restart or update install success reporting
+- `warn`: a failed step is recorded but does not block by default
+- `continue`: a failed step is recorded while continuing the guarded operation
 
 ## Follow-On Issues
 
 - `#132`: runtime service monitor and auto-restart loop - first bounded slice implemented
 - `#133`: doctor/preflight execution before restart or upgrade - restart preflight implemented
-- `#134`: pre-upgrade, post-upgrade, and rollback hook execution
+- `#134`: pre-upgrade, post-upgrade, and rollback hook execution - implemented for update install
 - `#135`: persisted recovery, doctor, restart, and hook history
 - `#136`: CLI and API surfaces
 - `#137`: Service Admin UI status

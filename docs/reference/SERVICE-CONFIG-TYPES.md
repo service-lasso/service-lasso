@@ -164,21 +164,22 @@ Declares `restartPolicy` with explicit crash/unhealthy restart intent, maximum a
 
 Current core status:
 - the manifest contract accepts bounded `restartPolicy` fields
-- automatic restart execution remains future runtime work
+- the opt-in runtime monitor can restart crashed services when monitoring and restart policy allow it
 
 ### Doctor/preflight service
 Declares `doctor` steps that can be used before restart or upgrade flows.
 
 Current core status:
 - the manifest contract accepts bounded doctor step definitions with timeout and failure policy
-- doctor step execution remains future runtime work
+- restart executes configured doctor steps and blocks or warns according to failure policy
 
 ### Hooked lifecycle service
 Declares `hooks` such as `preRestart`, `postRestart`, `preUpgrade`, `postUpgrade`, `rollback`, and `onFailure`.
 
 Current core status:
 - the manifest contract accepts bounded hook definitions
-- hook execution and rollback integration remain future runtime/update work
+- update install executes `preUpgrade` and `postUpgrade` hooks, records bounded hook results in update state, and invokes `rollback` plus `onFailure` hooks for failed upgrade simulations
+- durable recovery/history storage remains tracked separately
 
 ## 9. Update policy type
 
