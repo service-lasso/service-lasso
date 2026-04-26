@@ -95,6 +95,9 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-136` | `done` | Add CLI and API surfaces for recovery, doctor, and hook results | `SPEC-002`, `AC-4AA` | GitHub issue: `#136`. PR `#153` merged; adds `recovery status`, `recovery doctor`, `GET /api/recovery`, `GET /api/services/:id/recovery`, and `POST /api/services/:id/recovery/doctor`. |
 | `ISS-137` | `done` | Surface recovery, doctor, and upgrade hook status in Service Admin UI | `SPEC-002`, `AC-4AA` | GitHub issue: `#137`. Service Admin PR `service-lasso/lasso-serviceadmin#13` merged recovery status badges, dashboard warnings, service-detail recovery card, and manual doctor action wiring. |
 | `ISS-138` | `done` | Add end-to-end recovery and hook verification with Echo Service scenarios | `SPEC-002`, `AC-4AA` | GitHub issue: `#138`. PR `#156` merged deterministic Echo-style recovery/hook E2E verification plus `npm run verify:recovery-hooks`. |
+| `ISS-158` | `done` | Fix checked-in baseline start so release-backed Echo and Service Admin stay running | `SPEC-002`, `AC-4Z` | GitHub issue: `#158`. Direct checked-in-manifest proof invalidated the claim, then the runtime was fixed to prefer installed artifact commands and run artifact-relative commands from the extracted artifact root. Echo Service and Service Admin now acquire release artifacts and remain running/healthy. |
+| `ISS-159` | `todo` | Clarify and enforce `@node` local provider behavior in baseline start | `SPEC-002`, `AC-4Y`, `AC-4Z` | GitHub issue: `#159`. `@node` is local/no-download but currently runs `node --version` as if it were a long-running service, leaving a false unhealthy/running state after baseline start. |
+| `ISS-160` | `todo` | Replace stale clean-clone baseline evaluation with direct current evidence | `SPEC-002`, `AC-4Z` | GitHub issue: `#160`. The clean-clone evaluation doc still needs final refresh once `#159` lands so it can report the fully verified baseline-start outcome without stale partial-era text. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -186,6 +189,9 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-136` | `done` | `ISS-136` | Add recovery CLI and API surfaces | `SPEC-002`, `AC-4AA` | PR `#153` merged; targeted API/CLI tests and `npm test` prove recovery status and manual doctor execution persist and read `.state/recovery.json`. |
 | `TASK-137` | `done` | `ISS-137` | Add Service Admin recovery status | `SPEC-002`, `AC-4AA` | Service Admin PR `#13` merged; `npm test`, `npm run build`, and `npm run lint` passed locally with recovery API shape/unit coverage. |
 | `TASK-138` | `done` | `ISS-138` | Add recovery and hook end-to-end verification | `SPEC-002`, `AC-4AA` | PR `#156` merged; targeted E2E, `npm run verify:recovery-hooks`, and `npm test` prove Echo-style monitor restart, doctor, update hooks, API, CLI, and persisted recovery state agreement. |
+| `TASK-158` | `done` | `ISS-158` | Prefer installed artifact commands for release-backed baseline services | `SPEC-002`, `AC-4Z` | Targeted tests prove installed artifact commands override fixture commands and run from the extracted artifact root. Direct checked-in-manifest proof shows `@traefik`, `echo-service`, and `service-admin` acquired release artifacts and remained running/healthy; `@node` remains tracked separately under `#159`. |
+| `TASK-159` | `todo` | `ISS-159` | Make `@node` baseline provider behavior explicit and non-false | `SPEC-002`, `AC-4Y`, `AC-4Z` | Pending. |
+| `TASK-160` | `todo` | `ISS-160` | Refresh clean-clone baseline evaluation after direct proof | `SPEC-002`, `AC-4Z` | Pending final refresh after `#159` closes. |
 
 ## Next Recommended Item
-Recovery, doctor, and upgrade-hook feature chain is complete. Reassess the next readiness gap from the broader backlog.
+Finish `ISS-159` so the baseline start result treats `@node` honestly as a local/no-download provider instead of a failed long-running service, then close `ISS-160` with the final clean-clone evidence refresh.
