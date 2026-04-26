@@ -41,6 +41,28 @@ export interface ServiceUpdateFailureState {
   sourceStatus: string | null;
 }
 
+export interface ServiceUpdateHookStepState {
+  phase: string;
+  name: string;
+  command: string;
+  ok: boolean;
+  exitCode: number | null;
+  timedOut: boolean;
+  failurePolicy: string;
+  stdout: string;
+  stderr: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface ServiceUpdateHookRunState {
+  phase: string;
+  ok: boolean;
+  blocked: boolean;
+  steps: ServiceUpdateHookStepState[];
+  recordedAt: string;
+}
+
 export interface ServiceUpdateLastCheckState {
   checkedAt: string;
   status: ServiceUpdateCheckResult["status"];
@@ -61,6 +83,7 @@ export interface ServiceUpdateState {
   downloadedCandidate: ServiceUpdateDownloadedCandidateState | null;
   installDeferred: ServiceUpdateDeferredState | null;
   failed: ServiceUpdateFailureState | null;
+  hookResults: ServiceUpdateHookRunState[];
 }
 
 export interface DownloadedCandidateInput {
@@ -93,6 +116,7 @@ export const EMPTY_UPDATE_STATE: Omit<ServiceUpdateState, "serviceId"> = {
   downloadedCandidate: null,
   installDeferred: null,
   failed: null,
+  hookResults: [],
 };
 
 function nowIso(): string {
@@ -221,6 +245,76 @@ function normalizeLastCheck(value: unknown): ServiceUpdateLastCheckState | null 
   };
 }
 
+function normalizeHookStep(value: unknown): ServiceUpdateHookStepState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.phase !== "string" ||
+    typeof record.name !== "string" ||
+    typeof record.command !== "string" ||
+    typeof record.ok !== "boolean" ||
+    typeof record.timedOut !== "boolean" ||
+    typeof record.failurePolicy !== "string" ||
+    typeof record.stdout !== "string" ||
+    typeof record.stderr !== "string" ||
+    typeof record.startedAt !== "string" ||
+    typeof record.finishedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    phase: record.phase,
+    name: record.name,
+    command: record.command,
+    ok: record.ok,
+    exitCode: typeof record.exitCode === "number" ? record.exitCode : null,
+    timedOut: record.timedOut,
+    failurePolicy: record.failurePolicy,
+    stdout: record.stdout,
+    stderr: record.stderr,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+  };
+}
+
+function normalizeHookResults(value: unknown): ServiceUpdateHookRunState[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+
+    const record = entry as Record<string, unknown>;
+    if (
+      typeof record.phase !== "string" ||
+      typeof record.ok !== "boolean" ||
+      typeof record.blocked !== "boolean" ||
+      typeof record.recordedAt !== "string" ||
+      !Array.isArray(record.steps)
+    ) {
+      return [];
+    }
+
+    return [{
+      phase: record.phase,
+      ok: record.ok,
+      blocked: record.blocked,
+      steps: record.steps.flatMap((step) => {
+        const normalized = normalizeHookStep(step);
+        return normalized ? [normalized] : [];
+      }),
+      recordedAt: record.recordedAt,
+    }];
+  });
+}
+
 export function createEmptyServiceUpdateState(serviceId: string): ServiceUpdateState {
   return {
     serviceId,
@@ -244,6 +338,7 @@ export function normalizeServiceUpdateState(input: unknown, serviceId: string): 
     downloadedCandidate: normalizeDownloadedCandidate(record.downloadedCandidate),
     installDeferred: normalizeDeferred(record.installDeferred),
     failed: normalizeFailure(record.failed),
+    hookResults: normalizeHookResults(record.hookResults),
   };
 }
 
@@ -317,6 +412,7 @@ export async function persistUpdateCheckResult(
     downloadedCandidate: state === "installed" ? null : existing.downloadedCandidate,
     installDeferred: existing.installDeferred,
     failed,
+    hookResults: existing.hookResults,
   });
 }
 
@@ -382,5 +478,29 @@ export async function persistUpdateFailure(
       failedAt,
       sourceStatus: failure.sourceStatus ?? null,
     },
+  });
+}
+
+export async function appendUpdateHookResults(
+  service: DiscoveredService,
+  hookResults: Array<Omit<ServiceUpdateHookRunState, "recordedAt">>,
+): Promise<ServiceUpdateState> {
+  const existing = await readServiceUpdateState(service);
+  if (hookResults.length === 0) {
+    return existing;
+  }
+
+  const recordedAt = nowIso();
+  return await writeServiceUpdateState(service, {
+    ...existing,
+    serviceId: service.manifest.id,
+    updatedAt: recordedAt,
+    hookResults: [
+      ...existing.hookResults,
+      ...hookResults.map((result) => ({
+        ...result,
+        recordedAt,
+      })),
+    ],
   });
 }
