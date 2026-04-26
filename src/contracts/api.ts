@@ -3,6 +3,7 @@ import type { ServiceHealthResult } from "../runtime/health/types.js";
 import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
 import type { ServiceUpdateState } from "../runtime/updates/state.js";
+import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -35,6 +36,7 @@ export interface ServiceSummary {
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
   updates?: ServiceUpdateState;
+  recovery?: ServiceRecoveryHistoryState;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
   operator?: {

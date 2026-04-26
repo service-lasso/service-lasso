@@ -48,6 +48,14 @@ The fifth implemented slice adds durable recovery history:
 - history loading normalizes missing or partial state so operators can rehydrate persisted evidence safely
 - retention defaults to the latest 100 events per service to prevent unbounded monitor growth
 
+The sixth implemented slice adds operator and app-host surfaces:
+
+- `service-lasso recovery status [serviceId]` reads bounded recovery history with human or JSON output
+- `service-lasso recovery doctor <serviceId>` runs configured doctor/preflight steps without restarting the service and persists the result
+- `GET /api/recovery` lists persisted recovery history for all services
+- `GET /api/services/:id/recovery` returns persisted recovery history for one service
+- `POST /api/services/:id/recovery/doctor` runs manual doctor/preflight checks and returns the updated recovery history
+
 ## Manifest Shape
 
 Example:
@@ -124,6 +132,6 @@ Bounded hook and doctor definitions support:
 - `#133`: doctor/preflight execution before restart or upgrade - restart preflight implemented
 - `#134`: pre-upgrade, post-upgrade, and rollback hook execution - implemented for update install
 - `#135`: persisted recovery, doctor, restart, and hook history - implemented
-- `#136`: CLI and API surfaces
+- `#136`: CLI and API surfaces - implemented for recovery status and manual doctor execution
 - `#137`: Service Admin UI status
 - `#138`: end-to-end recovery and hook verification

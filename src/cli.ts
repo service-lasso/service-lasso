@@ -1,13 +1,16 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
+import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
+import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "updates" | "help" | "version";
+  command: "serve" | "install" | "start" | "updates" | "recovery" | "help" | "version";
   updateAction?: UpdateCliAction;
+  recoveryAction?: RecoveryCliAction;
   serviceId?: string;
   port?: number;
   servicesRoot?: string;
@@ -29,6 +32,8 @@ function usageText(): string {
     "  service-lasso updates check [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates download <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -37,6 +42,7 @@ function usageText(): string {
     "  - The start command installs/configures/starts the baseline services, then leaves the API running.",
     "  - The install command acquires and installs a service from manifest-owned artifact metadata without starting it.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
+    "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
   ].join("\n");
 }
 
@@ -65,7 +71,11 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
   }
 
   const command =
-    commandToken === "serve" || commandToken === "install" || commandToken === "start" || commandToken === "updates"
+    commandToken === "serve" ||
+      commandToken === "install" ||
+      commandToken === "start" ||
+      commandToken === "updates" ||
+      commandToken === "recovery"
       ? commandToken
       : null;
   if (!command) {
@@ -106,6 +116,24 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "recovery") {
+    const action = remaining.shift();
+    if (action !== "status" && action !== "doctor") {
+      throw new Error('The "recovery" command requires one of: status, doctor.');
+    }
+
+    parsed.recoveryAction = action;
+    if (action === "doctor") {
+      const serviceId = remaining.shift();
+      if (!serviceId || serviceId.startsWith("-")) {
+        throw new Error('The "recovery doctor" command requires a <serviceId> argument.');
+      }
+      parsed.serviceId = serviceId;
+    } else if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -138,8 +166,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "updates") {
-          throw new Error("--json is only supported for the install, start, and updates commands.");
+        if (command !== "install" && command !== "start" && command !== "updates" && command !== "recovery") {
+          throw new Error("--json is only supported for the install, start, updates, and recovery commands.");
         }
         parsed.json = true;
         break;
@@ -216,6 +244,44 @@ function printUpdatesResult(result: UpdatesCliResult, asJson: boolean): void {
   console.log(`- service: ${result.serviceId}`);
   console.log(`- installedTag: ${result.state.installArtifacts.artifact?.tag ?? "unknown"}`);
   console.log(`- forced: ${result.forced}`);
+}
+
+function formatRecoveryLine(service: { serviceId: string; recovery: ServiceRecoveryHistoryState }): string {
+  const lastEvent = service.recovery.events.at(-1);
+  if (!lastEvent) {
+    return `${service.serviceId}: no recovery events`;
+  }
+
+  if (lastEvent.kind === "monitor") {
+    return `${service.serviceId}: ${service.recovery.events.length} events, last monitor ${lastEvent.action}/${lastEvent.reason}`;
+  }
+
+  if (lastEvent.kind === "hook") {
+    return `${service.serviceId}: ${service.recovery.events.length} events, last hook ${lastEvent.phase} ok=${lastEvent.ok}`;
+  }
+
+  return `${service.serviceId}: ${service.recovery.events.length} events, last ${lastEvent.kind} ok=${lastEvent.ok}`;
+}
+
+function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "status") {
+    console.log("[service-lasso] recovery status");
+    for (const service of result.services) {
+      console.log(`- ${formatRecoveryLine(service)}`);
+    }
+    return;
+  }
+
+  console.log("[service-lasso] doctor completed");
+  console.log(`- service: ${result.serviceId}`);
+  console.log(`- ok: ${result.doctor.ok}`);
+  console.log(`- blocked: ${result.doctor.blocked}`);
+  console.log(`- steps: ${result.doctor.steps.length}`);
 }
 
 function printBootstrapResult(
@@ -304,6 +370,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       force: parsed.force,
     });
     printUpdatesResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "recovery") {
+    const result = await runRecoveryCliAction({
+      action: parsed.recoveryAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printRecoveryResult(result, parsed.json);
     return;
   }
 

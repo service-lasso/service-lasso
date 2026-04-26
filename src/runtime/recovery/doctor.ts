@@ -129,7 +129,7 @@ export async function runDoctorPreflight(service: DiscoveredService): Promise<Do
   };
 }
 
-export async function assertDoctorPreflightAllowsRestart(service: DiscoveredService): Promise<DoctorRunResult> {
+export async function runAndRecordDoctorPreflight(service: DiscoveredService): Promise<DoctorRunResult> {
   const result = await runDoctorPreflight(service);
   await appendServiceRecoveryHistoryEvents(service, [{
     kind: "doctor",
@@ -139,6 +139,12 @@ export async function assertDoctorPreflightAllowsRestart(service: DiscoveredServ
     steps: result.steps,
     at: new Date().toISOString(),
   }]);
+
+  return result;
+}
+
+export async function assertDoctorPreflightAllowsRestart(service: DiscoveredService): Promise<DoctorRunResult> {
+  const result = await runAndRecordDoctorPreflight(service);
 
   if (result.blocked) {
     const failed = result.steps.find((step) => !step.ok && step.failurePolicy === "block");
