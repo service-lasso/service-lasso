@@ -58,6 +58,7 @@ Explicitly out of scope for this spec:
 - `AC-4AC`: The runtime persists bounded per-service update state separately from active install state, including last check evidence, available release metadata, downloaded candidate metadata, deferred install reasons, and failure evidence, while corrupt or missing update state degrades safely.
 - `AC-4AD`: The CLI exposes bounded operator update commands for listing persisted update state, checking release sources, downloading update candidates, and explicitly installing candidates with clear human output and stable JSON output.
 - `AC-4AE`: The runtime API exposes bounded update status and actions so app hosts and Service Admin can list persisted update state, check release sources, download candidates, and install candidates without shelling out to the CLI.
+- `AC-4AF`: The runtime can run an opt-in policy-driven update scheduler that respects per-service update mode and check intervals, suppresses duplicate in-flight work, records update state, and performs notify, download, or install actions according to explicit `service.json` policy.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -100,6 +101,7 @@ Required evidence for this spec:
 - direct proof that update state writes and rehydrates from `.state/updates.json`, distinguishes available/downloaded/deferred/failed state, does not mutate active `install.json` artifact metadata, and safely ignores missing or corrupt update state
 - direct proof that `service-lasso updates list/check/download/install` supports human and JSON output, persists state transitions, downloads candidates without changing active install metadata, blocks install when policy disallows it, and supports explicit forced install
 - direct proof that update API routes return persisted state, check updates, download candidates without mutating active install metadata, install with policy/force behavior, and return structured errors for invalid request bodies or missing services
+- direct proof that the opt-in update scheduler skips disabled/pinned services, respects configured intervals, suppresses duplicate in-flight work, performs notify/download/install actions according to service policy, and starts/stops cleanly with the API server
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
@@ -146,3 +148,4 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - 2026-04-26: `#123` adds bounded durable update state under `.state/updates.json`. Check results, available releases, downloaded candidates, install deferrals, and failures are stored separately from active installed artifact metadata and rehydrate through service detail output.
 - 2026-04-26: `#124` adds bounded update CLI commands. Operators can list/check updates, download candidates, and explicitly install a candidate with human or JSON output while scheduler, maintenance-window policy, dedicated API routes, and Service Admin notifications remain tracked separately.
 - 2026-04-26: `#125` adds bounded runtime API routes for update status, checks, candidate downloads, and candidate installs. App hosts and Service Admin can now call backend update actions directly; scheduler, maintenance-window safety, and UI notifications remain tracked separately.
+- 2026-04-26: `#126` adds the first opt-in policy-driven update scheduler. It respects disabled/pinned services, per-service check intervals, duplicate in-flight suppression, and explicit notify/download/install modes. Maintenance-window running-service safety and UI notification treatment remain tracked under `#127` and `#128`.

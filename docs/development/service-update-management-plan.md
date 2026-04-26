@@ -13,7 +13,8 @@ The first implemented slices are intentionally bounded:
 - `#123` adds durable per-service update state under `.state/updates.json`
 - `#124` adds operator CLI commands for listing, checking, downloading, and installing update candidates
 - `#125` adds runtime API endpoints for status, check, download, and install actions
-- no scheduler, maintenance-window engine, or Service Admin notification is enabled by these slices alone
+- `#126` adds an opt-in runtime scheduler for policy-driven notify, download, and install actions
+- no maintenance-window engine or Service Admin notification is enabled by these slices alone
 
 ## Manifest Shape
 
@@ -70,8 +71,8 @@ Example future install policy:
 
 - `disabled`: do not check for moving releases
 - `notify`: check and report availability only
-- `download`: future mode for downloading candidates without installing
-- `install`: future mode for installing during an approved window
+- `download`: download candidates without installing
+- `install`: install candidates when policy allows
 
 Active modes require:
 
@@ -143,7 +144,6 @@ Current behavior:
 
 Deferred behavior:
 
-- scheduled checking remains under `#126`
 - maintenance-window/running-service safety remains under `#127`
 - Service Admin notifications remain under `#128`
 
@@ -168,9 +168,27 @@ Current behavior:
 - `POST /api/services/:id/update/install` accepts optional `{ "force": true }`
 - invalid request bodies and missing services use the existing API error body shape
 
+## Scheduler Surface
+
+The runtime exposes an opt-in update scheduler through `createRuntimeUpdateScheduler(...)`. The API server can start it with `updateScheduler: true`; it remains disabled unless the host opts in.
+
+Current behavior:
+
+- disabled or pinned update policies are skipped without calling release sources
+- `notify` mode checks the release source, persists `.state/updates.json`, and logs update-available or failure messages
+- `download` mode downloads the candidate into `.state/update-candidates/` and records `downloadedCandidate`
+- `install` mode installs a resolvable candidate through the same install action used by CLI/API update commands
+- `checkIntervalSeconds` throttles repeated work unless a caller uses `runOnce({ force: true })`
+- duplicate in-flight work for the same service is suppressed
+- API server start/stop wiring starts and stops the scheduler cleanly when explicitly enabled
+
+Current boundary:
+
+- the scheduler does not yet enforce maintenance windows or running-service safety; that remains under `#127`
+- Service Admin notification UX remains under `#128`
+
 ## Follow-On Issues
 
-- `#126`: policy-driven scheduler
 - `#127`: install windows and running-service safety
 - `#128`: Service Admin notifications
 - `#129`: end-to-end update verification

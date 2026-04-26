@@ -47,6 +47,7 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
+import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
 import {
   checkServiceUpdatesForCli,
   downloadServiceUpdateCandidate,
@@ -71,6 +72,8 @@ export interface ApiServerOptions {
   autostart?: boolean;
   monitor?: boolean;
   monitorIntervalMs?: number;
+  updateScheduler?: boolean;
+  updateSchedulerIntervalMs?: number;
 }
 
 export interface RunningApiServer {
@@ -78,6 +81,7 @@ export interface RunningApiServer {
   port: number;
   url: string;
   monitor: RuntimeServiceMonitor | null;
+  updateScheduler: RuntimeUpdateScheduler | null;
   stop: () => Promise<void>;
 }
 
@@ -816,12 +820,19 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         intervalMs: options.monitorIntervalMs,
       })
     : null;
+  const updateScheduler = options.updateScheduler
+    ? createRuntimeUpdateScheduler({
+        registry: bootModel.registry,
+        intervalMs: options.updateSchedulerIntervalMs,
+      })
+    : null;
   const server = createApiServer(config);
   const port = options.port ?? 18080;
 
   server.listen(port, "127.0.0.1");
   await once(server, "listening");
   monitor?.start();
+  updateScheduler?.start();
 
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -835,8 +846,10 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     port: resolvedPort,
     url: `http://127.0.0.1:${resolvedPort}`,
     monitor,
+    updateScheduler,
     stop: async () => {
       monitor?.stop();
+      updateScheduler?.stop();
       await stopAllManagedProcesses();
       server.close();
       await once(server, "close");
