@@ -117,6 +117,7 @@ npm run build
 npm run test
 npm run verify:baseline-start
 npm run verify:reference-app-lifecycle
+npm run verify:recovery-hooks
 npm start
 npm run dev
 ```
@@ -124,6 +125,7 @@ npm run dev
 `npm start` is the clean-clone friendly runtime command: it builds the TypeScript output first, then starts the bounded core API runtime from `dist/index.js`. `npm run dev` follows the same build-and-run path for local development.
 `npm run verify:baseline-start` builds the CLI and runs the deterministic bounded baseline-start smoke with generated `@node`, `echo-service`, and `service-admin` fixtures plus the release-backed `@traefik` artifact.
 `npm run verify:reference-app-lifecycle` fresh-clones the canonical reference apps, starts each app-owned runtime with a deterministic Service Admin dist, and proves Echo Service install/config/start/stop plus process cleanup through that app host.
+`npm run verify:recovery-hooks` builds the runtime and runs the deterministic Echo-style recovery/hook E2E proof for monitor restart, doctor, update hooks, API, CLI, and `.state/recovery.json` agreement.
 
 ## CLI commands
 
@@ -219,6 +221,12 @@ Deterministic update lifecycle coverage runs as part of `npm test`. For explicit
 
 ```bash
 npm run verify:service-updates
+```
+
+Recovery and hook lifecycle coverage runs as part of `npm test`. For an explicit deterministic Echo-style recovery/hook proof, run:
+
+```bash
+npm run verify:recovery-hooks
 ```
 
 Install-mode update safety:
