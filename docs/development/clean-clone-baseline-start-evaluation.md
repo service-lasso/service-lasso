@@ -21,7 +21,7 @@ Expected baseline services:
 
 ## Current Answer
 
-Partial.
+Verified on `develop`.
 
 The documented command name is now:
 
@@ -29,13 +29,44 @@ The documented command name is now:
 service-lasso start --services-root ./services --workspace-root ./workspace
 ```
 
-As of 2026-04-25, the core CLI has a bounded baseline bootstrap command that installs, configures, and starts the baseline inventory in dependency order, then leaves the API running.
+As of 2026-04-27, the core CLI has a bounded baseline bootstrap command that installs, configures, and starts the baseline inventory in dependency order, then leaves the API running.
 
 `@traefik` now points at the canonical `service-lasso/lasso-traefik@2026.4.25-5301df9` release artifact. The command can acquire, configure, and start Traefik as a real release-backed baseline service.
 
 Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
 
 Issue `#159` fixed the remaining provider-state ambiguity for `@node`: it is intentionally local/no-download with `role: "provider"`, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured.
+
+## Final Fresh-Clone Evidence
+
+Fresh-clone command evaluated on 2026-04-27:
+
+```powershell
+git clone --branch develop https://github.com/service-lasso/service-lasso.git <temp>
+cd <temp>
+npm ci
+npm run build
+node dist/cli.js start --services-root ./services --workspace-root ./workspace --port <temp-port> --json
+```
+
+Observed result:
+
+- `npm ci` passed.
+- `npm run build` passed.
+- the Service Lasso API reported `/api/health` status `ok`.
+- `@traefik`, `echo-service`, and `service-admin` acquired and extracted release artifacts from their configured GitHub releases.
+- `@traefik`, `echo-service`, and `service-admin` reported installed/configured/running/healthy.
+- `@node` reported installed/configured, `running=false`, `healthType=provider`, and `healthy=true`, which is its expected local/no-download provider state.
+- `stopAll` cleanup was called after verification.
+
+Final observed baseline state:
+
+| Service | Installed | Configured | Running | Healthy | Artifact source |
+| --- | --- | --- | --- | --- | --- |
+| `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.25-5301df9` |
+| `@node` | yes | yes | no | yes | local/no-download provider with `role: "provider"` |
+| `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
+| `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 
 ## Historical Evidence
 
@@ -84,7 +115,7 @@ Current `services/echo-service/service.json` carries both a local fixture fallba
 
 Current `services/@node/service.json` is a local/no-download runtime/provider fixture with `role: "provider"`.
 
-## 2026-04-27 Direct Checked-In Manifest Proof
+## 2026-04-27 Direct Checked-In Manifest Proof Before Final Fresh Clone
 
 Command shape exercised against tracked `services/` manifests copied to a temporary services root:
 
@@ -129,7 +160,7 @@ Current implemented capability:
 - `.github/workflows/baseline-start-smoke.yml` runs that same command-level smoke on pull requests to `develop` and on manual dispatch.
 - `npm run verify:traefik-release` directly proves the public Traefik release archive can be acquired, configured, started, and observed healthy through the runtime API.
 
-Current missing capability:
+Current remaining capability notes:
 
 - the deterministic baseline-start smoke still uses generated fixtures for `echo-service` and `service-admin`; direct checked-in-manifest proof covers release-backed `echo-service` and `service-admin` after `#158`
 - `@node` local/no-download provider behavior is now explicit after `#159`
@@ -147,6 +178,8 @@ The clean-clone baseline start use case is split into these implementation-grade
 - `#158`: fix checked-in baseline start so release-backed Echo Service and Service Admin start from acquired artifacts and remain running.
 - `#159`: clarify and enforce `@node` local provider behavior in baseline start.
 - `#160`: replace stale clean-clone baseline evaluation with final direct current evidence.
+
+All listed gap issues are complete as of this update.
 
 ## Completion Target
 
