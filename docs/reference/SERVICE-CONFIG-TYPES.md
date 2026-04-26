@@ -204,7 +204,7 @@ Current core status:
 - install mode must also declare `installWindow` and `runningService`
 - CLI/API and the opt-in scheduler can download candidates and install them through the shared update action
 - install-mode scheduler work enforces `installWindow` and `runningService` safety before download/extract
-- Service Admin notifications remain tracked under follow-on update issues
+- Service Admin surfaces update states and bounded check/download/install actions through the runtime update API
 
 ## 10. Recommended doc framing
 
