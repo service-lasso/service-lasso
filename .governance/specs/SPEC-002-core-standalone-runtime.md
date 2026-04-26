@@ -56,6 +56,7 @@ Explicitly out of scope for this spec:
 - `AC-4AA`: The manifest contract defines a bounded service recovery, doctor/preflight, and lifecycle-hook shape so future monitoring, restart, and upgrade work can be implemented from explicit `service.json` policy instead of hidden runtime defaults.
 - `AC-4AB`: The manifest contract defines a bounded service update policy shape, and the runtime can perform read-only update discovery for `github-release` artifact sources, classifying pinned, latest, update-available, unavailable, and check-failed states without downloading or installing artifacts.
 - `AC-4AC`: The runtime persists bounded per-service update state separately from active install state, including last check evidence, available release metadata, downloaded candidate metadata, deferred install reasons, and failure evidence, while corrupt or missing update state degrades safely.
+- `AC-4AD`: The CLI exposes bounded operator update commands for listing persisted update state, checking release sources, downloading update candidates, and explicitly installing candidates with clear human output and stable JSON output.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior still lives only in donor/reference material.
 
@@ -96,6 +97,7 @@ Required evidence for this spec:
 - direct proof that configured doctor/preflight steps run before restart, block restart when policy requires, and can warn/continue without replacing the service process prematurely
 - direct proof that valid update policies parse into typed runtime contracts, unsafe active/pinned combinations are rejected, and read-only update discovery classifies pinned, latest, update-available, unavailable, and check-failed release states through deterministic fake GitHub release metadata
 - direct proof that update state writes and rehydrates from `.state/updates.json`, distinguishes available/downloaded/deferred/failed state, does not mutate active `install.json` artifact metadata, and safely ignores missing or corrupt update state
+- direct proof that `service-lasso updates list/check/download/install` supports human and JSON output, persists state transitions, downloads candidates without changing active install metadata, blocks install when policy disallows it, and supports explicit forced install
 - build/validation proof for the new core source tree
 - documentation updates that map the new runtime slice to the canonical contract/docs
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
@@ -140,3 +142,4 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - 2026-04-26: `#133` adds bounded doctor/preflight execution before restart. Passing doctor steps allow restart, block-policy failures prevent restart before the existing process is replaced, and warn-policy failures continue while remaining visible to later recovery-state work.
 - 2026-04-26: `#121` and `#122` add the first bounded service update-management slice. `service.json` now accepts explicit `updates` policy, unsafe active/pinned combinations are rejected, and read-only GitHub-release discovery can classify pinned/latest/update-available/unavailable/check-failed states without downloading or installing artifacts.
 - 2026-04-26: `#123` adds bounded durable update state under `.state/updates.json`. Check results, available releases, downloaded candidates, install deferrals, and failures are stored separately from active installed artifact metadata and rehydrate through service detail output.
+- 2026-04-26: `#124` adds bounded update CLI commands. Operators can list/check updates, download candidates, and explicitly install a candidate with human or JSON output while scheduler, maintenance-window policy, dedicated API routes, and Service Admin notifications remain tracked separately.

@@ -162,6 +162,24 @@ Machine-readable install output is also supported:
 service-lasso install echo-service --services-root ./services --workspace-root ./workspace --json
 ```
 
+Inspect and act on service updates:
+
+```bash
+service-lasso updates list --services-root ./services --workspace-root ./workspace
+service-lasso updates check --services-root ./services --workspace-root ./workspace
+service-lasso updates check echo-service --services-root ./services --workspace-root ./workspace --json
+service-lasso updates download echo-service --services-root ./services --workspace-root ./workspace
+service-lasso updates install echo-service --services-root ./services --workspace-root ./workspace --force
+```
+
+Update CLI notes:
+
+- `updates list` reads persisted `.state/updates.json` without calling release sources
+- `updates check` calls the configured release source, persists the result, and prints clear human lines such as `echo-service: update available X -> Y`
+- `updates download` stores a candidate under `.state/update-candidates/` without installing it
+- `updates install` installs a downloaded or resolvable candidate only when policy allows, unless `--force` is provided
+- `--json` emits machine-readable status, versions, and recommended action data
+
 ## Release artifact commands
 
 The repo now exposes a bounded downloadable runtime artifact flow.
