@@ -56,6 +56,13 @@ The sixth implemented slice adds operator and app-host surfaces:
 - `GET /api/services/:id/recovery` returns persisted recovery history for one service
 - `POST /api/services/:id/recovery/doctor` runs manual doctor/preflight checks and returns the updated recovery history
 
+The seventh implemented slice adds Service Admin visibility:
+
+- dashboard warning cards include recovery events that need operator review
+- services table rows show recovery badges and descriptions next to update state
+- service detail pages show recovery status, event count, and a manual doctor action
+- the UI consumes `GET /api/recovery` and calls `POST /api/services/:id/recovery/doctor` when an API base URL is configured
+
 ## Manifest Shape
 
 Example:
@@ -133,5 +140,5 @@ Bounded hook and doctor definitions support:
 - `#134`: pre-upgrade, post-upgrade, and rollback hook execution - implemented for update install
 - `#135`: persisted recovery, doctor, restart, and hook history - implemented
 - `#136`: CLI and API surfaces - implemented for recovery status and manual doctor execution
-- `#137`: Service Admin UI status
+- `#137`: Service Admin UI status - implemented in `service-lasso/lasso-serviceadmin#13`
 - `#138`: end-to-end recovery and hook verification
