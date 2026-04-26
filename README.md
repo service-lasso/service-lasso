@@ -180,6 +180,16 @@ Update CLI notes:
 - `updates install` installs a downloaded or resolvable candidate only when policy allows, unless `--force` is provided
 - `--json` emits machine-readable status, versions, and recommended action data
 
+The same bounded update surface is available through the runtime API for app hosts and Service Admin consumers:
+
+```text
+GET  /api/updates
+GET  /api/services/:id/updates
+POST /api/updates/check
+POST /api/services/:id/update/download
+POST /api/services/:id/update/install
+```
+
 ## Release artifact commands
 
 The repo now exposes a bounded downloadable runtime artifact flow.

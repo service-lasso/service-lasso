@@ -12,7 +12,8 @@ The first implemented slices are intentionally bounded:
 - `#122` adds read-only discovery for `github-release` artifact sources
 - `#123` adds durable per-service update state under `.state/updates.json`
 - `#124` adds operator CLI commands for listing, checking, downloading, and installing update candidates
-- no scheduler, dedicated API route, maintenance-window engine, or Service Admin notification is enabled by these slices alone
+- `#125` adds runtime API endpoints for status, check, download, and install actions
+- no scheduler, maintenance-window engine, or Service Admin notification is enabled by these slices alone
 
 ## Manifest Shape
 
@@ -144,12 +145,31 @@ Deferred behavior:
 
 - scheduled checking remains under `#126`
 - maintenance-window/running-service safety remains under `#127`
-- dedicated API routes remain under `#125`
 - Service Admin notifications remain under `#128`
+
+## Runtime API Surface
+
+Supported endpoints:
+
+```text
+GET  /api/updates
+GET  /api/services/:id/updates
+POST /api/updates/check
+POST /api/services/:id/update/download
+POST /api/services/:id/update/install
+```
+
+Current behavior:
+
+- `GET /api/updates` returns persisted update state for all discovered services
+- `GET /api/services/:id/updates` returns persisted update state for one service
+- `POST /api/updates/check` accepts an optional `{ "serviceId": "<id>" }` body and persists check results
+- `POST /api/services/:id/update/download` downloads a candidate without mutating active install metadata
+- `POST /api/services/:id/update/install` accepts optional `{ "force": true }`
+- invalid request bodies and missing services use the existing API error body shape
 
 ## Follow-On Issues
 
-- `#125`: runtime API surfaces
 - `#126`: policy-driven scheduler
 - `#127`: install windows and running-service safety
 - `#128`: Service Admin notifications
