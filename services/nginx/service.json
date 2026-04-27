@@ -1,0 +1,11 @@
+{
+  "id": "nginx",
+  "name": "Nginx Routing Dependency",
+  "description": "Baseline dependency marker for nginx-backed routes consumed by Traefik configuration.",
+  "version": "0.1.0",
+  "role": "provider",
+  "enabled": true,
+  "globalenv": {
+    "NGINX_ENABLED": "true"
+  }
+}

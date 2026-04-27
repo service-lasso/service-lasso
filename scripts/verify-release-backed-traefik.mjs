@@ -118,6 +118,7 @@ async function writeTraefikManifest(serviceRoot, ports) {
         description: "Release-backed Traefik verification manifest.",
         version: releaseVersion,
         enabled: true,
+        depend_on: coreTraefikManifest.depend_on,
         ports: Object.fromEntries(
           Object.keys(coreTraefikManifest.ports ?? {}).map((key) => [key, ports[key]]),
         ),
@@ -154,6 +155,25 @@ async function writeTraefikManifest(serviceRoot, ports) {
   );
 }
 
+async function writeDependencyManifest(servicesRoot, serviceId) {
+  await mkdir(path.join(servicesRoot, serviceId), { recursive: true });
+  await writeFile(
+    path.join(servicesRoot, serviceId, "service.json"),
+    `${JSON.stringify(
+      {
+        id: serviceId,
+        name: serviceId,
+        description: `Traefik dependency fixture for ${serviceId}.`,
+        role: "provider",
+        enabled: true,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
 resetLifecycleState();
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-traefik-release-"));
 const servicesRoot = path.join(tempRoot, "services");
@@ -168,11 +188,25 @@ for (const key of Object.keys(coreTraefikManifest.ports ?? {})) {
 
 await mkdir(servicesRoot, { recursive: true });
 await mkdir(workspaceRoot, { recursive: true });
+await writeDependencyManifest(servicesRoot, "localcert");
+await writeDependencyManifest(servicesRoot, "nginx");
 await writeTraefikManifest(serviceRoot, ports);
 
 const api = await startApiServer({ port: ports.api, servicesRoot, workspaceRoot });
 
 try {
+  for (const dependencyId of coreTraefikManifest.depend_on ?? []) {
+    const dependencyInstall = await postJson(`${api.url}/api/services/${encodeURIComponent(dependencyId)}/install`);
+    if (!dependencyInstall.ok || !dependencyInstall.state.installed) {
+      throw new Error(`${dependencyId} install failed: ${JSON.stringify(dependencyInstall)}`);
+    }
+
+    const dependencyConfig = await postJson(`${api.url}/api/services/${encodeURIComponent(dependencyId)}/config`);
+    if (!dependencyConfig.ok || !dependencyConfig.state.configured) {
+      throw new Error(`${dependencyId} config failed: ${JSON.stringify(dependencyConfig)}`);
+    }
+  }
+
   const install = await postJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/install`);
   if (!install.ok || !install.state.installed) {
     throw new Error(`Traefik install failed: ${JSON.stringify(install)}`);
@@ -259,6 +293,7 @@ try {
     ok: true,
     serviceId,
     releaseVersion,
+    dependencies: coreTraefikManifest.depend_on ?? [],
     commandline: start.state.runtime.command,
     health: health.health,
     globalenv: expectedGlobalEnv,
