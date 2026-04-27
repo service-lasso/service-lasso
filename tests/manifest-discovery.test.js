@@ -69,7 +69,10 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-41ef504");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-b879d28");
+  assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
+  assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{MONGO_PORT\}"/);
+  assert.match(byId.get("@traefik")?.commandline?.default ?? "", /--serversTransport\.insecureSkipVerify=true/);
   assert.deepEqual(byId.get("@traefik")?.ports, {
     web: 19080,
     websecure: 19443,
@@ -637,6 +640,40 @@ test("loadServiceManifest accepts donor-style portmapping declarations", async (
       HTTP: "${WEB_PORT}",
       TCP_MOGNO: "${MONGO_PORT}",
       LEGACY_LITERAL: "9250",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts platform commandline maps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "commandline-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "commandline-service",
+        name: "Commandline Service",
+        description: "Service with donor-style commandline declarations.",
+        executable: "service-binary",
+        args: ["--fallback"],
+        commandline: {
+          win32: " --config=\"${SERVICE_ROOT}\\runtime\\service.yml\" --port=\":${SERVICE_PORT}\"",
+          linux: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+          default: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.commandline, {
+      win32: " --config=\"${SERVICE_ROOT}\\runtime\\service.yml\" --port=\":${SERVICE_PORT}\"",
+      linux: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+      default: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
     });
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });

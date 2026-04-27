@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-27
 
-Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`
+Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`
 
 ## Summary
 
@@ -32,7 +32,7 @@ Python and Java remain optional provider services rather than starter baseline d
 | `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Core manifest points at `service-lasso/lasso-node@2026.4.27-13573bd`; baseline start acquires it, configures it, skips daemon launch, and provider-backed child services can execute through the acquired runtime. | No current baseline gap. Reference app inventories still need to be refreshed if they carry older local/no-download copies. |
 | `@python` | Runtime/provider utility service for Python-backed services. | Core manifest points at `service-lasso/lasso-python@2026.4.27-63f915c` and can acquire the default Python `3.11.5` Windows embeddable archive. | Not part of the current starter baseline. Linux/macOS Python archives remain deferred pending an approved portable distribution source. |
 | `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest points at `service-lasso/lasso-java@2026.4.27-b313cb0`; provider resolution supports `execservice: "@java"` and direct acquire proof installs Java `17.0.18+8`. | Not part of the current starter baseline. Java-dependent services such as Keycloak should be migrated as separate service issues. |
-| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-41ef504` with HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; manifest exists in service-template and all scoped reference-app inventories; docs list it in starter baseline. | No current baseline gap. |
+| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-b879d28` with donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; manifest exists in service-template and all scoped reference-app inventories; docs list it in starter baseline. | No current baseline gap. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 | `@localcert` | Future local certificate/bootstrap utility based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 

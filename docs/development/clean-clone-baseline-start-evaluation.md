@@ -4,7 +4,7 @@ Date: 2026-04-24
 
 Latest update: 2026-04-27
 
-Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`, `#102`, `#158`, `#159`, `#160`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`
+Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`, `#102`, `#158`, `#159`, `#160`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`
 
 OpenSpec binding: `SPEC-002`, `AC-4Z`
 
@@ -31,7 +31,7 @@ service-lasso start --services-root ./services --workspace-root ./workspace
 
 As of 2026-04-27, the core CLI has a bounded baseline bootstrap command that installs, configures, and starts the baseline inventory in dependency order, then leaves the API running.
 
-`@traefik` now points at the canonical `service-lasso/lasso-traefik@2026.4.27-41ef504` release artifact. The command can acquire, configure, and start Traefik as a real release-backed baseline service with HTTP `/ping` readiness plus shared Traefik port/globalenv/portmapping outputs.
+`@traefik` now points at the canonical `service-lasso/lasso-traefik@2026.4.27-b879d28` release artifact. The command can acquire, configure, and start Traefik as a real release-backed baseline service using donor-style `commandline` startup flags, HTTP `/ping` readiness, and shared Traefik port/globalenv/portmapping outputs.
 
 Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
 
@@ -63,7 +63,7 @@ Final observed baseline state:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-41ef504` |
+| `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-b879d28` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
 | `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
@@ -109,7 +109,7 @@ Missing from the expected clean-clone baseline:
 - `services/@traefik/service.json`
 - `services/service-admin/service.json`
 
-Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#171` hardens that service repo contract, issue `#185` adds HTTP `/ping` readiness, issue `#187` restores Traefik env/globalenv outputs, issue `#189` restores the full service-port map, and issue `#191` pins the core manifest to the verified `2026.4.27-41ef504` release with donor-compatible `portmapping`. Issue `#93` adds `@java` as a bounded provider outside the starter baseline. Issue `#172` pins `@node`, `@python`, and `@java` to their verified release-backed provider repos.
+Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#171` hardens that service repo contract, issue `#185` adds HTTP `/ping` readiness, issue `#187` restores Traefik env/globalenv outputs, issue `#189` restores the full service-port map, issue `#191` pins the donor-compatible `portmapping`, and issue `#193` pins the core manifest to the verified `2026.4.27-b879d28` release with donor-style commandline flags. Issue `#93` adds `@java` as a bounded provider outside the starter baseline. Issue `#172` pins `@node`, `@python`, and `@java` to their verified release-backed provider repos.
 
 Current `services/echo-service/service.json` carries both a local fixture fallback and release artifact metadata. Install/acquire uses the release-backed artifact metadata from `service-lasso/lasso-echoservice`.
 
@@ -132,7 +132,7 @@ Observed after issue `#158` fix:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-41ef504` |
+| `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-b879d28` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
 | `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
@@ -184,6 +184,7 @@ The clean-clone baseline start use case is split into these implementation-grade
 - `#187`: restore Traefik env/globalenv outputs for downstream services and operator APIs.
 - `#189`: restore the full Traefik service-port map and prove resolved network/globalenv output.
 - `#191`: preserve donor-compatible `portmapping` and expose it through the network API.
+- `#193`: preserve donor-style Traefik commandline startup flags and execute manifest `commandline` during runtime start/restart.
 - `#172`: integrate release-backed runtime provider manifests into the core inventory.
 - `#158`: fix checked-in baseline start so release-backed Echo Service and Service Admin start from acquired artifacts and remain running.
 - `#159`: clarify and enforce `@node` local provider behavior in baseline start.

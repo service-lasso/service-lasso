@@ -632,6 +632,17 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"args\" to be an array of strings.`);
   }
 
+  const rawCommandline = record.commandline;
+  if (
+    rawCommandline !== undefined &&
+    (!rawCommandline ||
+      typeof rawCommandline !== "object" ||
+      Array.isArray(rawCommandline) ||
+      Object.values(rawCommandline).some((entry) => typeof entry !== "string"))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"commandline\" to be a string map.`);
+  }
+
   const rawRole = record.role;
   if (rawRole !== undefined && (typeof rawRole !== "string" || !serviceRoles.has(rawRole))) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected "role" to be one of "service" or "provider".`);
@@ -703,5 +714,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     execservice: typeof rawExecservice === "string" ? rawExecservice.trim() : undefined,
     executable: typeof rawExecutable === "string" ? rawExecutable.trim() : undefined,
     args: rawArgs?.map((entry) => entry.trim()),
+    commandline: rawCommandline
+      ? Object.fromEntries(
+          Object.entries(rawCommandline as Record<string, string>).map(([key, value]) => [key.trim(), value]),
+        )
+      : undefined,
   };
 }
