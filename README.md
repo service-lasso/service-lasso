@@ -61,7 +61,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 
 Additional manifests such as `@java`, `@python`, and `node-sample-service` exist for provider and fixture coverage. They are not part of the default baseline start command.
 
-Optional service repos such as `service-lasso/lasso-zitadel` can be added by committing their released `service.json` into your app's `services/` folder. ZITADEL is intentionally not in this baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration before start.
+Optional service repos such as `service-lasso/lasso-zitadel` and `service-lasso/lasso-dagu` can be added by committing their released `service.json` into your app's `services/` folder. ZITADEL is intentionally not in this baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration before start. Dagu is intentionally optional because workflow orchestration and workflow files are app-specific.
 
 ## Services Folder Contract
 
