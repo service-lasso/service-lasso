@@ -131,6 +131,15 @@ export function collectServiceGlobalEnv(
   );
 }
 
+export function resolveServiceText(
+  value: string,
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
+): string {
+  return replaceVariableSelectors(value, buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables);
+}
+
 export function collectRuntimeGlobalEnv(services: DiscoveredService[]): Record<string, string> {
   const sharedGlobalEnv: Record<string, string> = {};
 

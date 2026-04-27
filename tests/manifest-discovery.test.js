@@ -69,18 +69,57 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-40bc7cb");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-a266e3e");
+  assert.deepEqual(byId.get("@traefik")?.ports, {
+    web: 19080,
+    websecure: 19443,
+    admin: 19081,
+    https_traefik: 19082,
+    https_nginx: 19090,
+    https_cms: 19100,
+    https_flow: 19110,
+    https_flowtms: 19120,
+    https_api: 19130,
+    https_files: 19140,
+    https_bpmn: 19150,
+    mongo: 19160,
+    typedb: 19170,
+  });
   assert.deepEqual(byId.get("@traefik")?.env, {
     TRAEFIK_HTTP_PORT: "${WEB_PORT}",
+    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
     TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
+    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
+    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
+    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
+    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
+    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
+    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
+    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
+    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
+    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
+    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
     TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
+    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
     TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
     TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
   });
   assert.deepEqual(byId.get("@traefik")?.globalenv, {
     TRAEFIK_HTTP_PORT: "${WEB_PORT}",
+    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
     TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
+    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
+    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
+    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
+    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
+    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
+    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
+    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
+    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
+    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
+    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
     TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
+    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
     TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
     TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
     TRAEFIK_TRAEFIK_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
