@@ -57,6 +57,8 @@ test("core services root declares the clean-clone baseline inventory", async () 
     [],
   );
   assert.equal(byId.get("localcert")?.role, "provider");
+  assert.equal(byId.get("localcert")?.name, "Core Local Certificate Utility");
+  assert.match(byId.get("localcert")?.description ?? "", /Core local\/no-download certificate utility service/);
   assert.equal(byId.get("nginx")?.role, undefined);
   assert.equal(byId.get("nginx")?.version, "1.30.0");
   assert.equal(byId.get("nginx")?.artifact?.source.repo, "service-lasso/lasso-nginx");
@@ -168,6 +170,8 @@ test("core services root declares the clean-clone baseline inventory", async () 
   });
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
+  assert.equal(byId.get("service-admin")?.name, "Core Service Admin");
+  assert.match(byId.get("service-admin")?.description ?? "", /Core operator\/admin UI service/);
 });
 
 test("loadServiceManifest fails explicitly for malformed manifests", async () => {

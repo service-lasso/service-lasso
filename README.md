@@ -53,11 +53,11 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | Service | Role | Source |
 | --- | --- | --- |
 | `@node` | release-backed Node runtime provider | acquired from `service-lasso/lasso-node@2026.4.27-13573bd`; installed/configured but not launched as a daemon |
-| `localcert` | local certificate dependency marker for Traefik | installed/configured as a provider-role utility; no daemon launch yet |
+| `localcert` | core local certificate utility for Traefik | installed/configured as a provider-role core utility; no daemon launch yet |
 | `nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from `service-lasso/lasso-nginx@2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
 | `@traefik` | local edge/router service depending on `localcert` and `nginx` | acquired from `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `echo-service` | test harness service with UI/API/log/state behavior | `service-lasso/lasso-echoservice` GitHub release |
-| `service-admin` | browser UI for the Service Lasso runtime | `service-lasso/lasso-serviceadmin` GitHub release |
+| `service-admin` | core browser UI for the Service Lasso runtime | `service-lasso/lasso-serviceadmin` GitHub release |
 
 Additional manifests such as `@java`, `@python`, and `node-sample-service` exist for provider and fixture coverage. They are not part of the default baseline start command.
 

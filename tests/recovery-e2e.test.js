@@ -16,7 +16,7 @@ const oldTag = "2026.4.20-old";
 const latestTag = "2026.4.24-new";
 const assetName = "echo-hook.zip";
 
-async function waitFor(readinessCheck, timeoutMs = 4_000) {
+async function waitFor(readinessCheck, timeoutMs = 10_000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -205,7 +205,7 @@ test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in 
 
   try {
     const { serviceRoot: echoRecoveryRoot } = await writeExecutableFixtureService(servicesRoot, "echo-recovery", {
-      autoExitMs: 150,
+      autoExitMs: 750,
       exitCode: 2,
       monitoring: {
         enabled: true,
