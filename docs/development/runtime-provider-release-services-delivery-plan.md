@@ -2,7 +2,7 @@
 
 Date: 2026-04-27
 
-Linked issues: `#167`, `#168`, `#169`, `#170`, `#171`, `#172`
+Linked issues: `#167`, `#168`, `#169`, `#170`, `#171`, `#172`, `#174`
 
 Spec binding: `SPEC-002`, `AC-4H`, `AC-4W`, `AC-4Y`, `AC-4Z`
 
@@ -52,6 +52,8 @@ Each repo should publish releases from protected-branch pushes using:
 yyyy.m.d-<shortsha>
 ```
 
+The GitHub release tag is the Service Lasso packaging release version. It is not the runtime version. Runtime versions must be visible in the artifact names and in the service manifest variant that consumes them.
+
 Each repo should include:
 
 - `service.json`
@@ -63,15 +65,42 @@ Each repo should include:
 - explicit supported-platform matrix
 - optional checksum/provenance output when practical
 
+## Runtime Version Matrix
+
+The first provider repos must support multiple runtime versions per provider.
+
+| Provider | Runtime versions to release | Core baseline version |
+| --- | --- | --- |
+| `@node` | `24`, `25` | `24` |
+| `@java` | `17`, `21` | `17` |
+| `@python` | `3.11.5`, `3.14.4` | `3.11.5` |
+
+Core baseline rule:
+
+- baseline/core manifests use the first version listed in the set
+- baseline/core manifests must not automatically float to the newest version in the set
+- newer provider versions remain available for apps that choose them explicitly
+
+Expected upstream sources:
+
+- Node: official Node.js distribution archives for `v24.x` and `v25.x`
+- Java: Eclipse Temurin/Adoptium JRE archives for Java `17` and `21`
+- Python: official Python.org archives for `3.11.5` and `3.14.4`
+
+For major-only inputs such as Node `24` / `25` and Java `17` / `21`, the provider repo must record the exact upstream patch/build resolved during packaging in release notes and shipped metadata. Do not leave the resolved upstream version implicit.
+
 ## Artifact Naming
 
 Use a predictable artifact name per platform:
 
 | Service | Windows | Linux | macOS |
 | --- | --- | --- | --- |
-| `@node` | `lasso-node-win32.zip` | `lasso-node-linux.tar.gz` | `lasso-node-darwin.tar.gz` |
-| `@python` | `lasso-python-win32.zip` | `lasso-python-linux.tar.gz` | `lasso-python-darwin.tar.gz` |
-| `@java` | `lasso-java-win32.zip` | `lasso-java-linux.tar.gz` | `lasso-java-darwin.tar.gz` |
+| `@node` `24` | `lasso-node-24-win32.zip` | `lasso-node-24-linux.tar.gz` | `lasso-node-24-darwin.tar.gz` |
+| `@node` `25` | `lasso-node-25-win32.zip` | `lasso-node-25-linux.tar.gz` | `lasso-node-25-darwin.tar.gz` |
+| `@python` `3.11.5` | `lasso-python-3.11.5-win32.zip` | `lasso-python-3.11.5-linux.tar.gz` | `lasso-python-3.11.5-darwin.tar.gz` |
+| `@python` `3.14.4` | `lasso-python-3.14.4-win32.zip` | `lasso-python-3.14.4-linux.tar.gz` | `lasso-python-3.14.4-darwin.tar.gz` |
+| `@java` `17` | `lasso-java-17-win32.zip` | `lasso-java-17-linux.tar.gz` | `lasso-java-17-darwin.tar.gz` |
+| `@java` `21` | `lasso-java-21-win32.zip` | `lasso-java-21-linux.tar.gz` | `lasso-java-21-darwin.tar.gz` |
 | `@traefik` | `lasso-traefik-win32.zip` | `lasso-traefik-linux.tar.gz` | `lasso-traefik-darwin.tar.gz` |
 
 If a repo cannot support all three platforms initially, the repo README, `service.json`, and issue evidence must state the supported subset explicitly. Unsupported platform behavior must fail clearly instead of implying a missing archive exists.
@@ -94,6 +123,7 @@ The release-backed provider manifest should include:
 - per-platform `assetName`, `archiveType`, `command`, and optional `args`
 - provider-specific env/globalenv values
 - a version or smoke command that can prove the extracted runtime works
+- a selected runtime version for the service manifest, for example Node `24`, Java `17`, or Python `3.11.5`
 
 Provider install/acquire means:
 
@@ -112,7 +142,9 @@ Target issue: `#168`
 
 Recommended first delivery:
 
-- package a known Node.js runtime distribution or a thin wrapper around an approved Node distribution
+- package official Node.js runtime distributions for Node `24` and Node `25`
+- name release assets with the selected Node major, for example `lasso-node-24-win32.zip`
+- make the core baseline manifest select Node `24`
 - expose `NODE`, and optionally `NODE_HOME`, through provider env/globalenv
 - verify `node --version` from the extracted artifact
 - prove one provider-backed service can run through `execservice: "@node"`
@@ -128,7 +160,9 @@ Target issue: `#169`
 Recommended first delivery:
 
 - choose Python distribution source and license
-- package a minimal provider runtime or approved embedded distribution
+- package Python `3.11.5` and Python `3.14.4`
+- name release assets with the exact Python version, for example `lasso-python-3.11.5-win32.zip`
+- make the core baseline manifest select Python `3.11.5` if/when Python is included in a baseline
 - expose `PYTHON`, and optionally `PYTHON_HOME`, through provider env/globalenv
 - verify `python --version` from the extracted artifact
 - prove one provider-backed Python fixture can run through `execservice: "@python"`
@@ -143,8 +177,11 @@ Target issue: `#170`
 
 Recommended first delivery:
 
-- choose JRE/JDK vendor and license, for example Eclipse Temurin if approved
-- package the selected Java runtime with explicit platform support
+- use Eclipse Temurin/Adoptium if the vendor/license/security decision is approved
+- package Java `17` and Java `21`
+- prefer JRE artifacts unless a concrete provider-backed workload requires a JDK
+- name release assets with the Java major, for example `lasso-java-17-win32.zip`
+- make the core baseline manifest select Java `17` if/when Java is included in a baseline
 - expose `JAVA` and `JAVA_HOME` through provider env/globalenv
 - verify `java --version` from the extracted artifact
 - prove one Java-provider-backed fixture can run through `execservice: "@java"`
@@ -190,8 +227,8 @@ Migration order:
 
 Baseline rule:
 
-- `@node` is part of the current default baseline, so release-backed `@node` migration affects the clean-clone baseline contract.
-- `@python` and `@java` are not part of the current default baseline, so they should remain optional unless a consuming baseline service requires them.
+- `@node` is part of the current default baseline, so release-backed `@node` migration affects the clean-clone baseline contract. Core should use Node `24`, not Node `25`.
+- `@python` and `@java` are not part of the current default baseline, so they should remain optional unless a consuming baseline service requires them. If included later, core should use Python `3.11.5` and Java `17`, not Python `3.14.4` or Java `21`.
 - `@traefik` is already release-backed and remains part of the default baseline.
 
 ## Delivery Order
