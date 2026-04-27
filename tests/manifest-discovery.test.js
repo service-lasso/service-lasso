@@ -68,6 +68,15 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
+  assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-38bd54d");
+  assert.deepEqual(byId.get("@traefik")?.healthcheck, {
+    type: "http",
+    url: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    expected_status: 200,
+    retries: 80,
+    interval: 250,
+  });
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
 });
