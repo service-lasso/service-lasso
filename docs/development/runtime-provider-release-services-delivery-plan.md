@@ -26,12 +26,12 @@ It separates current truth from target delivery so the repo does not imply relea
 | `@node` | `service-lasso/lasso-node` | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-13573bd`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
 | `@python` | `service-lasso/lasso-python` | optional release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
 | `@java` | `service-lasso/lasso-java` | optional release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
-| `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service | yes | Current verified release is `2026.4.27-38bd54d`. |
+| `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service | yes | Current verified release is `2026.4.27-40bc7cb`. |
 
 Current Traefik release:
 
 - Repo: `https://github.com/service-lasso/lasso-traefik`
-- Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-38bd54d`
+- Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-40bc7cb`
 
 `service-lasso/lasso-node`, `service-lasso/lasso-python`, and `service-lasso/lasso-java` now exist and have verified releases. Core manifests now point at those verified releases; remaining reference/service-template refresh can proceed from this core truth.
 
@@ -224,7 +224,7 @@ Current delivery state:
 
 - repo exists
 - releases exist
-- core manifest points at `service-lasso/lasso-traefik@2026.4.27-38bd54d`
+- core manifest points at `service-lasso/lasso-traefik@2026.4.27-40bc7cb`
 - core live verifier exists as `npm run verify:traefik-release`
 
 Recommended next delivery:
@@ -307,7 +307,7 @@ Reference repos must prove:
 This provider-release program is complete when:
 
 - `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons. Current state: all three repos exist; Python is Windows-only for its first release.
-- `lasso-traefik` remains aligned with the shared service repo contract; current proof is release `2026.4.27-38bd54d` with checksum output and HTTP `/ping` readiness.
+- `lasso-traefik` remains aligned with the shared service repo contract; current proof is release `2026.4.27-40bc7cb` with checksum output, HTTP `/ping` readiness, and env/globalenv outputs.
 - core manifests accurately distinguish release-backed providers from any remaining local/no-download providers.
 - clean-clone validation proves the default baseline with any release-backed provider changes.
 - reference app inventories and release outputs are consistent with the final provider state.

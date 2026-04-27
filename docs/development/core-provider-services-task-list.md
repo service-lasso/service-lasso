@@ -61,7 +61,7 @@ Each service repo is done only when:
 - README explains supported platforms, artifact names, and usage
 - the service issue records release URL, asset list, and verification evidence
 
-`@traefik` evidence: `service-lasso/lasso-traefik#1` hardened the repo contract, and follow-up `service-lasso/lasso-traefik#2` released `2026.4.27-38bd54d` with Windows/Linux/macOS archives, `service.json`, `SHA256SUMS.txt`, and HTTP `/ping` readiness. Core `services/@traefik/service.json` is pinned to that release, and `npm run verify:traefik-release`, `npm run verify:baseline-start`, and `npm test` passed after the pin.
+`@traefik` evidence: `service-lasso/lasso-traefik#1` hardened the repo contract, `service-lasso/lasso-traefik#2` added HTTP `/ping` readiness, and `service-lasso/lasso-traefik#3` released `2026.4.27-40bc7cb` with Windows/Linux/macOS archives, `service.json`, `SHA256SUMS.txt`, and Traefik env/globalenv outputs. Core `services/@traefik/service.json` is pinned to that release, and `npm run verify:traefik-release`, `npm run verify:baseline-start`, and `npm test` passed after the pin.
 
 `@node` evidence: `service-lasso/lasso-node#1` added the provider packaging repo, `service-lasso/lasso-node#2` moved macOS packaging to `macos-15-intel`, release `2026.4.27-13573bd` published exact Node `v24.15.0` and `v25.9.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`, and direct Service Lasso install/acquire proof downloaded the default `v24.15.0` artifact without starting a managed daemon.
 
