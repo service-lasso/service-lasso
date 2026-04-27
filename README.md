@@ -52,8 +52,8 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 
 | Service | Role | Source |
 | --- | --- | --- |
-| `@node` | release-backed Node runtime provider | acquired from `service-lasso/lasso-node@2026.4.27-13573bd`; installed/configured but not launched as a daemon |
-| `localcert` | core local certificate utility for Traefik | installed/configured as a provider-role core utility; no daemon launch yet |
+| `@node` | release-backed Node runtime provider | acquired from `service-lasso/lasso-node@2026.4.27-eca215a`; installed/configured but not launched as a daemon |
+| `localcert` | release-backed core local certificate utility for Traefik | acquired from `service-lasso/lasso-localcert@2026.4.27-591ed28`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
 | `nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from `service-lasso/lasso-nginx@2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
 | `@traefik` | local edge/router service depending on `localcert` and `nginx` | acquired from `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `echo-service` | test harness service with UI/API/log/state behavior | `service-lasso/lasso-echoservice` GitHub release |

@@ -40,7 +40,7 @@ export interface RuntimeServiceMonitorOptions {
 
 export interface RuntimeServiceMonitor {
   start: () => void;
-  stop: () => void;
+  stop: () => Promise<void>;
   runOnce: () => Promise<ServiceMonitorEvent[]>;
 }
 
@@ -77,6 +77,7 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
   const unhealthyCounts = new Map<string, number>();
   const inFlight = new Set<string>();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let activeRun: Promise<void> | null = null;
 
   async function restartMonitoredService(
     service: DiscoveredService,
@@ -205,17 +206,35 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
       }
 
       timer = setInterval(() => {
-        void runOnce();
+        if (activeRun) {
+          return;
+        }
+
+        activeRun = runOnce()
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn(`[service-lasso] Monitor run failed: ${message}`);
+          })
+          .finally(() => {
+            activeRun = null;
+          });
       }, intervalMs);
       timer.unref?.();
     },
-    stop: () => {
+    stop: async () => {
       if (!timer) {
+        if (activeRun) {
+          await activeRun;
+        }
         return;
       }
 
       clearInterval(timer);
       timer = null;
+      if (activeRun) {
+        await activeRun;
+      }
     },
     runOnce,
   };

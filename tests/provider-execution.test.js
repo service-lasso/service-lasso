@@ -103,7 +103,7 @@ test("provider resolution prefers an installed provider artifact command", async
         ...providerState.installArtifacts.artifact,
         sourceType: "github-release",
         repo: "service-lasso/lasso-node",
-        tag: "2026.4.27-13573bd",
+        tag: "2026.4.27-eca215a",
         assetName: "lasso-node-v24.15.0-win32.zip",
         archiveType: "zip",
         extractedPath: path.join("provider-root"),
