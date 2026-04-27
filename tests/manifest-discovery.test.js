@@ -69,7 +69,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-a266e3e");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-41ef504");
   assert.deepEqual(byId.get("@traefik")?.ports, {
     web: 19080,
     websecure: 19443,
@@ -84,6 +84,20 @@ test("core services root declares the clean-clone baseline inventory", async () 
     https_bpmn: 19150,
     mongo: 19160,
     typedb: 19170,
+  });
+  assert.deepEqual(byId.get("@traefik")?.portmapping, {
+    HTTP: "${WEB_PORT}",
+    HTTPS: "${WEBSECURE_PORT}",
+    HTTPS_TRAEFIK: "${HTTPS_TRAEFIK_PORT}",
+    HTTPS_NGINX: "${HTTPS_NGINX_PORT}",
+    HTTPS_CMS: "${HTTPS_CMS_PORT}",
+    HTTPS_FLOW: "${HTTPS_FLOW_PORT}",
+    HTTPS_FLOWTMS: "${HTTPS_FLOWTMS_PORT}",
+    HTTPS_API: "${HTTPS_API_PORT}",
+    HTTPS_FILES: "${HTTPS_FILES_PORT}",
+    HTTPS_BPMN: "${HTTPS_BPMN_PORT}",
+    TCP_MOGNO: "${MONGO_PORT}",
+    TCP_TYPEDB: "${TYPEDB_PORT}",
   });
   assert.deepEqual(byId.get("@traefik")?.env, {
     TRAEFIK_HTTP_PORT: "${WEB_PORT}",
@@ -587,6 +601,42 @@ test("loadServiceManifest accepts bounded ports declarations", async () => {
     assert.deepEqual(manifest.ports, {
       service: 43100,
       ui: 0,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts donor-style portmapping declarations", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "mapped-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "mapped-service",
+        name: "Mapped Service",
+        description: "Service with donor-style portmapping.",
+        ports: {
+          web: 18080,
+          mongo: 19017,
+        },
+        portmapping: {
+          HTTP: "${WEB_PORT}",
+          TCP_MOGNO: "${MONGO_PORT}",
+          LEGACY_LITERAL: 9250,
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.portmapping, {
+      HTTP: "${WEB_PORT}",
+      TCP_MOGNO: "${MONGO_PORT}",
+      LEGACY_LITERAL: "9250",
     });
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });

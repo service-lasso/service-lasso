@@ -10,6 +10,10 @@ export interface ServicePortDeclaration {
   [name: string]: number;
 }
 
+export interface ServicePortMappingDeclaration {
+  [name: string]: string;
+}
+
 export interface ServiceMaterializedFile {
   path: string;
   content: string;
@@ -122,6 +126,7 @@ export interface ServiceManifest {
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
   ports?: ServicePortDeclaration;
+  portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceEndpoint[];
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;

@@ -582,6 +582,45 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
   }
 });
 
+test("GET /api/services/:id/network resolves donor-style portmapping", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-portmapping-");
+
+  await writeManifest(servicesRoot, "mapped-service", {
+    id: "mapped-service",
+    name: "Mapped Service",
+    description: "Service with donor-style portmapping.",
+    ports: {
+      web: 48080,
+      mongo: 49017,
+    },
+    portmapping: {
+      HTTP: "${WEB_PORT}",
+      TCP_MOGNO: "${MONGO_PORT}",
+      LEGACY_LITERAL: "9250",
+    },
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/mapped-service/network`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.network.portmapping, {
+      HTTP: "48080",
+      TCP_MOGNO: "49017",
+      LEGACY_LITERAL: "9250",
+    });
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("config negotiates colliding ports deterministically and surfaces resolved network endpoints", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-ports-");

@@ -121,6 +121,7 @@ async function writeTraefikManifest(serviceRoot, ports) {
         ports: Object.fromEntries(
           Object.keys(coreTraefikManifest.ports ?? {}).map((key) => [key, ports[key]]),
         ),
+        portmapping: coreTraefikManifest.portmapping,
         env: coreTraefikManifest.env,
         globalenv: coreTraefikManifest.globalenv,
         artifact: {
@@ -224,6 +225,25 @@ try {
   for (const [key, value] of Object.entries(ports).filter(([key]) => key !== "api")) {
     if (network.network?.ports?.[key] !== value) {
       throw new Error(`Traefik network port ${key} mismatch: ${JSON.stringify(network.network?.ports)}`);
+    }
+  }
+  const expectedPortmapping = {
+    HTTP: String(ports.web),
+    HTTPS: String(ports.websecure),
+    HTTPS_TRAEFIK: String(ports.https_traefik),
+    HTTPS_NGINX: String(ports.https_nginx),
+    HTTPS_CMS: String(ports.https_cms),
+    HTTPS_FLOW: String(ports.https_flow),
+    HTTPS_FLOWTMS: String(ports.https_flowtms),
+    HTTPS_API: String(ports.https_api),
+    HTTPS_FILES: String(ports.https_files),
+    HTTPS_BPMN: String(ports.https_bpmn),
+    TCP_MOGNO: String(ports.mongo),
+    TCP_TYPEDB: String(ports.typedb),
+  };
+  for (const [key, value] of Object.entries(expectedPortmapping)) {
+    if (network.network?.portmapping?.[key] !== value) {
+      throw new Error(`Traefik network portmapping ${key} mismatch: ${JSON.stringify(network.network?.portmapping)}`);
     }
   }
 
