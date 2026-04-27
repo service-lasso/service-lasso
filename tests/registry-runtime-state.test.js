@@ -37,7 +37,8 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.ok(registry.getById("@java"));
   assert.equal(registry.getById("@traefik")?.manifest.enabled, true);
   assert.equal(registry.getById("localcert")?.manifest.role, "provider");
-  assert.equal(registry.getById("nginx")?.manifest.role, "provider");
+  assert.equal(registry.getById("nginx")?.manifest.role, undefined);
+  assert.equal(registry.getById("nginx")?.manifest.artifact?.source.repo, "service-lasso/lasso-nginx");
 
   const echoSummary = graph.getServiceDependencies("echo-service");
   assert.deepEqual(echoSummary.dependencies, []);
