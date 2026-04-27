@@ -24,8 +24,8 @@ It separates current truth from target delivery so the repo does not imply relea
 | Service | Current repo | Current core behavior | Release-backed today | Notes |
 | --- | --- | --- | --- | --- |
 | `@node` | `service-lasso/lasso-node` | local/no-download provider in the current core baseline until `#172` integrates the verified release | yes, repo release exists | Release `2026.4.27-13573bd` publishes exact Node `v24.15.0` and `v25.9.0` archives; core install/acquire proof passed against the released manifest. |
-| `@python` | none | local/no-download provider using host `python` | no | Fixture/provider manifest exists, but it is not part of the default baseline. |
-| `@java` | none | local/no-download provider using host `java` | no | Tracked by the Java plan; release-backed JRE redistribution is deferred until vendor/license/security choices are made. |
+| `@python` | `service-lasso/lasso-python` | local/no-download provider in core until `#172` integrates the verified release | yes, Windows-only repo release exists | Release `2026.4.27-63f915c` publishes official Python.org Windows embeddable `3.11.5` and `3.14.4` archives; core install/acquire proof passed against the released manifest. Linux/macOS remain deferred. |
+| `@java` | `service-lasso/lasso-java` | local/no-download provider in core until `#172` integrates the verified release | yes, repo release exists | Release `2026.4.27-b313cb0` publishes Eclipse Temurin JRE `17.0.18+8` and `21.0.10+7` archives for Windows/Linux/macOS; core install/acquire proof passed against the released manifest. |
 | `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service | yes | Current verified release is `2026.4.27-354433e`. |
 
 Current Traefik release:
@@ -33,7 +33,7 @@ Current Traefik release:
 - Repo: `https://github.com/service-lasso/lasso-traefik`
 - Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-354433e`
 
-No `service-lasso/lasso-python` or `service-lasso/lasso-java` GitHub repos exist at the time of this plan update. `service-lasso/lasso-node` now exists and has a verified release; core/reference baseline migration remains tracked by `#172`.
+`service-lasso/lasso-node`, `service-lasso/lasso-python`, and `service-lasso/lasso-java` now exist and have verified releases. Core/reference baseline migration remains tracked by `#172`, because the checked-in core manifests still need to be updated deliberately after release proof exists.
 
 ## Target Service Repo Pattern
 
@@ -99,8 +99,8 @@ Use a predictable artifact name per platform:
 | --- | --- | --- | --- |
 | `@node` `v24.15.0` | `lasso-node-v24.15.0-win32.zip` | `lasso-node-v24.15.0-linux.tar.gz` | `lasso-node-v24.15.0-darwin.tar.gz` |
 | `@node` `v25.9.0` | `lasso-node-v25.9.0-win32.zip` | `lasso-node-v25.9.0-linux.tar.gz` | `lasso-node-v25.9.0-darwin.tar.gz` |
-| `@python` `3.11.5` | `lasso-python-3.11.5-win32.zip` | `lasso-python-3.11.5-linux.tar.gz` | `lasso-python-3.11.5-darwin.tar.gz` |
-| `@python` `3.14.4` | `lasso-python-3.14.4-win32.zip` | `lasso-python-3.14.4-linux.tar.gz` | `lasso-python-3.14.4-darwin.tar.gz` |
+| `@python` `3.11.5` | `lasso-python-3.11.5-win32.zip` | Deferred | Deferred |
+| `@python` `3.14.4` | `lasso-python-3.14.4-win32.zip` | Deferred | Deferred |
 | `@java` `17.0.18+8` | `lasso-java-17.0.18+8-win32.zip` | `lasso-java-17.0.18+8-linux.tar.gz` | `lasso-java-17.0.18+8-darwin.tar.gz` |
 | `@java` `21.0.10+7` | `lasso-java-21.0.10+7-win32.zip` | `lasso-java-21.0.10+7-linux.tar.gz` | `lasso-java-21.0.10+7-darwin.tar.gz` |
 | `@traefik` | `lasso-traefik-win32.zip` | `lasso-traefik-linux.tar.gz` | `lasso-traefik-darwin.tar.gz` |
@@ -179,7 +179,15 @@ Recommended first delivery:
 
 Key risk:
 
-- Python embedded distribution behavior differs by platform. The repo must document what is supported and what is intentionally deferred.
+- Python.org publishes Windows embeddable archives, but does not publish equivalent portable runtime archives for Linux/macOS. The first provider release is intentionally Windows-only until an approved cross-platform Python distribution source exists.
+
+Current delivery evidence:
+
+- Repo: `https://github.com/service-lasso/lasso-python`
+- Release: `https://github.com/service-lasso/lasso-python/releases/tag/2026.4.27-63f915c`
+- Release workflow: `https://github.com/service-lasso/lasso-python/actions/runs/24978375174`
+- Assets: `lasso-python-3.11.5-win32.zip`, `lasso-python-3.14.4-win32.zip`, `service.json`, and `SHA256SUMS.txt`
+- Core proof: `service-lasso install @python` against the released manifest acquired `lasso-python-3.11.5-win32.zip` from release `2026.4.27-63f915c` and left `running=false`.
 
 ### `@java`
 
@@ -198,7 +206,15 @@ Recommended first delivery:
 
 Key risk:
 
-- Java redistribution has the clearest vendor/license/security-update decision point. Do not create a release-backed JRE repo until that decision is documented.
+- Java redistribution now uses Eclipse Temurin/Adoptium JRE archives for the first provider release. Security-update cadence and future runtime updates still need explicit maintenance ownership when the provider is integrated into app inventories.
+
+Current delivery evidence:
+
+- Repo: `https://github.com/service-lasso/lasso-java`
+- Release: `https://github.com/service-lasso/lasso-java/releases/tag/2026.4.27-b313cb0`
+- Release workflow: `https://github.com/service-lasso/lasso-java/actions/runs/24978746504`
+- Assets: exact Java `17.0.18+8` and `21.0.10+7` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
+- Core proof: `service-lasso install @java` against the released manifest acquired `lasso-java-17.0.18+8-win32.zip` from release `2026.4.27-b313cb0` and left `running=false`.
 
 ### `@traefik`
 
@@ -248,9 +264,9 @@ Recommended order:
 1. Harden the shared service repo template/contract using `lasso-traefik` as the reference implementation.
 2. Deliver `lasso-node`, because `@node` is already part of the baseline and unlocks a no-host-Node provider path for app services.
 3. Integrate release-backed `@node` into core and revalidate the baseline.
-4. Deliver `lasso-python`, because Python is a common donor/provider class but not baseline-critical.
-5. Deliver `lasso-java` after the JRE vendor/license/security decision.
-6. Update reference app/service-template inventories as each provider becomes release-backed and verified.
+4. Deliver `lasso-python`, because Python is a common donor/provider class but not baseline-critical. Completed with a Windows-only first release.
+5. Deliver `lasso-java` after the JRE vendor/license/security decision. Completed with Eclipse Temurin JRE releases.
+6. Update core/reference app/service-template inventories as each provider becomes release-backed and verified. This remains tracked by `#172`.
 
 ## Verification Gates
 
@@ -291,7 +307,7 @@ Reference repos must prove:
 
 This provider-release program is complete when:
 
-- `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons.
+- `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons. Current state: all three repos exist; Python is Windows-only for its first release.
 - `lasso-traefik` remains aligned with the shared service repo contract; current proof is release `2026.4.27-354433e` with checksum output.
 - core manifests accurately distinguish release-backed providers from local/no-download providers.
 - clean-clone validation proves the default baseline with any release-backed provider changes.
