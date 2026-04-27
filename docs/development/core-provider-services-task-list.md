@@ -61,7 +61,7 @@ Each service repo is done only when:
 - README explains supported platforms, artifact names, and usage
 - the service issue records release URL, asset list, and verification evidence
 
-`@traefik` evidence: `service-lasso/lasso-traefik#1` hardened the repo contract, `service-lasso/lasso-traefik#2` added HTTP `/ping` readiness, `service-lasso/lasso-traefik#3` added env/globalenv outputs, and `service-lasso/lasso-traefik#4` released `2026.4.27-a266e3e` with Windows/Linux/macOS archives, `service.json`, `SHA256SUMS.txt`, and the full Traefik service-port map. Core `services/@traefik/service.json` is pinned to that release, and `npm run verify:traefik-release`, `npm run verify:baseline-start`, and `npm test` passed after the pin.
+`@traefik` evidence: `service-lasso/lasso-traefik#1` hardened the repo contract, `service-lasso/lasso-traefik#2` added HTTP `/ping` readiness, `service-lasso/lasso-traefik#3` added env/globalenv outputs, `service-lasso/lasso-traefik#4` added the full service-port map, and `service-lasso/lasso-traefik#5` released `2026.4.27-41ef504` with donor-compatible `portmapping`. Core `services/@traefik/service.json` is pinned to that release, and `npm run verify:traefik-release`, `npm run verify:baseline-start`, and `npm test` passed after the pin.
 
 `@node` evidence: `service-lasso/lasso-node#1` added the provider packaging repo, `service-lasso/lasso-node#2` moved macOS packaging to `macos-15-intel`, release `2026.4.27-13573bd` published exact Node `v24.15.0` and `v25.9.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`, and direct Service Lasso install/acquire proof downloaded the default `v24.15.0` artifact without starting a managed daemon.
 

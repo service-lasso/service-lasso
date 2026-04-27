@@ -2,7 +2,7 @@
   "id": "@traefik",
   "name": "Traefik Router",
   "description": "Release-backed Traefik edge/router service for Service Lasso baseline routing.",
-  "version": "2026.4.27-a266e3e",
+  "version": "2026.4.27-41ef504",
   "enabled": true,
   "ports": {
     "web": 19080,
@@ -18,6 +18,20 @@
     "https_bpmn": 19150,
     "mongo": 19160,
     "typedb": 19170
+  },
+  "portmapping": {
+    "HTTP": "${WEB_PORT}",
+    "HTTPS": "${WEBSECURE_PORT}",
+    "HTTPS_TRAEFIK": "${HTTPS_TRAEFIK_PORT}",
+    "HTTPS_NGINX": "${HTTPS_NGINX_PORT}",
+    "HTTPS_CMS": "${HTTPS_CMS_PORT}",
+    "HTTPS_FLOW": "${HTTPS_FLOW_PORT}",
+    "HTTPS_FLOWTMS": "${HTTPS_FLOWTMS_PORT}",
+    "HTTPS_API": "${HTTPS_API_PORT}",
+    "HTTPS_FILES": "${HTTPS_FILES_PORT}",
+    "HTTPS_BPMN": "${HTTPS_BPMN_PORT}",
+    "TCP_MOGNO": "${MONGO_PORT}",
+    "TCP_TYPEDB": "${TYPEDB_PORT}"
   },
   "env": {
     "TRAEFIK_HTTP_PORT": "${WEB_PORT}",
@@ -88,7 +102,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-traefik",
-      "tag": "2026.4.27-a266e3e"
+      "tag": "2026.4.27-41ef504"
     },
     "platforms": {
       "win32": {
