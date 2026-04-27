@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-27
 
-Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`
+Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`
 
 ## Summary
 
@@ -15,6 +15,8 @@ Docs and `service-template` identify this baseline for app/reference repos:
 - `services/echo-service/service.json`
 - `services/service-admin/service.json`
 - `services/@node/service.json`
+- `services/localcert/service.json`
+- `services/nginx/service.json`
 - `services/@traefik/service.json`
 
 The prior inventory gap is now closed for the scoped reference repos: `service-template`, `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg` carry `echo-service`, `service-admin`, `@node`, and release-backed `@traefik`.
@@ -32,7 +34,9 @@ Python and Java remain optional provider services rather than starter baseline d
 | `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Core manifest points at `service-lasso/lasso-node@2026.4.27-13573bd`; baseline start acquires it, configures it, skips daemon launch, and provider-backed child services can execute through the acquired runtime. | No current baseline gap. Reference app inventories still need to be refreshed if they carry older local/no-download copies. |
 | `@python` | Runtime/provider utility service for Python-backed services. | Core manifest points at `service-lasso/lasso-python@2026.4.27-63f915c` and can acquire the default Python `3.11.5` Windows embeddable archive. | Not part of the current starter baseline. Linux/macOS Python archives remain deferred pending an approved portable distribution source. |
 | `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest points at `service-lasso/lasso-java@2026.4.27-b313cb0`; provider resolution supports `execservice: "@java"` and direct acquire proof installs Java `17.0.18+8`. | Not part of the current starter baseline. Java-dependent services such as Keycloak should be migrated as separate service issues. |
-| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-b879d28` with donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; manifest exists in service-template and all scoped reference-app inventories; docs list it in starter baseline. | No current baseline gap. |
+| `localcert` | Local certificate utility/dependency for Traefik. | Core manifest exists in `services/localcert/service.json` as a provider-role local/no-download dependency marker. Baseline start installs/configures it before Traefik and skips daemon launch. | Full certificate materialization remains future work. |
+| `nginx` | Nginx routing dependency for Traefik. | Core manifest exists in `services/nginx/service.json` as a provider-role local/no-download dependency marker. Baseline start installs/configures it before Traefik and skips daemon launch. | Full release-backed nginx service remains future work. |
+| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15` with `depend_on: ["localcert", "nginx"]`, donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; docs list it in starter baseline. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 | `@localcert` | Future local certificate/bootstrap utility based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 
@@ -46,12 +50,15 @@ Core repo currently has:
 - `services/@python/service.json`
 - `services/node-sample-service/service.json`
 - `services/service-admin/service.json`
+- `services/localcert/service.json`
+- `services/nginx/service.json`
 - `services/@traefik/service.json`
 
 Core repo does not currently have:
 
 - `services/@archive/service.json`
-- `services/@localcert/service.json`
+- full release-backed `services/localcert/service.json` implementation
+- full release-backed `services/nginx/service.json` implementation
 
 `service-template` currently has:
 
@@ -109,5 +116,6 @@ Core completion should proceed in this order:
 Future/deferred donor-aligned utility services:
 
 - `@archive`
-- `@localcert`
+- release-backed/materializing `localcert`
+- release-backed `nginx`
 - Linux/macOS `@python` portable runtime distribution beyond the current Windows-only release-backed provider repo

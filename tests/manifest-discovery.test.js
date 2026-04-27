@@ -53,9 +53,11 @@ test("core services root declares the clean-clone baseline inventory", async () 
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
 
   assert.deepEqual(
-    ["@node", "@traefik", "echo-service", "service-admin"].filter((serviceId) => !byId.has(serviceId)),
+    ["localcert", "nginx", "@node", "@traefik", "echo-service", "service-admin"].filter((serviceId) => !byId.has(serviceId)),
     [],
   );
+  assert.equal(byId.get("localcert")?.role, "provider");
+  assert.equal(byId.get("nginx")?.role, "provider");
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
   assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
@@ -68,8 +70,9 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
+  assert.deepEqual(byId.get("@traefik")?.depend_on, ["localcert", "nginx"]);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-b879d28");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-bbc7f15");
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
   assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{MONGO_PORT\}"/);
   assert.match(byId.get("@traefik")?.commandline?.default ?? "", /--serversTransport\.insecureSkipVerify=true/);

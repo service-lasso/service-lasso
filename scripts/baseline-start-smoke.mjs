@@ -142,18 +142,30 @@ async function writeNodeProviderService(servicesRoot) {
   });
 }
 
+async function writeProviderDependencyService(servicesRoot, serviceId) {
+  await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
+    id: serviceId,
+    name: serviceId,
+    description: `Baseline smoke provider dependency for ${serviceId}.`,
+    role: "provider",
+    enabled: true,
+  });
+}
+
 function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (service.serviceId === "@node") {
+  if (["localcert", "nginx", "@node"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
-    assert(startAction?.status === "skipped", "@node provider start was not skipped in CLI summary.");
-    assert(service.state.running === false, "@node provider should not be marked running in CLI summary.");
-    assert(
-      service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
-      "@node provider did not install from the pinned release artifact.",
-    );
+    assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
+    assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
+    if (service.serviceId === "@node") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
+        "@node provider did not install from the pinned release artifact.",
+      );
+    }
     return;
   }
 
@@ -243,7 +255,7 @@ async function writeTraefikService(servicesRoot, ports, options = {}) {
     description: "Release-backed Traefik baseline smoke fixture.",
     version: traefikReleaseVersion,
     enabled: true,
-    depend_on: options.depend_on,
+    depend_on: options.depend_on ?? coreTraefikManifest.depend_on,
     ports: {
       web: ports.web,
       admin: ports.admin,
@@ -367,8 +379,10 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await writeProviderDependencyService(servicesRoot, "localcert");
+  await writeProviderDependencyService(servicesRoot, "nginx");
   await writeNodeProviderService(servicesRoot);
-  await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort }, { depend_on: ["@node"] });
+  await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
     ports: { service: echoPort },
@@ -393,7 +407,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@node", "@traefik", "echo-service", "service-admin"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@node", "@traefik", "echo-service", "localcert", "nginx", "service-admin"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -403,8 +417,8 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (serviceId === "@node") {
-      assert(service.lifecycle?.running === false, "@node provider should not be marked running.");
+    if (["localcert", "nginx", "@node"].includes(serviceId)) {
+      assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
     }

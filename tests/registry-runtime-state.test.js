@@ -29,13 +29,15 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const registry = createServiceRegistry(discovered);
   const graph = new DependencyGraph(registry);
 
-  assert.equal(registry.count(), 7);
-  assert.equal(registry.countEnabled(), 5);
+  assert.equal(registry.count(), 9);
+  assert.equal(registry.countEnabled(), 7);
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
   assert.ok(registry.getById("service-admin"));
   assert.ok(registry.getById("@java"));
   assert.equal(registry.getById("@traefik")?.manifest.enabled, true);
+  assert.equal(registry.getById("localcert")?.manifest.role, "provider");
+  assert.equal(registry.getById("nginx")?.manifest.role, "provider");
 
   const echoSummary = graph.getServiceDependencies("echo-service");
   assert.deepEqual(echoSummary.dependencies, []);
@@ -44,6 +46,14 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const nodeSummary = graph.getServiceDependencies("@node");
   assert.deepEqual(nodeSummary.dependencies, []);
   assert.deepEqual(nodeSummary.dependents, ["node-sample-service", "service-admin"]);
+
+  const traefikSummary = graph.getServiceDependencies("@traefik");
+  assert.deepEqual(traefikSummary.dependencies, ["localcert", "nginx"]);
+  assert.deepEqual(traefikSummary.dependents, []);
+  assert.deepEqual(graph.getStartupOrder("@traefik"), ["localcert", "nginx"]);
+
+  assert.deepEqual(graph.getServiceDependencies("localcert").dependents, ["@traefik"]);
+  assert.deepEqual(graph.getServiceDependencies("nginx").dependents, ["@traefik"]);
 
   const nodeSampleSummary = graph.getServiceDependencies("node-sample-service");
   assert.deepEqual(nodeSampleSummary.dependencies, ["@node"]);
@@ -87,9 +97,9 @@ test("GET /api/runtime returns runtime summary state", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.runtime.totalServices, 7);
-    assert.equal(body.runtime.enabledServices, 5);
-    assert.equal(body.runtime.dependencyEdges, 2);
+    assert.equal(body.runtime.totalServices, 9);
+    assert.equal(body.runtime.enabledServices, 7);
+    assert.equal(body.runtime.dependencyEdges, 4);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {
     await apiServer.stop();
@@ -108,8 +118,10 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 7);
+    assert.equal(body.dependencies.nodes.length, 9);
     assert.deepEqual(body.dependencies.edges, [
+      { from: "localcert", to: "@traefik" },
+      { from: "nginx", to: "@traefik" },
       { from: "@node", to: "node-sample-service" },
       { from: "@node", to: "service-admin" },
     ]);
