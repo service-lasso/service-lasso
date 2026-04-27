@@ -1,7 +1,7 @@
 {
   "id": "localcert",
-  "name": "Local Certificate Utility",
-  "description": "Baseline dependency marker for local certificate material used by Traefik routing.",
+  "name": "Core Local Certificate Utility",
+  "description": "Core local/no-download certificate utility service for Traefik routing dependencies.",
   "version": "0.1.0",
   "role": "provider",
   "enabled": true,
