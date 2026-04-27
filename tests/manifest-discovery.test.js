@@ -58,7 +58,18 @@ test("core services root declares the clean-clone baseline inventory", async () 
   );
   assert.equal(byId.get("localcert")?.role, "provider");
   assert.equal(byId.get("localcert")?.name, "Core Local Certificate Utility");
-  assert.match(byId.get("localcert")?.description ?? "", /Core local\/no-download certificate utility service/);
+  assert.match(byId.get("localcert")?.description ?? "", /Release-backed local certificate bootstrap utility/);
+  assert.equal(byId.get("localcert")?.artifact?.source.repo, "service-lasso/lasso-localcert");
+  assert.equal(byId.get("localcert")?.artifact?.source.tag, "2026.4.27-591ed28");
+  assert.equal(byId.get("localcert")?.artifact?.platforms.win32?.assetName, "lasso-localcert-0.1.0-win32.zip");
+  assert.deepEqual(byId.get("localcert")?.globalenv, {
+    LOCALCERT_ENABLED: "true",
+    LOCALCERT_ROOT: "${SERVICE_ARTIFACT_ROOT}",
+    CERT_FILE: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.crt",
+    CERT_KEY: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.key",
+    CERT_PFX: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.pfx",
+    CAROOT_CERT: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/caroot.crt",
+  });
   assert.equal(byId.get("nginx")?.role, undefined);
   assert.equal(byId.get("nginx")?.version, "1.30.0");
   assert.equal(byId.get("nginx")?.artifact?.source.repo, "service-lasso/lasso-nginx");
@@ -75,7 +86,12 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
   assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
-  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-13573bd");
+  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-eca215a");
+  assert.equal(byId.get("@node")?.artifact?.platforms.win32?.assetName, "lasso-node-v24.15.0-win32.zip");
+  assert.deepEqual(byId.get("@node")?.globalenv, {
+    NODE: "${SERVICE_ARTIFACT_COMMAND}",
+    NODE_HOME: "${SERVICE_ARTIFACT_ROOT}",
+  });
   assert.equal(byId.get("@java")?.executable, "java");
   assert.equal(byId.get("@java")?.role, "provider");
   assert.equal(byId.get("@java")?.artifact?.source.repo, "service-lasso/lasso-java");

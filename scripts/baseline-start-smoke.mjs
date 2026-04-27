@@ -12,6 +12,9 @@ const coreTraefikManifest = JSON.parse(
 const coreNodeManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
 );
+const coreLocalcertManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "localcert", "service.json"), "utf8"),
+);
 const coreNginxManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "nginx", "service.json"), "utf8"),
 );
@@ -22,6 +25,10 @@ if (!traefikReleaseVersion || coreTraefikManifest.version !== traefikReleaseVers
 const nodeReleaseVersion = coreNodeManifest.artifact?.source?.tag;
 if (!nodeReleaseVersion) {
   throw new Error("Core @node manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
+const localcertReleaseVersion = coreLocalcertManifest.artifact?.source?.tag;
+if (!localcertReleaseVersion) {
+  throw new Error("Core localcert manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 const nginxReleaseVersion = coreNginxManifest.artifact?.source?.tag;
 if (!nginxReleaseVersion) {
@@ -181,6 +188,31 @@ async function writeProviderDependencyService(servicesRoot, serviceId) {
   });
 }
 
+function localcertPlatformArtifact() {
+  const platformArtifact = coreLocalcertManifest.artifact?.platforms?.[process.platform];
+  if (!platformArtifact) {
+    throw new Error(`Core localcert manifest does not support platform ${process.platform}.`);
+  }
+  return platformArtifact;
+}
+
+async function writeLocalcertService(servicesRoot) {
+  await writeJson(path.join(servicesRoot, "localcert", "service.json"), {
+    ...coreLocalcertManifest,
+    artifact: {
+      ...coreLocalcertManifest.artifact,
+      source: {
+        type: "github-release",
+        repo: coreLocalcertManifest.artifact.source.repo,
+        tag: localcertReleaseVersion,
+      },
+      platforms: {
+        [process.platform]: localcertPlatformArtifact(),
+      },
+    },
+  });
+}
+
 function nginxPlatformArtifact() {
   const platformArtifact = coreNginxManifest.artifact?.platforms?.[process.platform];
   if (!platformArtifact) {
@@ -225,6 +257,12 @@ function assertBaselineServiceSummary(service) {
       assert(
         service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
         "@node provider did not install from the pinned release artifact.",
+      );
+    }
+    if (service.serviceId === "localcert") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === localcertReleaseVersion,
+        "localcert provider did not install from the pinned release artifact.",
       );
     }
     return;
@@ -448,7 +486,7 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
-  await writeProviderDependencyService(servicesRoot, "localcert");
+  await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
