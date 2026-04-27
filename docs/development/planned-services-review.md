@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-27
 
-Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`, `#198`, `#201`
+Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`, `#198`, `#201`, `#204`, `#207`
 
 ## Summary
 
@@ -25,6 +25,8 @@ The live source-host proof is also closed: `npm run verify:reference-app-lifecyc
 
 Python and Java remain optional provider services rather than starter baseline dependencies today. Their checked-in core manifests are release-backed so consumers can acquire them explicitly, but baseline start does not include them unless an app/service inventory depends on them.
 
+ZITADEL is also available as a release-backed optional managed service repo for app inventories that need an identity provider. It is not part of the core baseline because it requires an app-provided PostgreSQL database and stable 32-byte master key before it can start safely.
+
 ## Service Status
 
 | Service | Role | Current status | Gap |
@@ -37,8 +39,8 @@ Python and Java remain optional provider services rather than starter baseline d
 | `localcert` | Core local certificate utility/dependency for Traefik. | Core manifest points at `service-lasso/lasso-localcert@2026.4.27-591ed28` as a provider-role release-backed utility service. Baseline start installs/configures it before Traefik, skips daemon launch, and exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`. | No current baseline gap. |
 | `nginx` | NGINX Open Source routing dependency for Traefik. | Core manifest points at `service-lasso/lasso-nginx@2026.4.27-712c75f`; baseline start acquires, configures, starts, and healthchecks it before Traefik. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15` with `depend_on: ["localcert", "nginx"]`, donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; docs list it in starter baseline. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
+| `zitadel` | Optional managed identity service for app inventories that need local OIDC/IAM. | Implemented and released in `service-lasso/lasso-zitadel`; release `2026.4.27-8b38162` packages upstream ZITADEL `v4.14.0` Windows/Linux/macOS archives plus released `service.json` and checksums. | Not part of the starter baseline. Consumers must provide PostgreSQL and `ZITADEL_MASTERKEY` before enabling/start. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
-| `@localcert` | Future local certificate/bootstrap utility based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 
 ## Repo Inventory Snapshot
 
@@ -57,7 +59,7 @@ Core repo currently has:
 Core repo does not currently have:
 
 - `services/@archive/service.json`
-- full release-backed `services/localcert/service.json` implementation
+- `services/zitadel/service.json`; apps opt into ZITADEL by copying the released manifest from `service-lasso/lasso-zitadel`
 
 `service-template` currently has:
 
@@ -115,5 +117,5 @@ Core completion should proceed in this order:
 Future/deferred donor-aligned utility services:
 
 - `@archive`
-- release-backed/materializing `localcert`
 - Linux/macOS `@python` portable runtime distribution beyond the current Windows-only release-backed provider repo
+- dependent identity stacks such as Keycloak or ZITADEL-backed app templates where an app commits database/master-key configuration
