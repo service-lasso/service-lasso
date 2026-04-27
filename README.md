@@ -52,7 +52,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 
 | Service | Role | Source |
 | --- | --- | --- |
-| `@node` | local Node runtime provider | local/no-download provider |
+| `@node` | release-backed Node runtime provider | acquired from `service-lasso/lasso-node@2026.4.27-13573bd`; installed/configured but not launched as a daemon |
 | `@traefik` | local edge/router service | `service-lasso/lasso-traefik` GitHub release |
 | `echo-service` | test harness service with UI/API/log/state behavior | `service-lasso/lasso-echoservice` GitHub release |
 | `service-admin` | browser UI for the Service Lasso runtime | `service-lasso/lasso-serviceadmin` GitHub release |
