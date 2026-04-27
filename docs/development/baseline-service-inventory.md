@@ -4,7 +4,7 @@ Date: 2026-04-25
 
 Latest update: 2026-04-28
 
-Linked issues: `#89`, `#91`, `#97`, `#102`, `#158`, `#159`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`, `#195`, `#198`, `#201`, `#204`, `#207`
+Linked issues: `#89`, `#91`, `#97`, `#102`, `#158`, `#159`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`, `#195`, `#198`, `#201`, `#204`, `#207`, `#210`
 
 OpenSpec binding: `SPEC-002`, `AC-4U`, `AC-4Y`, `AC-4Z`
 
@@ -45,6 +45,7 @@ Remaining issues:
 Optional service repo now available:
 
 - `#207`: `service-lasso/lasso-zitadel` publishes release-backed ZITADEL `v4.14.0` archives for consumers that explicitly add `services/zitadel/service.json`; it is not part of this baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration.
+- `#210`: `service-lasso/lasso-dagu` publishes release-backed Dagu `v2.6.1` archives for consumers that explicitly add `services/dagu/service.json`; it is not part of this baseline because workflow orchestration is app-specific.
 
 ## Verification Target
 

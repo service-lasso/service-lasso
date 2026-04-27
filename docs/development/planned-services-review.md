@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-27
 
-Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`, `#198`, `#201`, `#204`, `#207`
+Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`, `#198`, `#201`, `#204`, `#207`, `#210`
 
 ## Summary
 
@@ -27,6 +27,8 @@ Python and Java remain optional provider services rather than starter baseline d
 
 ZITADEL is also available as a release-backed optional managed service repo for app inventories that need an identity provider. It is not part of the core baseline because it requires an app-provided PostgreSQL database and stable 32-byte master key before it can start safely.
 
+Dagu is available as a release-backed optional managed service repo for app inventories that need local workflow orchestration. It is not part of the core baseline because not every app needs a workflow engine, but the released manifest can be copied into an app's `services/dagu/service.json`.
+
 ## Service Status
 
 | Service | Role | Current status | Gap |
@@ -40,6 +42,7 @@ ZITADEL is also available as a release-backed optional managed service repo for 
 | `nginx` | NGINX Open Source routing dependency for Traefik. | Core manifest points at `service-lasso/lasso-nginx@2026.4.27-712c75f`; baseline start acquires, configures, starts, and healthchecks it before Traefik. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15` with `depend_on: ["localcert", "nginx"]`, donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; docs list it in starter baseline. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `zitadel` | Optional managed identity service for app inventories that need local OIDC/IAM. | Implemented and released in `service-lasso/lasso-zitadel`; release `2026.4.27-8b38162` packages upstream ZITADEL `v4.14.0` Windows/Linux/macOS archives plus released `service.json` and checksums. | Not part of the starter baseline. Consumers must provide PostgreSQL and `ZITADEL_MASTERKEY` before enabling/start. |
+| `dagu` | Optional managed workflow engine service for app inventories that need local workflow orchestration. | Implemented and released in `service-lasso/lasso-dagu`; release `2026.4.27-a43c829` packages upstream Dagu `v2.6.1` Windows/Linux/macOS archives plus released `service.json` and checksums. | Not part of the starter baseline. Consumers opt in by adding `services/dagu/service.json`; default command runs `dagu start-all` on an app-owned port/workflow directory. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 
 ## Repo Inventory Snapshot
@@ -60,6 +63,7 @@ Core repo does not currently have:
 
 - `services/@archive/service.json`
 - `services/zitadel/service.json`; apps opt into ZITADEL by copying the released manifest from `service-lasso/lasso-zitadel`
+- `services/dagu/service.json`; apps opt into Dagu by copying the released manifest from `service-lasso/lasso-dagu`
 
 `service-template` currently has:
 
@@ -119,3 +123,4 @@ Future/deferred donor-aligned utility services:
 - `@archive`
 - Linux/macOS `@python` portable runtime distribution beyond the current Windows-only release-backed provider repo
 - dependent identity stacks such as Keycloak or ZITADEL-backed app templates where an app commits database/master-key configuration
+- workflow-oriented app templates that commit Dagu workflows and opt into `services/dagu/service.json`
