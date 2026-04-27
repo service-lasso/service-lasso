@@ -118,10 +118,9 @@ async function writeTraefikManifest(serviceRoot, ports) {
         description: "Release-backed Traefik verification manifest.",
         version: releaseVersion,
         enabled: true,
-        ports: {
-          web: ports.web,
-          admin: ports.admin,
-        },
+        ports: Object.fromEntries(
+          Object.keys(coreTraefikManifest.ports ?? {}).map((key) => [key, ports[key]]),
+        ),
         env: coreTraefikManifest.env,
         globalenv: coreTraefikManifest.globalenv,
         artifact: {
@@ -143,36 +142,8 @@ async function writeTraefikManifest(serviceRoot, ports) {
             },
           ],
         },
-        config: {
-          files: [
-            {
-              path: "./runtime/traefik.yml",
-              content:
-                "entryPoints:\n" +
-                "  web:\n" +
-                "    address: \"127.0.0.1:${WEB_PORT}\"\n" +
-                "  traefik:\n" +
-                "    address: \"127.0.0.1:${ADMIN_PORT}\"\n" +
-                "api:\n" +
-                "  dashboard: true\n" +
-                "ping:\n" +
-                "  entryPoint: traefik\n" +
-                "providers:\n" +
-                "  file:\n" +
-                "    filename: \"./runtime/dynamic.yml\"\n" +
-                "    watch: true\n" +
-                "log:\n" +
-                "  level: INFO\n",
-            },
-          ],
-        },
-        healthcheck: {
-          type: "http",
-          url: `http://127.0.0.1:${ports.admin}/ping`,
-          expected_status: 200,
-          retries: 80,
-          interval: 250,
-        },
+        config: coreTraefikManifest.config,
+        healthcheck: coreTraefikManifest.healthcheck,
       },
       null,
       2,
@@ -188,9 +159,10 @@ const workspaceRoot = path.join(tempRoot, "workspace");
 const serviceRoot = path.join(servicesRoot, serviceId);
 const ports = {
   api: await reserveLoopbackPort(),
-  web: await reserveLoopbackPort(),
-  admin: await reserveLoopbackPort(),
 };
+for (const key of Object.keys(coreTraefikManifest.ports ?? {})) {
+  ports[key] = await reserveLoopbackPort();
+}
 
 await mkdir(servicesRoot, { recursive: true });
 await mkdir(workspaceRoot, { recursive: true });
@@ -222,8 +194,20 @@ try {
   const globalEnv = await getJson(`${api.url}/api/globalenv`);
   const expectedGlobalEnv = {
     TRAEFIK_HTTP_PORT: String(ports.web),
+    TRAEFIK_HTTPS_PORT: String(ports.websecure),
     TRAEFIK_INTERNAL_PORT: String(ports.admin),
+    TRAEFIK_HTTPS_TRAEFIK_PORT: String(ports.https_traefik),
+    TRAEFIK_HTTPS_NGINX_PORT: String(ports.https_nginx),
+    TRAEFIK_HTTPS_CMS_PORT: String(ports.https_cms),
+    TRAEFIK_HTTPS_FLOW_PORT: String(ports.https_flow),
+    TRAEFIK_HTTPS_FLOWTMS_PORT: String(ports.https_flowtms),
+    TRAEFIK_HTTPS_API_PORT: String(ports.https_api),
+    TRAEFIK_HTTPS_FILES_PORT: String(ports.https_files),
+    TRAEFIK_HTTPS_BPMN_PORT: String(ports.https_bpmn),
+    TRAEFIK_MONGO_PORT: String(ports.mongo),
+    TRAEFIK_TYPEDB_PORT: String(ports.typedb),
     TRAEFIK_WEB_URL: `http://127.0.0.1:${ports.web}/`,
+    TRAEFIK_WEBSECURE_URL: `https://127.0.0.1:${ports.websecure}/`,
     TRAEFIK_DASHBOARD_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
     TRAEFIK_PING_URL: `http://127.0.0.1:${ports.admin}/ping`,
     TRAEFIK_TRAEFIK_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
@@ -234,6 +218,12 @@ try {
   for (const [key, value] of Object.entries(expectedGlobalEnv)) {
     if (globalEnv.globalenv?.[key] !== value) {
       throw new Error(`Traefik globalenv ${key} mismatch: ${JSON.stringify(globalEnv.globalenv)}`);
+    }
+  }
+  const network = await getJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/network`);
+  for (const [key, value] of Object.entries(ports).filter(([key]) => key !== "api")) {
+    if (network.network?.ports?.[key] !== value) {
+      throw new Error(`Traefik network port ${key} mismatch: ${JSON.stringify(network.network?.ports)}`);
     }
   }
 
