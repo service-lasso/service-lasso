@@ -11,7 +11,7 @@ Spec binding: `SPEC-002`, `AC-4Y`, `AC-4Z`
 | Order | Service | Repo | Issue | Status | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `@traefik` | `service-lasso/lasso-traefik` | `#171` | Done | Harden the existing release-backed service repo into the pattern for the provider repos. |
-| 2 | `@node` | `service-lasso/lasso-node` | `#168` | Ready after Traefik pattern | Create the release-backed Node provider repo and publish exact-version artifacts. |
+| 2 | `@node` | `service-lasso/lasso-node` | `#168` | Done | Create the release-backed Node provider repo and publish exact-version artifacts. |
 | 3 | `@python` | `service-lasso/lasso-python` | `#169` | Ready after Node pattern | Create the release-backed Python provider repo and publish exact-version artifacts. |
 | 4 | `@java` | `service-lasso/lasso-java` | `#170` | Blocked until JRE policy decision | Create the release-backed Java provider repo after vendor/license/security policy is explicit. |
 
@@ -62,6 +62,8 @@ Each service repo is done only when:
 - the service issue records release URL, asset list, and verification evidence
 
 `@traefik` evidence: `service-lasso/lasso-traefik#1` hardened the repo contract, release `2026.4.27-354433e` published Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`, core `services/@traefik/service.json` is pinned to that release, and `npm run verify:traefik-release`, `npm run verify:baseline-start`, and `npm test` passed after the pin.
+
+`@node` evidence: `service-lasso/lasso-node#1` added the provider packaging repo, `service-lasso/lasso-node#2` moved macOS packaging to `macos-15-intel`, release `2026.4.27-13573bd` published exact Node `v24.15.0` and `v25.9.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`, and direct Service Lasso install/acquire proof downloaded the default `v24.15.0` artifact without starting a managed daemon.
 
 ## Core Integration Gate
 
