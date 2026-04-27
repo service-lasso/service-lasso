@@ -41,7 +41,7 @@ export interface RuntimeUpdateSchedulerOptions {
 
 export interface RuntimeUpdateScheduler {
   start: () => void;
-  stop: () => void;
+  stop: () => Promise<void>;
   runOnce: (options?: { force?: boolean }) => Promise<UpdateSchedulerEvent[]>;
 }
 
@@ -86,6 +86,7 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
   const lastCheckedAtMs = new Map<string, number>();
   const inFlight = new Set<string>();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let activeRun: Promise<void> | null = null;
 
   async function inspectService(service: DiscoveredService, force: boolean): Promise<UpdateSchedulerEvent> {
     const mode = getMode(service);
@@ -170,17 +171,35 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
       }
 
       timer = setInterval(() => {
-        void runOnce();
+        if (activeRun) {
+          return;
+        }
+
+        activeRun = runOnce()
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn(`[service-lasso] Update scheduler run failed: ${message}`);
+          })
+          .finally(() => {
+            activeRun = null;
+          });
       }, intervalMs);
       timer.unref?.();
     },
-    stop: () => {
+    stop: async () => {
       if (!timer) {
+        if (activeRun) {
+          await activeRun;
+        }
         return;
       }
 
       clearInterval(timer);
       timer = null;
+      if (activeRun) {
+        await activeRun;
+      }
     },
     runOnce,
   };

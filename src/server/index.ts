@@ -881,8 +881,8 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     monitor,
     updateScheduler,
     stop: async () => {
-      monitor?.stop();
-      updateScheduler?.stop();
+      await monitor?.stop();
+      await updateScheduler?.stop();
       await stopAllManagedProcesses();
       server.close();
       await once(server, "close");

@@ -24,7 +24,8 @@ It separates current truth from target delivery so the repo does not imply relea
 
 | Service | Current repo | Current core behavior | Release-backed today | Notes |
 | --- | --- | --- | --- | --- |
-| `@node` | `service-lasso/lasso-node` | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-13573bd`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
+| `@node` | `service-lasso/lasso-node` | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-eca215a`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
+| `localcert` | `service-lasso/lasso-localcert` | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-591ed28`, acquires local cert material, exports donor certificate globals, and skips provider daemon launch. |
 | `@python` | `service-lasso/lasso-python` | optional release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
 | `@java` | `service-lasso/lasso-java` | optional release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
 | `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service depending on local `localcert` and `nginx` utility manifests | yes | Current verified release is `2026.4.27-bbc7f15`. |
@@ -165,10 +166,10 @@ Key risk:
 Current delivery evidence:
 
 - Repo: `https://github.com/service-lasso/lasso-node`
-- Release: `https://github.com/service-lasso/lasso-node/releases/tag/2026.4.27-13573bd`
+- Release: `https://github.com/service-lasso/lasso-node/releases/tag/2026.4.27-eca215a`
 - Release workflow: `https://github.com/service-lasso/lasso-node/actions/runs/24975752579`
 - Assets: exact Node `v24.15.0` and `v25.9.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
-- Core proof: `service-lasso install @node` against the checked-in core manifest acquired `lasso-node-v24.15.0-win32.zip` from release `2026.4.27-13573bd` and left `running=false`. `node-sample-service` also started through the acquired `@node` runtime executable.
+- Core proof: `service-lasso install @node` against the checked-in core manifest acquired `lasso-node-v24.15.0-win32.zip` from release `2026.4.27-eca215a` and left `running=false`. `node-sample-service` also started through the acquired `@node` runtime executable.
 
 ### `@python`
 

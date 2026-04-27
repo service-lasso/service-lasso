@@ -37,7 +37,7 @@ As of 2026-04-27, the core CLI has a bounded baseline bootstrap command that ins
 
 Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
 
-Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to the pinned release-backed `service-lasso/lasso-node@2026.4.27-13573bd` artifact. Issue `#195` added the missing Traefik dependency edge for `localcert` and `nginx`. Issue `#198` promotes `nginx` from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik. Issue `#201` makes `localcert` and `service-admin` explicit core services while preserving their established IDs and lifecycle behavior.
+Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to a pinned release-backed artifact. Issue `#195` added the missing Traefik dependency edge for `localcert` and `nginx`. Issue `#198` promotes `nginx` from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik. Issue `#201` makes `localcert` and `service-admin` explicit core services while preserving their established IDs and lifecycle behavior. Issue `#204` repins `@node` to `service-lasso/lasso-node@2026.4.27-eca215a` and promotes `localcert` to `service-lasso/lasso-localcert@2026.4.27-591ed28` with donor-aligned certificate globals.
 
 ## Final Fresh-Clone Evidence
 
@@ -65,10 +65,10 @@ Final observed baseline state:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `localcert` | yes | yes | no | yes | local/no-download core provider-role utility |
+| `localcert` | yes | yes | no | yes | `service-lasso/lasso-localcert@2026.4.27-591ed28` |
 | `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
-| `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
+| `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-eca215a` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
 | `service-admin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 
@@ -117,7 +117,7 @@ Issue `#97` added the baseline manifest IDs to the core services root. Issue `#1
 
 Current `services/echo-service/service.json` carries both a local fixture fallback and release artifact metadata. Install/acquire uses the release-backed artifact metadata from `service-lasso/lasso-echoservice`.
 
-Current `services/@node/service.json` is a release-backed runtime/provider manifest with `role: "provider"` and artifact source `service-lasso/lasso-node@2026.4.27-13573bd`.
+Current `services/@node/service.json` is a release-backed runtime/provider manifest with `role: "provider"` and artifact source `service-lasso/lasso-node@2026.4.27-eca215a`.
 
 Current `services/@python/service.json` is an optional release-backed runtime/provider manifest with artifact source `service-lasso/lasso-python@2026.4.27-63f915c`. The first Python provider release supports Windows official Python.org embeddable archives only.
 
@@ -136,14 +136,14 @@ Observed after issue `#158` fix:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `localcert` | yes | yes | no | yes | local/no-download core provider-role utility |
+| `localcert` | yes | yes | no | yes | `service-lasso/lasso-localcert@2026.4.27-591ed28` |
 | `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
 | `service-admin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
-| `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
+| `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-eca215a` |
 
-This directly verifies that release-backed `@node`, `@traefik`, `echo-service`, and `service-admin` are acquired from their configured GitHub releases. Managed daemons remain running/healthy after the baseline start path, while `@node` verifies the expected provider outcome: installed/configured, not launched as a managed daemon, and provider-health true.
+This directly verifies that release-backed `localcert`, `@node`, `@traefik`, `echo-service`, and `service-admin` are acquired from their configured GitHub releases. Managed daemons remain running/healthy after the baseline start path, while `localcert` and `@node` verify the expected provider outcome: installed/configured, not launched as managed daemons, and provider-health true.
 
 ## Current CLI/API Capability
 
