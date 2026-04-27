@@ -106,6 +106,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-171` | `todo` | Harden Traefik release service contract and maintenance flow | `SPEC-002`, `AC-4Y`, `AC-4Z` | GitHub issue: `#171`. Review `service-lasso/lasso-traefik` against the shared service repo contract, preserve release versioning, and keep core Traefik verification green. |
 | `ISS-172` | `todo` | Integrate release-backed runtime providers into core and reference baselines | `SPEC-002`, `AC-4W`, `AC-4Y`, `AC-4Z` | GitHub issue: `#172`. After provider releases exist, migrate core/reference manifests, validate provider acquire behavior, and re-run clean-clone/reference app scenarios. |
 | `ISS-174` | `done` | Lock provider runtime version and artifact matrix | `SPEC-002`, `AC-4Y`, `AC-4Z` | GitHub issue: `#174`. Runtime provider plan now requires Node `24`/`25`, Java `17`/`21`, and Python `3.11.5`/`3.14.4` release assets, with core/default manifests selecting the first version in each set rather than the latest. |
+| `ISS-176` | `done` | Use exact upstream runtime versions in provider artifact names | `SPEC-002`, `AC-4Y`, `AC-4Z` | GitHub issue: `#176`. Provider artifact names now use exact upstream versions: Node `v24.15.0`/`v25.9.0`, Java `17.0.18+8`/`21.0.10+7`, and Python `3.11.5`/`3.14.4`; core/default selection remains first-version pinned. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
@@ -208,6 +209,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-171` | `todo` | `ISS-171` | Harden `service-lasso/lasso-traefik` release-service contract | `SPEC-002`, `AC-4Y`, `AC-4Z` | Pending. |
 | `TASK-172` | `todo` | `ISS-172` | Integrate release-backed providers into core/reference manifests | `SPEC-002`, `AC-4W`, `AC-4Y`, `AC-4Z` | Pending. |
 | `TASK-174` | `done` | `ISS-174` | Lock provider runtime versions and versioned artifact names | `SPEC-002`, `AC-4Y`, `AC-4Z` | Provider release plan now names `lasso-node-24-*`, `lasso-node-25-*`, `lasso-java-17-*`, `lasso-java-21-*`, `lasso-python-3.11.5-*`, and `lasso-python-3.14.4-*` artifacts; core/default selection uses Node `24`, Java `17`, and Python `3.11.5`; `npm run build`, doc reference checks, and `git diff --check` passed. |
+| `TASK-176` | `done` | `ISS-176` | Replace major-only provider artifact names with exact upstream versions | `SPEC-002`, `AC-4Y`, `AC-4Z` | Provider release plan now names exact upstream version artifacts such as `lasso-node-v24.15.0-win32.zip`, `lasso-node-v25.9.0-win32.zip`, `lasso-java-17.0.18+8-win32.zip`, `lasso-java-21.0.10+7-win32.zip`, `lasso-python-3.11.5-win32.zip`, and `lasso-python-3.14.4-win32.zip`; `npm run build`, exact-version reference checks, and `git diff --check` passed. |
 
 ## Next Recommended Item
 Start `ISS-171` to harden the existing `service-lasso/lasso-traefik` repo against the shared release-service contract before creating new provider repos from the same pattern.

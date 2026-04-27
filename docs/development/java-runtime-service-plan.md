@@ -69,18 +69,19 @@ Before that repo is created, decide:
 - update policy for JRE security releases
 - whether the archive contains a full JRE, a wrapper that uses system Java, or both
 - release workflow outputs using `yyyy.m.d-<shortsha>`
-- first runtime versions: Java `17` and Java `21`
-- core/default selection rule: use Java `17` first, not Java `21`
+- first runtime versions: Java `17.0.18+8` and Java `21.0.10+7`
+- core/default selection rule: use Java `17.0.18+8` first, not Java `21.0.10+7`
+- artifact filenames should include the exact Java version and build metadata
 
 When that decision is made, the repo should publish:
 
 - `service.json`
-- `lasso-java-17-win32.zip`
-- `lasso-java-17-linux.tar.gz`
-- `lasso-java-17-darwin.tar.gz`
-- `lasso-java-21-win32.zip`
-- `lasso-java-21-linux.tar.gz`
-- `lasso-java-21-darwin.tar.gz`
+- `lasso-java-17.0.18+8-win32.zip`
+- `lasso-java-17.0.18+8-linux.tar.gz`
+- `lasso-java-17.0.18+8-darwin.tar.gz`
+- `lasso-java-21.0.10+7-win32.zip`
+- `lasso-java-21.0.10+7-linux.tar.gz`
+- `lasso-java-21.0.10+7-darwin.tar.gz`
 - checksums for each archive if supported by the release tooling
 
 ## Follow-Up Path For Java Services
