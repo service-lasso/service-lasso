@@ -139,6 +139,7 @@ export interface ServiceManifest {
   execservice?: string;
   executable?: string;
   args?: string[];
+  commandline?: Record<string, string>;
 }
 
 export interface DiscoveredService {

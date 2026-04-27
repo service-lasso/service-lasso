@@ -122,6 +122,7 @@ async function writeTraefikManifest(serviceRoot, ports) {
           Object.keys(coreTraefikManifest.ports ?? {}).map((key) => [key, ports[key]]),
         ),
         portmapping: coreTraefikManifest.portmapping,
+        commandline: coreTraefikManifest.commandline,
         env: coreTraefikManifest.env,
         globalenv: coreTraefikManifest.globalenv,
         artifact: {
@@ -186,6 +187,12 @@ try {
   if (!start.ok || !start.state.running) {
     throw new Error(`Traefik start failed: ${JSON.stringify(start)}`);
   }
+  if (!start.state.runtime.command.includes("--providers.file.filename=")) {
+    throw new Error(`Traefik did not start with manifest commandline: ${start.state.runtime.command}`);
+  }
+  if (start.state.runtime.command.includes("--configFile=runtime/traefik.yml")) {
+    throw new Error(`Traefik unexpectedly used fallback artifact args: ${start.state.runtime.command}`);
+  }
 
   await waitForOk(`http://127.0.0.1:${ports.admin}/ping`);
   const health = await getJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/health`);
@@ -248,7 +255,14 @@ try {
   }
 
   await postJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/stop`);
-  console.log(JSON.stringify({ ok: true, serviceId, releaseVersion, health: health.health, globalenv: expectedGlobalEnv }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    serviceId,
+    releaseVersion,
+    commandline: start.state.runtime.command,
+    health: health.health,
+    globalenv: expectedGlobalEnv,
+  }, null, 2));
 } finally {
   await api.stop();
   resetLifecycleState();
