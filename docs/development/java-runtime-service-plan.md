@@ -56,6 +56,11 @@ Reference apps and `service-template` should add `services/@java/service.json` o
 
 A dedicated `service-lasso/lasso-java` service repo is deferred until the project chooses a JRE distribution strategy.
 
+The broader provider-release delivery plan is tracked in:
+
+- `docs/development/runtime-provider-release-services-delivery-plan.md`
+- GitHub issue `#170`
+
 Before that repo is created, decide:
 
 - JRE vendor and license, for example Eclipse Temurin or another redistributable build
