@@ -284,16 +284,20 @@ test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in 
     const apiHookEvents = apiHookRecovery.body.recovery.events.filter((event) => event.kind === "hook");
     assert.deepEqual(apiHookEvents.map((event) => event.kind), ["hook", "hook"]);
 
-    const cliHookRecovery = JSON.parse(await runCli([
-      "recovery",
-      "status",
-      "echo-hook",
-      "--services-root",
-      servicesRoot,
-      "--workspace-root",
-      workspaceRoot,
-      "--json",
-    ]));
+    const cliHookRecovery = await waitFor(async () => {
+      const recovery = JSON.parse(await runCli([
+        "recovery",
+        "status",
+        "echo-hook",
+        "--services-root",
+        servicesRoot,
+        "--workspace-root",
+        workspaceRoot,
+        "--json",
+      ]));
+      const events = recovery.services[0].recovery.events.filter((event) => event.kind === "hook");
+      return events.map((event) => event.phase).join(",") === "preUpgrade,postUpgrade" ? recovery : null;
+    });
     const cliHookEvents = cliHookRecovery.services[0].recovery.events.filter((event) => event.kind === "hook");
     assert.deepEqual(cliHookEvents.map((event) => event.phase), ["preUpgrade", "postUpgrade"]);
   } finally {
