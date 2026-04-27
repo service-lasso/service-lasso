@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-27
 
-Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`, `#198`
+Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`, `#193`, `#195`, `#198`, `#201`
 
 ## Summary
 
@@ -30,11 +30,11 @@ Python and Java remain optional provider services rather than starter baseline d
 | Service | Role | Current status | Gap |
 | --- | --- | --- | --- |
 | `echo-service` | Real managed harness/service for install, lifecycle, logs, state, SQLite, HTTP/TCP health, and UI validation. | Implemented and released in `service-lasso/lasso-echoservice`; used by core and all reference apps. | No baseline gap. |
-| `service-admin` | Operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; release-backed manifest exists in core `services/service-admin/service.json`; all reference apps include `services/service-admin/service.json`; live app-host smoke verifies the mounted admin route. | No current baseline gap. |
+| `service-admin` | Core operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; release-backed manifest exists in core `services/service-admin/service.json`; all reference apps include `services/service-admin/service.json`; live app-host smoke verifies the mounted admin route. | No current baseline gap. |
 | `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Core manifest points at `service-lasso/lasso-node@2026.4.27-13573bd`; baseline start acquires it, configures it, skips daemon launch, and provider-backed child services can execute through the acquired runtime. | No current baseline gap. Reference app inventories still need to be refreshed if they carry older local/no-download copies. |
 | `@python` | Runtime/provider utility service for Python-backed services. | Core manifest points at `service-lasso/lasso-python@2026.4.27-63f915c` and can acquire the default Python `3.11.5` Windows embeddable archive. | Not part of the current starter baseline. Linux/macOS Python archives remain deferred pending an approved portable distribution source. |
 | `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest points at `service-lasso/lasso-java@2026.4.27-b313cb0`; provider resolution supports `execservice: "@java"` and direct acquire proof installs Java `17.0.18+8`. | Not part of the current starter baseline. Java-dependent services such as Keycloak should be migrated as separate service issues. |
-| `localcert` | Local certificate utility/dependency for Traefik. | Core manifest exists in `services/localcert/service.json` as a provider-role local/no-download dependency marker. Baseline start installs/configures it before Traefik and skips daemon launch. | Full certificate materialization remains future work. |
+| `localcert` | Core local certificate utility/dependency for Traefik. | Core manifest exists in `services/localcert/service.json` as a provider-role local/no-download utility service. Baseline start installs/configures it before Traefik and skips daemon launch. | Full certificate materialization remains future work. |
 | `nginx` | NGINX Open Source routing dependency for Traefik. | Core manifest points at `service-lasso/lasso-nginx@2026.4.27-712c75f`; baseline start acquires, configures, starts, and healthchecks it before Traefik. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15` with `depend_on: ["localcert", "nginx"]`, donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; docs list it in starter baseline. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |

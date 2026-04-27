@@ -4,7 +4,7 @@ Date: 2026-04-24
 
 Latest update: 2026-04-28
 
-Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`, `#102`, `#158`, `#159`, `#160`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`, `#195`, `#198`
+Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`, `#102`, `#158`, `#159`, `#160`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`, `#195`, `#198`, `#201`
 
 OpenSpec binding: `SPEC-002`, `AC-4Z`
 
@@ -37,7 +37,7 @@ As of 2026-04-27, the core CLI has a bounded baseline bootstrap command that ins
 
 Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
 
-Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to the pinned release-backed `service-lasso/lasso-node@2026.4.27-13573bd` artifact. Issue `#195` added the missing Traefik dependency edge for `localcert` and `nginx`. Issue `#198` promotes `nginx` from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik.
+Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to the pinned release-backed `service-lasso/lasso-node@2026.4.27-13573bd` artifact. Issue `#195` added the missing Traefik dependency edge for `localcert` and `nginx`. Issue `#198` promotes `nginx` from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik. Issue `#201` makes `localcert` and `service-admin` explicit core services while preserving their established IDs and lifecycle behavior.
 
 ## Final Fresh-Clone Evidence
 
@@ -65,12 +65,12 @@ Final observed baseline state:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `localcert` | yes | yes | no | yes | local/no-download provider-role dependency |
+| `localcert` | yes | yes | no | yes | local/no-download core provider-role utility |
 | `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
-| `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
+| `service-admin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 
 ## Historical Evidence
 
@@ -136,11 +136,11 @@ Observed after issue `#158` fix:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `localcert` | yes | yes | no | yes | local/no-download provider-role dependency |
+| `localcert` | yes | yes | no | yes | local/no-download core provider-role utility |
 | `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
-| `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
+| `service-admin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
 
 This directly verifies that release-backed `@node`, `@traefik`, `echo-service`, and `service-admin` are acquired from their configured GitHub releases. Managed daemons remain running/healthy after the baseline start path, while `@node` verifies the expected provider outcome: installed/configured, not launched as a managed daemon, and provider-health true.
