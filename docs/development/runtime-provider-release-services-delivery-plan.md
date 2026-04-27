@@ -23,7 +23,7 @@ It separates current truth from target delivery so the repo does not imply relea
 
 | Service | Current repo | Current core behavior | Release-backed today | Notes |
 | --- | --- | --- | --- | --- |
-| `@node` | none | local/no-download provider using host `node` | no | Used by baseline as an explicit provider. It is installed/configured but not launched as a daemon. |
+| `@node` | `service-lasso/lasso-node` | local/no-download provider in the current core baseline until `#172` integrates the verified release | yes, repo release exists | Release `2026.4.27-13573bd` publishes exact Node `v24.15.0` and `v25.9.0` archives; core install/acquire proof passed against the released manifest. |
 | `@python` | none | local/no-download provider using host `python` | no | Fixture/provider manifest exists, but it is not part of the default baseline. |
 | `@java` | none | local/no-download provider using host `java` | no | Tracked by the Java plan; release-backed JRE redistribution is deferred until vendor/license/security choices are made. |
 | `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service | yes | Current verified release is `2026.4.27-354433e`. |
@@ -33,7 +33,7 @@ Current Traefik release:
 - Repo: `https://github.com/service-lasso/lasso-traefik`
 - Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-354433e`
 
-No `service-lasso/lasso-node`, `service-lasso/lasso-python`, or `service-lasso/lasso-java` GitHub repos exist at the time of this plan.
+No `service-lasso/lasso-python` or `service-lasso/lasso-java` GitHub repos exist at the time of this plan update. `service-lasso/lasso-node` now exists and has a verified release; core/reference baseline migration remains tracked by `#172`.
 
 ## Target Service Repo Pattern
 
@@ -154,6 +154,14 @@ Recommended first delivery:
 Key risk:
 
 - Node distribution license/provenance and platform coverage must be explicit before release-backed use is claimed.
+
+Current delivery evidence:
+
+- Repo: `https://github.com/service-lasso/lasso-node`
+- Release: `https://github.com/service-lasso/lasso-node/releases/tag/2026.4.27-13573bd`
+- Release workflow: `https://github.com/service-lasso/lasso-node/actions/runs/24975752579`
+- Assets: exact Node `v24.15.0` and `v25.9.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
+- Core proof: `service-lasso install @node` against the released manifest acquired `lasso-node-v24.15.0-win32.zip` from release `2026.4.27-13573bd` and left `running=false`.
 
 ### `@python`
 
