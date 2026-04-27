@@ -63,19 +63,24 @@ The broader provider-release delivery plan is tracked in:
 
 Before that repo is created, decide:
 
-- JRE vendor and license, for example Eclipse Temurin or another redistributable build
+- JRE vendor and license, with Eclipse Temurin/Adoptium as the current planned source if approved
 - supported platforms and CPU architectures
 - archive provenance and checksum verification
 - update policy for JRE security releases
 - whether the archive contains a full JRE, a wrapper that uses system Java, or both
 - release workflow outputs using `yyyy.m.d-<shortsha>`
+- first runtime versions: Java `17` and Java `21`
+- core/default selection rule: use Java `17` first, not Java `21`
 
 When that decision is made, the repo should publish:
 
 - `service.json`
-- `lasso-java-win32.zip`
-- `lasso-java-linux.tar.gz`
-- `lasso-java-darwin.tar.gz`
+- `lasso-java-17-win32.zip`
+- `lasso-java-17-linux.tar.gz`
+- `lasso-java-17-darwin.tar.gz`
+- `lasso-java-21-win32.zip`
+- `lasso-java-21-linux.tar.gz`
+- `lasso-java-21-darwin.tar.gz`
 - checksums for each archive if supported by the release tooling
 
 ## Follow-Up Path For Java Services
