@@ -57,7 +57,19 @@ test("core services root declares the clean-clone baseline inventory", async () 
     [],
   );
   assert.equal(byId.get("localcert")?.role, "provider");
-  assert.equal(byId.get("nginx")?.role, "provider");
+  assert.equal(byId.get("nginx")?.role, undefined);
+  assert.equal(byId.get("nginx")?.version, "1.30.0");
+  assert.equal(byId.get("nginx")?.artifact?.source.repo, "service-lasso/lasso-nginx");
+  assert.equal(byId.get("nginx")?.artifact?.source.tag, "2026.4.27-712c75f");
+  assert.equal(byId.get("nginx")?.artifact?.platforms.win32?.assetName, "lasso-nginx-1.30.0-win32.zip");
+  assert.deepEqual(byId.get("nginx")?.ports, { http: 18080 });
+  assert.deepEqual(byId.get("nginx")?.healthcheck, {
+    type: "http",
+    url: "http://127.0.0.1:${HTTP_PORT}/health",
+    expected_status: 200,
+    retries: 80,
+    interval: 250,
+  });
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
   assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
