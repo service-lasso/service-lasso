@@ -12,6 +12,9 @@ const coreTraefikManifest = JSON.parse(
 const coreNodeManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
 );
+const coreNginxManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "nginx", "service.json"), "utf8"),
+);
 const traefikReleaseVersion = coreTraefikManifest.artifact?.source?.tag;
 if (!traefikReleaseVersion || coreTraefikManifest.version !== traefikReleaseVersion) {
   throw new Error("Core @traefik manifest version must match artifact.source.tag for baseline smoke.");
@@ -20,12 +23,16 @@ const nodeReleaseVersion = coreNodeManifest.artifact?.source?.tag;
 if (!nodeReleaseVersion) {
   throw new Error("Core @node manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
+const nginxReleaseVersion = coreNginxManifest.artifact?.source?.tag;
+if (!nginxReleaseVersion) {
+  throw new Error("Core nginx manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForJson(url, timeoutMs = 120_000) {
+async function waitForJson(url, timeoutMs = 300_000) {
   const startedAt = Date.now();
   let lastError = null;
 
@@ -75,6 +82,28 @@ async function postJson(url) {
   }
 
   return body;
+}
+
+async function readLogIfPresent(logPath) {
+  try {
+    return await readFile(logPath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function printServiceRuntimeLogs(servicesRoot, serviceId) {
+  const logsRoot = path.join(servicesRoot, serviceId, "logs", "runtime");
+  const stdout = await readLogIfPresent(path.join(logsRoot, "stdout.log"));
+  const stderr = await readLogIfPresent(path.join(logsRoot, "stderr.log"));
+  const service = await readLogIfPresent(path.join(logsRoot, "service.log"));
+
+  console.error(`[service-lasso baseline] ${serviceId} runtime stdout:`);
+  console.error(stdout);
+  console.error(`[service-lasso baseline] ${serviceId} runtime stderr:`);
+  console.error(stderr);
+  console.error(`[service-lasso baseline] ${serviceId} runtime log:`);
+  console.error(service);
 }
 
 async function reserveLoopbackPort() {
@@ -152,11 +181,43 @@ async function writeProviderDependencyService(servicesRoot, serviceId) {
   });
 }
 
+function nginxPlatformArtifact() {
+  const platformArtifact = coreNginxManifest.artifact?.platforms?.[process.platform];
+  if (!platformArtifact) {
+    throw new Error(`Core nginx manifest does not support platform ${process.platform}.`);
+  }
+  return platformArtifact;
+}
+
+async function writeNginxService(servicesRoot, httpPort) {
+  await writeJson(path.join(servicesRoot, "nginx", "service.json"), {
+    ...coreNginxManifest,
+    ports: {
+      http: httpPort,
+    },
+    artifact: {
+      ...coreNginxManifest.artifact,
+      source: {
+        type: "github-release",
+        repo: coreNginxManifest.artifact.source.repo,
+        tag: nginxReleaseVersion,
+      },
+      platforms: {
+        [process.platform]: nginxPlatformArtifact(),
+      },
+    },
+    healthcheck: {
+      ...coreNginxManifest.healthcheck,
+      url: `http://127.0.0.1:${httpPort}/health`,
+    },
+  });
+}
+
 function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (["localcert", "nginx", "@node"].includes(service.serviceId)) {
+  if (["localcert", "@node"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
     assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
     assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
@@ -170,6 +231,12 @@ function assertBaselineServiceSummary(service) {
   }
 
   assert(service.state.running === true, `${service.serviceId} was not running in CLI summary.`);
+  if (service.serviceId === "nginx") {
+    assert(
+      service.state.installArtifacts?.artifact?.tag === nginxReleaseVersion,
+      "nginx did not install from the pinned release artifact.",
+    );
+  }
 }
 
 async function writeHttpService(servicesRoot, serviceId, portName, options = {}) {
@@ -366,12 +433,14 @@ function assert(condition, message) {
   }
 }
 
-const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-baseline-start-smoke-"));
+const smokeTempParent = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Temp") : os.tmpdir();
+const tempRoot = await mkdtemp(path.join(smokeTempParent, "service-lasso-baseline-start-smoke-"));
 const servicesRoot = path.join(tempRoot, "services");
 const workspaceRoot = path.join(tempRoot, "workspace");
 const apiPort = await reserveLoopbackPort();
 const traefikAdminPort = await reserveLoopbackPort();
 const traefikWebPort = await reserveLoopbackPort();
+const nginxHttpPort = await reserveLoopbackPort();
 const echoPort = await reserveLoopbackPort();
 const adminPort = await reserveLoopbackPort();
 let cli = null;
@@ -380,7 +449,7 @@ let servicesStopped = false;
 try {
   await mkdir(servicesRoot, { recursive: true });
   await writeProviderDependencyService(servicesRoot, "localcert");
-  await writeProviderDependencyService(servicesRoot, "nginx");
+  await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
@@ -417,13 +486,15 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["localcert", "nginx", "@node"].includes(serviceId)) {
+    if (["localcert", "@node"].includes(serviceId)) {
       assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
     }
   }
 
+  const nginx = await fetch(`http://127.0.0.1:${nginxHttpPort}/health`);
+  assert(nginx.ok, "NGINX release-backed health surface was not reachable.");
   const echo = await fetch(`http://127.0.0.1:${echoPort}/health`);
   assert(echo.ok, "Echo Service health surface was not reachable.");
   const admin = await fetch(`http://127.0.0.1:${adminPort}/health`);
@@ -441,6 +512,7 @@ try {
     console.error("[service-lasso baseline] CLI stderr:");
     console.error(cli.stderr);
   }
+  await printServiceRuntimeLogs(servicesRoot, "nginx");
   throw error;
 } finally {
   if (cli) {

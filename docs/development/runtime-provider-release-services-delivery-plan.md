@@ -2,7 +2,7 @@
 
 Date: 2026-04-27
 
-Linked issues: `#167`, `#168`, `#169`, `#170`, `#171`, `#172`, `#174`, `#176`, `#179`, `#195`
+Linked issues: `#167`, `#168`, `#169`, `#170`, `#171`, `#172`, `#174`, `#176`, `#179`, `#195`, `#198`
 
 Spec binding: `SPEC-002`, `AC-4H`, `AC-4W`, `AC-4Y`, `AC-4Z`
 
@@ -16,6 +16,7 @@ This plan covers:
 - `@python`
 - `@java`
 - `@traefik`
+- `nginx`
 
 It separates current truth from target delivery so the repo does not imply release-backed provider behavior before the service repos, releases, manifests, and validation exist.
 
@@ -27,6 +28,7 @@ It separates current truth from target delivery so the repo does not imply relea
 | `@python` | `service-lasso/lasso-python` | optional release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
 | `@java` | `service-lasso/lasso-java` | optional release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
 | `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service depending on local `localcert` and `nginx` utility manifests | yes | Current verified release is `2026.4.27-bbc7f15`. |
+| `nginx` | `service-lasso/lasso-nginx` | release-backed managed NGINX dependency in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-712c75f`, acquires NGINX Open Source `1.30.0`, and starts it before Traefik. |
 
 Current Traefik release:
 
@@ -34,6 +36,7 @@ Current Traefik release:
 - Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-bbc7f15`
 
 `service-lasso/lasso-node`, `service-lasso/lasso-python`, and `service-lasso/lasso-java` now exist and have verified releases. Core manifests now point at those verified releases; remaining reference/service-template refresh can proceed from this core truth.
+`service-lasso/lasso-nginx` also exists and has a verified release-backed managed-service contract for the baseline Traefik dependency.
 
 ## Target Service Repo Pattern
 
@@ -45,6 +48,7 @@ Each release-backed runtime/provider service should have a dedicated repo:
 | `@python` | `service-lasso/lasso-python` | `#169` |
 | `@java` | `service-lasso/lasso-java` | `#170` |
 | `@traefik` | `service-lasso/lasso-traefik` | `#171` |
+| `nginx` | `service-lasso/lasso-nginx` | `#198` |
 
 Each repo should publish releases from protected-branch pushes using:
 
@@ -104,12 +108,15 @@ Use a predictable artifact name per platform:
 | `@java` `17.0.18+8` | `lasso-java-17.0.18+8-win32.zip` | `lasso-java-17.0.18+8-linux.tar.gz` | `lasso-java-17.0.18+8-darwin.tar.gz` |
 | `@java` `21.0.10+7` | `lasso-java-21.0.10+7-win32.zip` | `lasso-java-21.0.10+7-linux.tar.gz` | `lasso-java-21.0.10+7-darwin.tar.gz` |
 | `@traefik` | `lasso-traefik-win32.zip` | `lasso-traefik-linux.tar.gz` | `lasso-traefik-darwin.tar.gz` |
+| `nginx` `1.30.0` | `lasso-nginx-1.30.0-win32.zip` | `lasso-nginx-1.30.0-linux.tar.gz` | `lasso-nginx-1.30.0-darwin.tar.gz` |
 
 If a repo cannot support all three platforms initially, the repo README, `service.json`, and issue evidence must state the supported subset explicitly. Unsupported platform behavior must fail clearly instead of implying a missing archive exists.
 
 ## Manifest Contract
 
 Provider manifests should keep `role: "provider"` and should not be treated as long-running daemons unless a future service-specific reason is documented.
+
+Managed utility services such as `nginx` should omit `role: "provider"` when they are expected to start and remain running under Service Lasso supervision.
 
 The release-backed provider manifest should include:
 
@@ -227,7 +234,7 @@ Current delivery state:
 - core manifest points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15`
 - core live verifier exists as `npm run verify:traefik-release`
 - the release manifest includes donor-style platform `commandline` entries for the Traefik providers-file path, dashboard/API flags, entrypoints, ping readiness, and insecure transport flag; Service Lasso resolves those strings into process args at start/restart time
-- the release manifest includes `depend_on: ["localcert", "nginx"]`; core has local provider-role dependency manifests so baseline bootstrap installs/configures those dependencies before Traefik
+- the release manifest includes `depend_on: ["localcert", "nginx"]`; core keeps `localcert` as a local provider-role dependency and now starts release-backed managed `nginx` from `service-lasso/lasso-nginx@2026.4.27-712c75f` before Traefik
 
 Recommended next delivery:
 
@@ -236,6 +243,18 @@ Recommended next delivery:
 - keep release asset names aligned with the table above
 - keep core `services/@traefik/service.json` pinned to a verified release
 - run `npm run verify:traefik-release` after any release update
+
+### `nginx`
+
+Target issue: `#198`
+
+Current delivery evidence:
+
+- Repo: `https://github.com/service-lasso/lasso-nginx`
+- Release: `https://github.com/service-lasso/lasso-nginx/releases/tag/2026.4.27-712c75f`
+- Release workflow: `https://github.com/service-lasso/lasso-nginx/actions/runs/25007138693`
+- Assets: NGINX Open Source `1.30.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
+- Core target behavior: `service-lasso start` acquires, configures, starts, and healthchecks nginx before starting `@traefik`.
 
 ## Core and Reference Integration
 
@@ -257,6 +276,7 @@ Baseline rule:
 - `@node` is part of the current default baseline, so release-backed `@node` migration affects the clean-clone baseline contract. Core should use Node `v24.15.0`, not Node `v25.9.0`.
 - `@python` and `@java` are not part of the current default baseline, so they should remain optional unless a consuming baseline service requires them. If included later, core should use Python `3.11.5` and Java `17.0.18+8`, not Python `3.14.4` or Java `21.0.10+7`.
 - `@traefik` is already release-backed and remains part of the default baseline.
+- `nginx` is part of the current default baseline because `@traefik` depends on it; it is a managed service rather than a provider marker.
 
 ## Delivery Order
 
@@ -267,7 +287,8 @@ Recommended order:
 3. Integrate release-backed `@node` into core and revalidate the baseline. Completed under `#172`.
 4. Deliver `lasso-python`, because Python is a common donor/provider class but not baseline-critical. Completed with a Windows-only first release.
 5. Deliver `lasso-java` after the JRE vendor/license/security decision. Completed with Eclipse Temurin JRE releases.
-6. Update core/reference app/service-template inventories as each provider becomes release-backed and verified. Core is complete under `#172`; reference/template refresh remains the next inventory propagation step.
+6. Deliver `lasso-nginx` as a managed core service for the Traefik dependency. Completed under `#198`.
+7. Update core/reference app/service-template inventories as each provider becomes release-backed and verified. Core is complete under `#172` and `#198`; reference/template refresh remains the next inventory propagation step.
 
 ## Verification Gates
 
@@ -310,6 +331,7 @@ This provider-release program is complete when:
 
 - `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons. Current state: all three repos exist; Python is Windows-only for its first release.
 - `lasso-traefik` remains aligned with the shared service repo contract; current proof is release `2026.4.27-bbc7f15` with checksum output, HTTP `/ping` readiness, env/globalenv outputs, the full service-port map, donor-compatible `portmapping`, donor-style `commandline`, and explicit `localcert` / `nginx` dependencies.
+- `lasso-nginx` has a verified release-backed managed-service repo and core manifest pin. Current proof is release `2026.4.27-712c75f` with NGINX Open Source `1.30.0` Windows/Linux/macOS archives, HTTP `/health`, and checksums.
 - core manifests accurately distinguish release-backed providers from any remaining local/no-download providers.
 - clean-clone validation proves the default baseline with any release-backed provider changes.
 - reference app inventories and release outputs are consistent with the final provider state.

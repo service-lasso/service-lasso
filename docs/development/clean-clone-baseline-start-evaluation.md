@@ -2,9 +2,9 @@
 
 Date: 2026-04-24
 
-Latest update: 2026-04-27
+Latest update: 2026-04-28
 
-Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`, `#102`, `#158`, `#159`, `#160`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`, `#195`
+Linked issues: `#95`, `#96`, `#97`, `#98`, `#99`, `#102`, `#158`, `#159`, `#160`, `#171`, `#172`, `#185`, `#187`, `#189`, `#191`, `#193`, `#195`, `#198`
 
 OpenSpec binding: `SPEC-002`, `AC-4Z`
 
@@ -37,7 +37,7 @@ As of 2026-04-27, the core CLI has a bounded baseline bootstrap command that ins
 
 Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
 
-Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to the pinned release-backed `service-lasso/lasso-node@2026.4.27-13573bd` artifact. Issue `#195` adds `localcert` and `nginx` as provider-role baseline dependency services so Traefik dependencies are installed/configured before Traefik starts.
+Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to the pinned release-backed `service-lasso/lasso-node@2026.4.27-13573bd` artifact. Issue `#195` added the missing Traefik dependency edge for `localcert` and `nginx`. Issue `#198` promotes `nginx` from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik.
 
 ## Final Fresh-Clone Evidence
 
@@ -66,7 +66,7 @@ Final observed baseline state:
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
 | `localcert` | yes | yes | no | yes | local/no-download provider-role dependency |
-| `nginx` | yes | yes | no | yes | local/no-download provider-role dependency |
+| `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-13573bd` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
@@ -113,7 +113,7 @@ Missing from the expected clean-clone baseline:
 - `services/@traefik/service.json`
 - `services/service-admin/service.json`
 
-Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#171` hardens that service repo contract, issue `#185` adds HTTP `/ping` readiness, issue `#187` restores Traefik env/globalenv outputs, issue `#189` restores the full service-port map, issue `#191` pins the donor-compatible `portmapping`, issue `#193` pins donor-style commandline flags, and issue `#195` pins the core manifest to the verified `2026.4.27-bbc7f15` release with `depend_on: ["localcert", "nginx"]`. Issue `#93` adds `@java` as a bounded provider outside the starter baseline. Issue `#172` pins `@node`, `@python`, and `@java` to their verified release-backed provider repos.
+Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#171` hardens that service repo contract, issue `#185` adds HTTP `/ping` readiness, issue `#187` restores Traefik env/globalenv outputs, issue `#189` restores the full service-port map, issue `#191` pins the donor-compatible `portmapping`, issue `#193` pins donor-style commandline flags, and issue `#195` pins the core manifest to the verified `2026.4.27-bbc7f15` release with `depend_on: ["localcert", "nginx"]`. Issue `#198` pins `nginx` to the release-backed managed service repo `service-lasso/lasso-nginx@2026.4.27-712c75f`. Issue `#93` adds `@java` as a bounded provider outside the starter baseline. Issue `#172` pins `@node`, `@python`, and `@java` to their verified release-backed provider repos.
 
 Current `services/echo-service/service.json` carries both a local fixture fallback and release artifact metadata. Install/acquire uses the release-backed artifact metadata from `service-lasso/lasso-echoservice`.
 
@@ -137,7 +137,7 @@ Observed after issue `#158` fix:
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
 | `localcert` | yes | yes | no | yes | local/no-download provider-role dependency |
-| `nginx` | yes | yes | no | yes | local/no-download provider-role dependency |
+| `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
 | `service-admin` | yes | yes | yes | yes | `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
@@ -191,7 +191,8 @@ The clean-clone baseline start use case is split into these implementation-grade
 - `#189`: restore the full Traefik service-port map and prove resolved network/globalenv output.
 - `#191`: preserve donor-compatible `portmapping` and expose it through the network API.
 - `#193`: preserve donor-style Traefik commandline startup flags and execute manifest `commandline` during runtime start/restart.
-- `#195`: add missing `localcert` and `nginx` baseline dependency services and pin Traefik to the dependency-bearing release.
+- `#195`: add missing `localcert` and `nginx` baseline dependency entries and pin Traefik to the dependency-bearing release.
+- `#198`: promote `nginx` to a release-backed managed baseline service with its own canonical service repo/release.
 - `#172`: integrate release-backed runtime provider manifests into the core inventory.
 - `#158`: fix checked-in baseline start so release-backed Echo Service and Service Admin start from acquired artifacts and remain running.
 - `#159`: clarify and enforce `@node` local provider behavior in baseline start.
