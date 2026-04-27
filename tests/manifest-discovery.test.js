@@ -69,7 +69,25 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-38bd54d");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-40bc7cb");
+  assert.deepEqual(byId.get("@traefik")?.env, {
+    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
+    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
+    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
+    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
+    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
+  });
+  assert.deepEqual(byId.get("@traefik")?.globalenv, {
+    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
+    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
+    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
+    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
+    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    TRAEFIK_TRAEFIK_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
+    TRAEFIK_HOST_DOMAIN: "localhost",
+    TRAEFIK_HOST_DOMAIN_URL: "localhost",
+    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
+  });
   assert.deepEqual(byId.get("@traefik")?.healthcheck, {
     type: "http",
     url: "http://127.0.0.1:${ADMIN_PORT}/ping",

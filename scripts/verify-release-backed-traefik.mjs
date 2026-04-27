@@ -122,6 +122,8 @@ async function writeTraefikManifest(serviceRoot, ports) {
           web: ports.web,
           admin: ports.admin,
         },
+        env: coreTraefikManifest.env,
+        globalenv: coreTraefikManifest.globalenv,
         artifact: {
           kind: "archive",
           source: {
@@ -217,9 +219,26 @@ try {
   if (health.health?.type !== "http" || health.health?.healthy !== true) {
     throw new Error(`Traefik runtime health did not report healthy HTTP: ${JSON.stringify(health)}`);
   }
+  const globalEnv = await getJson(`${api.url}/api/globalenv`);
+  const expectedGlobalEnv = {
+    TRAEFIK_HTTP_PORT: String(ports.web),
+    TRAEFIK_INTERNAL_PORT: String(ports.admin),
+    TRAEFIK_WEB_URL: `http://127.0.0.1:${ports.web}/`,
+    TRAEFIK_DASHBOARD_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
+    TRAEFIK_PING_URL: `http://127.0.0.1:${ports.admin}/ping`,
+    TRAEFIK_TRAEFIK_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
+    TRAEFIK_HOST_DOMAIN: "localhost",
+    TRAEFIK_HOST_DOMAIN_URL: "localhost",
+    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
+  };
+  for (const [key, value] of Object.entries(expectedGlobalEnv)) {
+    if (globalEnv.globalenv?.[key] !== value) {
+      throw new Error(`Traefik globalenv ${key} mismatch: ${JSON.stringify(globalEnv.globalenv)}`);
+    }
+  }
 
   await postJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/stop`);
-  console.log(JSON.stringify({ ok: true, serviceId, releaseVersion, health: health.health }, null, 2));
+  console.log(JSON.stringify({ ok: true, serviceId, releaseVersion, health: health.health, globalenv: expectedGlobalEnv }, null, 2));
 } finally {
   await api.stop();
   resetLifecycleState();
