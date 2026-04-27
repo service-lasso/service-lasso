@@ -1,12 +1,25 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
-const traefikReleaseVersion = "2026.4.25-5301df9";
+const coreTraefikManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@traefik", "service.json"), "utf8"),
+);
+const coreNodeManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
+);
+const traefikReleaseVersion = coreTraefikManifest.artifact?.source?.tag;
+if (!traefikReleaseVersion || coreTraefikManifest.version !== traefikReleaseVersion) {
+  throw new Error("Core @traefik manifest version must match artifact.source.tag for baseline smoke.");
+}
+const nodeReleaseVersion = coreNodeManifest.artifact?.source?.tag;
+if (!nodeReleaseVersion) {
+  throw new Error("Core @node manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -119,23 +132,23 @@ async function writeLongRunningService(servicesRoot, serviceId, options = {}) {
   });
 }
 
-async function writeProviderService(servicesRoot, serviceId) {
+async function writeNodeProviderService(servicesRoot) {
+  const serviceId = "@node";
   const serviceRoot = path.join(servicesRoot, serviceId);
   await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
   await writeJson(path.join(serviceRoot, "service.json"), {
+    ...coreNodeManifest,
+    enabled: true,
+  });
+}
+
+async function writeProviderDependencyService(servicesRoot, serviceId) {
+  await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
     id: serviceId,
     name: serviceId,
-    description: `Baseline smoke provider fixture for ${serviceId}.`,
+    description: `Baseline smoke provider dependency for ${serviceId}.`,
     role: "provider",
     enabled: true,
-    executable: process.execPath,
-    args: ["--version"],
-    install: {
-      files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }],
-    },
-    config: {
-      files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
-    },
   });
 }
 
@@ -143,10 +156,16 @@ function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (service.serviceId === "@node") {
+  if (["localcert", "nginx", "@node"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
-    assert(startAction?.status === "skipped", "@node provider start was not skipped in CLI summary.");
-    assert(service.state.running === false, "@node provider should not be marked running in CLI summary.");
+    assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
+    assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
+    if (service.serviceId === "@node") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
+        "@node provider did not install from the pinned release artifact.",
+      );
+    }
     return;
   }
 
@@ -236,7 +255,7 @@ async function writeTraefikService(servicesRoot, ports, options = {}) {
     description: "Release-backed Traefik baseline smoke fixture.",
     version: traefikReleaseVersion,
     enabled: true,
-    depend_on: options.depend_on,
+    depend_on: options.depend_on ?? coreTraefikManifest.depend_on,
     ports: {
       web: ports.web,
       admin: ports.admin,
@@ -245,7 +264,7 @@ async function writeTraefikService(servicesRoot, ports, options = {}) {
       kind: "archive",
       source: {
         type: "github-release",
-        repo: "service-lasso/lasso-traefik",
+        repo: coreTraefikManifest.artifact.source.repo,
         tag: traefikReleaseVersion,
       },
       platforms: {
@@ -360,8 +379,10 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
-  await writeProviderService(servicesRoot, "@node");
-  await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort }, { depend_on: ["@node"] });
+  await writeProviderDependencyService(servicesRoot, "localcert");
+  await writeProviderDependencyService(servicesRoot, "nginx");
+  await writeNodeProviderService(servicesRoot);
+  await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
     ports: { service: echoPort },
@@ -386,7 +407,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@node", "@traefik", "echo-service", "service-admin"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@node", "@traefik", "echo-service", "localcert", "nginx", "service-admin"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -396,8 +417,8 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (serviceId === "@node") {
-      assert(service.lifecycle?.running === false, "@node provider should not be marked running.");
+    if (["localcert", "nginx", "@node"].includes(serviceId)) {
+      assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
     }

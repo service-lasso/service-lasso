@@ -28,7 +28,7 @@ Uses a Node runtime or Node executable.
 Uses a Java runtime via `execservice: "@java"`.
 
 Current core status:
-- `@java` exists as a bounded local/no-download provider manifest.
+- `@java` exists as a release-backed provider manifest and can be acquired from `service-lasso/lasso-java`.
 - release-backed JRE redistribution is deferred until the project chooses a vendor, license, platform, and update strategy.
 
 ### Python application

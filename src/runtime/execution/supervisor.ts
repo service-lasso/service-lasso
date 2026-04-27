@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { resolveExecutionArgs } from "./commandline.js";
 import { buildServiceVariables } from "../operator/variables.js";
 import { archiveRuntimeLogs, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
@@ -127,7 +128,7 @@ function resolveExecutable(service: DiscoveredService, executionPlan: ProviderEx
   const commandRoot = executionPlan.commandRoot ?? service.serviceRoot;
 
   if (
-    executionPlan.provider === "direct" &&
+    executionPlan.commandRoot &&
     (path.isAbsolute(executable) || executable.startsWith(".") || executable.includes("/") || executable.includes("\\"))
   ) {
     return path.resolve(commandRoot, executable);
@@ -193,7 +194,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const executable = resolveExecutable(service, executionPlan);
   const workingDirectory = resolveWorkingDirectory(service, executionPlan, executable);
-  const args = executionPlan.args;
+  const args = resolveExecutionArgs(service, executionPlan, sharedGlobalEnv, resolvedPorts);
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot);

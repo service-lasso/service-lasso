@@ -4,8 +4,12 @@ import type { ProviderExecutionPlan } from "./types.js";
 export function createNodeExecutionPlan(
   serviceManifest: ServiceManifest,
   providerManifest: ServiceManifest,
+  installedArtifact?: {
+    command: string | null;
+    extractedPath: string | null;
+  },
 ): ProviderExecutionPlan {
-  const executable = providerManifest.executable ?? "node";
+  const executable = installedArtifact?.command ?? providerManifest.executable ?? "node";
   const args = serviceManifest.args ?? [];
 
   return {
@@ -15,6 +19,6 @@ export function createNodeExecutionPlan(
     args,
     commandPreview: [executable, ...args].join(" ").trim(),
     providerEnv: providerManifest.env ?? {},
-    commandRoot: null,
+    commandRoot: installedArtifact?.command ? installedArtifact.extractedPath : null,
   };
 }

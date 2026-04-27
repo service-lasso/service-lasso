@@ -1,5 +1,5 @@
 import type { DiscoveredService, ServiceEndpoint } from "../../contracts/service.js";
-import { buildServiceVariables } from "./variables.js";
+import { buildServiceVariables, resolveServiceText } from "./variables.js";
 
 export interface ServiceNetworkEntry {
   label: string;
@@ -10,6 +10,7 @@ export interface ServiceNetworkEntry {
 export interface ServiceNetworkPayload {
   serviceId: string;
   ports: Record<string, number>;
+  portmapping: Record<string, string>;
   endpoints: ServiceNetworkEntry[];
 }
 
@@ -55,10 +56,17 @@ export function buildServiceNetwork(
           },
         ]
       : [];
+  const portmapping = Object.fromEntries(
+    Object.entries(service.manifest.portmapping ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceText(value, service, sharedGlobalEnv, resolvedPorts),
+    ]),
+  );
 
   return {
     serviceId: service.manifest.id,
     ports: { ...resolvedPorts },
+    portmapping,
     endpoints: [...manifestEndpoints, ...healthEndpoint],
   };
 }

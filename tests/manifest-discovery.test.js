@@ -53,17 +53,107 @@ test("core services root declares the clean-clone baseline inventory", async () 
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
 
   assert.deepEqual(
-    ["@node", "@traefik", "echo-service", "service-admin"].filter((serviceId) => !byId.has(serviceId)),
+    ["localcert", "nginx", "@node", "@traefik", "echo-service", "service-admin"].filter((serviceId) => !byId.has(serviceId)),
     [],
   );
+  assert.equal(byId.get("localcert")?.role, "provider");
+  assert.equal(byId.get("nginx")?.role, "provider");
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
-  assert.equal(byId.get("@node")?.artifact, undefined);
+  assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
+  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-13573bd");
   assert.equal(byId.get("@java")?.executable, "java");
   assert.equal(byId.get("@java")?.role, "provider");
-  assert.equal(byId.get("@java")?.artifact, undefined);
+  assert.equal(byId.get("@java")?.artifact?.source.repo, "service-lasso/lasso-java");
+  assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.4.27-b313cb0");
   assert.equal(byId.get("@python")?.role, "provider");
+  assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
+  assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
+  assert.deepEqual(byId.get("@traefik")?.depend_on, ["localcert", "nginx"]);
+  assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-bbc7f15");
+  assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
+  assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{MONGO_PORT\}"/);
+  assert.match(byId.get("@traefik")?.commandline?.default ?? "", /--serversTransport\.insecureSkipVerify=true/);
+  assert.deepEqual(byId.get("@traefik")?.ports, {
+    web: 19080,
+    websecure: 19443,
+    admin: 19081,
+    https_traefik: 19082,
+    https_nginx: 19090,
+    https_cms: 19100,
+    https_flow: 19110,
+    https_flowtms: 19120,
+    https_api: 19130,
+    https_files: 19140,
+    https_bpmn: 19150,
+    mongo: 19160,
+    typedb: 19170,
+  });
+  assert.deepEqual(byId.get("@traefik")?.portmapping, {
+    HTTP: "${WEB_PORT}",
+    HTTPS: "${WEBSECURE_PORT}",
+    HTTPS_TRAEFIK: "${HTTPS_TRAEFIK_PORT}",
+    HTTPS_NGINX: "${HTTPS_NGINX_PORT}",
+    HTTPS_CMS: "${HTTPS_CMS_PORT}",
+    HTTPS_FLOW: "${HTTPS_FLOW_PORT}",
+    HTTPS_FLOWTMS: "${HTTPS_FLOWTMS_PORT}",
+    HTTPS_API: "${HTTPS_API_PORT}",
+    HTTPS_FILES: "${HTTPS_FILES_PORT}",
+    HTTPS_BPMN: "${HTTPS_BPMN_PORT}",
+    TCP_MOGNO: "${MONGO_PORT}",
+    TCP_TYPEDB: "${TYPEDB_PORT}",
+  });
+  assert.deepEqual(byId.get("@traefik")?.env, {
+    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
+    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
+    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
+    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
+    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
+    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
+    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
+    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
+    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
+    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
+    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
+    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
+    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
+    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
+    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
+    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
+    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
+  });
+  assert.deepEqual(byId.get("@traefik")?.globalenv, {
+    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
+    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
+    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
+    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
+    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
+    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
+    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
+    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
+    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
+    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
+    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
+    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
+    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
+    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
+    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
+    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
+    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    TRAEFIK_TRAEFIK_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
+    TRAEFIK_HOST_DOMAIN: "localhost",
+    TRAEFIK_HOST_DOMAIN_URL: "localhost",
+    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
+  });
+  assert.deepEqual(byId.get("@traefik")?.healthcheck, {
+    type: "http",
+    url: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    expected_status: 200,
+    retries: 80,
+    interval: 250,
+  });
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
 });
@@ -517,6 +607,76 @@ test("loadServiceManifest accepts bounded ports declarations", async () => {
     assert.deepEqual(manifest.ports, {
       service: 43100,
       ui: 0,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts donor-style portmapping declarations", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "mapped-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "mapped-service",
+        name: "Mapped Service",
+        description: "Service with donor-style portmapping.",
+        ports: {
+          web: 18080,
+          mongo: 19017,
+        },
+        portmapping: {
+          HTTP: "${WEB_PORT}",
+          TCP_MOGNO: "${MONGO_PORT}",
+          LEGACY_LITERAL: 9250,
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.portmapping, {
+      HTTP: "${WEB_PORT}",
+      TCP_MOGNO: "${MONGO_PORT}",
+      LEGACY_LITERAL: "9250",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts platform commandline maps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "commandline-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "commandline-service",
+        name: "Commandline Service",
+        description: "Service with donor-style commandline declarations.",
+        executable: "service-binary",
+        args: ["--fallback"],
+        commandline: {
+          win32: " --config=\"${SERVICE_ROOT}\\runtime\\service.yml\" --port=\":${SERVICE_PORT}\"",
+          linux: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+          default: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.commandline, {
+      win32: " --config=\"${SERVICE_ROOT}\\runtime\\service.yml\" --port=\":${SERVICE_PORT}\"",
+      linux: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+      default: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
     });
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });

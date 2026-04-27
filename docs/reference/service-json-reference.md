@@ -131,7 +131,7 @@ Declares whether the manifest describes a normal managed service or a local runt
 
 Supported values:
 - `service` or omitted: a normal service that can be installed, configured, started, stopped, and health-checked as a managed process when execution metadata is present
-- `provider`: a local/no-download runtime provider such as `@node`, `@python`, or `@java`
+- `provider`: a runtime provider such as `@node`, `@python`, or `@java`; providers can be local/no-download or release-backed through `artifact` metadata
 
 Provider-role services are installed/configured so their variables and dependency contract are available, but baseline start does not launch them as long-running daemon processes unless a later provider contract explicitly requires that.
 
@@ -291,6 +291,28 @@ This means `execservice` and `executable` are related, but not the same thing:
 Practical rule:
 - use both when you want provider-backed execution to stay explicit
 - do not assume `execservice` alone is enough unless Service Lasso later defines provider defaults clearly enough to make `executable` optional
+
+### `args` and `commandline`
+
+`args` is the structured argument array passed to the selected executable.
+
+`commandline` is a platform-specific string map used when a donor-style service needs to preserve an exact startup argument string:
+
+```json
+"commandline": {
+  "win32": " --config=\"${SERVICE_ROOT}\\runtime\\service.yml\" --port=\":${SERVICE_PORT}\"",
+  "darwin": " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+  "linux": " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+  "default": " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\""
+}
+```
+
+Current core behavior:
+- Service Lasso selects `commandline[process.platform]`, falling back to `commandline.default`.
+- `${...}` selectors are resolved with the same service variables used for env/config materialization.
+- The resolved commandline is parsed into process arguments and overrides `args` during `start` and `restart`.
+- `commandline` is the arguments payload after the executable; it does not include the executable itself.
+- Keep `args` as the fallback when no platform/default commandline is declared.
 
 ### `execservice`
 Runtime-provider service used to run this service through another packaged/runtime service.

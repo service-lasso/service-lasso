@@ -1,0 +1,11 @@
+{
+  "id": "localcert",
+  "name": "Local Certificate Utility",
+  "description": "Baseline dependency marker for local certificate material used by Traefik routing.",
+  "version": "0.1.0",
+  "role": "provider",
+  "enabled": true,
+  "globalenv": {
+    "LOCALCERT_ENABLED": "true"
+  }
+}

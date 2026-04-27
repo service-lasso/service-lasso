@@ -1,11 +1,19 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const coreTraefikManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@traefik", "service.json"), "utf8"),
+);
 const serviceId = "@traefik";
-const releaseVersion = "2026.4.25-5301df9";
+const releaseVersion = coreTraefikManifest.artifact?.source?.tag;
+if (!releaseVersion || coreTraefikManifest.version !== releaseVersion) {
+  throw new Error("Core @traefik manifest version must match artifact.source.tag for release verification.");
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,15 +118,19 @@ async function writeTraefikManifest(serviceRoot, ports) {
         description: "Release-backed Traefik verification manifest.",
         version: releaseVersion,
         enabled: true,
-        ports: {
-          web: ports.web,
-          admin: ports.admin,
-        },
+        depend_on: coreTraefikManifest.depend_on,
+        ports: Object.fromEntries(
+          Object.keys(coreTraefikManifest.ports ?? {}).map((key) => [key, ports[key]]),
+        ),
+        portmapping: coreTraefikManifest.portmapping,
+        commandline: coreTraefikManifest.commandline,
+        env: coreTraefikManifest.env,
+        globalenv: coreTraefikManifest.globalenv,
         artifact: {
           kind: "archive",
           source: {
             type: "github-release",
-            repo: "service-lasso/lasso-traefik",
+            repo: coreTraefikManifest.artifact.source.repo,
             tag: releaseVersion,
           },
           platforms: {
@@ -133,36 +145,27 @@ async function writeTraefikManifest(serviceRoot, ports) {
             },
           ],
         },
-        config: {
-          files: [
-            {
-              path: "./runtime/traefik.yml",
-              content:
-                "entryPoints:\n" +
-                "  web:\n" +
-                "    address: \"127.0.0.1:${WEB_PORT}\"\n" +
-                "  traefik:\n" +
-                "    address: \"127.0.0.1:${ADMIN_PORT}\"\n" +
-                "api:\n" +
-                "  dashboard: true\n" +
-                "ping:\n" +
-                "  entryPoint: traefik\n" +
-                "providers:\n" +
-                "  file:\n" +
-                "    filename: \"./runtime/dynamic.yml\"\n" +
-                "    watch: true\n" +
-                "log:\n" +
-                "  level: INFO\n",
-            },
-          ],
-        },
-        healthcheck: {
-          type: "http",
-          url: `http://127.0.0.1:${ports.admin}/ping`,
-          expected_status: 200,
-          retries: 80,
-          interval: 250,
-        },
+        config: coreTraefikManifest.config,
+        healthcheck: coreTraefikManifest.healthcheck,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+async function writeDependencyManifest(servicesRoot, serviceId) {
+  await mkdir(path.join(servicesRoot, serviceId), { recursive: true });
+  await writeFile(
+    path.join(servicesRoot, serviceId, "service.json"),
+    `${JSON.stringify(
+      {
+        id: serviceId,
+        name: serviceId,
+        description: `Traefik dependency fixture for ${serviceId}.`,
+        role: "provider",
+        enabled: true,
       },
       null,
       2,
@@ -178,17 +181,32 @@ const workspaceRoot = path.join(tempRoot, "workspace");
 const serviceRoot = path.join(servicesRoot, serviceId);
 const ports = {
   api: await reserveLoopbackPort(),
-  web: await reserveLoopbackPort(),
-  admin: await reserveLoopbackPort(),
 };
+for (const key of Object.keys(coreTraefikManifest.ports ?? {})) {
+  ports[key] = await reserveLoopbackPort();
+}
 
 await mkdir(servicesRoot, { recursive: true });
 await mkdir(workspaceRoot, { recursive: true });
+await writeDependencyManifest(servicesRoot, "localcert");
+await writeDependencyManifest(servicesRoot, "nginx");
 await writeTraefikManifest(serviceRoot, ports);
 
 const api = await startApiServer({ port: ports.api, servicesRoot, workspaceRoot });
 
 try {
+  for (const dependencyId of coreTraefikManifest.depend_on ?? []) {
+    const dependencyInstall = await postJson(`${api.url}/api/services/${encodeURIComponent(dependencyId)}/install`);
+    if (!dependencyInstall.ok || !dependencyInstall.state.installed) {
+      throw new Error(`${dependencyId} install failed: ${JSON.stringify(dependencyInstall)}`);
+    }
+
+    const dependencyConfig = await postJson(`${api.url}/api/services/${encodeURIComponent(dependencyId)}/config`);
+    if (!dependencyConfig.ok || !dependencyConfig.state.configured) {
+      throw new Error(`${dependencyId} config failed: ${JSON.stringify(dependencyConfig)}`);
+    }
+  }
+
   const install = await postJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/install`);
   if (!install.ok || !install.state.installed) {
     throw new Error(`Traefik install failed: ${JSON.stringify(install)}`);
@@ -203,15 +221,83 @@ try {
   if (!start.ok || !start.state.running) {
     throw new Error(`Traefik start failed: ${JSON.stringify(start)}`);
   }
+  if (!start.state.runtime.command.includes("--providers.file.filename=")) {
+    throw new Error(`Traefik did not start with manifest commandline: ${start.state.runtime.command}`);
+  }
+  if (start.state.runtime.command.includes("--configFile=runtime/traefik.yml")) {
+    throw new Error(`Traefik unexpectedly used fallback artifact args: ${start.state.runtime.command}`);
+  }
 
   await waitForOk(`http://127.0.0.1:${ports.admin}/ping`);
   const health = await getJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/health`);
   if (health.health?.type !== "http" || health.health?.healthy !== true) {
     throw new Error(`Traefik runtime health did not report healthy HTTP: ${JSON.stringify(health)}`);
   }
+  const globalEnv = await getJson(`${api.url}/api/globalenv`);
+  const expectedGlobalEnv = {
+    TRAEFIK_HTTP_PORT: String(ports.web),
+    TRAEFIK_HTTPS_PORT: String(ports.websecure),
+    TRAEFIK_INTERNAL_PORT: String(ports.admin),
+    TRAEFIK_HTTPS_TRAEFIK_PORT: String(ports.https_traefik),
+    TRAEFIK_HTTPS_NGINX_PORT: String(ports.https_nginx),
+    TRAEFIK_HTTPS_CMS_PORT: String(ports.https_cms),
+    TRAEFIK_HTTPS_FLOW_PORT: String(ports.https_flow),
+    TRAEFIK_HTTPS_FLOWTMS_PORT: String(ports.https_flowtms),
+    TRAEFIK_HTTPS_API_PORT: String(ports.https_api),
+    TRAEFIK_HTTPS_FILES_PORT: String(ports.https_files),
+    TRAEFIK_HTTPS_BPMN_PORT: String(ports.https_bpmn),
+    TRAEFIK_MONGO_PORT: String(ports.mongo),
+    TRAEFIK_TYPEDB_PORT: String(ports.typedb),
+    TRAEFIK_WEB_URL: `http://127.0.0.1:${ports.web}/`,
+    TRAEFIK_WEBSECURE_URL: `https://127.0.0.1:${ports.websecure}/`,
+    TRAEFIK_DASHBOARD_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
+    TRAEFIK_PING_URL: `http://127.0.0.1:${ports.admin}/ping`,
+    TRAEFIK_TRAEFIK_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
+    TRAEFIK_HOST_DOMAIN: "localhost",
+    TRAEFIK_HOST_DOMAIN_URL: "localhost",
+    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
+  };
+  for (const [key, value] of Object.entries(expectedGlobalEnv)) {
+    if (globalEnv.globalenv?.[key] !== value) {
+      throw new Error(`Traefik globalenv ${key} mismatch: ${JSON.stringify(globalEnv.globalenv)}`);
+    }
+  }
+  const network = await getJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/network`);
+  for (const [key, value] of Object.entries(ports).filter(([key]) => key !== "api")) {
+    if (network.network?.ports?.[key] !== value) {
+      throw new Error(`Traefik network port ${key} mismatch: ${JSON.stringify(network.network?.ports)}`);
+    }
+  }
+  const expectedPortmapping = {
+    HTTP: String(ports.web),
+    HTTPS: String(ports.websecure),
+    HTTPS_TRAEFIK: String(ports.https_traefik),
+    HTTPS_NGINX: String(ports.https_nginx),
+    HTTPS_CMS: String(ports.https_cms),
+    HTTPS_FLOW: String(ports.https_flow),
+    HTTPS_FLOWTMS: String(ports.https_flowtms),
+    HTTPS_API: String(ports.https_api),
+    HTTPS_FILES: String(ports.https_files),
+    HTTPS_BPMN: String(ports.https_bpmn),
+    TCP_MOGNO: String(ports.mongo),
+    TCP_TYPEDB: String(ports.typedb),
+  };
+  for (const [key, value] of Object.entries(expectedPortmapping)) {
+    if (network.network?.portmapping?.[key] !== value) {
+      throw new Error(`Traefik network portmapping ${key} mismatch: ${JSON.stringify(network.network?.portmapping)}`);
+    }
+  }
 
   await postJson(`${api.url}/api/services/${encodeURIComponent(serviceId)}/stop`);
-  console.log(JSON.stringify({ ok: true, serviceId, releaseVersion, health: health.health }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    serviceId,
+    releaseVersion,
+    dependencies: coreTraefikManifest.depend_on ?? [],
+    commandline: start.state.runtime.command,
+    health: health.health,
+    globalenv: expectedGlobalEnv,
+  }, null, 2));
 } finally {
   await api.stop();
   resetLifecycleState();

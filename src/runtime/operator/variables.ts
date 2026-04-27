@@ -1,6 +1,7 @@
 import { getServiceStatePaths } from "../state/paths.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
+import path from "node:path";
 
 export interface ServiceVariableEntry {
   key: string;
@@ -50,6 +51,7 @@ export function buildServiceVariables(
   resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
 ): ServiceVariablesPayload {
   const statePaths = getServiceStatePaths(service.serviceRoot);
+  const installArtifact = getLifecycleState(service.manifest.id).installArtifacts.artifact;
   const rawManifestVariables = Object.entries(service.manifest.env ?? {}).map(([key, value]) => ({
     key,
     value,
@@ -78,6 +80,24 @@ export function buildServiceVariables(
       value: statePaths.stateRoot,
       scope: "derived",
     },
+    ...(installArtifact?.extractedPath
+      ? [
+          {
+            key: "SERVICE_ARTIFACT_ROOT",
+            value: installArtifact.extractedPath,
+            scope: "derived" as const,
+          },
+        ]
+      : []),
+    ...(installArtifact?.command && installArtifact.extractedPath
+      ? [
+          {
+            key: "SERVICE_ARTIFACT_COMMAND",
+            value: path.resolve(installArtifact.extractedPath, installArtifact.command),
+            scope: "derived" as const,
+          },
+        ]
+      : []),
     ...buildPortVariables(resolvedPorts),
   ];
 
@@ -109,6 +129,15 @@ export function collectServiceGlobalEnv(
   return Object.fromEntries(
     Object.entries(configuredGlobalEnv).map(([key, value]) => [key, replaceVariableSelectors(value, variables)]),
   );
+}
+
+export function resolveServiceText(
+  value: string,
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
+): string {
+  return replaceVariableSelectors(value, buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables);
 }
 
 export function collectRuntimeGlobalEnv(services: DiscoveredService[]): Record<string, string> {

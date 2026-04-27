@@ -8,6 +8,7 @@ import { checkTcpHealth } from "./checkTcp.js";
 import { checkVariableHealth } from "./checkVariable.js";
 import type { ServiceHealthResult } from "./types.js";
 import { isProviderRole } from "../roles.js";
+import { resolveServiceText } from "../operator/variables.js";
 
 export async function evaluateServiceHealth(
   manifest: ServiceManifest,
@@ -33,12 +34,22 @@ export async function evaluateServiceHealth(
     return checkProcessHealth(lifecycle);
   }
 
+  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : manifest.ports ?? {};
+
   if (healthcheck.type === "http") {
-    return checkHttpHealth(healthcheck);
+    return checkHttpHealth({
+      ...healthcheck,
+      url: service ? resolveServiceText(healthcheck.url, service, sharedGlobalEnv, resolvedPorts) : healthcheck.url,
+    });
   }
 
   if (healthcheck.type === "tcp") {
-    return checkTcpHealth(healthcheck);
+    return checkTcpHealth({
+      ...healthcheck,
+      address: service
+        ? resolveServiceText(healthcheck.address, service, sharedGlobalEnv, resolvedPorts)
+        : healthcheck.address,
+    });
   }
 
   if (healthcheck.type === "file") {
@@ -50,7 +61,7 @@ export async function evaluateServiceHealth(
       healthcheck,
       service,
       sharedGlobalEnv,
-      Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : manifest.ports ?? {},
+      resolvedPorts,
     );
   }
 

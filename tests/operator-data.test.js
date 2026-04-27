@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
@@ -450,6 +450,58 @@ test("GET /api/globalenv returns the merged bounded shared env map", async () =>
   }
 });
 
+test("provider globalenv can resolve installed artifact command variables", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-artifact-globalenv-");
+  const artifactRoot = path.join(tempRoot, "provider-artifact");
+
+  await writeManifest(servicesRoot, "@node", {
+    id: "@node",
+    name: "Node Runtime",
+    description: "Release-backed provider.",
+    role: "provider",
+    globalenv: {
+      NODE: "${SERVICE_ARTIFACT_COMMAND}",
+      NODE_HOME: "${SERVICE_ARTIFACT_ROOT}",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const providerState = getLifecycleState("@node");
+    setLifecycleState("@node", {
+      ...providerState,
+      installed: true,
+      installArtifacts: {
+        ...providerState.installArtifacts,
+        artifact: {
+          ...providerState.installArtifacts.artifact,
+          sourceType: "github-release",
+          repo: "service-lasso/lasso-node",
+          tag: "2026.4.27-13573bd",
+          assetName: "lasso-node-v24.15.0-win32.zip",
+          archiveType: "zip",
+          extractedPath: artifactRoot,
+          command: "./bin/node",
+          args: ["--version"],
+        },
+      },
+    });
+
+    const response = await fetch(`${apiServer.url}/api/globalenv`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.globalenv.NODE, path.resolve(artifactRoot, "./bin/node"));
+    assert.equal(body.globalenv.NODE_HOME, artifactRoot);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("service variables include merged globalenv entries and managed processes receive them", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-globalenv-");
@@ -527,6 +579,45 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("GET /api/services/:id/network resolves donor-style portmapping", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-portmapping-");
+
+  await writeManifest(servicesRoot, "mapped-service", {
+    id: "mapped-service",
+    name: "Mapped Service",
+    description: "Service with donor-style portmapping.",
+    ports: {
+      web: 48080,
+      mongo: 49017,
+    },
+    portmapping: {
+      HTTP: "${WEB_PORT}",
+      TCP_MOGNO: "${MONGO_PORT}",
+      LEGACY_LITERAL: "9250",
+    },
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/mapped-service/network`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.network.portmapping, {
+      HTTP: "48080",
+      TCP_MOGNO: "49017",
+      LEGACY_LITERAL: "9250",
+    });
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
