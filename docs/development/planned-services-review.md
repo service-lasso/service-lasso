@@ -4,7 +4,7 @@ This review records the service inventory currently implied by the core docs, do
 
 Date: 2026-04-25
 
-Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`
+Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#171`
 
 ## Summary
 
@@ -32,7 +32,7 @@ Java is a separate core-completion path rather than a starter baseline dependenc
 | `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Implemented as a bounded local/no-download provider path in core; manifest exists in core, service-template, and all scoped reference-app `services/@node/service.json` inventories. | No current baseline gap; explicitly classified as local/no-download until a separate runtime-distribution requirement exists. |
 | `@python` | Runtime/provider utility service for Python-backed services. | Manifest exists in core `services/@python/service.json`; docs mention provider planning. | Not part of the current starter baseline, but should be explicitly classified as optional/future for app inventories. |
 | `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest exists in `services/@java/service.json` as a bounded local/no-download provider; provider resolution supports `execservice: "@java"`; lifecycle tests prove provider env/runtime evidence through the Java provider path. | Dedicated release-backed JRE repo/artifacts remain deferred until vendor/license/platform/update policy is decided. Tracked in `docs/development/java-runtime-service-plan.md`. |
-| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.25-5301df9`; manifest exists in service-template and all scoped reference-app inventories; docs list it in starter baseline. | No current baseline gap. |
+| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-354433e`; manifest exists in service-template and all scoped reference-app inventories; docs list it in starter baseline. | No current baseline gap. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 | `@localcert` | Future local certificate/bootstrap utility based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 

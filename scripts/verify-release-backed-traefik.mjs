@@ -1,11 +1,19 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const coreTraefikManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@traefik", "service.json"), "utf8"),
+);
 const serviceId = "@traefik";
-const releaseVersion = "2026.4.25-5301df9";
+const releaseVersion = coreTraefikManifest.artifact?.source?.tag;
+if (!releaseVersion || coreTraefikManifest.version !== releaseVersion) {
+  throw new Error("Core @traefik manifest version must match artifact.source.tag for release verification.");
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -118,7 +126,7 @@ async function writeTraefikManifest(serviceRoot, ports) {
           kind: "archive",
           source: {
             type: "github-release",
-            repo: "service-lasso/lasso-traefik",
+            repo: coreTraefikManifest.artifact.source.repo,
             tag: releaseVersion,
           },
           platforms: {

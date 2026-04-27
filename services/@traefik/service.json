@@ -2,7 +2,7 @@
   "id": "@traefik",
   "name": "Traefik Router",
   "description": "Release-backed Traefik edge/router service for Service Lasso baseline routing.",
-  "version": "2026.4.25-5301df9",
+  "version": "2026.4.27-354433e",
   "enabled": true,
   "ports": {
     "web": 19080,
@@ -30,7 +30,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-traefik",
-      "tag": "2026.4.25-5301df9"
+      "tag": "2026.4.27-354433e"
     },
     "platforms": {
       "win32": {

@@ -2,7 +2,7 @@
 
 Date: 2026-04-27
 
-Linked issues: `#167`, `#168`, `#169`, `#170`, `#171`, `#172`, `#174`, `#176`
+Linked issues: `#167`, `#168`, `#169`, `#170`, `#171`, `#172`, `#174`, `#176`, `#179`
 
 Spec binding: `SPEC-002`, `AC-4H`, `AC-4W`, `AC-4Y`, `AC-4Z`
 
@@ -26,12 +26,12 @@ It separates current truth from target delivery so the repo does not imply relea
 | `@node` | none | local/no-download provider using host `node` | no | Used by baseline as an explicit provider. It is installed/configured but not launched as a daemon. |
 | `@python` | none | local/no-download provider using host `python` | no | Fixture/provider manifest exists, but it is not part of the default baseline. |
 | `@java` | none | local/no-download provider using host `java` | no | Tracked by the Java plan; release-backed JRE redistribution is deferred until vendor/license/security choices are made. |
-| `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service | yes | Current verified release is `2026.4.25-5301df9`. |
+| `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service | yes | Current verified release is `2026.4.27-354433e`. |
 
 Current Traefik release:
 
 - Repo: `https://github.com/service-lasso/lasso-traefik`
-- Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.25-5301df9`
+- Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-354433e`
 
 No `service-lasso/lasso-node`, `service-lasso/lasso-python`, or `service-lasso/lasso-java` GitHub repos exist at the time of this plan.
 
@@ -65,7 +65,7 @@ Each repo should include:
 - local package/release verification script
 - platform archives for supported platforms
 - explicit supported-platform matrix
-- optional checksum/provenance output when practical
+- checksum/provenance output when practical
 
 ## Runtime Version Matrix
 
@@ -200,13 +200,13 @@ Current delivery state:
 
 - repo exists
 - releases exist
-- core manifest points at `service-lasso/lasso-traefik@2026.4.25-5301df9`
+- core manifest points at `service-lasso/lasso-traefik@2026.4.27-354433e`
 - core live verifier exists as `npm run verify:traefik-release`
 
 Recommended next delivery:
 
 - review `lasso-traefik` against the shared service repo contract
-- add checksum/provenance output if practical
+- publish `SHA256SUMS.txt` checksum output with the release archives
 - keep release asset names aligned with the table above
 - keep core `services/@traefik/service.json` pinned to a verified release
 - run `npm run verify:traefik-release` after any release update
@@ -284,7 +284,7 @@ Reference repos must prove:
 This provider-release program is complete when:
 
 - `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons.
-- `lasso-traefik` remains aligned with the shared service repo contract.
+- `lasso-traefik` remains aligned with the shared service repo contract; current proof is release `2026.4.27-354433e` with checksum output.
 - core manifests accurately distinguish release-backed providers from local/no-download providers.
 - clean-clone validation proves the default baseline with any release-backed provider changes.
 - reference app inventories and release outputs are consistent with the final provider state.
