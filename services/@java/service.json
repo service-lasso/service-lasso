@@ -1,25 +1,50 @@
 {
   "id": "@java",
   "name": "Java Runtime",
-  "description": "Bounded local/no-download Java runtime provider. This declares the provider contract without bundling or redistributing a JRE.",
-  "version": "0.1.0",
+  "description": "Release-backed Eclipse Temurin JRE provider for Service Lasso services.",
+  "version": "17.0.18+8",
   "role": "provider",
-  "enabled": true,
+  "enabled": false,
   "executable": "java",
   "args": ["--version"],
-  "env": {
-    "JAVA": "java",
-    "JAVA_HOME": ""
-  },
+  "env": {},
   "globalenv": {
-    "JAVA": "java",
-    "JAVA_HOME": ""
+    "JAVA": "${SERVICE_ARTIFACT_COMMAND}",
+    "JAVA_HOME": "${SERVICE_ARTIFACT_ROOT}"
   },
   "urls": [
     {
-      "label": "docs",
-      "url": "https://adoptium.net/",
+      "label": "temurin",
+      "url": "https://adoptium.net/temurin/",
       "kind": "external"
     }
-  ]
+  ],
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-java",
+      "tag": "2026.4.27-b313cb0"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-java-17.0.18+8-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\bin\\java.exe",
+        "args": ["--version"]
+      },
+      "linux": {
+        "assetName": "lasso-java-17.0.18+8-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./bin/java",
+        "args": ["--version"]
+      },
+      "darwin": {
+        "assetName": "lasso-java-17.0.18+8-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./bin/java",
+        "args": ["--version"]
+      }
+    }
+  }
 }

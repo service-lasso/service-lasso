@@ -58,11 +58,15 @@ test("core services root declares the clean-clone baseline inventory", async () 
   );
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
-  assert.equal(byId.get("@node")?.artifact, undefined);
+  assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
+  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-13573bd");
   assert.equal(byId.get("@java")?.executable, "java");
   assert.equal(byId.get("@java")?.role, "provider");
-  assert.equal(byId.get("@java")?.artifact, undefined);
+  assert.equal(byId.get("@java")?.artifact?.source.repo, "service-lasso/lasso-java");
+  assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.4.27-b313cb0");
   assert.equal(byId.get("@python")?.role, "provider");
+  assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
+  assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");

@@ -8,7 +8,7 @@ Linked issues: `#89`, `#91`, `#93`, `#97`, `#102`, `#169`, `#170`, `#171`
 
 ## Summary
 
-The current planned baseline service inventory is aligned across the scoped core/template/reference repos, and the live reference-app lifecycle smoke now proves the baseline can be exercised through each app-owned runtime. Java has moved from donor/reference-only material into a bounded local/no-download core provider, while release-backed JRE redistribution remains an explicit future decision.
+The current planned baseline service inventory is aligned across the scoped core/template/reference repos, and the live reference-app lifecycle smoke now proves the baseline can be exercised through each app-owned runtime. Node, Python, and Java now have release-backed provider repos, and the core manifests point at the verified provider releases.
 
 Docs and `service-template` identify this baseline for app/reference repos:
 
@@ -21,7 +21,7 @@ The prior inventory gap is now closed for the scoped reference repos: `service-t
 
 The live source-host proof is also closed: `npm run verify:reference-app-lifecycle` fresh-clones all five canonical app repos and verifies host shell, mounted Service Admin route, app-owned runtime service discovery, Echo Service install/config/start/stop, and process cleanup.
 
-Python and Java remain optional provider services rather than starter baseline dependencies today. Release-backed provider repos now exist for both, but the checked-in core manifests remain local/no-download until the deliberate integration issue `#172` updates and verifies them.
+Python and Java remain optional provider services rather than starter baseline dependencies today. Their checked-in core manifests are release-backed so consumers can acquire them explicitly, but baseline start does not include them unless an app/service inventory depends on them.
 
 ## Service Status
 
@@ -29,9 +29,9 @@ Python and Java remain optional provider services rather than starter baseline d
 | --- | --- | --- | --- |
 | `echo-service` | Real managed harness/service for install, lifecycle, logs, state, SQLite, HTTP/TCP health, and UI validation. | Implemented and released in `service-lasso/lasso-echoservice`; used by core and all reference apps. | No baseline gap. |
 | `service-admin` | Operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; release-backed manifest exists in core `services/service-admin/service.json`; all reference apps include `services/service-admin/service.json`; live app-host smoke verifies the mounted admin route. | No current baseline gap. |
-| `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Implemented as a bounded local/no-download provider path in core; manifest exists in core, service-template, and all scoped reference-app `services/@node/service.json` inventories. | No current baseline gap; explicitly classified as local/no-download until a separate runtime-distribution requirement exists. |
-| `@python` | Runtime/provider utility service for Python-backed services. | Core manifest exists in `services/@python/service.json` as a local/no-download provider. Release-backed repo `service-lasso/lasso-python` exists with Windows-only official Python.org embeddable archives for `3.11.5` and `3.14.4`. | Not part of the current starter baseline. Core/reference manifest integration remains tracked by `#172`; Linux/macOS Python archives remain deferred pending an approved portable distribution source. |
-| `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest exists in `services/@java/service.json` as a bounded local/no-download provider; provider resolution supports `execservice: "@java"`; release-backed repo `service-lasso/lasso-java` exists with Eclipse Temurin JRE archives for Java `17.0.18+8` and `21.0.10+7`. | Not part of the current starter baseline. Core/reference manifest integration remains tracked by `#172`; Java-dependent services such as Keycloak should wait for that integration. |
+| `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Core manifest points at `service-lasso/lasso-node@2026.4.27-13573bd`; baseline start acquires it, configures it, skips daemon launch, and provider-backed child services can execute through the acquired runtime. | No current baseline gap. Reference app inventories still need to be refreshed if they carry older local/no-download copies. |
+| `@python` | Runtime/provider utility service for Python-backed services. | Core manifest points at `service-lasso/lasso-python@2026.4.27-63f915c` and can acquire the default Python `3.11.5` Windows embeddable archive. | Not part of the current starter baseline. Linux/macOS Python archives remain deferred pending an approved portable distribution source. |
+| `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest points at `service-lasso/lasso-java@2026.4.27-b313cb0`; provider resolution supports `execservice: "@java"` and direct acquire proof installs Java `17.0.18+8`. | Not part of the current starter baseline. Java-dependent services such as Keycloak should be migrated as separate service issues. |
 | `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-354433e`; manifest exists in service-template and all scoped reference-app inventories; docs list it in starter baseline. | No current baseline gap. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
 | `@localcert` | Future local certificate/bootstrap utility based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
@@ -84,7 +84,7 @@ Issue `#93` now has a bounded core implementation and explicit future release-ba
 
 - donor `_java` service metadata and runtime expectations are recorded in `docs/development/java-runtime-service-plan.md`
 - canonical `@java` service identity is `services/@java/service.json`
-- `@java` is local/no-download today, not part of the starter baseline
+- `@java` is release-backed today, but not part of the starter baseline
 - a dedicated `service-lasso/lasso-java` repo now exists and has release `2026.4.27-b313cb0`
 - provider tests prove the runtime can route and manage a service through `execservice: "@java"`
 - dependent services such as Keycloak should be migrated only after the verified `@java` release is integrated into core/reference manifests
@@ -101,7 +101,7 @@ Issue `#169` now has a release-backed Python provider repo:
 Core completion should proceed in this order:
 
 1. Close `#58` release-readiness after promotion evidence is current.
-2. Integrate verified release-backed `@node`, `@python`, and `@java` manifests through `#172` where they belong in core/reference inventories.
+2. Refresh reference app and service-template provider manifests where they still carry older local/no-download copies.
 3. Only after the runtime services are proven, plan dependent app/service migrations such as Keycloak so they consume released runtime services instead of inheriting donor assumptions.
 
 ## Remaining Planned Services

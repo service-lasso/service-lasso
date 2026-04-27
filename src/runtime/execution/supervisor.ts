@@ -127,7 +127,7 @@ function resolveExecutable(service: DiscoveredService, executionPlan: ProviderEx
   const commandRoot = executionPlan.commandRoot ?? service.serviceRoot;
 
   if (
-    executionPlan.provider === "direct" &&
+    executionPlan.commandRoot &&
     (path.isAbsolute(executable) || executable.startsWith(".") || executable.includes("/") || executable.includes("\\"))
   ) {
     return path.resolve(commandRoot, executable);

@@ -7,8 +7,7 @@ import { startApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { resolveProviderExecution } from "../dist/runtime/providers/resolveProvider.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { clearPersistedFixtureState } from "./test-helpers.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 
 const servicesRoot = path.resolve("services");
@@ -74,6 +73,7 @@ test("provider resolution returns direct execution for the local echo fixture se
 });
 
 test("provider resolution returns node execution for provider-backed services", async () => {
+  resetLifecycleState();
   const discovered = await discoverServices(servicesRoot);
   const registry = createServiceRegistry(discovered);
   const nodeSampleService = registry.getById("node-sample-service");
@@ -85,6 +85,45 @@ test("provider resolution returns node execution for provider-backed services", 
   assert.equal(plan.providerServiceId, "@node");
   assert.equal(plan.commandPreview, "node runtime/server.mjs");
   assert.equal(plan.providerEnv.NODE_ENV, "development");
+});
+
+test("provider resolution prefers an installed provider artifact command", async () => {
+  resetLifecycleState();
+  const discovered = await discoverServices(servicesRoot);
+  const registry = createServiceRegistry(discovered);
+  const nodeSampleService = registry.getById("node-sample-service");
+  const providerState = getLifecycleState("@node");
+
+  setLifecycleState("@node", {
+    ...providerState,
+    installed: true,
+    installArtifacts: {
+      ...providerState.installArtifacts,
+      artifact: {
+        ...providerState.installArtifacts.artifact,
+        sourceType: "github-release",
+        repo: "service-lasso/lasso-node",
+        tag: "2026.4.27-13573bd",
+        assetName: "lasso-node-v24.15.0-win32.zip",
+        archiveType: "zip",
+        extractedPath: path.join("provider-root"),
+        command: ".\\node.exe",
+        args: ["--version"],
+      },
+    },
+  });
+
+  try {
+    assert.ok(nodeSampleService);
+    const plan = resolveProviderExecution(nodeSampleService, registry);
+
+    assert.equal(plan.provider, "node");
+    assert.equal(plan.executable, ".\\node.exe");
+    assert.deepEqual(plan.args, ["runtime/server.mjs"]);
+    assert.equal(plan.commandRoot, path.join("provider-root"));
+  } finally {
+    resetLifecycleState();
+  }
 });
 
 test("provider resolution returns python execution for python-backed services", async () => {
@@ -161,55 +200,109 @@ test("provider resolution returns java execution for java-backed services", asyn
 
 test("provider-backed lifecycle action includes provider details in API responses", async () => {
   resetLifecycleState();
-  await clearPersistedFixtureState(servicesRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const { tempRoot, root } = await makeTempServicesRoot();
 
   try {
-    await postJson(`${apiServer.url}/api/services/@node/install`);
-    await postJson(`${apiServer.url}/api/services/@node/config`);
-    await postJson(`${apiServer.url}/api/services/node-sample-service/install`);
-    await postJson(`${apiServer.url}/api/services/node-sample-service/config`);
-    const start = await postJson(`${apiServer.url}/api/services/node-sample-service/start`);
-
-    assert.equal(start.status, 200);
-    assert.equal(start.body.provider.provider, "node");
-    assert.equal(start.body.provider.commandPreview, "node runtime/server.mjs");
-    assert.equal(start.body.state.runtime.provider, "node");
-    assert.equal(start.body.state.runtime.providerServiceId, "@node");
-    assert.equal(start.body.state.runtime.command, "node runtime/server.mjs");
-
-    const detail = await fetch(`${apiServer.url}/api/services/node-sample-service`);
-    const detailBody = await detail.json();
-    assert.equal(detailBody.service.provider.provider, "node");
-    assert.equal(detailBody.service.lifecycle.runtime.provider, "node");
-    assert.equal(detailBody.service.lifecycle.runtime.providerServiceId, "@node");
-
-    const providerEnvSnapshot = JSON.parse(
-      await waitFor(async () => {
-        try {
-          return await readFile(path.join(servicesRoot, "node-sample-service", ".state", "provider-env.json"), "utf8");
-        } catch (error) {
-          if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-            return null;
-          }
-          throw error;
-        }
-      }),
+    const serviceRoot = path.join(root, "node-sample-service");
+    await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+    await writeFile(
+      path.join(serviceRoot, "runtime", "server.mjs"),
+      [
+        "import { mkdir, writeFile } from 'node:fs/promises';",
+        "import path from 'node:path';",
+        "const envPath = process.env.NODE_SAMPLE_ENV_PATH;",
+        "if (envPath) {",
+        "  await mkdir(path.dirname(envPath), { recursive: true });",
+        "  await writeFile(envPath, JSON.stringify({ NODE_ENV: process.env.NODE_ENV, SERVICE_PORT: process.env.SERVICE_PORT, NODE_SAMPLE_PORT: process.env.NODE_SAMPLE_PORT }, null, 2));",
+        "}",
+        "const heartbeat = setInterval(() => {}, 1000);",
+        "function shutdown() { clearInterval(heartbeat); process.exit(0); }",
+        "process.on('SIGINT', shutdown);",
+        "process.on('SIGTERM', shutdown);",
+        "",
+      ].join("\n"),
+      "utf8",
     );
-    assert.equal(providerEnvSnapshot.NODE_ENV, "development");
-    assert.equal(providerEnvSnapshot.SERVICE_PORT, "4020");
-    assert.equal(providerEnvSnapshot.NODE_SAMPLE_PORT, "4020");
 
-    const stored = await readStoredState(path.join(servicesRoot, "node-sample-service"));
-    assert.equal(stored.runtime.provider, "node");
-    assert.equal(stored.runtime.providerServiceId, "@node");
+    await writeManifest(root, "@node", {
+      id: "@node",
+      name: "Node Runtime",
+      description: "Node provider shim for lifecycle proof",
+      role: "provider",
+      executable: process.execPath,
+      args: ["--version"],
+      env: {
+        NODE_ENV: "development",
+      },
+    });
+    await writeManifest(root, "node-sample-service", {
+      id: "node-sample-service",
+      name: "Node Sample Service",
+      description: "Bounded Node-provider lifecycle proof.",
+      depend_on: ["@node"],
+      execservice: "@node",
+      args: ["runtime/server.mjs"],
+      env: {
+        NODE_SAMPLE_ENV_PATH: "./.state/provider-env.json",
+        NODE_SAMPLE_PORT: "${SERVICE_PORT}",
+      },
+      ports: {
+        service: 4020,
+      },
+      healthcheck: {
+        type: "process",
+      },
+    });
 
-    const stop = await postJson(`${apiServer.url}/api/services/node-sample-service/stop`);
-    assert.equal(stop.status, 200);
+    const apiServer = await startApiServer({ port: 0, servicesRoot: root });
+
+    try {
+      await postJson(`${apiServer.url}/api/services/@node/install`);
+      await postJson(`${apiServer.url}/api/services/@node/config`);
+      await postJson(`${apiServer.url}/api/services/node-sample-service/install`);
+      await postJson(`${apiServer.url}/api/services/node-sample-service/config`);
+      const start = await postJson(`${apiServer.url}/api/services/node-sample-service/start`);
+
+      assert.equal(start.status, 200);
+      assert.equal(start.body.provider.provider, "node");
+      assert.match(start.body.provider.commandPreview, /runtime\/server\.mjs/);
+      assert.equal(start.body.state.runtime.provider, "node");
+      assert.equal(start.body.state.runtime.providerServiceId, "@node");
+      assert.match(start.body.state.runtime.command, /runtime\/server\.mjs/);
+
+      const detail = await fetch(`${apiServer.url}/api/services/node-sample-service`);
+      const detailBody = await detail.json();
+      assert.equal(detailBody.service.provider.provider, "node");
+      assert.equal(detailBody.service.lifecycle.runtime.provider, "node");
+      assert.equal(detailBody.service.lifecycle.runtime.providerServiceId, "@node");
+
+      const providerEnvSnapshot = JSON.parse(
+        await waitFor(async () => {
+          try {
+            return await readFile(path.join(serviceRoot, ".state", "provider-env.json"), "utf8");
+          } catch (error) {
+            if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+              return null;
+            }
+            throw error;
+          }
+        }),
+      );
+      assert.equal(providerEnvSnapshot.NODE_ENV, "development");
+      assert.equal(providerEnvSnapshot.SERVICE_PORT, "4020");
+      assert.equal(providerEnvSnapshot.NODE_SAMPLE_PORT, "4020");
+      const stored = await readStoredState(serviceRoot);
+      assert.equal(stored.runtime.provider, "node");
+      assert.equal(stored.runtime.providerServiceId, "@node");
+
+      const stop = await postJson(`${apiServer.url}/api/services/node-sample-service/stop`);
+      assert.equal(stop.status, 200);
+    } finally {
+      await apiServer.stop();
+    }
   } finally {
-    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
-    await clearPersistedFixtureState(servicesRoot);
   }
 });
 

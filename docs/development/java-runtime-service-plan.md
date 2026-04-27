@@ -12,7 +12,7 @@ Java is now a tracked bounded runtime/provider service in core as `services/@jav
 
 For the original core slice, `@java` was intentionally local/no-download. It declares the provider contract and exports `JAVA` / `JAVA_HOME` placeholders without redistributing a JRE.
 
-The release-backed provider decision is now made for `#170`: `service-lasso/lasso-java` packages Eclipse Temurin/Adoptium JRE archives for Java `17.0.18+8` and `21.0.10+7`. Core still keeps the checked-in `@java` manifest local/no-download until `#172` deliberately integrates the verified release-backed manifest.
+The release-backed provider decision is now made for `#170`: `service-lasso/lasso-java` packages Eclipse Temurin/Adoptium JRE archives for Java `17.0.18+8` and `21.0.10+7`. Issue `#172` integrates that verified release into the checked-in core `@java` manifest.
 
 ## Donor Evidence
 
@@ -39,7 +39,7 @@ The current bounded implementation includes:
 - provider execution metadata with provider kind `java` and provider service id `@java`
 - lifecycle proof that a Java-provider-backed service runs through the provider path, receives provider env, records provider runtime state, and stops cleanly
 
-This mirrors the current optional-provider behavior in core. The release-backed JRE repo now exists, but core manifest migration remains a separate integration step.
+This mirrors the current optional-provider behavior in core. The release-backed JRE repo now exists, and the core manifest now points at the verified release-backed provider artifact.
 
 ## Not Baseline
 
@@ -95,10 +95,8 @@ After `@java` is proven as a release-backed runtime service, Java-dependent serv
 
 Expected order:
 
-1. Promote core `@java` from local/no-download to release-backed under `#172`.
-2. Add checked-in manifest install/acquire validation for the release-backed `@java` archive.
-3. Add one real JVM-backed sample service using `execservice: "@java"`.
-4. Migrate Keycloak or TypeDB as separate service issues, using the already released Java runtime.
+1. Add one real JVM-backed sample service using `execservice: "@java"`.
+2. Migrate Keycloak or TypeDB as separate service issues, using the already released Java runtime.
 
 ## Verification
 
@@ -113,6 +111,6 @@ Release-backed provider verification:
 - `service-lasso/lasso-java` local `npm test` passed for Java `17.0.18+8` and Java `21.0.10+7` on Windows.
 - Packaging-only validation resolved and packaged Linux Java `21.0.10+7` from the exact Temurin release asset.
 - Release workflow `24978746504` passed across Windows/Linux/macOS Intel for Java `17.0.18+8` and `21.0.10+7`.
-- Direct Service Lasso install/acquire proof against the released manifest downloaded `lasso-java-17.0.18+8-win32.zip` from release `2026.4.27-b313cb0` and left the provider `running=false`.
+- Direct Service Lasso install/acquire proof against the checked-in core manifest downloaded `lasso-java-17.0.18+8-win32.zip` from release `2026.4.27-b313cb0` and left the provider `running=false`.
 
-This is enough to claim the standalone `lasso-java` provider repo is release-backed. It is not enough to claim core checked-in `@java` is release-backed until `#172` updates and verifies the core manifest.
+This is enough to claim the standalone `lasso-java` provider repo and the checked-in core `@java` manifest are release-backed. Java-dependent services remain separate follow-up work.
