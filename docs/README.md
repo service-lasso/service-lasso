@@ -42,6 +42,7 @@ Current preferred runtime-root model:
 ## Canonical general docs
 
 - `docs/INTRODUCTION.md` - comprehensive introduction to Service Lasso, its donor origin, repo split, and current core-runtime direction
+- `docs/development/clean-clone-scenario-validation.md` - copy-paste validation runbook for the public clean-clone baseline start scenario
 - `docs/development/new-lasso-service-guide.md` - agent-ready guide for creating a new release-backed `service-lasso/lasso-*` service repo
 - `docs/reference/service-json-reference.md` - general `service.json` contract reference
 - `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md` - generalized schema/reference shape
