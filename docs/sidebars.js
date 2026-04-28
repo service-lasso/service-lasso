@@ -16,6 +16,7 @@ const sidebars = {
       label: "Getting Started",
       collapsed: false,
       items: [
+        "development/clean-clone-scenario-validation",
         "development/clean-clone-baseline-start-evaluation",
         "development/baseline-service-inventory",
         "development/consumer-project-readiness-task-list",
