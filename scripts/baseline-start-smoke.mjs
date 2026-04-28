@@ -13,10 +13,10 @@ const coreNodeManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
 );
 const coreLocalcertManifest = JSON.parse(
-  await readFile(path.join(repoRoot, "services", "localcert", "service.json"), "utf8"),
+  await readFile(path.join(repoRoot, "services", "@localcert", "service.json"), "utf8"),
 );
 const coreNginxManifest = JSON.parse(
-  await readFile(path.join(repoRoot, "services", "nginx", "service.json"), "utf8"),
+  await readFile(path.join(repoRoot, "services", "@nginx", "service.json"), "utf8"),
 );
 const traefikReleaseVersion = coreTraefikManifest.artifact?.source?.tag;
 if (!traefikReleaseVersion || coreTraefikManifest.version !== traefikReleaseVersion) {
@@ -28,11 +28,11 @@ if (!nodeReleaseVersion) {
 }
 const localcertReleaseVersion = coreLocalcertManifest.artifact?.source?.tag;
 if (!localcertReleaseVersion) {
-  throw new Error("Core localcert manifest must be pinned to artifact.source.tag for baseline smoke.");
+  throw new Error("Core @localcert manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 const nginxReleaseVersion = coreNginxManifest.artifact?.source?.tag;
 if (!nginxReleaseVersion) {
-  throw new Error("Core nginx manifest must be pinned to artifact.source.tag for baseline smoke.");
+  throw new Error("Core @nginx manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 
 function sleep(ms) {
@@ -197,7 +197,7 @@ function localcertPlatformArtifact() {
 }
 
 async function writeLocalcertService(servicesRoot) {
-  await writeJson(path.join(servicesRoot, "localcert", "service.json"), {
+  await writeJson(path.join(servicesRoot, "@localcert", "service.json"), {
     ...coreLocalcertManifest,
     artifact: {
       ...coreLocalcertManifest.artifact,
@@ -222,7 +222,7 @@ function nginxPlatformArtifact() {
 }
 
 async function writeNginxService(servicesRoot, httpPort) {
-  await writeJson(path.join(servicesRoot, "nginx", "service.json"), {
+  await writeJson(path.join(servicesRoot, "@nginx", "service.json"), {
     ...coreNginxManifest,
     ports: {
       http: httpPort,
@@ -249,7 +249,7 @@ function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (["localcert", "@node"].includes(service.serviceId)) {
+  if (["@localcert", "@node"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
     assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
     assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
@@ -259,20 +259,20 @@ function assertBaselineServiceSummary(service) {
         "@node provider did not install from the pinned release artifact.",
       );
     }
-    if (service.serviceId === "localcert") {
+    if (service.serviceId === "@localcert") {
       assert(
         service.state.installArtifacts?.artifact?.tag === localcertReleaseVersion,
-        "localcert provider did not install from the pinned release artifact.",
+        "@localcert provider did not install from the pinned release artifact.",
       );
     }
     return;
   }
 
   assert(service.state.running === true, `${service.serviceId} was not running in CLI summary.`);
-  if (service.serviceId === "nginx") {
+  if (service.serviceId === "@nginx") {
     assert(
       service.state.installArtifacts?.artifact?.tag === nginxReleaseVersion,
-      "nginx did not install from the pinned release artifact.",
+      "@nginx did not install from the pinned release artifact.",
     );
   }
 }
@@ -496,7 +496,7 @@ try {
     urls: [{ label: "ui", url: "http://127.0.0.1:${SERVICE_PORT}/", kind: "local" }],
     healthUrl: `http://127.0.0.1:${echoPort}/health`,
   });
-  await writeHttpService(servicesRoot, "service-admin", "ui", {
+  await writeHttpService(servicesRoot, "@serviceadmin", "ui", {
     depend_on: ["@node"],
     ports: { ui: adminPort },
     urls: [{ label: "ui", url: "http://127.0.0.1:${UI_PORT}/", kind: "local" }],
@@ -514,7 +514,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@node", "@traefik", "echo-service", "localcert", "nginx", "service-admin"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -524,7 +524,7 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["localcert", "@node"].includes(serviceId)) {
+    if (["@localcert", "@node"].includes(serviceId)) {
       assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
@@ -550,7 +550,7 @@ try {
     console.error("[service-lasso baseline] CLI stderr:");
     console.error(cli.stderr);
   }
-  await printServiceRuntimeLogs(servicesRoot, "nginx");
+  await printServiceRuntimeLogs(servicesRoot, "@nginx");
   throw error;
 } finally {
   if (cli) {

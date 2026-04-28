@@ -5,8 +5,8 @@
   "version": "2026.4.27-bbc7f15",
   "enabled": true,
   "depend_on": [
-    "localcert",
-    "nginx"
+    "@localcert",
+    "@nginx"
   ],
   "ports": {
     "web": 19080,

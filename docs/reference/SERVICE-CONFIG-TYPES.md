@@ -8,7 +8,7 @@ This document groups the general `service.json` config/service patterns currentl
 A bundled executable runs directly.
 
 Examples:
-- nginx
+- @nginx
 - mongo
 - traefik
 - openobserve
@@ -70,7 +70,7 @@ Provides routing, certificates, databases, storage, or observability.
 
 Examples:
 - traefik
-- localcert
+- @localcert
 - mongo
 - postgredb
 - openobserve

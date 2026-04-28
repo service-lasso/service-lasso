@@ -11,7 +11,7 @@ import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 
-export const DEFAULT_BASELINE_SERVICE_IDS = ["localcert", "nginx", "@traefik", "@node", "echo-service", "service-admin"] as const;
+export const DEFAULT_BASELINE_SERVICE_IDS = ["@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"] as const;
 
 export type BaselineServiceStatus = "completed" | "skipped";
 

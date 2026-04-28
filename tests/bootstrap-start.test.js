@@ -13,10 +13,10 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
-    await writeExecutableFixtureService(servicesRoot, "localcert");
-    await writeExecutableFixtureService(servicesRoot, "nginx");
+    await writeExecutableFixtureService(servicesRoot, "@localcert");
+    await writeExecutableFixtureService(servicesRoot, "@nginx");
     await writeExecutableFixtureService(servicesRoot, "@traefik", {
-      depend_on: ["localcert", "nginx"],
+      depend_on: ["@localcert", "@nginx"],
       install: { files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }] },
       config: { files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }] },
     });
@@ -24,7 +24,7 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
-    await writeExecutableFixtureService(servicesRoot, "service-admin", {
+    await writeExecutableFixtureService(servicesRoot, "@serviceadmin", {
       depend_on: ["@node"],
     });
 
@@ -34,8 +34,8 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["localcert", "nginx", "@traefik", "@node", "echo-service", "service-admin"]);
-    assert.deepEqual(result.serviceOrder, ["@node", "localcert", "nginx", "@traefik", "echo-service", "service-admin"]);
+    assert.deepEqual(result.requestedServiceIds, ["@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"]);
+    assert.deepEqual(result.serviceOrder, ["@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]);
     assert.equal(result.services.length, 6);
 
     for (const service of result.services) {
@@ -75,16 +75,16 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
-    await writeExecutableFixtureService(servicesRoot, "localcert", {
+    await writeExecutableFixtureService(servicesRoot, "@localcert", {
       role: "provider",
       healthcheck: null,
     });
-    await writeExecutableFixtureService(servicesRoot, "nginx", {
+    await writeExecutableFixtureService(servicesRoot, "@nginx", {
       role: "provider",
       healthcheck: null,
     });
     await writeExecutableFixtureService(servicesRoot, "@traefik", {
-      depend_on: ["localcert", "nginx"],
+      depend_on: ["@localcert", "@nginx"],
       install: { files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }] },
       config: { files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }] },
     });
@@ -95,7 +95,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
-    await writeExecutableFixtureService(servicesRoot, "service-admin", {
+    await writeExecutableFixtureService(servicesRoot, "@serviceadmin", {
       depend_on: ["@node"],
     });
 
@@ -105,8 +105,8 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       version: "test-version",
     });
     const node = result.services.find((service) => service.serviceId === "@node");
-    const localcert = result.services.find((service) => service.serviceId === "localcert");
-    const nginx = result.services.find((service) => service.serviceId === "nginx");
+    const localcert = result.services.find((service) => service.serviceId === "@localcert");
+    const nginx = result.services.find((service) => service.serviceId === "@nginx");
 
     assert.ok(node);
     assert.ok(localcert);
@@ -130,7 +130,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
     assert.equal(localcert.state.running, false);
     assert.equal(nginx.state.running, false);
     assert.equal(result.services.find((service) => service.serviceId === "@traefik")?.state.running, true);
-    assert.equal(result.services.find((service) => service.serviceId === "service-admin")?.state.running, true);
+    assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
   } finally {
     await stopAllManagedProcesses();
     resetLifecycleState();
