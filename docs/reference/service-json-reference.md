@@ -1,10 +1,10 @@
 # service.json Reference
 
-_Status: first-pass reference_
+_Status: canonical runtime manifest reference with some historical donor fields still documented as compatibility context._
 
-This doc is the one-stop reference for the current `service.json` direction inside `service-template`.
+This doc is the one-stop reference for the current `service.json` direction in the core `service-lasso` runtime.
 
-It is meant to make the template usable without forcing service authors to reconstruct the contract from scattered notes.
+It is meant to make the runtime and service templates usable without forcing service authors to reconstruct the contract from scattered notes.
 
 ## What this doc covers
 

@@ -1,8 +1,33 @@
+---
+title: Service Lasso Docs
+slug: /
+---
+
 # Service Lasso Docs
 
 This repo is the canonical home for general Service Lasso documentation.
 
-Core runtime status: initial implementation batch (`#2` to `#8`) is landed. Current delivery focus is the hardening queue (`.governance/project/BACKLOG.md`, `TASK-012+`).
+The `docs/` folder is both the GitHub-readable documentation source and the Docusaurus site root.
+
+Run the local docs build from the repo root:
+
+```powershell
+npm run docs:build
+```
+
+Run the local docs development server:
+
+```powershell
+npm run docs:start
+```
+
+Serve the last production build locally:
+
+```powershell
+npm run docs:serve
+```
+
+Core runtime status: the runtime, package, release-backed baseline services, update/recovery surfaces, and reference-app integration paths are implemented enough for current consumer use. The current docs focus is making the service-authoring and operator paths explicit enough for new contributors and agents.
 
 Current preferred runtime-root model:
 - `servicesRoot` = where services live
@@ -11,6 +36,7 @@ Current preferred runtime-root model:
 ## Canonical general docs
 
 - `docs/INTRODUCTION.md` - comprehensive introduction to Service Lasso, its donor origin, repo split, and current core-runtime direction
+- `docs/development/new-lasso-service-guide.md` - agent-ready guide for creating a new release-backed `service-lasso/lasso-*` service repo
 - `docs/reference/service-json-reference.md` - general `service.json` contract reference
 - `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md` - generalized schema/reference shape
 - `docs/reference/SERVICE-CONFIG-TYPES.md` - taxonomy of common service config patterns
@@ -67,3 +93,16 @@ Keep docs in individual service repos when they describe:
 - service-specific migration notes
 - service-specific route/page specs
 - service-specific packaging quirks unless they generalize back into the core contract
+
+## Service authoring entrypoint
+
+Use [Create a New Lasso Service](development/new-lasso-service-guide.md) when creating or reviewing a new service repo.
+
+That guide is the canonical handoff for:
+- service ID and repo naming
+- `@` prefix rules for core-owned services
+- required release artifacts and artifact naming
+- `service.json` artifact metadata
+- service repo verification
+- updating core, service-template, and reference-app inventories
+- PR, merge, and branch archive hygiene
