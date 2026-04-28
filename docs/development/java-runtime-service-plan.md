@@ -50,7 +50,7 @@ The current starter baseline remains:
 - `@traefik`
 - `@node`
 - `echo-service`
-- `service-admin`
+- `@serviceadmin`
 
 Reference apps and `service-template` should add `services/@java/service.json` only when they include a Java-backed service such as Keycloak, TypeDB, or another JVM workload.
 

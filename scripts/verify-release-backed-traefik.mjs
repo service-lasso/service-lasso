@@ -188,8 +188,8 @@ for (const key of Object.keys(coreTraefikManifest.ports ?? {})) {
 
 await mkdir(servicesRoot, { recursive: true });
 await mkdir(workspaceRoot, { recursive: true });
-await writeDependencyManifest(servicesRoot, "localcert");
-await writeDependencyManifest(servicesRoot, "nginx");
+await writeDependencyManifest(servicesRoot, "@localcert");
+await writeDependencyManifest(servicesRoot, "@nginx");
 await writeTraefikManifest(serviceRoot, ports);
 
 const api = await startApiServer({ port: ports.api, servicesRoot, workspaceRoot });

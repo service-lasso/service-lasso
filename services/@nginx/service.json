@@ -1,5 +1,5 @@
 {
-  "id": "nginx",
+  "id": "@nginx",
   "name": "NGINX",
   "description": "Release-backed NGINX Open Source service for local Service Lasso routing dependencies.",
   "version": "1.30.0",

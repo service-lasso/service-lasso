@@ -24,9 +24,9 @@ External fresh-clone local usage can now use the public npmjs package path witho
 | `CONSUMER-004` | `done` | `#58` | Reference app release outputs are validated as usable artifacts. | 2026-04-24/25: sequential `npm run release:verify` passed for all five reference repos, verifying source, runtime/bootstrap-download, and bundled/no-download artifacts where shipped. |
 | `CONSUMER-005` | `done` | `#58` | Service Admin is reachable from reference app hosts, not only from its own repo. | 2026-04-24: reference-app host tests and release verification passed with mounted Service Admin payload checks for all five repos. |
 | `CONSUMER-006` | `ready` | `#58` | `develop` is promoted to `main` only after readiness evidence is current. | Promotion PR is the final action. Green `release-artifact` and `publish-package` workflows, timestamped GitHub release, and package publish evidence are recorded on issue `#58` before closure. |
-| `CONSUMER-007` | `done` | `#58` | A fresh external project can use the released package and public service manifests. | 2026-04-24: clean external project at `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424` installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public `services/echo-service/service.json` and `services/service-admin/service.json` from `service-lasso-app-node`, verified `service-lasso --version`, ran `service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`. |
+| `CONSUMER-007` | `done` | `#58` | A fresh external project can use the released package and public service manifests. | 2026-04-24: clean external project at `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424` installed `@service-lasso/service-lasso@2026.4.24-a663bb0` from npmjs, downloaded public service manifests from the reference app inventory, verified `service-lasso --version`, ran `service-lasso install echo-service --json`, started the package API, listed both services, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`. `#216` later corrected the core Service Admin ID/path to `@serviceadmin`. |
 | `CONSUMER-008` | `done` | `#80` | Other projects can install `@service-lasso/service-lasso` from public npm without GitHub Packages auth. | 2026-04-24: Publish workflow run `24876054960` published and verified `@service-lasso/service-lasso@2026.4.24-a663bb0`; local unauthenticated `npm view`, clean temp `npm install`, and `npm run verify:package-consumer` passed against npmjs. |
-| `CONSUMER-009` | `done` | `#89` | Each canonical reference app can drive Echo Service through its own app-owned runtime. | 2026-04-25: `npm run verify:reference-app-lifecycle` fresh-cloned all five canonical reference apps, mounted a deterministic Service Admin dist, verified host/admin/runtime readiness, verified `echo-service` and `service-admin` discovery, and installed/configured/started/stopped Echo Service through each app-owned runtime. |
+| `CONSUMER-009` | `done` | `#89` | Each canonical reference app can drive Echo Service through its own app-owned runtime. | 2026-04-25: `npm run verify:reference-app-lifecycle` fresh-cloned all five canonical reference apps, mounted a deterministic Service Admin dist, verified host/admin/runtime readiness, verified `echo-service` and Service Admin discovery, and installed/configured/started/stopped Echo Service through each app-owned runtime. `#216` later corrected the Service Admin service ID to `@serviceadmin`. |
 
 ## Public npmjs Path
 
@@ -74,17 +74,17 @@ Fresh-clone public npmjs validation passed from `C:\projects\service-lasso\.tmp\
 Fresh external project validation passed from `C:\projects\service-lasso\.tmp\consumer-007-external-project-20260424`:
 
 - `npm install @service-lasso/service-lasso@2026.4.24-a663bb0 --registry=https://registry.npmjs.org` passed without GitHub Packages auth.
-- Public manifests were downloaded from `service-lasso-app-node/main/services/echo-service/service.json` and `service-lasso-app-node/main/services/service-admin/service.json`.
+- Public manifests were downloaded from `service-lasso-app-node/main/services/echo-service/service.json` and the Service Admin manifest path that is now `service-lasso-app-node/main/services/@serviceadmin/service.json`.
 - `npx service-lasso --version` returned `2026.4.24-a663bb0`.
 - `npx service-lasso install echo-service --services-root <temp-services> --workspace-root <temp-workspace> --json` acquired `echo-service-win32.zip` from `service-lasso/lasso-echoservice@2026.4.20-a417abd`.
-- The installed package API listed `echo-service` and `service-admin`, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`.
+- The installed package API listed `echo-service` and Service Admin, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`.
 
 Parallel multi-repo validation previously raced on the shared core package staging directory. Issue `#75` fixed that by staging each reference repo's local core package into an isolated output root and copying the `.tgz` into the app artifact before install; parallel `npm test` now passes across all five reference repos.
 
 Live source-host lifecycle validation now passes from this repo:
 
 - `npm run verify:reference-app-lifecycle` fresh-clones all five canonical reference apps from GitHub.
-- The smoke verifies host shell, mounted Service Admin route, app-owned runtime API health, runtime service discovery for `echo-service` and `service-admin`, Echo Service install/config/start/stop, and app/runtime process cleanup.
+- The smoke verifies host shell, mounted Service Admin route, app-owned runtime API health, runtime service discovery for `echo-service` and Service Admin, Echo Service install/config/start/stop, and app/runtime process cleanup.
 - On Windows, temp clone directories can be left for OS cleanup after ports/processes are proven stopped to avoid transient `EBUSY` false failures from `node_modules` file handles.
 
 ## Stop Rule

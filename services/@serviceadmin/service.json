@@ -1,5 +1,5 @@
 {
-  "id": "service-admin",
+  "id": "@serviceadmin",
   "name": "Core Service Admin",
   "description": "Core operator/admin UI service backed by the canonical lasso-serviceadmin release artifact.",
   "version": "0.1.0",

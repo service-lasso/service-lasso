@@ -15,11 +15,11 @@ If a user clones `service-lasso` and runs the start command, will it download th
 Expected baseline services:
 
 - `@traefik`
-- `localcert`
-- `nginx`
+- `@localcert`
+- `@nginx`
 - `@node`
 - `echo-service`
-- `service-admin`
+- `@serviceadmin`
 
 ## Current Answer
 
@@ -33,11 +33,11 @@ service-lasso start --services-root ./services --workspace-root ./workspace
 
 As of 2026-04-27, the core CLI has a bounded baseline bootstrap command that installs, configures, and starts the baseline inventory in dependency order, then leaves the API running.
 
-`@traefik` now points at the canonical `service-lasso/lasso-traefik@2026.4.27-bbc7f15` release artifact. The command can acquire, configure, and start Traefik as a real release-backed baseline service using donor-style `commandline` startup flags, `depend_on: ["localcert", "nginx"]`, HTTP `/ping` readiness, and shared Traefik port/globalenv/portmapping outputs.
+`@traefik` now points at the canonical `service-lasso/lasso-traefik@2026.4.27-bbc7f15` release artifact. The command can acquire, configure, and start Traefik as a real release-backed baseline service using donor-style `commandline` startup flags, `depend_on: ["@localcert", "@nginx"]`, HTTP `/ping` readiness, and shared Traefik port/globalenv/portmapping outputs.
 
-Issue `#158` fixed the release-backed command execution gap for `echo-service` and `service-admin`: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root.
+Issue `#158` fixed the release-backed command execution gap for `echo-service` and Service Admin: after install, direct execution now prefers the acquired artifact command over any checked-in fixture command, and artifact-relative commands run from the extracted artifact root. The Service Admin runtime ID is now `@serviceadmin`.
 
-Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to a pinned release-backed artifact. Issue `#195` added the missing Traefik dependency edge for `localcert` and `nginx`. Issue `#198` promotes `nginx` from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik. Issue `#201` makes `localcert` and `service-admin` explicit core services while preserving their established IDs and lifecycle behavior. Issue `#204` repins `@node` to `service-lasso/lasso-node@2026.4.27-eca215a` and promotes `localcert` to `service-lasso/lasso-localcert@2026.4.27-591ed28` with donor-aligned certificate globals.
+Issue `#159` fixed the provider-state ambiguity for `@node`: it is a `role: "provider"` service, so baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. Issue `#172` then moved the checked-in `@node` manifest to a pinned release-backed artifact. Issue `#195` added the missing Traefik dependency edge for local certificate and NGINX services. Issue `#198` promotes NGINX from a dependency marker to the release-backed managed service `service-lasso/lasso-nginx@2026.4.27-712c75f`, so baseline start now acquires, configures, starts, and healthchecks NGINX before Traefik. Issue `#201` makes local certificate and Service Admin explicit core services. Issue `#204` repins `@node` to `service-lasso/lasso-node@2026.4.27-eca215a` and promotes local certificate handling to `service-lasso/lasso-localcert@2026.4.27-591ed28` with donor-aligned certificate globals. Issue `#216` corrects those core services to `@localcert`, `@nginx`, and `@serviceadmin`.
 
 ## Final Fresh-Clone Evidence
 
@@ -56,8 +56,8 @@ Observed result:
 - `npm ci` passed.
 - `npm run build` passed.
 - the Service Lasso API reported `/api/health` status `ok`.
-- `@node`, `@traefik`, `echo-service`, and `service-admin` acquired and extracted release artifacts from their configured GitHub releases.
-- `@traefik`, `echo-service`, and `service-admin` reported installed/configured/running/healthy.
+- `@node`, `@localcert`, `@nginx`, `@traefik`, `echo-service`, and `@serviceadmin` acquired and extracted release artifacts from their configured GitHub releases.
+- `@nginx`, `@traefik`, `echo-service`, and `@serviceadmin` reported installed/configured/running/healthy.
 - `@node` reported installed/configured, `running=false`, `healthType=provider`, and `healthy=true`, which is its expected provider state.
 - `stopAll` cleanup was called after verification.
 
@@ -65,12 +65,12 @@ Final observed baseline state:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `localcert` | yes | yes | no | yes | `service-lasso/lasso-localcert@2026.4.27-591ed28` |
-| `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
+| `@localcert` | yes | yes | no | yes | `service-lasso/lasso-localcert@2026.4.27-591ed28` |
+| `@nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-eca215a` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
-| `service-admin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
+| `@serviceadmin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 
 ## Historical Evidence
 
@@ -111,9 +111,9 @@ Initial `service-lasso/services/` manifests observed during issue `#95`:
 Missing from the expected clean-clone baseline:
 
 - `services/@traefik/service.json`
-- `services/service-admin/service.json`
+- `services/@serviceadmin/service.json`
 
-Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#171` hardens that service repo contract, issue `#185` adds HTTP `/ping` readiness, issue `#187` restores Traefik env/globalenv outputs, issue `#189` restores the full service-port map, issue `#191` pins the donor-compatible `portmapping`, issue `#193` pins donor-style commandline flags, and issue `#195` pins the core manifest to the verified `2026.4.27-bbc7f15` release with `depend_on: ["localcert", "nginx"]`. Issue `#198` pins `nginx` to the release-backed managed service repo `service-lasso/lasso-nginx@2026.4.27-712c75f`. Issue `#93` adds `@java` as a bounded provider outside the starter baseline. Issue `#172` pins `@node`, `@python`, and `@java` to their verified release-backed provider repos.
+Issue `#97` added the baseline manifest IDs to the core services root. Issue `#102` turns `@traefik` from a disabled placeholder into a release-backed Traefik service artifact from `service-lasso/lasso-traefik`. Issue `#171` hardens that service repo contract, issue `#185` adds HTTP `/ping` readiness, issue `#187` restores Traefik env/globalenv outputs, issue `#189` restores the full service-port map, issue `#191` pins the donor-compatible `portmapping`, issue `#193` pins donor-style commandline flags, and issue `#195` pins the core manifest to the verified `2026.4.27-bbc7f15` release with local certificate and NGINX dependencies. Issue `#198` pins NGINX to the release-backed managed service repo `service-lasso/lasso-nginx@2026.4.27-712c75f`. Issue `#216` corrects the checked-in core IDs to `@localcert`, `@nginx`, and `@serviceadmin`. Issue `#93` adds `@java` as a bounded provider outside the starter baseline. Issue `#172` pins `@node`, `@python`, and `@java` to their verified release-backed provider repos.
 
 Current `services/echo-service/service.json` carries both a local fixture fallback and release artifact metadata. Install/acquire uses the release-backed artifact metadata from `service-lasso/lasso-echoservice`.
 
@@ -136,14 +136,14 @@ Observed after issue `#158` fix:
 
 | Service | Installed | Configured | Running | Healthy | Artifact source |
 | --- | --- | --- | --- | --- | --- |
-| `localcert` | yes | yes | no | yes | `service-lasso/lasso-localcert@2026.4.27-591ed28` |
-| `nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
+| `@localcert` | yes | yes | no | yes | `service-lasso/lasso-localcert@2026.4.27-591ed28` |
+| `@nginx` | yes | yes | yes | yes | `service-lasso/lasso-nginx@2026.4.27-712c75f` |
 | `@traefik` | yes | yes | yes | yes | `service-lasso/lasso-traefik@2026.4.27-bbc7f15` |
 | `echo-service` | yes | yes | yes | yes | `service-lasso/lasso-echoservice@2026.4.20-a417abd` |
-| `service-admin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
+| `@serviceadmin` | yes | yes | yes | yes | core release-backed service from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` |
 | `@node` | yes | yes | no | yes | `service-lasso/lasso-node@2026.4.27-eca215a` |
 
-This directly verifies that release-backed `localcert`, `@node`, `@traefik`, `echo-service`, and `service-admin` are acquired from their configured GitHub releases. Managed daemons remain running/healthy after the baseline start path, while `localcert` and `@node` verify the expected provider outcome: installed/configured, not launched as managed daemons, and provider-health true.
+This directly verifies that release-backed `@localcert`, `@node`, `@nginx`, `@traefik`, `echo-service`, and `@serviceadmin` are acquired from their configured GitHub releases. Managed daemons remain running/healthy after the baseline start path, while `@localcert` and `@node` verify the expected provider outcome: installed/configured, not launched as managed daemons, and provider-health true.
 
 ## Current CLI/API Capability
 
@@ -166,13 +166,13 @@ Current implemented capability:
 
 - `service-lasso start` discovers the baseline services, installs/configures/starts enabled services in dependency order, reports skipped disabled services, and leaves the API running.
 - `tests/bootstrap-start.test.js` proves install/config/start sequencing and rerun idempotency against a four-service baseline fixture.
-- `npm run verify:baseline-start` builds the CLI and runs the documented `service-lasso start` command end to end against the real release-backed `@node` and `@traefik` artifacts plus generated deterministic `echo-service` and `service-admin` fixtures.
+- `npm run verify:baseline-start` builds the CLI and runs the documented `service-lasso start` command end to end against the real release-backed `@node` and `@traefik` artifacts plus generated deterministic `echo-service` and `@serviceadmin` fixtures.
 - `.github/workflows/baseline-start-smoke.yml` runs that same command-level smoke on pull requests to `develop` and on manual dispatch.
 - `npm run verify:traefik-release` directly proves the public Traefik release archive can be acquired, configured, started, and observed healthy through the runtime API.
 
 Current remaining capability notes:
 
-- the deterministic baseline-start smoke still uses generated fixtures for `echo-service` and `service-admin`; direct checked-in-manifest proof covers release-backed `echo-service` and `service-admin` after `#158`
+- the deterministic baseline-start smoke still uses generated fixtures for `echo-service` and `@serviceadmin`; direct checked-in-manifest proof covers release-backed `echo-service` and `@serviceadmin` after `#158`
 - `@node` provider non-daemon behavior is now explicit after `#159` and release-backed after `#172`
 - deterministic live reference-app lifecycle proof passed on 2026-04-25 for all five canonical reference apps through `npm run verify:reference-app-lifecycle`
 
@@ -191,8 +191,8 @@ The clean-clone baseline start use case is split into these implementation-grade
 - `#189`: restore the full Traefik service-port map and prove resolved network/globalenv output.
 - `#191`: preserve donor-compatible `portmapping` and expose it through the network API.
 - `#193`: preserve donor-style Traefik commandline startup flags and execute manifest `commandline` during runtime start/restart.
-- `#195`: add missing `localcert` and `nginx` baseline dependency entries and pin Traefik to the dependency-bearing release.
-- `#198`: promote `nginx` to a release-backed managed baseline service with its own canonical service repo/release.
+- `#195`: add missing local certificate and NGINX baseline dependency entries and pin Traefik to the dependency-bearing release.
+- `#198`: promote NGINX to a release-backed managed baseline service with its own canonical service repo/release.
 - `#172`: integrate release-backed runtime provider manifests into the core inventory.
 - `#158`: fix checked-in baseline start so release-backed Echo Service and Service Admin start from acquired artifacts and remain running.
 - `#159`: clarify and enforce `@node` local provider behavior in baseline start.

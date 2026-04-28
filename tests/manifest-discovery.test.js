@@ -53,16 +53,16 @@ test("core services root declares the clean-clone baseline inventory", async () 
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
 
   assert.deepEqual(
-    ["localcert", "nginx", "@node", "@traefik", "echo-service", "service-admin"].filter((serviceId) => !byId.has(serviceId)),
+    ["@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
     [],
   );
-  assert.equal(byId.get("localcert")?.role, "provider");
-  assert.equal(byId.get("localcert")?.name, "Core Local Certificate Utility");
-  assert.match(byId.get("localcert")?.description ?? "", /Release-backed local certificate bootstrap utility/);
-  assert.equal(byId.get("localcert")?.artifact?.source.repo, "service-lasso/lasso-localcert");
-  assert.equal(byId.get("localcert")?.artifact?.source.tag, "2026.4.27-591ed28");
-  assert.equal(byId.get("localcert")?.artifact?.platforms.win32?.assetName, "lasso-localcert-0.1.0-win32.zip");
-  assert.deepEqual(byId.get("localcert")?.globalenv, {
+  assert.equal(byId.get("@localcert")?.role, "provider");
+  assert.equal(byId.get("@localcert")?.name, "Core Local Certificate Utility");
+  assert.match(byId.get("@localcert")?.description ?? "", /Release-backed local certificate bootstrap utility/);
+  assert.equal(byId.get("@localcert")?.artifact?.source.repo, "service-lasso/lasso-localcert");
+  assert.equal(byId.get("@localcert")?.artifact?.source.tag, "2026.4.27-591ed28");
+  assert.equal(byId.get("@localcert")?.artifact?.platforms.win32?.assetName, "lasso-localcert-0.1.0-win32.zip");
+  assert.deepEqual(byId.get("@localcert")?.globalenv, {
     LOCALCERT_ENABLED: "true",
     LOCALCERT_ROOT: "${SERVICE_ARTIFACT_ROOT}",
     CERT_FILE: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.crt",
@@ -70,13 +70,13 @@ test("core services root declares the clean-clone baseline inventory", async () 
     CERT_PFX: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.pfx",
     CAROOT_CERT: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/caroot.crt",
   });
-  assert.equal(byId.get("nginx")?.role, undefined);
-  assert.equal(byId.get("nginx")?.version, "1.30.0");
-  assert.equal(byId.get("nginx")?.artifact?.source.repo, "service-lasso/lasso-nginx");
-  assert.equal(byId.get("nginx")?.artifact?.source.tag, "2026.4.27-712c75f");
-  assert.equal(byId.get("nginx")?.artifact?.platforms.win32?.assetName, "lasso-nginx-1.30.0-win32.zip");
-  assert.deepEqual(byId.get("nginx")?.ports, { http: 18080 });
-  assert.deepEqual(byId.get("nginx")?.healthcheck, {
+  assert.equal(byId.get("@nginx")?.role, undefined);
+  assert.equal(byId.get("@nginx")?.version, "1.30.0");
+  assert.equal(byId.get("@nginx")?.artifact?.source.repo, "service-lasso/lasso-nginx");
+  assert.equal(byId.get("@nginx")?.artifact?.source.tag, "2026.4.27-712c75f");
+  assert.equal(byId.get("@nginx")?.artifact?.platforms.win32?.assetName, "lasso-nginx-1.30.0-win32.zip");
+  assert.deepEqual(byId.get("@nginx")?.ports, { http: 18080 });
+  assert.deepEqual(byId.get("@nginx")?.healthcheck, {
     type: "http",
     url: "http://127.0.0.1:${HTTP_PORT}/health",
     expected_status: 200,
@@ -100,7 +100,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
   assert.equal(byId.get("@traefik")?.enabled, true);
-  assert.deepEqual(byId.get("@traefik")?.depend_on, ["localcert", "nginx"]);
+  assert.deepEqual(byId.get("@traefik")?.depend_on, ["@localcert", "@nginx"]);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.4.27-bbc7f15");
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
@@ -185,9 +185,9 @@ test("core services root declares the clean-clone baseline inventory", async () 
     interval: 250,
   });
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
-  assert.equal(byId.get("service-admin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
-  assert.equal(byId.get("service-admin")?.name, "Core Service Admin");
-  assert.match(byId.get("service-admin")?.description ?? "", /Core operator\/admin UI service/);
+  assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
+  assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
+  assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
 });
 
 test("loadServiceManifest fails explicitly for malformed manifests", async () => {
