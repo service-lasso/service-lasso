@@ -241,6 +241,8 @@ Build the local documentation site:
 npm run docs:build
 ```
 
+The `Docs Site` GitHub Actions workflow validates the Docusaurus build on docs-related pull requests and pushes to `develop`. Pushes to `main` also publish `docs/build` to GitHub Pages at `https://service-lasso.github.io/service-lasso/`.
+
 ## License
 
 Apache-2.0

@@ -27,6 +27,12 @@ Serve the last production build locally:
 npm run docs:serve
 ```
 
+## Docs pipeline
+
+The `Docs Site` workflow in `.github/workflows/docs-site.yml` runs `npm ci` and `npm run docs:build` for docs-related pull requests and pushes to `develop`.
+
+Pushes to `main` build the same Docusaurus site and deploy `docs/build` to GitHub Pages. This repository is configured to use the GitHub Actions Pages source at `https://service-lasso.github.io/service-lasso/`.
+
 Core runtime status: the runtime, package, release-backed baseline services, update/recovery surfaces, and reference-app integration paths are implemented enough for current consumer use. The current docs focus is making the service-authoring and operator paths explicit enough for new contributors and agents.
 
 Current preferred runtime-root model:
