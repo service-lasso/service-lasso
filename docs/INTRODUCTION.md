@@ -103,10 +103,10 @@ These should all consume the same canonical runtime model based on:
 Reference app inventory rule:
 - each reference app repo should own a tracked `services/` folder for the services that app intends to manage
 - `services/` is part of the app repo contract, not something inferred from sibling repos at runtime
-- if a reference app includes `service-admin`, it should also carry the service manifests needed to satisfy Service Admin's declared service dependencies
+- if a reference app includes `@serviceadmin`, it should also carry the service manifests needed to satisfy Service Admin's declared service dependencies
 - the current baseline inventory for the starter repos is:
   - `services/echo-service/service.json`
-  - `services/service-admin/service.json`
+  - `services/@serviceadmin/service.json`
   - `services/@node/service.json`
   - `services/@traefik/service.json`
 - environment settings like `VITE_SERVICE_LASSO_API_BASE_URL` remain app/runtime configuration, not extra service manifests

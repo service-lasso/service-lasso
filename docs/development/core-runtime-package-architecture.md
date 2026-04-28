@@ -102,11 +102,11 @@ They should also own the exact tracked service inventory they intend to manage u
 
 Current baseline inventory rule for the starter repos:
 - `services/echo-service/service.json`
-- `services/service-admin/service.json`
+- `services/@serviceadmin/service.json`
 - `services/@node/service.json`
 - `services/@traefik/service.json`
 
-If a starter repo includes `service-admin`, it should also include the manifests needed to satisfy Service Admin's declared service dependencies rather than relying on hidden sibling-repo state.
+If a starter repo includes `@serviceadmin`, it should also include the manifests needed to satisfy Service Admin's declared service dependencies rather than relying on hidden sibling-repo state.
 
 They should never redefine the core contract or replace the core runtime boundary.
 

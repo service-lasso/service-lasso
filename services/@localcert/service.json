@@ -1,5 +1,5 @@
 {
-  "id": "localcert",
+  "id": "@localcert",
   "name": "Core Local Certificate Utility",
   "description": "Release-backed local certificate bootstrap utility for Service Lasso routing dependencies.",
   "version": "0.1.0",

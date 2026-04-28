@@ -33,14 +33,14 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.equal(registry.countEnabled(), 7);
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
-  assert.ok(registry.getById("service-admin"));
+  assert.ok(registry.getById("@serviceadmin"));
   assert.ok(registry.getById("@java"));
   assert.equal(registry.getById("@traefik")?.manifest.enabled, true);
-  assert.equal(registry.getById("localcert")?.manifest.role, "provider");
-  assert.equal(registry.getById("localcert")?.manifest.artifact?.source.repo, "service-lasso/lasso-localcert");
-  assert.equal(registry.getById("localcert")?.manifest.artifact?.source.tag, "2026.4.27-591ed28");
-  assert.equal(registry.getById("nginx")?.manifest.role, undefined);
-  assert.equal(registry.getById("nginx")?.manifest.artifact?.source.repo, "service-lasso/lasso-nginx");
+  assert.equal(registry.getById("@localcert")?.manifest.role, "provider");
+  assert.equal(registry.getById("@localcert")?.manifest.artifact?.source.repo, "service-lasso/lasso-localcert");
+  assert.equal(registry.getById("@localcert")?.manifest.artifact?.source.tag, "2026.4.27-591ed28");
+  assert.equal(registry.getById("@nginx")?.manifest.role, undefined);
+  assert.equal(registry.getById("@nginx")?.manifest.artifact?.source.repo, "service-lasso/lasso-nginx");
 
   const echoSummary = graph.getServiceDependencies("echo-service");
   assert.deepEqual(echoSummary.dependencies, []);
@@ -48,25 +48,25 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
 
   const nodeSummary = graph.getServiceDependencies("@node");
   assert.deepEqual(nodeSummary.dependencies, []);
-  assert.deepEqual(nodeSummary.dependents, ["node-sample-service", "service-admin"]);
+  assert.deepEqual(nodeSummary.dependents, ["@serviceadmin", "node-sample-service"]);
 
   const traefikSummary = graph.getServiceDependencies("@traefik");
-  assert.deepEqual(traefikSummary.dependencies, ["localcert", "nginx"]);
+  assert.deepEqual(traefikSummary.dependencies, ["@localcert", "@nginx"]);
   assert.deepEqual(traefikSummary.dependents, []);
-  assert.deepEqual(graph.getStartupOrder("@traefik"), ["localcert", "nginx"]);
+  assert.deepEqual(graph.getStartupOrder("@traefik"), ["@localcert", "@nginx"]);
 
-  assert.deepEqual(graph.getServiceDependencies("localcert").dependents, ["@traefik"]);
-  assert.deepEqual(graph.getServiceDependencies("nginx").dependents, ["@traefik"]);
+  assert.deepEqual(graph.getServiceDependencies("@localcert").dependents, ["@traefik"]);
+  assert.deepEqual(graph.getServiceDependencies("@nginx").dependents, ["@traefik"]);
 
   const nodeSampleSummary = graph.getServiceDependencies("node-sample-service");
   assert.deepEqual(nodeSampleSummary.dependencies, ["@node"]);
   assert.deepEqual(nodeSampleSummary.dependents, []);
   assert.deepEqual(graph.getStartupOrder("node-sample-service"), ["@node"]);
 
-  const serviceAdminSummary = graph.getServiceDependencies("service-admin");
+  const serviceAdminSummary = graph.getServiceDependencies("@serviceadmin");
   assert.deepEqual(serviceAdminSummary.dependencies, ["@node"]);
   assert.deepEqual(serviceAdminSummary.dependents, []);
-  assert.deepEqual(graph.getStartupOrder("service-admin"), ["@node"]);
+  assert.deepEqual(graph.getStartupOrder("@serviceadmin"), ["@node"]);
 });
 
 test("GET /api/services/:id returns discovered service detail with dependency context", async () => {
@@ -123,10 +123,10 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     assert.equal(response.status, 200);
     assert.equal(body.dependencies.nodes.length, 9);
     assert.deepEqual(body.dependencies.edges, [
-      { from: "localcert", to: "@traefik" },
-      { from: "nginx", to: "@traefik" },
+      { from: "@node", to: "@serviceadmin" },
+      { from: "@localcert", to: "@traefik" },
+      { from: "@nginx", to: "@traefik" },
       { from: "@node", to: "node-sample-service" },
-      { from: "@node", to: "service-admin" },
     ]);
   } finally {
     await apiServer.stop();

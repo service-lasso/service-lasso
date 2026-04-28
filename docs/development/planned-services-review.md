@@ -13,13 +13,13 @@ The current planned baseline service inventory is aligned across the scoped core
 Docs and `service-template` identify this baseline for app/reference repos:
 
 - `services/echo-service/service.json`
-- `services/service-admin/service.json`
+- `services/@serviceadmin/service.json`
 - `services/@node/service.json`
-- `services/localcert/service.json`
-- `services/nginx/service.json`
+- `services/@localcert/service.json`
+- `services/@nginx/service.json`
 - `services/@traefik/service.json`
 
-The prior inventory gap is now closed for the scoped reference repos: `service-template`, `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg` carry `echo-service`, `service-admin`, `@node`, and release-backed `@traefik`.
+The prior inventory gap is now closed for the scoped reference repos: `service-template`, `service-lasso-app-node`, `service-lasso-app-web`, `service-lasso-app-electron`, `service-lasso-app-tauri`, and `service-lasso-app-packager-pkg` carry `echo-service`, `@serviceadmin`, `@node`, and release-backed `@traefik`.
 
 The live source-host proof is also closed: `npm run verify:reference-app-lifecycle` fresh-clones all five canonical app repos and verifies host shell, mounted Service Admin route, app-owned runtime service discovery, Echo Service install/config/start/stop, and process cleanup.
 
@@ -34,13 +34,13 @@ Dagu is available as a release-backed optional managed service repo for app inve
 | Service | Role | Current status | Gap |
 | --- | --- | --- | --- |
 | `echo-service` | Real managed harness/service for install, lifecycle, logs, state, SQLite, HTTP/TCP health, and UI validation. | Implemented and released in `service-lasso/lasso-echoservice`; used by core and all reference apps. | No baseline gap. |
-| `service-admin` | Core operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; release-backed manifest exists in core `services/service-admin/service.json`; all reference apps include `services/service-admin/service.json`; live app-host smoke verifies the mounted admin route. | No current baseline gap. |
+| `@serviceadmin` | Core operator/admin UI entry for app hosts. | Implemented in `service-lasso/lasso-serviceadmin`; release-backed manifest exists in core `services/@serviceadmin/service.json`; all reference apps include `services/@serviceadmin/service.json`; live app-host smoke verifies the mounted admin route. | No current baseline gap. |
 | `@node` | Runtime/provider utility service for Node-backed services and Service Admin dependency modeling. | Core manifest points at `service-lasso/lasso-node@2026.4.27-eca215a`; baseline start acquires it, configures it, skips daemon launch, and provider-backed child services can execute through the acquired runtime. | No current baseline gap. Reference app inventories still need to be refreshed if they carry older local/no-download copies. |
 | `@python` | Runtime/provider utility service for Python-backed services. | Core manifest points at `service-lasso/lasso-python@2026.4.27-63f915c` and can acquire the default Python `3.11.5` Windows embeddable archive. | Not part of the current starter baseline. Linux/macOS Python archives remain deferred pending an approved portable distribution source. |
 | `@java` | Runtime/provider utility service for Java/JVM-backed services. | Core manifest points at `service-lasso/lasso-java@2026.4.27-b313cb0`; provider resolution supports `execservice: "@java"` and direct acquire proof installs Java `17.0.18+8`. | Not part of the current starter baseline. Java-dependent services such as Keycloak should be migrated as separate service issues. |
-| `localcert` | Core local certificate utility/dependency for Traefik. | Core manifest points at `service-lasso/lasso-localcert@2026.4.27-591ed28` as a provider-role release-backed utility service. Baseline start installs/configures it before Traefik, skips daemon launch, and exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`. | No current baseline gap. |
-| `nginx` | NGINX Open Source routing dependency for Traefik. | Core manifest points at `service-lasso/lasso-nginx@2026.4.27-712c75f`; baseline start acquires, configures, starts, and healthchecks it before Traefik. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
-| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15` with `depend_on: ["localcert", "nginx"]`, donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; docs list it in starter baseline. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
+| `@localcert` | Core local certificate utility/dependency for Traefik. | Core manifest points at `service-lasso/lasso-localcert@2026.4.27-591ed28` as a provider-role release-backed utility service. Baseline start installs/configures it before Traefik, skips daemon launch, and exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`. | No current baseline gap. |
+| `@nginx` | NGINX Open Source routing dependency for Traefik. | Core manifest points at `service-lasso/lasso-nginx@2026.4.27-712c75f`; baseline start acquires, configures, starts, and healthchecks it before Traefik. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
+| `@traefik` | Edge/router utility service for local routing and Service Admin dependency modeling. | Release-backed core manifest exists in `services/@traefik/service.json` and points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15` with `depend_on: ["@localcert", "@nginx"]`, donor-style `commandline`, HTTP `/ping` readiness, Traefik env/globalenv outputs, the full service-port map, and donor-compatible `portmapping`; docs list it in starter baseline. | No current core baseline gap. Reference/template inventories may need follow-up propagation. |
 | `zitadel` | Optional managed identity service for app inventories that need local OIDC/IAM. | Implemented and released in `service-lasso/lasso-zitadel`; release `2026.4.27-8b38162` packages upstream ZITADEL `v4.14.0` Windows/Linux/macOS archives plus released `service.json` and checksums. | Not part of the starter baseline. Consumers must provide PostgreSQL and `ZITADEL_MASTERKEY` before enabling/start. |
 | `dagu` | Optional managed workflow engine service for app inventories that need local workflow orchestration. | Implemented and released in `service-lasso/lasso-dagu`; release `2026.4.27-a43c829` packages upstream Dagu `v2.6.1` Windows/Linux/macOS archives plus released `service.json` and checksums. | Not part of the starter baseline. Consumers opt in by adding `services/dagu/service.json`; default command runs `dagu start-all` on an app-owned port/workflow directory. |
 | `@archive` | Future utility/archive provider based on donor/reference docs. | Discussed in service-template reference material only. | Future/deferred; not current baseline. |
@@ -54,9 +54,9 @@ Core repo currently has:
 - `services/@java/service.json`
 - `services/@python/service.json`
 - `services/node-sample-service/service.json`
-- `services/service-admin/service.json`
-- `services/localcert/service.json`
-- `services/nginx/service.json`
+- `services/@serviceadmin/service.json`
+- `services/@localcert/service.json`
+- `services/@nginx/service.json`
 - `services/@traefik/service.json`
 
 Core repo does not currently have:
@@ -69,14 +69,14 @@ Core repo does not currently have:
 
 - root `service.json`
 - `services/echo-service/service.json`
-- `services/service-admin/service.json`
+- `services/@serviceadmin/service.json`
 - `services/@node/service.json`
 - `services/@traefik/service.json`
 
 Each canonical reference app currently has:
 
 - `services/echo-service/service.json`
-- `services/service-admin/service.json`
+- `services/@serviceadmin/service.json`
 - `services/@node/service.json`
 - `services/@traefik/service.json`
 

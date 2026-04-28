@@ -422,13 +422,13 @@ async function verifyOneApp(app, root) {
     const serviceList = await getJson(`http://127.0.0.1:${runtimePort}/api/services`);
     const serviceIds = new Set((serviceList.services ?? []).map((service) => service.id));
     assert(serviceIds.has("echo-service"), `${app.name} runtime did not list echo-service.`);
-    assert(serviceIds.has("service-admin"), `${app.name} runtime did not list service-admin.`);
+    assert(serviceIds.has("@serviceadmin"), `${app.name} runtime did not list @serviceadmin.`);
 
     if (app.proxyRuntimeServices) {
       const proxyList = await getJson(`http://127.0.0.1:${hostPort}/api/runtime-services`);
       const proxyIds = new Set((proxyList.services ?? []).map((service) => service.id));
       assert(proxyIds.has("echo-service"), `${app.name} host runtime proxy did not list echo-service.`);
-      assert(proxyIds.has("service-admin"), `${app.name} host runtime proxy did not list service-admin.`);
+      assert(proxyIds.has("@serviceadmin"), `${app.name} host runtime proxy did not list @serviceadmin.`);
     }
 
     for (const action of ["install", "config", "start"]) {
