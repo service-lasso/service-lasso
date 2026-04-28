@@ -1,0 +1,21 @@
+:root {
+  --ifm-color-primary: #175c62;
+  --ifm-color-primary-dark: #145258;
+  --ifm-color-primary-darker: #124d53;
+  --ifm-color-primary-darkest: #0f4045;
+  --ifm-color-primary-light: #1a666d;
+  --ifm-color-primary-lighter: #1b6b72;
+  --ifm-color-primary-lightest: #207983;
+  --ifm-code-font-size: 95%;
+}
+
+.hero {
+  background:
+    radial-gradient(circle at top left, rgba(32, 121, 131, 0.22), transparent 32rem),
+    linear-gradient(135deg, #f5fbf8 0%, #edf6f7 45%, #f7f4ec 100%);
+  color: #17383b;
+}
+
+.navbar__title {
+  letter-spacing: 0.01em;
+}

@@ -228,10 +228,20 @@ Release details:
 
 Start with these docs when you need more detail:
 
+- [Docs site source](docs/README.md)
+- [Create a new lasso service](docs/development/new-lasso-service-guide.md)
 - [Core runtime layout](docs/development/core-runtime-layout.md)
 - [Clean-clone baseline start evaluation](docs/development/clean-clone-baseline-start-evaluation.md)
 - [Release artifact](docs/development/core-runtime-release-artifact.md)
 - [Publishable package](docs/development/core-runtime-publishable-package.md)
+
+Build the local documentation site:
+
+```powershell
+npm run docs:build
+```
+
+The `Docs Site` GitHub Actions workflow validates the Docusaurus build on docs-related pull requests and pushes to `develop`. Pushes to `main` also publish `docs/build` to GitHub Pages at `https://service-lasso.github.io/service-lasso/`.
 
 ## License
 

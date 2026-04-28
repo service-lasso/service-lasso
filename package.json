@@ -30,15 +30,24 @@
     "verify:traefik-release": "npm run build && node scripts/verify-release-backed-traefik.mjs",
     "demo:start": "npm run build && node scripts/demo-start.mjs",
     "demo:reset": "npm run build && node scripts/demo-reset.mjs",
-    "demo:smoke": "npm run build && node scripts/demo-smoke.mjs"
+    "demo:smoke": "npm run build && node scripts/demo-smoke.mjs",
+    "docs:start": "docusaurus start docs",
+    "docs:build": "docusaurus build docs",
+    "docs:serve": "docusaurus serve docs",
+    "docs:clear": "docusaurus clear docs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
     "tar": "^7.5.2"
   },
   "devDependencies": {
+    "@docusaurus/core": "3.9.2",
+    "@docusaurus/preset-classic": "3.9.2",
+    "@mdx-js/react": "^3.1.1",
     "@types/adm-zip": "^0.5.7",
     "@types/node": "^24.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^5.9.2"
   }
 }
