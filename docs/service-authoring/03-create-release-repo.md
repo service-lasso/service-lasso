@@ -5,7 +5,7 @@ title: 3. Create the Release Repo
 
 # 3. Create the Release Repo
 
-Each shared Service Lasso service should live in its own release-backed repo, usually named `service-lasso/lasso-<name>`.
+Each shared Service Lasso service should live in its own release-backed repo, usually named [`service-lasso/lasso-<name>`](https://github.com/service-lasso?q=lasso-&type=repositories).
 
 ## Required Repo Shape
 

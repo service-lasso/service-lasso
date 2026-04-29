@@ -15,7 +15,7 @@ Use these naming rules consistently:
 | --- | --- | --- |
 | Core-owned service | service ID starts with `@` | `@node`, `@nginx`, `@serviceadmin` |
 | App-owned service | service ID does not use `@` | `echo-service`, `worker-api` |
-| GitHub repo | use `service-lasso/lasso-<name>` for shared service repos | `service-lasso/lasso-nginx` |
+| GitHub repo | use [`service-lasso/lasso-<name>`](https://github.com/service-lasso?q=lasso-&type=repositories) for shared service repos | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) |
 | Service folder | folder matches the service ID exactly | `services/@nginx/service.json` |
 
 Only use `@` for core-owned Service Lasso services and providers.

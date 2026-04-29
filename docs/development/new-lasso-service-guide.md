@@ -1,6 +1,6 @@
 # Create a New Lasso Service
 
-This is the canonical handoff for creating a new release-backed `service-lasso/lasso-*` service repo.
+This is the canonical handoff for creating a new release-backed [`service-lasso/lasso-*`](https://github.com/service-lasso?q=lasso-&type=repositories) service repo.
 
 For the recommended step-by-step authoring order, start with [Service Authoring Overview](../service-authoring/overview.md). This page is the detailed implementation handoff for step 3, creating the release-backed service repo.
 
@@ -10,7 +10,7 @@ Use this guide when an agent or contributor needs to create a service from scrat
 
 A complete service delivery produces:
 
-- a dedicated GitHub repo such as `service-lasso/lasso-foo`
+- a dedicated GitHub repo in the [`service-lasso`](https://github.com/service-lasso) org, such as `lasso-foo`
 - a released `service.json`
 - platform archives attached to a timestamped GitHub release
 - `SHA256SUMS.txt` when practical
@@ -23,7 +23,7 @@ Repo names and service IDs are related, but they are not the same field.
 
 | Thing | Rule | Example |
 | --- | --- | --- |
-| GitHub repo | `service-lasso/lasso-<name>` | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) |
+| GitHub repo | [`service-lasso/lasso-<name>`](https://github.com/service-lasso?q=lasso-&type=repositories) | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) |
 | Core-owned service ID | `@<name>` | `@nginx` |
 | Non-core app/service ID | no `@` prefix unless the app owns that convention | `echo-service` |
 | Service folder | must match the service ID | `services/@nginx/service.json` |
@@ -288,7 +288,7 @@ Use this checklist before handing off:
 
 - GitHub issue exists with spec binding and acceptance criteria.
 - Branch starts from the correct target branch.
-- Repo name is `service-lasso/lasso-<name>`.
+- Repo name follows the [`service-lasso/lasso-<name>`](https://github.com/service-lasso?q=lasso-&type=repositories) pattern.
 - Service ID follows the prefix rule.
 - `service.json` has artifact download metadata in the manifest itself.
 - Release workflow creates `yyyy.m.d-<shortsha>` releases from protected-branch pushes.
