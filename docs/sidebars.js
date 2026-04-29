@@ -76,15 +76,6 @@ const sidebars = {
         "development/reference-app-poc-matrix",
       ],
     },
-    {
-      type: "category",
-      label: "Planned Services",
-      collapsed: true,
-      items: [
-        "development/zitadel-service-plan",
-        "development/dagu-service-plan",
-      ],
-    },
   ],
 };
 

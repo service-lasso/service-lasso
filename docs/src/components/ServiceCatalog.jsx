@@ -99,6 +99,21 @@ const readmeUrls = (repo) => [
   `https://raw.githubusercontent.com/${repo}/master/README.md`,
 ];
 
+function GitHubIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="serviceCatalog__githubIcon"
+      viewBox="0 0 16 16"
+      width="20"
+      height="20"
+      fill="currentColor"
+    >
+      <path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.63 5.47 7.7.4.07.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.15-.28-.15-.68-.52-.01-.53.63-.01 1.08.59 1.23.84.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.2-3.64-.9-3.64-4.01 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.43 7.43 0 0 1 8 3.93c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.01.29.25.54.74.54 1.5 0 1.08-.01 1.95-.01 2.22 0 .21.15.47.55.39A8.11 8.11 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z" />
+    </svg>
+  );
+}
+
 function escapeHtml(value) {
   return value
     .replace(/&/g, "&amp;")
@@ -396,11 +411,22 @@ export default function ServiceCatalog() {
                   <td>{service.summary}</td>
                   <td>
                     <div className="serviceCatalog__actions">
-                      <a href={githubUrl(service.repo)} target="_blank" rel="noreferrer">
-                        Open repo
+                      <a
+                        className="serviceCatalog__actionButton"
+                        href={githubUrl(service.repo)}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`Open ${service.repo} on GitHub`}
+                        title="Open GitHub repo"
+                      >
+                        <GitHubIcon />
                       </a>
-                      <button type="button" onClick={() => openReadme(service)}>
-                        Read README
+                      <button
+                        type="button"
+                        className="serviceCatalog__actionButton"
+                        onClick={() => openReadme(service)}
+                      >
+                        Readme
                       </button>
                     </div>
                   </td>
