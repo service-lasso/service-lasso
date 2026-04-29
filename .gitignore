@@ -1,6 +1,5 @@
-# Donor/reference material kept out of git history
+# Local reference material kept out of git history
 ref/
-ref/typerefinery-service-manager-donor/
 
 # Runtime/build artifacts
 node_modules/
