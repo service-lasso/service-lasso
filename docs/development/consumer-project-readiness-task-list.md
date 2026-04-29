@@ -40,7 +40,7 @@ Current verified version:
 
 - `@service-lasso/service-lasso@2026.4.24-a663bb0`
 
-## GitHub Packages Legacy Constraint
+## GitHub Packages Authenticated Path
 
 GitHub Packages for npm requires authentication for installs, including public packages. That means a normal project must provide an auth token before `npm install @service-lasso/service-lasso` can work from `npm.pkg.github.com`.
 
@@ -48,7 +48,7 @@ Current verified non-local path:
 
 - 2026-04-24: workflow run `24872832811` (`https://github.com/service-lasso/service-lasso/actions/runs/24872832811`) succeeded with `GITHUB_TOKEN` and `packages: read`, proving the documented GitHub Actions install path can install the package and run the CLI from `npm.pkg.github.com`.
 
-Required external action for legacy GitHub Packages only:
+Required external action for GitHub Packages only:
 
 - provide a classic PAT with `read:packages`, or
 - grant the consuming GitHub Actions repository package access and use `GITHUB_TOKEN` with `packages: read`.

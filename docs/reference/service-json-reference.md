@@ -1,6 +1,6 @@
 # service.json Reference
 
-_Status: canonical runtime manifest reference with some historical donor fields still documented as compatibility context._
+_Status: canonical runtime manifest reference._
 
 This doc is the one-stop reference for the current `service.json` direction in the core `service-lasso` runtime.
 
@@ -23,7 +23,7 @@ The current template direction is:
 - **default health model = `process`**
 - other health models are used only when explicitly declared by service config
 
-Ref/code-backed donor healthcheck types observed:
+Supported explicit healthcheck types include:
 - `http`
 - `tcp`
 - `file`
@@ -182,10 +182,10 @@ Example:
 ```
 
 ### `servicetype`
-Current donor-style service type classification value.
+Numeric service type classification value.
 
 ### `servicelocation`
-Current donor-style service location classification value.
+Numeric service location classification value.
 
 ## `actions`
 
@@ -296,7 +296,7 @@ Practical rule:
 
 `args` is the structured argument array passed to the selected executable.
 
-`commandline` is a platform-specific string map used when a donor-style service needs to preserve an exact startup argument string:
+`commandline` is a platform-specific string map used when a service needs to preserve an exact startup argument string:
 
 ```json
 "commandline": {
@@ -370,14 +370,14 @@ Example:
 
 This is the right default for a simple sample service.
 
-### Observed donor healthcheck types
-The donor runtime/code shows these healthcheck types:
+### Explicit healthcheck types
+Service Lasso supports these explicit healthcheck types:
 - `http`
 - `tcp`
 - `file`
 - `variable`
 
-`process` is the current template default direction, even though the donor code paths most explicitly surfaced in ref material are the four types above.
+`process` is the current template default direction; use one of the explicit types above when a service needs a stronger readiness signal.
 
 ### `process` healthcheck
 Use when:
@@ -415,7 +415,7 @@ Sample:
 }
 ```
 
-Current donor behavior suggests this relies on the configured service host/port.
+This relies on the configured service host/port.
 
 ### `file` healthcheck
 Use when:
@@ -498,7 +498,7 @@ Current broader Service Lasso direction includes:
 The sample template keeps this minimal for now.
 
 ### Ports and URLs
-Donor material shows additional fields such as:
+More complex services can use additional fields such as:
 - `serviceportsecondary`
 - `serviceportconsole`
 - `serviceportdebug`
@@ -508,7 +508,7 @@ Donor material shows additional fields such as:
 These are not all used in the minimal sample, but they remain relevant for more complex services.
 
 ### Runtime-provider relationships
-Donor material also shows patterns such as:
+Runtime-provider services use:
 - `execservice`
 
 This is relevant when a service is run via another runtime-provider service such as Node, Python, or Java.
@@ -540,19 +540,13 @@ For the first template-based service:
 1. keep the manifest small
 2. use `process` health unless another model is clearly needed
 3. explicitly declare env and dependencies
-4. avoid donor baggage that mixes generated runtime state into package content
-5. prefer clarity over trying to model every advanced donor feature on day one
+4. avoid mixing generated runtime state into package content
+5. prefer clarity over trying to model every advanced feature on day one
 
 ## Related docs
 
-Start here for the broader template contract:
-- `docs/service-contract.md`
-- `docs/validation.md`
-- `docs/packaging.md`
-- `docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md`
-
-For deeper donor/runtime context:
-- `docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md`
-- `docs/reference/SERVICE-STRUCTURE-REVIEW.md`
-- `docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md`
-- `docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md`
+Start here for the broader Service Lasso contract:
+- `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md`
+- `docs/reference/SERVICE-CONFIG-TYPES.md`
+- `docs/development/new-lasso-service-guide.md`
+- `docs/development/runtime-provider-release-services-delivery-plan.md`

@@ -7,9 +7,9 @@ sidebar_label: service.json Union Schema
 
 Full union analysis reference for `service.json` across `C:\projects\service-lasso`.
 
-## Schema review (from service-lasso docs + ref analysis)
+## Schema review
 
-After reviewing `service-lasso/README.md`, `docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md`, and `docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md`, this is the intended action model:
+The intended action model is:
 
 - Actions are a **finite lifecycle surface**, not arbitrary verbs.
 - `install` and `config` are both valid and should remain distinct.
