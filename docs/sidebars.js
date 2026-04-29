@@ -12,12 +12,9 @@ const sidebars = {
       label: "Introduction",
     },
     {
-      type: "category",
+      type: "doc",
+      id: "service-catalog",
       label: "Service Catalog",
-      collapsed: false,
-      items: [
-        "service-catalog",
-      ],
     },
     {
       type: "doc",
