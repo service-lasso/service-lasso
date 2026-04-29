@@ -62,7 +62,7 @@ Use this short list as the current high-value documentation map:
 - [Runtime Provider Release Services Delivery Plan](development/runtime-provider-release-services-delivery-plan.md): current provider service release matrix for Node, Python, Java, Traefik, NGINX, and local certificates.
 - [Service Update Management Plan](development/service-update-management-plan.md): update discovery, download, install scheduling, and notification behavior.
 - [Recovery, Doctor, and Upgrade Hooks](development/service-recovery-doctor-upgrade-hooks-plan.md): restart policy, preflight/doctor hooks, recovery, and upgrade hook contracts.
-- [Reference App POC Matrix](development/reference-app-poc-matrix.md): expected behavior for the reference app templates.
+- [Reference Apps](reference-apps.md): choose the right host/template repo and understand the release output options.
 - [Windows Containment Tiers](windows-containment-tiers.md): Windows containment guidance for service execution.
 
 ## Source of truth for `service.json`

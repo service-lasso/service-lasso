@@ -69,12 +69,9 @@ const sidebars = {
       ],
     },
     {
-      type: "category",
+      type: "doc",
+      id: "reference-apps",
       label: "Reference Apps",
-      collapsed: true,
-      items: [
-        "development/reference-app-poc-matrix",
-      ],
     },
   ],
 };
