@@ -305,5 +305,3 @@ Use this checklist before handing off:
 
 - [Service Authoring Overview](../service-authoring/overview.md)
 - [service.json Reference](../reference/service-json-reference.md)
-- [Service Config Types](../reference/SERVICE-CONFIG-TYPES.md)
-- [Runtime Provider Release Services Delivery Plan](runtime-provider-release-services-delivery-plan.md)

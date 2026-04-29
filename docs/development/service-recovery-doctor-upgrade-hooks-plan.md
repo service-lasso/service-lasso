@@ -1,3 +1,7 @@
+---
+unlisted: true
+---
+
 # Service Recovery, Doctor, And Upgrade Hooks Plan
 
 This document captures the governed plan for GitHub issue `#130` and the implemented recovery/doctor/upgrade-hook slices.

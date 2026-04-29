@@ -1,3 +1,7 @@
+---
+unlisted: true
+---
+
 # Serviceadmin integration validation
 
 This document tracks the bounded validation work for `ISS-034` / `TASK-034`.

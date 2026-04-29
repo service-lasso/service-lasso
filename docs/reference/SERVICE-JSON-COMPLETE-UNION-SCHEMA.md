@@ -1,6 +1,7 @@
 ---
 title: Complete service.json Union Schema
 sidebar_label: service.json Union Schema
+unlisted: true
 ---
 
 # Complete service.json Union Schema
