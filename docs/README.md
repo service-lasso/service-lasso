@@ -57,8 +57,6 @@ Use this short list as the current high-value documentation map:
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
 - [Complete service.json Union Schema](reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md): detailed manifest shape reference.
 - [Service Config Types](reference/SERVICE-CONFIG-TYPES.md): service pattern taxonomy for providers, apps, infrastructure services, health checks, env, and dependency graphs.
-- [Core Runtime Release Artifact](development/core-runtime-release-artifact.md): what the downloadable runtime release contains.
-- [Core Runtime Publishable Package](development/core-runtime-publishable-package.md): what the published npm package contains and how consumers install it.
 - [Runtime Provider Release Services Delivery Plan](development/runtime-provider-release-services-delivery-plan.md): current provider service release matrix for Node, Python, Java, Traefik, NGINX, and local certificates.
 - [Service Update Management Plan](development/service-update-management-plan.md): update discovery, download, install scheduling, and notification behavior.
 - [Recovery, Doctor, and Upgrade Hooks](development/service-recovery-doctor-upgrade-hooks-plan.md): restart policy, preflight/doctor hooks, recovery, and upgrade hook contracts.

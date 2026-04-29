@@ -44,21 +44,6 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Runtime Design",
-      collapsed: true,
-      items: [
-        "development/core-runtime-layout",
-        "development/core-runtime-dev-plan",
-        "development/core-runtime-package-architecture",
-        "development/core-runtime-release-artifact",
-        "development/core-runtime-publishable-package",
-        "development/core-runtime-state-model-audit",
-        "development/core-runtime-storage-model",
-        "development/core-runtime-logging-model",
-      ],
-    },
-    {
-      type: "category",
       label: "Operations",
       collapsed: true,
       items: [
