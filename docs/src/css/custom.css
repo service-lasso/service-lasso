@@ -38,53 +38,135 @@
   margin: 0;
 }
 
-.serviceCatalog__group {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.serviceCatalog__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1rem;
-}
-
-.serviceCatalog__card {
-  display: flex;
-  min-height: 230px;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.1rem;
-  border: 1px solid #d9e8e6;
-  border-radius: 20px;
+.serviceCatalog__tableShell {
+  overflow: hidden;
+  border: 1px solid #d7e8e6;
+  border-radius: 22px;
   background: #ffffff;
-  box-shadow: 0 14px 36px rgba(20, 56, 63, 0.08);
+  box-shadow: 0 18px 44px rgba(17, 48, 56, 0.1);
 }
 
-.serviceCatalog__cardHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+.serviceCatalog__toolbar {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) minmax(10rem, 0.35fr) minmax(10rem, 0.3fr) auto;
+  gap: 0.85rem;
+  align-items: end;
+  padding: 1rem;
+  border-bottom: 1px solid #d7e8e6;
+  background:
+    radial-gradient(circle at top left, rgba(23, 92, 98, 0.12), transparent 28rem),
+    #f8fcfb;
 }
 
-.serviceCatalog__cardHeader h3,
-.serviceCatalog__cardHeader p {
+.serviceCatalog__toolbar label {
+  display: grid;
+  gap: 0.35rem;
+  color: #31535a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.serviceCatalog__toolbar input,
+.serviceCatalog__toolbar select {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #b7d5d0;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #17383b;
+  font: inherit;
+}
+
+.serviceCatalog__search input {
+  min-width: 0;
+}
+
+.serviceCatalog__reset {
+  min-height: 2.5rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #b7d5d0;
+  border-radius: 12px;
+  background: #eef8f6;
+  color: #0f5867;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.serviceCatalog__reset:hover {
+  background: #e1f2ee;
+}
+
+.serviceCatalog__tableMeta {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid #e3efed;
+  color: #49656b;
+  font-size: 0.9rem;
+}
+
+.serviceCatalog__tableScroller {
+  overflow-x: auto;
+}
+
+.serviceCatalog__table {
+  width: 100%;
+  min-width: 980px;
   margin: 0;
+  border-collapse: collapse;
 }
 
-.serviceCatalog__cardHeader h3 {
+.serviceCatalog__table th,
+.serviceCatalog__table td {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #e3efed;
+  vertical-align: top;
+  text-align: left;
+}
+
+.serviceCatalog__table thead th {
+  background: #f5fbfa;
+  color: #31535a;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.serviceCatalog__table tbody tr:hover {
+  background: #fbfefd;
+}
+
+.serviceCatalog__serviceId,
+.serviceCatalog__serviceName {
+  display: block;
+}
+
+.serviceCatalog__serviceId {
   color: #103d49;
+  font-weight: 800;
 }
 
-.serviceCatalog__cardHeader span {
-  padding: 0.2rem 0.55rem;
+.serviceCatalog__serviceName {
+  margin-top: 0.15rem;
+  color: #49656b;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.serviceCatalog__status {
+  display: inline-flex;
+  padding: 0.22rem 0.58rem;
   border-radius: 999px;
   background: #e4f3ef;
   color: #0d5d51;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 800;
+}
+
+.serviceCatalog__noResults {
+  padding: 2rem;
+  color: #49656b;
+  text-align: center;
 }
 
 .serviceCatalog__actions {
@@ -159,4 +241,10 @@
   width: 100%;
   min-height: 720px;
   border: 0;
+}
+
+@media (max-width: 760px) {
+  .serviceCatalog__toolbar {
+    grid-template-columns: 1fr;
+  }
 }

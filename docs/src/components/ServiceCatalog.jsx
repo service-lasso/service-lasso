@@ -235,19 +235,38 @@ function readmeDocument(service, markdown, sourceUrl) {
 
 export default function ServiceCatalog() {
   const [activeService, setActiveService] = useState(null);
+  const [query, setQuery] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [viewer, setViewer] = useState({
     status: "idle",
     srcDoc: "",
     error: "",
   });
 
-  const groupedServices = useMemo(() => {
-    return services.reduce((groups, service) => {
-      groups[service.group] = groups[service.group] || [];
-      groups[service.group].push(service);
-      return groups;
-    }, {});
+  const groupOptions = useMemo(() => {
+    return Array.from(new Set(services.map((service) => service.group))).sort();
   }, []);
+
+  const statusOptions = useMemo(() => {
+    return Array.from(new Set(services.map((service) => service.status))).sort();
+  }, []);
+
+  const filteredServices = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return services.filter((service) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        [service.id, service.name, service.repo, service.group, service.status, service.summary]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      const matchesGroup = groupFilter === "all" || service.group === groupFilter;
+      const matchesStatus = statusFilter === "all" || service.status === statusFilter;
+      return matchesQuery && matchesGroup && matchesStatus;
+    });
+  }, [groupFilter, query, statusFilter]);
 
   async function openReadme(service) {
     setActiveService(service);
@@ -286,39 +305,117 @@ export default function ServiceCatalog() {
     <div className="serviceCatalog">
       <div className="serviceCatalog__intro">
         <p>
-          This catalog points to the canonical service repos. Use the README button
-          to load the live upstream README in-page without copying that content
-          into the Service Lasso docs repo.
+          This catalog points to the canonical service repos. Filter the table
+          by service, repo, group, or status, then use the README action to load
+          the live upstream README in-page without copying that content into the
+          Service Lasso docs repo.
         </p>
       </div>
 
-      {Object.entries(groupedServices).map(([group, entries]) => (
-        <section className="serviceCatalog__group" key={group}>
-          <h2>{group}</h2>
-          <div className="serviceCatalog__grid">
-            {entries.map((service) => (
-              <article className="serviceCatalog__card" key={service.id}>
-                <div className="serviceCatalog__cardHeader">
-                  <div>
-                    <h3>{service.id}</h3>
-                    <p>{service.name}</p>
-                  </div>
-                  <span>{service.status}</span>
-                </div>
-                <p>{service.summary}</p>
-                <div className="serviceCatalog__actions">
-                  <a href={githubUrl(service.repo)} target="_blank" rel="noreferrer">
-                    Open repo
-                  </a>
-                  <button type="button" onClick={() => openReadme(service)}>
-                    Read README
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ))}
+      <section className="serviceCatalog__tableShell">
+        <div className="serviceCatalog__toolbar" aria-label="Service catalog filters">
+          <label className="serviceCatalog__search">
+            <span>Search services</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filter by service, repo, or summary..."
+            />
+          </label>
+
+          <label>
+            <span>Group</span>
+            <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
+              <option value="all">All groups</option>
+              {groupOptions.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Status</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">All statuses</option>
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            className="serviceCatalog__reset"
+            onClick={() => {
+              setQuery("");
+              setGroupFilter("all");
+              setStatusFilter("all");
+            }}
+          >
+            Reset
+          </button>
+        </div>
+
+        <div className="serviceCatalog__tableMeta">
+          Showing {filteredServices.length} of {services.length} services
+        </div>
+
+        <div className="serviceCatalog__tableScroller">
+          <table className="serviceCatalog__table">
+            <thead>
+              <tr>
+                <th scope="col">Service</th>
+                <th scope="col">Group</th>
+                <th scope="col">Status</th>
+                <th scope="col">Repository</th>
+                <th scope="col">Summary</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredServices.map((service) => (
+                <tr key={service.id}>
+                  <th scope="row">
+                    <span className="serviceCatalog__serviceId">{service.id}</span>
+                    <span className="serviceCatalog__serviceName">{service.name}</span>
+                  </th>
+                  <td>{service.group}</td>
+                  <td>
+                    <span className="serviceCatalog__status">{service.status}</span>
+                  </td>
+                  <td>
+                    <a href={githubUrl(service.repo)} target="_blank" rel="noreferrer">
+                      {service.repo}
+                    </a>
+                  </td>
+                  <td>{service.summary}</td>
+                  <td>
+                    <div className="serviceCatalog__actions">
+                      <a href={githubUrl(service.repo)} target="_blank" rel="noreferrer">
+                        Open repo
+                      </a>
+                      <button type="button" onClick={() => openReadme(service)}>
+                        Read README
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {filteredServices.length === 0 ? (
+            <div className="serviceCatalog__noResults">
+              No services match the current filters.
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       <section className="serviceCatalog__viewer" aria-live="polite">
         <div className="serviceCatalog__viewerHeader">
