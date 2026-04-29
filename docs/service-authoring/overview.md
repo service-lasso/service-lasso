@@ -6,7 +6,7 @@ title: Service Authoring Overview
 
 Service authoring is the process for creating a Service Lasso service that can be installed, started, monitored, updated, and reused from another project.
 
-Use this section when you are creating a new `service-lasso/lasso-*` service repo, updating an existing service repo, or adding a released service to an app or template.
+Use this section when you are creating a new [`service-lasso/lasso-*`](https://github.com/service-lasso?q=lasso-&type=repositories) service repo, updating an existing service repo, or adding a released service to an app or template.
 
 ## Outcome
 
