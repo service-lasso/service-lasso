@@ -219,7 +219,7 @@ Current behavior:
 
 Evidence:
 
-- `service-lasso/lasso-serviceadmin#12` merged the UI slice
+- [`service-lasso/lasso-serviceadmin#12`](https://github.com/service-lasso/lasso-serviceadmin/pull/12) merged the UI slice
 - `npm test`, `npm run build`, and `npm run lint` passed locally in the Service Admin repo before merge
 
 ## Live Release Verification
@@ -232,7 +232,7 @@ For explicit release-backed proof, run:
 npm run verify:service-updates
 ```
 
-The verifier creates a temporary Echo Service manifest pinned to older release `2026.4.20-4c2201a`, tracks `latest`, and uses the public `service-lasso/lasso-echoservice` GitHub release API/assets to prove check, download, install, persisted update state, and active install metadata against the current platform artifact.
+The verifier creates a temporary Echo Service manifest pinned to older release `2026.4.20-4c2201a`, tracks `latest`, and uses the public [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) GitHub release API/assets to prove check, download, install, persisted update state, and active install metadata against the current platform artifact.
 
 ## Follow-On Issues
 

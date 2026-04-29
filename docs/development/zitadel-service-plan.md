@@ -12,7 +12,7 @@ ZITADEL is delivered as an optional release-backed service repo, not as a defaul
 
 Repo:
 
-- `service-lasso/lasso-zitadel`
+- [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel)
 
 First release:
 

@@ -21,7 +21,7 @@ Repo names and service IDs are related, but they are not the same field.
 
 | Thing | Rule | Example |
 | --- | --- | --- |
-| GitHub repo | `service-lasso/lasso-<name>` | `service-lasso/lasso-nginx` |
+| GitHub repo | `service-lasso/lasso-<name>` | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) |
 | Core-owned service ID | `@<name>` | `@nginx` |
 | Non-core app/service ID | no `@` prefix unless the app owns that convention | `echo-service` |
 | Service folder | must match the service ID | `services/@nginx/service.json` |

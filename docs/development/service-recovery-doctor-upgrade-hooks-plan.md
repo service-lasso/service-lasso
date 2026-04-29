@@ -147,5 +147,5 @@ Bounded hook and doctor definitions support:
 - `#134`: pre-upgrade, post-upgrade, and rollback hook execution - implemented for update install
 - `#135`: persisted recovery, doctor, restart, and hook history - implemented
 - `#136`: CLI and API surfaces - implemented for recovery status and manual doctor execution
-- `#137`: Service Admin UI status - implemented in `service-lasso/lasso-serviceadmin#13`
+- `#137`: Service Admin UI status - implemented in [`service-lasso/lasso-serviceadmin#13`](https://github.com/service-lasso/lasso-serviceadmin/pull/13)
 - `#138`: end-to-end recovery and hook verification - implemented with deterministic Echo-style fixtures
