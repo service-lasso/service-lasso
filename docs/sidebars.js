@@ -20,15 +20,9 @@ const sidebars = {
       ],
     },
     {
-      type: "category",
-      label: "Getting Started",
-      collapsed: false,
-      items: [
-        "development/clean-clone-scenario-validation",
-        "development/baseline-service-inventory",
-        "development/consumer-project-readiness-task-list",
-        "development/release-readiness-validation",
-      ],
+      type: "doc",
+      id: "quick-start",
+      label: "Quick Start",
     },
     {
       type: "category",
