@@ -1,6 +1,6 @@
 # Core runtime development plan
 
-This document captures the recommended full structure and implementation order for the `service-lasso` core repo based on the current project decisions, active specs, donor analysis, and the existing three-repo split.
+This document captures the recommended full structure and implementation order for the `service-lasso` core repo based on the current project decisions, active specs, and related repo split.
 
 ## Purpose
 
@@ -45,7 +45,6 @@ service-lasso/
     development/
     reference/
     reference/shared-runtime/
-  ref/                               # donor/reference only, not product code
   src/
     index.ts                         # process entry
     app/
@@ -352,7 +351,7 @@ This gives the project a real core API service without prematurely overbuilding 
 Do **not** try to do all of this at once.
 
 Still out of scope for the immediate next slice:
-- full donor parity
+- complete lifecycle/provider matrix
 - complete lifecycle/provider matrix
 - full operator surface parity with `lasso-@serviceadmin`
 - broad manifest redesign beyond what the next runnable slice needs

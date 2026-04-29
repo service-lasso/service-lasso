@@ -14,7 +14,7 @@ What exists now:
 Current correction note:
 - the sibling repo lineup is under active remediation
 - the long-term canonical repo set is defined below under app host types and packaging targets
-- older repo names such as `service-lasso-packager-node` are migration-era names, not the final naming model
+- older repo names such as `service-lasso-packager-node` are retired names, not the final naming model
 - `bundled` is an artifact-mode label, not a canonical app-host repo name
 
 What this scaffold does:

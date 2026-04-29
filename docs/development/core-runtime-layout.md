@@ -124,4 +124,4 @@ npm run dev
 
 ## Why Node/TypeScript first
 
-The donor standalone runtime is TypeScript-based, so the first core layout stays close to that implementation shape while keeping the transplant bounded and reviewable.
+The standalone runtime is TypeScript-based, so the first core layout keeps the implementation shape bounded and reviewable.

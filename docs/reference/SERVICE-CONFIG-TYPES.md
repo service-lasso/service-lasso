@@ -1,6 +1,6 @@
 # Service Config Types
 
-This document groups the general `service.json` config/service patterns currently represented across the Service Lasso example set and donor-derived reference set.
+This document groups the general `service.json` config/service patterns currently represented across the Service Lasso examples, core services, and release-backed service repos.
 
 ## 1. Runtime / execution type
 

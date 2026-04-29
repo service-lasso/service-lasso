@@ -20,7 +20,7 @@ From prior clarified direction:
 - backups should live under `.state/backups/`
 - logs should remain logs by default, not be treated as state snapshots
 - avoid a separate pointer/current file unless needed
-- avoid a separate legacy `service.pid` unless needed, because PID/runtime info can live in structured state JSON
+- avoid a separate `service.pid` unless needed, because PID/runtime info can live in structured state JSON
 - current lifecycle-write rule was: when a service starts, its state JSON is created; when it stops, that same state JSON is updated with the last action/result; other lifecycle events should generally write logs for now rather than creating additional timestamped state files by default
 
 ### Current implementation audited
@@ -57,7 +57,7 @@ A backup/history area under `.state/backups/` is part of the agreed direction.
 This is agreed and important.
 Log files should remain logs by default.
 
-### 6. Avoid separate pointer/current and legacy PID files unless needed
+### 6. Avoid separate pointer/current and PID files unless needed
 This is agreed direction.
 
 ### 7. Runtime/process/PID information may live in structured state JSON

@@ -32,25 +32,25 @@ Public npm installs do not require a scoped `.npmrc` or GitHub Packages token.
 
 Protected-branch publish uses the repository secret `NPM_TOKEN` and publishes with `npm publish --access public`.
 
-Optional GitHub Packages `.npmrc` example for legacy/internal consumers:
+Optional GitHub Packages `.npmrc` example for internal consumers:
 
 ```ini
 @service-lasso:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
-GitHub Packages' npm registry requires authentication to install packages, including public packages. Use a classic GitHub PAT with `read:packages` for local GitHub Packages installs if that legacy path is explicitly selected. Do not commit tokens into project files.
+GitHub Packages' npm registry requires authentication to install packages, including public packages. Use a classic GitHub PAT with `read:packages` for local GitHub Packages installs if that path is explicitly selected. Do not commit tokens into project files.
 
 For GitHub Actions in sibling starter repos, the public npm path is:
 - use `actions/setup-node` with `registry-url: https://registry.npmjs.org`
 - run `npm ci` without package registry auth
 
-For legacy GitHub Packages consumption, the authenticated path is:
+For GitHub Packages consumption, the authenticated path is:
 - use `GITHUB_TOKEN`
 - grant the consuming repository package read access on the package settings page
 - keep the workflow permissions at `packages: read`
 
-Legacy GitHub Packages consumers that needed this access were:
+GitHub Packages consumers that needed this access were:
 - `service-lasso-app-web`
 - `service-lasso-app-node`
 - `service-lasso-app-electron`
