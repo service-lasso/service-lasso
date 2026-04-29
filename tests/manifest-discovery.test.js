@@ -303,7 +303,7 @@ test("loadServiceManifest accepts bounded variable healthchecks", async () => {
   }
 });
 
-test("loadServiceManifest accepts donor-aligned readiness retry fields", async () => {
+test("loadServiceManifest accepts manifest readiness retry fields", async () => {
   const servicesRoot = await makeTempServicesRoot();
 
   try {
@@ -645,7 +645,7 @@ test("loadServiceManifest accepts bounded ports declarations", async () => {
   }
 });
 
-test("loadServiceManifest accepts donor-style portmapping declarations", async () => {
+test("loadServiceManifest accepts manifest portmapping declarations", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "mapped-service", "service.json");
 
@@ -656,7 +656,7 @@ test("loadServiceManifest accepts donor-style portmapping declarations", async (
       JSON.stringify({
         id: "mapped-service",
         name: "Mapped Service",
-        description: "Service with donor-style portmapping.",
+        description: "Service with manifest portmapping.",
         ports: {
           web: 18080,
           mongo: 19017,
@@ -664,7 +664,7 @@ test("loadServiceManifest accepts donor-style portmapping declarations", async (
         portmapping: {
           HTTP: "${WEB_PORT}",
           TCP_MOGNO: "${MONGO_PORT}",
-          LEGACY_LITERAL: 9250,
+          STATIC_LITERAL: 9250,
         },
       }),
     );
@@ -674,7 +674,7 @@ test("loadServiceManifest accepts donor-style portmapping declarations", async (
     assert.deepEqual(manifest.portmapping, {
       HTTP: "${WEB_PORT}",
       TCP_MOGNO: "${MONGO_PORT}",
-      LEGACY_LITERAL: "9250",
+      STATIC_LITERAL: "9250",
     });
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
@@ -692,7 +692,7 @@ test("loadServiceManifest accepts platform commandline maps", async () => {
       JSON.stringify({
         id: "commandline-service",
         name: "Commandline Service",
-        description: "Service with donor-style commandline declarations.",
+        description: "Service with platform commandline declarations.",
         executable: "service-binary",
         args: ["--fallback"],
         commandline: {
