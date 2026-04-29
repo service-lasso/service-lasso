@@ -70,7 +70,7 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Optional Services",
+      label: "Planned Services",
       collapsed: true,
       items: [
         "development/zitadel-service-plan",
