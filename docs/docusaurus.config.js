@@ -76,6 +76,11 @@ const config = {
           label: "Docs",
         },
         {
+          to: "/service-catalog",
+          label: "Service Catalog",
+          position: "left",
+        },
+        {
           href: "https://github.com/service-lasso/service-lasso",
           label: "GitHub",
           position: "right",
