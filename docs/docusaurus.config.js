@@ -103,8 +103,8 @@ const config = {
               to: "/",
             },
             {
-              label: "Create a Lasso Service",
-              to: "/development/new-lasso-service-guide",
+              label: "Service Authoring",
+              to: "/service-authoring/overview",
             },
           ],
         },
