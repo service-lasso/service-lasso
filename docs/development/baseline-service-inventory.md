@@ -25,12 +25,12 @@ Expected baseline IDs:
 
 | Service | Current classification | Download behavior |
 | --- | --- | --- |
-| `@node` | Release-backed runtime provider with `role: "provider"`. Baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. | Downloads from `service-lasso/lasso-node@2026.4.27-eca215a` during install. |
-| `@localcert` | Release-backed core provider-role local certificate utility service required by Traefik. Baseline start installs/configures it, exports certificate globals, and skips daemon launch. | Downloads from `service-lasso/lasso-localcert@2026.4.27-591ed28` during install. |
-| `@nginx` | Release-backed NGINX Open Source managed service required by Traefik. Baseline start installs/configures it, starts it before Traefik, and verifies HTTP `/health`. | Downloads from `service-lasso/lasso-nginx@2026.4.27-712c75f` during install. |
-| `@traefik` | Release-backed baseline edge/router service with `depend_on: ["@localcert", "@nginx"]`, platform-specific `commandline`, HTTP `/ping` readiness plus local `env`, shared `globalenv`, and `portmapping` outputs for the full Traefik service-port map. | Downloads from `service-lasso/lasso-traefik@2026.4.27-bbc7f15` during install. |
-| `echo-service` | Release-backed managed harness plus checked-in core fixture. The manifest has release artifact metadata for install/acquire while preserving the local fixture path used by core runtime tests. | Downloads from `service-lasso/lasso-echoservice@2026.4.20-a417abd` during install. |
-| `@serviceadmin` | Core release-backed operator/admin UI service. | Downloads from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` during install. |
+| `@node` | Release-backed runtime provider with `role: "provider"`. Baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. | Downloads from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.4.27-eca215a` during install. |
+| `@localcert` | Release-backed core provider-role local certificate utility service required by Traefik. Baseline start installs/configures it, exports certificate globals, and skips daemon launch. | Downloads from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.4.27-591ed28` during install. |
+| `@nginx` | Release-backed NGINX Open Source managed service required by Traefik. Baseline start installs/configures it, starts it before Traefik, and verifies HTTP `/health`. | Downloads from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f` during install. |
+| `@traefik` | Release-backed baseline edge/router service with `depend_on: ["@localcert", "@nginx"]`, platform-specific `commandline`, HTTP `/ping` readiness plus local `env`, shared `globalenv`, and `portmapping` outputs for the full Traefik service-port map. | Downloads from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.4.27-bbc7f15` during install. |
+| `echo-service` | Release-backed managed harness plus checked-in core fixture. The manifest has release artifact metadata for install/acquire while preserving the local fixture path used by core runtime tests. | Downloads from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.4.20-a417abd` during install. |
+| `@serviceadmin` | Core release-backed operator/admin UI service. | Downloads from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.4.18-170a1af` during install. |
 
 ## Remaining Gap
 
@@ -44,8 +44,8 @@ Remaining issues:
 
 Optional service repo now available:
 
-- `#207`: `service-lasso/lasso-zitadel` publishes release-backed ZITADEL `v4.14.0` archives for consumers that explicitly add `services/zitadel/service.json`; it is not part of this baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration.
-- `#210`: `service-lasso/lasso-dagu` publishes release-backed Dagu `v2.6.1` archives for consumers that explicitly add `services/dagu/service.json`; it is not part of this baseline because workflow orchestration is app-specific.
+- `#207`: [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) publishes release-backed ZITADEL `v4.14.0` archives for consumers that explicitly add `services/zitadel/service.json`; it is not part of this baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration.
+- `#210`: [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) publishes release-backed Dagu `v2.6.1` archives for consumers that explicitly add `services/dagu/service.json`; it is not part of this baseline because workflow orchestration is app-specific.
 
 ## Verification Target
 

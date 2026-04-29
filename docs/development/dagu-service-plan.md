@@ -12,7 +12,7 @@ Dagu is delivered as an optional release-backed service repo, not as a default c
 
 Repo:
 
-- `service-lasso/lasso-dagu`
+- [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu)
 
 First release:
 

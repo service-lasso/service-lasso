@@ -76,7 +76,7 @@ Fresh external project validation passed from `C:\projects\service-lasso\.tmp\co
 - `npm install @service-lasso/service-lasso@2026.4.24-a663bb0 --registry=https://registry.npmjs.org` passed without GitHub Packages auth.
 - Public manifests were downloaded from `service-lasso-app-node/main/services/echo-service/service.json` and the Service Admin manifest path that is now `service-lasso-app-node/main/services/@serviceadmin/service.json`.
 - `npx service-lasso --version` returned `2026.4.24-a663bb0`.
-- `npx service-lasso install echo-service --services-root <temp-services> --workspace-root <temp-workspace> --json` acquired `echo-service-win32.zip` from `service-lasso/lasso-echoservice@2026.4.20-a417abd`.
+- `npx service-lasso install echo-service --services-root <temp-services> --workspace-root <temp-workspace> --json` acquired `echo-service-win32.zip` from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.4.20-a417abd`.
 - The installed package API listed `echo-service` and Service Admin, configured/started/stopped Echo Service, and fetched the Echo UI from `http://127.0.0.1:4010/`.
 
 Parallel multi-repo validation previously raced on the shared core package staging directory. Issue `#75` fixed that by staging each reference repo's local core package into an isolated output root and copying the `.tgz` into the app artifact before install; parallel `npm test` now passes across all five reference repos.
