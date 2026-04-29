@@ -13,6 +13,14 @@ const sidebars = {
     },
     {
       type: "category",
+      label: "Service Catalog",
+      collapsed: false,
+      items: [
+        "service-catalog",
+      ],
+    },
+    {
+      type: "category",
       label: "Getting Started",
       collapsed: false,
       items: [
