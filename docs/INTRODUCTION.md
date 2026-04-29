@@ -10,7 +10,7 @@ The core idea is simple: an app commits a `services/` folder, each service folde
 
 ## What this repo owns
 
-This `service-lasso/service-lasso` repo owns:
+The [`service-lasso/service-lasso`](https://github.com/service-lasso/service-lasso) repo owns:
 
 - the Service Lasso CLI and runtime API
 - the canonical `service.json` contract documentation
@@ -19,7 +19,7 @@ This `service-lasso/service-lasso` repo owns:
 - Docusaurus docs for runtime, operator, and service-authoring behavior
 - validation scripts for clean-clone and reference-app scenarios
 
-It does not own every service implementation. Each release-backed service should live in its own `service-lasso/lasso-*` repo and publish its own GitHub release artifacts.
+It does not own every service implementation. Each release-backed service should live in its own [`service-lasso/lasso-*`](https://github.com/service-lasso?q=lasso-&type=repositories) repo and publish its own GitHub release artifacts.
 
 ## Related repos
 
