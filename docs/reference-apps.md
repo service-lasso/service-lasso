@@ -49,4 +49,4 @@ the app needs a desktop shell. Choose one of the packager templates when the
 main product decision is executable distribution rather than UI shape.
 
 If you are building a new service rather than a host app, start with the
-[service authoring guide](development/new-lasso-service-guide.md) instead.
+[Service Authoring Overview](service-authoring/overview.md) instead.

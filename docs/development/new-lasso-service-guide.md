@@ -2,6 +2,8 @@
 
 This is the canonical handoff for creating a new release-backed `service-lasso/lasso-*` service repo.
 
+For the recommended step-by-step authoring order, start with [Service Authoring Overview](../service-authoring/overview.md). This page is the detailed implementation handoff for step 3, creating the release-backed service repo.
+
 Use this guide when an agent or contributor needs to create a service from scratch, update an existing service repo, or decide how a consuming app should pin a service manifest.
 
 ## Outcome
@@ -301,6 +303,7 @@ Use this checklist before handing off:
 
 ## Related Docs
 
+- [Service Authoring Overview](../service-authoring/overview.md)
 - [service.json Reference](../reference/service-json-reference.md)
 - [Service Config Types](../reference/SERVICE-CONFIG-TYPES.md)
 - [Runtime Provider Release Services Delivery Plan](runtime-provider-release-services-delivery-plan.md)
