@@ -247,7 +247,7 @@ Start with these docs when you need more detail:
 
 - [Docs site source](docs/README.md)
 - [Clean clone scenario validation](docs/development/clean-clone-scenario-validation.md)
-- [Create a new lasso service](docs/development/new-lasso-service-guide.md)
+- [Service authoring overview](docs/service-authoring/overview.md)
 - [Baseline service inventory](docs/development/baseline-service-inventory.md)
 
 Build the local documentation site:
