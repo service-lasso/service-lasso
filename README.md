@@ -4,6 +4,23 @@ Service Lasso is a Node-based runtime for discovering, installing, configuring, 
 
 This repo is the core runtime and contract repo. It is not the Service Admin UI repo and it is not a reference app template.
 
+Relevant repos:
+
+| Repo | Provides |
+| --- | --- |
+| [`service-lasso/service-lasso`](https://github.com/service-lasso/service-lasso) | this core runtime, CLI/API package, `service.json` contract docs, and baseline service manifests |
+| [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) | Service Admin browser UI served as the `@serviceadmin` managed service |
+| [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating a new release-backed `lasso-*` service repo |
+| [`service-lasso/service-lasso-app-node`](https://github.com/service-lasso/service-lasso-app-node) | Node host reference app template |
+| [`service-lasso/service-lasso-app-web`](https://github.com/service-lasso/service-lasso-app-web) | web host reference app template |
+| [`service-lasso/service-lasso-app-electron`](https://github.com/service-lasso/service-lasso-app-electron) | Electron host reference app template |
+| [`service-lasso/service-lasso-app-tauri`](https://github.com/service-lasso/service-lasso-app-tauri) | Tauri host reference app template |
+| [`service-lasso/service-lasso-app-packager-pkg`](https://github.com/service-lasso/service-lasso-app-packager-pkg), [`service-lasso/service-lasso-app-packager-sea`](https://github.com/service-lasso/service-lasso-app-packager-sea), [`service-lasso/service-lasso-app-packager-nexe`](https://github.com/service-lasso/service-lasso-app-packager-nexe) | Node packaging reference templates for packaged app outputs |
+| [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) | Echo Service harness used to test lifecycle, UI/API, logs, state, SQLite, and failure behavior |
+| [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node), [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python), [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | release-backed runtime provider services |
+| [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert), [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx), [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed baseline infrastructure services |
+| [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | optional release-backed service repos that consumers can add to their own `services/` folder |
+
 ## Requirements
 
 - Node.js `>=22`
