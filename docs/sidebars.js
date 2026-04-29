@@ -71,17 +71,6 @@ const sidebars = {
       ],
     },
     {
-      type: "category",
-      label: "Operations",
-      collapsed: true,
-      items: [
-        "development/service-update-management-plan",
-        "development/service-recovery-doctor-upgrade-hooks-plan",
-        "development/serviceadmin-integration-validation",
-        "windows-containment-tiers",
-      ],
-    },
-    {
       type: "doc",
       id: "reference-apps",
       label: "Reference Apps",
