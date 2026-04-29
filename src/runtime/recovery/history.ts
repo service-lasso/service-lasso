@@ -70,6 +70,8 @@ export interface ServiceRecoveryHistoryState {
   events: ServiceRecoveryHistoryEvent[];
 }
 
+const recoveryHistoryAppendQueues = new Map<string, Promise<void>>();
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -195,7 +197,7 @@ export async function writeServiceRecoveryHistory(
   return nextState;
 }
 
-export async function appendServiceRecoveryHistoryEvents(
+async function appendServiceRecoveryHistoryEventsWithoutQueue(
   service: DiscoveredService,
   events: ServiceRecoveryHistoryEvent[],
   limit = DEFAULT_RECOVERY_HISTORY_LIMIT,
@@ -217,4 +219,27 @@ export async function appendServiceRecoveryHistoryEvents(
       })),
     ].slice(-Math.max(1, limit)),
   });
+}
+
+export async function appendServiceRecoveryHistoryEvents(
+  service: DiscoveredService,
+  events: ServiceRecoveryHistoryEvent[],
+  limit = DEFAULT_RECOVERY_HISTORY_LIMIT,
+): Promise<ServiceRecoveryHistoryState> {
+  const paths = getServiceStatePaths(service.serviceRoot);
+  const previousAppend = recoveryHistoryAppendQueues.get(paths.recovery) ?? Promise.resolve();
+  const appendOperation = previousAppend
+    .catch(() => undefined)
+    .then(() => appendServiceRecoveryHistoryEventsWithoutQueue(service, events, limit));
+
+  const settledAppend = appendOperation.then(() => undefined, () => undefined);
+  recoveryHistoryAppendQueues.set(paths.recovery, settledAppend);
+
+  try {
+    return await appendOperation;
+  } finally {
+    if (recoveryHistoryAppendQueues.get(paths.recovery) === settledAppend) {
+      recoveryHistoryAppendQueues.delete(paths.recovery);
+    }
+  }
 }
