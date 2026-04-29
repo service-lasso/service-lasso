@@ -53,7 +53,7 @@ Use this short list as the current high-value documentation map:
 - [Introduction](INTRODUCTION.md): what Service Lasso is, what this repo owns, and where related repos fit.
 - [Clean Clone Scenario Validation](development/clean-clone-scenario-validation.md): copy-paste validation runbook for a fresh clone that starts the baseline services.
 - [Baseline Service Inventory](development/baseline-service-inventory.md): the baseline `services/` set that Service Lasso should acquire, configure, and start.
-- [Create a New Lasso Service](development/new-lasso-service-guide.md): agent-ready guide for creating a release-backed `service-lasso/lasso-*` service repo.
+- [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
 - [Complete service.json Union Schema](reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md): detailed manifest shape reference.
 - [Service Config Types](reference/SERVICE-CONFIG-TYPES.md): service pattern taxonomy for providers, apps, infrastructure services, health checks, env, and dependency graphs.
@@ -98,7 +98,7 @@ Keep docs in individual service repos when they describe:
 
 ## Service authoring entrypoint
 
-Use [Create a New Lasso Service](development/new-lasso-service-guide.md) when creating or reviewing a new service repo.
+Use [Service Authoring Overview](service-authoring/overview.md) when creating or reviewing a new service repo. It links to the numbered authoring process and the detailed [Create a New Lasso Service](development/new-lasso-service-guide.md) handoff.
 
 That guide is the canonical handoff for:
 

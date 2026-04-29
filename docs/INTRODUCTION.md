@@ -73,6 +73,6 @@ Bundled application artifacts are produced by running the Service Lasso package 
 
 For a new user validating the project, start with [Clean Clone Scenario Validation](development/clean-clone-scenario-validation.md).
 
-For a service author, start with [Create a New Lasso Service](development/new-lasso-service-guide.md).
+For a service author, start with [Service Authoring Overview](service-authoring/overview.md).
 
 For manifest details, start with [service.json Reference](reference/service-json-reference.md).
