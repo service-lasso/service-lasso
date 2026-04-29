@@ -51,8 +51,7 @@ The preferred runtime-root model is:
 Use this short list as the current high-value documentation map:
 
 - [Introduction](INTRODUCTION.md): what Service Lasso is, what this repo owns, and where related repos fit.
-- [Clean Clone Scenario Validation](development/clean-clone-scenario-validation.md): copy-paste validation runbook for a fresh clone that starts the baseline services.
-- [Baseline Service Inventory](development/baseline-service-inventory.md): the baseline `services/` set that Service Lasso should acquire, configure, and start.
+- [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
 - [Complete service.json Union Schema](reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md): detailed manifest shape reference.

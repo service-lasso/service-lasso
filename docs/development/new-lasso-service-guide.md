@@ -307,4 +307,3 @@ Use this checklist before handing off:
 - [service.json Reference](../reference/service-json-reference.md)
 - [Service Config Types](../reference/SERVICE-CONFIG-TYPES.md)
 - [Runtime Provider Release Services Delivery Plan](runtime-provider-release-services-delivery-plan.md)
-- [Baseline Service Inventory](baseline-service-inventory.md)
