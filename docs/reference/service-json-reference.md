@@ -546,7 +546,5 @@ For the first template-based service:
 ## Related docs
 
 Start here for the broader Service Lasso contract:
-- `docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md`
-- `docs/reference/SERVICE-CONFIG-TYPES.md`
+- `docs/service-authoring/overview.md`
 - `docs/development/new-lasso-service-guide.md`
-- `docs/development/runtime-provider-release-services-delivery-plan.md`

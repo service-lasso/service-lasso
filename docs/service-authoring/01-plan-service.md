@@ -31,7 +31,7 @@ Pick one shape before writing `service.json`:
 | Provider-backed app | The service runs through another provider such as `@node`, `@python`, or `@java`. | `execservice`, `executable`, `args`, `depend_on` |
 | Optional app service | Consumers opt in and must configure it first. | `enabled: false`, explicit env/config notes |
 
-For more examples, use [Service Config Types](../reference/SERVICE-CONFIG-TYPES.md).
+For exact manifest fields, use the [service.json Reference](../reference/service-json-reference.md).
 
 ## Define the Consumer Contract
 
