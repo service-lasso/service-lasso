@@ -1,160 +1,8 @@
-import React, {useMemo, useState} from "react";
+import React, {useEffect, useMemo, useState} from "react";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 
-const services = [
-  {
-    id: "@node",
-    name: "Node Runtime Provider",
-    repo: "service-lasso/lasso-node",
-    group: "Baseline Core",
-    status: "Available",
-    summary:
-      "Release-backed Node provider used by the baseline and by services that execute through execservice.",
-  },
-  {
-    id: "@localcert",
-    name: "Local Certificate Provider",
-    repo: "service-lasso/lasso-localcert",
-    group: "Baseline Core",
-    status: "Available",
-    summary:
-      "Core certificate utility used by the Traefik baseline to produce local certificate outputs.",
-  },
-  {
-    id: "@nginx",
-    name: "NGINX Service",
-    repo: "service-lasso/lasso-nginx",
-    group: "Baseline Core",
-    status: "Available",
-    summary:
-      "Managed NGINX Open Source service started before Traefik in the default baseline.",
-  },
-  {
-    id: "@traefik",
-    name: "Traefik Edge Router",
-    repo: "service-lasso/lasso-traefik",
-    group: "Baseline Core",
-    status: "Available",
-    summary:
-      "Release-backed edge/router service with local certificate and NGINX dependencies.",
-  },
-  {
-    id: "echo-service",
-    name: "Echo Service",
-    repo: "service-lasso/lasso-echoservice",
-    group: "Baseline Core",
-    status: "Available",
-    summary:
-      "Harness service for lifecycle, UI/API, health, logs, state, SQLite, and failure testing.",
-  },
-  {
-    id: "@serviceadmin",
-    name: "Service Admin",
-    repo: "service-lasso/lasso-serviceadmin",
-    group: "Baseline Core",
-    status: "Available",
-    summary:
-      "Browser-based operator UI served as a managed Service Lasso service.",
-  },
-  {
-    id: "@python",
-    name: "Python Runtime Provider",
-    repo: "service-lasso/lasso-python",
-    group: "Runtime Providers",
-    status: "Available",
-    summary:
-      "Release-backed Python provider for consumers that need Python-backed local services.",
-  },
-  {
-    id: "@java",
-    name: "Java Runtime Provider",
-    repo: "service-lasso/lasso-java",
-    group: "Runtime Providers",
-    status: "Available",
-    summary:
-      "Release-backed Java provider for consumers that need Java-backed local services.",
-  },
-  {
-    id: "zitadel",
-    name: "ZITADEL",
-    repo: "service-lasso/lasso-zitadel",
-    group: "App-Owned Services",
-    status: "Available",
-    summary:
-      "Release-backed identity service for apps that own the required database, domain, and secret configuration.",
-  },
-  {
-    id: "dagu",
-    name: "Dagu",
-    repo: "service-lasso/lasso-dagu",
-    group: "App-Owned Services",
-    status: "Available",
-    summary:
-      "Release-backed workflow service for apps that own their workflow definitions and orchestration contract.",
-  },
-  {
-    id: "service-lasso-app-node",
-    name: "Node Reference App",
-    repo: "service-lasso/service-lasso-app-node",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Plain Node host template for server-side apps, CLIs, dev tools, and automation-first integrations.",
-  },
-  {
-    id: "service-lasso-app-web",
-    name: "Web Reference App",
-    repo: "service-lasso/service-lasso-app-web",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Browser-hosted template for teams that want a web shell around Service Lasso and Service Admin.",
-  },
-  {
-    id: "service-lasso-app-electron",
-    name: "Electron Reference App",
-    repo: "service-lasso/service-lasso-app-electron",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Desktop template for teams that need Node integration, native-feeling windows, and familiar Electron packaging.",
-  },
-  {
-    id: "service-lasso-app-tauri",
-    name: "Tauri Reference App",
-    repo: "service-lasso/service-lasso-app-tauri",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Desktop template for lean native shells that prefer Rust/Tauri packaging around a Service Lasso runtime.",
-  },
-  {
-    id: "service-lasso-app-packager-pkg",
-    name: "pkg Packager Reference App",
-    repo: "service-lasso/service-lasso-app-packager-pkg",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Packaging template for producing pkg-based Node executables with source, bootstrap, and bundled outputs.",
-  },
-  {
-    id: "service-lasso-app-packager-sea",
-    name: "SEA Packager Reference App",
-    repo: "service-lasso/service-lasso-app-packager-sea",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Packaging template for Node Single Executable Application experiments and SEA-style distribution.",
-  },
-  {
-    id: "service-lasso-app-packager-nexe",
-    name: "nexe Packager Reference App",
-    repo: "service-lasso/service-lasso-app-packager-nexe",
-    group: "Reference Apps",
-    status: "Template",
-    summary:
-      "Packaging template for teams evaluating nexe-based Node executable distribution.",
-  },
-];
+const catalogDataPath = "/data/service-catalog.json";
+const requiredServiceFields = ["id", "name", "repo", "group", "status", "summary"];
 
 const githubUrl = (repo) => `https://github.com/${repo}`;
 const readmeUrls = (repo) => [
@@ -311,7 +159,31 @@ function readmeDocument(service, markdown, sourceUrl) {
 </html>`;
 }
 
+function normalizeCatalogServices(catalog) {
+  if (!catalog || !Array.isArray(catalog.services)) {
+    throw new Error("Service catalog JSON must contain a services array.");
+  }
+
+  return catalog.services.map((service, index) => {
+    for (const field of requiredServiceFields) {
+      if (typeof service[field] !== "string" || !service[field].trim()) {
+        throw new Error(`Service catalog entry ${index + 1} is missing ${field}.`);
+      }
+    }
+
+    return Object.fromEntries(
+      requiredServiceFields.map((field) => [field, service[field].trim()]),
+    );
+  });
+}
+
 export default function ServiceCatalog() {
+  const catalogUrl = useBaseUrl(catalogDataPath);
+  const [catalog, setCatalog] = useState({
+    status: "loading",
+    services: [],
+    error: "",
+  });
   const [activeService, setActiveService] = useState(null);
   const [query, setQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
@@ -322,13 +194,51 @@ export default function ServiceCatalog() {
     error: "",
   });
 
+  const services = catalog.services;
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadCatalog() {
+      setCatalog({status: "loading", services: [], error: ""});
+
+      try {
+        const response = await fetch(catalogUrl, {signal: controller.signal});
+        if (!response.ok) {
+          throw new Error(`Unable to load ${catalogUrl}: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setCatalog({
+          status: "ready",
+          services: normalizeCatalogServices(data),
+          error: "",
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setCatalog({
+          status: "error",
+          services: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    loadCatalog();
+
+    return () => controller.abort();
+  }, [catalogUrl]);
+
   const groupOptions = useMemo(() => {
     return Array.from(new Set(services.map((service) => service.group))).sort();
-  }, []);
+  }, [services]);
 
   const statusOptions = useMemo(() => {
     return Array.from(new Set(services.map((service) => service.status))).sort();
-  }, []);
+  }, [services]);
 
   const filteredServices = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -344,7 +254,7 @@ export default function ServiceCatalog() {
       const matchesStatus = statusFilter === "all" || service.status === statusFilter;
       return matchesQuery && matchesGroup && matchesStatus;
     });
-  }, [groupFilter, query, statusFilter]);
+  }, [groupFilter, query, services, statusFilter]);
 
   async function openReadme(service) {
     setActiveService(service);
@@ -387,6 +297,10 @@ export default function ServiceCatalog() {
           app repos. Filter the table by service, repo, group, or status, then
           use the README action to load the live upstream README in-page without
           copying that content into the Service Lasso docs repo.
+        </p>
+        <p>
+          Catalog rows are loaded from <code>{catalogDataPath}</code>, so updates
+          only require changing the JSON data file.
         </p>
       </div>
 
@@ -440,65 +354,79 @@ export default function ServiceCatalog() {
         </div>
 
         <div className="serviceCatalog__tableMeta">
-          Showing {filteredServices.length} of {services.length} services
+          {catalog.status === "ready"
+            ? `Showing ${filteredServices.length} of ${services.length} services`
+            : null}
+          {catalog.status === "loading" ? "Loading catalog data..." : null}
+          {catalog.status === "error" ? "Catalog data failed to load" : null}
         </div>
 
         <div className="serviceCatalog__tableScroller">
-          <table className="serviceCatalog__table">
-            <thead>
-              <tr>
-                <th scope="col">Service</th>
-                <th scope="col">Group</th>
-                <th scope="col">Status</th>
-                <th scope="col">Repository</th>
-                <th scope="col">Summary</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredServices.map((service) => (
-                <tr key={service.id}>
-                  <th scope="row">
-                    <span className="serviceCatalog__serviceId">{service.id}</span>
-                    <span className="serviceCatalog__serviceName">{service.name}</span>
-                  </th>
-                  <td>{service.group}</td>
-                  <td>
-                    <span className="serviceCatalog__status">{service.status}</span>
-                  </td>
-                  <td>
-                    <a href={githubUrl(service.repo)} target="_blank" rel="noreferrer">
-                      {service.repo}
-                    </a>
-                  </td>
-                  <td>{service.summary}</td>
-                  <td>
-                    <div className="serviceCatalog__actions">
-                      <a
-                        className="serviceCatalog__actionButton"
-                        href={githubUrl(service.repo)}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`Open ${service.repo} on GitHub`}
-                        title="Open GitHub repo"
-                      >
-                        <GitHubIcon />
-                      </a>
-                      <button
-                        type="button"
-                        className="serviceCatalog__actionButton"
-                        onClick={() => openReadme(service)}
-                      >
-                        Readme
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {catalog.status === "loading" ? (
+            <div className="serviceCatalog__empty">Loading service catalog...</div>
+          ) : null}
 
-          {filteredServices.length === 0 ? (
+          {catalog.status === "error" ? (
+            <div className="serviceCatalog__error">{catalog.error}</div>
+          ) : null}
+
+          {catalog.status === "ready" ? (
+            <table className="serviceCatalog__table">
+              <thead>
+                <tr>
+                  <th scope="col">Service</th>
+                  <th scope="col">Group</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Repository</th>
+                  <th scope="col">Summary</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredServices.map((service) => (
+                  <tr key={service.id}>
+                    <th scope="row">
+                      <span className="serviceCatalog__serviceId">{service.id}</span>
+                      <span className="serviceCatalog__serviceName">{service.name}</span>
+                    </th>
+                    <td>{service.group}</td>
+                    <td>
+                      <span className="serviceCatalog__status">{service.status}</span>
+                    </td>
+                    <td>
+                      <a href={githubUrl(service.repo)} target="_blank" rel="noreferrer">
+                        {service.repo}
+                      </a>
+                    </td>
+                    <td>{service.summary}</td>
+                    <td>
+                      <div className="serviceCatalog__actions">
+                        <a
+                          className="serviceCatalog__actionButton"
+                          href={githubUrl(service.repo)}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`Open ${service.repo} on GitHub`}
+                          title="Open GitHub repo"
+                        >
+                          <GitHubIcon />
+                        </a>
+                        <button
+                          type="button"
+                          className="serviceCatalog__actionButton"
+                          onClick={() => openReadme(service)}
+                        >
+                          Readme
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+
+          {catalog.status === "ready" && filteredServices.length === 0 ? (
             <div className="serviceCatalog__noResults">
               No services match the current filters.
             </div>
