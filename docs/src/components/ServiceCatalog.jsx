@@ -91,6 +91,69 @@ const services = [
     summary:
       "Release-backed workflow service for apps that own their workflow definitions and orchestration contract.",
   },
+  {
+    id: "service-lasso-app-node",
+    name: "Node Reference App",
+    repo: "service-lasso/service-lasso-app-node",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Plain Node host template for server-side apps, CLIs, dev tools, and automation-first integrations.",
+  },
+  {
+    id: "service-lasso-app-web",
+    name: "Web Reference App",
+    repo: "service-lasso/service-lasso-app-web",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Browser-hosted template for teams that want a web shell around Service Lasso and Service Admin.",
+  },
+  {
+    id: "service-lasso-app-electron",
+    name: "Electron Reference App",
+    repo: "service-lasso/service-lasso-app-electron",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Desktop template for teams that need Node integration, native-feeling windows, and familiar Electron packaging.",
+  },
+  {
+    id: "service-lasso-app-tauri",
+    name: "Tauri Reference App",
+    repo: "service-lasso/service-lasso-app-tauri",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Desktop template for lean native shells that prefer Rust/Tauri packaging around a Service Lasso runtime.",
+  },
+  {
+    id: "service-lasso-app-packager-pkg",
+    name: "pkg Packager Reference App",
+    repo: "service-lasso/service-lasso-app-packager-pkg",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Packaging template for producing pkg-based Node executables with source, bootstrap, and bundled outputs.",
+  },
+  {
+    id: "service-lasso-app-packager-sea",
+    name: "SEA Packager Reference App",
+    repo: "service-lasso/service-lasso-app-packager-sea",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Packaging template for Node Single Executable Application experiments and SEA-style distribution.",
+  },
+  {
+    id: "service-lasso-app-packager-nexe",
+    name: "nexe Packager Reference App",
+    repo: "service-lasso/service-lasso-app-packager-nexe",
+    group: "Reference Apps",
+    status: "Template",
+    summary:
+      "Packaging template for teams evaluating nexe-based Node executable distribution.",
+  },
 ];
 
 const githubUrl = (repo) => `https://github.com/${repo}`;
@@ -320,10 +383,10 @@ export default function ServiceCatalog() {
     <div className="serviceCatalog">
       <div className="serviceCatalog__intro">
         <p>
-          This catalog points to the canonical service repos. Filter the table
-          by service, repo, group, or status, then use the README action to load
-          the live upstream README in-page without copying that content into the
-          Service Lasso docs repo.
+          This catalog points to the canonical service, provider, and reference
+          app repos. Filter the table by service, repo, group, or status, then
+          use the README action to load the live upstream README in-page without
+          copying that content into the Service Lasso docs repo.
         </p>
       </div>
 
