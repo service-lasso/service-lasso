@@ -53,7 +53,7 @@ Service Lasso separates service definitions from runtime working data:
 - `servicesRoot` is where service manifests and service payloads live.
 - `workspaceRoot` is where Service Lasso writes runtime-managed state, logs, archives, and working files.
 
-The default baseline service inventory is documented in [Baseline Service Inventory](development/baseline-service-inventory.md).
+The default baseline services are checked into `services/` and are started by the [Quick Start](quick-start.md) flow.
 
 ## How services are acquired
 
@@ -71,7 +71,7 @@ Bundled application artifacts are produced by running the Service Lasso package 
 
 ## Where to start
 
-For a new user validating the project, start with [Clean Clone Scenario Validation](development/clean-clone-scenario-validation.md).
+For a new user running the project, start with [Quick Start](quick-start.md).
 
 For a service author, start with [Service Authoring Overview](service-authoring/overview.md).
 
