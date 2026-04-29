@@ -24,20 +24,20 @@ It separates current truth from target delivery so the repo does not imply relea
 
 | Service | Current repo | Current core behavior | Release-backed today | Notes |
 | --- | --- | --- | --- | --- |
-| `@node` | `service-lasso/lasso-node` | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-eca215a`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
-| `@localcert` | `service-lasso/lasso-localcert` | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-591ed28`, acquires local cert material, exports certificate globals, and skips provider daemon launch. |
-| `@python` | `service-lasso/lasso-python` | optional release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
-| `@java` | `service-lasso/lasso-java` | optional release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
-| `@traefik` | `service-lasso/lasso-traefik` | release-backed managed router service depending on local `@localcert` and `@nginx` utility manifests | yes | Current verified release is `2026.4.27-bbc7f15`. |
-| `@nginx` | `service-lasso/lasso-nginx` | release-backed managed NGINX dependency in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-712c75f`, acquires NGINX Open Source `1.30.0`, and starts it before Traefik. |
+| `@node` | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-eca215a`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
+| `@localcert` | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-591ed28`, acquires local cert material, exports certificate globals, and skips provider daemon launch. |
+| `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | optional release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
+| `@java` | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | optional release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
+| `@traefik` | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed managed router service depending on local `@localcert` and `@nginx` utility manifests | yes | Current verified release is `2026.4.27-bbc7f15`. |
+| `@nginx` | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed managed NGINX dependency in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-712c75f`, acquires NGINX Open Source `1.30.0`, and starts it before Traefik. |
 
 Current Traefik release:
 
-- Repo: `https://github.com/service-lasso/lasso-traefik`
+- Repo: [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik)
 - Release: `https://github.com/service-lasso/lasso-traefik/releases/tag/2026.4.27-bbc7f15`
 
-`service-lasso/lasso-node`, `service-lasso/lasso-python`, and `service-lasso/lasso-java` now exist and have verified releases. Core manifests now point at those verified releases; remaining reference/service-template refresh can proceed from this core truth.
-`service-lasso/lasso-nginx` also exists and has a verified release-backed managed-service contract for the baseline Traefik dependency.
+[`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node), [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python), and [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) now exist and have verified releases. Core manifests now point at those verified releases; remaining reference/service-template refresh can proceed from this core truth.
+[`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) also exists and has a verified release-backed managed-service contract for the baseline Traefik dependency.
 
 ## Target Service Repo Pattern
 
@@ -45,11 +45,11 @@ Each release-backed runtime/provider service should have a dedicated repo:
 
 | Service | Target repo | Primary issue |
 | --- | --- | --- |
-| `@node` | `service-lasso/lasso-node` | `#168` |
-| `@python` | `service-lasso/lasso-python` | `#169` |
-| `@java` | `service-lasso/lasso-java` | `#170` |
-| `@traefik` | `service-lasso/lasso-traefik` | `#171` |
-| `@nginx` | `service-lasso/lasso-nginx` | `#198` |
+| `@node` | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | `#168` |
+| `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | `#169` |
+| `@java` | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | `#170` |
+| `@traefik` | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | `#171` |
+| `@nginx` | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | `#198` |
 
 Each repo should publish releases from protected-branch pushes using:
 
@@ -165,7 +165,7 @@ Key risk:
 
 Current delivery evidence:
 
-- Repo: `https://github.com/service-lasso/lasso-node`
+- Repo: [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node)
 - Release: `https://github.com/service-lasso/lasso-node/releases/tag/2026.4.27-eca215a`
 - Release workflow: `https://github.com/service-lasso/lasso-node/actions/runs/24975752579`
 - Assets: exact Node `v24.15.0` and `v25.9.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
@@ -191,7 +191,7 @@ Key risk:
 
 Current delivery evidence:
 
-- Repo: `https://github.com/service-lasso/lasso-python`
+- Repo: [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python)
 - Release: `https://github.com/service-lasso/lasso-python/releases/tag/2026.4.27-63f915c`
 - Release workflow: `https://github.com/service-lasso/lasso-python/actions/runs/24978375174`
 - Assets: `lasso-python-3.11.5-win32.zip`, `lasso-python-3.14.4-win32.zip`, `service.json`, and `SHA256SUMS.txt`
@@ -218,7 +218,7 @@ Key risk:
 
 Current delivery evidence:
 
-- Repo: `https://github.com/service-lasso/lasso-java`
+- Repo: [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java)
 - Release: `https://github.com/service-lasso/lasso-java/releases/tag/2026.4.27-b313cb0`
 - Release workflow: `https://github.com/service-lasso/lasso-java/actions/runs/24978746504`
 - Assets: exact Java `17.0.18+8` and `21.0.10+7` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
@@ -232,10 +232,10 @@ Current delivery state:
 
 - repo exists
 - releases exist
-- core manifest points at `service-lasso/lasso-traefik@2026.4.27-bbc7f15`
+- core manifest points at [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.4.27-bbc7f15`
 - core live verifier exists as `npm run verify:traefik-release`
 - the release manifest includes platform `commandline` entries for the Traefik providers-file path, dashboard/API flags, entrypoints, ping readiness, and insecure transport flag; Service Lasso resolves those strings into process args at start/restart time
-- the released Traefik manifest carries local certificate and NGINX dependency intent; core represents those dependencies with prefixed core service IDs `@localcert` and `@nginx`, and starts release-backed managed `@nginx` from `service-lasso/lasso-nginx@2026.4.27-712c75f` before Traefik
+- the released Traefik manifest carries local certificate and NGINX dependency intent; core represents those dependencies with prefixed core service IDs `@localcert` and `@nginx`, and starts release-backed managed `@nginx` from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f` before Traefik
 
 Recommended next delivery:
 
@@ -251,7 +251,7 @@ Target issue: `#198`
 
 Current delivery evidence:
 
-- Repo: `https://github.com/service-lasso/lasso-nginx`
+- Repo: [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx)
 - Release: `https://github.com/service-lasso/lasso-nginx/releases/tag/2026.4.27-712c75f`
 - Release workflow: `https://github.com/service-lasso/lasso-nginx/actions/runs/25007138693`
 - Assets: NGINX Open Source `1.30.0` Windows/Linux/macOS archives, `service.json`, and `SHA256SUMS.txt`
