@@ -256,16 +256,16 @@ Logging should live under:
 State should remain separately modelled.
 If per-service `.state/` remains the preferred state location, that should stay distinct from logging.
 
-## Relationship to donor behavior
+## Relationship to runtime behavior
 
-Useful donor ideas worth keeping:
+Runtime logging should keep these durable behavior goals:
 - one log root per runtime run
 - manager logs separate from service logs
 - raw stdout/stderr capture to files
 - archive old runs
 - retention cleanup
 
-Things to improve over donor behavior:
+Design rules:
 - use explicit `runs/<runId>` naming
 - use `workspaceRoot` rather than ad hoc root naming
 - keep structured events separate from raw streams

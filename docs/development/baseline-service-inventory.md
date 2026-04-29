@@ -26,9 +26,9 @@ Expected baseline IDs:
 | Service | Current classification | Download behavior |
 | --- | --- | --- |
 | `@node` | Release-backed runtime provider with `role: "provider"`. Baseline start installs/configures it, skips managed daemon start, and reports provider health once installed/configured. | Downloads from `service-lasso/lasso-node@2026.4.27-eca215a` during install. |
-| `@localcert` | Release-backed core provider-role local certificate utility service required by Traefik. Baseline start installs/configures it, exports donor-aligned certificate globals, and skips daemon launch. | Downloads from `service-lasso/lasso-localcert@2026.4.27-591ed28` during install. |
+| `@localcert` | Release-backed core provider-role local certificate utility service required by Traefik. Baseline start installs/configures it, exports certificate globals, and skips daemon launch. | Downloads from `service-lasso/lasso-localcert@2026.4.27-591ed28` during install. |
 | `@nginx` | Release-backed NGINX Open Source managed service required by Traefik. Baseline start installs/configures it, starts it before Traefik, and verifies HTTP `/health`. | Downloads from `service-lasso/lasso-nginx@2026.4.27-712c75f` during install. |
-| `@traefik` | Release-backed baseline edge/router service with `depend_on: ["@localcert", "@nginx"]`, donor-style `commandline`, HTTP `/ping` readiness plus local `env`, shared `globalenv`, and donor-compatible `portmapping` outputs for the full Traefik service-port map. | Downloads from `service-lasso/lasso-traefik@2026.4.27-bbc7f15` during install. |
+| `@traefik` | Release-backed baseline edge/router service with `depend_on: ["@localcert", "@nginx"]`, platform-specific `commandline`, HTTP `/ping` readiness plus local `env`, shared `globalenv`, and `portmapping` outputs for the full Traefik service-port map. | Downloads from `service-lasso/lasso-traefik@2026.4.27-bbc7f15` during install. |
 | `echo-service` | Release-backed managed harness plus checked-in core fixture. The manifest has release artifact metadata for install/acquire while preserving the local fixture path used by core runtime tests. | Downloads from `service-lasso/lasso-echoservice@2026.4.20-a417abd` during install. |
 | `@serviceadmin` | Core release-backed operator/admin UI service. | Downloads from `service-lasso/lasso-serviceadmin@2026.4.18-170a1af` during install. |
 
@@ -36,7 +36,7 @@ Expected baseline IDs:
 
 The scoped baseline inventory is aligned across core, service-template, and canonical reference apps. Live reference-app lifecycle proof is covered by `npm run verify:reference-app-lifecycle`.
 
-Issue `#159` closed the provider-state ambiguity for the core baseline: `@node` is not expected to stay `running=true`; its expected state is installed/configured, start skipped, provider health true. Issue `#172` moves `@node` from local/no-download to a pinned release-backed provider while preserving that non-daemon lifecycle behavior. Issue `#195` adds the missing local certificate and NGINX baseline dependency manifests so Traefik can declare the donor-aligned dependency graph without breaking startup. Issue `#198` promotes NGINX from a marker into the release-backed `service-lasso/lasso-nginx@2026.4.27-712c75f` managed service. Issue `#201` makes the core-service classification explicit for Service Admin and local certificate services. Issue `#204` promotes local certificate handling to the release-backed `service-lasso/lasso-localcert@2026.4.27-591ed28` provider and repins `@node` to `service-lasso/lasso-node@2026.4.27-eca215a`. Issue `#216` corrects all core-owned baseline IDs to the `@` prefix convention.
+The baseline inventory is release-backed and uses the core-owned `@` prefix convention for runtime providers and core infrastructure services. Provider-role services install/configure and expose their env contract without pretending to be long-running daemons. Managed services such as `@nginx`, `@traefik`, `echo-service`, and `@serviceadmin` can be acquired and started by the runtime.
 
 Remaining issues:
 

@@ -249,7 +249,7 @@ Start with these docs when you need more detail:
 - [Clean clone scenario validation](docs/development/clean-clone-scenario-validation.md)
 - [Create a new lasso service](docs/development/new-lasso-service-guide.md)
 - [Core runtime layout](docs/development/core-runtime-layout.md)
-- [Clean-clone baseline start evaluation](docs/development/clean-clone-baseline-start-evaluation.md)
+- [Baseline service inventory](docs/development/baseline-service-inventory.md)
 - [Release artifact](docs/development/core-runtime-release-artifact.md)
 - [Publishable package](docs/development/core-runtime-publishable-package.md)
 

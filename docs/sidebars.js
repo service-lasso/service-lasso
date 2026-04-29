@@ -17,7 +17,6 @@ const sidebars = {
       collapsed: false,
       items: [
         "development/clean-clone-scenario-validation",
-        "development/clean-clone-baseline-start-evaluation",
         "development/baseline-service-inventory",
         "development/consumer-project-readiness-task-list",
         "development/release-readiness-validation",
@@ -33,7 +32,6 @@ const sidebars = {
         "reference/SERVICE-CONFIG-TYPES",
         "reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA",
         "development/runtime-provider-release-services-delivery-plan",
-        "development/core-provider-services-task-list",
       ],
     },
     {
@@ -49,9 +47,6 @@ const sidebars = {
         "development/core-runtime-state-model-audit",
         "development/core-runtime-storage-model",
         "development/core-runtime-logging-model",
-        "development/core-runtime-migration-plan",
-        "development/core-runtime-donor-coverage-audit",
-        "development/core-runtime-comprehensive-review",
       ],
     },
     {
@@ -62,7 +57,6 @@ const sidebars = {
         "development/service-update-management-plan",
         "development/service-recovery-doctor-upgrade-hooks-plan",
         "development/serviceadmin-integration-validation",
-        "reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR",
         "windows-containment-tiers",
       ],
     },
@@ -72,8 +66,6 @@ const sidebars = {
       collapsed: true,
       items: [
         "development/reference-app-poc-matrix",
-        "development/reference-app-service-distribution-task-list",
-        "development/reference-app-and-service-distribution-remediation-plan",
       ],
     },
     {
@@ -81,8 +73,6 @@ const sidebars = {
       label: "Optional Services",
       collapsed: true,
       items: [
-        "development/planned-services-review",
-        "development/java-runtime-service-plan",
         "development/zitadel-service-plan",
         "development/dagu-service-plan",
       ],

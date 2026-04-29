@@ -94,6 +94,6 @@ These do not satisfy the POC by themselves:
 
 ## Honest current boundary
 
-At the moment, some starter repos still use template-era scaffolding, and the migration plan is actively removing the old non-canonical repo names from the lineup.
+At the moment, some starter repos still use template-era scaffolding, and active cleanup work is removing old non-canonical repo names from the lineup.
 
 This matrix defines the next implementation target for them.
