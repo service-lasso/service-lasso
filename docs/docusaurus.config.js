@@ -115,10 +115,6 @@ const config = {
               label: "service.json",
               to: "/reference/service-json-reference",
             },
-            {
-              label: "Service Config Types",
-              to: "/reference/SERVICE-CONFIG-TYPES",
-            },
           ],
         },
         {

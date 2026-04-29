@@ -1,3 +1,7 @@
+---
+unlisted: true
+---
+
 # Service Update Management Plan
 
 This document captures the governed plan for GitHub issue `#120` and the implemented update-management slices.

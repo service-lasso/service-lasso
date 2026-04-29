@@ -28,12 +28,9 @@ A finished service has:
 
 ## When to Use Reference Docs
 
-The numbered pages are the process. Reference docs are for detail while doing a step:
+The numbered pages are the process. Use these references only when you need detail while doing a step:
 
 - [service.json Reference](../reference/service-json-reference.md) for exact manifest fields.
-- [Service Config Types](../reference/SERVICE-CONFIG-TYPES.md) for service shape examples.
-- [Complete service.json Union Schema](../reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md) for exhaustive schema review.
-- [Runtime Provider Release Services Delivery Plan](../development/runtime-provider-release-services-delivery-plan.md) for current core provider release versions.
 - [Create a New Lasso Service](../development/new-lasso-service-guide.md) for the full repo creation handoff.
 
 ## Rule of Thumb

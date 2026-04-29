@@ -1,3 +1,7 @@
+---
+unlisted: true
+---
+
 # Service Config Types
 
 This document groups the general `service.json` config/service patterns currently represented across the Service Lasso examples, core services, and release-backed service repos.
