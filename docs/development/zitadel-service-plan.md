@@ -1,3 +1,7 @@
+---
+unlisted: true
+---
+
 # ZITADEL Service Plan
 
 Date: 2026-04-28
