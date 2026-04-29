@@ -25,19 +25,26 @@ It does not own every service implementation. Each release-backed service should
 
 Current related repos:
 
-- `service-lasso/lasso-echoservice`: controllable harness service used for lifecycle, logs, health, and runtime validation.
-- `service-lasso/lasso-serviceadmin`: operator/admin UI service.
-- `service-lasso/lasso-node`: release-backed Node runtime provider.
-- `service-lasso/lasso-python`: release-backed Python runtime provider.
-- `service-lasso/lasso-java`: release-backed Java runtime provider.
-- `service-lasso/lasso-traefik`: release-backed Traefik edge/router service.
-- `service-lasso/lasso-nginx`: release-backed NGINX service used by the baseline Traefik setup.
-- `service-lasso/lasso-localcert`: release-backed local certificate provider.
-- `service-lasso/service-template`: template for creating new `lasso-*` service repos.
-- `service-lasso/service-lasso-app-node`: Node reference app template using Service Lasso.
-- `service-lasso/service-lasso-app-web`: web reference app template using Service Lasso.
-- `service-lasso/service-lasso-app-electron`: Electron reference app template using Service Lasso.
-- `service-lasso/service-lasso-app-tauri`: Tauri reference app template using Service Lasso.
+| Repo | Provides |
+| --- | --- |
+| [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) | controllable harness service used for lifecycle, logs, health, state, SQLite, and runtime validation |
+| [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) | operator/admin UI service served as `@serviceadmin` |
+| [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed Node runtime provider |
+| [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | release-backed Python runtime provider |
+| [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | release-backed Java runtime provider |
+| [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed local certificate provider |
+| [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed NGINX service used by the baseline Traefik setup |
+| [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
+| [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | optional release-backed ZITADEL service repo for app-owned identity setups |
+| [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | optional release-backed Dagu workflow service repo |
+| [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating new release-backed `lasso-*` service repos |
+| [`service-lasso/service-lasso-app-node`](https://github.com/service-lasso/service-lasso-app-node) | Node host reference app template using Service Lasso |
+| [`service-lasso/service-lasso-app-web`](https://github.com/service-lasso/service-lasso-app-web) | web host reference app template using Service Lasso |
+| [`service-lasso/service-lasso-app-electron`](https://github.com/service-lasso/service-lasso-app-electron) | Electron host reference app template using Service Lasso |
+| [`service-lasso/service-lasso-app-tauri`](https://github.com/service-lasso/service-lasso-app-tauri) | Tauri host reference app template using Service Lasso |
+| [`service-lasso/service-lasso-app-packager-pkg`](https://github.com/service-lasso/service-lasso-app-packager-pkg) | Node packaging reference template for `pkg` packaged app outputs |
+| [`service-lasso/service-lasso-app-packager-sea`](https://github.com/service-lasso/service-lasso-app-packager-sea) | Node packaging reference template for SEA packaged app outputs |
+| [`service-lasso/service-lasso-app-packager-nexe`](https://github.com/service-lasso/service-lasso-app-packager-nexe) | Node packaging reference template for nexe packaged app outputs |
 
 ## Baseline runtime model
 
