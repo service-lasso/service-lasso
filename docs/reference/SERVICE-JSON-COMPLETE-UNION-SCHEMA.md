@@ -5,7 +5,7 @@ sidebar_label: service.json Union Schema
 
 # Complete service.json Union Schema
 
-Full union analysis reference for `service.json` across `C:\projects\service-lasso`.
+Reference shape for the current Service Lasso `service.json` contract.
 
 ## Schema review
 
