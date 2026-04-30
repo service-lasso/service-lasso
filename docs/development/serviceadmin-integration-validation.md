@@ -6,7 +6,7 @@ unlisted: true
 
 This document tracks the bounded validation work for `ISS-034` / `TASK-034`.
 
-The goal is not "finish `lasso-@serviceadmin`" in one jump. The goal is to prove the current `service-lasso` runtime can satisfy the first real consumer-facing contracts that the admin UI already expects, then make the remaining gaps explicit.
+The goal is not "finish `lasso-serviceadmin`" in one jump. The goal is to prove the current `service-lasso` runtime can satisfy the first real consumer-facing contracts that the admin UI already expects, then make the remaining gaps explicit.
 
 ## Scope
 
@@ -31,13 +31,13 @@ Out of scope for this slice:
 2. Add runtime-owned live log info and chunk-read routes.
    status: done
 
-3. Validate the current `lasso-@serviceadmin` logs contract against the runtime.
+3. Validate the current `lasso-serviceadmin` logs contract against the runtime.
    status: done
 
 4. Add a bounded runtime-backed dashboard adapter for the current dashboard / services / service-detail consumer model.
    status: done
 
-5. Validate the current `lasso-@serviceadmin` consumer against the bounded runtime adapter routes.
+5. Validate the current `lasso-serviceadmin` consumer against the bounded runtime adapter routes.
    status: done
 
 6. Record any remaining consumer-model gaps as explicit follow-up work before calling the integration slice complete.
@@ -53,7 +53,7 @@ Current bounded live-smoke checklist:
 2. Start at least one real managed demo service so the admin consumer sees non-empty runtime data.
    status: done
 
-3. Build and serve `lasso-@serviceadmin` with `VITE_SERVICE_LASSO_API_BASE_URL` pointed at the live runtime.
+3. Build and serve `lasso-serviceadmin` with `VITE_SERVICE_LASSO_API_BASE_URL` pointed at the live runtime.
    status: done
 
 4. Confirm the served admin app loads against the live runtime stack and record the concrete evidence.
@@ -86,14 +86,14 @@ What that proves:
 
 ### Verified
 
-- `lasso-@serviceadmin` builds successfully with the current codebase.
+- `lasso-serviceadmin` builds successfully with the current codebase.
 - The logs provider contract shape matches the runtime routes that now exist.
 - The runtime now exposes bounded dashboard adapter routes for the current admin summary/services/detail model.
-- `lasso-@serviceadmin` now uses the bounded runtime dashboard adapter routes when `VITE_SERVICE_LASSO_API_BASE_URL` is configured, while still preserving the local stub fallback when the runtime API is absent.
-- `lasso-@serviceadmin` unit tests now pass with the encoded log-query expectations and the new runtime dashboard adapter coverage.
+- `lasso-serviceadmin` now uses the bounded runtime dashboard adapter routes when `VITE_SERVICE_LASSO_API_BASE_URL` is configured, while still preserving the local stub fallback when the runtime API is absent.
+- `lasso-serviceadmin` unit tests now pass with the encoded log-query expectations and the new runtime dashboard adapter coverage.
 - Live local smoke passed against the real stack:
   - `service-lasso` runtime on `http://127.0.0.1:18081`
-  - `lasso-@serviceadmin` preview on `http://127.0.0.1:17700`
+  - `lasso-serviceadmin` preview on `http://127.0.0.1:17700`
   - runtime `/api/health` returned `ok`
   - runtime `/api/dashboard` reported `4` services and `2` running services
   - runtime `/api/dashboard/services/echo-service` reported `echo-service` as `running`

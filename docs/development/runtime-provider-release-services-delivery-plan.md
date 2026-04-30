@@ -30,8 +30,8 @@ It separates current truth from target delivery so the repo does not imply relea
 | --- | --- | --- | --- | --- |
 | `@node` | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-eca215a`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
 | `@localcert` | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-591ed28`, acquires local cert material, exports certificate globals, and skips provider daemon launch. |
-| `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | optional release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
-| `@java` | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | optional release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
+| `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | non-baseline release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
+| `@java` | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | non-baseline release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
 | `@traefik` | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed managed router service depending on local `@localcert` and `@nginx` utility manifests | yes | Current verified release is `2026.4.27-bbc7f15`. |
 | `@nginx` | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed managed NGINX dependency in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-712c75f`, acquires NGINX Open Source `1.30.0`, and starts it before Traefik. |
 
@@ -279,7 +279,7 @@ Integration order:
 Baseline rule:
 
 - `@node` is part of the current default baseline, so release-backed `@node` changes affect the clean-clone baseline contract. Core should use Node `v24.15.0`, not Node `v25.9.0`.
-- `@python` and `@java` are not part of the current default baseline, so they should remain optional unless a consuming baseline service requires them. If included later, core should use Python `3.11.5` and Java `17.0.18+8`, not Python `3.14.4` or Java `21.0.10+7`.
+- `@python` and `@java` are not part of the current default baseline, so they should remain non-baseline providers unless a consuming baseline service requires them. If included later, core should use Python `3.11.5` and Java `17.0.18+8`, not Python `3.14.4` or Java `21.0.10+7`.
 - `@traefik` is already release-backed and remains part of the default baseline.
 - `@nginx` is part of the current default baseline because `@traefik` depends on it; it is a managed service rather than a provider marker.
 

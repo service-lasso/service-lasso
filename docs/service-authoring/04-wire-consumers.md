@@ -30,7 +30,7 @@ The folder name must match the manifest `id`.
 
 ## What the Manifest Must Contain
 
-The consuming app should not need a separate `release-source.json` or hidden metadata file. The service manifest must already contain enough information for Service Lasso to acquire the service archive from GitHub releases.
+The consuming app should only need the service manifest. That `service.json` must already contain enough information for Service Lasso to acquire the service archive from GitHub releases.
 
 For bundled release outputs, the packaging step runs Service Lasso package/acquire first and includes the downloaded service archives in the release artifact. At runtime, the bundled output should not need to download those services again.
 
