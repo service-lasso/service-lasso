@@ -293,7 +293,7 @@ Recommended order:
 4. Deliver `lasso-python`, because Python is a common provider class but not baseline-critical. Completed with a Windows-only first release.
 5. Deliver `lasso-java` after the JRE vendor/license/security decision. Completed with Eclipse Temurin JRE releases.
 6. Deliver `lasso-nginx` as a managed core service for the Traefik dependency. Completed under `#198`.
-7. Update core/reference app/service-template inventories as each provider becomes release-backed and verified. Core is complete under `#172` and `#198`; reference/template refresh remains the next inventory propagation step.
+7. Update core/reference app/service-template inventories as each provider becomes release-backed and verified. Core is complete under `#172` and `#198`; the remaining gap is explicit optional-provider propagation for `@python` and `@java` into sibling inventories. See `docs/development/reference-template-provider-inventory-plan.md`.
 
 ## Verification Gates
 
