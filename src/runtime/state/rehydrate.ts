@@ -4,6 +4,7 @@ import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, ServiceLifecycleState } from "../lifecycle/types.js";
 import type { ProviderKind } from "../providers/types.js";
 import { readStoredState } from "./readState.js";
+import { resolveServiceRootPath } from "./paths.js";
 
 interface StoredInstallState {
   installed?: boolean;
@@ -67,7 +68,7 @@ function isProviderKind(value: unknown): value is ProviderKind {
   return value === "direct" || value === "node" || value === "python" || value === "java";
 }
 
-function parseLifecycleState(snapshot: {
+function parseLifecycleState(service: DiscoveredService, snapshot: {
   install: unknown | null;
   config: unknown | null;
   runtime: unknown | null;
@@ -110,8 +111,14 @@ function parseLifecycleState(snapshot: {
           install?.artifact?.archiveType === "tgz"
             ? install.artifact.archiveType
             : null,
-        archivePath: typeof install?.artifact?.archivePath === "string" ? install.artifact.archivePath : null,
-        extractedPath: typeof install?.artifact?.extractedPath === "string" ? install.artifact.extractedPath : null,
+        archivePath:
+          typeof install?.artifact?.archivePath === "string"
+            ? resolveServiceRootPath(service.serviceRoot, install.artifact.archivePath)
+            : null,
+        extractedPath:
+          typeof install?.artifact?.extractedPath === "string"
+            ? resolveServiceRootPath(service.serviceRoot, install.artifact.extractedPath)
+            : null,
         command: typeof install?.artifact?.command === "string" ? install.artifact.command : null,
         args: Array.isArray(install?.artifact?.args)
           ? install.artifact.args.filter((entry): entry is string => typeof entry === "string")
@@ -163,7 +170,7 @@ function parseLifecycleState(snapshot: {
 
 export async function rehydrateLifecycleState(service: DiscoveredService): Promise<ServiceLifecycleState | null> {
   const snapshot = await readStoredState(service.serviceRoot);
-  const state = parseLifecycleState(snapshot);
+  const state = parseLifecycleState(service, snapshot);
 
   if (state) {
     const serviceId = service.manifest.id;

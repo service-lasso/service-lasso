@@ -13,6 +13,8 @@ Use this page when you want to clone Service Lasso and run the checked-in baseli
 - Git
 - Network access to GitHub releases
 
+If you use the bundled GitHub release artifact instead of cloning source, the baseline service archives are already present and first start should not need to download those service archives again.
+
 ## 1. Clone the Repo
 
 ```powershell
@@ -64,3 +66,12 @@ If you want to run from a clean local workspace again:
 ```powershell
 Remove-Item -Recurse -Force .\workspace
 ```
+
+## Release Artifact Options
+
+GitHub releases publish two runtime archives:
+
+| Artifact | Use when |
+| --- | --- |
+| `service-lasso-<version>.tar.gz` | you want the lean runtime and will provide or keep your own `services/` folder; services download during install/start when needed |
+| `service-lasso-bundled-<version>.tar.gz` | you want the runtime plus the baseline `services/` folder with service archives already acquired, so the baseline can start without first-run service downloads |

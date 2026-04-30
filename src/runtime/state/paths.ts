@@ -33,3 +33,24 @@ export function getServiceStatePaths(serviceRoot: string): ServiceStatePaths {
     extracted: path.join(stateRoot, "extracted"),
   };
 }
+
+export function resolveServiceRootPath(serviceRoot: string, candidate: string | null): string | null {
+  if (!candidate) {
+    return null;
+  }
+
+  return path.isAbsolute(candidate) ? candidate : path.resolve(serviceRoot, candidate);
+}
+
+export function relativizeServiceRootPath(serviceRoot: string, candidate: string | null): string | null {
+  if (!candidate || !path.isAbsolute(candidate)) {
+    return candidate;
+  }
+
+  const relativePath = path.relative(serviceRoot, candidate);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return candidate;
+  }
+
+  return relativePath.split(path.sep).join("/");
+}
