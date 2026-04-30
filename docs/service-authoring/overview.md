@@ -22,7 +22,7 @@ A finished service has:
 
 1. [Plan the Service](01-plan-service.md): decide whether the service is core-owned, app-owned, a provider, a managed daemon, or provider-backed.
 2. [Write `service.json`](02-write-service-json.md): define identity, artifacts, commands, env, dependencies, ports, health, and update policy.
-3. [Create the Release Repo](03-create-release-repo.md): build the dedicated `lasso-*` repo, package artifacts, and publish release assets.
+3. [Create the Release Repo](03-create-release-repo.md): create the dedicated `lasso-*` repo from [`service-lasso/service-template`](https://github.com/service-lasso/service-template), package artifacts, and publish release assets.
 4. [Wire Consumers](04-wire-consumers.md): copy the released manifest into each app or baseline `services/<id>/service.json`.
 5. [Validate and Release](05-validate-release.md): prove acquisition, startup, health, updates, and release outputs before calling the service ready.
 
