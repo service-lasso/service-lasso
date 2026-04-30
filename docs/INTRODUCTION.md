@@ -69,6 +69,8 @@ At install time Service Lasso:
 
 Bundled application artifacts are produced by running the Service Lasso package flow ahead of time so service archives are already present in the application artifact. In that mode, first run should not need to download those services again.
 
+Core releases publish both `service-lasso-<version>.tar.gz` for the lean runtime and `service-lasso-bundled-<version>.tar.gz` for the same runtime plus the baseline `services/` folder and pre-acquired baseline service archives.
+
 ## Where to start
 
 For a new user running the project, start with [Quick Start](quick-start.md).

@@ -218,8 +218,13 @@ npm run verify:recovery-hooks
 
 Protected pushes to `main` create:
 
-- a GitHub release artifact named `service-lasso-<version>.tar.gz`
+- a lean GitHub release artifact named `service-lasso-<version>.tar.gz`
+- a bundled GitHub release artifact named `service-lasso-bundled-<version>.tar.gz`
 - a public npm package version for `@service-lasso/service-lasso`
+
+The lean artifact contains the built runtime and npm production dependencies. Use it when your app or operator will provide its own `services/` folder and allow Service Lasso to download service archives during install/start.
+
+The bundled artifact contains the built runtime, the checked-in baseline `services/` folder, and pre-acquired baseline service archives under each service `.state` folder. Use it when you want the baseline services to start without first-run service downloads after extracting the release archive.
 
 Release versions use:
 

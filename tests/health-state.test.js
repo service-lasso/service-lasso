@@ -415,7 +415,29 @@ test("startup rehydrates persisted lifecycle state from service .state files", a
   await mkdir(statePaths.stateRoot, { recursive: true });
   await writeFile(
     path.join(statePaths.stateRoot, "install.json"),
-    JSON.stringify({ installed: true, lastAction: "install", files: ["runtime/install.txt"], updatedAt: "2026-04-20T00:00:00.000Z" }, null, 2),
+    JSON.stringify(
+      {
+        installed: true,
+        lastAction: "install",
+        files: ["runtime/install.txt"],
+        updatedAt: "2026-04-20T00:00:00.000Z",
+        artifact: {
+          sourceType: "github-release",
+          repo: "service-lasso/fixture",
+          channel: null,
+          tag: "2026.4.20-test",
+          assetName: "fixture.zip",
+          assetUrl: "https://example.invalid/fixture.zip",
+          archiveType: "zip",
+          archivePath: ".state/artifacts/2026.4.20-test/fixture.zip",
+          extractedPath: ".state/extracted/current",
+          command: "./fixture",
+          args: [],
+        },
+      },
+      null,
+      2,
+    ),
   );
   await writeFile(
     path.join(statePaths.stateRoot, "config.json"),
@@ -452,6 +474,14 @@ test("startup rehydrates persisted lifecycle state from service .state files", a
     assert.equal(detailBody.service.lifecycle.running, false);
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, ["install", "config", "start"]);
     assert.deepEqual(detailBody.service.lifecycle.installArtifacts.files, ["runtime/install.txt"]);
+    assert.equal(
+      detailBody.service.lifecycle.installArtifacts.artifact.archivePath,
+      path.join(serviceRoot, ".state", "artifacts", "2026.4.20-test", "fixture.zip"),
+    );
+    assert.equal(
+      detailBody.service.lifecycle.installArtifacts.artifact.extractedPath,
+      path.join(serviceRoot, ".state", "extracted", "current"),
+    );
     assert.deepEqual(detailBody.service.lifecycle.configArtifacts.files, ["runtime/config.json"]);
     assert.equal(detailBody.service.lifecycle.runtime.pid, null);
     assert.equal(detailBody.service.lifecycle.runtime.command, "node runtime/fixture-service.mjs");
