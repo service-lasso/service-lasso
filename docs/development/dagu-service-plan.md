@@ -12,7 +12,7 @@ OpenSpec binding: `SPEC-002`, `AC-4U`, `AC-4Y`
 
 ## Decision
 
-Dagu is delivered as an optional release-backed service repo, not as a default core baseline service.
+Dagu is delivered as an app-owned add-on release-backed service repo, not as a default core baseline service.
 
 Repo:
 

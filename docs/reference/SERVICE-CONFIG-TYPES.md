@@ -9,7 +9,7 @@ This document groups the general `service.json` config/service patterns currentl
 ## 1. Runtime / execution type
 
 ### Direct binary application
-A bundled executable runs directly.
+A packaged executable runs directly.
 
 Examples:
 - @nginx
@@ -33,7 +33,7 @@ Uses a Java runtime via `execservice: "@java"`.
 
 Current core status:
 - `@java` exists as a release-backed provider manifest and can be acquired from [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java).
-- release-backed JRE redistribution is deferred until the project chooses a vendor, license, platform, and update strategy.
+- release-backed JRE redistribution uses the `lasso-java` provider release and its documented upstream/runtime version.
 
 ### Python application
 Uses a Python runtime via `execservice: "@python"`.

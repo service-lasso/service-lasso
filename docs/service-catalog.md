@@ -8,7 +8,7 @@ import ServiceCatalog from "./src/components/ServiceCatalog";
 # Service Catalog
 
 Use this page to find the canonical Service Lasso service repos. Each service
-card links to the source repo and can load that repo's live `README.md` into the
+row links to the source repo and can load that repo's live `README.md` into the
 viewer without copying the README into this docs repo.
 
 The catalog table is populated from `docs/static/data/service-catalog.json`.
