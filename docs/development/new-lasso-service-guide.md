@@ -4,7 +4,7 @@ This is the canonical handoff for creating a new release-backed [`service-lasso/
 
 For the recommended step-by-step authoring order, start with [Service Authoring Overview](../service-authoring/overview.md). This page is the detailed implementation handoff for step 3, creating the release-backed service repo.
 
-Use this guide when an agent or contributor needs to create a service from scratch, update an existing service repo, or decide how a consuming app should pin a service manifest.
+Use this guide when an agent or contributor needs to create a service from [`service-lasso/service-template`](https://github.com/service-lasso/service-template), update an existing service repo, or decide how a consuming app should pin a service manifest.
 
 ## Outcome
 
@@ -42,11 +42,11 @@ Choose the closest pattern before writing files.
 | Provider | The service supplies a runtime/tool to other services and should not run as a daemon. | `role: "provider"` plus `artifact` and `globalenv` |
 | Managed binary | The service owns and runs its executable. | `artifact`, platform `command`, `ports`, `healthcheck` |
 | Provider-backed app | The service runs through another provider such as `@node`, `@python`, or `@java`. | `execservice`, `executable`, `args`, `depend_on` |
-| Optional app service | Consumers opt in by copying its released manifest. | `enabled: false` when unsafe to start without app config |
+| App-owned add-on service | Consumers opt in by copying its released manifest. | `enabled: false` when unsafe to start without app config |
 
 ## Required Repo Shape
 
-Every `lasso-*` service repo should start with this shape:
+Every `lasso-*` service repo should start from [`service-lasso/service-template`](https://github.com/service-lasso/service-template), which provides this expected shape:
 
 ```text
 lasso-foo/
@@ -248,7 +248,7 @@ Default baseline services currently are:
 - `echo-service`
 - `@serviceadmin`
 
-Optional provider/service manifests such as `@python`, `@java`, `zitadel`, and `dagu` should not be added to default baseline start unless the app has the needed config and dependencies.
+Non-baseline provider and app-owned manifests such as `@python`, `@java`, `zitadel`, and `dagu` should not be added to default baseline start unless the app has the needed config and dependencies.
 
 ## Consumer Integration
 

@@ -23,7 +23,7 @@ The preferred runtime-root model is:
 Use this short list as the public documentation map:
 
 - [Introduction](INTRODUCTION.md): what Service Lasso is, what this repo owns, and where related repos fit.
-- [Service Catalog](service-catalog.md): available core services, optional services, and reference apps.
+- [Service Catalog](service-catalog.md): available core services, app-owned add-on services, and reference apps.
 - [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.

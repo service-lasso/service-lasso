@@ -29,7 +29,7 @@ Pick one shape before writing `service.json`:
 | Provider | The service supplies a runtime or tool to other services and should not run as a daemon. | `role: "provider"`, `artifact`, `globalenv` |
 | Managed daemon | The service owns and runs its executable. | `artifact`, platform command, `ports`, `healthcheck` |
 | Provider-backed app | The service runs through another provider such as `@node`, `@python`, or `@java`. | `execservice`, `executable`, `args`, `depend_on` |
-| Optional app service | Consumers opt in and must configure it first. | `enabled: false`, explicit env/config notes |
+| App-owned add-on service | Consumers opt in and must configure it first. | `enabled: false`, explicit env/config notes |
 
 For exact manifest fields, use the [service.json Reference](../reference/service-json-reference.md).
 

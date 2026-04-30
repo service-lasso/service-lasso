@@ -19,7 +19,7 @@ Relevant repos:
 | [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) | Echo Service harness used to test lifecycle, UI/API, logs, state, SQLite, and failure behavior |
 | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node), [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python), [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | release-backed runtime provider services |
 | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert), [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx), [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed baseline infrastructure services |
-| [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | optional release-backed service repos that consumers can add to their own `services/` folder |
+| [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned add-on service repos that consumers can add to their own `services/` folder |
 
 ## Requirements
 
@@ -78,7 +78,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 
 Additional manifests such as `@java`, `@python`, and `node-sample-service` exist for provider and fixture coverage. They are not part of the default baseline start command.
 
-Optional service repos such as [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) and [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) can be added by committing their released `service.json` into your app's `services/` folder. ZITADEL is intentionally not in this baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration before start. Dagu is intentionally optional because workflow orchestration and workflow files are app-specific.
+App-owned add-on service repos such as [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) and [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) can be added by committing their released `service.json` into your app's `services/` folder. ZITADEL is not in the core baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration before start. Dagu is app-owned because workflow orchestration and workflow files are app-specific.
 
 ## Services Folder Contract
 
