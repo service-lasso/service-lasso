@@ -35,6 +35,7 @@ Current related repos:
 | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed local certificate provider |
 | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed NGINX service used by the baseline Traefik setup |
 | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
+| [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres) | app-owned PostgreSQL service repo for local relational database dependencies |
 | [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | app-owned ZITADEL service repo for identity setups |
 | [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned Dagu service repo for workflow orchestration setups |
 | [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating new release-backed `lasso-*` service repos |
