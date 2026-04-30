@@ -82,6 +82,14 @@
       "summary": "Release-backed workflow service for apps that own their workflow definitions and orchestration contract."
     },
     {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "repo": "service-lasso/lasso-postgres",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed PostgreSQL service for apps that need a local relational database such as Keycloak or ZITADEL dependencies."
+    },
+    {
       "id": "service-lasso-app-node",
       "name": "Node Reference App",
       "repo": "service-lasso/service-lasso-app-node",
