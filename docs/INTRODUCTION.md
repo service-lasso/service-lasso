@@ -42,6 +42,7 @@ Current related repos:
 | [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab) | app-owned JupyterLab service repo for local notebooks and notebook API surfaces |
 | [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice) | app-owned Total.js messaging service repo that exports message-service global env values |
 | [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow) | app-owned Total.js Flow service repo that depends on `totaljs-messageservice` |
+| [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms) | app-owned Websight CMS service repo that depends on `@java`, `mongo`, `nginx`, `totaljs-flow`, and `totaljs-messageservice` |
 | [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server) | app-owned BPMN modeling and execution service repo that depends on `mongo` |
 | [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | app-owned ZITADEL service repo for identity setups |
 | [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned Dagu service repo for workflow orchestration setups |
