@@ -39,6 +39,7 @@ Current related repos:
 | [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo) | app-owned MongoDB service repo for local document database dependencies |
 | [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files) | app-owned file-manager service repo with React UI and filesystem-backed API |
 | [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi) | app-owned TypeRefinery FastAPI service repo for Python API surfaces |
+| [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab) | app-owned JupyterLab service repo for local notebooks and notebook API surfaces |
 | [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice) | app-owned Total.js messaging service repo that exports message-service global env values |
 | [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow) | app-owned Total.js Flow service repo that depends on `totaljs-messageservice` |
 | [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server) | app-owned BPMN modeling and execution service repo that depends on `mongo` |
