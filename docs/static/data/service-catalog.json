@@ -90,6 +90,14 @@
       "summary": "Release-backed PostgreSQL service for apps that need a local relational database such as Keycloak or ZITADEL dependencies."
     },
     {
+      "id": "mongo",
+      "name": "MongoDB",
+      "repo": "service-lasso/lasso-mongo",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed MongoDB service for apps that need a local document database with managed data, auth, and TCP health."
+    },
+    {
       "id": "service-lasso-app-node",
       "name": "Node Reference App",
       "repo": "service-lasso/service-lasso-app-node",
