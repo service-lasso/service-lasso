@@ -37,6 +37,9 @@ Current related repos:
 | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
 | [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres) | app-owned PostgreSQL service repo for local relational database dependencies |
 | [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo) | app-owned MongoDB service repo for local document database dependencies |
+| [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi) | app-owned TypeRefinery FastAPI service repo for Python API surfaces |
+| [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice) | app-owned Total.js messaging service repo that exports message-service global env values |
+| [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow) | app-owned Total.js Flow service repo that depends on `totaljs-messageservice` |
 | [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | app-owned ZITADEL service repo for identity setups |
 | [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned Dagu service repo for workflow orchestration setups |
 | [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating new release-backed `lasso-*` service repos |
