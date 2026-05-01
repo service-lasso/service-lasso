@@ -98,6 +98,30 @@
       "summary": "Release-backed MongoDB service for apps that need a local document database with managed data, auth, and TCP health."
     },
     {
+      "id": "fastapi",
+      "name": "FastAPI",
+      "repo": "service-lasso/lasso-fastapi",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed TypeRefinery FastAPI service for apps that need the Python API surface; current package targets Windows through the @python provider."
+    },
+    {
+      "id": "totaljs-messageservice",
+      "name": "Total.js Message Service",
+      "repo": "service-lasso/lasso-totaljs-messageservice",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Total.js messaging service that exports MESSAGESERVICE_URL and MESSAGESERVICE_PORT for dependent local services."
+    },
+    {
+      "id": "totaljs-flow",
+      "name": "Total.js Flow",
+      "repo": "service-lasso/lasso-totaljs-flow",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Total.js Flow UI/service that depends on totaljs-messageservice and exports FLOW_HOST_URL and FLOW_PORT."
+    },
+    {
       "id": "service-lasso-app-node",
       "name": "Node Reference App",
       "repo": "service-lasso/service-lasso-app-node",
