@@ -138,6 +138,14 @@
       "summary": "Release-backed Total.js Flow UI/service that depends on totaljs-messageservice and exports FLOW_HOST_URL and FLOW_PORT."
     },
     {
+      "id": "websight-cms",
+      "name": "Websight CMS",
+      "repo": "service-lasso/lasso-websight-cms",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Websight CMS service that runs through @java and depends on MongoDB, NGINX, Total.js Flow, and Total.js Message Service."
+    },
+    {
       "id": "bpmn-server",
       "name": "BPMN Server",
       "repo": "service-lasso/lasso-bpmn-server",
