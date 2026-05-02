@@ -53,22 +53,30 @@ test("core services root declares the clean-clone baseline inventory", async () 
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
 
   assert.deepEqual(
-    ["@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
+    ["@java", "@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
     [],
   );
   assert.equal(byId.get("@localcert")?.role, "provider");
   assert.equal(byId.get("@localcert")?.name, "Core Local Certificate Utility");
-  assert.match(byId.get("@localcert")?.description ?? "", /Release-backed local certificate bootstrap utility/);
+  assert.match(byId.get("@localcert")?.description ?? "", /Release-backed mkcert\/localcert provider/);
+  assert.deepEqual(byId.get("@localcert")?.depend_on, ["@java"]);
   assert.equal(byId.get("@localcert")?.artifact?.source.repo, "service-lasso/lasso-localcert");
-  assert.equal(byId.get("@localcert")?.artifact?.source.tag, "2026.4.27-591ed28");
+  assert.equal(byId.get("@localcert")?.artifact?.source.tag, "2026.5.2-24e7d2f");
   assert.equal(byId.get("@localcert")?.artifact?.platforms.win32?.assetName, "lasso-localcert-0.1.0-win32.zip");
+  assert.deepEqual(Object.keys(byId.get("@localcert")?.setup?.steps ?? {}), [
+    "generate-pfx",
+    "generate-key-cert",
+    "install-root-ca",
+    "renew-localcert",
+  ]);
   assert.deepEqual(byId.get("@localcert")?.globalenv, {
     LOCALCERT_ENABLED: "true",
-    LOCALCERT_ROOT: "${SERVICE_ARTIFACT_ROOT}",
-    CERT_FILE: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.crt",
-    CERT_KEY: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.key",
-    CERT_PFX: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.pfx",
-    CAROOT_CERT: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/caroot.crt",
+    LOCALCERT_ROOT: "${SERVICE_DATA_PATH}",
+    CERT_FILE: "${SERVICE_DATA_PATH}/mkcert.pem",
+    CERT_KEY: "${SERVICE_DATA_PATH}/mkcert.key",
+    CERT_PFX: "${SERVICE_DATA_PATH}/mkcert.pfx",
+    CAROOT_KEY: "${SERVICE_DATA_PATH}/rootCA-key.pem",
+    CAROOT_CERT: "${SERVICE_DATA_PATH}/rootCA.pem",
   });
   assert.equal(byId.get("@nginx")?.role, undefined);
   assert.equal(byId.get("@nginx")?.version, "1.30.0");

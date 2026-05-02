@@ -331,6 +331,7 @@ test("bootstrapBaselineServices runs non-manual setup steps for provider-role se
       },
     });
     await writeSetupScript(localcert.serviceRoot);
+    await writeExecutableFixtureService(servicesRoot, "@java", { role: "provider", healthcheck: null });
     await writeExecutableFixtureService(servicesRoot, "@nginx", { role: "provider", healthcheck: null });
     await writeExecutableFixtureService(servicesRoot, "@traefik", { depend_on: ["@localcert", "@nginx"] });
     await writeExecutableFixtureService(servicesRoot, "@node", { role: "provider", healthcheck: null });

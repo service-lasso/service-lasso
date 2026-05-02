@@ -15,6 +15,7 @@ export const RELEASE_FILES = [
 ];
 
 export const DEFAULT_BUNDLED_SERVICE_IDS = [
+  "@java",
   "@localcert",
   "@nginx",
   "@traefik",
