@@ -98,6 +98,14 @@
       "summary": "Release-backed MongoDB service for apps that need a local document database with managed data, auth, and TCP health."
     },
     {
+      "id": "typedb",
+      "name": "TypeDB",
+      "repo": "service-lasso/lasso-typedb",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed TypeDB daemon that runs through @java, exposes TCP health, and exports TypeDB host, port, database, URL, and data-path globals."
+    },
+    {
       "id": "files",
       "name": "Files",
       "repo": "service-lasso/lasso-files",
