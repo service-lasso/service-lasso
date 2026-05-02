@@ -11,7 +11,7 @@ It is meant to make the runtime and service templates usable without forcing ser
 - top-level manifest purpose
 - common top-level fields
 - `actions`
-- `execconfig`
+- `setup`
 - env / dependencies / ports
 - healthcheck direction
 - examples
@@ -442,6 +442,57 @@ Sample:
 ```
 
 ## Other important manifest aspects
+
+### Setup lifecycle steps
+
+`setup.steps` defines named one-shot commands that run after `install` and `config`. Use setup for local preparation work that must execute on the user's machine but is not a daemon process.
+
+Examples:
+
+```json
+"setup": {
+  "steps": {
+    "install-python-deps": {
+      "description": "Install service-local Python dependencies.",
+      "commandline": {
+        "win32": "pip.exe install --user -r \"${SERVICE_ROOT}\\requirements.txt\"",
+        "default": "pip install --user -r \"${SERVICE_ROOT}/requirements.txt\""
+      },
+      "timeoutSeconds": 120,
+      "rerun": "ifMissing"
+    },
+    "load-sample": {
+      "description": "Load sample data through Python.",
+      "depend_on": ["typedb", "typedb:init-schema", "@python"],
+      "execservice": "@python",
+      "commandline": {
+        "win32": "\"${SERVICE_ROOT}\\jobs\\load-sample\\basic_upload.py\" --port ${TYPEDB_PORT}",
+        "default": "\"${SERVICE_ROOT}/jobs/load-sample/basic_upload.py\" --port ${TYPEDB_PORT}"
+      },
+      "timeoutSeconds": 300,
+      "rerun": "manual"
+    }
+  }
+}
+```
+
+Runtime behavior:
+
+- Direct setup: omit `execservice`; the selected `commandline` is parsed as the executable plus arguments, or `executable` plus `args` can be used.
+- Provider-backed setup: set `execservice` to `@node`, `@python`, or `@java`; `commandline` or `args` becomes the provider executable's argument payload.
+- Platform selection uses `commandline[process.platform]` with `commandline.default` fallback.
+- Dependencies in `depend_on` can name services or setup steps using `<serviceId>:<stepId>`.
+- Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
+- Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
+- `rerun` supports `ifMissing`, `manual`, and `always`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+
+CLI:
+
+```powershell
+service-lasso setup list
+service-lasso setup run @localcert
+service-lasso setup run typedb init-schema
+```
 
 ### Release artifacts and update policy
 Current core manifests use first-class `artifact` metadata when a service archive should be acquired from a GitHub release.

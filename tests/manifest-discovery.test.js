@@ -715,6 +715,81 @@ test("loadServiceManifest accepts platform commandline maps", async () => {
   }
 });
 
+test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "setup-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "setup-service",
+        name: "Setup Service",
+        description: "Service with one-shot setup lifecycle steps.",
+        setup: {
+          steps: {
+            "init-schema": {
+              description: "Initialize schema before sample data is loaded.",
+              depend_on: ["typedb", "@java"],
+              execservice: "@java",
+              commandline: {
+                win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
+                default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
+              },
+              env: {
+                SCHEMA_PATH: "${SERVICE_ROOT}/schema",
+              },
+              timeoutSeconds: 120,
+              rerun: "ifMissing",
+            },
+            "load-sample": {
+              description: "Load optional sample data.",
+              depend_on: ["setup-service:init-schema", "@python"],
+              execservice: "@python",
+              args: ["jobs/load-sample/basic_upload.py"],
+              timeoutSeconds: 300,
+              rerun: "manual",
+            },
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.setup?.steps["init-schema"], {
+      description: "Initialize schema before sample data is loaded.",
+      depend_on: ["typedb", "@java"],
+      execservice: "@java",
+      executable: undefined,
+      args: undefined,
+      commandline: {
+        win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
+        default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
+      },
+      env: {
+        SCHEMA_PATH: "${SERVICE_ROOT}/schema",
+      },
+      timeoutSeconds: 120,
+      rerun: "ifMissing",
+    });
+    assert.deepEqual(manifest.setup?.steps["load-sample"], {
+      description: "Load optional sample data.",
+      depend_on: ["setup-service:init-schema", "@python"],
+      execservice: "@python",
+      executable: undefined,
+      args: ["jobs/load-sample/basic_upload.py"],
+      commandline: undefined,
+      env: undefined,
+      timeoutSeconds: 300,
+      rerun: "manual",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded install/config file materialization", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "materialized-service", "service.json");

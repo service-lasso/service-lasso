@@ -1,7 +1,7 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
-import type { LifecycleAction, ServiceLifecycleState } from "../lifecycle/types.js";
+import type { LifecycleAction, ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
 import type { ProviderKind } from "../providers/types.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
@@ -60,22 +60,105 @@ interface StoredRuntimeState {
   actionHistory?: LifecycleAction[];
 }
 
+interface StoredSetupState {
+  updatedAt?: string | null;
+  steps?: Record<string, {
+    status?: SetupStepStatus;
+    lastRun?: ServiceSetupStepRunState | null;
+    history?: ServiceSetupStepRunState[];
+  }>;
+}
+
 function isLifecycleAction(value: unknown): value is LifecycleAction {
-  return value === "install" || value === "config" || value === "start" || value === "stop" || value === "restart";
+  return value === "install" || value === "config" || value === "setup" || value === "start" || value === "stop" || value === "restart";
 }
 
 function isProviderKind(value: unknown): value is ProviderKind {
   return value === "direct" || value === "node" || value === "python" || value === "java";
 }
 
+function isSetupStepStatus(value: unknown): value is SetupStepStatus {
+  return value === "succeeded" || value === "failed" || value === "timeout" || value === "skipped";
+}
+
+function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<ServiceSetupStepRunState>;
+  if (
+    typeof record.runId !== "string" ||
+    typeof record.serviceId !== "string" ||
+    typeof record.stepId !== "string" ||
+    !isSetupStepStatus(record.status) ||
+    typeof record.startedAt !== "string" ||
+    typeof record.finishedAt !== "string" ||
+    typeof record.durationMs !== "number" ||
+    typeof record.command !== "string" ||
+    typeof record.message !== "string" ||
+    !record.logs ||
+    typeof record.logs.logPath !== "string" ||
+    typeof record.logs.stdoutPath !== "string" ||
+    typeof record.logs.stderrPath !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    runId: record.runId,
+    serviceId: record.serviceId,
+    stepId: record.stepId,
+    status: record.status,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    durationMs: record.durationMs,
+    command: record.command,
+    exitCode: typeof record.exitCode === "number" ? record.exitCode : null,
+    signal: typeof record.signal === "string" ? record.signal : null,
+    message: record.message,
+    logs: record.logs,
+  };
+}
+
+function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState["setup"] {
+  if (!setup?.steps || typeof setup.steps !== "object") {
+    return { updatedAt: null, steps: {} };
+  }
+
+  return {
+    updatedAt: typeof setup.updatedAt === "string" ? setup.updatedAt : null,
+    steps: Object.fromEntries(
+      Object.entries(setup.steps)
+        .filter(([, step]) => step && typeof step === "object")
+        .map(([stepId, step]) => {
+          const history = Array.isArray(step.history)
+            ? step.history.map(parseSetupRun).filter((run): run is ServiceSetupStepRunState => run !== null)
+            : [];
+          const lastRun = parseSetupRun(step.lastRun) ?? history.at(-1) ?? null;
+          return [
+            stepId,
+            {
+              status: isSetupStepStatus(step.status) ? step.status : lastRun?.status ?? "skipped",
+              lastRun,
+              history,
+            },
+          ];
+        }),
+    ),
+  };
+}
+
 function parseLifecycleState(service: DiscoveredService, snapshot: {
   install: unknown | null;
   config: unknown | null;
   runtime: unknown | null;
+  setup: unknown | null;
 }): ServiceLifecycleState | null {
   const install = snapshot.install as StoredInstallState | null;
   const config = snapshot.config as StoredConfigState | null;
   const runtime = snapshot.runtime as StoredRuntimeState | null;
+  const setup = snapshot.setup as StoredSetupState | null;
 
   const installed = install?.installed === true;
   const configured = config?.configured === true;
@@ -85,7 +168,16 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
     : [];
   const lastAction = isLifecycleAction(runtime?.lastAction) ? runtime.lastAction : null;
 
-  if (!installed && !configured && runtime?.running !== true && actionHistory.length === 0 && lastAction === null) {
+  const setupState = parseSetupState(setup);
+
+  if (
+    !installed &&
+    !configured &&
+    runtime?.running !== true &&
+    actionHistory.length === 0 &&
+    lastAction === null &&
+    Object.keys(setupState.steps).length === 0
+  ) {
     return null;
   }
 
@@ -129,6 +221,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
       files: Array.isArray(config?.files) ? config.files.filter((file): file is string => typeof file === "string") : [],
       updatedAt: typeof config?.updatedAt === "string" ? config.updatedAt : null,
     },
+    setup: setupState,
     runtime: {
       pid: null,
       startedAt: typeof runtime?.startedAt === "string" ? runtime.startedAt : null,
