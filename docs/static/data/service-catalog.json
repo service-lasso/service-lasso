@@ -122,6 +122,14 @@
       "summary": "Release-backed log shipper for apps that own log paths, OpenObserve-compatible output, credentials, and retention policy."
     },
     {
+      "id": "soarca",
+      "name": "SOARCA",
+      "repo": "service-lasso/lasso-soarca",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed CACAO orchestration API for apps that own playbooks, integrations, auth, reporting, and execution policy."
+    },
+    {
       "id": "mongo",
       "name": "MongoDB",
       "repo": "service-lasso/lasso-mongo",
