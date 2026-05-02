@@ -53,22 +53,30 @@ test("core services root declares the clean-clone baseline inventory", async () 
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
 
   assert.deepEqual(
-    ["@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
+    ["@java", "@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
     [],
   );
   assert.equal(byId.get("@localcert")?.role, "provider");
   assert.equal(byId.get("@localcert")?.name, "Core Local Certificate Utility");
-  assert.match(byId.get("@localcert")?.description ?? "", /Release-backed local certificate bootstrap utility/);
+  assert.match(byId.get("@localcert")?.description ?? "", /Release-backed mkcert\/localcert provider/);
+  assert.deepEqual(byId.get("@localcert")?.depend_on, ["@java"]);
   assert.equal(byId.get("@localcert")?.artifact?.source.repo, "service-lasso/lasso-localcert");
-  assert.equal(byId.get("@localcert")?.artifact?.source.tag, "2026.4.27-591ed28");
+  assert.equal(byId.get("@localcert")?.artifact?.source.tag, "2026.5.2-24e7d2f");
   assert.equal(byId.get("@localcert")?.artifact?.platforms.win32?.assetName, "lasso-localcert-0.1.0-win32.zip");
+  assert.deepEqual(Object.keys(byId.get("@localcert")?.setup?.steps ?? {}), [
+    "generate-pfx",
+    "generate-key-cert",
+    "install-root-ca",
+    "renew-localcert",
+  ]);
   assert.deepEqual(byId.get("@localcert")?.globalenv, {
     LOCALCERT_ENABLED: "true",
-    LOCALCERT_ROOT: "${SERVICE_ARTIFACT_ROOT}",
-    CERT_FILE: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.crt",
-    CERT_KEY: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.key",
-    CERT_PFX: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/localhost.pfx",
-    CAROOT_CERT: "${SERVICE_ARTIFACT_ROOT}/runtime/certs/caroot.crt",
+    LOCALCERT_ROOT: "${SERVICE_DATA_PATH}",
+    CERT_FILE: "${SERVICE_DATA_PATH}/mkcert.pem",
+    CERT_KEY: "${SERVICE_DATA_PATH}/mkcert.key",
+    CERT_PFX: "${SERVICE_DATA_PATH}/mkcert.pfx",
+    CAROOT_KEY: "${SERVICE_DATA_PATH}/rootCA-key.pem",
+    CAROOT_CERT: "${SERVICE_DATA_PATH}/rootCA.pem",
   });
   assert.equal(byId.get("@nginx")?.role, undefined);
   assert.equal(byId.get("@nginx")?.version, "1.30.0");
@@ -709,6 +717,81 @@ test("loadServiceManifest accepts platform commandline maps", async () => {
       win32: " --config=\"${SERVICE_ROOT}\\runtime\\service.yml\" --port=\":${SERVICE_PORT}\"",
       linux: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
       default: " --config=\"${SERVICE_ROOT}/runtime/service.yml\" --port=\":${SERVICE_PORT}\"",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "setup-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "setup-service",
+        name: "Setup Service",
+        description: "Service with one-shot setup lifecycle steps.",
+        setup: {
+          steps: {
+            "init-schema": {
+              description: "Initialize schema before sample data is loaded.",
+              depend_on: ["typedb", "@java"],
+              execservice: "@java",
+              commandline: {
+                win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
+                default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
+              },
+              env: {
+                SCHEMA_PATH: "${SERVICE_ROOT}/schema",
+              },
+              timeoutSeconds: 120,
+              rerun: "ifMissing",
+            },
+            "load-sample": {
+              description: "Load optional sample data.",
+              depend_on: ["setup-service:init-schema", "@python"],
+              execservice: "@python",
+              args: ["jobs/load-sample/basic_upload.py"],
+              timeoutSeconds: 300,
+              rerun: "manual",
+            },
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.setup?.steps["init-schema"], {
+      description: "Initialize schema before sample data is loaded.",
+      depend_on: ["typedb", "@java"],
+      execservice: "@java",
+      executable: undefined,
+      args: undefined,
+      commandline: {
+        win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
+        default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
+      },
+      env: {
+        SCHEMA_PATH: "${SERVICE_ROOT}/schema",
+      },
+      timeoutSeconds: 120,
+      rerun: "ifMissing",
+    });
+    assert.deepEqual(manifest.setup?.steps["load-sample"], {
+      description: "Load optional sample data.",
+      depend_on: ["setup-service:init-schema", "@python"],
+      execservice: "@python",
+      executable: undefined,
+      args: ["jobs/load-sample/basic_upload.py"],
+      commandline: undefined,
+      env: undefined,
+      timeoutSeconds: 300,
+      rerun: "manual",
     });
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });

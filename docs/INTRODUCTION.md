@@ -32,9 +32,20 @@ Current related repos:
 | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed Node runtime provider |
 | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | release-backed Python runtime provider |
 | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | release-backed Java runtime provider |
+| [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive) | optional release-backed 7-Zip archive utility provider for services that need external archive tooling |
 | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed local certificate provider |
 | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed NGINX service used by the baseline Traefik setup |
 | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
+| [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres) | app-owned PostgreSQL service repo for local relational database dependencies |
+| [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo) | app-owned MongoDB service repo for local document database dependencies |
+| [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb) | app-owned TypeDB daemon repo that runs through `@java` and exports TypeDB connection globals |
+| [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files) | app-owned file-manager service repo with React UI and filesystem-backed API |
+| [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi) | app-owned TypeRefinery FastAPI service repo for Python API surfaces |
+| [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab) | app-owned JupyterLab service repo for local notebooks and notebook API surfaces |
+| [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice) | app-owned Total.js messaging service repo that exports message-service global env values |
+| [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow) | app-owned Total.js Flow service repo that depends on `totaljs-messageservice` |
+| [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms) | app-owned Websight CMS service repo that depends on `@java`, `mongo`, `nginx`, `totaljs-flow`, and `totaljs-messageservice` |
+| [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server) | app-owned BPMN modeling and execution service repo that depends on `mongo` |
 | [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | app-owned ZITADEL service repo for identity setups |
 | [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned Dagu service repo for workflow orchestration setups |
 | [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating new release-backed `lasso-*` service repos |

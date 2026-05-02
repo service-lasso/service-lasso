@@ -58,6 +58,17 @@ export async function writeServiceState(
       ),
     ),
     writeFile(
+      paths.setup,
+      JSON.stringify(
+        {
+          updatedAt: lifecycle.setup.updatedAt,
+          steps: lifecycle.setup.steps,
+        },
+        null,
+        2,
+      ),
+    ),
+    writeFile(
       paths.runtime,
       JSON.stringify(
         {

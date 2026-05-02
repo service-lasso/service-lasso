@@ -37,13 +37,45 @@ Managed services usually also need:
 - `globalenv` for values other services can consume
 - `depend_on` for startup ordering
 - `install.files` or `config.files` when Service Lasso must write config files
+- `setup.steps` when the service must run one-shot setup commands after install/config
 
 Provider services usually need:
 
 - `role: "provider"`
 - `globalenv` entries that expose installed tool paths
 - a cheap probe/version command where useful
+- setup steps when the provider must generate local files, install trust material, or prepare a tool cache
 - no long-running daemon healthcheck unless the provider truly starts a process
+
+## Add Setup Steps When Needed
+
+Use `setup.steps` for work that must execute locally after install/config but should not be supervised as a long-running daemon. Common examples include generating local certificates, installing service-local Python dependencies, creating a database schema, or loading sample data.
+
+```json
+{
+  "setup": {
+    "steps": {
+      "generate-cert": {
+        "description": "Generate local development certificates.",
+        "commandline": {
+          "win32": "mkcert.exe -key-file \"${SERVICE_DATA_PATH}\\mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}\\mkcert.pem\" *.localhost",
+          "default": "mkcert -key-file \"${SERVICE_DATA_PATH}/mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}/mkcert.pem\" *.localhost"
+        },
+        "timeoutSeconds": 60,
+        "rerun": "ifMissing"
+      }
+    }
+  }
+}
+```
+
+Rules:
+
+- No `execservice` means the setup command runs directly.
+- `execservice` runs the setup step through a provider such as `@node`, `@python`, or `@java`.
+- `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
+- `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
+- `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.
 
 ## Pin the Release
 

@@ -7,6 +7,7 @@ export interface ServiceStatePaths {
   install: string;
   updates: string;
   recovery: string;
+  setup: string;
   config: string;
   runtime: string;
   backups: string;
@@ -25,6 +26,7 @@ export function getServiceStatePaths(serviceRoot: string): ServiceStatePaths {
     install: path.join(stateRoot, "install.json"),
     updates: path.join(stateRoot, "updates.json"),
     recovery: path.join(stateRoot, "recovery.json"),
+    setup: path.join(stateRoot, "setup.json"),
     config: path.join(stateRoot, "config.json"),
     runtime: path.join(stateRoot, "runtime.json"),
     backups: path.join(stateRoot, "backups"),

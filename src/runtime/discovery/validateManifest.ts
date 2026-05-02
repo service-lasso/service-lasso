@@ -2,6 +2,7 @@ import type {
   ServiceHookFailurePolicy,
   ServiceHookStep,
   ServiceManifest,
+  ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
   ServiceUpdateMode,
   ServiceUpdateRunningServicePolicy,
@@ -15,6 +16,7 @@ const updateModes = new Set(["disabled", "notify", "download", "install"]);
 const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-start", "restart"]);
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
+const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -259,6 +261,86 @@ function readLifecycleHooks(value: unknown, manifestPath: string): ServiceManife
     rollback: readHookSteps(record.rollback, "hooks.rollback", manifestPath),
     onFailure: readHookSteps(record.onFailure, "hooks.onFailure", manifestPath),
   };
+}
+
+function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest["setup"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "setup" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.steps === undefined) {
+    return {};
+  }
+
+  if (!record.steps || typeof record.steps !== "object" || Array.isArray(record.steps)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "setup.steps" to be an object.`);
+  }
+
+  const steps = Object.fromEntries(
+    Object.entries(record.steps as Record<string, unknown>).map(([stepId, candidate]) => {
+      const normalizedStepId = stepId.trim();
+      if (normalizedStepId.length === 0) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: setup step ids must be non-empty.`);
+      }
+
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}" to be an object.`);
+      }
+
+      const step = candidate as Record<string, unknown>;
+      const dependOn = step.depend_on;
+      if (
+        dependOn !== undefined &&
+        (!Array.isArray(dependOn) ||
+          dependOn.some((dependency) => typeof dependency !== "string" || dependency.trim().length === 0))
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.depend_on" to be an array of non-empty strings.`,
+        );
+      }
+
+      const args = step.args;
+      if (args !== undefined && (!Array.isArray(args) || args.some((entry) => typeof entry !== "string"))) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.args" to be an array of strings.`,
+        );
+      }
+
+      const rawRerun = step.rerun;
+      if (rawRerun !== undefined && (typeof rawRerun !== "string" || !setupRerunPolicies.has(rawRerun))) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.rerun" to be one of "manual", "ifMissing", or "always".`,
+        );
+      }
+
+      return [
+        normalizedStepId,
+        {
+          description: typeof step.description === "string" ? step.description.trim() : undefined,
+          depend_on: Array.isArray(dependOn) ? dependOn.map((dependency) => (dependency as string).trim()) : undefined,
+          execservice: typeof step.execservice === "string" ? step.execservice.trim() : undefined,
+          executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
+          args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
+          commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
+          env: readStringMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
+          timeoutSeconds: expectOptionalWholeNumber(
+            step.timeoutSeconds,
+            `setup.steps.${normalizedStepId}.timeoutSeconds`,
+            manifestPath,
+            1,
+          ),
+          rerun: rawRerun as ServiceSetupRerunPolicy | undefined,
+        },
+      ];
+    }),
+  );
+
+  return { steps };
 }
 
 function expectTimeOfDay(value: unknown, field: string, manifestPath: string): string {
@@ -671,6 +753,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const restartPolicy = readRestartPolicy(record.restartPolicy, manifestPath);
   const doctor = readDoctorPolicy(record.doctor, manifestPath);
   const hooks = readLifecycleHooks(record.hooks, manifestPath);
+  const setup = readSetupPolicy(record.setup, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
 
   return {
@@ -707,6 +790,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     restartPolicy,
     doctor,
     hooks,
+    setup,
     updates,
     artifact,
     install,

@@ -33,6 +33,7 @@ Uses a Java runtime via `execservice: "@java"`.
 
 Current core status:
 - `@java` exists as a release-backed provider manifest and can be acquired from [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java).
+- `typedb` exists as a release-backed Java-backed daemon in [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb).
 - release-backed JRE redistribution uses the `lasso-java` provider release and its documented upstream/runtime version.
 
 ### Python application
@@ -63,6 +64,11 @@ Current core provider services use:
 
 That means Service Lasso should install/configure the provider manifest and expose its dependency/env contract, but baseline start should not falsely mark it as a long-running daemon. A provider with no explicit healthcheck is considered healthy once installed/configured.
 
+Current archive-provider status:
+- `@archive` exists as an optional release-backed provider in [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive).
+- Service Lasso does not need `@archive` for normal `zip`, `tar.gz`, or `tgz` release artifacts because those are handled by the runtime's built-in extraction path.
+- Add `@archive` only when a service needs external 7-Zip tooling for formats such as `.7z`, `.rar`, `.xz`, split archives, or legacy install flows.
+
 ### Operator or UI application
 Human-facing admin UI or dashboard service.
 
@@ -85,6 +91,10 @@ Bootstrap/import/setup script rather than a long-running service.
 Examples:
 - `typedb-init`
 - sample-data loaders
+
+Current core status:
+- TypeDB daemon migration is complete in [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb).
+- TypeDB init and sample loading are intentionally tracked as one-shot job follow-ups because they should not be represented as long-running daemons. See [`service-lasso/lasso-typedb#2`](https://github.com/service-lasso/lasso-typedb/issues/2), [`service-lasso/lasso-typedb#3`](https://github.com/service-lasso/lasso-typedb/issues/3), and [`service-lasso/service-lasso#352`](https://github.com/service-lasso/service-lasso/issues/352).
 
 ### Long-running daemon or service
 Normal background service with persistent runtime lifecycle.

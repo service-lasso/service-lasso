@@ -66,6 +66,14 @@
       "summary": "Release-backed Java provider for consumers that need Java-backed local services."
     },
     {
+      "id": "@archive",
+      "name": "Archive Utility Provider",
+      "repo": "service-lasso/lasso-archive",
+      "group": "Runtime Providers",
+      "status": "Available",
+      "summary": "Optional release-backed 7-Zip provider for services that need .7z, .rar, .xz, split archives, or legacy archive/install flows beyond built-in zip and tar.gz extraction."
+    },
+    {
       "id": "zitadel",
       "name": "ZITADEL",
       "repo": "service-lasso/lasso-zitadel",
@@ -80,6 +88,86 @@
       "group": "App-Owned Services",
       "status": "Available",
       "summary": "Release-backed workflow service for apps that own their workflow definitions and orchestration contract."
+    },
+    {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "repo": "service-lasso/lasso-postgres",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed PostgreSQL service for apps that need a local relational database such as Keycloak or ZITADEL dependencies."
+    },
+    {
+      "id": "mongo",
+      "name": "MongoDB",
+      "repo": "service-lasso/lasso-mongo",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed MongoDB service for apps that need a local document database with managed data, auth, and TCP health."
+    },
+    {
+      "id": "typedb",
+      "name": "TypeDB",
+      "repo": "service-lasso/lasso-typedb",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed TypeDB daemon that runs through @java, exposes TCP health, and exports TypeDB host, port, database, URL, and data-path globals."
+    },
+    {
+      "id": "files",
+      "name": "Files",
+      "repo": "service-lasso/lasso-files",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed file-manager service with a React UI, filesystem-backed API, and documented legacy URL compatibility."
+    },
+    {
+      "id": "fastapi",
+      "name": "FastAPI",
+      "repo": "service-lasso/lasso-fastapi",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed TypeRefinery FastAPI service for apps that need the Python API surface; current package targets Windows through the @python provider."
+    },
+    {
+      "id": "jupyterlab",
+      "name": "JupyterLab",
+      "repo": "service-lasso/lasso-jupyterlab",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed JupyterLab notebook service for app-owned notebooks; current package targets Windows through the @python provider."
+    },
+    {
+      "id": "totaljs-messageservice",
+      "name": "Total.js Message Service",
+      "repo": "service-lasso/lasso-totaljs-messageservice",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Total.js messaging service that exports MESSAGESERVICE_URL and MESSAGESERVICE_PORT for dependent local services."
+    },
+    {
+      "id": "totaljs-flow",
+      "name": "Total.js Flow",
+      "repo": "service-lasso/lasso-totaljs-flow",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Total.js Flow UI/service that depends on totaljs-messageservice and exports FLOW_HOST_URL and FLOW_PORT."
+    },
+    {
+      "id": "websight-cms",
+      "name": "Websight CMS",
+      "repo": "service-lasso/lasso-websight-cms",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Websight CMS service that runs through @java and depends on MongoDB, NGINX, Total.js Flow, and Total.js Message Service."
+    },
+    {
+      "id": "bpmn-server",
+      "name": "BPMN Server",
+      "repo": "service-lasso/lasso-bpmn-server",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed BPMN modeling and execution service that depends on mongo and exports BPMN_URL and BPMN_PORT."
     },
     {
       "id": "service-lasso-app-node",

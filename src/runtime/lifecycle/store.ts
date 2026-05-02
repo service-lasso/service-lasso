@@ -30,6 +30,10 @@ function createInitialState(): ServiceLifecycleState {
       files: [],
       updatedAt: null,
     },
+    setup: {
+      updatedAt: null,
+      steps: {},
+    },
     runtime: {
       pid: null,
       startedAt: null,
@@ -96,6 +100,19 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       files: [...current.configArtifacts.files],
       updatedAt: current.configArtifacts.updatedAt,
     },
+    setup: {
+      updatedAt: current.setup.updatedAt,
+      steps: Object.fromEntries(
+        Object.entries(current.setup.steps).map(([stepId, step]) => [
+          stepId,
+          {
+            status: step.status,
+            lastRun: step.lastRun ? { ...step.lastRun, logs: { ...step.lastRun.logs } } : null,
+            history: step.history.map((run) => ({ ...run, logs: { ...run.logs } })),
+          },
+        ]),
+      ),
+    },
     runtime: {
       pid: current.runtime.pid,
       startedAt: current.runtime.startedAt,
@@ -155,6 +172,19 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
     configArtifacts: {
       files: [...nextState.configArtifacts.files],
       updatedAt: nextState.configArtifacts.updatedAt,
+    },
+    setup: {
+      updatedAt: nextState.setup.updatedAt,
+      steps: Object.fromEntries(
+        Object.entries(nextState.setup.steps).map(([stepId, step]) => [
+          stepId,
+          {
+            status: step.status,
+            lastRun: step.lastRun ? { ...step.lastRun, logs: { ...step.lastRun.logs } } : null,
+            history: step.history.map((run) => ({ ...run, logs: { ...run.logs } })),
+          },
+        ]),
+      ),
     },
     runtime: {
       pid: nextState.runtime.pid,

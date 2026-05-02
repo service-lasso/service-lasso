@@ -3,6 +3,7 @@ import { hasManagedProcess } from "../execution/supervisor.js";
 import { configService, installService, startService } from "../lifecycle/actions.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "../lifecycle/types.js";
+import { listSetupStepIds, runServiceSetup } from "../setup/steps.js";
 import { DependencyGraph, createServiceRegistry } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -11,7 +12,7 @@ import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 
-export const DEFAULT_BASELINE_SERVICE_IDS = ["@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"] as const;
+export const DEFAULT_BASELINE_SERVICE_IDS = ["@java", "@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"] as const;
 
 export type BaselineServiceStatus = "completed" | "skipped";
 
@@ -70,7 +71,7 @@ async function runLifecycleAction(
       return await configService(service, registry);
     }
 
-    if (action === "start") {
+  if (action === "start") {
       return await startService(service, registry);
     }
   } catch (error) {
@@ -141,6 +142,20 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "config", status: "completed", message: result.message });
+    }
+
+    if (listSetupStepIds(service).length > 0) {
+      const result = await runServiceSetup(service, registry);
+      await writeServiceState(service, result.state);
+      state = result.state;
+      actions.push({
+        action: "setup",
+        status: result.runs.length > 0 ? "completed" : "skipped",
+        message: result.message,
+      });
+      if (!result.ok) {
+        throw formatActionFailure(serviceId, "setup", new Error(result.message));
+      }
     }
 
     if (state.running || hasManagedProcess(serviceId)) {
