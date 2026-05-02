@@ -66,6 +66,14 @@
       "summary": "Release-backed Java provider for consumers that need Java-backed local services."
     },
     {
+      "id": "@archive",
+      "name": "Archive Utility Provider",
+      "repo": "service-lasso/lasso-archive",
+      "group": "Runtime Providers",
+      "status": "Available",
+      "summary": "Optional release-backed 7-Zip provider for services that need .7z, .rar, .xz, split archives, or legacy archive/install flows beyond built-in zip and tar.gz extraction."
+    },
+    {
       "id": "zitadel",
       "name": "ZITADEL",
       "repo": "service-lasso/lasso-zitadel",

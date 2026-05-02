@@ -64,6 +64,11 @@ Current core provider services use:
 
 That means Service Lasso should install/configure the provider manifest and expose its dependency/env contract, but baseline start should not falsely mark it as a long-running daemon. A provider with no explicit healthcheck is considered healthy once installed/configured.
 
+Current archive-provider status:
+- `@archive` exists as an optional release-backed provider in [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive).
+- Service Lasso does not need `@archive` for normal `zip`, `tar.gz`, or `tgz` release artifacts because those are handled by the runtime's built-in extraction path.
+- Add `@archive` only when a service needs external 7-Zip tooling for formats such as `.7z`, `.rar`, `.xz`, split archives, or legacy install flows.
+
 ### Operator or UI application
 Human-facing admin UI or dashboard service.
 

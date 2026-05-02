@@ -32,6 +32,7 @@ Current related repos:
 | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed Node runtime provider |
 | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | release-backed Python runtime provider |
 | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | release-backed Java runtime provider |
+| [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive) | optional release-backed 7-Zip archive utility provider for services that need external archive tooling |
 | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed local certificate provider |
 | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed NGINX service used by the baseline Traefik setup |
 | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
