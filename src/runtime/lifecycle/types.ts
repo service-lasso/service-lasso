@@ -1,6 +1,36 @@
 import type { ProviderKind } from "../providers/types.js";
 
-export type LifecycleAction = "install" | "config" | "start" | "stop" | "restart";
+export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart";
+
+export type SetupStepStatus = "succeeded" | "failed" | "timeout" | "skipped";
+
+export interface ServiceSetupStepRunState {
+  runId: string;
+  serviceId: string;
+  stepId: string;
+  status: SetupStepStatus;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  command: string;
+  exitCode: number | null;
+  signal: string | null;
+  message: string;
+  logs: {
+    logPath: string;
+    stdoutPath: string;
+    stderrPath: string;
+  };
+}
+
+export interface ServiceSetupState {
+  updatedAt: string | null;
+  steps: Record<string, {
+    status: SetupStepStatus;
+    lastRun: ServiceSetupStepRunState | null;
+    history: ServiceSetupStepRunState[];
+  }>;
+}
 
 export interface ServiceMaterializedArtifactsState {
   files: string[];
@@ -56,6 +86,7 @@ export interface ServiceLifecycleState {
   actionHistory: LifecycleAction[];
   installArtifacts: ServiceMaterializedArtifactsState;
   configArtifacts: ServiceMaterializedArtifactsState;
+  setup: ServiceSetupState;
   runtime: ServiceRuntimeState;
 }
 

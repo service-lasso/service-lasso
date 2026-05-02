@@ -66,6 +66,24 @@ export interface ServiceLifecycleHooks {
   onFailure?: ServiceHookStep[];
 }
 
+export type ServiceSetupRerunPolicy = "manual" | "ifMissing" | "always";
+
+export interface ServiceSetupStep {
+  description?: string;
+  depend_on?: string[];
+  execservice?: string;
+  executable?: string;
+  args?: string[];
+  commandline?: Record<string, string>;
+  env?: Record<string, string>;
+  timeoutSeconds?: number;
+  rerun?: ServiceSetupRerunPolicy;
+}
+
+export interface ServiceSetupPolicy {
+  steps?: Record<string, ServiceSetupStep>;
+}
+
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
 export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
 export type ServiceUpdateWindowDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -132,6 +150,7 @@ export interface ServiceManifest {
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;
   hooks?: ServiceLifecycleHooks;
+  setup?: ServiceSetupPolicy;
   updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;

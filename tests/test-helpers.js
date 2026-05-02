@@ -74,6 +74,7 @@ export async function writeExecutableFixtureService(
     urls = undefined,
     install = undefined,
     config = undefined,
+    setup = undefined,
     role = undefined,
   } = options;
 
@@ -194,6 +195,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     urls,
     install,
     config,
+    setup,
     healthcheck: healthcheck === null ? undefined : healthcheck,
   });
 

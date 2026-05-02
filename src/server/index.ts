@@ -47,6 +47,7 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
+import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
@@ -492,6 +493,21 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/setup") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, {
+      services: runtimeModel.registry
+        .list()
+        .map((service) => ({
+          serviceId: service.manifest.id,
+          steps: listSetupStepIds(service),
+          state: getLifecycleState(service.manifest.id).setup,
+        }))
+        .filter((service) => service.steps.length > 0),
+    });
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/updates/check") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const body = parseUpdateCheckBody(await readJsonBody(request));
@@ -686,6 +702,23 @@ async function routeRequest(
         serviceId,
         recovery: await readServiceRecoveryHistory(service),
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "setup") {
+      writeJson(response, 200, {
+        serviceId,
+        steps: listSetupStepIds(service),
+        setup: getLifecycleState(serviceId).setup,
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length >= 5 && pathParts[3] === "setup" && pathParts[4] === "run") {
+      const stepId = pathParts.length === 6 ? decodeURIComponent(pathParts[5] ?? "") : undefined;
+      const result = await runServiceSetup(service, runtimeModel.registry, { stepId, includeManual: stepId !== undefined });
+      await writeServiceState(service, result.state);
+      writeJson(response, 200, result);
       return;
     }
 

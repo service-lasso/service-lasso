@@ -52,6 +52,7 @@ export function buildServiceVariables(
 ): ServiceVariablesPayload {
   const statePaths = getServiceStatePaths(service.serviceRoot);
   const installArtifact = getLifecycleState(service.manifest.id).installArtifacts.artifact;
+  const executableHome = installArtifact?.extractedPath ?? service.serviceRoot;
   const rawManifestVariables = Object.entries(service.manifest.env ?? {}).map(([key, value]) => ({
     key,
     value,
@@ -78,6 +79,16 @@ export function buildServiceVariables(
     {
       key: "SERVICE_STATE_ROOT",
       value: statePaths.stateRoot,
+      scope: "derived",
+    },
+    {
+      key: "SERVICE_DATA_PATH",
+      value: path.join(service.serviceRoot, "data"),
+      scope: "derived",
+    },
+    {
+      key: "SERVICE_EXECUTABLE_HOME",
+      value: executableHome,
       scope: "derived",
     },
     ...(installArtifact?.extractedPath
