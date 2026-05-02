@@ -98,6 +98,14 @@
       "summary": "Release-backed PostgreSQL service for apps that need a local relational database such as Keycloak or ZITADEL dependencies."
     },
     {
+      "id": "pgadmin4",
+      "name": "pgAdmin4",
+      "repo": "service-lasso/lasso-pgadmin4",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed pgAdmin4 browser UI for apps that own PostgreSQL credentials, data retention, and admin access."
+    },
+    {
       "id": "mongo",
       "name": "MongoDB",
       "repo": "service-lasso/lasso-mongo",
