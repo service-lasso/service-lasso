@@ -106,6 +106,14 @@
       "summary": "Release-backed pgAdmin4 browser UI for apps that own PostgreSQL credentials, data retention, and admin access."
     },
     {
+      "id": "openobserve",
+      "name": "OpenObserve",
+      "repo": "service-lasso/lasso-openobserve",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed observability service for apps that own local telemetry data, credentials, and retention policy."
+    },
+    {
       "id": "mongo",
       "name": "MongoDB",
       "repo": "service-lasso/lasso-mongo",
