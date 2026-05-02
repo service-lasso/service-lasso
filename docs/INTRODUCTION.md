@@ -37,6 +37,7 @@ Current related repos:
 | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
 | [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres) | app-owned PostgreSQL service repo for local relational database dependencies |
 | [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo) | app-owned MongoDB service repo for local document database dependencies |
+| [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb) | app-owned TypeDB daemon repo that runs through `@java` and exports TypeDB connection globals |
 | [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files) | app-owned file-manager service repo with React UI and filesystem-backed API |
 | [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi) | app-owned TypeRefinery FastAPI service repo for Python API surfaces |
 | [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab) | app-owned JupyterLab service repo for local notebooks and notebook API surfaces |
