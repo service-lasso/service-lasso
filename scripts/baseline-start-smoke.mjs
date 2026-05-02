@@ -12,6 +12,9 @@ const coreTraefikManifest = JSON.parse(
 const coreNodeManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
 );
+const coreJavaManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@java", "service.json"), "utf8"),
+);
 const coreLocalcertManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@localcert", "service.json"), "utf8"),
 );
@@ -25,6 +28,10 @@ if (!traefikReleaseVersion || coreTraefikManifest.version !== traefikReleaseVers
 const nodeReleaseVersion = coreNodeManifest.artifact?.source?.tag;
 if (!nodeReleaseVersion) {
   throw new Error("Core @node manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
+const javaReleaseVersion = coreJavaManifest.artifact?.source?.tag;
+if (!javaReleaseVersion) {
+  throw new Error("Core @java manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 const localcertReleaseVersion = coreLocalcertManifest.artifact?.source?.tag;
 if (!localcertReleaseVersion) {
@@ -249,7 +256,7 @@ function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (["@localcert", "@node"].includes(service.serviceId)) {
+  if (["@java", "@localcert", "@node"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
     assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
     assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
@@ -486,6 +493,7 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
@@ -514,7 +522,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@java", "@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -524,7 +532,7 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["@localcert", "@node"].includes(serviceId)) {
+    if (["@java", "@localcert", "@node"].includes(serviceId)) {
       assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);

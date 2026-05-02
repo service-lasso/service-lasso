@@ -30,7 +30,7 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const graph = new DependencyGraph(registry);
 
   assert.equal(registry.count(), 10);
-  assert.equal(registry.countEnabled(), 7);
+  assert.equal(registry.countEnabled(), 8);
   assert.ok(registry.getById("@archive"));
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
@@ -107,7 +107,7 @@ test("GET /api/runtime returns runtime summary state", async () => {
 
     assert.equal(response.status, 200);
     assert.equal(body.runtime.totalServices, 10);
-    assert.equal(body.runtime.enabledServices, 7);
+    assert.equal(body.runtime.enabledServices, 8);
     assert.equal(body.runtime.dependencyEdges, 5);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {

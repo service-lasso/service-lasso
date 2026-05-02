@@ -53,7 +53,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
 
   assert.deepEqual(
-    ["@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
+    ["@java", "@localcert", "@nginx", "@node", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
     [],
   );
   assert.equal(byId.get("@localcert")?.role, "provider");

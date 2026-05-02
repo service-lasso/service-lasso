@@ -4,7 +4,7 @@
   "description": "Release-backed Eclipse Temurin JRE provider for Service Lasso services.",
   "version": "17.0.18+8",
   "role": "provider",
-  "enabled": false,
+  "enabled": true,
   "executable": "java",
   "args": ["--version"],
   "env": {},
