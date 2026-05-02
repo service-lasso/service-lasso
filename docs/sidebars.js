@@ -63,6 +63,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/one-shot-jobs",
+          label: "One-shot Jobs",
+        },
+        {
+          type: "doc",
           id: "development/new-lasso-service-guide",
           label: "Service Repo Handoff",
         },

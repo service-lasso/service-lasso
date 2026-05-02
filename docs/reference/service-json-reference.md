@@ -445,7 +445,9 @@ Sample:
 
 ### Setup lifecycle steps
 
-`setup.steps` defines named one-shot commands that run after `install` and `config`. Use setup for local preparation work that must execute on the user's machine but is not a daemon process.
+`setup.steps` defines Service Lasso's first-class one-shot job contract. Use setup for named local preparation work that runs after `install` and `config` but is not a daemon process.
+
+For operator behavior, CLI/API surfaces, dependency ordering, provider-backed execution, rerun policy, and TypeDB init/sample guidance, see [One-shot Jobs](one-shot-jobs.md).
 
 Examples:
 

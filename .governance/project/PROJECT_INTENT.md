@@ -34,7 +34,7 @@ This repo is therefore the place where the real core behavior must live and cont
 ## Risks
 - Staying in analysis/doc mode too long would create false progress without a running core.
 - Starting too broadly could mix manifest redesign, runtime implementation, provider integration, and release plumbing into one hard-to-verify change.
-- Missing Windows payload/runtime assumptions could block a naive one-shot implementation.
+- Service-specific setup-step jobs can still fail if runtime artifacts, platform commandlines, or provider dependencies are not validated in the owning service repo.
 
 ## Assumptions
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.

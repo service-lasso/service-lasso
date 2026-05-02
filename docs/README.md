@@ -27,6 +27,7 @@ Use this short list as the public documentation map:
 - [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
+- [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
 - [Reference Apps](reference-apps.md): choose the right host/template repo and understand the release output options.
 
 ## Source of truth for `service.json`
@@ -40,6 +41,7 @@ When discussing or changing the general `service.json` contract:
 Current canonical files:
 
 - [service.json Reference](reference/service-json-reference.md)
+- [One-shot Jobs](reference/one-shot-jobs.md)
 
 ## Repo boundary rule
 
