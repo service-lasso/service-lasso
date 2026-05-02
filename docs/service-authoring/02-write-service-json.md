@@ -51,6 +51,8 @@ Provider services usually need:
 
 Use `setup.steps` for work that must execute locally after install/config but should not be supervised as a long-running daemon. Common examples include generating local certificates, installing service-local Python dependencies, creating a database schema, or loading sample data.
 
+This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](../reference/one-shot-jobs.md) for CLI/API behavior, dependency ordering, provider-backed execution, rerun policy, and persisted setup history.
+
 ```json
 {
   "setup": {

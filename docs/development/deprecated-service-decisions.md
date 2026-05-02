@@ -38,7 +38,7 @@ Current replacement path:
 
 - Use [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server) for the managed BPMN Server daemon and MongoDB-backed workflow API.
 - Use [`service-lasso/lasso-bpmn-server/blob/main/docs/client-sample.md`](https://github.com/service-lasso/lasso-bpmn-server/blob/main/docs/client-sample.md) for direct HTTP and optional `bpmn-client` npm usage examples.
-- Put BPMN client scripts in the consuming app, test harness, setup step, or future one-shot job that owns the workflow behavior.
+- Put BPMN client scripts in the consuming app, test harness, or `setup.steps` one-shot job that owns the workflow behavior.
 
 Catalog impact:
 

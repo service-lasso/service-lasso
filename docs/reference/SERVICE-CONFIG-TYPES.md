@@ -94,7 +94,7 @@ Examples:
 
 Current core status:
 - TypeDB daemon migration is complete in [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb).
-- TypeDB init and sample loading are intentionally tracked as one-shot job follow-ups because they should not be represented as long-running daemons. See [`service-lasso/lasso-typedb#2`](https://github.com/service-lasso/lasso-typedb/issues/2), [`service-lasso/lasso-typedb#3`](https://github.com/service-lasso/lasso-typedb/issues/3), and [`service-lasso/service-lasso#352`](https://github.com/service-lasso/service-lasso/issues/352).
+- TypeDB init and sample loading should use the first-class one-shot job contract: [`setup.steps`](service-json-reference.md#setup-lifecycle-steps). The concrete TypeDB jobs remain tracked in [`service-lasso/lasso-typedb#2`](https://github.com/service-lasso/lasso-typedb/issues/2) and [`service-lasso/lasso-typedb#3`](https://github.com/service-lasso/lasso-typedb/issues/3).
 
 ### Long-running daemon or service
 Normal background service with persistent runtime lifecycle.
