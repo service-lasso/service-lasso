@@ -130,6 +130,14 @@
       "summary": "Release-backed CACAO orchestration API for apps that own playbooks, integrations, auth, reporting, and execution policy."
     },
     {
+      "id": "cacao-roaster",
+      "name": "CACAO Roaster",
+      "repo": "service-lasso/lasso-cacao-roaster",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed CACAO playbook authoring UI that runs through @node, depends on SOARCA, and injects SOARCA_URL at runtime."
+    },
+    {
       "id": "mongo",
       "name": "MongoDB",
       "repo": "service-lasso/lasso-mongo",
