@@ -1,0 +1,51 @@
+{
+  "id": "@archive",
+  "name": "Archive Utility Provider",
+  "description": "Optional release-backed 7-Zip archive utility provider for services that need formats beyond built-in zip/tar.gz/tgz extraction.",
+  "version": "7zip-26.01",
+  "role": "provider",
+  "enabled": false,
+  "executable": "7zz",
+  "args": ["i"],
+  "globalenv": {
+    "ARCHIVE_HOME": "${SERVICE_ARTIFACT_ROOT}",
+    "ARCHIVE_TOOL": "${SERVICE_ARTIFACT_COMMAND}",
+    "SEVENZIP_HOME": "${SERVICE_ARTIFACT_ROOT}",
+    "SEVENZIP": "${SERVICE_ARTIFACT_COMMAND}"
+  },
+  "urls": [
+    {
+      "label": "7-Zip",
+      "url": "https://www.7-zip.org/download.html",
+      "kind": "external"
+    }
+  ],
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-archive",
+      "tag": "2026.5.2-a223a48"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-archive-7zip-26.01-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\bin\\7za.exe",
+        "args": ["i"]
+      },
+      "linux": {
+        "assetName": "lasso-archive-7zip-26.01-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./bin/7zz",
+        "args": ["i"]
+      },
+      "darwin": {
+        "assetName": "lasso-archive-7zip-26.01-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./bin/7zz",
+        "args": ["i"]
+      }
+    }
+  }
+}
