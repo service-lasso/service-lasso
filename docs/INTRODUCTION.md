@@ -39,6 +39,7 @@ Current related repos:
 | [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres) | app-owned PostgreSQL service repo for local relational database dependencies |
 | [`service-lasso/lasso-pgadmin4`](https://github.com/service-lasso/lasso-pgadmin4) | app-owned pgAdmin4 browser UI for PostgreSQL admin workflows |
 | [`service-lasso/lasso-openobserve`](https://github.com/service-lasso/lasso-openobserve) | app-owned OpenObserve observability service for local logs, metrics, and traces |
+| [`service-lasso/lasso-filebeat`](https://github.com/service-lasso/lasso-filebeat) | app-owned Filebeat log shipper service for forwarding app logs into OpenObserve-compatible destinations |
 | [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo) | app-owned MongoDB service repo for local document database dependencies |
 | [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb) | app-owned TypeDB daemon repo that runs through `@java` and exports TypeDB connection globals |
 | [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files) | app-owned file-manager service repo with React UI and filesystem-backed API |
