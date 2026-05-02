@@ -114,6 +114,14 @@
       "summary": "Release-backed observability service for apps that own local telemetry data, credentials, and retention policy."
     },
     {
+      "id": "filebeat",
+      "name": "Filebeat",
+      "repo": "service-lasso/lasso-filebeat",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed log shipper for apps that own log paths, OpenObserve-compatible output, credentials, and retention policy."
+    },
+    {
       "id": "mongo",
       "name": "MongoDB",
       "repo": "service-lasso/lasso-mongo",
