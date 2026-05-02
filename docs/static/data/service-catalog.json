@@ -82,6 +82,14 @@
       "summary": "Release-backed identity service for apps that own the required database, domain, and secret configuration."
     },
     {
+      "id": "keycloak",
+      "name": "Keycloak",
+      "repo": "service-lasso/lasso-keycloak",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Keycloak identity service that runs through @java, depends on PostgreSQL, and exposes health, metrics, admin URL, setup, and env contracts for app-owned identity stacks."
+    },
+    {
       "id": "dagu",
       "name": "Dagu",
       "repo": "service-lasso/lasso-dagu",

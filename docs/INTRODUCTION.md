@@ -52,6 +52,7 @@ Current related repos:
 | [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms) | app-owned Websight CMS service repo that depends on `@java`, `mongo`, `nginx`, `totaljs-flow`, and `totaljs-messageservice` |
 | [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server) | app-owned BPMN modeling and execution service repo that depends on `mongo` |
 | [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | app-owned ZITADEL service repo for identity setups |
+| [`service-lasso/lasso-keycloak`](https://github.com/service-lasso/lasso-keycloak) | app-owned Keycloak service repo for PostgreSQL-backed identity setups |
 | [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned Dagu service repo for workflow orchestration setups |
 | [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating new release-backed `lasso-*` service repos |
 | [`service-lasso/service-lasso-app-node`](https://github.com/service-lasso/service-lasso-app-node) | Node host reference app template using Service Lasso |
