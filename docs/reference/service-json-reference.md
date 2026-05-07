@@ -12,7 +12,7 @@ It is meant to make the runtime and service templates usable without forcing ser
 - common top-level fields
 - `actions`
 - `setup`
-- env / dependencies / ports
+- env / broker / dependencies / ports
 - healthcheck direction
 - examples
 - what is currently canonical vs still illustrative
@@ -39,6 +39,7 @@ At a high level it carries:
 - lifecycle/action hints
 - runtime execution settings
 - environment settings
+- explicit Secrets Broker imports/exports/write-back policy
 - dependency hints
 - health expectations
 
@@ -347,6 +348,144 @@ Current direction:
 - avoid depending on uncontrolled host-machine env leakage
 - use `${VAR}` for local/current-service/derived values and legacy `globalenv` compatibility
 - use `${namespace.KEY}` only for explicit Secrets Broker selectors; unresolved or denied broker refs stay unresolved for diagnostics rather than falling back to a bare local name
+
+### `broker`
+
+`broker` is the first-class Secrets Broker manifest contract. It lets a service declare the namespaces and refs it consumes, the values it exports, and which generated secrets it may write back.
+
+Services without a `broker` block keep the existing behavior. There is no implicit migration from `env` or `globalenv` into broker state.
+
+Shape:
+```json
+"broker": {
+  "enabled": true,
+  "namespace": "services/consumer",
+  "imports": [
+    {
+      "namespace": "shared/database",
+      "ref": "database.PASSWORD",
+      "as": "DB_PASSWORD",
+      "required": true
+    }
+  ],
+  "exports": [
+    {
+      "namespace": "services/producer",
+      "ref": "producer.PUBLIC_URL",
+      "source": "${SERVICE_URL}",
+      "required": false
+    }
+  ],
+  "writeback": {
+    "allowedNamespaces": ["services/producer"],
+    "allowedOperations": ["create", "update", "rotate"]
+  }
+}
+```
+
+Fields:
+- `enabled`: optional boolean. `false` can be used to leave a declared broker contract dormant.
+- `namespace`: optional default service namespace. It must be a non-empty broker namespace string such as `services/consumer`.
+- `imports`: optional array of explicit broker refs the service may consume.
+- `imports[].namespace`: namespace authorization boundary for the import.
+- `imports[].ref`: dotted broker selector such as `database.PASSWORD`.
+- `imports[].as`: optional local variable name to materialize the import into.
+- `imports[].required`: optional boolean; required imports should fail closed when absent or denied.
+- `exports`: optional array of values this service publishes to broker namespaces.
+- `exports[].namespace`: namespace authorization boundary for the export.
+- `exports[].ref`: dotted broker selector such as `producer.PUBLIC_URL`.
+- `exports[].source`: local selector or literal value to export, for example `${SERVICE_URL}`.
+- `exports[].required`: optional boolean; required exports should fail closed when the source is unavailable.
+- `writeback.allowedNamespaces`: optional array limiting namespaces this service may write generated secrets into.
+- `writeback.allowedOperations`: optional array of allowed generated-secret operations: `create`, `update`, `rotate`, `delete`.
+
+Selector semantics:
+- `${VAR}` means local/current-service variables only, including derived variables and legacy-compatible values already visible to the service.
+- `${namespace.KEY}` means an explicit broker lookup.
+- Bare names never fall through into broker namespaces.
+- Broker refs must be dotted. This keeps broker access reviewable and prevents accidental secret reads from ordinary env selectors.
+
+Producer example:
+```json
+{
+  "id": "token-producer",
+  "name": "Token Producer",
+  "description": "Generates a service token and publishes it to the broker.",
+  "env": {
+    "PUBLIC_URL": "http://127.0.0.1:${SERVICE_PORT}/"
+  },
+  "broker": {
+    "enabled": true,
+    "namespace": "services/token-producer",
+    "exports": [
+      {
+        "namespace": "services/token-producer",
+        "ref": "token.PUBLIC_URL",
+        "source": "${PUBLIC_URL}",
+        "required": true
+      }
+    ],
+    "writeback": {
+      "allowedNamespaces": ["services/token-producer"],
+      "allowedOperations": ["create", "update", "rotate"]
+    }
+  }
+}
+```
+
+Consumer example:
+```json
+{
+  "id": "token-consumer",
+  "name": "Token Consumer",
+  "description": "Consumes an explicit broker value.",
+  "env": {
+    "TOKEN_ENDPOINT": "${token.PUBLIC_URL}"
+  },
+  "broker": {
+    "enabled": true,
+    "namespace": "services/token-consumer",
+    "imports": [
+      {
+        "namespace": "services/token-producer",
+        "ref": "token.PUBLIC_URL",
+        "as": "TOKEN_ENDPOINT",
+        "required": true
+      }
+    ]
+  }
+}
+```
+
+Migration from `globalenv`:
+```json
+{
+  "globalenv": {
+    "DB_PASSWORD": "${DB_PASSWORD}"
+  }
+}
+```
+
+Becomes an explicit broker contract:
+```json
+{
+  "env": {
+    "DB_PASSWORD": "${database.PASSWORD}"
+  },
+  "broker": {
+    "enabled": true,
+    "namespace": "services/api",
+    "imports": [
+      {
+        "namespace": "shared/database",
+        "ref": "database.PASSWORD",
+        "as": "DB_PASSWORD",
+        "required": true
+      }
+    ]
+  }
+}
+```
 
 ### `depend_on`
 Explicit dependencies.
