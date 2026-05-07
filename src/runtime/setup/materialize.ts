@@ -1,19 +1,11 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import type { DiscoveredService, ServiceActionMaterialization } from "../../contracts/service.js";
-import { buildServiceVariables } from "../operator/variables.js";
+import { resolveServiceText } from "../operator/variables.js";
 
 export interface MaterializedArtifactResult {
   files: string[];
   updatedAt: string;
-}
-
-function renderTemplate(source: string, variables: ReturnType<typeof buildServiceVariables>["variables"]): string {
-  return source.replace(/\$\{([^}]+)\}/g, (match, selector) => {
-    const key = selector.trim();
-    const resolved = variables.find((entry) => entry.key === key);
-    return resolved ? resolved.value : match;
-  });
 }
 
 function resolveArtifactPath(serviceRoot: string, relativePath: string): { absolutePath: string; relativePath: string } {
@@ -49,12 +41,11 @@ async function materializeFiles(
   resolvedPorts: Record<string, number>,
 ): Promise<MaterializedArtifactResult> {
   const files = definition?.files ?? [];
-  const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables;
   const materializedPaths: string[] = [];
 
   for (const file of files) {
-    const renderedRelativePath = renderTemplate(file.path, variables);
-    const renderedContent = renderTemplate(file.content, variables);
+    const renderedRelativePath = resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts);
+    const renderedContent = resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts);
     const { absolutePath, relativePath } = resolveArtifactPath(service.serviceRoot, renderedRelativePath);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, renderedContent, "utf8");

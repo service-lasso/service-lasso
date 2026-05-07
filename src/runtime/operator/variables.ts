@@ -9,9 +9,39 @@ export interface ServiceVariableEntry {
   scope: "manifest" | "derived" | "global";
 }
 
+export type ServiceSelectorKind = "local" | "broker";
+
+export interface ServiceSelectorRef {
+  selector: string;
+  kind: ServiceSelectorKind;
+  namespace?: string;
+  key: string;
+}
+
+export interface ServiceSelectorPlan {
+  selectors: ServiceSelectorRef[];
+  localRefs: string[];
+  brokerRefs: string[];
+}
+
+export type ServiceSelectorDiagnosticReason = "unresolved-local" | "missing-broker";
+
+export interface ServiceSelectorDiagnostic {
+  selector: string;
+  kind: ServiceSelectorKind;
+  reason: ServiceSelectorDiagnosticReason;
+}
+
+export interface ServiceTextResolutionOptions {
+  brokerValues?: Record<string, string>;
+  diagnostics?: ServiceSelectorDiagnostic[];
+}
+
 export interface ServiceVariablesPayload {
   serviceId: string;
   variables: ServiceVariableEntry[];
+  selectorPlan: ServiceSelectorPlan;
+  diagnostics: ServiceSelectorDiagnostic[];
 }
 
 function buildPortVariables(resolvedPorts: Record<string, number>): ServiceVariableEntry[] {
@@ -37,10 +67,90 @@ function buildPortVariables(resolvedPorts: Record<string, number>): ServiceVaria
   return entries;
 }
 
-function replaceVariableSelectors(value: string, variables: ServiceVariableEntry[]): string {
+function normalizeVariableSelector(selector: string): string {
+  const trimmed = selector.trim();
+  const match = trimmed.match(/^\$\{(.+)\}$/);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+function isBrokerSelector(selector: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9_.-]+$/.test(selector.trim());
+}
+
+function createSelectorRef(selector: string): ServiceSelectorRef {
+  const normalizedSelector = normalizeVariableSelector(selector);
+  if (isBrokerSelector(normalizedSelector)) {
+    const dotIndex = normalizedSelector.indexOf(".");
+    return {
+      selector: normalizedSelector,
+      kind: "broker",
+      namespace: normalizedSelector.slice(0, dotIndex),
+      key: normalizedSelector.slice(dotIndex + 1),
+    };
+  }
+
+  return {
+    selector: normalizedSelector,
+    kind: "local",
+    key: normalizedSelector,
+  };
+}
+
+export function compileServiceSelectorPlan(values: string[] | Record<string, string>): ServiceSelectorPlan {
+  const texts = Array.isArray(values) ? values : Object.values(values);
+  const selectors = new Map<string, ServiceSelectorRef>();
+
+  for (const text of texts) {
+    for (const match of text.matchAll(/\$\{([^}]+)\}/g)) {
+      const ref = createSelectorRef(match[1]);
+      selectors.set(ref.selector, ref);
+    }
+  }
+
+  const orderedSelectors = [...selectors.values()];
+  return {
+    selectors: orderedSelectors,
+    localRefs: orderedSelectors.filter((selector) => selector.kind === "local").map((selector) => selector.key),
+    brokerRefs: orderedSelectors.filter((selector) => selector.kind === "broker").map((selector) => selector.selector),
+  };
+}
+
+function mergeSelectorPlans(plans: ServiceSelectorPlan[]): ServiceSelectorPlan {
+  const selectors = new Map<string, ServiceSelectorRef>();
+  for (const plan of plans) {
+    for (const selector of plan.selectors) {
+      selectors.set(selector.selector, selector);
+    }
+  }
+
+  const orderedSelectors = [...selectors.values()];
+  return {
+    selectors: orderedSelectors,
+    localRefs: orderedSelectors.filter((selector) => selector.kind === "local").map((selector) => selector.key),
+    brokerRefs: orderedSelectors.filter((selector) => selector.kind === "broker").map((selector) => selector.selector),
+  };
+}
+
+function replaceVariableSelectors(
+  value: string,
+  variables: ServiceVariableEntry[],
+  options: ServiceTextResolutionOptions = {},
+): string {
   return value.replace(/\$\{([^}]+)\}/g, (match, key) => {
-    const normalizedKey = normalizeVariableSelector(key);
-    const entry = variables.find((candidate) => candidate.key === normalizedKey);
+    const ref = createSelectorRef(key);
+    if (ref.kind === "broker") {
+      const brokerValue = options.brokerValues?.[ref.selector];
+      if (brokerValue !== undefined) {
+        return brokerValue;
+      }
+      options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "missing-broker" });
+      return match;
+    }
+
+    const entry = variables.find((candidate) => candidate.key === ref.key);
+    if (!entry) {
+      options.diagnostics?.push({ selector: ref.selector, kind: "local", reason: "unresolved-local" });
+    }
     return entry ? entry.value : match;
   });
 }
@@ -112,21 +222,20 @@ export function buildServiceVariables(
     ...buildPortVariables(resolvedPorts),
   ];
 
+  const manifestDiagnostics: ServiceSelectorDiagnostic[] = [];
   const manifestVariables = rawManifestVariables.map((entry) => ({
     ...entry,
-    value: replaceVariableSelectors(entry.value, [...rawManifestVariables, ...globalVariables, ...derivedVariables]),
+    value: replaceVariableSelectors(entry.value, [...rawManifestVariables, ...globalVariables, ...derivedVariables], {
+      diagnostics: manifestDiagnostics,
+    }),
   }));
 
   return {
     serviceId: service.manifest.id,
     variables: [...manifestVariables, ...globalVariables, ...derivedVariables],
+    selectorPlan: compileServiceSelectorPlan(service.manifest.env ?? {}),
+    diagnostics: manifestDiagnostics,
   };
-}
-
-function normalizeVariableSelector(selector: string): string {
-  const trimmed = selector.trim();
-  const match = trimmed.match(/^\$\{(.+)\}$/);
-  return (match?.[1] ?? trimmed).trim();
 }
 
 export function collectServiceGlobalEnv(
@@ -134,7 +243,8 @@ export function collectServiceGlobalEnv(
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
 ): Record<string, string> {
-  const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables;
+  const variablesPayload = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
+  const variables = variablesPayload.variables;
   const configuredGlobalEnv = service.manifest.globalenv ?? {};
 
   return Object.fromEntries(
@@ -142,13 +252,26 @@ export function collectServiceGlobalEnv(
   );
 }
 
+export function compileServiceMaterializationSelectorPlan(service: DiscoveredService): ServiceSelectorPlan {
+  const installFiles = service.manifest.install?.files ?? [];
+  const configFiles = service.manifest.config?.files ?? [];
+
+  return mergeSelectorPlans([
+    compileServiceSelectorPlan(service.manifest.env ?? {}),
+    compileServiceSelectorPlan(service.manifest.globalenv ?? {}),
+    compileServiceSelectorPlan(installFiles.flatMap((file) => [file.path, file.content])),
+    compileServiceSelectorPlan(configFiles.flatMap((file) => [file.path, file.content])),
+  ]);
+}
+
 export function resolveServiceText(
   value: string,
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
-  resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
+  resolvedPorts: Record<string, number> = {},
+  options: ServiceTextResolutionOptions = {},
 ): string {
-  return replaceVariableSelectors(value, buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables);
+  return replaceVariableSelectors(value, buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables, options);
 }
 
 export function collectRuntimeGlobalEnv(services: DiscoveredService[]): Record<string, string> {
@@ -169,6 +292,9 @@ export function resolveServiceVariable(
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
 ): ServiceVariableEntry | undefined {
-  const key = normalizeVariableSelector(selector);
-  return buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.find((entry) => entry.key === key);
+  const ref = createSelectorRef(selector);
+  if (ref.kind === "broker") {
+    return undefined;
+  }
+  return buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.find((entry) => entry.key === ref.key);
 }
