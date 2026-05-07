@@ -11,7 +11,13 @@ console.log("[service-lasso] staged bounded release artifact");
 console.log(`- artifact: ${result.artifactName}`);
 console.log(`- folder: ${result.artifactRoot}`);
 console.log(`- archive: ${result.archivePath}`);
+for (const platformArchive of result.platformArchives) {
+  console.log(`- ${platformArchive.platform} archive: ${platformArchive.archivePath}`);
+}
 console.log("[service-lasso] staged bundled release artifact");
 console.log(`- artifact: ${bundled.artifactName}`);
 console.log(`- folder: ${bundled.artifactRoot}`);
 console.log(`- archive: ${bundled.archivePath}`);
+for (const platformArchive of bundled.platformArchives) {
+  console.log(`- ${platformArchive.platform} archive: ${platformArchive.archivePath}`);
+}
