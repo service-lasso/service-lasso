@@ -242,14 +242,15 @@ test("start prefers an installed artifact command over a checked-in fixture comm
     const config = await postJson(`${apiServer.url}/api/services/downloaded-service/config`);
     const start = await postJson(`${apiServer.url}/api/services/downloaded-service/start`);
     const extractedPath = install.body.state.installArtifacts.artifact.extractedPath;
-    const cwdProofPath = path.join(extractedPath, "artifact-cwd.txt");
+    const cwdProofPath = path.join(servicesRoot, "downloaded-service", "artifact-cwd.txt");
     const cwdProof = await waitFor(() => readFile(cwdProofPath, "utf8"));
     const stop = await postJson(`${apiServer.url}/api/services/downloaded-service/stop`);
 
     assert.equal(config.status, 200);
     assert.equal(start.status, 200);
     assert.equal(start.body.state.running, true);
-    assert.equal(cwdProof, extractedPath);
+    assert.equal(path.resolve(cwdProof), path.resolve(servicesRoot, "downloaded-service"));
+    assert.equal(start.body.state.runtime.command.includes(path.join(extractedPath, "runtime", "downloaded-service.mjs")), true);
     assert.match(start.body.state.runtime.command, /downloaded-service\.mjs/);
     assert.doesNotMatch(start.body.state.runtime.command, /local-fixture-should-not-run/);
     assert.equal(stop.status, 200);
