@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { parseCommandlineArgs } from "../dist/runtime/execution/commandline.js";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 async function postJson(url) {
   const response = await fetch(url, { method: "POST" });
@@ -38,6 +38,98 @@ test("parseCommandlineArgs preserves quoted spaces and Windows backslashes", () 
       "value",
     ],
   );
+});
+
+test("start uses installed artifact commands from the service root working directory", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-cwd-");
+
+  try {
+    const serviceId = "artifact-cwd-service";
+    const serviceRoot = path.join(servicesRoot, serviceId);
+    const runtimeRoot = path.join(serviceRoot, "runtime");
+    const artifactRoot = path.join(serviceRoot, ".state", "extracted", "current");
+    await mkdir(runtimeRoot, { recursive: true });
+    await mkdir(artifactRoot, { recursive: true });
+
+    const scriptPath = path.join(artifactRoot, "artifact-cwd-fixture.mjs");
+    await writeFile(
+      scriptPath,
+      [
+        "import { mkdir, writeFile } from 'node:fs/promises';",
+        "import path from 'node:path';",
+        "const outputPath = path.resolve(process.cwd(), 'runtime/cwd-output.json');",
+        "await mkdir(path.dirname(outputPath), { recursive: true });",
+        "await writeFile(outputPath, JSON.stringify({ cwd: process.cwd() }, null, 2));",
+        "const heartbeat = setInterval(() => {}, 1000);",
+        "function shutdown() { clearInterval(heartbeat); process.exit(0); }",
+        "process.on('SIGINT', shutdown);",
+        "process.on('SIGTERM', shutdown);",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await writeManifest(servicesRoot, serviceId, {
+      id: serviceId,
+      name: "Artifact CWD Service",
+      description: "Fixture proving installed artifact commands start from the service root.",
+      healthcheck: {
+        type: "process",
+      },
+    });
+
+    const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+    try {
+      setLifecycleState(serviceId, {
+        ...getLifecycleState(serviceId),
+        installed: true,
+        configured: true,
+        installArtifacts: {
+          files: [],
+          updatedAt: new Date().toISOString(),
+          artifact: {
+            sourceType: null,
+            repo: null,
+            channel: null,
+            tag: null,
+            assetName: null,
+            assetUrl: null,
+            archiveType: null,
+            archivePath: null,
+            extractedPath: artifactRoot,
+            command: process.execPath,
+            args: [scriptPath],
+          },
+        },
+      });
+
+      const start = await postJson(`${apiServer.url}/api/services/${serviceId}/start`);
+      assert.equal(start.status, 200);
+
+      const output = JSON.parse(
+        await waitFor(async () => {
+          try {
+            return await readFile(path.join(runtimeRoot, "cwd-output.json"), "utf8");
+          } catch (error) {
+            if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+              return null;
+            }
+            throw error;
+          }
+        }),
+      );
+
+      assert.equal(path.resolve(output.cwd), path.resolve(serviceRoot));
+      assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/stop`)).status, 200);
+    } finally {
+      await apiServer.stop();
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
 });
 
 test("start uses manifest commandline with resolved service variables instead of fallback args", async () => {

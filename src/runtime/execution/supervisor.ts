@@ -137,21 +137,8 @@ function resolveExecutable(service: DiscoveredService, executionPlan: ProviderEx
   return executable;
 }
 
-function isPathInside(parent: string, candidate: string): boolean {
-  const relative = path.relative(parent, candidate);
-  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
-function resolveWorkingDirectory(service: DiscoveredService, executionPlan: ProviderExecutionPlan, executable: string): string {
-  if (!executionPlan.commandRoot) {
-    return service.serviceRoot;
-  }
-
-  // Archive executables often consume Service-Lasso-materialized config from the service root,
-  // while plain launchers such as `node` need artifact-relative payload args.
-  return path.isAbsolute(executable) && isPathInside(executionPlan.commandRoot, executable)
-    ? service.serviceRoot
-    : executionPlan.commandRoot;
+function resolveWorkingDirectory(service: DiscoveredService, _executionPlan: ProviderExecutionPlan, _executable: string): string {
+  return service.serviceRoot;
 }
 
 function buildCommandString(executable: string, args: string[]): string {
