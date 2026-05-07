@@ -375,6 +375,116 @@ test("loadServiceManifest accepts bounded globalenv emission maps", async () => 
   }
 });
 
+test("loadServiceManifest accepts bounded broker manifest policy", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "broker-consumer", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "broker-consumer",
+        name: "Broker Consumer",
+        description: "Service with explicit Secrets Broker contract.",
+        broker: {
+          enabled: true,
+          namespace: "services/broker-consumer",
+          imports: [
+            {
+              namespace: "shared/database",
+              ref: "database.PASSWORD",
+              as: "DB_PASSWORD",
+              required: true,
+            },
+          ],
+          exports: [
+            {
+              namespace: "broker-consumer/runtime",
+              ref: "runtime.API_TOKEN",
+              source: "${API_TOKEN}",
+              required: false,
+            },
+          ],
+          writeback: {
+            allowedNamespaces: ["broker-consumer/runtime"],
+            allowedOperations: ["create", "update", "rotate"],
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.broker, {
+      enabled: true,
+      namespace: "services/broker-consumer",
+      imports: [
+        {
+          namespace: "shared/database",
+          ref: "database.PASSWORD",
+          as: "DB_PASSWORD",
+          required: true,
+        },
+      ],
+      exports: [
+        {
+          namespace: "broker-consumer/runtime",
+          ref: "runtime.API_TOKEN",
+          source: "${API_TOKEN}",
+          required: false,
+        },
+      ],
+      writeback: {
+        allowedNamespaces: ["broker-consumer/runtime"],
+        allowedOperations: ["create", "update", "rotate"],
+      },
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects malformed broker manifest policy", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-enabled", {
+      id: "bad-enabled",
+      name: "Bad Enabled",
+      description: "Invalid broker enabled flag.",
+      broker: { enabled: "yes" },
+    });
+    await writeManifest(servicesRoot, "bad-ref", {
+      id: "bad-ref",
+      name: "Bad Ref",
+      description: "Invalid broker import ref.",
+      broker: { imports: [{ namespace: "shared/database", ref: "PASSWORD" }] },
+    });
+    await writeManifest(servicesRoot, "bad-writeback", {
+      id: "bad-writeback",
+      name: "Bad Writeback",
+      description: "Invalid writeback operation.",
+      broker: { writeback: { allowedNamespaces: ["runtime"], allowedOperations: ["read"] } },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-enabled", "service.json")),
+      /broker\.enabled/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-ref", "service.json")),
+      /broker\.imports\[0\]\.ref/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-writeback", "service.json")),
+      /broker\.writeback\.allowedOperations/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded autostart flags", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "autostart-service", "service.json");

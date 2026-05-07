@@ -1,4 +1,5 @@
 import type {
+  ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
   ServiceHookStep,
   ServiceManifest,
@@ -17,6 +18,9 @@ const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-s
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
 const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
+const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
+const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
+const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -148,6 +152,34 @@ function readStringMap(value: unknown, field: string, manifestPath: string): Rec
   }
 
   return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
+}
+
+function readNonEmptyStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an array of non-empty strings.`);
+  }
+
+  return value.map((entry) => (entry as string).trim());
+}
+
+function expectBrokerNamespace(value: unknown, field: string, manifestPath: string): string {
+  const namespace = expectNonEmptyString(value, field, manifestPath);
+  if (!brokerNamespacePattern.test(namespace)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a valid broker namespace.`);
+  }
+  return namespace;
+}
+
+function expectBrokerRef(value: unknown, field: string, manifestPath: string): string {
+  const ref = expectNonEmptyString(value, field, manifestPath);
+  if (!brokerRefPattern.test(ref)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a dotted broker ref like "namespace.KEY".`);
+  }
+  return ref;
 }
 
 function readHookSteps(value: unknown, field: string, manifestPath: string): ServiceHookStep[] | undefined {
@@ -379,6 +411,89 @@ function readUpdateInstallWindow(
     start: expectTimeOfDay(record.start, "updates.installWindow.start", manifestPath),
     end: expectTimeOfDay(record.end, "updates.installWindow.end", manifestPath),
     timezone: typeof record.timezone === "string" ? record.timezone.trim() : undefined,
+  };
+}
+
+function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest["broker"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const imports = record.imports;
+  if (imports !== undefined && !Array.isArray(imports)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.imports" to be an array.`);
+  }
+  const exports = record.exports;
+  if (exports !== undefined && !Array.isArray(exports)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.exports" to be an array.`);
+  }
+
+  const writeback = record.writeback;
+  if (writeback !== undefined && (!writeback || typeof writeback !== "object" || Array.isArray(writeback))) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.writeback" to be an object.`);
+  }
+  const writebackRecord = writeback as Record<string, unknown> | undefined;
+  const allowedOperations = readNonEmptyStringArray(
+    writebackRecord?.allowedOperations,
+    "broker.writeback.allowedOperations",
+    manifestPath,
+  );
+  if (allowedOperations?.some((operation) => !brokerWritebackOperations.has(operation))) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "broker.writeback.allowedOperations" to contain create, update, rotate, or delete.`,
+    );
+  }
+  const allowedNamespaces = readNonEmptyStringArray(
+    writebackRecord?.allowedNamespaces,
+    "broker.writeback.allowedNamespaces",
+    manifestPath,
+  );
+  allowedNamespaces?.forEach((namespace) => expectBrokerNamespace(namespace, "broker.writeback.allowedNamespaces", manifestPath));
+
+  return {
+    enabled: expectOptionalBoolean(record.enabled, "broker.enabled", manifestPath),
+    namespace: record.namespace === undefined ? undefined : expectBrokerNamespace(record.namespace, "broker.namespace", manifestPath),
+    imports: Array.isArray(imports)
+      ? imports.map((entry, index) => {
+          const field = `broker.imports[${index}]`;
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+          }
+          const importRecord = entry as Record<string, unknown>;
+          return {
+            namespace: expectBrokerNamespace(importRecord.namespace, `${field}.namespace`, manifestPath),
+            ref: expectBrokerRef(importRecord.ref, `${field}.ref`, manifestPath),
+            as: importRecord.as === undefined ? undefined : expectNonEmptyString(importRecord.as, `${field}.as`, manifestPath),
+            required: expectOptionalBoolean(importRecord.required, `${field}.required`, manifestPath),
+          };
+        })
+      : undefined,
+    exports: Array.isArray(exports)
+      ? exports.map((entry, index) => {
+          const field = `broker.exports[${index}]`;
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+          }
+          const exportRecord = entry as Record<string, unknown>;
+          return {
+            namespace: expectBrokerNamespace(exportRecord.namespace, `${field}.namespace`, manifestPath),
+            ref: expectBrokerRef(exportRecord.ref, `${field}.ref`, manifestPath),
+            source: expectNonEmptyString(exportRecord.source, `${field}.source`, manifestPath),
+            required: expectOptionalBoolean(exportRecord.required, `${field}.required`, manifestPath),
+          };
+        })
+      : undefined,
+    writeback: writebackRecord
+      ? {
+          allowedNamespaces,
+          allowedOperations: allowedOperations as ServiceBrokerWritebackOperation[] | undefined,
+        }
+      : undefined,
   };
 }
 
@@ -746,6 +861,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
   }
 
+  const broker = readBrokerPolicy(record.broker, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);
   const config = readActionMaterialization(record.config, "config", manifestPath);
@@ -770,6 +886,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     globalenv: rawGlobalEnv
       ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
       : undefined,
+    broker,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,

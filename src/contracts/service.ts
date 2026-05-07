@@ -131,6 +131,35 @@ export interface ServiceArchiveArtifact {
 
 export type ServiceRole = "service" | "provider";
 
+export interface ServiceBrokerImport {
+  namespace: string;
+  ref: string;
+  as?: string;
+  required?: boolean;
+}
+
+export interface ServiceBrokerExport {
+  namespace: string;
+  ref: string;
+  source: string;
+  required?: boolean;
+}
+
+export type ServiceBrokerWritebackOperation = "create" | "update" | "rotate" | "delete";
+
+export interface ServiceBrokerWritebackPolicy {
+  allowedNamespaces?: string[];
+  allowedOperations?: ServiceBrokerWritebackOperation[];
+}
+
+export interface ServiceBrokerPolicy {
+  enabled?: boolean;
+  namespace?: string;
+  imports?: ServiceBrokerImport[];
+  exports?: ServiceBrokerExport[];
+  writeback?: ServiceBrokerWritebackPolicy;
+}
+
 export interface ServiceManifest {
   id: string;
   name: string;
@@ -143,6 +172,7 @@ export interface ServiceManifest {
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
+  broker?: ServiceBrokerPolicy;
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceEndpoint[];
