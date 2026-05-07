@@ -34,7 +34,9 @@
     "docs:start": "docusaurus start docs",
     "docs:build": "docusaurus build docs",
     "docs:serve": "docusaurus serve docs",
-    "docs:clear": "docusaurus clear docs"
+    "docs:clear": "docusaurus clear docs",
+    "release:assets:expected": "node scripts/check-release-assets.mjs --expected",
+    "release:assets:check": "node scripts/check-release-assets.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
