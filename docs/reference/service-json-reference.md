@@ -310,6 +310,9 @@ Practical rule:
 Current core behavior:
 - Service Lasso selects `commandline[process.platform]`, falling back to `commandline.default`.
 - `${...}` selectors are resolved with the same service variables used for env/config materialization.
+- Selector planning classifies `${VAR}` as local/current-service/derived/legacy-compatible lookup and `${namespace.KEY}` as an explicit broker lookup.
+- Bare names never fall through into broker namespaces; broker lookups must use dotted selectors.
+- Repeated dotted broker selectors are deduplicated before a broker resolver is called.
 - The resolved commandline is parsed into process arguments and overrides `args` during `start` and `restart`.
 - `commandline` is the arguments payload after the executable; it does not include the executable itself.
 - Keep `args` as the fallback when no platform/default commandline is declared.
@@ -342,6 +345,8 @@ Example:
 Current direction:
 - service env should be explicit
 - avoid depending on uncontrolled host-machine env leakage
+- use `${VAR}` for local/current-service/derived values and legacy `globalenv` compatibility
+- use `${namespace.KEY}` only for explicit Secrets Broker selectors; unresolved or denied broker refs stay unresolved for diagnostics rather than falling back to a bare local name
 
 ### `depend_on`
 Explicit dependencies.
