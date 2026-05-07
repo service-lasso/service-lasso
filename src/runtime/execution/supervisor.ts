@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
-import { resolveExecutionArgs } from "./commandline.js";
+import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables } from "../operator/variables.js";
 import { archiveRuntimeLogs, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
@@ -141,6 +141,36 @@ function resolveWorkingDirectory(service: DiscoveredService, _executionPlan: Pro
   return service.serviceRoot;
 }
 
+function resolveCommandRootArgument(commandRoot: string, arg: string): string {
+  if (path.isAbsolute(arg)) {
+    return arg;
+  }
+
+  if (arg.startsWith(".")) {
+    return path.resolve(commandRoot, arg);
+  }
+
+  const equalsIndex = arg.indexOf("=");
+  if (equalsIndex > 0) {
+    const option = arg.slice(0, equalsIndex + 1);
+    const value = arg.slice(equalsIndex + 1);
+    if (value.startsWith(".") && !path.isAbsolute(value)) {
+      return `${option}${path.resolve(commandRoot, value)}`;
+    }
+  }
+
+  return arg;
+}
+
+function resolveCommandRootArgs(service: DiscoveredService, executionPlan: ProviderExecutionPlan, args: string[]): string[] {
+  const commandRoot = executionPlan.commandRoot;
+  if (!commandRoot || selectPlatformCommandline(service.manifest.commandline)) {
+    return args;
+  }
+
+  return args.map((arg) => resolveCommandRootArgument(commandRoot, arg));
+}
+
 function buildCommandString(executable: string, args: string[]): string {
   return [executable, ...args].join(" ");
 }
@@ -181,7 +211,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const executable = resolveExecutable(service, executionPlan);
   const workingDirectory = resolveWorkingDirectory(service, executionPlan, executable);
-  const args = resolveExecutionArgs(service, executionPlan, sharedGlobalEnv, resolvedPorts);
+  const args = resolveCommandRootArgs(
+    service,
+    executionPlan,
+    resolveExecutionArgs(service, executionPlan, sharedGlobalEnv, resolvedPorts),
+  );
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot);
