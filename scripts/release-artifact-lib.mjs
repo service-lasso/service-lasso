@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import AdmZip from "adm-zip";
+import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
 import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
 
 export const RELEASE_FILES = [
@@ -245,11 +247,38 @@ export function runNpmCommand(args, options = {}) {
   return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
 }
 
-export async function createReleaseArchive(outputRoot, artifactName) {
-  const archivePath = path.join(outputRoot, `${artifactName}.tar.gz`);
+export async function createReleaseArchive(outputRoot, artifactName, archiveName = `${artifactName}.tar.gz`) {
+  const archivePath = path.join(outputRoot, archiveName);
   await rm(archivePath, { force: true });
   await runCommand("tar", ["-czf", archivePath, "-C", outputRoot, artifactName]);
   return archivePath;
+}
+
+export async function createReleaseZipArchive(outputRoot, artifactName, archiveName = `${artifactName}.zip`) {
+  const archivePath = path.join(outputRoot, archiveName);
+  await rm(archivePath, { force: true });
+
+  const archive = new AdmZip();
+  archive.addLocalFolder(path.join(outputRoot, artifactName), artifactName);
+  archive.writeZip(archivePath);
+
+  return archivePath;
+}
+
+export async function createPlatformReleaseArchives(outputRoot, artifactName) {
+  const archives = [];
+
+  for (const platform of SUPPORTED_RELEASE_PLATFORMS) {
+    const archiveName = platform === "win32" ? `${artifactName}-${platform}.zip` : `${artifactName}-${platform}.tar.gz`;
+    const archivePath =
+      platform === "win32"
+        ? await createReleaseZipArchive(outputRoot, artifactName, archiveName)
+        : await createReleaseArchive(outputRoot, artifactName, archiveName);
+
+    archives.push({ platform, archiveName, archivePath });
+  }
+
+  return archives;
 }
 
 export async function stageReleaseArtifact({
@@ -280,11 +309,13 @@ export async function stageReleaseArtifact({
     version: resolvedVersion,
   });
   const archivePath = await createReleaseArchive(outputRoot, artifactName);
+  const platformArchives = await createPlatformReleaseArchives(outputRoot, artifactName);
 
   return {
     artifactName,
     artifactRoot,
     archivePath,
+    platformArchives,
     manifest,
   };
 }
@@ -336,11 +367,13 @@ export async function stageBundledReleaseArtifact({
     ],
   });
   const archivePath = await createReleaseArchive(outputRoot, artifactName);
+  const platformArchives = await createPlatformReleaseArchives(outputRoot, artifactName);
 
   return {
     artifactName,
     artifactRoot,
     archivePath,
+    platformArchives,
     manifest,
   };
 }

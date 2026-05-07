@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { rm } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import {
   createTemporaryOutputRoot,
   stageReleaseArtifact,
@@ -23,6 +23,17 @@ test("bounded release artifact can be staged and verified", async () => {
     assert.match(staged.artifactName, /^service-lasso-[0-9A-Za-z.-]+$/);
     assert.equal(staged.manifest.entrypoints.runtime, "dist/index.js");
     assert.equal(staged.manifest.entrypoints.corePackage, "packages/core/index.js");
+    assert.deepEqual(
+      staged.platformArchives.map((archive) => archive.archiveName),
+      [
+        `${staged.artifactName}-win32.zip`,
+        `${staged.artifactName}-linux.tar.gz`,
+        `${staged.artifactName}-darwin.tar.gz`,
+      ],
+    );
+    for (const archive of staged.platformArchives) {
+      await stat(archive.archivePath);
+    }
 
     const verified = await verifyStagedArtifact({
       repoRoot,
