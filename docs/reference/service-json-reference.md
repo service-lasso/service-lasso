@@ -433,6 +433,14 @@ Fields:
 - `writeback.generatedSecrets[].operation`: optional operation for this capture: `create`, `update`, `rotate`, or `delete`.
 - `writeback.generatedSecrets[].required`: optional boolean; required captures should fail closed when the source cannot be resolved.
 
+Launch-time writeback identity:
+- Services with `broker.writeback` declared receive a short-lived per-launch broker credential from the runtime.
+- The credential is scoped to the service id plus `writeback.allowedNamespaces`, `writeback.allowedRefs`, and `writeback.allowedOperations`.
+- Runtime injects the credential through reserved process env keys: `SERVICE_LASSO_BROKER_IDENTITY_ID`, `SERVICE_LASSO_BROKER_CREDENTIAL`, and `SERVICE_LASSO_BROKER_CREDENTIAL_EXPIRES_AT`.
+- Lifecycle state may persist non-secret identity metadata for audit (`id`, service id, issued/expires/revoked timestamps, scope, audit reason), but must not persist the raw credential value.
+- Stop/restart revokes active launch credentials; expiry also denies later writeback attempts.
+- Broker writeback audit records should use the launched service identity and the optional `writeback.auditReason`.
+
 Selector semantics:
 - `${VAR}` means local/current-service variables only, including derived variables and legacy-compatible values already visible to the service.
 - `${namespace.KEY}` means an explicit broker lookup.

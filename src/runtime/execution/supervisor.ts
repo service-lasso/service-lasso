@@ -40,6 +40,7 @@ interface StartProcessOptions {
   executionPlan: ProviderExecutionPlan;
   sharedGlobalEnv?: Record<string, string>;
   resolvedPorts?: Record<string, number>;
+  secureEnv?: Record<string, string>;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
@@ -180,6 +181,7 @@ function buildProcessEnvironment(
   executionPlan: ProviderExecutionPlan,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
+  secureEnv: Record<string, string> = {},
 ): NodeJS.ProcessEnv {
   const serviceVariables = Object.fromEntries(
     buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
@@ -189,6 +191,7 @@ function buildProcessEnvironment(
     ...process.env,
     ...executionPlan.providerEnv,
     ...serviceVariables,
+    ...secureEnv,
   };
 }
 
@@ -197,7 +200,7 @@ export function hasManagedProcess(serviceId: string): boolean {
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
-  const { service, executionPlan, sharedGlobalEnv, resolvedPorts, onExit } = options;
+  const { service, executionPlan, sharedGlobalEnv, resolvedPorts, secureEnv, onExit } = options;
   const serviceId = service.manifest.id;
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
@@ -222,7 +225,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const child = spawn(executable, args, {
     cwd: workingDirectory,
-    env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts),
+    env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts, secureEnv),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
