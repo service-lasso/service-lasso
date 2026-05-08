@@ -2,7 +2,7 @@ export type PlatformUserStatus = "active" | "disabled" | "pending";
 export type PlatformWorkspaceStatus = "active" | "suspended" | "archived";
 export type LinkedIdentityProvider = "zitadel" | "github" | "google" | "telegram" | "custom-oidc";
 export type ProviderConnectionKind = "oauth" | "api-token" | "webhook" | "secrets-broker-source" | "custom";
-export type ProviderConnectionStatus = "ready" | "needs-auth" | "revoked" | "disabled" | "error";
+export type ProviderConnectionStatus = "ready" | "needs-auth" | "expiring" | "refresh-failed" | "revoked" | "disabled" | "error" | "deleted";
 export type PlatformEntitlement =
   | "workspace:read"
   | "workspace:admin"
@@ -78,6 +78,12 @@ export type LinkedIdentity = {
   lastSeenAt?: string;
 };
 
+export type ProviderConnectionAffectedSummary = {
+  serviceIds: string[];
+  brokerRefs: string[];
+  workflowIds: string[];
+};
+
 export type ProviderConnectionMetadata = {
   id: string;
   workspaceId: string;
@@ -86,10 +92,15 @@ export type ProviderConnectionMetadata = {
   kind: ProviderConnectionKind;
   displayName: string;
   status: ProviderConnectionStatus;
+  accountId?: string;
   scopes: string[];
   brokerNamespace?: string;
   secretRef?: string;
+  expiresAt?: string;
+  lastRefreshAt?: string;
   lastVerifiedAt?: string;
+  lastError?: string;
+  affectedSummary?: ProviderConnectionAffectedSummary;
   createdAt: string;
   updatedAt: string;
   // Metadata only. Secret payloads, access tokens, refresh tokens, API keys,
@@ -103,6 +114,7 @@ export type CreateProviderConnectionMetadataRequest = {
   provider: string;
   kind: ProviderConnectionKind;
   displayName: string;
+  accountId?: string;
   scopes?: string[];
   brokerNamespace?: string;
   secretRef?: string;
@@ -113,10 +125,15 @@ export type UpdateProviderConnectionMetadataRequest = Partial<
     ProviderConnectionMetadata,
     | "displayName"
     | "status"
+    | "accountId"
     | "scopes"
     | "brokerNamespace"
     | "secretRef"
+    | "expiresAt"
+    | "lastRefreshAt"
     | "lastVerifiedAt"
+    | "lastError"
+    | "affectedSummary"
   >
 >;
 
@@ -201,6 +218,7 @@ export const providerConnectionMetadataEndpoints = {
   create: "POST /api/platform/workspaces/{workspaceId}/provider-connections",
   read: "GET /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
   update: "PATCH /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
+  delete: "DELETE /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
 } as const;
 
 export type PlatformFacadeState = {
@@ -288,16 +306,167 @@ export const examplePlatformFacadeState = {
       kind: "oauth",
       displayName: "GitHub Actions metadata connection",
       status: "ready",
+      accountId: "github-org-service-lasso",
       scopes: ["repo:read", "workflow:read"],
       brokerNamespace: "workspaces/local-demo/provider-connections/github",
       secretRef: "provider.github.oauth.client",
+      expiresAt: "2026-05-30T00:00:00Z",
+      lastRefreshAt: "2026-05-08T10:04:00Z",
       lastVerifiedAt: "2026-05-08T10:05:00Z",
+      affectedSummary: {
+        serviceIds: ["@serviceadmin"],
+        brokerRefs: ["provider.github.oauth.client"],
+        workflowIds: ["wf_release_checks"],
+      },
       createdAt: "2026-05-08T10:00:00Z",
       updatedAt: "2026-05-08T10:05:00Z",
       secretMaterialPresent: false,
     },
   ],
 } as const satisfies PlatformFacadeState;
+
+export type ProviderConnectionMetadataAuditAction = "create" | "read" | "update" | "delete" | "list";
+
+export type ProviderConnectionMetadataAuditEvent = {
+  id: string;
+  workspaceId: string;
+  connectionId?: string;
+  provider?: string;
+  action: ProviderConnectionMetadataAuditAction;
+  outcome: "success" | "denied" | "not-found";
+  at: string;
+  actorUserId: string;
+  safeDetail: string;
+};
+
+export type ProviderConnectionMetadataOperationResult =
+  | { ok: true; state: PlatformFacadeState; connection?: ProviderConnectionMetadata; connections?: ProviderConnectionMetadata[]; auditEvent: ProviderConnectionMetadataAuditEvent }
+  | { ok: false; state: PlatformFacadeState; error: { code: "permission-denied" | "connection-not-found" | "invalid-secret-material"; message: string }; auditEvent: ProviderConnectionMetadataAuditEvent };
+
+export function listProviderConnectionMetadata(
+  state: PlatformFacadeState,
+  context: PlatformRequestContext,
+  workspaceId: string,
+  now = "2026-05-08T11:05:00Z",
+): ProviderConnectionMetadataOperationResult {
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:read");
+  if (denied) return deniedResult(state, context, workspaceId, undefined, undefined, "list", denied, now);
+  const connections = state.providerConnections.filter((connection) => connection.workspaceId === workspaceId && connection.status !== "deleted");
+  connections.forEach(assertProviderConnectionMetadataOnly);
+  return {
+    ok: true,
+    state,
+    connections,
+    auditEvent: metadataAudit(context, workspaceId, undefined, undefined, "list", "success", now, "Listed provider connection metadata records."),
+  };
+}
+
+export function readProviderConnectionMetadata(
+  state: PlatformFacadeState,
+  context: PlatformRequestContext,
+  workspaceId: string,
+  connectionId: string,
+  now = "2026-05-08T11:05:00Z",
+): ProviderConnectionMetadataOperationResult {
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:read");
+  if (denied) return deniedResult(state, context, workspaceId, connectionId, undefined, "read", denied, now);
+  const connection = state.providerConnections.find((candidate) => candidate.workspaceId === workspaceId && candidate.id === connectionId && candidate.status !== "deleted");
+  if (!connection) return notFoundResult(state, context, workspaceId, connectionId, "read", now);
+  assertProviderConnectionMetadataOnly(connection);
+  return { ok: true, state, connection, auditEvent: metadataAudit(context, workspaceId, connectionId, connection.provider, "read", "success", now, "Read provider connection metadata record.") };
+}
+
+export function createProviderConnectionMetadata(
+  state: PlatformFacadeState,
+  context: PlatformRequestContext,
+  request: CreateProviderConnectionMetadataRequest,
+  now = "2026-05-08T11:05:00Z",
+): ProviderConnectionMetadataOperationResult {
+  const denied = authorizeProviderConnectionMetadataAction(context, request.workspaceId, "provider-connection:write");
+  if (denied) return deniedResult(state, context, request.workspaceId, undefined, request.provider, "create", denied, now);
+  const connection: ProviderConnectionMetadata = {
+    id: `pc_${request.provider.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}_${Date.parse(now)}`,
+    workspaceId: request.workspaceId,
+    ownerUserId: request.ownerUserId,
+    provider: request.provider,
+    kind: request.kind,
+    displayName: request.displayName,
+    status: "needs-auth",
+    accountId: request.accountId,
+    scopes: request.scopes ?? [],
+    brokerNamespace: request.brokerNamespace,
+    secretRef: request.secretRef,
+    affectedSummary: { serviceIds: [], brokerRefs: request.secretRef ? [request.secretRef] : [], workflowIds: [] },
+    secretMaterialPresent: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  try {
+    assertProviderConnectionPayloadSecretSafe(request);
+    assertProviderConnectionMetadataOnly(connection);
+  } catch {
+    return { ok: false, state, error: { code: "invalid-secret-material", message: "Provider connection metadata request contains secret-like material." }, auditEvent: metadataAudit(context, request.workspaceId, undefined, request.provider, "create", "denied", now, "Rejected provider connection metadata containing secret-like material.") };
+  }
+  return { ok: true, state: { ...state, providerConnections: [...state.providerConnections, connection] }, connection, auditEvent: metadataAudit(context, request.workspaceId, connection.id, request.provider, "create", "success", now, "Created provider connection metadata record; secret material remains behind broker refs.") };
+}
+
+export function updateProviderConnectionMetadata(
+  state: PlatformFacadeState,
+  context: PlatformRequestContext,
+  workspaceId: string,
+  connectionId: string,
+  patch: UpdateProviderConnectionMetadataRequest,
+  now = "2026-05-08T11:05:00Z",
+): ProviderConnectionMetadataOperationResult {
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:write");
+  if (denied) return deniedResult(state, context, workspaceId, connectionId, undefined, "update", denied, now);
+  const index = state.providerConnections.findIndex((candidate) => candidate.workspaceId === workspaceId && candidate.id === connectionId && candidate.status !== "deleted");
+  if (index === -1) return notFoundResult(state, context, workspaceId, connectionId, "update", now);
+  const connection = { ...state.providerConnections[index], ...patch, updatedAt: now };
+  try {
+    assertProviderConnectionPayloadSecretSafe(patch);
+    assertProviderConnectionMetadataOnly(connection);
+  } catch {
+    return { ok: false, state, error: { code: "invalid-secret-material", message: "Provider connection metadata patch contains secret-like material." }, auditEvent: metadataAudit(context, workspaceId, connectionId, state.providerConnections[index].provider, "update", "denied", now, "Rejected provider connection metadata patch containing secret-like material.") };
+  }
+  const providerConnections = state.providerConnections.map((candidate, candidateIndex) => candidateIndex === index ? connection : candidate);
+  return { ok: true, state: { ...state, providerConnections }, connection, auditEvent: metadataAudit(context, workspaceId, connectionId, connection.provider, "update", "success", now, "Updated provider connection metadata record without exposing secret material.") };
+}
+
+export function deleteProviderConnectionMetadata(
+  state: PlatformFacadeState,
+  context: PlatformRequestContext,
+  workspaceId: string,
+  connectionId: string,
+  now = "2026-05-08T11:05:00Z",
+): ProviderConnectionMetadataOperationResult {
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:write");
+  if (denied) return deniedResult(state, context, workspaceId, connectionId, undefined, "delete", denied, now);
+  const connection = state.providerConnections.find((candidate) => candidate.workspaceId === workspaceId && candidate.id === connectionId && candidate.status !== "deleted");
+  if (!connection) return notFoundResult(state, context, workspaceId, connectionId, "delete", now);
+  const providerConnections = state.providerConnections.filter((candidate) => candidate !== connection);
+  return { ok: true, state: { ...state, providerConnections }, connection: { ...connection, status: "deleted", updatedAt: now }, auditEvent: metadataAudit(context, workspaceId, connectionId, connection.provider, "delete", "success", now, "Deleted provider connection metadata record; broker secret payload deletion remains a Secrets Broker operation.") };
+}
+
+function authorizeProviderConnectionMetadataAction(context: PlatformRequestContext, workspaceId: string, entitlement: PlatformEntitlement): string | undefined {
+  if (context.workspaceId !== workspaceId) return "workspace-mismatch";
+  if (!context.entitlements.includes(entitlement)) return "missing-entitlement";
+  return undefined;
+}
+
+function deniedResult(state: PlatformFacadeState, context: PlatformRequestContext, workspaceId: string, connectionId: string | undefined, provider: string | undefined, action: ProviderConnectionMetadataAuditAction, reason: string, now: string): ProviderConnectionMetadataOperationResult {
+  return { ok: false, state, error: { code: "permission-denied", message: `Provider connection metadata ${action} denied: ${reason}.` }, auditEvent: metadataAudit(context, workspaceId, connectionId, provider, action, "denied", now, `Provider connection metadata ${action} denied: ${reason}.`) };
+}
+
+function notFoundResult(state: PlatformFacadeState, context: PlatformRequestContext, workspaceId: string, connectionId: string, action: ProviderConnectionMetadataAuditAction, now: string): ProviderConnectionMetadataOperationResult {
+  return { ok: false, state, error: { code: "connection-not-found", message: "Provider connection metadata record was not found." }, auditEvent: metadataAudit(context, workspaceId, connectionId, undefined, action, "not-found", now, "Provider connection metadata record was not found.") };
+}
+
+function metadataAudit(context: PlatformRequestContext, workspaceId: string, connectionId: string | undefined, provider: string | undefined, action: ProviderConnectionMetadataAuditAction, outcome: ProviderConnectionMetadataAuditEvent["outcome"], at: string, safeDetail: string): ProviderConnectionMetadataAuditEvent {
+  const audit = { id: `audit_provider_metadata_${action}_${Date.parse(at)}`, workspaceId, connectionId, provider, action, outcome, at, actorUserId: context.userId, safeDetail };
+  if (secretLikeValuePattern.test(JSON.stringify(audit))) throw new Error("Provider connection metadata audit must not include secret material");
+  return audit;
+}
 
 export function resolveServiceLassoRequestContext(
   request: PlatformContextResolutionRequest,
@@ -466,6 +635,13 @@ function requiredEntitlementsForResource(resource: AuthorizationResource): Platf
 
 const secretLikeFieldPattern = /(secret|token|apiKey|api_key|privateKey|private_key|password|credential|recoveryMaterial|recovery_material|keyMaterial|key_material)$/i;
 const secretLikeValuePattern = /(sk-[a-z0-9]{8,}|ghp_[a-z0-9]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|correct-horse-battery-staple|raw-provider-secret|refresh-token|access-token|recovery phrase)/i;
+
+export function assertProviderConnectionPayloadSecretSafe(payload: unknown): void {
+  const serialized = JSON.stringify(payload);
+  if (secretLikeFieldPattern.test(serialized) || secretLikeValuePattern.test(serialized)) {
+    throw new Error("Provider connection payload contains secret-like material");
+  }
+}
 
 export function assertProviderConnectionMetadataOnly(connection: ProviderConnectionMetadata): void {
   const entries = Object.entries(connection) as Array<[string, unknown]>;

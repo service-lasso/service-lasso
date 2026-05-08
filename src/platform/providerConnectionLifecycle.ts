@@ -10,7 +10,8 @@ export type ProviderConnectionLifecycleStatus =
   | "permission_changed"
   | "disabled"
   | "source_auth_required"
-  | "degraded";
+  | "degraded"
+  | "deleted";
 
 export type ProviderConnectionLifecycleAction = "connect" | "reconnect" | "refresh" | "test" | "disable" | "disconnect";
 
@@ -83,7 +84,7 @@ export const providerConnectionLifecycleEndpoints = {
 const now = "2026-05-08T11:05:00Z";
 
 export const providerConnectionLifecycleFixtures: Record<
-  "healthy" | "missing" | "denied" | "reconnectRequired",
+  "healthy" | "expiring" | "missing" | "refreshFailed" | "denied" | "revoked" | "reconnectRequired" | "deleted",
   ProviderConnectionLifecycleFixture
 > = {
   healthy: {
@@ -95,10 +96,14 @@ export const providerConnectionLifecycleFixtures: Record<
       kind: "oauth",
       displayName: "GitHub ready connection",
       status: "ready",
+      accountId: "github-org-service-lasso",
       scopes: ["repo:read", "workflow:read"],
       brokerNamespace: "workspaces/local-demo/provider-connections/github",
       secretRef: "provider.github.oauth.client",
+      expiresAt: "2026-05-30T00:00:00Z",
+      lastRefreshAt: "2026-05-08T11:00:00Z",
       lastVerifiedAt: now,
+      affectedSummary: { serviceIds: ["@serviceadmin"], brokerRefs: ["provider.github.oauth.client"], workflowIds: ["wf_release_checks"] },
       createdAt: "2026-05-08T10:00:00Z",
       updatedAt: now,
       secretMaterialPresent: false,
@@ -120,6 +125,43 @@ export const providerConnectionLifecycleFixtures: Record<
       safeDetail: "Provider metadata check succeeded; no provider credential values returned.",
     },
   },
+  expiring: {
+    connection: {
+      id: "pc_github_expiring",
+      workspaceId: "wks_local_demo",
+      ownerUserId: "usr_01hzy9operator",
+      provider: "github",
+      kind: "oauth",
+      displayName: "GitHub expiring connection",
+      status: "expiring",
+      accountId: "github-org-service-lasso",
+      scopes: ["repo:read"],
+      brokerNamespace: "workspaces/local-demo/provider-connections/github",
+      secretRef: "provider.github.oauth.client",
+      expiresAt: "2026-05-08T23:00:00Z",
+      lastRefreshAt: "2026-05-08T09:00:00Z",
+      createdAt: "2026-05-08T10:00:00Z",
+      updatedAt: now,
+      affectedSummary: { serviceIds: ["@serviceadmin"], brokerRefs: ["provider.github.oauth.client"], workflowIds: ["wf_release_checks"] },
+      secretMaterialPresent: false,
+    },
+    lifecycleStatus: "expiring",
+    expectedAction: "refresh",
+    nextActionLabel: "Refresh connection",
+    lastAuditEvent: {
+      id: "audit_provider_expiring_001",
+      workspaceId: "wks_local_demo",
+      connectionId: "pc_github_expiring",
+      provider: "github",
+      action: "refresh",
+      fromStatus: "connected",
+      toStatus: "expiring",
+      outcome: "success",
+      at: now,
+      actorUserId: "usr_01hzy9operator",
+      safeDetail: "Provider credential expiry is approaching; metadata only returned.",
+    },
+  },
   missing: {
     connection: {
       id: "pc_slack_missing",
@@ -129,6 +171,7 @@ export const providerConnectionLifecycleFixtures: Record<
       kind: "oauth",
       displayName: "Slack setup required",
       status: "needs-auth",
+      accountId: "slack-workspace-service-lasso",
       scopes: ["channels:read"],
       brokerNamespace: "workspaces/local-demo/provider-connections/slack",
       secretRef: "provider.slack.oauth.client",
@@ -160,6 +203,52 @@ export const providerConnectionLifecycleFixtures: Record<
       safeDetail: "Provider authorization is not configured; no provider credential values returned.",
     },
   },
+  refreshFailed: {
+    connection: {
+      id: "pc_github_refresh_failed",
+      workspaceId: "wks_local_demo",
+      ownerUserId: "usr_01hzy9operator",
+      provider: "github",
+      kind: "oauth",
+      displayName: "GitHub refresh failed connection",
+      status: "refresh-failed",
+      accountId: "github-org-service-lasso",
+      scopes: ["repo:read"],
+      brokerNamespace: "workspaces/local-demo/provider-connections/github",
+      secretRef: "provider.github.oauth.client",
+      lastRefreshAt: "2026-05-08T10:59:00Z",
+      lastError: "Provider refresh failed with a retryable authorization error.",
+      affectedSummary: { serviceIds: ["@serviceadmin"], brokerRefs: ["provider.github.oauth.client"], workflowIds: ["wf_release_checks"] },
+      createdAt: "2026-05-08T10:00:00Z",
+      updatedAt: now,
+      secretMaterialPresent: false,
+    },
+    lifecycleStatus: "refresh_failed",
+    expectedAction: "reconnect",
+    nextActionLabel: "Reconnect provider",
+    safeError: {
+      code: "source-auth-required",
+      message: "Provider refresh failed and needs a reconnect before dependent workflows run.",
+      action: "Reconnect the provider and retry affected workflows after authorization succeeds.",
+      provider: "github",
+      retryable: true,
+      documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
+    },
+    lastAuditEvent: {
+      id: "audit_provider_refresh_failed_001",
+      workspaceId: "wks_local_demo",
+      connectionId: "pc_github_refresh_failed",
+      provider: "github",
+      action: "refresh",
+      fromStatus: "connected",
+      toStatus: "refresh_failed",
+      outcome: "unavailable",
+      at: now,
+      actorUserId: "usr_01hzy9operator",
+      safeDetail: "Provider refresh failed; no refresh payload or token value returned.",
+    },
+  },
+
   denied: {
     connection: {
       id: "pc_stripe_denied",
@@ -169,6 +258,7 @@ export const providerConnectionLifecycleFixtures: Record<
       kind: "api-token",
       displayName: "Stripe denied connection",
       status: "error",
+      accountId: "stripe-account-service-lasso",
       scopes: ["charges:read"],
       brokerNamespace: "workspaces/local-demo/provider-connections/stripe",
       secretRef: "provider.stripe.api.client",
@@ -201,6 +291,51 @@ export const providerConnectionLifecycleFixtures: Record<
       safeDetail: "Provider metadata check reported insufficient scope; credential values were not returned.",
     },
   },
+  revoked: {
+    connection: {
+      id: "pc_slack_revoked",
+      workspaceId: "wks_local_demo",
+      ownerUserId: "usr_01hzy9operator",
+      provider: "slack",
+      kind: "oauth",
+      displayName: "Slack revoked connection",
+      status: "revoked",
+      accountId: "slack-workspace-service-lasso",
+      scopes: ["channels:read"],
+      brokerNamespace: "workspaces/local-demo/provider-connections/slack",
+      secretRef: "provider.slack.oauth.client",
+      lastError: "Provider authorization was revoked by the source account.",
+      affectedSummary: { serviceIds: ["@serviceadmin"], brokerRefs: ["provider.slack.oauth.client"], workflowIds: ["wf_slack_digest"] },
+      createdAt: "2026-05-08T10:00:00Z",
+      updatedAt: now,
+      secretMaterialPresent: false,
+    },
+    lifecycleStatus: "revoked",
+    expectedAction: "reconnect",
+    nextActionLabel: "Reconnect provider",
+    safeError: {
+      code: "source-auth-required",
+      message: "Provider authorization was revoked.",
+      action: "Reconnect the provider or disconnect the metadata record.",
+      provider: "slack",
+      retryable: true,
+      documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
+    },
+    lastAuditEvent: {
+      id: "audit_provider_revoked_001",
+      workspaceId: "wks_local_demo",
+      connectionId: "pc_slack_revoked",
+      provider: "slack",
+      action: "disconnect",
+      fromStatus: "connected",
+      toStatus: "revoked",
+      outcome: "unavailable",
+      at: now,
+      actorUserId: "usr_01hzy9operator",
+      safeDetail: "Provider authorization was revoked; metadata-only disconnect guidance returned.",
+    },
+  },
+
   reconnectRequired: {
     connection: {
       id: "pc_calendar_reconnect",
@@ -210,6 +345,7 @@ export const providerConnectionLifecycleFixtures: Record<
       kind: "oauth",
       displayName: "Calendar reconnect required",
       status: "needs-auth",
+      accountId: "google-workspace-service-lasso",
       scopes: ["calendar:read"],
       brokerNamespace: "workspaces/local-demo/provider-connections/google-calendar",
       secretRef: "provider.google-calendar.oauth.client",
@@ -243,6 +379,41 @@ export const providerConnectionLifecycleFixtures: Record<
       safeDetail: "Provider refresh failed with source authorization required; no refresh payload returned.",
     },
   },
+  deleted: {
+    connection: {
+      id: "pc_slack_deleted",
+      workspaceId: "wks_local_demo",
+      ownerUserId: "usr_01hzy9operator",
+      provider: "slack",
+      kind: "oauth",
+      displayName: "Slack deleted connection",
+      status: "deleted",
+      accountId: "slack-workspace-service-lasso",
+      scopes: ["channels:read"],
+      brokerNamespace: "workspaces/local-demo/provider-connections/slack",
+      secretRef: "provider.slack.oauth.client",
+      affectedSummary: { serviceIds: ["@serviceadmin"], brokerRefs: ["provider.slack.oauth.client"], workflowIds: ["wf_slack_digest"] },
+      createdAt: "2026-05-08T10:00:00Z",
+      updatedAt: now,
+      secretMaterialPresent: false,
+    },
+    lifecycleStatus: "deleted",
+    expectedAction: "disconnect",
+    nextActionLabel: "Connection metadata deleted",
+    lastAuditEvent: {
+      id: "audit_provider_deleted_001",
+      workspaceId: "wks_local_demo",
+      connectionId: "pc_slack_deleted",
+      provider: "slack",
+      action: "disconnect",
+      fromStatus: "revoked",
+      toStatus: "deleted",
+      outcome: "success",
+      at: now,
+      actorUserId: "usr_01hzy9operator",
+      safeDetail: "Provider connection metadata was deleted; broker secret payload removal is handled separately.",
+    },
+  },
 };
 
 export function normalizeProviderConnectionLifecycleStatus(input: {
@@ -252,11 +423,13 @@ export function normalizeProviderConnectionLifecycleStatus(input: {
   scopesChanged?: boolean;
   lastRefreshFailed?: boolean;
 }): ProviderConnectionLifecycleStatus {
+  if (input.metadataStatus === "deleted") return "deleted";
   if (input.metadataStatus === "disabled") return "disabled";
   if (input.metadataStatus === "revoked") return "revoked";
   if (input.sourceState === "auth-required" || input.metadataStatus === "needs-auth") return "source_auth_required";
   if (input.scopesChanged) return "permission_changed";
-  if (input.lastRefreshFailed) return "refresh_failed";
+  if (input.lastRefreshFailed || input.metadataStatus === "refresh-failed") return "refresh_failed";
+  if (input.metadataStatus === "expiring") return "expiring";
   if (input.sourceState === "degraded" || input.metadataStatus === "error") return "degraded";
   if (input.expiresAt && Date.parse(input.expiresAt) <= Date.parse("2026-05-09T00:00:00Z")) return "expiring";
   return "connected";

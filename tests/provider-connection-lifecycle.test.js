@@ -44,11 +44,15 @@ test("provider lifecycle API exposes stable action endpoints", () => {
   assertProviderLifecyclePayloadSecretSafe(providerConnectionLifecycleEndpoints);
 });
 
-test("provider lifecycle fixtures cover healthy missing denied and reconnect-required states", () => {
+test("provider lifecycle fixtures cover healthy expiring auth-required refresh-failed revoked disconnected and deleted states", () => {
   assert.equal(providerConnectionLifecycleFixtures.healthy.lifecycleStatus, "connected");
+  assert.equal(providerConnectionLifecycleFixtures.expiring.lifecycleStatus, "expiring");
   assert.equal(providerConnectionLifecycleFixtures.missing.lifecycleStatus, "source_auth_required");
+  assert.equal(providerConnectionLifecycleFixtures.refreshFailed.lifecycleStatus, "refresh_failed");
   assert.equal(providerConnectionLifecycleFixtures.denied.lifecycleStatus, "permission_changed");
+  assert.equal(providerConnectionLifecycleFixtures.revoked.lifecycleStatus, "revoked");
   assert.equal(providerConnectionLifecycleFixtures.reconnectRequired.lifecycleStatus, "reconnect_required");
+  assert.equal(providerConnectionLifecycleFixtures.deleted.lifecycleStatus, "deleted");
 
   for (const fixture of Object.values(providerConnectionLifecycleFixtures)) {
     assert.equal(fixture.connection.secretMaterialPresent, false);
@@ -66,8 +70,11 @@ test("provider lifecycle status normalization covers connected expiring failure 
   assert.equal(normalizeProviderConnectionLifecycleStatus({ lastRefreshFailed: true }), "refresh_failed");
   assert.equal(normalizeProviderConnectionLifecycleStatus({ scopesChanged: true }), "permission_changed");
   assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "needs-auth" }), "source_auth_required");
+  assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "refresh-failed" }), "refresh_failed");
+  assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "expiring" }), "expiring");
   assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "revoked" }), "revoked");
   assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "disabled" }), "disabled");
+  assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "deleted" }), "deleted");
   assert.equal(normalizeProviderConnectionLifecycleStatus({ metadataStatus: "error" }), "degraded");
 });
 
@@ -125,6 +132,7 @@ test("provider lifecycle docs and fixtures stay free of raw secrets key material
     "connected",
     "refresh_failed",
     "source_auth_required",
+    "deleted",
     "setup-needed",
     "safe audit event",
   ]) {
