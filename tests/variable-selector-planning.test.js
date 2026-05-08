@@ -5,8 +5,11 @@ import os from "node:os";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import {
   buildServiceVariables,
+  compileCachedServiceSelectorPlan,
   compileServiceMaterializationSelectorPlan,
   compileServiceSelectorPlan,
+  getServiceSelectorPlanCacheStats,
+  resetServiceSelectorPlanCache,
   resolveServiceText,
   resolveServiceVariable,
 } from "../dist/runtime/operator/variables.js";
@@ -256,4 +259,90 @@ test("materialization selector plan covers env, globalenv, install, and config t
   assert.ok(plan.localRefs.includes("PUBLIC_URL"));
   assert.ok(plan.localRefs.includes("SERVICE_ID"));
   assert.ok(plan.localRefs.includes("LOCAL_SECRET_REF"));
+});
+
+test("selector planning cache reuses unchanged plans and invalidates when values change", () => {
+  resetServiceSelectorPlanCache();
+
+  const first = compileCachedServiceSelectorPlan("service:consumer:env", {
+    LOCAL: "${SERVICE_ROOT}",
+    SECRET: "${database.PASSWORD}:${database.PASSWORD}",
+  });
+  const second = compileCachedServiceSelectorPlan("service:consumer:env", {
+    SECRET: "${database.PASSWORD}:${database.PASSWORD}",
+    LOCAL: "${SERVICE_ROOT}",
+  });
+  const changed = compileCachedServiceSelectorPlan("service:consumer:env", {
+    LOCAL: "${SERVICE_ROOT}",
+    SECRET: "${vault.API_TOKEN}",
+  });
+
+  assert.equal(second, first);
+  assert.notEqual(changed, first);
+  assert.deepEqual(second.brokerRefs, ["database.PASSWORD"]);
+  assert.deepEqual(changed.brokerRefs, ["vault.API_TOKEN"]);
+  assert.deepEqual(getServiceSelectorPlanCacheStats(), {
+    planHits: 1,
+    planMisses: 2,
+    planInvalidations: 1,
+    templateHits: 1,
+    templateMisses: 3,
+    planEntries: 1,
+    templateEntries: 3,
+  });
+});
+
+test("materialization selector plan cache invalidates on broker policy and config changes", () => {
+  resetServiceSelectorPlanCache();
+  const service = fixtureService({
+    env: { LOCAL_SECRET_REF: "${secretsbroker.API_KEY}" },
+    broker: {
+      imports: [{ namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" }],
+    },
+    config: { files: [{ path: "config/${SERVICE_ID}.json", content: "${database.PASSWORD}" }] },
+  });
+
+  const first = compileServiceMaterializationSelectorPlan(service);
+  const second = compileServiceMaterializationSelectorPlan(service);
+
+  service.manifest.broker.imports = [
+    { namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" },
+    { namespace: "shared/database", ref: "database.USER", as: "DB_USER" },
+  ];
+  const withBrokerPolicyChange = compileServiceMaterializationSelectorPlan(service);
+
+  service.manifest.config.files[0].content = "${database.PASSWORD}:${database.USER}:${vault.extra.token}";
+  const withConfigChange = compileServiceMaterializationSelectorPlan(service);
+
+  assert.equal(second, first);
+  assert.notEqual(withBrokerPolicyChange, first);
+  assert.notEqual(withConfigChange, withBrokerPolicyChange);
+  assert.deepEqual(withBrokerPolicyChange.brokerRefs, ["secretsbroker.API_KEY", "database.PASSWORD", "database.USER"]);
+  assert.deepEqual(withConfigChange.brokerRefs, [
+    "secretsbroker.API_KEY",
+    "database.PASSWORD",
+    "database.USER",
+    "vault.extra.token",
+  ]);
+
+  const stats = getServiceSelectorPlanCacheStats();
+  assert.equal(stats.planHits >= 1, true);
+  assert.equal(stats.planInvalidations >= 2, true);
+});
+
+test("compiled selector templates are reused during repeated text resolution", () => {
+  resetServiceSelectorPlanCache();
+  const service = fixtureService({
+    env: {
+      LOCAL_ONLY: "local",
+      FROM_LOCAL: "${LOCAL_ONLY}:${LOCAL_ONLY}",
+    },
+  });
+
+  const first = resolveServiceText("value=${FROM_LOCAL}", service);
+  const second = resolveServiceText("value=${FROM_LOCAL}", service);
+
+  assert.equal(first, "value=local:local");
+  assert.equal(second, "value=local:local");
+  assert.equal(getServiceSelectorPlanCacheStats().templateHits > 0, true);
 });
