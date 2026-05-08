@@ -1,0 +1,111 @@
+{
+  "id": "zitadel",
+  "name": "ZITADEL",
+  "description": "App-owned ZITADEL identity service fixture wired to an app-owned PostgreSQL dependency and broker-backed master key.",
+  "version": "v4.14.0",
+  "enabled": true,
+  "depend_on": ["postgres"],
+  "ports": {
+    "http": 18084
+  },
+  "commandline": {
+    "win32": " start-from-init --masterkeyFromEnv --tlsMode disabled",
+    "darwin": " start-from-init --masterkeyFromEnv --tlsMode disabled",
+    "linux": " start-from-init --masterkeyFromEnv --tlsMode disabled",
+    "default": " start-from-init --masterkeyFromEnv --tlsMode disabled"
+  },
+  "env": {
+    "ZITADEL_PORT": "${HTTP_PORT}",
+    "ZITADEL_EXTERNALPORT": "${HTTP_PORT}",
+    "ZITADEL_EXTERNALDOMAIN": "localhost",
+    "ZITADEL_EXTERNALSECURE": "false",
+    "ZITADEL_TLS_ENABLED": "false",
+    "ZITADEL_DATABASE_POSTGRES_DSN": "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/zitadel?sslmode=disable",
+    "ZITADEL_MASTERKEY": "${identity.ZITADEL_MASTERKEY}"
+  },
+  "globalenv": {
+    "ZITADEL_HTTP_PORT": "${HTTP_PORT}",
+    "ZITADEL_URL": "http://localhost:${HTTP_PORT}/",
+    "ZITADEL_ISSUER": "http://localhost:${HTTP_PORT}/",
+    "ZITADEL_HEALTH_URL": "http://127.0.0.1:${HTTP_PORT}/debug/ready"
+  },
+  "broker": {
+    "enabled": true,
+    "namespace": "services/zitadel",
+    "buckets": [
+      {
+        "namespace": "services/zitadel",
+        "kind": "service",
+        "description": "App-owned ZITADEL secrets, including the stable 32-byte master key."
+      }
+    ],
+    "imports": [
+      {
+        "namespace": "services/zitadel",
+        "ref": "identity.ZITADEL_MASTERKEY",
+        "as": "ZITADEL_MASTERKEY",
+        "required": true
+      }
+    ]
+  },
+  "urls": [
+    {
+      "label": "console",
+      "url": "http://localhost:${HTTP_PORT}/ui/console/",
+      "kind": "local"
+    },
+    {
+      "label": "issuer",
+      "url": "http://localhost:${HTTP_PORT}/",
+      "kind": "local"
+    },
+    {
+      "label": "health",
+      "url": "http://127.0.0.1:${HTTP_PORT}/debug/ready",
+      "kind": "local"
+    }
+  ],
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-zitadel",
+      "channel": "latest"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-zitadel-v4.14.0-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\zitadel.exe",
+        "args": ["--version"]
+      },
+      "linux": {
+        "assetName": "lasso-zitadel-v4.14.0-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./zitadel",
+        "args": ["--version"]
+      },
+      "darwin": {
+        "assetName": "lasso-zitadel-v4.14.0-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./zitadel",
+        "args": ["--version"]
+      }
+    }
+  },
+  "install": {
+    "files": [
+      {
+        "path": "./runtime/ZITADEL-CONSUMER-CONTRACT.md",
+        "content": "# ZITADEL consumer contract\n\nThis app-owned service depends on the sibling `postgres` service and a broker-backed `identity.ZITADEL_MASTERKEY` secret. Provide a stable exactly-32-byte master key before start; changing it after initialisation breaks encrypted ZITADEL state.\n\nExpected local issuer: http://localhost:${HTTP_PORT}/\n\nRegister each consuming app client in ZITADEL with explicit redirect URIs owned by the app, for example http://localhost:3000/auth/callback in local development.\n"
+      }
+    ]
+  },
+  "healthcheck": {
+    "type": "http",
+    "url": "http://127.0.0.1:${HTTP_PORT}/debug/ready",
+    "expected_status": 200,
+    "retries": 80,
+    "interval": 500
+  }
+}

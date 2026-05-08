@@ -37,6 +37,12 @@ Every reference app should make the same core integration story obvious:
 - Service Lasso can discover and manage the app's services.
 - Echo Service and Service Admin are available as baseline integration targets.
 
+Optional identity stacks follow the same app-owned rule. For example, an app that
+opts into local SSO commits its own ZITADEL and PostgreSQL service manifests,
+owns the database and OIDC client setup, and supplies secrets through its own
+secret policy. See the [ZITADEL Consumer Integration](reference/zitadel-consumer-integration.md)
+contract and fixture for the concrete `services/zitadel/service.json` pattern.
+
 ## How To Decide
 
 Start with `service-lasso-app-node` if you are still deciding. It is the
