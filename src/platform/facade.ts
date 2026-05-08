@@ -12,11 +12,34 @@ export type PlatformEntitlement =
   | "secrets-broker:resolve"
   | "workflow:run";
 
+export type PlatformActorKind = "user" | "service";
+export type PlatformAuthMethod = "zitadel-session" | "service-identity";
+export type PlatformAuthFailureReason =
+  | "unauthenticated"
+  | "unauthorized"
+  | "expired-session"
+  | "workspace-mismatch"
+  | "service-identity-denied"
+  | "disabled-user"
+  | "workspace-inactive";
+
 export type PlatformRole = {
   id: string;
   workspaceId: string;
   name: "owner" | "admin" | "developer" | "operator" | "viewer" | string;
   entitlements: PlatformEntitlement[];
+};
+
+export type PlatformServiceIdentity = {
+  id: string;
+  serviceId: string;
+  displayName: string;
+  instanceIds: string[];
+  workspaceIds: string[];
+  entitlements: PlatformEntitlement[];
+  status: "active" | "disabled";
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type PlatformUser = {
@@ -103,14 +126,64 @@ export type ZitadelSessionContext = {
   email?: string;
   preferredUsername?: string;
   groups?: string[];
+  expiresAt?: string;
+};
+
+export type PlatformAuditActorMetadata = {
+  actorKind: PlatformActorKind;
+  actorId: string;
+  workspaceId: string;
+  instanceId: string;
+  linkedIdentityId?: string;
+  serviceIdentityId?: string;
+  authMethod: PlatformAuthMethod;
 };
 
 export type PlatformRequestContext = {
   userId: string;
   workspaceId: string;
+  instanceId: string;
   linkedIdentityId: string;
   entitlements: PlatformEntitlement[];
+  actor: {
+    kind: PlatformActorKind;
+    id: string;
+    displayName: string;
+  };
+  authMethod: PlatformAuthMethod;
+  audit: PlatformAuditActorMetadata;
 };
+
+export type PlatformServiceAuthContext = {
+  serviceId: string;
+  instanceId: string;
+  workspaceId: string;
+};
+
+export type PlatformContextResolutionRequest =
+  | {
+      kind: "zitadel-session";
+      session?: ZitadelSessionContext;
+      workspaceId?: string;
+      instanceId: string;
+      now?: Date;
+    }
+  | {
+      kind: "service-identity";
+      service?: PlatformServiceAuthContext;
+      workspaceId: string;
+      instanceId: string;
+    };
+
+export type PlatformContextResolution =
+  | { ok: true; context: PlatformRequestContext }
+  | {
+      ok: false;
+      reason: PlatformAuthFailureReason;
+      status: 401 | 403;
+      safeMessage: string;
+      audit: PlatformAuditActorMetadata | undefined;
+    };
 
 export type AuthorizationResource =
   | { kind: "provider-connection"; connection: ProviderConnectionMetadata }
@@ -129,6 +202,15 @@ export const providerConnectionMetadataEndpoints = {
   read: "GET /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
   update: "PATCH /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
 } as const;
+
+export type PlatformFacadeState = {
+  users: PlatformUser[];
+  workspaces: PlatformWorkspace[];
+  linkedIdentities: LinkedIdentity[];
+  roles: PlatformRole[];
+  serviceIdentities: PlatformServiceIdentity[];
+  providerConnections: ProviderConnectionMetadata[];
+};
 
 export const examplePlatformFacadeState = {
   users: [
@@ -184,6 +266,19 @@ export const examplePlatformFacadeState = {
       ],
     },
   ],
+  serviceIdentities: [
+    {
+      id: "svc_runtime_broker_reader",
+      serviceId: "@node",
+      displayName: "Node runtime broker reader",
+      instanceIds: ["inst_local_demo"],
+      workspaceIds: ["wks_local_demo"],
+      entitlements: ["workspace:read", "secrets-broker:resolve"],
+      status: "active",
+      createdAt: "2026-05-08T10:00:00Z",
+      updatedAt: "2026-05-08T10:00:00Z",
+    },
+  ],
   providerConnections: [
     {
       id: "pc_github_actions",
@@ -202,36 +297,143 @@ export const examplePlatformFacadeState = {
       secretMaterialPresent: false,
     },
   ],
-} as const satisfies {
-  users: PlatformUser[];
-  workspaces: PlatformWorkspace[];
-  linkedIdentities: LinkedIdentity[];
-  roles: PlatformRole[];
-  providerConnections: ProviderConnectionMetadata[];
-};
+} as const satisfies PlatformFacadeState;
+
+export function resolveServiceLassoRequestContext(
+  request: PlatformContextResolutionRequest,
+  state: PlatformFacadeState = examplePlatformFacadeState,
+): PlatformContextResolution {
+  if (request.kind === "zitadel-session") {
+    if (!request.session) return authFailure("unauthenticated", "Missing ZITADEL session.", undefined, 401);
+    if (isExpired(request.session.expiresAt, request.now)) return authFailure("expired-session", "ZITADEL session expired.", undefined, 401);
+
+    const identity = state.linkedIdentities.find(
+      (linkedIdentity) => linkedIdentity.provider === "zitadel" && linkedIdentity.issuer === request.session?.issuer && linkedIdentity.subject === request.session.subject,
+    );
+    if (!identity) return authFailure("unauthenticated", "ZITADEL subject is not linked to a Service Lasso user.", undefined, 401);
+
+    const user = state.users.find((candidate) => candidate.id === identity.userId);
+    if (!user || user.status !== "active") {
+      return authFailure(
+        "disabled-user",
+        "Linked Service Lasso user is not active.",
+        safeAudit({ actorKind: "user", actorId: identity.userId, workspaceId: request.workspaceId ?? identity.workspaceIds[0] ?? "unknown", instanceId: request.instanceId, linkedIdentityId: identity.id, authMethod: "zitadel-session" }),
+        403,
+      );
+    }
+
+    const workspaceId = request.workspaceId ?? identity.workspaceIds[0];
+    if (!workspaceId || !identity.workspaceIds.includes(workspaceId)) {
+      return authFailure(
+        "workspace-mismatch",
+        "ZITADEL identity is not linked to the requested workspace.",
+        safeAudit({ actorKind: "user", actorId: identity.userId, workspaceId: workspaceId ?? "unknown", instanceId: request.instanceId, linkedIdentityId: identity.id, authMethod: "zitadel-session" }),
+        403,
+      );
+    }
+
+    const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace || workspace.status !== "active") {
+      return authFailure(
+        "workspace-inactive",
+        "Requested Service Lasso workspace is not active.",
+        safeAudit({ actorKind: "user", actorId: identity.userId, workspaceId, instanceId: request.instanceId, linkedIdentityId: identity.id, authMethod: "zitadel-session" }),
+        403,
+      );
+    }
+
+    const entitlements = state.roles
+      .filter((role) => role.workspaceId === workspaceId)
+      .flatMap((role) => role.entitlements);
+
+    if (entitlements.length === 0) {
+      return authFailure(
+        "unauthorized",
+        "No Service Lasso role grants access to the requested workspace.",
+        safeAudit({ actorKind: "user", actorId: identity.userId, workspaceId, instanceId: request.instanceId, linkedIdentityId: identity.id, authMethod: "zitadel-session" }),
+        403,
+      );
+    }
+
+    const audit = safeAudit({ actorKind: "user", actorId: identity.userId, workspaceId, instanceId: request.instanceId, linkedIdentityId: identity.id, authMethod: "zitadel-session" });
+    return {
+      ok: true,
+      context: {
+        userId: identity.userId,
+        workspaceId,
+        instanceId: request.instanceId,
+        linkedIdentityId: identity.id,
+        entitlements: [...new Set(entitlements)],
+        actor: { kind: "user", id: identity.userId, displayName: user.displayName },
+        authMethod: "zitadel-session",
+        audit,
+      },
+    };
+  }
+
+  if (!request.service) return authFailure("unauthenticated", "Missing service identity.", undefined, 401);
+
+  const serviceIdentity = state.serviceIdentities.find((identity) => identity.serviceId === request.service?.serviceId);
+  const audit = safeAudit({
+    actorKind: "service",
+    actorId: request.service.serviceId,
+    workspaceId: request.workspaceId,
+    instanceId: request.instanceId,
+    serviceIdentityId: serviceIdentity?.id,
+    authMethod: "service-identity",
+  });
+
+  if (!serviceIdentity || serviceIdentity.status !== "active") return authFailure("service-identity-denied", "Service identity is not allowed.", audit, 403);
+  if (!serviceIdentity.instanceIds.includes(request.service.instanceId) || request.service.instanceId !== request.instanceId) {
+    return authFailure("service-identity-denied", "Service identity is not valid for this instance.", audit, 403);
+  }
+  if (!serviceIdentity.workspaceIds.includes(request.workspaceId) || request.service.workspaceId !== request.workspaceId) {
+    return authFailure("workspace-mismatch", "Service identity is not scoped to the requested workspace.", audit, 403);
+  }
+
+  const workspace = state.workspaces.find((candidate) => candidate.id === request.workspaceId);
+  if (!workspace || workspace.status !== "active") return authFailure("workspace-inactive", "Requested Service Lasso workspace is not active.", audit, 403);
+
+  return {
+    ok: true,
+    context: {
+      userId: serviceIdentity.serviceId,
+      workspaceId: request.workspaceId,
+      instanceId: request.instanceId,
+      linkedIdentityId: serviceIdentity.id,
+      entitlements: [...new Set(serviceIdentity.entitlements)],
+      actor: { kind: "service", id: serviceIdentity.serviceId, displayName: serviceIdentity.displayName },
+      authMethod: "service-identity",
+      audit,
+    },
+  };
+}
 
 export function mapZitadelSessionToPlatformContext(
   session: ZitadelSessionContext,
-  state = examplePlatformFacadeState,
+  state: PlatformFacadeState = examplePlatformFacadeState,
 ): PlatformRequestContext | undefined {
-  const identity = state.linkedIdentities.find(
-    (linkedIdentity) => linkedIdentity.provider === "zitadel" && linkedIdentity.issuer === session.issuer && linkedIdentity.subject === session.subject,
-  );
-  if (!identity) return undefined;
+  const resolution = resolveServiceLassoRequestContext({ kind: "zitadel-session", session, instanceId: "inst_local_demo" }, state);
+  return resolution.ok ? resolution.context : undefined;
+}
 
-  const workspaceId = identity.workspaceIds[0];
-  if (!workspaceId) return undefined;
+export function platformAuditMetadataIncludesSecretMaterial(audit: PlatformAuditActorMetadata): boolean {
+  return secretLikeValuePattern.test(JSON.stringify(audit));
+}
 
-  const entitlements = state.roles
-    .filter((role) => role.workspaceId === workspaceId)
-    .flatMap((role) => role.entitlements);
+function authFailure(reason: PlatformAuthFailureReason, safeMessage: string, audit: PlatformAuditActorMetadata | undefined, status: 401 | 403): PlatformContextResolution {
+  return { ok: false, reason, status, safeMessage, audit };
+}
 
-  return {
-    userId: identity.userId,
-    workspaceId,
-    linkedIdentityId: identity.id,
-    entitlements: [...new Set(entitlements)],
-  };
+function safeAudit(audit: PlatformAuditActorMetadata): PlatformAuditActorMetadata {
+  if (platformAuditMetadataIncludesSecretMaterial(audit)) throw new Error("Platform audit metadata must not include raw tokens, cookies, session secrets, or provider credentials");
+  return audit;
+}
+
+function isExpired(expiresAt: string | undefined, now = new Date()): boolean {
+  if (!expiresAt) return false;
+  const expiry = Date.parse(expiresAt);
+  return Number.isFinite(expiry) && expiry <= now.getTime();
 }
 
 export function authorizePlatformResource(

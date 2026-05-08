@@ -6,9 +6,9 @@ sidebar_label: Product API Facade
 # Product API Facade Contract
 
 The product API facade owns Service Lasso account metadata that is broader than
-runtime service state: users, workspaces, linked identities, provider connection
-metadata, roles/entitlements, and authorization decisions for Secrets Broker and
-workflow/run resolution.
+runtime service state: users, workspaces, linked identities, request_context,
+service_identities, provider connection metadata, roles/entitlements, and
+authorization decisions for Secrets Broker and workflow/run resolution.
 
 This contract is metadata-only. Provider secret payloads, OAuth access tokens,
 refresh tokens, API keys, private keys, password values, portable master keys,
@@ -58,6 +58,51 @@ and one or more workspaces.
 | `workspaceIds` | Workspaces this identity can enter after role checks. |
 | `claims` | Safe claim metadata only: email, preferred username, groups. |
 | `createdAt` / `lastSeenAt` | Audit timestamps. |
+
+### `request_context`
+
+Every broker/admin/provider/workflow API receives a canonical request context
+instead of re-parsing cookies, tokens, route parameters, or provider-specific
+auth state.
+
+| Field | Notes |
+| --- | --- |
+| `userId` | Internal user id for a ZITADEL-backed user request, or service id for a service-authenticated request. |
+| `workspaceId` | Active workspace resolved from request routing/defaults and verified against identity membership. |
+| `instanceId` | Local Service Lasso instance boundary. Requests cannot cross instances. |
+| `linkedIdentityId` | ZITADEL linked identity id for user requests, or service identity id for service-authenticated requests. |
+| `entitlements` | Workspace-scoped grants flattened from roles or service identity policy. |
+| `actor` | Safe actor descriptor: `kind`, `id`, and display label only. |
+| `authMethod` | `zitadel-session` or `service-identity`. |
+| `audit` | Safe actor/workspace/instance metadata for downstream audit events. |
+
+The resolver returns fail-closed states for `unauthenticated`, `unauthorized`,
+`expired-session`, `workspace-mismatch`, `service-identity-denied`,
+`disabled-user`, and `workspace-inactive`. These responses may include safe
+actor/workspace/instance ids when known, but never cookies, session secrets,
+bearer tokens, provider credentials, raw secret values, key material, or
+recovery material.
+
+### `service_identities`
+
+Service identities let local system actors such as `@node`, `@serviceadmin`, or
+workflow runners call broker/admin APIs without pretending to be provider OAuth
+users.
+
+| Field | Notes |
+| --- | --- |
+| `id` | Stable internal service identity id. |
+| `serviceId` / `displayName` | Service actor metadata safe for logs and audit. |
+| `instanceIds` | Allowed Service Lasso instances. |
+| `workspaceIds` | Workspaces the service identity may access. |
+| `entitlements` | Explicit grants such as `secrets-broker:resolve`; no implicit admin rights. |
+| `status` | `active` or `disabled`. Disabled service identities fail closed. |
+| `createdAt` / `updatedAt` | Audit timestamps. |
+
+Service-authenticated requests must provide the expected service id, workspace
+id, and instance id. The resolver rejects unknown services, disabled services,
+workspace mismatches, and instance mismatches as `service-identity-denied` or
+`workspace-mismatch`.
 
 ### `provider_connections`
 
@@ -252,14 +297,37 @@ internal context as follows:
 3. Select the active workspace from request routing or the user's default
    workspace.
 4. Load roles for that workspace and flatten them to entitlements.
-5. Produce a request context containing `userId`, `workspaceId`,
-   `linkedIdentityId`, and entitlements.
-6. Fail closed if the linked identity, workspace, user, or required entitlement
-   is missing.
+5. Produce a request context containing `userId`, `workspaceId`, `instanceId`,
+   `linkedIdentityId`, actor metadata, auth method, safe audit metadata, and
+   entitlements.
+6. Fail closed if the linked identity, workspace, user, session freshness, or
+   required entitlement is missing.
 
 ZITADEL remains app-owned. This facade contract describes how an authenticated
 ZITADEL subject enters Service Lasso account/workspace authorization; it does
 not make ZITADEL part of the Service Lasso core baseline.
+
+## Service-authenticated requests
+
+Broker-adjacent local services use the same request context shape through a
+`service-identity` auth method. The identity must be explicitly allowed for the
+requested `instanceId` and `workspaceId`, and receives only its configured
+entitlements. This supports local runtime resolution such as `@node` reading a
+broker ref without embedding provider credentials or raw secret values in the
+runtime API.
+
+Service identity failures are intentionally narrow:
+
+- missing service auth -> `unauthenticated` / 401,
+- unknown or disabled service -> `service-identity-denied` / 403,
+- instance mismatch -> `service-identity-denied` / 403,
+- workspace mismatch -> `workspace-mismatch` / 403,
+- inactive workspace -> `workspace-inactive` / 403.
+
+Audit metadata for service requests includes actor kind `service`, service id,
+workspace id, instance id, auth method, and service identity id when known. It
+must not include bearer tokens, local service credentials, provider credentials,
+raw secrets, cookies, or session material.
 
 ## Authorization boundaries
 
@@ -273,9 +341,14 @@ Authorization is workspace-scoped and fail-closed:
   `provider-connection:use` for each provider connection referenced by the run.
 - Connections with status `needs-auth`, `revoked`, `disabled`, or `error` cannot
   be used for broker or workflow authorization.
+- Request context resolution must represent `unauthenticated`, `unauthorized`,
+  `expired-session`, `workspace-mismatch`, `service-identity-denied`,
+  `disabled-user`, and `workspace-inactive` distinctly so callers can fail
+  closed and show safe recovery guidance.
 - Denied authorization responses may include metadata reasons such as
   `workspace-mismatch`, `missing-entitlement`, or `connection-not-ready`, but
-  must not include provider secret values or key material.
+  must not include provider secret values, tokens, cookies, session secrets, or
+  key material.
 
 ## Test fixtures
 
