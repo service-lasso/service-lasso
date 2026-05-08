@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertProviderConnectionMetadataOnly,
+  coreFacadeBoundary,
   createProviderConnectionMetadata,
   deleteProviderConnectionMetadata,
   authorizePlatformResource,
@@ -29,6 +30,11 @@ const forbiddenSecrets = [
 ];
 
 test("platform facade fixture defines users workspaces linked identities provider connections and roles", () => {
+  assert.deepEqual(coreFacadeBoundary.owns, ["service-manager", "secrets-broker"]);
+  assert.equal(coreFacadeBoundary.providerConnectionScope, "secrets-broker-source-metadata-only");
+  assert.ok(coreFacadeBoundary.excludes.includes("provider-account-lifecycle"));
+  assert.ok(coreFacadeBoundary.excludes.includes("session-token-handling"));
+
   assert.equal(examplePlatformFacadeState.users.length, 1);
   assert.equal(examplePlatformFacadeState.workspaces.length, 1);
   assert.equal(examplePlatformFacadeState.linkedIdentities.length, 1);
@@ -65,7 +71,7 @@ test("provider connection metadata CRUD operations are authorization-gated and s
     subject: "zitadel-user-operator",
   });
   assert.ok(context);
-  const adminContext = { ...context, entitlements: [...context.entitlements, "provider-connection:write"] };
+  const adminContext = { ...context, entitlements: [...context.entitlements, "secrets-broker-source:write"] };
 
   const listed = listProviderConnectionMetadata(examplePlatformFacadeState, context, "wks_local_demo");
   assert.equal(listed.ok, true);
@@ -247,7 +253,7 @@ test("authorization boundaries fail closed for workspace mismatch missing entitl
   assert.deepEqual(authorizePlatformResource(context, { kind: "provider-connection", connection }), {
     allowed: true,
     reason: "allowed",
-    requiredEntitlements: ["provider-connection:use"],
+    requiredEntitlements: ["secrets-broker-source:use"],
   });
 
   assert.equal(
@@ -300,7 +306,7 @@ test("provider connection metadata rejects raw secret and recovery material fiel
   );
 });
 
-test("product facade docs and fixture stay metadata-only", async () => {
+test("core boundary facade docs and fixture stay metadata-only", async () => {
   const docs = await readFile(path.join(repoRoot, "docs", "reference", "product-api-facade.md"), "utf8");
   const fixture = JSON.stringify(examplePlatformFacadeState);
 
@@ -311,14 +317,14 @@ test("product facade docs and fixture stay metadata-only", async () => {
     "provider_connections",
     "request_context",
     "service_identities",
-    "roles/entitlements",
+    "`roles` and entitlements",
     "GET   /api/platform/workspaces/{workspaceId}/provider-connections",
     "DELETE /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
     "ZITADEL session mapping",
     "Service-authenticated requests",
     "service-identity-denied`",
     "Secrets Broker checks",
-    "must not be stored or returned by the facade",
+    "not a product account platform",
   ]) {
     assert.ok(docs.includes(requiredText), `Expected docs to include ${requiredText}`);
   }

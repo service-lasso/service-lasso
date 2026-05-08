@@ -7,6 +7,7 @@ import {
   assertProviderLifecyclePayloadSecretSafe,
   createProviderLifecycleUnavailableResponse,
   normalizeProviderConnectionLifecycleStatus,
+  providerConnectionLifecycleBoundary,
   providerConnectionLifecycleEndpoints,
   providerConnectionLifecycleFixtures,
 } from "../dist/platform/providerConnectionLifecycle.js";
@@ -32,14 +33,19 @@ function operatorContext() {
   return context;
 }
 
-test("provider lifecycle API exposes stable action endpoints", () => {
+test("provider lifecycle API exposes metadata-only action endpoints", () => {
+  assert.equal(providerConnectionLifecycleBoundary.scope, "secrets-broker-source-metadata-only");
+  assert.ok(providerConnectionLifecycleBoundary.excludes.includes("provider-oauth"));
+  assert.ok(providerConnectionLifecycleBoundary.excludes.includes("provider-token-refresh"));
+  assert.ok(providerConnectionLifecycleBoundary.excludes.includes("oidc-callbacks"));
+
   assert.deepEqual(providerConnectionLifecycleEndpoints, {
-    connect: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/connect",
-    reconnect: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/reconnect",
-    refresh: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh",
-    test: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test",
-    disable: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable",
-    disconnect: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect",
+    recordSourceAuthRequired: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/record-source-auth-required",
+    recordReconnectRequired: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/record-reconnect-required",
+    refreshMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh-metadata",
+    testMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test-metadata",
+    disableMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable-metadata",
+    disconnectMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect-metadata",
   });
   assertProviderLifecyclePayloadSecretSafe(providerConnectionLifecycleEndpoints);
 });
@@ -81,7 +87,7 @@ test("provider lifecycle status normalization covers connected expiring failure 
 test("unimplemented provider-specific lifecycle flows return actionable setup-needed or unavailable errors", () => {
   const context = operatorContext();
   const missing = createProviderLifecycleUnavailableResponse(context, providerConnectionLifecycleFixtures.missing, {
-    action: "connect",
+    action: "record-source-auth-required",
     connectionId: "pc_slack_missing",
     provider: "slack",
     requestedAt: "2026-05-08T11:05:00Z",
@@ -89,11 +95,11 @@ test("unimplemented provider-specific lifecycle flows return actionable setup-ne
   assert.equal(missing.ok, false);
   assert.equal(missing.status, "source_auth_required");
   assert.equal(missing.error?.code, "setup-needed");
-  assert.match(missing.error?.action ?? "", /setup flow/i);
+  assert.match(missing.error?.action ?? "", /owning service/i);
   assert.equal(missing.auditEvent.outcome, "setup-needed");
 
   const reconnect = createProviderLifecycleUnavailableResponse(context, providerConnectionLifecycleFixtures.reconnectRequired, {
-    action: "refresh",
+    action: "refresh-metadata",
     connectionId: "pc_calendar_reconnect",
     provider: "google-calendar",
     requestedAt: "2026-05-08T11:05:00Z",
@@ -101,14 +107,14 @@ test("unimplemented provider-specific lifecycle flows return actionable setup-ne
   assert.equal(reconnect.ok, false);
   assert.equal(reconnect.status, "reconnect_required");
   assert.equal(reconnect.error?.code, "source-auth-required");
-  assert.match(reconnect.error?.action ?? "", /reconnect flow/i);
+  assert.match(reconnect.error?.action ?? "", /reconnect-required metadata/i);
   assertProviderLifecyclePayloadSecretSafe([missing, reconnect]);
 });
 
 test("provider lifecycle authorization denial is fail-closed and secret-safe", () => {
   const context = { ...operatorContext(), entitlements: ["workspace:read"] };
   const denied = createProviderLifecycleUnavailableResponse(context, providerConnectionLifecycleFixtures.healthy, {
-    action: "test",
+    action: "test-metadata",
     connectionId: "pc_github_ready",
     provider: "github",
     requestedAt: "2026-05-08T11:05:00Z",
@@ -124,11 +130,12 @@ test("provider lifecycle authorization denial is fail-closed and secret-safe", (
 test("provider lifecycle docs and fixtures stay free of raw secrets key material and recovery material", async () => {
   const docs = await readFile(path.join(repoRoot, "docs", "reference", "product-api-facade.md"), "utf8");
   for (const requiredText of [
-    "Provider connection lifecycle API",
-    "connect",
-    "reconnect",
-    "refresh/test",
-    "disconnect",
+    "Secrets Broker source metadata lifecycle API",
+    "record-source-auth-required",
+    "record-reconnect-required",
+    "refresh-metadata",
+    "test-metadata",
+    "disconnect-metadata",
     "connected",
     "refresh_failed",
     "source_auth_required",

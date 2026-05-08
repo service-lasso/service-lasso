@@ -243,14 +243,14 @@ export function startWorkflowFacadeRun(
     requiredProviderConnectionIds: workflow.requiredProviderConnectionIds,
   });
   if (!runAuth.allowed) {
-    return denied(authorizationReasonToFacadeError(runAuth.reason), `Workflow run start denied: ${runAuth.reason}.`, "Satisfy workspace, workflow:run, and provider-connection:use requirements before start.");
+    return denied(authorizationReasonToFacadeError(runAuth.reason), `Workflow run start denied: ${runAuth.reason}.`, "Satisfy workspace, workflow:run, and secrets-broker-source:use requirements before start.");
   }
 
   for (const connectionId of workflow.requiredProviderConnectionIds) {
     const connection = state.providerConnections.find((candidate) => candidate.id === connectionId);
-    if (!connection) return denied("connection-not-ready", `Required provider connection ${connectionId} is missing.`, "Create and verify the provider connection before start.");
+    if (!connection) return denied("connection-not-ready", `Required Secrets Broker source metadata record ${connectionId} is missing.`, "Create and verify the Secrets Broker source metadata before start.");
     const decision = authorizePlatformResource(context, { kind: "provider-connection", connection });
-    if (!decision.allowed) return denied(authorizationReasonToFacadeError(decision.reason), `Provider connection ${connectionId} denied: ${decision.reason}.`, "Verify provider connection readiness and entitlements before start.");
+    if (!decision.allowed) return denied(authorizationReasonToFacadeError(decision.reason), `Secrets Broker source metadata ${connectionId} denied: ${decision.reason}.`, "Verify source metadata readiness and entitlements before start.");
   }
 
   for (const secret of workflow.secretDependencies) {
