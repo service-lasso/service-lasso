@@ -151,6 +151,96 @@ The response is safe to log because it contains reference metadata only. The
 facade must never return raw provider secrets, access tokens, refresh tokens,
 API keys, password values, private keys, key material, or recovery material.
 
+## Provider connection lifecycle API
+
+Provider lifecycle actions are stable core API contracts that UI and workflow
+layers can call without embedding provider-specific behavior. The refresh/test
+operations let consumers verify provider reachability and scope posture without
+mutating provider secret payloads. Provider-specific OAuth or token flows may
+still be unavailable in early slices; unavailable flows
+must return actionable `setup-needed` or `provider-unavailable` responses rather
+than dead actions.
+
+```text
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/connect
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/reconnect
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect
+```
+
+Normalized lifecycle statuses are:
+
+- `connected`
+- `expiring`
+- `refresh_failed`
+- `reconnect_required`
+- `revoked`
+- `permission_changed`
+- `disabled`
+- `source_auth_required`
+- `degraded`
+
+Lifecycle responses include safe metadata only:
+
+```json
+{
+  "connectionId": "pc_github_ready",
+  "provider": "github",
+  "action": "test",
+  "status": "connected",
+  "ok": true,
+  "auditEvent": {
+    "id": "audit_provider_ready_001",
+    "workspaceId": "wks_local_demo",
+    "connectionId": "pc_github_ready",
+    "provider": "github",
+    "action": "test",
+    "fromStatus": "connected",
+    "toStatus": "connected",
+    "outcome": "success",
+    "at": "2026-05-08T11:05:00Z",
+    "actorUserId": "usr_01hzy9operator",
+    "safeDetail": "Provider metadata check succeeded; no provider credential values returned."
+  }
+}
+```
+
+Unavailable or setup-required actions return actionable errors without provider
+secret values:
+
+```json
+{
+  "connectionId": "pc_slack_missing",
+  "provider": "slack",
+  "action": "connect",
+  "status": "source_auth_required",
+  "ok": false,
+  "error": {
+    "code": "setup-needed",
+    "message": "Provider connection needs operator setup before it can be used.",
+    "action": "Open the provider setup flow and complete authorization.",
+    "provider": "slack",
+    "retryable": true,
+    "documentationRef": "docs/reference/product-api-facade.md#provider-connection-lifecycle-api"
+  }
+}
+```
+
+Each transition records a safe audit event with `workspaceId`, `connectionId`,
+`provider`, `action`, `fromStatus`, `toStatus`, `outcome`, `at`, `actorUserId`,
+and a `safeDetail`. Audit details may mention missing authorization, changed
+permissions, or unavailable provider support, but must never include access
+tokens, refresh tokens, API keys, provider secrets, key material, or recovery
+material.
+
+Reference lifecycle fixtures cover healthy, missing/setup-required, denied, and
+reconnect-required states in `src/platform/providerConnectionLifecycle.ts`.
+Tests in `tests/provider-connection-lifecycle.test.js` verify status
+normalization, secret-safe error payloads, unavailable action stubs, and safe
+audit transition metadata.
+
 ## ZITADEL session mapping
 
 When ZITADEL is used by a consuming app, Service Lasso maps the OIDC session to
