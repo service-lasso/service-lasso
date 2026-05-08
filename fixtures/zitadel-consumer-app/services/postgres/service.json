@@ -1,0 +1,79 @@
+{
+  "id": "postgres",
+  "name": "PostgreSQL for ZITADEL",
+  "description": "App-owned PostgreSQL dependency used by the ZITADEL consumer integration fixture.",
+  "version": "15.17",
+  "enabled": true,
+  "ports": {
+    "service": 18532
+  },
+  "env": {
+    "POSTGRES_HOST": "127.0.0.1",
+    "POSTGRES_PORT": "${SERVICE_PORT}",
+    "POSTGRES_USER": "zitadel",
+    "POSTGRES_PASSWORD": "zitadel-local-dev-only",
+    "POSTGRES_DATABASES": "zitadel",
+    "POSTGRES_DATA_DIR": "${SERVICE_ROOT}/runtime/data",
+    "PGPASSWORD": "${POSTGRES_PASSWORD}"
+  },
+  "globalenv": {
+    "POSTGRES_HOST": "${POSTGRES_HOST}",
+    "POSTGRES_PORT": "${POSTGRES_PORT}",
+    "POSTGRES_USER": "${POSTGRES_USER}",
+    "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
+    "POSTGRES_DATABASE": "zitadel"
+  },
+  "urls": [
+    {
+      "label": "tcp",
+      "url": "postgresql://${POSTGRES_USER}:***@${POSTGRES_HOST}:${POSTGRES_PORT}/zitadel",
+      "kind": "local"
+    }
+  ],
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-postgres",
+      "channel": "latest"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-postgres-15.17-win32.zip",
+        "archiveType": "zip",
+        "command": "node",
+        "args": ["./lasso-postgres.mjs"]
+      },
+      "darwin": {
+        "assetName": "lasso-postgres-15.17-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "node",
+        "args": ["./lasso-postgres.mjs"]
+      },
+      "linux": {
+        "assetName": "lasso-postgres-15.17-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "node",
+        "args": ["./lasso-postgres.mjs"]
+      }
+    }
+  },
+  "install": {
+    "files": [
+      {
+        "path": "./runtime/data/.keep",
+        "content": ""
+      },
+      {
+        "path": "./runtime/.keep",
+        "content": ""
+      }
+    ]
+  },
+  "healthcheck": {
+    "type": "tcp",
+    "address": "${POSTGRES_HOST}:${POSTGRES_PORT}",
+    "retries": 80,
+    "interval": 250
+  }
+}
