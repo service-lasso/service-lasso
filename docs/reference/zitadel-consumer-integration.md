@@ -26,9 +26,9 @@ Use the existing pieces for what they already do:
   token validation, PKCE, scopes, and claim/role assertions.
 - **ZITADEL** provides the identity provider, login UI, users, projects, roles,
   claims, issuer, and OIDC client.
-- **Service Lasso** only generates and wires configuration: hostnames, Traefik
-  dynamic config, middleware options, ZITADEL client/bootstrap checks, route
-  policy, and safe identity metadata consumed by Service Admin.
+- **Service Lasso core** stays limited to Service Manager and Secrets Broker
+  responsibilities: start/configure services, wire service-owned config, and
+  resolve protected secret refs. Everything else belongs in services.
 
 The expected flow is:
 
@@ -40,9 +40,9 @@ The expected flow is:
 6. Service Admin receives safe trusted identity metadata from the protected
    route boundary.
 
-Only add a Service Lasso identity adapter later if a real gap appears. If that
-happens, keep it thin: translate trusted identity metadata into Service Lasso
-workspace/app context. Do not rebuild OIDC inside Service Lasso.
+Do not add Service Lasso-owned OIDC, identity, workspace, or app-login runtime
+for this path. If a gap appears, solve it in the relevant service first. Core
+should only wire services and Secrets Broker refs.
 
 ## Reference fixture
 
