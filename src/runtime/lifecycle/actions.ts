@@ -5,7 +5,7 @@ import { mintScopedBrokerIdentity, revokeServiceScopedBrokerIdentities } from ".
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
-import { collectRuntimeGlobalEnv } from "../operator/variables.js";
+import { collectRuntimeGlobalEnv, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
@@ -71,6 +71,10 @@ function applyProcessLaunchMetrics(
     totalRunDurationMs,
     lastRunDurationMs,
   };
+}
+
+export interface ServiceLifecycleActionOptions {
+  variableResolution?: ServiceVariableResolutionOptions;
 }
 
 function applyState(
@@ -207,6 +211,7 @@ export async function configService(
 export async function startService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
@@ -255,7 +260,7 @@ export async function startService(
       }
 
       if (!dependencyState.running) {
-        const dependencyResult = await startService(dependency, registry);
+        const dependencyResult = await startService(dependency, registry, options);
         await writeServiceState(dependency, dependencyResult.state);
       }
     }
@@ -275,6 +280,7 @@ export async function startService(
     sharedGlobalEnv,
     resolvedPorts,
     secureEnv: scopedBrokerIdentity?.env,
+    variableResolution: options.variableResolution,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -389,6 +395,7 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
 export async function restartService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
@@ -426,6 +433,7 @@ export async function restartService(
     sharedGlobalEnv,
     resolvedPorts,
     secureEnv: scopedBrokerIdentity?.env,
+    variableResolution: options.variableResolution,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;

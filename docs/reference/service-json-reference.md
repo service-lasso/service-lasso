@@ -530,6 +530,13 @@ Migration from `globalenv`:
 
 Legacy `globalenv` remains a compatibility path for bounded provider/tool values that are already safe to share. New cross-service secret flow should move to explicit broker imports/exports so values are bucketed as current-service, app-level, explicitly shared, or truly global instead of ambiently merged into every launched process.
 
+Ordinary services should consume broker values through service-local `env` names or through an explicit CLI/adapter resolution step. Keep the manifest reviewable:
+- map each secret to a concrete env key, for example `"DB_PASSWORD": "${database.PASSWORD}"`
+- declare the same dotted ref in `broker.imports[]`; undeclared dotted refs are denied instead of falling back to ambient/global lookup
+- do not print resolved values in normal logs, diagnostics, issue comments, or support bundles
+- prefer env mapping for long-running processes; use CLI-style resolution only for controlled setup/adapter paths that do not echo arguments or outputs containing raw secrets
+- missing, denied, or source-auth-required refs should fail with actionable diagnostics that name the ref and reason without including the secret value
+
 Becomes an explicit broker contract:
 ```json
 {
