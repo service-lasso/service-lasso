@@ -24,6 +24,26 @@ export interface ServiceSelectorPlan {
   brokerRefs: string[];
 }
 
+export interface ServiceSelectorPlanCacheStats {
+  planHits: number;
+  planMisses: number;
+  planInvalidations: number;
+  templateHits: number;
+  templateMisses: number;
+  planEntries: number;
+  templateEntries: number;
+}
+
+interface CompiledServiceSelectorTemplate {
+  tokens: Array<string | { raw: string; ref: ServiceSelectorRef }>;
+  selectors: ServiceSelectorRef[];
+}
+
+interface CachedSelectorPlan {
+  fingerprint: string;
+  plan: ServiceSelectorPlan;
+}
+
 export type ServiceSelectorDiagnosticReason = "unresolved-local" | "missing-broker" | "denied-broker" | "source-auth-required";
 
 export interface ServiceSelectorDiagnostic {
@@ -47,6 +67,34 @@ export interface ServiceVariablesPayload {
   variables: ServiceVariableEntry[];
   selectorPlan: ServiceSelectorPlan;
   diagnostics: ServiceSelectorDiagnostic[];
+}
+
+const compiledTemplateCache = new Map<string, CompiledServiceSelectorTemplate>();
+const selectorPlanCache = new Map<string, CachedSelectorPlan>();
+const selectorPlanCacheStats = {
+  planHits: 0,
+  planMisses: 0,
+  planInvalidations: 0,
+  templateHits: 0,
+  templateMisses: 0,
+};
+
+export function resetServiceSelectorPlanCache(): void {
+  compiledTemplateCache.clear();
+  selectorPlanCache.clear();
+  selectorPlanCacheStats.planHits = 0;
+  selectorPlanCacheStats.planMisses = 0;
+  selectorPlanCacheStats.planInvalidations = 0;
+  selectorPlanCacheStats.templateHits = 0;
+  selectorPlanCacheStats.templateMisses = 0;
+}
+
+export function getServiceSelectorPlanCacheStats(): ServiceSelectorPlanCacheStats {
+  return {
+    ...selectorPlanCacheStats,
+    planEntries: selectorPlanCache.size,
+    templateEntries: compiledTemplateCache.size,
+  };
 }
 
 function buildPortVariables(resolvedPorts: Record<string, number>): ServiceVariableEntry[] {
@@ -101,13 +149,82 @@ function createSelectorRef(selector: string): ServiceSelectorRef {
   };
 }
 
+function compileServiceSelectorTemplate(value: string): CompiledServiceSelectorTemplate {
+  const cached = compiledTemplateCache.get(value);
+  if (cached) {
+    selectorPlanCacheStats.templateHits += 1;
+    return cached;
+  }
+
+  selectorPlanCacheStats.templateMisses += 1;
+  const tokens: CompiledServiceSelectorTemplate["tokens"] = [];
+  const selectors = new Map<string, ServiceSelectorRef>();
+  const selectorPattern = /\$\{([^}]+)\}/g;
+  let cursor = 0;
+
+  for (const match of value.matchAll(selectorPattern)) {
+    const matchIndex = match.index ?? 0;
+    if (matchIndex > cursor) {
+      tokens.push(value.slice(cursor, matchIndex));
+    }
+
+    const raw = match[0];
+    const ref = createSelectorRef(match[1]);
+    tokens.push({ raw, ref });
+    selectors.set(ref.selector, ref);
+    cursor = matchIndex + raw.length;
+  }
+
+  if (cursor < value.length) {
+    tokens.push(value.slice(cursor));
+  }
+
+  const compiled = { tokens, selectors: [...selectors.values()] };
+  compiledTemplateCache.set(value, compiled);
+  return compiled;
+}
+
+function fingerprintSelectorValues(values: string[] | Record<string, string>): string {
+  if (Array.isArray(values)) {
+    return JSON.stringify({ kind: "array", values });
+  }
+
+  return JSON.stringify({
+    kind: "record",
+    values: Object.keys(values)
+      .sort()
+      .map((key) => [key, values[key]]),
+  });
+}
+
+export function compileCachedServiceSelectorPlan(
+  cacheKey: string,
+  values: string[] | Record<string, string>,
+): ServiceSelectorPlan {
+  const fingerprint = fingerprintSelectorValues(values);
+  const cached = selectorPlanCache.get(cacheKey);
+
+  if (cached?.fingerprint === fingerprint) {
+    selectorPlanCacheStats.planHits += 1;
+    return cached.plan;
+  }
+
+  if (cached) {
+    selectorPlanCacheStats.planInvalidations += 1;
+  }
+
+  selectorPlanCacheStats.planMisses += 1;
+  const plan = compileServiceSelectorPlan(values);
+  selectorPlanCache.set(cacheKey, { fingerprint, plan });
+  return plan;
+}
+
 export function compileServiceSelectorPlan(values: string[] | Record<string, string>): ServiceSelectorPlan {
   const texts = Array.isArray(values) ? values : Object.values(values);
   const selectors = new Map<string, ServiceSelectorRef>();
 
   for (const text of texts) {
-    for (const match of text.matchAll(/\$\{([^}]+)\}/g)) {
-      const ref = createSelectorRef(match[1]);
+    for (const ref of compileServiceSelectorTemplate(text).selectors) {
       selectors.set(ref.selector, ref);
     }
   }
@@ -148,35 +265,42 @@ function replaceVariableSelectors(
   variables: ServiceVariableEntry[],
   options: ServiceTextResolutionOptions = {},
 ): string {
-  return value.replace(/\$\{([^}]+)\}/g, (match, key) => {
-    const ref = createSelectorRef(key);
-    if (ref.kind === "broker") {
-      if (options.allowedBrokerRefs && !hasRef(options.allowedBrokerRefs, ref.selector)) {
-        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "denied-broker" });
-        return match;
+  const compiled = compileServiceSelectorTemplate(value);
+  return compiled.tokens
+    .map((token) => {
+      if (typeof token === "string") {
+        return token;
       }
-      if (hasRef(options.deniedBrokerRefs, ref.selector)) {
-        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "denied-broker" });
-        return match;
-      }
-      if (hasRef(options.sourceAuthRequiredBrokerRefs, ref.selector)) {
-        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "source-auth-required" });
-        return match;
-      }
-      const brokerValue = options.brokerValues?.[ref.selector];
-      if (brokerValue !== undefined) {
-        return brokerValue;
-      }
-      options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "missing-broker" });
-      return match;
-    }
 
-    const entry = variables.find((candidate) => candidate.key === ref.key);
-    if (!entry) {
-      options.diagnostics?.push({ selector: ref.selector, kind: "local", reason: "unresolved-local" });
-    }
-    return entry ? entry.value : match;
-  });
+      const { raw, ref } = token;
+      if (ref.kind === "broker") {
+        if (options.allowedBrokerRefs && !hasRef(options.allowedBrokerRefs, ref.selector)) {
+          options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "denied-broker" });
+          return raw;
+        }
+        if (hasRef(options.deniedBrokerRefs, ref.selector)) {
+          options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "denied-broker" });
+          return raw;
+        }
+        if (hasRef(options.sourceAuthRequiredBrokerRefs, ref.selector)) {
+          options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "source-auth-required" });
+          return raw;
+        }
+        const brokerValue = options.brokerValues?.[ref.selector];
+        if (brokerValue !== undefined) {
+          return brokerValue;
+        }
+        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "missing-broker" });
+        return raw;
+      }
+
+      const entry = variables.find((candidate) => candidate.key === ref.key);
+      if (!entry) {
+        options.diagnostics?.push({ selector: ref.selector, kind: "local", reason: "unresolved-local" });
+      }
+      return entry ? entry.value : raw;
+    })
+    .join("");
 }
 
 export function buildServiceVariables(
@@ -283,7 +407,10 @@ export function buildServiceVariables(
   return {
     serviceId: service.manifest.id,
     variables: [...manifestVariables, ...brokerImportVariables, ...globalVariables, ...derivedVariables],
-    selectorPlan: compileServiceSelectorPlan(service.manifest.env ?? {}),
+    selectorPlan: compileCachedServiceSelectorPlan(
+      `service:${service.manifestPath}:${service.manifest.id}:env`,
+      service.manifest.env ?? {},
+    ),
     diagnostics: manifestDiagnostics,
   };
 }
@@ -305,15 +432,51 @@ export function collectServiceGlobalEnv(
 export function compileServiceMaterializationSelectorPlan(service: DiscoveredService): ServiceSelectorPlan {
   const installFiles = service.manifest.install?.files ?? [];
   const configFiles = service.manifest.config?.files ?? [];
+  const cacheKey = `service:${service.manifestPath}:${service.manifest.id}:materialization`;
+  const fingerprintValues = {
+    env: JSON.stringify(service.manifest.env ?? {}),
+    globalenv: JSON.stringify(service.manifest.globalenv ?? {}),
+    imports: JSON.stringify(service.manifest.broker?.imports ?? []),
+    exports: JSON.stringify(service.manifest.broker?.exports ?? []),
+    install: JSON.stringify(installFiles),
+    config: JSON.stringify(configFiles),
+  };
+  const fingerprint = fingerprintSelectorValues(fingerprintValues);
+  const cached = selectorPlanCache.get(cacheKey);
 
-  return mergeSelectorPlans([
-    compileServiceSelectorPlan(service.manifest.env ?? {}),
-    compileServiceSelectorPlan(service.manifest.globalenv ?? {}),
-    compileServiceSelectorPlan((service.manifest.broker?.imports ?? []).map((entry) => `\${${entry.ref}}`)),
-    compileServiceSelectorPlan((service.manifest.broker?.exports ?? []).flatMap((entry) => [`\${${entry.ref}}`, entry.source])),
-    compileServiceSelectorPlan(installFiles.flatMap((file) => [file.path, file.content])),
-    compileServiceSelectorPlan(configFiles.flatMap((file) => [file.path, file.content])),
+  if (cached?.fingerprint === fingerprint) {
+    selectorPlanCacheStats.planHits += 1;
+    return cached.plan;
+  }
+
+  if (cached) {
+    selectorPlanCacheStats.planInvalidations += 1;
+  }
+
+  selectorPlanCacheStats.planMisses += 1;
+  const plan = mergeSelectorPlans([
+    compileCachedServiceSelectorPlan(`${cacheKey}:env`, service.manifest.env ?? {}),
+    compileCachedServiceSelectorPlan(`${cacheKey}:globalenv`, service.manifest.globalenv ?? {}),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:broker-imports`,
+      (service.manifest.broker?.imports ?? []).map((entry) => `\${${entry.ref}}`),
+    ),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:broker-exports`,
+      (service.manifest.broker?.exports ?? []).flatMap((entry) => [`\${${entry.ref}}`, entry.source]),
+    ),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:install`,
+      installFiles.flatMap((file) => [file.path, file.content]),
+    ),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:config`,
+      configFiles.flatMap((file) => [file.path, file.content]),
+    ),
   ]);
+
+  selectorPlanCache.set(cacheKey, { fingerprint, plan });
+  return plan;
 }
 
 export function resolveServiceText(
