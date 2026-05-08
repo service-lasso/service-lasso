@@ -420,6 +420,17 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
           writeback: {
             allowedNamespaces: ["broker-consumer/runtime"],
             allowedOperations: ["create", "update", "rotate"],
+            allowedRefs: ["runtime.API_TOKEN"],
+            allowOverwrite: false,
+            auditReason: "capture generated runtime token",
+            generatedSecrets: [
+              {
+                ref: "runtime.API_TOKEN",
+                source: "${API_TOKEN}",
+                operation: "create",
+                required: true,
+              },
+            ],
           },
         },
       }),
@@ -460,6 +471,17 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
       writeback: {
         allowedNamespaces: ["broker-consumer/runtime"],
         allowedOperations: ["create", "update", "rotate"],
+        allowedRefs: ["runtime.API_TOKEN"],
+        allowOverwrite: false,
+        auditReason: "capture generated runtime token",
+        generatedSecrets: [
+          {
+            ref: "runtime.API_TOKEN",
+            source: "${API_TOKEN}",
+            operation: "create",
+            required: true,
+          },
+        ],
       },
     });
   } finally {
@@ -509,6 +531,43 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
         imports: [{ namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" }],
       },
     });
+    await writeManifest(servicesRoot, "writeback-denied-ref", {
+      id: "writeback-denied-ref",
+      name: "Writeback Denied Ref",
+      description: "Writeback capture outside allowed refs.",
+      broker: {
+        exports: [{ namespace: "runtime", ref: "runtime.API_TOKEN", source: "${API_TOKEN}" }],
+        writeback: {
+          allowedNamespaces: ["runtime"],
+          allowedRefs: ["runtime.OTHER_TOKEN"],
+          generatedSecrets: [{ ref: "runtime.API_TOKEN", source: "${API_TOKEN}" }],
+        },
+      },
+    });
+    await writeManifest(servicesRoot, "writeback-no-export", {
+      id: "writeback-no-export",
+      name: "Writeback No Export",
+      description: "Writeback capture without export contract.",
+      broker: {
+        writeback: {
+          allowedNamespaces: ["runtime"],
+          generatedSecrets: [{ ref: "runtime.API_TOKEN", source: "${API_TOKEN}" }],
+        },
+      },
+    });
+    await writeManifest(servicesRoot, "writeback-denied-operation", {
+      id: "writeback-denied-operation",
+      name: "Writeback Denied Operation",
+      description: "Writeback capture outside allowed operations.",
+      broker: {
+        exports: [{ namespace: "runtime", ref: "runtime.API_TOKEN", source: "${API_TOKEN}" }],
+        writeback: {
+          allowedNamespaces: ["runtime"],
+          allowedOperations: ["create"],
+          generatedSecrets: [{ ref: "runtime.API_TOKEN", source: "${API_TOKEN}", operation: "rotate" }],
+        },
+      },
+    });
 
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "bad-enabled", "service.json")),
@@ -529,6 +588,18 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "env-import-collision", "service.json")),
       /collides with env\.DB_PASSWORD/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "writeback-denied-ref", "service.json")),
+      /outside broker\.writeback\.allowedRefs/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "writeback-no-export", "service.json")),
+      /must have a matching broker\.exports entry/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "writeback-denied-operation", "service.json")),
+      /outside broker\.writeback\.allowedOperations/i,
     );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });

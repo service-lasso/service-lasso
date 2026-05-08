@@ -4,12 +4,17 @@
   "description": "Tracked provider-backed sample service used to prove real @node execution through the core runtime.",
   "version": "0.1.0",
   "enabled": true,
-  "depend_on": ["@node"],
+  "depend_on": [
+    "@node"
+  ],
   "execservice": "@node",
-  "args": ["runtime/server.mjs"],
+  "args": [
+    "runtime/server.mjs"
+  ],
   "env": {
     "NODE_SAMPLE_ENV_PATH": "./.state/provider-env.json",
-    "NODE_SAMPLE_PORT": "${SERVICE_PORT}"
+    "NODE_SAMPLE_PORT": "${SERVICE_PORT}",
+    "NODE_SAMPLE_API_TOKEN": "${sample.API_TOKEN}"
   },
   "ports": {
     "service": 4020
@@ -23,5 +28,57 @@
   ],
   "healthcheck": {
     "type": "process"
+  },
+  "broker": {
+    "enabled": true,
+    "namespace": "services/node-sample-service",
+    "buckets": [
+      {
+        "namespace": "services/node-sample-service",
+        "kind": "service"
+      },
+      {
+        "namespace": "shared/sample",
+        "kind": "shared"
+      }
+    ],
+    "imports": [
+      {
+        "namespace": "shared/sample",
+        "ref": "sample.API_TOKEN",
+        "as": "NODE_SAMPLE_API_TOKEN",
+        "required": false
+      }
+    ],
+    "writeback": {
+      "allowedNamespaces": [
+        "services/node-sample-service"
+      ],
+      "allowedOperations": [
+        "create",
+        "rotate"
+      ],
+      "allowedRefs": [
+        "sample.GENERATED_TOKEN"
+      ],
+      "allowOverwrite": false,
+      "auditReason": "sample service generated token capture",
+      "generatedSecrets": [
+        {
+          "ref": "sample.GENERATED_TOKEN",
+          "source": "${NODE_SAMPLE_API_TOKEN}",
+          "operation": "create",
+          "required": false
+        }
+      ]
+    },
+    "exports": [
+      {
+        "namespace": "services/node-sample-service",
+        "ref": "sample.GENERATED_TOKEN",
+        "source": "${NODE_SAMPLE_API_TOKEN}",
+        "required": false
+      }
+    ]
   }
 }

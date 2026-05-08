@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import type { DiscoveredService, ServiceActionMaterialization } from "../../contracts/service.js";
-import { resolveServiceText } from "../operator/variables.js";
+import { resolveServiceText, type ServiceTextResolutionOptions } from "../operator/variables.js";
 
 export interface MaterializedArtifactResult {
   files: string[];
@@ -39,13 +39,14 @@ async function materializeFiles(
   definition: ServiceActionMaterialization | undefined,
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
+  options: ServiceTextResolutionOptions = {},
 ): Promise<MaterializedArtifactResult> {
   const files = definition?.files ?? [];
   const materializedPaths: string[] = [];
 
   for (const file of files) {
-    const renderedRelativePath = resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts);
-    const renderedContent = resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts);
+    const renderedRelativePath = resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts, options);
+    const renderedContent = resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts, options);
     const { absolutePath, relativePath } = resolveArtifactPath(service.serviceRoot, renderedRelativePath);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, renderedContent, "utf8");
@@ -62,14 +63,16 @@ export async function materializeInstallArtifacts(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
+  options: ServiceTextResolutionOptions = {},
 ): Promise<MaterializedArtifactResult> {
-  return materializeFiles(service, service.manifest.install, sharedGlobalEnv, resolvedPorts);
+  return materializeFiles(service, service.manifest.install, sharedGlobalEnv, resolvedPorts, options);
 }
 
 export async function materializeConfigArtifacts(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
+  options: ServiceTextResolutionOptions = {},
 ): Promise<MaterializedArtifactResult> {
-  return materializeFiles(service, service.manifest.config, sharedGlobalEnv, resolvedPorts);
+  return materializeFiles(service, service.manifest.config, sharedGlobalEnv, resolvedPorts, options);
 }

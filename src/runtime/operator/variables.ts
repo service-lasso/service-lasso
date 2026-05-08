@@ -24,7 +24,7 @@ export interface ServiceSelectorPlan {
   brokerRefs: string[];
 }
 
-export type ServiceSelectorDiagnosticReason = "unresolved-local" | "missing-broker";
+export type ServiceSelectorDiagnosticReason = "unresolved-local" | "missing-broker" | "denied-broker" | "source-auth-required";
 
 export interface ServiceSelectorDiagnostic {
   selector: string;
@@ -35,6 +35,9 @@ export interface ServiceSelectorDiagnostic {
 export interface ServiceTextResolutionOptions {
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
+  allowedBrokerRefs?: Set<string> | string[];
+  deniedBrokerRefs?: Set<string> | string[];
+  sourceAuthRequiredBrokerRefs?: Set<string> | string[];
 }
 
 export interface ServiceVariableResolutionOptions extends ServiceTextResolutionOptions {}
@@ -133,6 +136,13 @@ function mergeSelectorPlans(plans: ServiceSelectorPlan[]): ServiceSelectorPlan {
   };
 }
 
+function hasRef(refs: Set<string> | string[] | undefined, ref: string): boolean {
+  if (!refs) {
+    return false;
+  }
+  return Array.isArray(refs) ? refs.includes(ref) : refs.has(ref);
+}
+
 function replaceVariableSelectors(
   value: string,
   variables: ServiceVariableEntry[],
@@ -141,6 +151,18 @@ function replaceVariableSelectors(
   return value.replace(/\$\{([^}]+)\}/g, (match, key) => {
     const ref = createSelectorRef(key);
     if (ref.kind === "broker") {
+      if (options.allowedBrokerRefs && !hasRef(options.allowedBrokerRefs, ref.selector)) {
+        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "denied-broker" });
+        return match;
+      }
+      if (hasRef(options.deniedBrokerRefs, ref.selector)) {
+        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "denied-broker" });
+        return match;
+      }
+      if (hasRef(options.sourceAuthRequiredBrokerRefs, ref.selector)) {
+        options.diagnostics?.push({ selector: ref.selector, kind: "broker", reason: "source-auth-required" });
+        return match;
+      }
       const brokerValue = options.brokerValues?.[ref.selector];
       if (brokerValue !== undefined) {
         return brokerValue;
@@ -226,18 +248,30 @@ export function buildServiceVariables(
   ];
 
   const manifestDiagnostics: ServiceSelectorDiagnostic[] = [];
+  const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map((entry) => entry.ref);
+  const allowedBrokerRefs = declaredBrokerRefs.length > 0 ? declaredBrokerRefs : undefined;
+  const brokerResolutionOptions: ServiceTextResolutionOptions = {
+    ...options,
+    allowedBrokerRefs,
+    diagnostics: manifestDiagnostics,
+  };
   const manifestVariables = rawManifestVariables.map((entry) => ({
     ...entry,
-    value: replaceVariableSelectors(entry.value, [...rawManifestVariables, ...globalVariables, ...derivedVariables], {
-      diagnostics: manifestDiagnostics,
-      brokerValues: options.brokerValues,
-    }),
+    value: replaceVariableSelectors(entry.value, [...rawManifestVariables, ...globalVariables, ...derivedVariables], brokerResolutionOptions),
   }));
 
   const manifestVariableKeys = new Set(manifestVariables.map((entry) => entry.key));
   const brokerImportVariables = (service.manifest.broker?.imports ?? [])
     .filter((entry) => entry.as && !manifestVariableKeys.has(entry.as))
     .flatMap((entry): ServiceVariableEntry[] => {
+      if (hasRef(options.deniedBrokerRefs, entry.ref)) {
+        manifestDiagnostics.push({ selector: entry.ref, kind: "broker", reason: "denied-broker" });
+        return [];
+      }
+      if (hasRef(options.sourceAuthRequiredBrokerRefs, entry.ref)) {
+        manifestDiagnostics.push({ selector: entry.ref, kind: "broker", reason: "source-auth-required" });
+        return [];
+      }
       const brokerValue = options.brokerValues?.[entry.ref];
       if (brokerValue === undefined) {
         manifestDiagnostics.push({ selector: entry.ref, kind: "broker", reason: "missing-broker" });
@@ -289,7 +323,12 @@ export function resolveServiceText(
   resolvedPorts: Record<string, number> = {},
   options: ServiceTextResolutionOptions = {},
 ): string {
-  return replaceVariableSelectors(value, buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables, options);
+  const variablesPayload = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts, options);
+  const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map((entry) => entry.ref);
+  return replaceVariableSelectors(value, variablesPayload.variables, {
+    ...options,
+    allowedBrokerRefs: declaredBrokerRefs.length > 0 ? declaredBrokerRefs : undefined,
+  });
 }
 
 export function collectRuntimeGlobalEnv(services: DiscoveredService[]): Record<string, string> {

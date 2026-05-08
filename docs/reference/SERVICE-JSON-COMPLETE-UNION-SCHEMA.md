@@ -236,7 +236,18 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
       ],
       "writeback": {
         "allowedNamespaces": ["services/<service-id>"],
-        "allowedOperations": ["create", "update", "rotate", "delete"]
+        "allowedOperations": ["create", "update", "rotate", "delete"],
+        "allowedRefs": ["service.KEY"],
+        "allowOverwrite": false,
+        "auditReason": "capture generated service secret",
+        "generatedSecrets": [
+          {
+            "ref": "service.KEY",
+            "source": "${LOCAL_ENV}",
+            "operation": "create",
+            "required": false
+          }
+        ]
       }
     },
     "depend_on": [
