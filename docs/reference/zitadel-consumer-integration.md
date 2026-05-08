@@ -16,63 +16,33 @@ inside that app's `services/` inventory instead.
 
 ## Traefik + ZITADEL + Service Admin SSO split
 
-In the local Service Admin SSO path, do not build a custom OIDC auth facade in
-Service Lasso by default. Use Traefik plus an OIDC middleware/plugin, such as
-`traefik-oidc-auth`, together with ZITADEL as the identity provider.
+Keep the local Service Admin SSO path simple. Do not build a custom OIDC auth
+facade in Service Lasso by default.
 
-Clean responsibility split:
+Use the existing pieces for what they already do:
 
-- **Traefik**: front door, routing, TLS/localhost entrypoints, middleware hooks,
-  protected-route enforcement, and OIDC middleware/plugin execution.
-- **Traefik OIDC middleware/plugin**: OIDC redirect/callback/session gate,
-  ZITADEL token validation, PKCE support, scopes, and claim/role assertions.
-- **ZITADEL**: identity provider, login UI, users, projects, applications,
-  roles, claims, issuer, and OIDC client configuration.
-- **Service Lasso**: service orchestration and configuration generation only:
-  compose hostnames, generate Traefik dynamic config, wire middleware options,
-  verify/bootstrap ZITADEL app/client settings where supported, and expose or
-  consume safe identity metadata contracts for Service Admin.
+- **Traefik** routes local hostnames and applies middleware.
+- **`traefik-oidc-auth`** handles the OIDC login gate, callback, session check,
+  token validation, PKCE, scopes, and claim/role assertions.
+- **ZITADEL** provides the identity provider, login UI, users, projects, roles,
+  claims, issuer, and OIDC client.
+- **Service Lasso** only generates and wires configuration: hostnames, Traefik
+  dynamic config, middleware options, ZITADEL client/bootstrap checks, route
+  policy, and safe identity metadata consumed by Service Admin.
 
-Service Lasso should not own the OIDC callback/session/token-validation runtime
-unless a concrete gap proves the Traefik plugin path cannot satisfy the local
-stack. If a gap appears later, prefer a small identity/context adapter over a
-full replacement auth facade.
-
-Service Lasso-owned SSO-adjacent responsibilities:
-
-- **Hostname composition**: decide or generate local names from the Traefik
-  localhost suffix convention, such as `serviceadmin.servicelasso.localhost`,
-  `auth.servicelasso.localhost`, and `zitadel.servicelasso.localhost`.
-- **Traefik dynamic config generation**: write or compose routers, services,
-  and middlewares into Traefik runtime config such as `runtime/dynamic.yml`, so
-  requests for those hostnames route to the right app or service and protected
-  routes attach the OIDC middleware.
-- **OIDC middleware configuration**: generate plugin configuration from safe
-  references: ZITADEL issuer URL, client ID, configured scopes, callback path,
-  role/claim assertions, and secret refs/handles where needed. Do not embed raw
-  client secrets or tokens in generated public docs/logs.
-- **ZITADEL bootstrap/verification**: create or verify the ZITADEL
-  project/application/client where supported, including exact redirect URLs such
-  as `https://serviceadmin.servicelasso.localhost/oidc/callback` or the selected
-  plugin callback route.
-- **Service Admin integration**: make Service Admin consume the resulting trusted
-  headers/claims/context from the protected route boundary rather than owning a
-  separate login system or parsing raw ZITADEL tokens.
-- **Security hardening**: strip spoofed auth headers before middleware output,
-  block direct bypass routes to protected apps, fail closed when OIDC/ZITADEL is
-  unavailable, and keep tokens and secrets out of UI surfaces and logs.
-
-The resulting flow is:
+The expected flow is:
 
 1. User opens `https://serviceadmin.servicelasso.localhost`.
-2. Traefik routes the request through the configured OIDC middleware/plugin.
+2. Traefik applies the configured OIDC middleware.
 3. The middleware redirects unauthenticated users to ZITADEL.
-4. ZITADEL authenticates the user and redirects back to the middleware callback.
-5. The middleware validates the response/session and applies configured
-   claim/role assertions.
-6. Service Admin receives only the safe trusted identity metadata available at
-   the protected route boundary and renders the operator as logged in for the
-   resolved workspace/app context.
+4. ZITADEL authenticates and redirects back to the middleware callback.
+5. The middleware validates the session and claims.
+6. Service Admin receives safe trusted identity metadata from the protected
+   route boundary.
+
+Only add a Service Lasso identity adapter later if a real gap appears. If that
+happens, keep it thin: translate trusted identity metadata into Service Lasso
+workspace/app context. Do not rebuild OIDC inside Service Lasso.
 
 ## Reference fixture
 
