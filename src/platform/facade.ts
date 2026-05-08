@@ -6,9 +6,9 @@ export type ProviderConnectionStatus = "ready" | "needs-auth" | "expiring" | "re
 export type PlatformEntitlement =
   | "workspace:read"
   | "workspace:admin"
-  | "provider-connection:read"
-  | "provider-connection:write"
-  | "provider-connection:use"
+  | "secrets-broker-source:read"
+  | "secrets-broker-source:write"
+  | "secrets-broker-source:use"
   | "secrets-broker:resolve"
   | "workflow:run";
 
@@ -85,6 +85,7 @@ export type ProviderConnectionAffectedSummary = {
 };
 
 export type ProviderConnectionMetadata = {
+  // Core boundary: this is Secrets Broker source/ref metadata only, not a provider account/auth lifecycle record.
   id: string;
   workspaceId: string;
   ownerUserId: string;
@@ -213,6 +214,12 @@ export type AuthorizationDecision = {
   requiredEntitlements: PlatformEntitlement[];
 };
 
+export const coreFacadeBoundary = {
+  owns: ["service-manager", "secrets-broker"],
+  excludes: ["provider-account-lifecycle", "provider-oauth", "oidc-callbacks", "session-token-handling", "raw-secret-material"],
+  providerConnectionScope: "secrets-broker-source-metadata-only",
+} as const;
+
 export const providerConnectionMetadataEndpoints = {
   list: "GET /api/platform/workspaces/{workspaceId}/provider-connections",
   create: "POST /api/platform/workspaces/{workspaceId}/provider-connections",
@@ -277,8 +284,8 @@ export const examplePlatformFacadeState = {
       name: "operator",
       entitlements: [
         "workspace:read",
-        "provider-connection:read",
-        "provider-connection:use",
+        "secrets-broker-source:read",
+        "secrets-broker-source:use",
         "secrets-broker:resolve",
         "workflow:run",
       ],
@@ -349,7 +356,7 @@ export function listProviderConnectionMetadata(
   workspaceId: string,
   now = "2026-05-08T11:05:00Z",
 ): ProviderConnectionMetadataOperationResult {
-  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:read");
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "secrets-broker-source:read");
   if (denied) return deniedResult(state, context, workspaceId, undefined, undefined, "list", denied, now);
   const connections = state.providerConnections.filter((connection) => connection.workspaceId === workspaceId && connection.status !== "deleted");
   connections.forEach(assertProviderConnectionMetadataOnly);
@@ -368,7 +375,7 @@ export function readProviderConnectionMetadata(
   connectionId: string,
   now = "2026-05-08T11:05:00Z",
 ): ProviderConnectionMetadataOperationResult {
-  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:read");
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "secrets-broker-source:read");
   if (denied) return deniedResult(state, context, workspaceId, connectionId, undefined, "read", denied, now);
   const connection = state.providerConnections.find((candidate) => candidate.workspaceId === workspaceId && candidate.id === connectionId && candidate.status !== "deleted");
   if (!connection) return notFoundResult(state, context, workspaceId, connectionId, "read", now);
@@ -382,7 +389,7 @@ export function createProviderConnectionMetadata(
   request: CreateProviderConnectionMetadataRequest,
   now = "2026-05-08T11:05:00Z",
 ): ProviderConnectionMetadataOperationResult {
-  const denied = authorizeProviderConnectionMetadataAction(context, request.workspaceId, "provider-connection:write");
+  const denied = authorizeProviderConnectionMetadataAction(context, request.workspaceId, "secrets-broker-source:write");
   if (denied) return deniedResult(state, context, request.workspaceId, undefined, request.provider, "create", denied, now);
   const connection: ProviderConnectionMetadata = {
     id: `pc_${request.provider.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}_${Date.parse(now)}`,
@@ -418,7 +425,7 @@ export function updateProviderConnectionMetadata(
   patch: UpdateProviderConnectionMetadataRequest,
   now = "2026-05-08T11:05:00Z",
 ): ProviderConnectionMetadataOperationResult {
-  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:write");
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "secrets-broker-source:write");
   if (denied) return deniedResult(state, context, workspaceId, connectionId, undefined, "update", denied, now);
   const index = state.providerConnections.findIndex((candidate) => candidate.workspaceId === workspaceId && candidate.id === connectionId && candidate.status !== "deleted");
   if (index === -1) return notFoundResult(state, context, workspaceId, connectionId, "update", now);
@@ -440,7 +447,7 @@ export function deleteProviderConnectionMetadata(
   connectionId: string,
   now = "2026-05-08T11:05:00Z",
 ): ProviderConnectionMetadataOperationResult {
-  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "provider-connection:write");
+  const denied = authorizeProviderConnectionMetadataAction(context, workspaceId, "secrets-broker-source:write");
   if (denied) return deniedResult(state, context, workspaceId, connectionId, undefined, "delete", denied, now);
   const connection = state.providerConnections.find((candidate) => candidate.workspaceId === workspaceId && candidate.id === connectionId && candidate.status !== "deleted");
   if (!connection) return notFoundResult(state, context, workspaceId, connectionId, "delete", now);
@@ -628,9 +635,9 @@ export function authorizePlatformResource(
 }
 
 function requiredEntitlementsForResource(resource: AuthorizationResource): PlatformEntitlement[] {
-  if (resource.kind === "provider-connection") return ["provider-connection:use"];
+  if (resource.kind === "provider-connection") return ["secrets-broker-source:use"];
   if (resource.kind === "secrets-broker-ref") return ["secrets-broker:resolve"];
-  return ["workflow:run", "provider-connection:use"];
+  return ["workflow:run", "secrets-broker-source:use"];
 }
 
 const secretLikeFieldPattern = /(secret|token|apiKey|api_key|privateKey|private_key|password|credential|recoveryMaterial|recovery_material|keyMaterial|key_material)$/i;

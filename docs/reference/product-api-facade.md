@@ -1,26 +1,34 @@
 ---
-title: Product API Facade Contract
-sidebar_label: Product API Facade
+title: Core Boundary Facade Contract
+sidebar_label: Core Boundary Facade
 ---
 
-# Product API Facade Contract
+# Core Boundary Facade Contract
 
-The product API facade owns Service Lasso account metadata that is broader than
-runtime service state: users, workspaces, linked identities, request_context,
-service_identities, provider connection metadata, roles/entitlements, and
-authorization decisions for Secrets Broker and workflow/run resolution.
+Service Lasso core is limited to Service Manager and Secrets Broker. This
+facade is therefore not a product account platform, provider-account API, app
+auth system, or custom OIDC/session/callback/token implementation. It defines
+only the safe metadata shapes core needs to wire service lifecycle decisions,
+Secrets Broker refs, policy/audit checks, and workflow/run handoff decisions.
 
-This contract is metadata-only. Provider secret payloads, OAuth access tokens,
-refresh tokens, API keys, private keys, password values, portable master keys,
-and recovery material must not be stored or returned by the facade. Store secret
-material behind a Secrets Broker or source-backend reference and return only the
-safe reference metadata needed to authorize and diagnose access.
+User, workspace, linked identity, and role records in this document are minimal
+safe context fixtures consumed by core after an app-owned identity service has
+authenticated the request. ZITADEL, Traefik, Service Admin, and other consuming
+services own their auth mechanics and provider-specific behavior.
+
+Provider connection records are Secrets Broker source/ref metadata records, not
+general third-party account lifecycle records. Provider secret payloads, OAuth
+access tokens, refresh tokens, API keys, private keys, password values,
+portable master keys, session cookies, callback payloads, and recovery material
+must not be stored or returned by the facade. Store secret material behind a
+Secrets Broker or source-backend reference and return only the safe reference
+metadata needed to authorize and diagnose access.
 
 ## Data model
 
 ### `users`
 
-A user is the internal product principal.
+A user is a safe internal actor reference consumed by core after app-owned authentication succeeds.
 
 | Field | Notes |
 | --- | --- |
@@ -32,8 +40,8 @@ A user is the internal product principal.
 
 ### `workspaces`
 
-A workspace scopes users, provider connections, broker authorization, and
-workflow/run ownership.
+A workspace scopes safe actor references, Secrets Broker source metadata,
+broker authorization, and workflow/run handoff metadata.
 
 | Field | Notes |
 | --- | --- |
@@ -45,8 +53,9 @@ workflow/run ownership.
 
 ### `linked_identities`
 
-A linked identity maps an external identity provider subject to an internal user
-and one or more workspaces.
+A linked identity records safe identity metadata supplied by an app-owned
+identity service; core does not authenticate, callback, or refresh the
+identity provider session.
 
 | Field | Notes |
 | --- | --- |
@@ -61,9 +70,9 @@ and one or more workspaces.
 
 ### `request_context`
 
-Every broker/admin/provider/workflow API receives a canonical request context
+Every broker/admin/workflow handoff receives a canonical request context
 instead of re-parsing cookies, tokens, route parameters, or provider-specific
-auth state.
+auth state in core.
 
 | Field | Notes |
 | --- | --- |
@@ -106,8 +115,9 @@ workspace mismatches, and instance mismatches as `service-identity-denied` or
 
 ### `provider_connections`
 
-A provider connection is safe metadata for a third-party or service provider
-integration. It must be clearly split from secret payloads.
+A provider connection record is safe Secrets Broker source/ref metadata for a
+third-party or service provider integration. It is not a provider account
+lifecycle object and must be clearly split from secret payloads.
 
 | Field | Notes |
 | --- | --- |
@@ -137,20 +147,20 @@ entitlements are:
 
 - `workspace:read`
 - `workspace:admin`
-- `provider-connection:read`
-- `provider-connection:write`
-- `provider-connection:use`
+- `secrets-broker-source:read`
+- `secrets-broker-source:write`
+- `secrets-broker-source:use`
 - `secrets-broker:resolve`
 - `workflow:run`
 
 Secrets Broker resolution requires `secrets-broker:resolve` in the same
 workspace as the requested broker namespace. Workflow/run resolution requires
 `workflow:run`; if a workflow uses provider connection metadata, it also
-requires `provider-connection:use` for each referenced connection.
+requires `secrets-broker-source:use` for each referenced Secrets Broker source metadata record.
 
-## Provider connection metadata API
+## Secrets Broker source metadata API
 
-The facade exposes CRUD for metadata only:
+The facade exposes CRUD for Secrets Broker source/ref metadata only. These routes intentionally do not create provider accounts, perform OAuth, refresh provider tokens, manage callbacks, or store provider credentials:
 
 ```text
 GET   /api/platform/workspaces/{workspaceId}/provider-connections
@@ -209,23 +219,26 @@ Delete removes the metadata record from the facade response set and emits a safe
 facade must never return raw provider secrets, access tokens, refresh tokens,
 API keys, password values, private keys, key material, or recovery material.
 
-## Provider connection lifecycle API
+## Secrets Broker source metadata lifecycle API
 
-Provider lifecycle actions are stable core API contracts that UI and workflow
-layers can call without embedding provider-specific behavior. The refresh/test
-operations let consumers verify provider reachability and scope posture without
-mutating provider secret payloads. Provider-specific OAuth or token flows may
-still be unavailable in early slices; unavailable flows
-must return actionable `setup-needed` or `provider-unavailable` responses rather
-than dead actions.
+Core lifecycle actions are metadata/status contracts for Secrets Broker
+source/ref records. They do not run provider-specific OAuth, reconnect,
+callback, token refresh, provider account setup, or session logic. Services and
+packages own those provider flows and may report safe status back to core.
+
+The metadata refresh/test operations let consumers verify stored safe metadata,
+source availability, and scope posture without mutating provider secret
+payloads. When provider-owned action is required, core returns actionable
+`setup-needed`, `source-auth-required`, or `provider-unavailable` metadata so UI
+and services can hand off without embedding provider behavior in core.
 
 ```text
-POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/connect
-POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/reconnect
-POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh
-POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test
-POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable
-POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/record-source-auth-required
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/record-reconnect-required
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh-metadata
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test-metadata
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable-metadata
+POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect-metadata
 ```
 
 Normalized lifecycle statuses are:
@@ -247,7 +260,7 @@ Lifecycle responses include safe metadata only:
 {
   "connectionId": "pc_github_ready",
   "provider": "github",
-  "action": "test",
+  "action": "test-metadata",
   "status": "connected",
   "ok": true,
   "auditEvent": {
@@ -255,7 +268,7 @@ Lifecycle responses include safe metadata only:
     "workspaceId": "wks_local_demo",
     "connectionId": "pc_github_ready",
     "provider": "github",
-    "action": "test",
+    "action": "test-metadata",
     "fromStatus": "connected",
     "toStatus": "connected",
     "outcome": "success",
@@ -273,13 +286,13 @@ secret values:
 {
   "connectionId": "pc_slack_missing",
   "provider": "slack",
-  "action": "connect",
+  "action": "record-source-auth-required",
   "status": "source_auth_required",
   "ok": false,
   "error": {
     "code": "setup-needed",
     "message": "Provider connection needs operator setup before it can be used.",
-    "action": "Open the provider setup flow and complete authorization.",
+    "action": "Hand off to the owning service/package setup flow; core records metadata only.",
     "provider": "slack",
     "retryable": true,
     "documentationRef": "docs/reference/product-api-facade.md#provider-connection-lifecycle-api"
@@ -294,7 +307,7 @@ permissions, or unavailable provider support, but must never include access
 tokens, refresh tokens, API keys, provider secrets, key material, or recovery
 material.
 
-Reference lifecycle fixtures cover healthy, expiring, missing/setup-required, refresh-failed, denied, revoked, reconnect-required, disconnected, and deleted states in `src/platform/providerConnectionLifecycle.ts`.
+Reference lifecycle fixtures cover healthy, expiring, missing/setup-required, refresh-failed, denied, revoked, reconnect-required, metadata-disconnected, and deleted states in `src/platform/providerConnectionLifecycle.ts`.
 Tests in `tests/provider-connection-lifecycle.test.js` verify status
 normalization, secret-safe error payloads, unavailable action stubs, and safe
 audit transition metadata.
@@ -316,9 +329,7 @@ internal context as follows:
 6. Fail closed if the linked identity, workspace, user, session freshness, or
    required entitlement is missing.
 
-ZITADEL remains app-owned. This facade contract describes how an authenticated
-ZITADEL subject enters Service Lasso account/workspace authorization; it does
-not make ZITADEL part of the Service Lasso core baseline.
+ZITADEL remains app/service-owned. This facade contract describes the safe identity metadata core may consume after authentication; it does not make ZITADEL, OIDC sessions, callbacks, or token handling part of the Service Lasso core baseline.
 
 ## Service-authenticated requests
 
@@ -346,12 +357,12 @@ raw secrets, cookies, or session material.
 
 Authorization is workspace-scoped and fail-closed:
 
-- Provider connection read/write/use checks must compare the request workspace to
+- Secrets Broker source metadata read/write/use checks must compare the request workspace to
   the connection `workspaceId`.
 - Secrets Broker checks must compare the request workspace to the broker
   namespace owner and require `secrets-broker:resolve`.
 - Workflow/run checks must require `workflow:run`, then require
-  `provider-connection:use` for each provider connection referenced by the run.
+  `secrets-broker-source:use` for each Secrets Broker source metadata record referenced by the run.
 - Connections with status `needs-auth`, `revoked`, `disabled`, or `error` cannot
   be used for broker or workflow authorization.
 - Request context resolution must represent `unauthenticated`, `unauthorized`,

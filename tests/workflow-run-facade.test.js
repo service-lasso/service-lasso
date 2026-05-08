@@ -20,7 +20,7 @@ const context = {
   userId: "usr_01hzy9operator",
   workspaceId: "wks_local_demo",
   linkedIdentityId: "lid_zitadel_operator",
-  entitlements: ["workspace:read", "provider-connection:use", "secrets-broker:resolve", "workflow:run"],
+  entitlements: ["workspace:read", "secrets-broker-source:use", "secrets-broker:resolve", "workflow:run"],
 };
 
 function clone(value) {
@@ -74,7 +74,7 @@ test("workflow run facade normalizes Dagu and generic statuses", () => {
 });
 
 test("workflow start fails closed for workspace entitlement provider and secret policy", () => {
-  const missingWorkflowRun = startWorkflowFacadeRun({ ...context, entitlements: ["workspace:read", "provider-connection:use", "secrets-broker:resolve"] }, { workspaceId: "wks_local_demo", workflowId: "official.core.maintenance/backup-check" });
+  const missingWorkflowRun = startWorkflowFacadeRun({ ...context, entitlements: ["workspace:read", "secrets-broker-source:use", "secrets-broker:resolve"] }, { workspaceId: "wks_local_demo", workflowId: "official.core.maintenance/backup-check" });
   assert.equal(missingWorkflowRun.ok, false);
   assert.equal(missingWorkflowRun.error.code, "missing-entitlement");
 

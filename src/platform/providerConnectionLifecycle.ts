@@ -13,7 +13,13 @@ export type ProviderConnectionLifecycleStatus =
   | "degraded"
   | "deleted";
 
-export type ProviderConnectionLifecycleAction = "connect" | "reconnect" | "refresh" | "test" | "disable" | "disconnect";
+export type ProviderConnectionLifecycleAction =
+  | "record-source-auth-required"
+  | "record-reconnect-required"
+  | "refresh-metadata"
+  | "test-metadata"
+  | "disable-metadata"
+  | "disconnect-metadata";
 
 export type ProviderLifecycleErrorCode =
   | "setup-needed"
@@ -72,13 +78,18 @@ export type ProviderLifecycleActionResponse = {
   error?: ProviderConnectionLifecycleError;
 };
 
+export const providerConnectionLifecycleBoundary = {
+  scope: "secrets-broker-source-metadata-only",
+  excludes: ["provider-oauth", "provider-token-refresh", "oidc-callbacks", "session-handling", "provider-account-lifecycle"],
+} as const;
+
 export const providerConnectionLifecycleEndpoints = {
-  connect: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/connect",
-  reconnect: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/reconnect",
-  refresh: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh",
-  test: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test",
-  disable: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable",
-  disconnect: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect",
+  recordSourceAuthRequired: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/record-source-auth-required",
+  recordReconnectRequired: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/record-reconnect-required",
+  refreshMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/refresh-metadata",
+  testMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/test-metadata",
+  disableMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disable-metadata",
+  disconnectMetadata: "POST /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}/disconnect-metadata",
 } as const;
 
 const now = "2026-05-08T11:05:00Z";
@@ -109,14 +120,14 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "connected",
-    expectedAction: "test",
+    expectedAction: "test-metadata",
     nextActionLabel: "Test connection",
     lastAuditEvent: {
       id: "audit_provider_ready_001",
       workspaceId: "wks_local_demo",
       connectionId: "pc_github_ready",
       provider: "github",
-      action: "test",
+      action: "test-metadata",
       fromStatus: "connected",
       toStatus: "connected",
       outcome: "success",
@@ -146,14 +157,14 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "expiring",
-    expectedAction: "refresh",
+    expectedAction: "refresh-metadata",
     nextActionLabel: "Refresh connection",
     lastAuditEvent: {
       id: "audit_provider_expiring_001",
       workspaceId: "wks_local_demo",
       connectionId: "pc_github_expiring",
       provider: "github",
-      action: "refresh",
+      action: "refresh-metadata",
       fromStatus: "connected",
       toStatus: "expiring",
       outcome: "success",
@@ -180,12 +191,12 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "source_auth_required",
-    expectedAction: "connect",
+    expectedAction: "record-source-auth-required",
     nextActionLabel: "Connect provider",
     safeError: {
       code: "setup-needed",
       message: "Provider connection needs operator setup before it can be used.",
-      action: "Open the provider setup flow and complete authorization.",
+      action: "Hand off to the owning service/package setup flow; core records metadata only.",
       provider: "slack",
       retryable: true,
       documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
@@ -195,7 +206,7 @@ export const providerConnectionLifecycleFixtures: Record<
       workspaceId: "wks_local_demo",
       connectionId: "pc_slack_missing",
       provider: "slack",
-      action: "connect",
+      action: "record-source-auth-required",
       toStatus: "source_auth_required",
       outcome: "setup-needed",
       at: now,
@@ -224,12 +235,12 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "refresh_failed",
-    expectedAction: "reconnect",
+    expectedAction: "record-reconnect-required",
     nextActionLabel: "Reconnect provider",
     safeError: {
       code: "source-auth-required",
       message: "Provider refresh failed and needs a reconnect before dependent workflows run.",
-      action: "Reconnect the provider and retry affected workflows after authorization succeeds.",
+      action: "Hand off to the owning service/package reconnect flow and retry affected workflows after safe metadata reports success.",
       provider: "github",
       retryable: true,
       documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
@@ -239,7 +250,7 @@ export const providerConnectionLifecycleFixtures: Record<
       workspaceId: "wks_local_demo",
       connectionId: "pc_github_refresh_failed",
       provider: "github",
-      action: "refresh",
+      action: "refresh-metadata",
       fromStatus: "connected",
       toStatus: "refresh_failed",
       outcome: "unavailable",
@@ -267,12 +278,12 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "permission_changed",
-    expectedAction: "reconnect",
+    expectedAction: "record-reconnect-required",
     nextActionLabel: "Reconnect with required scopes",
     safeError: {
       code: "permission-denied",
       message: "Provider rejected the requested scope set.",
-      action: "Reconnect the provider with the required scopes or update workflow requirements.",
+      action: "Hand off to the owning service/package scope flow or update workflow requirements.",
       provider: "stripe",
       retryable: true,
       documentationRef: "docs/reference/product-api-facade.md#authorization-boundaries",
@@ -282,7 +293,7 @@ export const providerConnectionLifecycleFixtures: Record<
       workspaceId: "wks_local_demo",
       connectionId: "pc_stripe_denied",
       provider: "stripe",
-      action: "test",
+      action: "test-metadata",
       fromStatus: "connected",
       toStatus: "permission_changed",
       outcome: "denied",
@@ -311,12 +322,12 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "revoked",
-    expectedAction: "reconnect",
+    expectedAction: "record-reconnect-required",
     nextActionLabel: "Reconnect provider",
     safeError: {
       code: "source-auth-required",
       message: "Provider authorization was revoked.",
-      action: "Reconnect the provider or disconnect the metadata record.",
+      action: "Hand off to the owning service/package reconnect flow or disconnect the metadata record.",
       provider: "slack",
       retryable: true,
       documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
@@ -326,7 +337,7 @@ export const providerConnectionLifecycleFixtures: Record<
       workspaceId: "wks_local_demo",
       connectionId: "pc_slack_revoked",
       provider: "slack",
-      action: "disconnect",
+      action: "disconnect-metadata",
       fromStatus: "connected",
       toStatus: "revoked",
       outcome: "unavailable",
@@ -355,12 +366,12 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "reconnect_required",
-    expectedAction: "reconnect",
+    expectedAction: "record-reconnect-required",
     nextActionLabel: "Reconnect provider",
     safeError: {
       code: "source-auth-required",
       message: "Provider authorization must be refreshed before workflows can use this connection.",
-      action: "Start the reconnect flow and retry the workflow after authorization succeeds.",
+      action: "Record reconnect-required metadata and retry the workflow after the owning service reports authorization success.",
       provider: "google-calendar",
       retryable: true,
       documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
@@ -370,7 +381,7 @@ export const providerConnectionLifecycleFixtures: Record<
       workspaceId: "wks_local_demo",
       connectionId: "pc_calendar_reconnect",
       provider: "google-calendar",
-      action: "refresh",
+      action: "refresh-metadata",
       fromStatus: "expiring",
       toStatus: "reconnect_required",
       outcome: "unavailable",
@@ -398,14 +409,14 @@ export const providerConnectionLifecycleFixtures: Record<
       secretMaterialPresent: false,
     },
     lifecycleStatus: "deleted",
-    expectedAction: "disconnect",
+    expectedAction: "disconnect-metadata",
     nextActionLabel: "Connection metadata deleted",
     lastAuditEvent: {
       id: "audit_provider_deleted_001",
       workspaceId: "wks_local_demo",
       connectionId: "pc_slack_deleted",
       provider: "slack",
-      action: "disconnect",
+      action: "disconnect-metadata",
       fromStatus: "revoked",
       toStatus: "deleted",
       outcome: "success",
@@ -444,8 +455,8 @@ export function createProviderLifecycleUnavailableResponse(
   const decision = authorizePlatformResource(context, { kind: "provider-connection", connection: fixture.connection });
   const safeError = fixture.safeError ?? {
     code: "action-not-implemented" as const,
-    message: "Provider-specific lifecycle flow is not implemented yet.",
-    action: "Use the provider setup documentation or retry after this provider flow is enabled.",
+    message: "Provider-specific lifecycle flow is outside core.",
+    action: "Use the owning service/package setup documentation; core records metadata status only.",
     provider: request.provider,
     retryable: false,
     documentationRef: "docs/reference/product-api-facade.md#provider-connection-lifecycle-api",
@@ -469,7 +480,7 @@ export function createProviderLifecycleUnavailableResponse(
       error: {
         code: "permission-denied",
         message: "Requester is not authorized to use this provider connection.",
-        action: "Request provider-connection:use in the target workspace or switch workspace context.",
+        action: "Request secrets-broker-source:use in the target workspace or switch workspace context.",
         provider: request.provider,
         retryable: false,
         documentationRef: "docs/reference/product-api-facade.md#authorization-boundaries",
