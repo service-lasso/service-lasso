@@ -1,4 +1,5 @@
 import type { ProviderKind } from "../providers/types.js";
+import type { ScopedBrokerIdentityMetadata } from "../broker/identity.js";
 
 export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart";
 
@@ -76,6 +77,7 @@ export interface ServiceRuntimeState {
     stderrPath: string | null;
   };
   metrics: ServiceRuntimeMetricsState;
+  brokerIdentity: ScopedBrokerIdentityMetadata | null;
 }
 
 export interface ServiceLifecycleState {

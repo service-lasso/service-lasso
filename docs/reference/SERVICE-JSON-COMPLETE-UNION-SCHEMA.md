@@ -310,6 +310,16 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
 }
 ```
 
+### Runtime broker identity
+
+When `broker.writeback` is present, the runtime mints a per-launch scoped broker credential and injects it through reserved process environment keys:
+
+- `SERVICE_LASSO_BROKER_IDENTITY_ID`
+- `SERVICE_LASSO_BROKER_CREDENTIAL`
+- `SERVICE_LASSO_BROKER_CREDENTIAL_EXPIRES_AT`
+
+The raw credential is launch-only authority: it is not stored in lifecycle state or logs. Persisted lifecycle metadata is limited to non-secret identity/audit fields and revocation/expiry timestamps.
+
 ## Union skeleton (keys only)
 
 ```json

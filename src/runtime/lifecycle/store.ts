@@ -2,6 +2,26 @@ import type { ServiceLifecycleState } from "./types.js";
 
 const lifecycleState = new Map<string, ServiceLifecycleState>();
 
+function cloneBrokerIdentity(identity: ServiceLifecycleState["runtime"]["brokerIdentity"]): ServiceLifecycleState["runtime"]["brokerIdentity"] {
+  if (!identity) {
+    return null;
+  }
+
+  return {
+    id: identity.id,
+    serviceId: identity.serviceId,
+    issuedAt: identity.issuedAt,
+    expiresAt: identity.expiresAt,
+    revokedAt: identity.revokedAt,
+    scope: {
+      namespaces: [...identity.scope.namespaces],
+      operations: [...identity.scope.operations],
+      refs: [...identity.scope.refs],
+    },
+    audit: { ...identity.audit },
+  };
+}
+
 function createInitialState(): ServiceLifecycleState {
   return {
     installed: false,
@@ -58,6 +78,7 @@ function createInitialState(): ServiceLifecycleState {
         totalRunDurationMs: 0,
         lastRunDurationMs: null,
       },
+      brokerIdentity: null,
     },
   };
 }
@@ -137,6 +158,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
         totalRunDurationMs: current.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: current.runtime.metrics.lastRunDurationMs,
       },
+      brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
     },
   };
 }
@@ -210,6 +232,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
         totalRunDurationMs: nextState.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: nextState.runtime.metrics.lastRunDurationMs,
       },
+      brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
     },
   };
 

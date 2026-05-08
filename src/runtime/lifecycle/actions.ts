@@ -1,6 +1,7 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import { startManagedProcess, stopManagedProcess } from "../execution/supervisor.js";
+import { mintScopedBrokerIdentity, revokeServiceScopedBrokerIdentities } from "../broker/identity.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
@@ -108,6 +109,8 @@ async function persistProcessExit(
   exitCode: number | null,
 ): Promise<void> {
   const finishedAt = new Date().toISOString();
+  const revokedIdentities = revokeServiceScopedBrokerIdentities(service.manifest.id, { now: new Date(finishedAt) });
+  const revokedIdentity = revokedIdentities.at(-1) ?? getLifecycleState(service.manifest.id).runtime.brokerIdentity;
   const termination = (exitCode ?? getLifecycleState(service.manifest.id).runtime.exitCode ?? 0) === 0 ? "exited" : "crashed";
   const state = updateRuntimeState(service.manifest.id, (current) => ({
     ...current,
@@ -119,6 +122,7 @@ async function persistProcessExit(
       exitCode: exitCode ?? current.runtime.exitCode,
       lastTermination: termination,
       metrics: applyRunCompletionMetrics(current, finishedAt, termination),
+      brokerIdentity: revokedIdentity,
     },
   }));
 
@@ -258,6 +262,8 @@ export async function startService(
   }
 
   const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  revokeServiceScopedBrokerIdentities(serviceId);
+  const scopedBrokerIdentity = mintScopedBrokerIdentity(service);
   const resolvedPorts = Object.keys(current.runtime.ports).length > 0
     ? current.runtime.ports
     : registry
@@ -268,6 +274,7 @@ export async function startService(
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
+    secureEnv: scopedBrokerIdentity?.env,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -296,12 +303,15 @@ export async function startService(
         stderrPath: handle.logs.stderrPath,
       },
       metrics: applyProcessLaunchMetrics(state, "start", handle.startedAt),
+      brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
     },
   }));
 
   const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
+    const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
+    const revokedIdentity = revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
     return applyState(
       serviceId,
       "start",
@@ -316,6 +326,7 @@ export async function startService(
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
             lastTermination: "stopped",
             metrics: applyRunCompletionMetrics(state, new Date().toISOString(), "stopped"),
+            brokerIdentity: revokedIdentity,
           },
         },
         message: readiness.message,
@@ -338,6 +349,7 @@ export async function startService(
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
         lastTermination: null,
+        brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
       },
     },
     message: readiness.message,
@@ -353,6 +365,8 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
 
   const stopped = await stopManagedProcess(serviceId);
   const finishedAt = new Date().toISOString();
+  const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, { now: new Date(finishedAt) });
+  const revokedIdentity = revokedIdentities.at(-1) ?? current.runtime.brokerIdentity;
 
   return applyState(serviceId, "stop", (state) => ({
     nextState: {
@@ -365,6 +379,7 @@ export async function stopService(service: DiscoveredService): Promise<Lifecycle
         exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
         lastTermination: "stopped",
         metrics: applyRunCompletionMetrics(state, finishedAt, "stopped"),
+        brokerIdentity: revokedIdentity,
       },
     },
     message: "Stop completed.",
@@ -396,8 +411,10 @@ export async function restartService(
   if (current.running) {
     await stopManagedProcess(serviceId);
   }
+  revokeServiceScopedBrokerIdentities(serviceId);
 
   const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const scopedBrokerIdentity = mintScopedBrokerIdentity(service);
   const resolvedPorts = Object.keys(current.runtime.ports).length > 0
     ? current.runtime.ports
     : registry
@@ -408,6 +425,7 @@ export async function restartService(
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
+    secureEnv: scopedBrokerIdentity?.env,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -436,12 +454,15 @@ export async function restartService(
         stderrPath: handle.logs.stderrPath,
       },
       metrics: applyProcessLaunchMetrics(state, "restart", handle.startedAt),
+      brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
     },
   }));
 
   const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
+    const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
+    const revokedIdentity = revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
     const failedResult = applyState(
       serviceId,
       "restart",
@@ -456,6 +477,7 @@ export async function restartService(
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
             lastTermination: "stopped",
             metrics: applyRunCompletionMetrics(state, new Date().toISOString(), "stopped"),
+            brokerIdentity: revokedIdentity,
           },
         },
         message: readiness.message,
@@ -486,6 +508,7 @@ export async function restartService(
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
         lastTermination: null,
+        brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
       },
     },
     message: readiness.message.replace(/^Start/, "Restart"),

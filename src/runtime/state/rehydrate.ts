@@ -3,6 +3,7 @@ import { hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
 import type { ProviderKind } from "../providers/types.js";
+import type { ServiceBrokerWritebackOperation } from "../../contracts/service.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
 
@@ -56,6 +57,7 @@ interface StoredRuntimeState {
     totalRunDurationMs?: number;
     lastRunDurationMs?: number | null;
   };
+  brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
 }
@@ -71,6 +73,57 @@ interface StoredSetupState {
 
 function isLifecycleAction(value: unknown): value is LifecycleAction {
   return value === "install" || value === "config" || value === "setup" || value === "start" || value === "stop" || value === "restart";
+}
+
+
+function isWritebackOperation(value: unknown): value is ServiceBrokerWritebackOperation {
+  return value === "create" || value === "update" || value === "rotate" || value === "delete";
+}
+
+function parseBrokerIdentity(value: unknown): ServiceLifecycleState["runtime"]["brokerIdentity"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as ServiceLifecycleState["runtime"]["brokerIdentity"];
+  if (
+    !record ||
+    typeof record.id !== "string" ||
+    typeof record.serviceId !== "string" ||
+    typeof record.issuedAt !== "string" ||
+    typeof record.expiresAt !== "string" ||
+    !record.scope ||
+    !Array.isArray(record.scope.namespaces) ||
+    !Array.isArray(record.scope.operations) ||
+    !Array.isArray(record.scope.refs) ||
+    !record.audit ||
+    typeof record.audit.serviceId !== "string" ||
+    typeof record.audit.identityId !== "string" ||
+    typeof record.audit.issuedAt !== "string" ||
+    typeof record.audit.expiresAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    serviceId: record.serviceId,
+    issuedAt: record.issuedAt,
+    expiresAt: record.expiresAt,
+    revokedAt: typeof record.revokedAt === "string" ? record.revokedAt : null,
+    scope: {
+      namespaces: record.scope.namespaces.filter((entry): entry is string => typeof entry === "string"),
+      operations: record.scope.operations.filter(isWritebackOperation),
+      refs: record.scope.refs.filter((entry): entry is string => typeof entry === "string"),
+    },
+    audit: {
+      serviceId: record.audit.serviceId,
+      identityId: record.audit.identityId,
+      issuedAt: record.audit.issuedAt,
+      expiresAt: record.audit.expiresAt,
+      reason: typeof record.audit.reason === "string" ? record.audit.reason : null,
+    },
+  };
 }
 
 function isProviderKind(value: unknown): value is ProviderKind {
@@ -257,6 +310,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
         lastRunDurationMs:
           typeof runtime?.metrics?.lastRunDurationMs === "number" ? runtime.metrics.lastRunDurationMs : null,
       },
+      brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
     },
   };
 }
