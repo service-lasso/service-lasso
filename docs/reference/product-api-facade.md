@@ -116,10 +116,13 @@ integration. It must be clearly split from secret payloads.
 | `provider` | Provider key, for example `github`, `stripe`, or `vault`. |
 | `kind` | `oauth`, `api-token`, `webhook`, `secrets-broker-source`, or `custom`. |
 | `displayName` | Operator-facing label. |
-| `status` | `ready`, `needs-auth`, `revoked`, `disabled`, or `error`. |
+| `status` | `ready`, `needs-auth`, `expiring`, `refresh-failed`, `revoked`, `disabled`, `error`, or `deleted`. Deleted records are not listed by default. |
+| `accountId` | Provider-side account, org, tenant, or installation id, when safe to expose. |
 | `scopes` | Granted/expected provider scopes as labels. |
 | `brokerNamespace` / `secretRef` | Pointer to secret material, never the value itself. |
-| `lastVerifiedAt` | Last successful metadata/auth check. |
+| `expiresAt` / `lastRefreshAt` / `lastVerifiedAt` | Safe lifecycle timing metadata. |
+| `lastError` | Safe diagnostic summary only; no provider response bodies or credentials. |
+| `affectedSummary` | Safe summary of affected `serviceIds`, broker refs, and workflow ids. |
 | `secretMaterialPresent` | Must be `false` in facade responses. A true value is a contract violation. |
 | `createdAt` / `updatedAt` | Audit timestamps. |
 
@@ -154,6 +157,7 @@ GET   /api/platform/workspaces/{workspaceId}/provider-connections
 POST  /api/platform/workspaces/{workspaceId}/provider-connections
 GET   /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}
 PATCH /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}
+DELETE /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}
 ```
 
 ### Create request
@@ -165,6 +169,7 @@ PATCH /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}
   "provider": "github",
   "kind": "oauth",
   "displayName": "GitHub Actions metadata connection",
+  "accountId": "github-org-service-lasso",
   "scopes": ["repo:read", "workflow:read"],
   "brokerNamespace": "workspaces/local-demo/provider-connections/github",
   "secretRef": "provider.github.oauth.client"
@@ -182,17 +187,25 @@ PATCH /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}
   "kind": "oauth",
   "displayName": "GitHub Actions metadata connection",
   "status": "ready",
+  "accountId": "github-org-service-lasso",
   "scopes": ["repo:read", "workflow:read"],
   "brokerNamespace": "workspaces/local-demo/provider-connections/github",
   "secretRef": "provider.github.oauth.client",
+  "expiresAt": "2026-05-30T00:00:00Z",
+  "lastRefreshAt": "2026-05-08T10:04:00Z",
   "lastVerifiedAt": "2026-05-08T10:05:00Z",
+  "affectedSummary": {
+    "serviceIds": ["@serviceadmin"],
+    "brokerRefs": ["provider.github.oauth.client"],
+    "workflowIds": ["wf_release_checks"]
+  },
   "secretMaterialPresent": false,
   "createdAt": "2026-05-08T10:00:00Z",
   "updatedAt": "2026-05-08T10:05:00Z"
 }
 ```
 
-The response is safe to log because it contains reference metadata only. The
+Delete removes the metadata record from the facade response set and emits a safe audit event; deletion of broker secret payloads remains a separate Secrets Broker operation. The response is safe to log because it contains reference metadata only. The
 facade must never return raw provider secrets, access tokens, refresh tokens,
 API keys, password values, private keys, key material, or recovery material.
 
@@ -226,6 +239,7 @@ Normalized lifecycle statuses are:
 - `disabled`
 - `source_auth_required`
 - `degraded`
+- `deleted`
 
 Lifecycle responses include safe metadata only:
 
@@ -280,8 +294,7 @@ permissions, or unavailable provider support, but must never include access
 tokens, refresh tokens, API keys, provider secrets, key material, or recovery
 material.
 
-Reference lifecycle fixtures cover healthy, missing/setup-required, denied, and
-reconnect-required states in `src/platform/providerConnectionLifecycle.ts`.
+Reference lifecycle fixtures cover healthy, expiring, missing/setup-required, refresh-failed, denied, revoked, reconnect-required, disconnected, and deleted states in `src/platform/providerConnectionLifecycle.ts`.
 Tests in `tests/provider-connection-lifecycle.test.js` verify status
 normalization, secret-safe error payloads, unavailable action stubs, and safe
 audit transition metadata.

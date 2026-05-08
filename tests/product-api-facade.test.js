@@ -4,12 +4,17 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertProviderConnectionMetadataOnly,
+  createProviderConnectionMetadata,
+  deleteProviderConnectionMetadata,
   authorizePlatformResource,
   examplePlatformFacadeState,
+  listProviderConnectionMetadata,
   mapZitadelSessionToPlatformContext,
   platformAuditMetadataIncludesSecretMaterial,
   providerConnectionMetadataEndpoints,
+  readProviderConnectionMetadata,
   resolveServiceLassoRequestContext,
+  updateProviderConnectionMetadata,
 } from "../dist/platform/facade.js";
 
 const repoRoot = process.cwd();
@@ -46,11 +51,83 @@ test("provider connection metadata API exposes CRUD endpoints without secret pay
     create: "POST /api/platform/workspaces/{workspaceId}/provider-connections",
     read: "GET /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
     update: "PATCH /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
+    delete: "DELETE /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
   });
 
   const serializedEndpoints = JSON.stringify(providerConnectionMetadataEndpoints);
   assert.equal(serializedEndpoints.includes("secret-value"), false);
   assert.equal(serializedEndpoints.includes("token-value"), false);
+});
+
+test("provider connection metadata CRUD operations are authorization-gated and secret-safe", () => {
+  const context = mapZitadelSessionToPlatformContext({
+    issuer: "http://localhost:8080",
+    subject: "zitadel-user-operator",
+  });
+  assert.ok(context);
+  const adminContext = { ...context, entitlements: [...context.entitlements, "provider-connection:write"] };
+
+  const listed = listProviderConnectionMetadata(examplePlatformFacadeState, context, "wks_local_demo");
+  assert.equal(listed.ok, true);
+  assert.equal(listed.ok && listed.connections.length, 1);
+  assert.equal(listed.auditEvent.outcome, "success");
+
+  const created = createProviderConnectionMetadata(examplePlatformFacadeState, adminContext, {
+    workspaceId: "wks_local_demo",
+    ownerUserId: "usr_01hzy9operator",
+    provider: "slack",
+    kind: "oauth",
+    displayName: "Slack metadata connection",
+    accountId: "workspace-service-lasso",
+    scopes: ["channels:read"],
+    brokerNamespace: "workspaces/local-demo/provider-connections/slack",
+    secretRef: "provider.slack.oauth.client",
+  });
+  assert.equal(created.ok, true);
+  assert.equal(created.ok && created.connection.status, "needs-auth");
+  assert.equal(created.ok && created.connection.secretMaterialPresent, false);
+  assert.equal(created.ok && created.connection.affectedSummary.brokerRefs[0], "provider.slack.oauth.client");
+
+  const createdState = created.state;
+  const createdConnectionId = created.ok && created.connection.id;
+  assert.ok(createdConnectionId);
+
+  const read = readProviderConnectionMetadata(createdState, context, "wks_local_demo", createdConnectionId);
+  assert.equal(read.ok, true);
+  assert.equal(read.ok && read.connection.provider, "slack");
+
+  const updated = updateProviderConnectionMetadata(createdState, adminContext, "wks_local_demo", createdConnectionId, {
+    status: "expiring",
+    expiresAt: "2026-05-09T00:00:00Z",
+    lastRefreshAt: "2026-05-08T11:00:00Z",
+    lastError: "OAuth refresh window is near expiry; reconnect may be required.",
+    affectedSummary: { serviceIds: ["@serviceadmin"], brokerRefs: ["provider.slack.oauth.client"], workflowIds: ["wf_slack_digest"] },
+  });
+  assert.equal(updated.ok, true);
+  assert.equal(updated.ok && updated.connection.status, "expiring");
+  assert.equal(updated.ok && updated.connection.affectedSummary.workflowIds[0], "wf_slack_digest");
+
+  const deleted = deleteProviderConnectionMetadata(updated.state, adminContext, "wks_local_demo", createdConnectionId);
+  assert.equal(deleted.ok, true);
+  assert.equal(deleted.ok && deleted.connection.status, "deleted");
+  assert.equal(deleted.auditEvent.safeDetail.includes("Broker"), true);
+
+  const denied = updateProviderConnectionMetadata(createdState, context, "wks_local_demo", createdConnectionId, { displayName: "No write grant" });
+  assert.equal(denied.ok, false);
+  assert.equal(!denied.ok && denied.error.code, "permission-denied");
+
+  const secretRejected = createProviderConnectionMetadata(examplePlatformFacadeState, adminContext, {
+    workspaceId: "wks_local_demo",
+    ownerUserId: "usr_01hzy9operator",
+    provider: "bad",
+    kind: "api-token",
+    displayName: "access-token-value",
+    scopes: [],
+  });
+  assert.equal(secretRejected.ok, false);
+  assert.equal(!secretRejected.ok && secretRejected.error.code, "invalid-secret-material");
+
+  assert.equal(JSON.stringify([listed, created, updated, deleted]).includes("access-token-value"), false);
 });
 
 test("ZITADEL session context maps to internal user workspace and entitlements", () => {
@@ -236,6 +313,7 @@ test("product facade docs and fixture stay metadata-only", async () => {
     "service_identities",
     "roles/entitlements",
     "GET   /api/platform/workspaces/{workspaceId}/provider-connections",
+    "DELETE /api/platform/workspaces/{workspaceId}/provider-connections/{connectionId}",
     "ZITADEL session mapping",
     "Service-authenticated requests",
     "service-identity-denied`",
