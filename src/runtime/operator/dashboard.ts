@@ -166,17 +166,21 @@ function buildDashboardLinks(endpoints: DashboardEndpointResponse[]): DashboardS
     }));
 }
 
-function mapVariableScope(scope: "manifest" | "derived" | "global"): "global" | "service" {
+function mapVariableScope(scope: "manifest" | "derived" | "global" | "broker"): "global" | "service" {
   return scope === "global" ? "global" : "service";
 }
 
-function mapVariableSource(scope: "manifest" | "derived" | "global"): string {
+function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker"): string {
   if (scope === "manifest") {
     return "service.json";
   }
 
   if (scope === "global") {
     return "globalenv";
+  }
+
+  if (scope === "broker") {
+    return "broker.imports";
   }
 
   return "runtime";

@@ -131,6 +131,14 @@ export interface ServiceArchiveArtifact {
 
 export type ServiceRole = "service" | "provider";
 
+export type ServiceBrokerBucketKind = "service" | "app" | "shared" | "global";
+
+export interface ServiceBrokerBucket {
+  namespace: string;
+  kind?: ServiceBrokerBucketKind;
+  description?: string;
+}
+
 export interface ServiceBrokerImport {
   namespace: string;
   ref: string;
@@ -155,6 +163,7 @@ export interface ServiceBrokerWritebackPolicy {
 export interface ServiceBrokerPolicy {
   enabled?: boolean;
   namespace?: string;
+  buckets?: ServiceBrokerBucket[];
   imports?: ServiceBrokerImport[];
   exports?: ServiceBrokerExport[];
   writeback?: ServiceBrokerWritebackPolicy;

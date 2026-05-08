@@ -1,4 +1,5 @@
 import type {
+  ServiceBrokerBucketKind,
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
   ServiceHookStep,
@@ -19,6 +20,7 @@ const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun
 const serviceRoles = new Set(["service", "provider"]);
 const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
+const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
@@ -414,6 +416,16 @@ function readUpdateInstallWindow(
   };
 }
 
+function validateUniqueEntries(values: string[], field: string, manifestPath: string): void {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate ${field} entry "${value}".`);
+    }
+    seen.add(value);
+  }
+}
+
 function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest["broker"] | undefined {
   if (value === undefined) {
     return undefined;
@@ -424,6 +436,10 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
   }
 
   const record = value as Record<string, unknown>;
+  const buckets = record.buckets;
+  if (buckets !== undefined && !Array.isArray(buckets)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.buckets" to be an array.`);
+  }
   const imports = record.imports;
   if (imports !== undefined && !Array.isArray(imports)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.imports" to be an array.`);
@@ -455,9 +471,32 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
   );
   allowedNamespaces?.forEach((namespace) => expectBrokerNamespace(namespace, "broker.writeback.allowedNamespaces", manifestPath));
 
+  const parsedBuckets = Array.isArray(buckets)
+    ? buckets.map((entry, index) => {
+        const field = `broker.buckets[${index}]`;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+        }
+        const bucketRecord = entry as Record<string, unknown>;
+        const kind = bucketRecord.kind;
+        if (kind !== undefined && (typeof kind !== "string" || !brokerBucketKinds.has(kind))) {
+          throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.kind" to be one of service, app, shared, or global.`);
+        }
+        return {
+          namespace: expectBrokerNamespace(bucketRecord.namespace, `${field}.namespace`, manifestPath),
+          ...(kind === undefined ? {} : { kind: kind as ServiceBrokerBucketKind }),
+          ...(bucketRecord.description === undefined
+            ? {}
+            : { description: expectNonEmptyString(bucketRecord.description, `${field}.description`, manifestPath) }),
+        };
+      })
+    : undefined;
+  validateUniqueEntries(parsedBuckets?.map((entry) => entry.namespace) ?? [], "broker.buckets.namespace", manifestPath);
+
   return {
     enabled: expectOptionalBoolean(record.enabled, "broker.enabled", manifestPath),
     namespace: record.namespace === undefined ? undefined : expectBrokerNamespace(record.namespace, "broker.namespace", manifestPath),
+    buckets: parsedBuckets,
     imports: Array.isArray(imports)
       ? imports.map((entry, index) => {
           const field = `broker.imports[${index}]`;
@@ -495,6 +534,44 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
         }
       : undefined,
   };
+}
+
+function validateBrokerCollisions(
+  broker: ServiceManifest["broker"],
+  env: Record<string, string> | undefined,
+  globalenv: Record<string, string> | undefined,
+  manifestPath: string,
+): void {
+  if (!broker) {
+    return;
+  }
+
+  validateUniqueEntries((broker.imports ?? []).map((entry) => entry.ref), "broker.imports.ref", manifestPath);
+  validateUniqueEntries(
+    (broker.imports ?? []).flatMap((entry) => (entry.as ? [entry.as] : [])),
+    "broker.imports.as",
+    manifestPath,
+  );
+  validateUniqueEntries(
+    (broker.exports ?? []).map((entry) => `${entry.namespace}:${entry.ref}`),
+    "broker.exports namespace/ref",
+    manifestPath,
+  );
+
+  const envKeys = new Set(Object.keys(env ?? {}));
+  const globalKeys = new Set(Object.keys(globalenv ?? {}));
+  for (const entry of broker.imports ?? []) {
+    if (entry.as && globalKeys.has(entry.as)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.imports.as "${entry.as}" collides with legacy globalenv output; map it through service-local env instead.`,
+      );
+    }
+    if (entry.as && envKeys.has(entry.as) && env?.[entry.as] !== `\${${entry.ref}}`) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.imports.as "${entry.as}" collides with env.${entry.as}; env values for broker imports must be exactly "\${${entry.ref}}".`,
+      );
+    }
+  }
 }
 
 function readUpdatePolicy(
@@ -862,6 +939,11 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   }
 
   const broker = readBrokerPolicy(record.broker, manifestPath);
+  const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
+  const globalenv = rawGlobalEnv
+    ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
+    : undefined;
+  validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);
   const config = readActionMaterialization(record.config, "config", manifestPath);
@@ -882,10 +964,8 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     autostart: typeof record.autostart === "boolean" ? record.autostart : undefined,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
-    env: rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined,
-    globalenv: rawGlobalEnv
-      ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
-      : undefined,
+    env,
+    globalenv,
     broker,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))

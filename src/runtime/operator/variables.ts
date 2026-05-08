@@ -6,7 +6,7 @@ import path from "node:path";
 export interface ServiceVariableEntry {
   key: string;
   value: string;
-  scope: "manifest" | "derived" | "global";
+  scope: "manifest" | "derived" | "global" | "broker";
 }
 
 export type ServiceSelectorKind = "local" | "broker";
@@ -36,6 +36,8 @@ export interface ServiceTextResolutionOptions {
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
 }
+
+export interface ServiceVariableResolutionOptions extends ServiceTextResolutionOptions {}
 
 export interface ServiceVariablesPayload {
   serviceId: string;
@@ -159,6 +161,7 @@ export function buildServiceVariables(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
+  options: ServiceVariableResolutionOptions = {},
 ): ServiceVariablesPayload {
   const statePaths = getServiceStatePaths(service.serviceRoot);
   const installArtifact = getLifecycleState(service.manifest.id).installArtifacts.artifact;
@@ -227,12 +230,25 @@ export function buildServiceVariables(
     ...entry,
     value: replaceVariableSelectors(entry.value, [...rawManifestVariables, ...globalVariables, ...derivedVariables], {
       diagnostics: manifestDiagnostics,
+      brokerValues: options.brokerValues,
     }),
   }));
 
+  const manifestVariableKeys = new Set(manifestVariables.map((entry) => entry.key));
+  const brokerImportVariables = (service.manifest.broker?.imports ?? [])
+    .filter((entry) => entry.as && !manifestVariableKeys.has(entry.as))
+    .flatMap((entry): ServiceVariableEntry[] => {
+      const brokerValue = options.brokerValues?.[entry.ref];
+      if (brokerValue === undefined) {
+        manifestDiagnostics.push({ selector: entry.ref, kind: "broker", reason: "missing-broker" });
+        return [];
+      }
+      return [{ key: entry.as as string, value: brokerValue, scope: "broker" }];
+    });
+
   return {
     serviceId: service.manifest.id,
-    variables: [...manifestVariables, ...globalVariables, ...derivedVariables],
+    variables: [...manifestVariables, ...brokerImportVariables, ...globalVariables, ...derivedVariables],
     selectorPlan: compileServiceSelectorPlan(service.manifest.env ?? {}),
     diagnostics: manifestDiagnostics,
   };
@@ -259,6 +275,8 @@ export function compileServiceMaterializationSelectorPlan(service: DiscoveredSer
   return mergeSelectorPlans([
     compileServiceSelectorPlan(service.manifest.env ?? {}),
     compileServiceSelectorPlan(service.manifest.globalenv ?? {}),
+    compileServiceSelectorPlan((service.manifest.broker?.imports ?? []).map((entry) => `\${${entry.ref}}`)),
+    compileServiceSelectorPlan((service.manifest.broker?.exports ?? []).flatMap((entry) => [`\${${entry.ref}}`, entry.source])),
     compileServiceSelectorPlan(installFiles.flatMap((file) => [file.path, file.content])),
     compileServiceSelectorPlan(configFiles.flatMap((file) => [file.path, file.content])),
   ]);
