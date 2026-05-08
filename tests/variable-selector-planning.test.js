@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import os from "node:os";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import {
   buildServiceVariables,
   compileServiceMaterializationSelectorPlan,
@@ -8,6 +10,7 @@ import {
   resolveServiceText,
   resolveServiceVariable,
 } from "../dist/runtime/operator/variables.js";
+import { materializeConfigArtifacts } from "../dist/runtime/setup/materialize.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 function fixtureService(overrides = {}) {
@@ -100,6 +103,53 @@ test("broker imports materialize to service-specific env names", () => {
   assert.equal(byKey.API_TOKEN.value, "resolved-token");
 });
 
+test("broker selectors require explicit imports and report denied/source auth diagnostics without leaking values", () => {
+  resetLifecycleState();
+  const service = fixtureService({
+    env: {
+      DECLARED: "${database.PASSWORD}",
+      UNDECLARED: "${vault.API_TOKEN}",
+      DENIED: "${database.DENIED}",
+      NEEDS_AUTH: "${database.SOURCE_AUTH}",
+    },
+    broker: {
+      imports: [
+        { namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" },
+        { namespace: "shared/database", ref: "database.DENIED", as: "DENIED_PASSWORD" },
+        { namespace: "shared/database", ref: "database.SOURCE_AUTH", as: "AUTH_PASSWORD" },
+      ],
+    },
+  });
+
+  const payload = buildServiceVariables(service, {}, {}, {
+    brokerValues: {
+      "database.PASSWORD": "resolved-password",
+      "vault.API_TOKEN": "should-not-leak",
+      "database.DENIED": "denied-secret",
+      "database.SOURCE_AUTH": "auth-secret",
+    },
+    deniedBrokerRefs: ["database.DENIED"],
+    sourceAuthRequiredBrokerRefs: ["database.SOURCE_AUTH"],
+  });
+  const byKey = Object.fromEntries(payload.variables.map((entry) => [entry.key, entry.value]));
+
+  assert.equal(byKey.DECLARED, "resolved-password");
+  assert.equal(byKey.UNDECLARED, "${vault.API_TOKEN}");
+  assert.equal(byKey.DENIED, "${database.DENIED}");
+  assert.equal(byKey.NEEDS_AUTH, "${database.SOURCE_AUTH}");
+  const serializedPayload = JSON.stringify(payload);
+  assert.equal(serializedPayload.includes("should-not-leak"), false);
+  assert.equal(serializedPayload.includes("denied-secret"), false);
+  assert.equal(serializedPayload.includes("auth-secret"), false);
+  assert.deepEqual(payload.diagnostics, [
+    { selector: "vault.API_TOKEN", kind: "broker", reason: "denied-broker" },
+    { selector: "database.DENIED", kind: "broker", reason: "denied-broker" },
+    { selector: "database.SOURCE_AUTH", kind: "broker", reason: "source-auth-required" },
+    { selector: "database.DENIED", kind: "broker", reason: "denied-broker" },
+    { selector: "database.SOURCE_AUTH", kind: "broker", reason: "source-auth-required" },
+  ]);
+});
+
 test("bare selectors do not fall back into broker namespaces", () => {
   resetLifecycleState();
   const service = fixtureService({ env: { LOCAL_SECRET: "${API_KEY}" } });
@@ -130,6 +180,55 @@ test("explicit broker selectors resolve only from broker values and report missi
 
   assert.equal(resolved, "token=resolved-secret; missing=${secretsbroker.MISSING}; local=local");
   assert.deepEqual(diagnostics, [{ selector: "secretsbroker.MISSING", kind: "broker", reason: "missing-broker" }]);
+});
+
+test("config materialization resolves declared broker imports without leaking denied values", async () => {
+  resetLifecycleState();
+  const serviceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-config-"));
+  const service = {
+    manifestPath: path.join(serviceRoot, "service.json"),
+    serviceRoot,
+    manifest: {
+      id: "config-consumer",
+      name: "Config Consumer",
+      description: "Materializes broker imports into config.",
+      env: {
+        DB_PASSWORD: "${database.PASSWORD}",
+        DENIED_PASSWORD: "${database.DENIED}",
+      },
+      broker: {
+        imports: [
+          { namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD", required: true },
+          { namespace: "shared/database", ref: "database.DENIED", as: "DENIED_PASSWORD" },
+        ],
+      },
+      config: {
+        files: [
+          {
+            path: "runtime/config.json",
+            content: "{\n  \"password\": \"${database.PASSWORD}\",\n  \"denied\": \"${database.DENIED}\"\n}\n",
+          },
+        ],
+      },
+    },
+  };
+
+  try {
+    await materializeConfigArtifacts(service, {}, {}, {
+      brokerValues: {
+        "database.PASSWORD": "resolved-password",
+        "database.DENIED": "denied-secret",
+      },
+      deniedBrokerRefs: ["database.DENIED"],
+    });
+
+    const content = await readFile(path.join(serviceRoot, "runtime", "config.json"), "utf8");
+    assert.match(content, /resolved-password/);
+    assert.match(content, /\$\{database\.DENIED\}/);
+    assert.equal(content.includes("denied-secret"), false);
+  } finally {
+    await rm(serviceRoot, { recursive: true, force: true });
+  }
 });
 
 test("materialization selector plan covers env, globalenv, install, and config templates", () => {

@@ -389,7 +389,18 @@ Shape:
   ],
   "writeback": {
     "allowedNamespaces": ["services/producer"],
-    "allowedOperations": ["create", "update", "rotate"]
+    "allowedOperations": ["create", "update", "rotate"],
+    "allowedRefs": ["producer.API_TOKEN"],
+    "allowOverwrite": false,
+    "auditReason": "capture generated service token",
+    "generatedSecrets": [
+      {
+        "ref": "producer.API_TOKEN",
+        "source": "${API_TOKEN}",
+        "operation": "create",
+        "required": true
+      }
+    ]
   }
 }
 ```
@@ -413,13 +424,21 @@ Fields:
 - `exports[].required`: optional boolean; required exports should fail closed when the source is unavailable.
 - `writeback.allowedNamespaces`: optional array limiting namespaces this service may write generated secrets into.
 - `writeback.allowedOperations`: optional array of allowed generated-secret operations: `create`, `update`, `rotate`, `delete`.
+- `writeback.allowedRefs`: optional array limiting generated-secret refs within the allowed namespaces.
+- `writeback.allowOverwrite`: optional boolean; defaults should be treated as no overwrite unless a broker implementation explicitly opts in.
+- `writeback.auditReason`: optional non-empty operator/audit reason attached to generated-secret capture.
+- `writeback.generatedSecrets`: optional array declaring generated values that may be captured from service-local variables and written back through the broker.
+- `writeback.generatedSecrets[].ref`: dotted broker ref that must also have a matching `exports[].ref`.
+- `writeback.generatedSecrets[].source`: local selector or literal source, for example `${API_TOKEN}`. Sources are resolved from service-local variables; raw secret values must not be logged.
+- `writeback.generatedSecrets[].operation`: optional operation for this capture: `create`, `update`, `rotate`, or `delete`.
+- `writeback.generatedSecrets[].required`: optional boolean; required captures should fail closed when the source cannot be resolved.
 
 Selector semantics:
 - `${VAR}` means local/current-service variables only, including derived variables and legacy-compatible values already visible to the service.
 - `${namespace.KEY}` means an explicit broker lookup.
 - Bare names never fall through into broker namespaces.
 - Broker refs must be dotted. This keeps broker access reviewable and prevents accidental secret reads from ordinary env selectors.
-- Duplicate bucket namespaces, duplicate import refs, duplicate `imports[].as` names, and duplicate export namespace/ref pairs are invalid.
+- Duplicate bucket namespaces, duplicate import refs, duplicate `imports[].as` names, duplicate export namespace/ref pairs, duplicate writeback refs, and duplicate generated-secret refs are invalid.
 - `imports[].as` may intentionally line up with an `env` key only when that env value is exactly the same dotted broker selector, for example `"DB_PASSWORD": "${database.PASSWORD}"`. It must not collide with `globalenv` output names.
 
 Producer example:
@@ -447,7 +466,18 @@ Producer example:
     ],
     "writeback": {
       "allowedNamespaces": ["services/token-producer"],
-      "allowedOperations": ["create", "update", "rotate"]
+      "allowedOperations": ["create", "update", "rotate"],
+      "allowedRefs": ["token.PUBLIC_URL"],
+      "allowOverwrite": false,
+      "auditReason": "publish generated token endpoint",
+      "generatedSecrets": [
+        {
+          "ref": "token.PUBLIC_URL",
+          "source": "${PUBLIC_URL}",
+          "operation": "create",
+          "required": true
+        }
+      ]
     }
   }
 }

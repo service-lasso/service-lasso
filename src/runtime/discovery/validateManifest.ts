@@ -470,6 +470,40 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
     manifestPath,
   );
   allowedNamespaces?.forEach((namespace) => expectBrokerNamespace(namespace, "broker.writeback.allowedNamespaces", manifestPath));
+  const allowedRefs = readNonEmptyStringArray(writebackRecord?.allowedRefs, "broker.writeback.allowedRefs", manifestPath);
+  allowedRefs?.forEach((ref) => expectBrokerRef(ref, "broker.writeback.allowedRefs", manifestPath));
+  validateUniqueEntries(allowedRefs ?? [], "broker.writeback.allowedRefs", manifestPath);
+  const allowOverwrite = expectOptionalBoolean(writebackRecord?.allowOverwrite, "broker.writeback.allowOverwrite", manifestPath);
+  const auditReason =
+    writebackRecord?.auditReason === undefined
+      ? undefined
+      : expectNonEmptyString(writebackRecord.auditReason, "broker.writeback.auditReason", manifestPath);
+  const generatedSecrets = writebackRecord?.generatedSecrets;
+  if (generatedSecrets !== undefined && !Array.isArray(generatedSecrets)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.writeback.generatedSecrets" to be an array.`);
+  }
+  const parsedGeneratedSecrets = Array.isArray(generatedSecrets)
+    ? generatedSecrets.map((entry, index) => {
+        const field = `broker.writeback.generatedSecrets[${index}]`;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+        }
+        const captureRecord = entry as Record<string, unknown>;
+        const operation = captureRecord.operation;
+        if (operation !== undefined && (typeof operation !== "string" || !brokerWritebackOperations.has(operation))) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "${field}.operation" to contain create, update, rotate, or delete.`,
+          );
+        }
+        return {
+          ref: expectBrokerRef(captureRecord.ref, `${field}.ref`, manifestPath),
+          source: expectNonEmptyString(captureRecord.source, `${field}.source`, manifestPath),
+          ...(operation === undefined ? {} : { operation: operation as ServiceBrokerWritebackOperation }),
+          required: expectOptionalBoolean(captureRecord.required, `${field}.required`, manifestPath),
+        };
+      })
+    : undefined;
+  validateUniqueEntries(parsedGeneratedSecrets?.map((entry) => entry.ref) ?? [], "broker.writeback.generatedSecrets.ref", manifestPath);
 
   const parsedBuckets = Array.isArray(buckets)
     ? buckets.map((entry, index) => {
@@ -531,6 +565,10 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
       ? {
           allowedNamespaces,
           allowedOperations: allowedOperations as ServiceBrokerWritebackOperation[] | undefined,
+          allowedRefs,
+          allowOverwrite,
+          auditReason,
+          generatedSecrets: parsedGeneratedSecrets,
         }
       : undefined,
   };
@@ -557,6 +595,32 @@ function validateBrokerCollisions(
     "broker.exports namespace/ref",
     manifestPath,
   );
+  const allowedWritebackNamespaces = new Set(broker.writeback?.allowedNamespaces ?? []);
+  const allowedWritebackRefs = new Set(broker.writeback?.allowedRefs ?? []);
+  const allowedWritebackOperations = new Set(broker.writeback?.allowedOperations ?? []);
+  for (const entry of broker.writeback?.generatedSecrets ?? []) {
+    const exportEntry = (broker.exports ?? []).find((candidate) => candidate.ref === entry.ref);
+    if (!exportEntry) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.writeback.generatedSecrets ref "${entry.ref}" must have a matching broker.exports entry.`,
+      );
+    }
+    if (allowedWritebackNamespaces.size > 0 && !allowedWritebackNamespaces.has(exportEntry.namespace)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.writeback.generatedSecrets ref "${entry.ref}" targets namespace "${exportEntry.namespace}" outside broker.writeback.allowedNamespaces.`,
+      );
+    }
+    if (allowedWritebackRefs.size > 0 && !allowedWritebackRefs.has(entry.ref)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.writeback.generatedSecrets ref "${entry.ref}" is outside broker.writeback.allowedRefs.`,
+      );
+    }
+    if (entry.operation && allowedWritebackOperations.size > 0 && !allowedWritebackOperations.has(entry.operation)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.writeback.generatedSecrets ref "${entry.ref}" uses operation "${entry.operation}" outside broker.writeback.allowedOperations.`,
+      );
+    }
+  }
 
   const envKeys = new Set(Object.keys(env ?? {}));
   const globalKeys = new Set(Object.keys(globalenv ?? {}));

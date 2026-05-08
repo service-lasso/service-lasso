@@ -146,6 +146,13 @@ export interface ServiceBrokerImport {
   required?: boolean;
 }
 
+export interface ServiceBrokerWritebackCapture {
+  ref: string;
+  source: string;
+  operation?: ServiceBrokerWritebackOperation;
+  required?: boolean;
+}
+
 export interface ServiceBrokerExport {
   namespace: string;
   ref: string;
@@ -158,6 +165,10 @@ export type ServiceBrokerWritebackOperation = "create" | "update" | "rotate" | "
 export interface ServiceBrokerWritebackPolicy {
   allowedNamespaces?: string[];
   allowedOperations?: ServiceBrokerWritebackOperation[];
+  allowedRefs?: string[];
+  allowOverwrite?: boolean;
+  auditReason?: string;
+  generatedSecrets?: ServiceBrokerWritebackCapture[];
 }
 
 export interface ServiceBrokerPolicy {
