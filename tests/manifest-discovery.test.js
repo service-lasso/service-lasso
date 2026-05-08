@@ -390,6 +390,17 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
         broker: {
           enabled: true,
           namespace: "services/broker-consumer",
+          buckets: [
+            {
+              namespace: "services/broker-consumer",
+              kind: "service",
+              description: "Current-service private values.",
+            },
+            {
+              namespace: "shared/database",
+              kind: "shared",
+            },
+          ],
           imports: [
             {
               namespace: "shared/database",
@@ -419,6 +430,17 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
     assert.deepEqual(manifest.broker, {
       enabled: true,
       namespace: "services/broker-consumer",
+      buckets: [
+        {
+          namespace: "services/broker-consumer",
+          kind: "service",
+          description: "Current-service private values.",
+        },
+        {
+          namespace: "shared/database",
+          kind: "shared",
+        },
+      ],
       imports: [
         {
           namespace: "shared/database",
@@ -467,6 +489,26 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
       description: "Invalid writeback operation.",
       broker: { writeback: { allowedNamespaces: ["runtime"], allowedOperations: ["read"] } },
     });
+    await writeManifest(servicesRoot, "duplicate-import", {
+      id: "duplicate-import",
+      name: "Duplicate Import",
+      description: "Duplicate broker import env mapping.",
+      broker: {
+        imports: [
+          { namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" },
+          { namespace: "shared/database", ref: "database.USER", as: "DB_PASSWORD" },
+        ],
+      },
+    });
+    await writeManifest(servicesRoot, "env-import-collision", {
+      id: "env-import-collision",
+      name: "Env Import Collision",
+      description: "Broker import collides with unrelated local env.",
+      env: { DB_PASSWORD: "literal" },
+      broker: {
+        imports: [{ namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" }],
+      },
+    });
 
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "bad-enabled", "service.json")),
@@ -479,6 +521,14 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "bad-writeback", "service.json")),
       /broker\.writeback\.allowedOperations/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "duplicate-import", "service.json")),
+      /broker\.imports\.as/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "env-import-collision", "service.json")),
+      /collides with env\.DB_PASSWORD/i,
     );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });

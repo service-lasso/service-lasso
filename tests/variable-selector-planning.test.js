@@ -64,6 +64,42 @@ test("service variable resolution preserves local precedence and legacy globalen
   assert.equal(byKey.FROM_GLOBAL, "C:/tools/legacy");
 });
 
+test("broker imports materialize to service-specific env names", () => {
+  resetLifecycleState();
+  const service = fixtureService({
+    env: {
+      FROM_SELECTOR: "${database.PASSWORD}",
+    },
+    broker: {
+      enabled: true,
+      namespace: "services/consumer",
+      buckets: [
+        { namespace: "services/consumer", kind: "service" },
+        { namespace: "shared/database", kind: "shared" },
+      ],
+      imports: [
+        { namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD", required: true },
+        { namespace: "services/consumer", ref: "consumer.API_TOKEN", as: "API_TOKEN" },
+      ],
+    },
+  });
+
+  const payload = buildServiceVariables(service, {}, {}, {
+    brokerValues: {
+      "database.PASSWORD": "resolved-password",
+      "consumer.API_TOKEN": "resolved-token",
+    },
+  });
+  const byKey = Object.fromEntries(payload.variables.map((entry) => [entry.key, entry]));
+
+  assert.deepEqual(payload.diagnostics, []);
+  assert.equal(byKey.FROM_SELECTOR.value, "resolved-password");
+  assert.equal(byKey.FROM_SELECTOR.scope, "manifest");
+  assert.equal(byKey.DB_PASSWORD.value, "resolved-password");
+  assert.equal(byKey.DB_PASSWORD.scope, "broker");
+  assert.equal(byKey.API_TOKEN.value, "resolved-token");
+});
+
 test("bare selectors do not fall back into broker namespaces", () => {
   resetLifecycleState();
   const service = fixtureService({ env: { LOCAL_SECRET: "${API_KEY}" } });
@@ -100,14 +136,25 @@ test("materialization selector plan covers env, globalenv, install, and config t
   const service = fixtureService({
     env: { LOCAL_SECRET_REF: "${secretsbroker.API_KEY}" },
     globalenv: { TOOL_HOME: "${SERVICE_ROOT}/tool" },
+    broker: {
+      imports: [{ namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" }],
+      exports: [{ namespace: "consumer/runtime", ref: "consumer.PUBLIC_URL", source: "${PUBLIC_URL}" }],
+    },
     install: { files: [{ path: "generated/${SERVICE_ID}.txt", content: "${vault.shared.token}" }] },
     config: { files: [{ path: "config/${secretsbroker.CONFIG_NAME}.json", content: "${LOCAL_SECRET_REF}" }] },
   });
 
   const plan = compileServiceMaterializationSelectorPlan(service);
 
-  assert.deepEqual(plan.brokerRefs, ["secretsbroker.API_KEY", "vault.shared.token", "secretsbroker.CONFIG_NAME"]);
+  assert.deepEqual(plan.brokerRefs, [
+    "secretsbroker.API_KEY",
+    "database.PASSWORD",
+    "consumer.PUBLIC_URL",
+    "vault.shared.token",
+    "secretsbroker.CONFIG_NAME",
+  ]);
   assert.ok(plan.localRefs.includes("SERVICE_ROOT"));
+  assert.ok(plan.localRefs.includes("PUBLIC_URL"));
   assert.ok(plan.localRefs.includes("SERVICE_ID"));
   assert.ok(plan.localRefs.includes("LOCAL_SECRET_REF"));
 });

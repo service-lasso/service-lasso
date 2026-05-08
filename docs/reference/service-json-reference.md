@@ -360,6 +360,17 @@ Shape:
 "broker": {
   "enabled": true,
   "namespace": "services/consumer",
+  "buckets": [
+    {
+      "namespace": "services/consumer",
+      "kind": "service",
+      "description": "private values for this service"
+    },
+    {
+      "namespace": "shared/database",
+      "kind": "shared"
+    }
+  ],
   "imports": [
     {
       "namespace": "shared/database",
@@ -386,10 +397,14 @@ Shape:
 Fields:
 - `enabled`: optional boolean. `false` can be used to leave a declared broker contract dormant.
 - `namespace`: optional default service namespace. It must be a non-empty broker namespace string such as `services/consumer`.
+- `buckets`: optional array declaring the namespace buckets this manifest participates in. Bucket namespaces must be unique.
+- `buckets[].namespace`: a namespace boundary such as `services/consumer`, `apps/reference`, `shared/database`, or `global`.
+- `buckets[].kind`: optional bucket kind: `service`, `app`, `shared`, or `global`.
+- `buckets[].description`: optional human-readable note for review/audit.
 - `imports`: optional array of explicit broker refs the service may consume.
 - `imports[].namespace`: namespace authorization boundary for the import.
 - `imports[].ref`: dotted broker selector such as `database.PASSWORD`.
-- `imports[].as`: optional local variable name to materialize the import into.
+- `imports[].as`: optional local variable name to materialize the import into. This stays service-specific, so a ref such as `${database.PASSWORD}` can become `DB_PASSWORD` for one process and `PGPASSWORD` for another.
 - `imports[].required`: optional boolean; required imports should fail closed when absent or denied.
 - `exports`: optional array of values this service publishes to broker namespaces.
 - `exports[].namespace`: namespace authorization boundary for the export.
@@ -404,6 +419,8 @@ Selector semantics:
 - `${namespace.KEY}` means an explicit broker lookup.
 - Bare names never fall through into broker namespaces.
 - Broker refs must be dotted. This keeps broker access reviewable and prevents accidental secret reads from ordinary env selectors.
+- Duplicate bucket namespaces, duplicate import refs, duplicate `imports[].as` names, and duplicate export namespace/ref pairs are invalid.
+- `imports[].as` may intentionally line up with an `env` key only when that env value is exactly the same dotted broker selector, for example `"DB_PASSWORD": "${database.PASSWORD}"`. It must not collide with `globalenv` output names.
 
 Producer example:
 ```json
@@ -417,6 +434,9 @@ Producer example:
   "broker": {
     "enabled": true,
     "namespace": "services/token-producer",
+    "buckets": [
+      { "namespace": "services/token-producer", "kind": "service" }
+    ],
     "exports": [
       {
         "namespace": "services/token-producer",
@@ -445,6 +465,10 @@ Consumer example:
   "broker": {
     "enabled": true,
     "namespace": "services/token-consumer",
+    "buckets": [
+      { "namespace": "services/token-consumer", "kind": "service" },
+      { "namespace": "services/token-producer", "kind": "shared" }
+    ],
     "imports": [
       {
         "namespace": "services/token-producer",
@@ -466,6 +490,8 @@ Migration from `globalenv`:
 }
 ```
 
+Legacy `globalenv` remains a compatibility path for bounded provider/tool values that are already safe to share. New cross-service secret flow should move to explicit broker imports/exports so values are bucketed as current-service, app-level, explicitly shared, or truly global instead of ambiently merged into every launched process.
+
 Becomes an explicit broker contract:
 ```json
 {
@@ -475,6 +501,10 @@ Becomes an explicit broker contract:
   "broker": {
     "enabled": true,
     "namespace": "services/api",
+    "buckets": [
+      { "namespace": "services/api", "kind": "service" },
+      { "namespace": "shared/database", "kind": "shared" }
+    ],
     "imports": [
       {
         "namespace": "shared/database",

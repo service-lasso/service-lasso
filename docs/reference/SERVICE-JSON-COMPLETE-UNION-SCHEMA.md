@@ -204,6 +204,41 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
     "globalenv": {
       "<GLOBAL_ENV_KEY>": "<value>"
     },
+    "broker": {
+      "enabled": true,
+      "namespace": "services/<service-id>",
+      "buckets": [
+        {
+          "namespace": "services/<service-id>",
+          "kind": "service",
+          "description": "private current-service values"
+        },
+        {
+          "namespace": "shared/<bucket>",
+          "kind": "shared"
+        }
+      ],
+      "imports": [
+        {
+          "namespace": "shared/<bucket>",
+          "ref": "bucket.KEY",
+          "as": "PROCESS_ENV_NAME",
+          "required": true
+        }
+      ],
+      "exports": [
+        {
+          "namespace": "services/<service-id>",
+          "ref": "service.KEY",
+          "source": "${LOCAL_ENV}",
+          "required": false
+        }
+      ],
+      "writeback": {
+        "allowedNamespaces": ["services/<service-id>"],
+        "allowedOperations": ["create", "update", "rotate", "delete"]
+      }
+    },
     "depend_on": [
       "<dependency-service-id>"
     ],

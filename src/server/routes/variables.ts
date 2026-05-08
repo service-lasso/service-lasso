@@ -1,7 +1,7 @@
 export interface ServiceVariablesResponse {
   variables: {
     serviceId: string;
-    variables: { key: string; value: string; scope: "manifest" | "derived" | "global" }[];
+    variables: { key: string; value: string; scope: "manifest" | "derived" | "global" | "broker" }[];
   };
 }
 
