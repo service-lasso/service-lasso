@@ -589,6 +589,7 @@ Ordinary services should consume broker values through service-local `env` names
 - prefer env mapping for long-running processes; use CLI-style resolution only for controlled setup/adapter paths that do not echo arguments or outputs containing raw secrets
 - missing, locked, auth-required, policy-denied, source-unavailable, or degraded refs should fail with actionable diagnostics that name the ref and reason without including the secret value
 - startup resolution batches unique declared broker selectors once per launch and materializes raw values only into the launched service environment/config boundary; see [Startup Broker Resolution](./startup-broker-resolution.md)
+- use the metadata-only [Legacy globalenv Migration](./legacy-globalenv-migration.md) planner before converting existing literal env/globalenv secrets; ambiguous and globalenv candidates require operator confirmation/manual writeback
 
 Becomes an explicit broker contract:
 
