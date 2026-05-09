@@ -1,24 +1,49 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
-import { startManagedProcess, stopManagedProcess } from "../execution/supervisor.js";
-import { mintScopedBrokerIdentity, revokeServiceScopedBrokerIdentities } from "../broker/identity.js";
+import {
+  startManagedProcess,
+  stopManagedProcess,
+} from "../execution/supervisor.js";
+import {
+  mintScopedBrokerIdentity,
+  revokeServiceScopedBrokerIdentities,
+} from "../broker/identity.js";
+import {
+  mergeServiceVariableResolutionOptions,
+  resolveServiceStartupBrokerResolution,
+  summarizeRequiredStartupBrokerFailures,
+  type BrokerLaunchLookup,
+} from "../broker/launch-resolution.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
-import { collectRuntimeGlobalEnv, type ServiceVariableResolutionOptions } from "../operator/variables.js";
+import {
+  collectRuntimeGlobalEnv,
+  type ServiceVariableResolutionOptions,
+} from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import { assertDoctorPreflightAllowsRestart } from "../recovery/doctor.js";
 import { appendServiceRecoveryHistoryEvents } from "../recovery/history.js";
 import { acquireInstallArtifact } from "../setup/acquire.js";
-import { materializeConfigArtifacts, materializeInstallArtifacts } from "../setup/materialize.js";
+import {
+  materializeConfigArtifacts,
+  materializeInstallArtifacts,
+} from "../setup/materialize.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
-import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
+import type {
+  LifecycleAction,
+  LifecycleActionResult,
+  ServiceLifecycleState,
+} from "./types.js";
 
-function calculateRunDurationMs(startedAt: string | null, finishedAt: string): number | null {
+function calculateRunDurationMs(
+  startedAt: string | null,
+  finishedAt: string,
+): number | null {
   if (!startedAt) {
     return null;
   }
@@ -38,14 +63,21 @@ function applyRunCompletionMetrics(
   finishedAt: string,
   termination: "stopped" | "exited" | "crashed",
 ): ServiceLifecycleState["runtime"]["metrics"] {
-  const runDurationMs = calculateRunDurationMs(current.runtime.startedAt, finishedAt);
+  const runDurationMs = calculateRunDurationMs(
+    current.runtime.startedAt,
+    finishedAt,
+  );
 
   return {
     ...current.runtime.metrics,
-    stopCount: current.runtime.metrics.stopCount + (termination === "stopped" ? 1 : 0),
-    exitCount: current.runtime.metrics.exitCount + (termination === "exited" ? 1 : 0),
-    crashCount: current.runtime.metrics.crashCount + (termination === "crashed" ? 1 : 0),
-    totalRunDurationMs: current.runtime.metrics.totalRunDurationMs + (runDurationMs ?? 0),
+    stopCount:
+      current.runtime.metrics.stopCount + (termination === "stopped" ? 1 : 0),
+    exitCount:
+      current.runtime.metrics.exitCount + (termination === "exited" ? 1 : 0),
+    crashCount:
+      current.runtime.metrics.crashCount + (termination === "crashed" ? 1 : 0),
+    totalRunDurationMs:
+      current.runtime.metrics.totalRunDurationMs + (runDurationMs ?? 0),
     lastRunDurationMs: runDurationMs,
   };
 }
@@ -59,7 +91,10 @@ function applyProcessLaunchMetrics(
   let lastRunDurationMs = current.runtime.metrics.lastRunDurationMs;
 
   if (action === "restart" && current.running) {
-    const previousRunDurationMs = calculateRunDurationMs(current.runtime.startedAt, startedAt);
+    const previousRunDurationMs = calculateRunDurationMs(
+      current.runtime.startedAt,
+      startedAt,
+    );
     totalRunDurationMs += previousRunDurationMs ?? 0;
     lastRunDurationMs = previousRunDurationMs;
   }
@@ -67,7 +102,8 @@ function applyProcessLaunchMetrics(
   return {
     ...current.runtime.metrics,
     launchCount: current.runtime.metrics.launchCount + 1,
-    restartCount: current.runtime.metrics.restartCount + (action === "restart" ? 1 : 0),
+    restartCount:
+      current.runtime.metrics.restartCount + (action === "restart" ? 1 : 0),
     totalRunDurationMs,
     lastRunDurationMs,
   };
@@ -75,12 +111,16 @@ function applyProcessLaunchMetrics(
 
 export interface ServiceLifecycleActionOptions {
   variableResolution?: ServiceVariableResolutionOptions;
+  brokerLookup?: BrokerLaunchLookup;
 }
 
 function applyState(
   serviceId: string,
   action: LifecycleAction,
-  recipe: (current: ServiceLifecycleState) => { nextState: ServiceLifecycleState; message: string },
+  recipe: (current: ServiceLifecycleState) => {
+    nextState: ServiceLifecycleState;
+    message: string;
+  },
   ok = true,
 ): LifecycleActionResult {
   const current = getLifecycleState(serviceId);
@@ -108,14 +148,60 @@ function updateRuntimeState(
   return setLifecycleState(serviceId, recipe(current));
 }
 
+function formatStartupBrokerFailureMessage(
+  serviceId: string,
+  failures: ReturnType<typeof summarizeRequiredStartupBrokerFailures>,
+): string {
+  const refs = failures
+    .map((failure) => `${failure.ref}:${failure.status}`)
+    .join(", ");
+  return `Cannot start service "${serviceId}" because required broker refs are unresolved (${refs}).`;
+}
+
+async function resolveLaunchVariableResolution(
+  service: DiscoveredService,
+  options: ServiceLifecycleActionOptions,
+): Promise<ServiceVariableResolutionOptions | undefined> {
+  if (!options.brokerLookup) {
+    return options.variableResolution;
+  }
+
+  const resolution = await resolveServiceStartupBrokerResolution(
+    service,
+    options.brokerLookup,
+    options.variableResolution,
+  );
+  const requiredFailures = summarizeRequiredStartupBrokerFailures(resolution);
+  if (requiredFailures.length > 0) {
+    throw new LifecycleStateError(
+      formatStartupBrokerFailureMessage(service.manifest.id, requiredFailures),
+    );
+  }
+
+  return mergeServiceVariableResolutionOptions(
+    options.variableResolution,
+    resolution.variableResolution,
+  );
+}
+
 async function persistProcessExit(
   service: DiscoveredService,
   exitCode: number | null,
 ): Promise<void> {
   const finishedAt = new Date().toISOString();
-  const revokedIdentities = revokeServiceScopedBrokerIdentities(service.manifest.id, { now: new Date(finishedAt) });
-  const revokedIdentity = revokedIdentities.at(-1) ?? getLifecycleState(service.manifest.id).runtime.brokerIdentity;
-  const termination = (exitCode ?? getLifecycleState(service.manifest.id).runtime.exitCode ?? 0) === 0 ? "exited" : "crashed";
+  const revokedIdentities = revokeServiceScopedBrokerIdentities(
+    service.manifest.id,
+    { now: new Date(finishedAt) },
+  );
+  const revokedIdentity =
+    revokedIdentities.at(-1) ??
+    getLifecycleState(service.manifest.id).runtime.brokerIdentity;
+  const termination =
+    (exitCode ??
+      getLifecycleState(service.manifest.id).runtime.exitCode ??
+      0) === 0
+      ? "exited"
+      : "crashed";
   const state = updateRuntimeState(service.manifest.id, (current) => ({
     ...current,
     running: false,
@@ -148,7 +234,10 @@ function resolveExecutionPlanForLifecycle(
     return resolveProviderExecution(service, registry);
   }
 
-  return createDirectExecutionPlan(service.manifest, current.installArtifacts.artifact);
+  return createDirectExecutionPlan(
+    service.manifest,
+    current.installArtifacts.artifact,
+  );
 }
 
 export async function installService(
@@ -156,7 +245,9 @@ export async function installService(
   registry?: ServiceRegistry,
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
-  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const sharedGlobalEnv = registry
+    ? collectRuntimeGlobalEnv(registry.list())
+    : {};
   const acquiredArtifact = await acquireInstallArtifact(service);
   const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv);
 
@@ -187,12 +278,22 @@ export async function configService(
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
-    throw new LifecycleStateError(`Cannot config service "${serviceId}" before install.`);
+    throw new LifecycleStateError(
+      `Cannot config service "${serviceId}" before install.`,
+    );
   }
 
-  const resolvedPorts = registry ? await negotiateServicePorts(service, registry.list()) : current.runtime.ports;
-  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
-  const artifacts = await materializeConfigArtifacts(service, sharedGlobalEnv, resolvedPorts);
+  const resolvedPorts = registry
+    ? await negotiateServicePorts(service, registry.list())
+    : current.runtime.ports;
+  const sharedGlobalEnv = registry
+    ? collectRuntimeGlobalEnv(registry.list())
+    : {};
+  const artifacts = await materializeConfigArtifacts(
+    service,
+    sharedGlobalEnv,
+    resolvedPorts,
+  );
 
   return applyState(serviceId, "config", (state) => ({
     nextState: {
@@ -216,21 +317,33 @@ export async function startService(
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
-    throw new LifecycleStateError(`Cannot start service "${serviceId}" before install.`);
+    throw new LifecycleStateError(
+      `Cannot start service "${serviceId}" before install.`,
+    );
   }
   if (!current.configured) {
-    throw new LifecycleStateError(`Cannot start service "${serviceId}" before config.`);
+    throw new LifecycleStateError(
+      `Cannot start service "${serviceId}" before config.`,
+    );
   }
   if (current.running) {
-    throw new LifecycleStateError(`Cannot start service "${serviceId}" because it is already running.`);
+    throw new LifecycleStateError(
+      `Cannot start service "${serviceId}" because it is already running.`,
+    );
   }
-  const executionPlan = resolveExecutionPlanForLifecycle(service, current, registry);
+  const executionPlan = resolveExecutionPlanForLifecycle(
+    service,
+    current,
+    registry,
+  );
   if (
     executionPlan.provider === "direct" &&
     !service.manifest.executable &&
     !current.installArtifacts.artifact?.command
   ) {
-    throw new LifecycleStateError(`Cannot start service "${serviceId}" because no executable is configured.`);
+    throw new LifecycleStateError(
+      `Cannot start service "${serviceId}" because no executable is configured.`,
+    );
   }
 
   if (registry) {
@@ -240,7 +353,9 @@ export async function startService(
     for (const dependencyId of dependencyOrder) {
       const dependency = registry.getById(dependencyId);
       if (!dependency) {
-        throw new LifecycleStateError(`Cannot start service "${serviceId}" because dependency "${dependencyId}" was not found.`);
+        throw new LifecycleStateError(
+          `Cannot start service "${serviceId}" because dependency "${dependencyId}" was not found.`,
+        );
       }
 
       const dependencyState = getLifecycleState(dependencyId);
@@ -260,27 +375,38 @@ export async function startService(
       }
 
       if (!dependencyState.running) {
-        const dependencyResult = await startService(dependency, registry, options);
+        const dependencyResult = await startService(
+          dependency,
+          registry,
+          options,
+        );
         await writeServiceState(dependency, dependencyResult.state);
       }
     }
   }
 
-  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const sharedGlobalEnv = registry
+    ? collectRuntimeGlobalEnv(registry.list())
+    : {};
   revokeServiceScopedBrokerIdentities(serviceId);
   const scopedBrokerIdentity = mintScopedBrokerIdentity(service);
-  const resolvedPorts = Object.keys(current.runtime.ports).length > 0
-    ? current.runtime.ports
-    : registry
-      ? await negotiateServicePorts(service, registry.list())
-      : {};
+  const resolvedPorts =
+    Object.keys(current.runtime.ports).length > 0
+      ? current.runtime.ports
+      : registry
+        ? await negotiateServicePorts(service, registry.list())
+        : {};
+  const variableResolution = await resolveLaunchVariableResolution(
+    service,
+    options,
+  );
   const handle = await startManagedProcess({
     service,
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
     secureEnv: scopedBrokerIdentity?.env,
-    variableResolution: options.variableResolution,
+    variableResolution,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -317,7 +443,8 @@ export async function startService(
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
-    const revokedIdentity = revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
+    const revokedIdentity =
+      revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
     return applyState(
       serviceId,
       "start",
@@ -331,7 +458,11 @@ export async function startService(
             finishedAt: new Date().toISOString(),
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
             lastTermination: "stopped",
-            metrics: applyRunCompletionMetrics(state, new Date().toISOString(), "stopped"),
+            metrics: applyRunCompletionMetrics(
+              state,
+              new Date().toISOString(),
+              "stopped",
+            ),
             brokerIdentity: revokedIdentity,
           },
         },
@@ -362,17 +493,24 @@ export async function startService(
   }));
 }
 
-export async function stopService(service: DiscoveredService): Promise<LifecycleActionResult> {
+export async function stopService(
+  service: DiscoveredService,
+): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.running) {
-    throw new LifecycleStateError(`Cannot stop service "${serviceId}" because it is not running.`);
+    throw new LifecycleStateError(
+      `Cannot stop service "${serviceId}" because it is not running.`,
+    );
   }
 
   const stopped = await stopManagedProcess(serviceId);
   const finishedAt = new Date().toISOString();
-  const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, { now: new Date(finishedAt) });
-  const revokedIdentity = revokedIdentities.at(-1) ?? current.runtime.brokerIdentity;
+  const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
+    now: new Date(finishedAt),
+  });
+  const revokedIdentity =
+    revokedIdentities.at(-1) ?? current.runtime.brokerIdentity;
 
   return applyState(serviceId, "stop", (state) => ({
     nextState: {
@@ -400,18 +538,28 @@ export async function restartService(
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
-    throw new LifecycleStateError(`Cannot restart service "${serviceId}" before install.`);
+    throw new LifecycleStateError(
+      `Cannot restart service "${serviceId}" before install.`,
+    );
   }
   if (!current.configured) {
-    throw new LifecycleStateError(`Cannot restart service "${serviceId}" before config.`);
+    throw new LifecycleStateError(
+      `Cannot restart service "${serviceId}" before config.`,
+    );
   }
-  const executionPlan = resolveExecutionPlanForLifecycle(service, current, registry);
+  const executionPlan = resolveExecutionPlanForLifecycle(
+    service,
+    current,
+    registry,
+  );
   if (
     executionPlan.provider === "direct" &&
     !service.manifest.executable &&
     !current.installArtifacts.artifact?.command
   ) {
-    throw new LifecycleStateError(`Cannot restart service "${serviceId}" because no executable is configured.`);
+    throw new LifecycleStateError(
+      `Cannot restart service "${serviceId}" because no executable is configured.`,
+    );
   }
   await assertDoctorPreflightAllowsRestart(service);
 
@@ -420,20 +568,27 @@ export async function restartService(
   }
   revokeServiceScopedBrokerIdentities(serviceId);
 
-  const sharedGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const sharedGlobalEnv = registry
+    ? collectRuntimeGlobalEnv(registry.list())
+    : {};
   const scopedBrokerIdentity = mintScopedBrokerIdentity(service);
-  const resolvedPorts = Object.keys(current.runtime.ports).length > 0
-    ? current.runtime.ports
-    : registry
-      ? await negotiateServicePorts(service, registry.list())
-      : {};
+  const resolvedPorts =
+    Object.keys(current.runtime.ports).length > 0
+      ? current.runtime.ports
+      : registry
+        ? await negotiateServicePorts(service, registry.list())
+        : {};
+  const variableResolution = await resolveLaunchVariableResolution(
+    service,
+    options,
+  );
   const handle = await startManagedProcess({
     service,
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
     secureEnv: scopedBrokerIdentity?.env,
-    variableResolution: options.variableResolution,
+    variableResolution,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -470,7 +625,8 @@ export async function restartService(
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
-    const revokedIdentity = revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
+    const revokedIdentity =
+      revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
     const failedResult = applyState(
       serviceId,
       "restart",
@@ -484,7 +640,11 @@ export async function restartService(
             finishedAt: new Date().toISOString(),
             exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
             lastTermination: "stopped",
-            metrics: applyRunCompletionMetrics(state, new Date().toISOString(), "stopped"),
+            metrics: applyRunCompletionMetrics(
+              state,
+              new Date().toISOString(),
+              "stopped",
+            ),
             brokerIdentity: revokedIdentity,
           },
         },
@@ -492,13 +652,15 @@ export async function restartService(
       }),
       false,
     );
-    await appendServiceRecoveryHistoryEvents(service, [{
-      kind: "restart",
-      serviceId,
-      ok: false,
-      message: failedResult.message,
-      at: new Date().toISOString(),
-    }]);
+    await appendServiceRecoveryHistoryEvents(service, [
+      {
+        kind: "restart",
+        serviceId,
+        ok: false,
+        message: failedResult.message,
+        at: new Date().toISOString(),
+      },
+    ]);
     return failedResult;
   }
 
@@ -521,12 +683,14 @@ export async function restartService(
     },
     message: readiness.message.replace(/^Start/, "Restart"),
   }));
-  await appendServiceRecoveryHistoryEvents(service, [{
-    kind: "restart",
-    serviceId,
-    ok: result.ok,
-    message: result.message,
-    at: new Date().toISOString(),
-  }]);
+  await appendServiceRecoveryHistoryEvents(service, [
+    {
+      kind: "restart",
+      serviceId,
+      ok: result.ok,
+      message: result.message,
+      at: new Date().toISOString(),
+    },
+  ]);
   return result;
 }
