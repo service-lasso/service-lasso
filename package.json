@@ -38,7 +38,8 @@
     "release:assets:expected": "node scripts/check-release-assets.mjs --expected",
     "release:assets:check": "node scripts/check-release-assets.mjs",
     "bootstrap:local-sso": "node scripts/local-sso-bootstrap.mjs",
-    "test:local-sso": "npm run build && node --test --test-concurrency=1 tests/local-sso-bootstrap.test.js"
+    "test:local-sso": "npm run build && node --test --test-concurrency=1 tests/local-sso-bootstrap.test.js",
+    "test:local-sso-loop": "npm run build && node --test --test-concurrency=1 tests/local-sso-loop-smoke.test.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

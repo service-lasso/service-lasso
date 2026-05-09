@@ -88,6 +88,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/local-sso-loop-smoke",
+          label: "Local SSO Loop Smoke",
+        },
+        {
+          type: "doc",
           id: "reference/zitadel-consumer-integration",
           label: "ZITADEL Consumer Integration",
         },
