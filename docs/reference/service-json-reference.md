@@ -20,10 +20,12 @@ It is meant to make the runtime and service templates usable without forcing ser
 ## Important current rule
 
 The current template direction is:
+
 - **default health model = `process`**
 - other health models are used only when explicitly declared by service config
 
 Supported explicit healthcheck types include:
+
 - `http`
 - `tcp`
 - `file`
@@ -34,6 +36,7 @@ Supported explicit healthcheck types include:
 `service.json` is the canonical service manifest used by Service Lasso to understand how a service should be discovered, prepared, executed, and monitored.
 
 At a high level it carries:
+
 - identity
 - operator metadata
 - lifecycle/action hints
@@ -101,61 +104,76 @@ The current sample in this repo is:
 ## Top-level fields
 
 ### `id`
+
 Unique service identifier.
 
 Example:
+
 ```json
 "id": "echo-service"
 ```
 
 Current direction:
+
 - required
 - should be stable
 - should align with the service repo’s identity
 
 ### `name`
+
 Human-facing display name.
 
 Example:
+
 ```json
 "name": "Echo Service"
 ```
 
 ### `description`
+
 Short operator-facing description.
 
 ### `enabled`
+
 Whether the service is enabled by default.
 
 ### `role`
+
 Declares whether the manifest describes a normal managed service or a local runtime provider.
 
 Supported values:
+
 - `service` or omitted: a normal service that can be installed, configured, started, stopped, and health-checked as a managed process when execution metadata is present
 - `provider`: a runtime provider such as `@node`, `@python`, or `@java`; providers can be local/no-download or release-backed through `artifact` metadata
 
 Provider-role services are installed/configured so their variables and dependency contract are available, but baseline start does not launch them as long-running daemon processes unless a later provider contract explicitly requires that.
 
 Example:
+
 ```json
 "role": "provider"
 ```
 
 ### `version`
+
 Current package/version identity for the service.
 
 ### `logoutput`
+
 Whether stdout/stderr style runtime logging should be captured/displayed.
 
 ### `icon`
+
 UI/operator-facing symbolic icon list.
 
 Current direction:
+
 - `icon` should be an array of entries
 - each entry should identify an icon `provider` and `name`
 - consumers can choose the first icon provider they support
 
 Example:
+
 ```json
 "icon": [
   {
@@ -166,14 +184,17 @@ Example:
 ```
 
 ### `logo`
+
 UI/operator-facing image/logo list.
 
 Current direction:
+
 - `logo` should be an array of entries
 - the simple form is just `path`
 - later entries can grow to include more metadata such as format/theme/size
 
 Example:
+
 ```json
 "logo": [
   {
@@ -183,9 +204,11 @@ Example:
 ```
 
 ### `servicetype`
+
 Numeric service type classification value.
 
 ### `servicelocation`
+
 Numeric service location classification value.
 
 ## `actions`
@@ -193,11 +216,13 @@ Numeric service location classification value.
 `actions` is where the service defines or overrides named lifecycle actions.
 
 Current intended rule:
+
 - actions correspond to known Service Lasso lifecycle/action names
 - service config can override how a named action behaves for that service
 - if a service does not override a supported action, Lasso default behavior applies
 
 Current sample actions:
+
 - `install`
 - `config`
 - `start`
@@ -223,6 +248,7 @@ Current sample actions:
 ```
 
 ### Current action semantics direction
+
 - `install`
   - prepare/install payload and required local setup
 - `config`
@@ -241,39 +267,48 @@ Additional action names may exist later, but this first-pass template should sta
 This is where the service tells Lasso how to run and supervise it.
 
 ### `serviceorder`
+
 Startup ordering hint.
 
 Example:
+
 ```json
 "serviceorder": 100
 ```
 
 ### `serviceport`
+
 Primary service port.
 
 In the sample, `0` is being used as a simple first-pass placeholder/default meaning “no fixed service port required by this sample”.
 
 ### `execcwd`
+
 Execution working directory.
 
 Example:
+
 ```json
 "execcwd": "runtime"
 ```
 
 ### `executable`
+
 Executable or executable key/name used for the service runtime.
 
 Example:
+
 ```json
 "executable": "echo-service"
 ```
 
 Current direction:
+
 - when a service runs directly, `executable` can be the local binary/script name or path
 - when a service runs through a runtime provider, `executable` should be treated as the executable key exposed by that provider
 
 Provider-backed example:
+
 ```json
 "execservice": "@node",
 "executable": "NODE",
@@ -281,15 +316,18 @@ Provider-backed example:
 ```
 
 Meaning:
+
 - `execservice` chooses the runtime/provider service to use
 - `executable` chooses which executable from that provider should be invoked
 - the resulting runtime command is conceptually `NODE runtime/server.js`
 
 This means `execservice` and `executable` are related, but not the same thing:
+
 - `execservice` = who runs it
 - `executable` = what binary from that runner gets used
 
 Practical rule:
+
 - use both when you want provider-backed execution to stay explicit
 - do not assume `execservice` alone is enough unless Service Lasso later defines provider defaults clearly enough to make `executable` optional
 
@@ -309,6 +347,7 @@ Practical rule:
 ```
 
 Current core behavior:
+
 - Service Lasso selects `commandline[process.platform]`, falling back to `commandline.default`.
 - `${...}` selectors are resolved with the same service variables used for env/config materialization.
 - Selector planning classifies `${VAR}` as local/current-service/derived/legacy-compatible lookup and `${namespace.KEY}` as an explicit broker lookup.
@@ -319,24 +358,30 @@ Current core behavior:
 - Keep `args` as the fallback when no platform/default commandline is declared.
 
 ### `execservice`
+
 Runtime-provider service used to run this service through another packaged/runtime service.
 
 Example:
+
 ```json
 "execservice": "@node"
 ```
 
 Use this when:
+
 - the service should run through a packaged Node/Python/Java runtime provider
 - the service does not own the runtime binary directly inside its own payload
 
 Do not use this when:
+
 - the service already ships and runs its own executable directly
 
 ### `env`
+
 Service-local environment variables.
 
 Example:
+
 ```json
 "env": {
   "ECHO_MESSAGE": "hello from service-template"
@@ -344,6 +389,7 @@ Example:
 ```
 
 Current direction:
+
 - service env should be explicit
 - avoid depending on uncontrolled host-machine env leakage
 - use `${VAR}` for local/current-service/derived values and legacy `globalenv` compatibility
@@ -356,6 +402,7 @@ Current direction:
 Services without a `broker` block keep the existing behavior. There is no implicit migration from `env` or `globalenv` into broker state.
 
 Shape:
+
 ```json
 "broker": {
   "enabled": true,
@@ -406,6 +453,7 @@ Shape:
 ```
 
 Fields:
+
 - `enabled`: optional boolean. `false` can be used to leave a declared broker contract dormant.
 - `namespace`: optional default service namespace. It must be a non-empty broker namespace string such as `services/consumer`.
 - `buckets`: optional array declaring the namespace buckets this manifest participates in. Bucket namespaces must be unique.
@@ -434,6 +482,7 @@ Fields:
 - `writeback.generatedSecrets[].required`: optional boolean; required captures should fail closed when the source cannot be resolved.
 
 Launch-time writeback identity:
+
 - Services with `broker.writeback` declared receive a short-lived per-launch broker credential from the runtime.
 - The credential is scoped to the service id plus `writeback.allowedNamespaces`, `writeback.allowedRefs`, and `writeback.allowedOperations`.
 - Runtime injects the credential through reserved process env keys: `SERVICE_LASSO_BROKER_IDENTITY_ID`, `SERVICE_LASSO_BROKER_CREDENTIAL`, and `SERVICE_LASSO_BROKER_CREDENTIAL_EXPIRES_AT`.
@@ -442,6 +491,7 @@ Launch-time writeback identity:
 - Broker writeback audit records should use the launched service identity and the optional `writeback.auditReason`.
 
 Selector semantics:
+
 - `${VAR}` means local/current-service variables only, including derived variables and legacy-compatible values already visible to the service.
 - `${namespace.KEY}` means an explicit broker lookup.
 - Bare names never fall through into broker namespaces.
@@ -450,6 +500,7 @@ Selector semantics:
 - `imports[].as` may intentionally line up with an `env` key only when that env value is exactly the same dotted broker selector, for example `"DB_PASSWORD": "${database.PASSWORD}"`. It must not collide with `globalenv` output names.
 
 Producer example:
+
 ```json
 {
   "id": "token-producer",
@@ -461,9 +512,7 @@ Producer example:
   "broker": {
     "enabled": true,
     "namespace": "services/token-producer",
-    "buckets": [
-      { "namespace": "services/token-producer", "kind": "service" }
-    ],
+    "buckets": [{ "namespace": "services/token-producer", "kind": "service" }],
     "exports": [
       {
         "namespace": "services/token-producer",
@@ -492,6 +541,7 @@ Producer example:
 ```
 
 Consumer example:
+
 ```json
 {
   "id": "token-consumer",
@@ -520,6 +570,7 @@ Consumer example:
 ```
 
 Migration from `globalenv`:
+
 ```json
 {
   "globalenv": {
@@ -531,13 +582,16 @@ Migration from `globalenv`:
 Legacy `globalenv` remains a compatibility path for bounded provider/tool values that are already safe to share. New cross-service secret flow should move to explicit broker imports/exports so values are bucketed as current-service, app-level, explicitly shared, or truly global instead of ambiently merged into every launched process.
 
 Ordinary services should consume broker values through service-local `env` names or through an explicit CLI/adapter resolution step. Keep the manifest reviewable:
+
 - map each secret to a concrete env key, for example `"DB_PASSWORD": "${database.PASSWORD}"`
 - declare the same dotted ref in `broker.imports[]`; undeclared dotted refs are denied instead of falling back to ambient/global lookup
 - do not print resolved values in normal logs, diagnostics, issue comments, or support bundles
 - prefer env mapping for long-running processes; use CLI-style resolution only for controlled setup/adapter paths that do not echo arguments or outputs containing raw secrets
-- missing, denied, or source-auth-required refs should fail with actionable diagnostics that name the ref and reason without including the secret value
+- missing, locked, auth-required, policy-denied, source-unavailable, or degraded refs should fail with actionable diagnostics that name the ref and reason without including the secret value
+- startup resolution batches unique declared broker selectors once per launch and materializes raw values only into the launched service environment/config boundary; see [Startup Broker Resolution](./startup-broker-resolution.md)
 
 Becomes an explicit broker contract:
+
 ```json
 {
   "env": {
@@ -563,24 +617,30 @@ Becomes an explicit broker contract:
 ```
 
 ### `depend_on`
+
 Explicit dependencies.
 
 Example:
+
 ```json
 "depend_on": []
 ```
 
 Current direction:
+
 - use this for services that require another service/runtime/provider first
 - keep empty for the minimal sample
 
 ## Healthcheck
 
 ### Default rule
+
 Current rule:
+
 - if a service does not explicitly require another model, the default is **`process`**
 
 Example:
+
 ```json
 "healthcheck": {
   "type": "process"
@@ -590,7 +650,9 @@ Example:
 This is the right default for a simple sample service.
 
 ### Explicit healthcheck types
+
 Service Lasso supports these explicit healthcheck types:
+
 - `http`
 - `tcp`
 - `file`
@@ -599,11 +661,14 @@ Service Lasso supports these explicit healthcheck types:
 `process` is the current template default direction; use one of the explicit types above when a service needs a stronger readiness signal.
 
 ### `process` healthcheck
+
 Use when:
+
 - service health is adequately represented by the process being up/running
 - you do not need a deeper readiness endpoint yet
 
 Sample:
+
 ```json
 "healthcheck": {
   "type": "process"
@@ -611,10 +676,13 @@ Sample:
 ```
 
 ### `http` healthcheck
+
 Use when:
+
 - the service exposes an HTTP readiness or health endpoint
 
 Sample:
+
 ```json
 "healthcheck": {
   "type": "http",
@@ -624,10 +692,13 @@ Sample:
 ```
 
 ### `tcp` healthcheck
+
 Use when:
+
 - readiness is best represented by a socket accepting connections
 
 Sample:
+
 ```json
 "healthcheck": {
   "type": "tcp"
@@ -637,10 +708,13 @@ Sample:
 This relies on the configured service host/port.
 
 ### `file` healthcheck
+
 Use when:
+
 - the service creates a file that represents successful readiness/setup
 
 Sample:
+
 ```json
 "healthcheck": {
   "type": "file",
@@ -649,10 +723,13 @@ Sample:
 ```
 
 ### `variable` healthcheck
+
 Use when:
+
 - a specific resolved/exported variable is the readiness signal
 
 Sample:
+
 ```json
 "healthcheck": {
   "type": "variable",
@@ -716,9 +793,11 @@ service-lasso setup run typedb init-schema
 ```
 
 ### Release artifacts and update policy
+
 Current core manifests use first-class `artifact` metadata when a service archive should be acquired from a GitHub release.
 
 Pinned example:
+
 ```json
 "artifact": {
   "kind": "archive",
@@ -739,6 +818,7 @@ Pinned example:
 If `artifact.source.tag` is present and no active `updates` policy is declared, Service Lasso treats the service as pinned.
 
 Moving update checks require an explicit `updates` block:
+
 ```json
 "updates": {
   "enabled": true,
@@ -749,12 +829,14 @@ Moving update checks require an explicit `updates` block:
 ```
 
 Supported `updates.mode` values:
+
 - `disabled`
 - `notify`
 - `download`
 - `install`
 
 Current core status:
+
 - `notify` can be used by the read-only update discovery function to classify `pinned`, `latest`, `update_available`, `unavailable`, or `check_failed`
 - `download` downloads candidates without installing them
 - `install` can install candidates through CLI/API or the opt-in scheduler when policy and safety gates allow
@@ -763,14 +845,18 @@ Current core status:
 - `runningService` controls whether a running service is deferred or stopped/restarted during install
 
 ### Environment generation
+
 Current broader Service Lasso direction includes:
+
 - explicit service-local env via `env`
 - possible cross-service/global env behavior via `globalenv`
 
 The sample template keeps this minimal for now.
 
 ### Ports and URLs
+
 More complex services can use additional fields such as:
+
 - `serviceportsecondary`
 - `serviceportconsole`
 - `serviceportdebug`
@@ -780,7 +866,9 @@ More complex services can use additional fields such as:
 These are not all used in the minimal sample, but they remain relevant for more complex services.
 
 ### Runtime-provider relationships
+
 Runtime-provider services use:
+
 - `execservice`
 
 This is relevant when a service is run via another runtime-provider service such as Node, Python, or Java.
@@ -790,6 +878,7 @@ The minimal sample does not use this yet.
 ## Canonical vs illustrative right now
 
 ### Treat as current first-pass canonical direction
+
 - one service per repo
 - `service.json` as the main service contract file
 - lifecycle-focused `actions`
@@ -800,6 +889,7 @@ The minimal sample does not use this yet.
 - explicit override to other health models when needed
 
 ### Still illustrative / not fully locked yet
+
 - exact numeric meaning of `servicetype`
 - exact numeric meaning of `servicelocation`
 - final exact schema shape for all optional `execconfig` fields
@@ -809,6 +899,7 @@ The minimal sample does not use this yet.
 ## Recommended authoring guidance
 
 For the first template-based service:
+
 1. keep the manifest small
 2. use `process` health unless another model is clearly needed
 3. explicitly declare env and dependencies
@@ -818,5 +909,6 @@ For the first template-based service:
 ## Related docs
 
 Start here for the broader Service Lasso contract:
+
 - `docs/service-authoring/overview.md`
 - `docs/development/new-lasso-service-guide.md`
