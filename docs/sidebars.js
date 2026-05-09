@@ -93,6 +93,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/servicelasso-localhost-sso-test-matrix",
+          label: "SSO Test Matrix",
+        },
+        {
+          type: "doc",
           id: "reference/zitadel-consumer-integration",
           label: "ZITADEL Consumer Integration",
         },
