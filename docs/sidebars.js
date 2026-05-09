@@ -78,6 +78,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/secret-leak-regression-harness",
+          label: "Secret Leak Regression Harness",
+        },
+        {
+          type: "doc",
           id: "reference/zitadel-consumer-integration",
           label: "ZITADEL Consumer Integration",
         },
