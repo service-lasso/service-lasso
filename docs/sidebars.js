@@ -83,6 +83,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/traefik-local-route-generation",
+          label: "Traefik Local Route Generation",
+        },
+        {
+          type: "doc",
           id: "reference/zitadel-consumer-integration",
           label: "ZITADEL Consumer Integration",
         },
