@@ -73,6 +73,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/legacy-globalenv-migration",
+          label: "Legacy globalenv Migration",
+        },
+        {
+          type: "doc",
           id: "reference/zitadel-consumer-integration",
           label: "ZITADEL Consumer Integration",
         },
