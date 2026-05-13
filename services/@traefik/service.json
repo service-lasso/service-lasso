@@ -2,7 +2,7 @@
   "id": "@traefik",
   "name": "Traefik Router",
   "description": "Release-backed Traefik edge/router service for Service Lasso baseline routing.",
-  "version": "2026.4.27-bbc7f15",
+  "version": "2026.5.9-9511770",
   "enabled": true,
   "depend_on": [
     "@localcert",
@@ -112,7 +112,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-traefik",
-      "tag": "2026.4.27-bbc7f15"
+      "tag": "2026.5.9-9511770"
     },
     "platforms": {
       "win32": {

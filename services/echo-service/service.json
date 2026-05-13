@@ -18,7 +18,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-echoservice",
-      "tag": "2026.4.20-a417abd"
+      "tag": "2026.5.3-6d3dc19"
     },
     "platforms": {
       "win32": {
