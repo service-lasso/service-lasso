@@ -8,3 +8,10 @@ dist/
 artifacts/
 docs/.docusaurus/
 docs/build/
+services/*/.state/
+services/*/data/
+services/*/logs/
+services/*/runtime/
+services/*/temp/
+!services/node-sample-service/runtime/
+!services/node-sample-service/runtime/**
