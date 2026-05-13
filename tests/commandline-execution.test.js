@@ -52,7 +52,8 @@ test("start uses installed artifact commands from the service root working direc
     await mkdir(runtimeRoot, { recursive: true });
     await mkdir(artifactRoot, { recursive: true });
 
-    const scriptPath = path.join(artifactRoot, "artifact-cwd-fixture.mjs");
+    const scriptPath = path.join(artifactRoot, "runtime", "artifact-cwd-fixture.mjs");
+    await mkdir(path.dirname(scriptPath), { recursive: true });
     await writeFile(
       scriptPath,
       [
@@ -100,7 +101,7 @@ test("start uses installed artifact commands from the service root working direc
             archivePath: null,
             extractedPath: artifactRoot,
             command: process.execPath,
-            args: [scriptPath],
+            args: ["runtime/artifact-cwd-fixture.mjs", "--configFile=runtime/config.yml"],
           },
         },
       });
@@ -122,6 +123,9 @@ test("start uses installed artifact commands from the service root working direc
       );
 
       assert.equal(path.resolve(output.cwd), path.resolve(serviceRoot));
+      assert.equal(start.body.state.runtime.command.includes(path.join(artifactRoot, "runtime", "artifact-cwd-fixture.mjs")), true);
+      assert.equal(start.body.state.runtime.command.includes("--configFile=runtime/config.yml"), true);
+      assert.equal(start.body.state.runtime.command.includes(path.join(artifactRoot, "runtime", "config.yml")), false);
       assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/stop`)).status, 200);
     } finally {
       await apiServer.stop();

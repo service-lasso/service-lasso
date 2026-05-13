@@ -143,12 +143,21 @@ function resolveWorkingDirectory(service: DiscoveredService, _executionPlan: Pro
   return service.serviceRoot;
 }
 
+function isRelativePathLikeArgument(candidate: string): boolean {
+  return (
+    candidate.length > 0 &&
+    !candidate.startsWith("-") &&
+    !/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate) &&
+    (candidate.startsWith(".") || candidate.includes("/") || candidate.includes("\\"))
+  );
+}
+
 function resolveCommandRootArgument(commandRoot: string, arg: string): string {
   if (path.isAbsolute(arg)) {
     return arg;
   }
 
-  if (arg.startsWith(".")) {
+  if (isRelativePathLikeArgument(arg)) {
     return path.resolve(commandRoot, arg);
   }
 
