@@ -81,11 +81,11 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | Service | Role | Source |
 | --- | --- | --- |
 | `@node` | release-backed Node runtime provider | acquired from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.4.27-eca215a`; installed/configured but not launched as a daemon |
-| `@localcert` | release-backed core local certificate utility for Traefik | acquired from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.4.27-591ed28`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
+| `@localcert` | release-backed core local certificate utility for Traefik | acquired from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.5.2-24e7d2f`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
 | `@nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
-| `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.4.27-bbc7f15` |
-| `echo-service` | test harness service with UI/API/log/state behavior | acquired from a [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) GitHub release |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from a [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) GitHub release |
+| `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.5.9-9511770` |
+| `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.5.8-553dbb0` |
 
 Additional manifests such as `@java`, `@python`, `@archive`, and `node-sample-service` exist for provider and fixture coverage. They are not part of the default baseline start command. `@archive` is optional because Service Lasso already extracts normal `zip`, `tar.gz`, and `tgz` release artifacts without an external archive provider; add it only when a service needs external 7-Zip tooling for formats such as `.7z`, `.rar`, `.xz`, split archives, or legacy install flows.
 
