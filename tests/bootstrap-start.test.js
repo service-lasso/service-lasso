@@ -22,6 +22,7 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       config: { files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }] },
     });
     await writeExecutableFixtureService(servicesRoot, "@node");
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
@@ -35,9 +36,9 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["@java", "@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"]);
-    assert.deepEqual(result.serviceOrder, ["@java", "@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]);
-    assert.equal(result.services.length, 7);
+    assert.deepEqual(result.requestedServiceIds, ["@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"]);
+    assert.deepEqual(result.serviceOrder, ["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+    assert.equal(result.services.length, 8);
 
     for (const service of result.services) {
       assert.equal(service.status, "completed");
@@ -97,6 +98,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       role: "provider",
       healthcheck: null,
     });
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
@@ -144,6 +146,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
     assert.equal(node.state.running, false);
     assert.equal(localcert.state.running, false);
     assert.equal(nginx.state.running, false);
+    assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@traefik")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
   } finally {

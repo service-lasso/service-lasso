@@ -488,6 +488,7 @@ const traefikWebPort = await reserveLoopbackPort();
 const nginxHttpPort = await reserveLoopbackPort();
 const echoPort = await reserveLoopbackPort();
 const adminPort = await reserveLoopbackPort();
+const secretsBrokerPort = await reserveLoopbackPort();
 let cli = null;
 let servicesStopped = false;
 
@@ -497,6 +498,11 @@ try {
   await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
+  await writeHttpService(servicesRoot, "@secretsbroker", "service", {
+    ports: { service: secretsBrokerPort },
+    urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
+    healthUrl: `http://127.0.0.1:${secretsBrokerPort}/health`,
+  });
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
@@ -522,7 +528,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@java", "@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -545,6 +551,8 @@ try {
   assert(echo.ok, "Echo Service health surface was not reachable.");
   const admin = await fetch(`http://127.0.0.1:${adminPort}/health`);
   assert(admin.ok, "Service Admin health surface was not reachable.");
+  const secretsBroker = await fetch(`http://127.0.0.1:${secretsBrokerPort}/health`);
+  assert(secretsBroker.ok, "Secrets Broker health surface was not reachable.");
   const traefik = await fetch(`http://127.0.0.1:${traefikAdminPort}/ping`);
   assert(traefik.ok, "Traefik release-backed ping surface was not reachable.");
 
