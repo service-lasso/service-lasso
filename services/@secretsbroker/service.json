@@ -1,0 +1,60 @@
+{
+  "id": "@secretsbroker",
+  "name": "Service Lasso Secrets Broker",
+  "description": "Release-backed local-first secrets broker for Service Lasso bootstrap, service identities, policy, audit, and secret resolution.",
+  "version": "2026.5.9-c7dca55",
+  "enabled": true,
+  "ports": {
+    "service": 17890
+  },
+  "env": {
+    "SECRETSBROKER_STATE": "setup_needed",
+    "SECRETSBROKER_LISTEN": "127.0.0.1:${SERVICE_PORT}"
+  },
+  "globalenv": {
+    "SECRETSBROKER_URL": "http://127.0.0.1:${SERVICE_PORT}",
+    "SECRETSBROKER_HEALTH_URL": "http://127.0.0.1:${SERVICE_PORT}/health"
+  },
+  "urls": [
+    {
+      "label": "health",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "kind": "local"
+    }
+  ],
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-secretsbroker",
+      "tag": "2026.5.9-c7dca55"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "secretsbroker-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\secretsbroker.exe",
+        "args": ["serve"]
+      },
+      "linux": {
+        "assetName": "secretsbroker-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./secretsbroker",
+        "args": ["serve"]
+      },
+      "darwin": {
+        "assetName": "secretsbroker-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./secretsbroker",
+        "args": ["serve"]
+      }
+    }
+  },
+  "healthcheck": {
+    "type": "http",
+    "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+    "expected_status": 200,
+    "retries": 80,
+    "interval": 250
+  }
+}

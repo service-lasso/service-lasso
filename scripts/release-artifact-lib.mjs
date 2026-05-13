@@ -22,6 +22,7 @@ export const DEFAULT_BUNDLED_SERVICE_IDS = [
   "@nginx",
   "@traefik",
   "@node",
+  "@secretsbroker",
   "echo-service",
   "@serviceadmin",
 ];
