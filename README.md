@@ -36,29 +36,40 @@ git clone https://github.com/service-lasso/service-lasso.git
 cd service-lasso
 npm ci
 npm run build
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --json
+node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18090 --json
 ```
 
 The command starts the Service Lasso API at:
 
 ```text
-http://127.0.0.1:18080
+http://127.0.0.1:18090
 ```
 
-Useful local URLs after startup:
+The example uses API port `18090` because the checked-in baseline also starts `@nginx` on port `18080`.
+
+### How to test the local baseline
+
+After startup, open or query these local URLs:
 
 | URL | Purpose |
 | --- | --- |
-| `http://127.0.0.1:18080/api/health` | Service Lasso API health |
-| `http://127.0.0.1:18080/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:17700/` | Service Admin UI |
+| `http://127.0.0.1:18090/api/health` | Service Lasso API health |
+| `http://127.0.0.1:18090/api/runtime` | runtime boundary, service root, workspace root, and version |
+| `http://127.0.0.1:18090/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:4010/` | Echo Service UI/API |
+| `http://127.0.0.1:4010/health` | Echo Service health endpoint |
+| `http://127.0.0.1:18080/` | NGINX baseline web page |
+| `http://127.0.0.1:18080/health` | NGINX health endpoint |
+| `http://127.0.0.1:19081/ping` | Traefik health/ping endpoint |
 | `http://127.0.0.1:19081/dashboard/` | Traefik dashboard |
+
+If you choose a different `--port`, only the Service Lasso API URLs change. The managed service URLs above come from the checked-in `services/*/service.json` manifests unless their ports are reassigned.
 
 Stop managed services before closing the runtime:
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:18080/api/runtime/actions/stopAll
+Invoke-RestMethod -Method Post http://127.0.0.1:18090/api/runtime/actions/stopAll
 ```
 
 Then stop the Service Lasso process with `Ctrl+C`.
@@ -118,7 +129,7 @@ node dist/cli.js install echo-service --services-root ./services --workspace-roo
 Start the baseline services and leave the API running:
 
 ```powershell
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --json
+node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18090 --json
 ```
 
 Check or apply service updates:
@@ -186,7 +197,7 @@ console.log(api.url);
 CLI use from an installed package:
 
 ```powershell
-npx service-lasso start --services-root ./services --workspace-root ./workspace --port 18080
+npx service-lasso start --services-root ./services --workspace-root ./workspace --port 18090
 ```
 
 The npm package provides the runtime and CLI. Your app still provides its own `services/` manifests and workspace location.
