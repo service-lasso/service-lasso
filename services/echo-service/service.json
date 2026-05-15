@@ -9,6 +9,8 @@
   "env": {
     "ECHO_MESSAGE": "hello from echo-service harness",
     "ECHO_PORT": "${SERVICE_PORT}",
+    "ECHO_HTTP_HEALTH_PORT": "${HEALTH_PORT}",
+    "ECHO_TCP_PORT": "${TCP_HEALTH_PORT}",
     "ECHO_LOG_PATH": "./runtime/echo.log",
     "ECHO_STATE_PATH": "./runtime/state.json",
     "ECHO_DB_PATH": "./runtime/echo.sqlite"
@@ -55,7 +57,9 @@
     ]
   },
   "ports": {
-    "service": 4010
+    "service": 4010,
+    "health": 4011,
+    "tcp_health": 4012
   },
   "urls": [
     {

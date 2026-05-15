@@ -462,13 +462,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   if (parsed.command === "start") {
+    const runtimePort = parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+    process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = `http://127.0.0.1:${runtimePort}`;
+
     const bootstrap = await bootstrapBaselineServices({
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,
     });
     const app = await startRuntimeApp({
-      port: parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080),
+      port: runtimePort,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,

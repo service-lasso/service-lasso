@@ -27,3 +27,15 @@ jobs:
 
       - name: Run baseline start smoke
         run: npm run verify:baseline-start
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Run real app E2E state gate
+        run: npm run verify:real-app-e2e
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Run multi-instance port gate
+        run: npm run verify:multi-instance-ports
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
