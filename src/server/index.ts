@@ -874,6 +874,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
 }
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
+  const bindHost = process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
+  const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost;
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const bootModel = await loadRuntimeModel(config.servicesRoot);
   await rehydrateDiscoveredServices(bootModel.discovered);
@@ -895,7 +897,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const server = createApiServer(config);
   const port = options.port ?? 18080;
 
-  server.listen(port, "127.0.0.1");
+  server.listen(port, bindHost);
   await once(server, "listening");
   monitor?.start();
   updateScheduler?.start();
@@ -910,7 +912,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   return {
     server,
     port: resolvedPort,
-    url: `http://127.0.0.1:${resolvedPort}`,
+    url: `http://${publicHost}:${resolvedPort}`,
     monitor,
     updateScheduler,
     stop: async () => {
