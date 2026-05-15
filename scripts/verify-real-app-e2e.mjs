@@ -349,6 +349,11 @@ try {
   for (const serviceId of baselineServiceIds) {
     assert(dashboardIds.has(serviceId), `Dashboard service list is missing ${serviceId}.`);
   }
+  for (const serviceId of providerServiceIds) {
+    const service = dashboardServices.services.find((entry) => entry.id === serviceId);
+    assert(service?.status === "available", `${serviceId} provider utility did not report Available status.`);
+    assert(service?.runtimeHealth?.state === "available", `${serviceId} provider runtime state did not report Available.`);
+  }
 
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/`, "Service Admin UI");
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/health`, "Service Admin health");

@@ -99,7 +99,7 @@ export interface DashboardLinkResponse {
 }
 
 export interface DashboardRuntimeHealthResponse {
-  state: "running" | "stopped" | "degraded";
+  state: "running" | "available" | "stopped" | "degraded";
   health: "healthy" | "warning" | "critical";
   uptime: string;
   lastCheckAt: string;
@@ -142,7 +142,7 @@ export interface DashboardMetadataResponse {
 export interface DashboardDependencyResponse {
   id: string;
   name: string;
-  status: "running" | "stopped" | "degraded";
+  status: "running" | "available" | "stopped" | "degraded";
   relation: "depends_on" | "dependent";
   note?: string;
 }
@@ -172,7 +172,7 @@ export interface DashboardActionResponse {
 export interface DashboardServiceResponse {
   id: string;
   name: string;
-  status: "running" | "stopped" | "degraded";
+  status: "running" | "available" | "stopped" | "degraded";
   favorite: boolean;
   note: string;
   links: DashboardLinkResponse[];
@@ -197,6 +197,7 @@ export interface DashboardSummaryResponse {
     };
     servicesTotal: number;
     servicesRunning: number;
+    servicesAvailable: number;
     servicesStopped: number;
     servicesDegraded: number;
     networkExposureCount: number;

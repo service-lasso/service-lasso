@@ -33,6 +33,10 @@ function mapServiceStatus(
   health: ServiceHealthResult,
 ): DashboardServiceStatus {
   if (!lifecycle.running) {
+    if (health.type === "provider" && health.healthy) {
+      return "available";
+    }
+
     return "stopped";
   }
 
@@ -42,7 +46,7 @@ function mapServiceStatus(
 function mapRuntimeHealth(
   status: DashboardServiceStatus,
 ): DashboardServiceResponse["runtimeHealth"]["health"] {
-  if (status === "running") {
+  if (status === "running" || status === "available") {
     return "healthy";
   }
 
@@ -437,6 +441,7 @@ export function buildDashboardSummary(
     },
     servicesTotal: services.length,
     servicesRunning: services.filter((service) => service.status === "running").length,
+    servicesAvailable: services.filter((service) => service.status === "available").length,
     servicesStopped: services.filter((service) => service.status === "stopped").length,
     servicesDegraded: services.filter((service) => service.status === "degraded").length,
     networkExposureCount: services.reduce((count, service) => count + service.links.length, 0),
@@ -444,6 +449,8 @@ export function buildDashboardSummary(
     favorites,
     others,
     warnings,
-    problemServices: services.filter((service) => service.status !== "running"),
+    problemServices: services.filter(
+      (service) => service.status !== "running" && service.status !== "available",
+    ),
   };
 }

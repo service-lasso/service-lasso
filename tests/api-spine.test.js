@@ -112,10 +112,16 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
       },
     ],
   });
+  await writeManifest(servicesRoot, "provider-utility", {
+    id: "provider-utility",
+    name: "Provider Utility",
+    description: "Provider utility fixture that is ready once installed/configured.",
+    role: "provider",
+  });
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
-    for (const serviceId of ["alpha-service", "bravo-service"]) {
+    for (const serviceId of ["alpha-service", "bravo-service", "provider-utility"]) {
       let result = await postJson(`${apiServer.url}/api/services/${serviceId}/install`);
       assert.equal(result.status, 200);
       result = await postJson(`${apiServer.url}/api/services/${serviceId}/config`);
@@ -148,10 +154,12 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     const services = await getJson(`${apiServer.url}/api/dashboard/services`);
     const alphaDetail = await getJson(`${apiServer.url}/api/dashboard/services/alpha-service`);
     const bravoDetail = await getJson(`${apiServer.url}/api/dashboard/services/bravo-service`);
+    const utilityDetail = await getJson(`${apiServer.url}/api/dashboard/services/provider-utility`);
 
     assert.equal(summary.status, 200);
-    assert.equal(summary.body.summary.servicesTotal, 2);
+    assert.equal(summary.body.summary.servicesTotal, 3);
     assert.equal(summary.body.summary.servicesRunning, 1);
+    assert.equal(summary.body.summary.servicesAvailable, 1);
     assert.equal(summary.body.summary.servicesStopped, 1);
     assert.equal(summary.body.summary.favorites.length, 1);
     assert.equal(summary.body.summary.favorites[0].id, "alpha-service");
@@ -159,7 +167,7 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
 
     assert.equal(services.status, 200);
     assert.equal(Array.isArray(services.body.services), true);
-    assert.equal(services.body.services.length, 2);
+    assert.equal(services.body.services.length, 3);
 
     assert.equal(alphaDetail.status, 200);
     assert.equal(alphaDetail.body.service.id, "alpha-service");
@@ -180,6 +188,12 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(bravoDetail.status, 200);
     assert.equal(bravoDetail.body.service.status, "stopped");
     assert.ok(bravoDetail.body.service.dependencies.some((entry) => entry.id === "alpha-service" && entry.status === "running"));
+
+    assert.equal(utilityDetail.status, 200);
+    assert.equal(utilityDetail.body.service.status, "available");
+    assert.equal(utilityDetail.body.service.runtimeHealth.state, "available");
+    assert.equal(utilityDetail.body.service.runtimeHealth.health, "healthy");
+    assert.equal(utilityDetail.body.service.installed, true);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
