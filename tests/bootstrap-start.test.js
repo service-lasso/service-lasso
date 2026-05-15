@@ -13,6 +13,11 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await writeExecutableFixtureService(servicesRoot, "@archive", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
     await writeExecutableFixtureService(servicesRoot, "@java");
     await writeExecutableFixtureService(servicesRoot, "@localcert");
     await writeExecutableFixtureService(servicesRoot, "@nginx");
@@ -22,6 +27,11 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       config: { files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }] },
     });
     await writeExecutableFixtureService(servicesRoot, "@node");
+    await writeExecutableFixtureService(servicesRoot, "@python", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
     await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
@@ -36,20 +46,23 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"]);
-    assert.deepEqual(result.serviceOrder, ["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
-    assert.equal(result.services.length, 8);
+    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"]);
+    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+    assert.equal(result.services.length, 10);
 
     for (const service of result.services) {
       assert.equal(service.status, "completed");
+      const expectedActions = service.serviceId === "@archive" || service.serviceId === "@python"
+        ? ["install:completed", "config:completed", "start:skipped"]
+        : ["install:completed", "config:completed", "start:completed"];
       assert.deepEqual(
         service.actions.map((action) => `${action.action}:${action.status}`),
-        ["install:completed", "config:completed", "start:completed"],
+        expectedActions,
       );
       const state = getLifecycleState(service.serviceId);
       assert.equal(state.installed, true, `${service.serviceId} installed`);
       assert.equal(state.configured, true, `${service.serviceId} configured`);
-      assert.equal(state.running, true, `${service.serviceId} running`);
+      assert.equal(state.running, service.serviceId !== "@archive" && service.serviceId !== "@python", `${service.serviceId} running`);
     }
 
     const rerun = await bootstrapBaselineServices({
@@ -77,6 +90,11 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await writeExecutableFixtureService(servicesRoot, "@archive", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
     await writeExecutableFixtureService(servicesRoot, "@java", {
       role: "provider",
       healthcheck: null,
@@ -98,6 +116,11 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       role: "provider",
       healthcheck: null,
     });
+    await writeExecutableFixtureService(servicesRoot, "@python", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
     await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
@@ -111,15 +134,23 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       workspaceRoot,
       version: "test-version",
     });
+    const archive = result.services.find((service) => service.serviceId === "@archive");
     const node = result.services.find((service) => service.serviceId === "@node");
+    const python = result.services.find((service) => service.serviceId === "@python");
     const java = result.services.find((service) => service.serviceId === "@java");
     const localcert = result.services.find((service) => service.serviceId === "@localcert");
     const nginx = result.services.find((service) => service.serviceId === "@nginx");
 
+    assert.ok(archive);
     assert.ok(java);
     assert.ok(node);
+    assert.ok(python);
     assert.ok(localcert);
     assert.ok(nginx);
+    assert.deepEqual(
+      archive.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:completed", "config:completed", "start:skipped"],
+    );
     assert.deepEqual(
       java.actions.map((action) => `${action.action}:${action.status}`),
       ["install:completed", "config:completed", "start:skipped"],
@@ -136,14 +167,26 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       nginx.actions.map((action) => `${action.action}:${action.status}`),
       ["install:completed", "config:completed", "start:skipped"],
     );
+    assert.deepEqual(
+      python.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:completed", "config:completed", "start:skipped"],
+    );
+    assert.match(archive.actions.at(-1)?.message ?? "", /Provider role/);
     assert.match(java.actions.at(-1)?.message ?? "", /Provider role/);
     assert.match(node.actions.at(-1)?.message ?? "", /Provider role/);
+    assert.match(python.actions.at(-1)?.message ?? "", /Provider role/);
+    assert.equal(archive.state.installed, true);
+    assert.equal(archive.state.configured, true);
+    assert.equal(archive.state.running, false);
     assert.equal(java.state.installed, true);
     assert.equal(java.state.configured, true);
     assert.equal(java.state.running, false);
     assert.equal(node.state.installed, true);
     assert.equal(node.state.configured, true);
     assert.equal(node.state.running, false);
+    assert.equal(python.state.installed, true);
+    assert.equal(python.state.configured, true);
+    assert.equal(python.state.running, false);
     assert.equal(localcert.state.running, false);
     assert.equal(nginx.state.running, false);
     assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);

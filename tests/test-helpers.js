@@ -76,6 +76,7 @@ export async function writeExecutableFixtureService(
     config = undefined,
     setup = undefined,
     role = undefined,
+    enabled = undefined,
     broker = undefined,
   } = options;
 
@@ -157,6 +158,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     name: serviceId,
     description: `Executable fixture for ${serviceId}.`,
     role,
+    enabled,
     executable: process.execPath,
     args: [path.relative(serviceRoot, scriptPath)],
     env: {

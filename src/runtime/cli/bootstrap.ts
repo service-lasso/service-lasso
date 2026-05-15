@@ -12,7 +12,7 @@ import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 
-export const DEFAULT_BASELINE_SERVICE_IDS = ["@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"] as const;
+export const DEFAULT_BASELINE_SERVICE_IDS = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"] as const;
 
 export type BaselineServiceStatus = "completed" | "skipped";
 
@@ -111,7 +111,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
       throw new Error(`Baseline bootstrap internal error: service "${serviceId}" disappeared after discovery.`);
     }
 
-    if (service.manifest.enabled === false) {
+    if (service.manifest.enabled === false && !isProviderRole(service.manifest)) {
       summaries.push({
         serviceId,
         status: "skipped",
