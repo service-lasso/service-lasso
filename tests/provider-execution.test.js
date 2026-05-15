@@ -83,7 +83,7 @@ test("provider resolution returns node execution for provider-backed services", 
 
   assert.equal(plan.provider, "node");
   assert.equal(plan.providerServiceId, "@node");
-  assert.equal(plan.commandPreview, "node runtime/server.mjs");
+  assert.equal(plan.commandPreview, "node ${SERVICE_ROOT}/runtime/server.mjs");
   assert.equal(plan.providerEnv.NODE_ENV, "development");
 });
 
@@ -119,7 +119,7 @@ test("provider resolution prefers an installed provider artifact command", async
 
     assert.equal(plan.provider, "node");
     assert.equal(plan.executable, ".\\node.exe");
-    assert.deepEqual(plan.args, ["runtime/server.mjs"]);
+    assert.deepEqual(plan.args, ["${SERVICE_ROOT}/runtime/server.mjs"]);
     assert.equal(plan.commandRoot, path.join("provider-root"));
   } finally {
     resetLifecycleState();

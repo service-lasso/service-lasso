@@ -7,8 +7,8 @@ import { startApiServer } from "../dist/server/index.js";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
 const sourceServicesRoot = path.join(repoRoot, "services");
-const baselineServiceIds = ["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"];
-const providerServiceIds = new Set(["@java", "@localcert", "@node"]);
+const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
+const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

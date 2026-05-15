@@ -9,7 +9,7 @@
   ],
   "execservice": "@node",
   "args": [
-    "runtime/server.mjs"
+    "${SERVICE_ROOT}/runtime/server.mjs"
   ],
   "env": {
     "NODE_SAMPLE_ENV_PATH": "./.state/provider-env.json",
