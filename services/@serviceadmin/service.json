@@ -8,6 +8,10 @@
   "ports": {
     "ui": 17700
   },
+  "env": {
+    "SERVICE_HOST": "127.0.0.1",
+    "SERVICE_PORT": "${UI_PORT}"
+  },
   "urls": [
     {
       "label": "ui",
@@ -20,7 +24,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-serviceadmin",
-      "tag": "2026.5.8-553dbb0"
+      "tag": "2026.5.14-0821754"
     },
     "platforms": {
       "win32": {

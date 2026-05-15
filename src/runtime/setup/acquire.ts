@@ -39,6 +39,15 @@ function normalizeApiBaseUrl(candidate: string | undefined): string {
   return (candidate?.trim() || "https://api.github.com").replace(/\/+$/, "");
 }
 
+function githubHeaders(): Record<string, string> {
+  const token = process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  return {
+    accept: "application/vnd.github+json",
+    "user-agent": "service-lasso-core-runtime",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): {
   platformKey: string;
   definition: ServiceArtifactPlatform;
@@ -81,10 +90,7 @@ async function resolveGitHubReleaseDownload(
       ? `/repos/${repoPath}/releases/tags/${encodeURIComponent(artifact.source.channel.trim())}`
       : `/repos/${repoPath}/releases/latest`;
   const response = await fetch(`${apiBaseUrl}${releasePath}`, {
-    headers: {
-      accept: "application/vnd.github+json",
-      "user-agent": "service-lasso-core-runtime",
-    },
+    headers: githubHeaders(),
   });
 
   if (!response.ok) {
