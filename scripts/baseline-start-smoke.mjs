@@ -185,13 +185,13 @@ async function writeNodeProviderService(servicesRoot) {
   });
 }
 
-async function writeProviderDependencyService(servicesRoot, serviceId) {
+async function writeProviderDependencyService(servicesRoot, serviceId, options = {}) {
   await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
     id: serviceId,
     name: serviceId,
     description: `Baseline smoke provider dependency for ${serviceId}.`,
     role: "provider",
-    enabled: true,
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -256,7 +256,7 @@ function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (["@java", "@localcert", "@node"].includes(service.serviceId)) {
+  if (["@archive", "@java", "@localcert", "@node", "@python"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
     assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
     assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
@@ -494,10 +494,12 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await writeProviderDependencyService(servicesRoot, "@archive", { enabled: false });
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
+  await writeProviderDependencyService(servicesRoot, "@python", { enabled: false });
   await writeHttpService(servicesRoot, "@secretsbroker", "service", {
     ports: { service: secretsBrokerPort },
     urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
@@ -528,7 +530,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -538,7 +540,7 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["@java", "@localcert", "@node"].includes(serviceId)) {
+    if (["@archive", "@java", "@localcert", "@node", "@python"].includes(serviceId)) {
       assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
