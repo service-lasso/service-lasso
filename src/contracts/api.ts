@@ -217,6 +217,41 @@ export interface DashboardServiceDetailResponse {
   service: DashboardServiceResponse;
 }
 
+export type OperatorNotificationSeverity = "critical" | "warning" | "info";
+
+export type OperatorNotificationKind =
+  | "update_available"
+  | "update_failed"
+  | "install_deferred"
+  | "recovery_review"
+  | "lifecycle_crashed"
+  | "health_unhealthy"
+  | "blocked_start"
+  | "diagnostic_warning";
+
+export interface OperatorNotificationResponse {
+  dedupeKey: string;
+  kind: OperatorNotificationKind;
+  severity: OperatorNotificationSeverity;
+  serviceId: string | null;
+  message: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  relatedActionEndpoint: string | null;
+  source: "updates" | "recovery" | "lifecycle" | "health" | "diagnostics";
+}
+
+export interface OperatorNotificationsResponse {
+  notifications: OperatorNotificationResponse[];
+  summary: {
+    generatedAt: string;
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
+}
+
 export interface DependenciesResponse {
   dependencies: {
     nodes: { id: string; name: string }[];
