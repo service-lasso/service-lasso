@@ -160,6 +160,8 @@ Common endpoints:
 GET  /api/health
 GET  /api/services
 GET  /api/services/:id
+GET  /api/runtime
+GET  /api/runtime/capabilities
 POST /api/services/:id/install
 POST /api/services/:id/config
 POST /api/services/:id/start
