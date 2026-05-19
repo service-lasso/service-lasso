@@ -88,6 +88,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/runtime-port-reservations",
+          label: "Runtime Port Reservations",
+        },
+        {
+          type: "doc",
           id: "reference/local-sso-loop-smoke",
           label: "Local SSO Loop Smoke",
         },
