@@ -88,6 +88,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/baseline-dependency-diagnostics",
+          label: "Baseline Dependency Diagnostics",
+        },
+        {
+          type: "doc",
           id: "reference/local-sso-loop-smoke",
           label: "Local SSO Loop Smoke",
         },

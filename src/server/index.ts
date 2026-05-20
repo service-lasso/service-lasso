@@ -38,6 +38,7 @@ import {
   readServiceLogChunk,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
+import { buildBaselineDependencyDiagnostics } from "../runtime/operator/dependencyDiagnostics.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -809,6 +810,20 @@ async function routeRequest(
         edges: runtimeModel.graph.listEdges(),
       }),
     );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/diagnostics/dependencies") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    writeJson(response, 200, {
+      diagnostics: await buildBaselineDependencyDiagnostics(
+        runtimeModel.discovered,
+        runtimeModel.registry,
+        runtimeModel.graph,
+        sharedGlobalEnv,
+      ),
+    });
     return;
   }
 

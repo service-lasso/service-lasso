@@ -29,14 +29,16 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const registry = createServiceRegistry(discovered);
   const graph = new DependencyGraph(registry);
 
-  assert.equal(registry.count(), 10);
-  assert.equal(registry.countEnabled(), 8);
+  assert.equal(registry.count(), 11);
+  assert.equal(registry.countEnabled(), 9);
   assert.ok(registry.getById("@archive"));
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
   assert.ok(registry.getById("@serviceadmin"));
   assert.ok(registry.getById("@java"));
+  assert.ok(registry.getById("@python"));
   assert.equal(registry.getById("@archive")?.manifest.enabled, false);
+  assert.equal(registry.getById("@python")?.manifest.enabled, false);
   assert.equal(registry.getById("@archive")?.manifest.role, "provider");
   assert.equal(registry.getById("@archive")?.manifest.artifact?.source.repo, "service-lasso/lasso-archive");
   assert.equal(registry.getById("@archive")?.manifest.artifact?.source.tag, "2026.5.2-a223a48");
@@ -106,8 +108,8 @@ test("GET /api/runtime returns runtime summary state", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.runtime.totalServices, 10);
-    assert.equal(body.runtime.enabledServices, 8);
+    assert.equal(body.runtime.totalServices, 11);
+    assert.equal(body.runtime.enabledServices, 9);
     assert.equal(body.runtime.dependencyEdges, 5);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {
@@ -127,7 +129,7 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 10);
+    assert.equal(body.dependencies.nodes.length, 11);
     assert.deepEqual(body.dependencies.edges, [
       { from: "@java", to: "@localcert" },
       { from: "@node", to: "@serviceadmin" },
