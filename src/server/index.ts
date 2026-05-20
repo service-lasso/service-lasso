@@ -38,6 +38,7 @@ import {
   readServiceLogChunk,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
+import { buildRuntimeOrchestrationDryRunPlan, buildUpdateInstallDryRunPlan } from "../runtime/operator/dry-run-plan.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -742,6 +743,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 6 && pathParts[3] === "update" && pathParts[4] === "install" && pathParts[5] === "plan") {
+      writeJson(response, 200, await buildUpdateInstallDryRunPlan(service, { force: url.searchParams.get("force") === "true" }));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 3) {
       writeJson(
         response,
@@ -796,6 +802,19 @@ async function routeRequest(
 
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/runtime/actions/") && url.pathname.endsWith("/plan")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const action = pathParts[3];
+
+    if (action !== "startAll" && action !== "stopAll" && action !== "autostart") {
+      throw new ApiError("invalid_action", 400, "Unknown runtime plan action: " + action);
+    }
+
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildRuntimeOrchestrationDryRunPlan(action, runtimeModel.graph, runtimeModel.registry));
     return;
   }
 

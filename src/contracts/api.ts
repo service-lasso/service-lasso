@@ -253,6 +253,29 @@ export interface RuntimeOrchestrationResponse {
   skipped: RuntimeOrchestrationSkippedService[];
 }
 
+export interface RuntimeDryRunPlanStep {
+  order: number;
+  serviceId: string;
+  action: "start" | "stop" | "updateInstall";
+  status: "would_run" | "skipped" | "blocked";
+  reason: string | null;
+  prerequisites: string[];
+  expectedStateChanges: string[];
+  actionEndpoint: string;
+}
+
+export interface RuntimeDryRunPlanResponse {
+  action: "startAll" | "stopAll" | "autostart" | "updateInstall";
+  dryRun: true;
+  ok: boolean;
+  generatedAt: string;
+  order: string[];
+  steps: RuntimeDryRunPlanStep[];
+  skipped: RuntimeOrchestrationSkippedService[];
+  blockers: RuntimeOrchestrationSkippedService[];
+  mutations: [];
+}
+
 export interface ServiceLogEntryResponse {
   level: "info" | "stdout" | "stderr";
   message: string;
