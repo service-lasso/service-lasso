@@ -4,6 +4,7 @@ import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
 import type { ServiceUpdateState } from "../runtime/updates/state.js";
 import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js";
+import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -35,6 +36,7 @@ export interface ServiceSummary {
   dependents?: string[];
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
+  healthHistory?: ServiceHealthHistoryState;
   updates?: ServiceUpdateState;
   recovery?: ServiceRecoveryHistoryState;
   statePaths?: ServiceStatePaths;
@@ -231,6 +233,7 @@ export interface LifecycleActionResponse {
   message: string;
   state: ServiceLifecycleState;
   health?: ServiceHealthResult;
+  healthHistory?: ServiceHealthHistoryState;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
 }
@@ -238,6 +241,12 @@ export interface LifecycleActionResponse {
 export interface ServiceHealthResponse {
   serviceId: string;
   health: ServiceHealthResult;
+  history: ServiceHealthHistoryState;
+}
+
+export interface ServiceHealthHistoryResponse {
+  serviceId: string;
+  history: ServiceHealthHistoryState;
 }
 
 export interface RuntimeOrchestrationSkippedService {

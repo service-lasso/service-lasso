@@ -4,7 +4,7 @@ import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
-import { createServiceHealthResponse } from "./routes/service-health.js";
+import { createServiceHealthHistoryResponse, createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
 import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
 import { createServiceMetricsResponse } from "./routes/metrics.js";
@@ -28,6 +28,7 @@ import {
 } from "../runtime/lifecycle/actions.js";
 import { getLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
+import { readServiceHealthHistory, recordServiceHealthTransition } from "../runtime/health/history.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { buildPersistedServiceMeta, writeServiceMeta } from "../runtime/state/meta.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
@@ -226,6 +227,7 @@ async function createServiceSummary(
   const lifecycle = getLifecycleState(service.manifest.id);
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
   const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+  const healthHistory = await readServiceHealthHistory(service);
   const runtimeLogs = getServiceRuntimeLogPaths(service.serviceRoot);
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
   const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
@@ -247,6 +249,7 @@ async function createServiceSummary(
     dependents: dependencySummary.dependents,
     lifecycle,
     health,
+    healthHistory,
     updates,
     recovery,
     statePaths: getServiceStatePaths(service.serviceRoot),
@@ -304,6 +307,7 @@ async function buildLifecycleActionResponse(
     service,
     sharedGlobalEnv,
   );
+  const healthHistory = await recordServiceHealthTransition(service, health);
   const provider = resolveProviderExecution(service, registry);
 
   return {
@@ -313,6 +317,7 @@ async function buildLifecycleActionResponse(
     message: result.message,
     state: result.state,
     health,
+    healthHistory,
     statePaths: persisted.paths,
     provider,
   };
@@ -653,7 +658,13 @@ async function routeRequest(
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "health") {
       const lifecycle = getLifecycleState(serviceId);
       const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-      writeJson(response, 200, createServiceHealthResponse(serviceId, health));
+      const history = await recordServiceHealthTransition(service, health);
+      writeJson(response, 200, createServiceHealthResponse(serviceId, health, history));
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "health" && pathParts[4] === "history") {
+      writeJson(response, 200, createServiceHealthHistoryResponse(serviceId, await readServiceHealthHistory(service)));
       return;
     }
 
