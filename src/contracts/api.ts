@@ -315,3 +315,25 @@ export interface ServiceLogChunkResponse {
   limit: number;
   lines: string[];
 }
+
+export interface ServiceLogSearchMatchResponse {
+  serviceId: string;
+  type: "default";
+  source: "current" | "archive";
+  archiveId: string | null;
+  path: string;
+  lineNumber: number;
+  level: "info" | "stdout" | "stderr" | "unknown";
+  snippet: string;
+  truncated: boolean;
+}
+
+export interface ServiceLogSearchResponse {
+  serviceId: string;
+  type: "default";
+  query: string;
+  limit: number;
+  includeArchives: boolean;
+  truncated: boolean;
+  matches: ServiceLogSearchMatchResponse[];
+}

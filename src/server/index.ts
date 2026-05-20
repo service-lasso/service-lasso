@@ -6,7 +6,11 @@ import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
-import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
+import {
+  createServiceLogChunkResponse,
+  createServiceLogInfoResponse,
+  createServiceLogSearchResponse,
+} from "./routes/log-reader.js";
 import { createServiceMetricsResponse } from "./routes/metrics.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
@@ -36,6 +40,7 @@ import {
   buildServiceLogs,
   getServiceRuntimeLogPaths,
   readServiceLogChunk,
+  searchServiceLogs,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
@@ -619,6 +624,42 @@ async function routeRequest(
     const limit = limitParam === null ? undefined : Number(limitParam);
 
     writeJson(response, 200, createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/logs/search") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const serviceId = url.searchParams.get("service");
+    const type = url.searchParams.get("type") ?? "default";
+    const query = url.searchParams.get("query") ?? "";
+    const limitParam = url.searchParams.get("limit");
+    const includeArchives = url.searchParams.get("includeArchives") === "true";
+
+    if (!serviceId) {
+      throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
+    }
+
+    if (type !== "default") {
+      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
+    }
+
+    if (query.trim().length === 0) {
+      throw new ApiError("invalid_request", 400, "Missing required \"query\" query parameter.");
+    }
+
+    const service = runtimeModel.registry.getById(serviceId);
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    const limit = limitParam === null ? undefined : Number(limitParam);
+
+    writeJson(
+      response,
+      200,
+      createServiceLogSearchResponse(await searchServiceLogs(service, query, { limit, includeArchives })),
+    );
     return;
   }
 

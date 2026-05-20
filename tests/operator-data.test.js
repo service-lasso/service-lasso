@@ -230,6 +230,10 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     const infoBody = await infoResponse.json();
     const chunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=default&limit=50`);
     const chunkBody = await chunkResponse.json();
+    const searchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=reader-service&type=default&query=reader&limit=1`,
+    );
+    const searchBody = await searchResponse.json();
 
     assert.equal(infoResponse.status, 200);
     assert.equal(infoBody.serviceId, "reader-service");
@@ -245,6 +249,16 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(chunkBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stderr\"")));
+
+    assert.equal(searchResponse.status, 200);
+    assert.equal(searchBody.serviceId, "reader-service");
+    assert.equal(searchBody.type, "default");
+    assert.equal(searchBody.query, "reader");
+    assert.equal(searchBody.limit, 1);
+    assert.equal(searchBody.truncated, true);
+    assert.equal(searchBody.matches.length, 1);
+    assert.equal(searchBody.matches[0].source, "current");
+    assert.equal(searchBody.matches[0].snippet.includes("reader"), true);
 
     await postJson(`${apiServer.url}/api/services/reader-service/stop`);
   } finally {
@@ -308,6 +322,22 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
       assert.match(archivedStdout, /archive stdout/);
       assert.match(archivedStderr, /archive stderr/);
     }
+
+    const currentOnlySearch = await fetch(
+      `${apiServer.url}/api/logs/search?service=archive-loggy-service&type=default&query=archive&limit=10`,
+    );
+    const currentOnlySearchBody = await currentOnlySearch.json();
+    const archiveSearch = await fetch(
+      `${apiServer.url}/api/logs/search?service=archive-loggy-service&type=default&query=archive&limit=10&includeArchives=true`,
+    );
+    const archiveSearchBody = await archiveSearch.json();
+
+    assert.equal(currentOnlySearch.status, 200);
+    assert.equal(currentOnlySearchBody.includeArchives, false);
+    assert.equal(currentOnlySearchBody.matches.every((match) => match.source === "current"), true);
+    assert.equal(archiveSearch.status, 200);
+    assert.equal(archiveSearchBody.includeArchives, true);
+    assert.equal(archiveSearchBody.matches.some((match) => match.source === "archive"), true);
 
     const archiveDirectories = await readdir(path.join(serviceRoot, "logs", "archive"), { withFileTypes: true });
     assert.equal(archiveDirectories.filter((entry) => entry.isDirectory()).length, 3);

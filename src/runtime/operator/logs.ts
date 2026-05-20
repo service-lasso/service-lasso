@@ -52,6 +52,28 @@ export interface ServiceLogChunkPayload {
   lines: string[];
 }
 
+export interface ServiceLogSearchMatchPayload {
+  serviceId: string;
+  type: "default";
+  source: "current" | "archive";
+  archiveId: string | null;
+  path: string;
+  lineNumber: number;
+  level: "info" | "stdout" | "stderr" | "unknown";
+  snippet: string;
+  truncated: boolean;
+}
+
+export interface ServiceLogSearchPayload {
+  serviceId: string;
+  type: "default";
+  query: string;
+  limit: number;
+  includeArchives: boolean;
+  truncated: boolean;
+  matches: ServiceLogSearchMatchPayload[];
+}
+
 interface PersistedRuntimeLogEntry {
   level?: "stdout" | "stderr";
   message?: string;
@@ -229,6 +251,40 @@ async function readRuntimeLogLines(logPath: string): Promise<string[]> {
   }
 }
 
+function normalizeLogSearchLimit(limit = 50): number {
+  return Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 50;
+}
+
+function parseSearchLine(line: string): { level: ServiceLogSearchMatchPayload["level"]; message: string } {
+  try {
+    const entry = JSON.parse(line) as PersistedRuntimeLogEntry;
+    if ((entry.level === "stdout" || entry.level === "stderr") && typeof entry.message === "string") {
+      return {
+        level: entry.level,
+        message: entry.message,
+      };
+    }
+  } catch {
+    // Fall through to raw line search for legacy/plaintext runtime logs.
+  }
+
+  return {
+    level: "unknown",
+    message: line,
+  };
+}
+
+function buildSearchSnippet(message: string, maxLength = 240): { snippet: string; truncated: boolean } {
+  if (message.length <= maxLength) {
+    return { snippet: message, truncated: false };
+  }
+
+  return {
+    snippet: `${message.slice(0, maxLength)}...`,
+    truncated: true,
+  };
+}
+
 export async function buildServiceLogs(
   service: DiscoveredService,
   lifecycle: ServiceLifecycleState,
@@ -283,5 +339,78 @@ export async function readServiceLogChunk(
     nextBefore: start,
     limit: safeLimit,
     lines: slice,
+  };
+}
+
+export async function searchServiceLogs(
+  service: DiscoveredService,
+  query: string,
+  options: { limit?: number; includeArchives?: boolean } = {},
+): Promise<ServiceLogSearchPayload> {
+  const normalizedQuery = query.trim();
+  const safeLimit = normalizeLogSearchLimit(options.limit);
+  const includeArchives = options.includeArchives === true;
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+  const sources: Array<{
+    source: "current" | "archive";
+    archiveId: string | null;
+    path: string;
+  }> = [
+    {
+      source: "current",
+      archiveId: null,
+      path: runtimeLogPaths.logPath,
+    },
+  ];
+
+  if (includeArchives) {
+    const archives = await listRuntimeLogArchives(service.serviceRoot);
+    sources.push(...archives.map((archive) => ({ source: "archive" as const, archiveId: archive.archiveId, path: archive.logPath })));
+  }
+
+  const lowerQuery = normalizedQuery.toLocaleLowerCase();
+  const matches: ServiceLogSearchMatchPayload[] = [];
+  let truncated = false;
+
+  for (const source of sources) {
+    const lines = await readRuntimeLogLines(source.path);
+    for (const [index, line] of lines.entries()) {
+      const parsed = parseSearchLine(line);
+      if (!parsed.message.toLocaleLowerCase().includes(lowerQuery)) {
+        continue;
+      }
+
+      if (matches.length >= safeLimit) {
+        truncated = true;
+        break;
+      }
+
+      const snippet = buildSearchSnippet(parsed.message);
+      matches.push({
+        serviceId: service.manifest.id,
+        type: "default",
+        source: source.source,
+        archiveId: source.archiveId,
+        path: source.path,
+        lineNumber: index + 1,
+        level: parsed.level,
+        snippet: snippet.snippet,
+        truncated: snippet.truncated,
+      });
+    }
+
+    if (truncated) {
+      break;
+    }
+  }
+
+  return {
+    serviceId: service.manifest.id,
+    type: "default",
+    query: normalizedQuery,
+    limit: safeLimit,
+    includeArchives,
+    truncated,
+    matches,
   };
 }
