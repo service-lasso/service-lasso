@@ -227,6 +227,70 @@ test("runtime boots from explicit servicesRoot and workspaceRoot config", async 
   }
 });
 
+test("GET /api/runtime/capabilities exposes compact runtime compatibility flags and service roles", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-capabilities-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  await writeExecutableFixtureService(servicesRoot, "worker-service", {
+    env: {
+      PASSWORD: "must-not-leak",
+    },
+  });
+  await writeManifest(servicesRoot, "node-provider", {
+    id: "node-provider",
+    name: "Node Provider",
+    description: "Provider fixture for capability role summaries.",
+    role: "provider",
+  });
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    workspaceRoot,
+    version: "capability-test",
+    autostart: true,
+    monitor: true,
+    monitorIntervalMs: 60_000,
+    updateScheduler: true,
+    updateSchedulerIntervalMs: 60_000,
+  });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/runtime/capabilities`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.capabilities.runtime.version, "capability-test");
+    assert.equal(result.body.capabilities.runtime.servicesRoot, path.resolve(servicesRoot));
+    assert.equal(result.body.capabilities.runtime.workspaceRoot, path.resolve(workspaceRoot));
+    assert.equal(result.body.capabilities.runtime.apiContractVersion, "2026-05-runtime-capabilities-v1");
+    assert.equal(result.body.capabilities.features.dashboardAdapter, true);
+    assert.equal(result.body.capabilities.features.runtimeOrchestration, true);
+    assert.equal(result.body.capabilities.features.autostartRequested, true);
+    assert.equal(result.body.capabilities.features.monitorEnabled, true);
+    assert.equal(result.body.capabilities.features.updateSchedulerEnabled, true);
+    assert.ok(
+      result.body.capabilities.endpointGroups.some((group) =>
+        group.methods.includes("GET /api/runtime/capabilities"),
+      ),
+    );
+    assert.deepEqual(result.body.capabilities.baseline.roles, [
+      {
+        role: "provider",
+        count: 1,
+        serviceIds: ["node-provider"],
+      },
+      {
+        role: "service",
+        count: 1,
+        serviceIds: ["worker-service"],
+      },
+    ]);
+    assert.ok(result.body.capabilities.compatibility.serviceAdmin.preferredRoutes.includes("/api/dashboard/services"));
+    assert.equal(JSON.stringify(result.body).includes("must-not-leak"), false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("runtime app honors servicesRoot and workspaceRoot environment overrides", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-app-env-config-"));
   const workspaceRoot = path.join(tempRoot, "workspace");

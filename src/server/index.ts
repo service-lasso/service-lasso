@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
-import { createRuntimeSummaryResponse } from "./routes/runtime.js";
+import { createRuntimeCapabilitiesResponse, createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
 import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
@@ -452,6 +452,7 @@ async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: RuntimeConfig,
+  options: ApiServerOptions,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
@@ -787,6 +788,26 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/capabilities") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+
+    writeJson(
+      response,
+      200,
+      createRuntimeCapabilitiesResponse({
+        version: config.version,
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
+        services: runtimeModel.discovered,
+        enabledServices: runtimeModel.registry.countEnabled(),
+        autostartRequested: options.autostart,
+        monitorEnabled: options.monitor,
+        updateSchedulerEnabled: options.updateScheduler,
+      }),
+    );
+    return;
+  }
+
   if (request.method === "POST" && url.pathname.startsWith("/api/runtime/actions/")) {
     const action = url.pathname.split("/").filter(Boolean)[3];
 
@@ -866,7 +887,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedConfig = resolveRuntimeConfig(options);
 
   return createServer((request, response) => {
-    void routeRequest(request, response, resolvedConfig).catch((error: unknown) => {
+    void routeRequest(request, response, resolvedConfig, options).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });
@@ -894,7 +915,12 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         intervalMs: options.updateSchedulerIntervalMs,
       })
     : null;
-  const server = createApiServer(config);
+  const server = createApiServer({
+    ...config,
+    autostart: options.autostart,
+    monitor: options.monitor,
+    updateScheduler: options.updateScheduler,
+  });
   const port = options.port ?? 18080;
 
   server.listen(port, bindHost);

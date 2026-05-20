@@ -92,6 +92,59 @@ export interface RuntimeSummaryResponse {
   };
 }
 
+export interface RuntimeCapabilitiesResponse {
+  capabilities: {
+    runtime: {
+      version: string;
+      apiContractVersion: string;
+      servicesRoot: string;
+      workspaceRoot: string;
+    };
+    features: {
+      lifecycleActions: boolean;
+      runtimeOrchestration: boolean;
+      dashboardAdapter: boolean;
+      serviceMetadata: boolean;
+      logReader: boolean;
+      serviceMetrics: boolean;
+      serviceVariables: boolean;
+      serviceNetwork: boolean;
+      updates: boolean;
+      recovery: boolean;
+      setupSteps: boolean;
+      dependencyGraph: boolean;
+      globalEnv: boolean;
+      lanBinding: boolean;
+      localRouteGeneration: boolean;
+      autostartRequested: boolean;
+      monitorEnabled: boolean;
+      updateSchedulerEnabled: boolean;
+    };
+    endpointGroups: Array<{
+      id: string;
+      basePath: string;
+      methods: string[];
+    }>;
+    baseline: {
+      totalServices: number;
+      enabledServices: number;
+      roles: Array<{
+        role: string;
+        count: number;
+        serviceIds: string[];
+      }>;
+    };
+    compatibility: {
+      serviceAdmin: {
+        minimumApiContractVersion: string;
+        supportedDashboardAdapter: boolean;
+        preferredRoutes: string[];
+        notes: string[];
+      };
+    };
+  };
+}
+
 export interface DashboardLinkResponse {
   label: string;
   url: string;

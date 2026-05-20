@@ -68,6 +68,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/runtime-api-capabilities",
+          label: "Runtime API Capabilities",
+        },
+        {
+          type: "doc",
           id: "reference/startup-broker-resolution",
           label: "Startup Broker Resolution",
         },
