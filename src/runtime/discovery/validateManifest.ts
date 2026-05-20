@@ -808,6 +808,15 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
       }
 
       if (
+        platformRecord.sha256 !== undefined &&
+        (typeof platformRecord.sha256 !== "string" || !/^[a-fA-F0-9]{64}$/.test(platformRecord.sha256.trim()))
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.sha256" to be a 64-character hex string when present.`,
+        );
+      }
+
+      if (
         platformRecord.args !== undefined &&
         (!Array.isArray(platformRecord.args) || platformRecord.args.some((entry) => typeof entry !== "string"))
       ) {
@@ -828,6 +837,7 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
           assetName: typeof platformRecord.assetName === "string" ? platformRecord.assetName.trim() : undefined,
           assetUrl: typeof platformRecord.assetUrl === "string" ? platformRecord.assetUrl.trim() : undefined,
           archiveType: archiveType as "zip" | "tar.gz" | "tgz",
+          sha256: typeof platformRecord.sha256 === "string" ? platformRecord.sha256.trim().toLowerCase() : undefined,
           command: typeof platformRecord.command === "string" ? platformRecord.command.trim() : undefined,
           args: Array.isArray(platformRecord.args) ? platformRecord.args.map((entry) => entry.trim()) : undefined,
         },

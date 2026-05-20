@@ -63,6 +63,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-lockfile",
+          label: "Service Lockfile",
+        },
+        {
+          type: "doc",
           id: "reference/one-shot-jobs",
           label: "One-shot Jobs",
         },
