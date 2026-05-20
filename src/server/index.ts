@@ -38,7 +38,11 @@ import {
   readServiceLogChunk,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
-import { buildRuntimeOrchestrationDryRunPlan, buildUpdateInstallDryRunPlan } from "../runtime/operator/dry-run-plan.js";
+import {
+  buildAppServiceImportDryRunPlan,
+  buildRuntimeOrchestrationDryRunPlan,
+  buildUpdateInstallDryRunPlan,
+} from "../runtime/operator/dry-run-plan.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -802,6 +806,23 @@ async function routeRequest(
 
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime/actions/importService/plan") {
+    const manifestPath = url.searchParams.get("manifestPath");
+    if (!manifestPath) {
+      throw new ApiError("invalid_request", 400, '"manifestPath" query parameter is required.');
+    }
+
+    writeJson(
+      response,
+      200,
+      await buildAppServiceImportDryRunPlan({
+        manifestPath,
+        servicesRoot: config.servicesRoot,
+      }),
+    );
     return;
   }
 

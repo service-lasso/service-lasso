@@ -256,16 +256,17 @@ export interface RuntimeOrchestrationResponse {
 export interface RuntimeDryRunPlanStep {
   order: number;
   serviceId: string;
-  action: "start" | "stop" | "updateInstall";
+  action: "start" | "stop" | "updateInstall" | "importService";
   status: "would_run" | "skipped" | "blocked";
   reason: string | null;
   prerequisites: string[];
   expectedStateChanges: string[];
   actionEndpoint: string;
+  metadata?: Record<string, string | number | boolean | null | string[]>;
 }
 
 export interface RuntimeDryRunPlanResponse {
-  action: "startAll" | "stopAll" | "autostart" | "updateInstall";
+  action: "startAll" | "stopAll" | "autostart" | "updateInstall" | "importService";
   dryRun: true;
   ok: boolean;
   generatedAt: string;

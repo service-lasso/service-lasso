@@ -1,5 +1,8 @@
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import type { RuntimeDryRunPlanResponse, RuntimeDryRunPlanStep } from "../../contracts/api.js";
 import type { DiscoveredService, ServiceUpdateInstallWindow } from "../../contracts/service.js";
+import { loadServiceManifest } from "../discovery/loadManifest.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
@@ -236,4 +239,90 @@ export async function buildUpdateInstallDryRunPlan(
   });
 
   return createPlanResponse("updateInstall", [step]);
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await stat(targetPath);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function buildAppServiceImportDryRunPlan(options: {
+  manifestPath: string;
+  servicesRoot: string;
+}): Promise<RuntimeDryRunPlanResponse> {
+  const sourceManifestPath = path.resolve(options.manifestPath);
+  const servicesRoot = path.resolve(options.servicesRoot);
+  const actionEndpoint =
+    "/api/runtime/actions/importService?manifestPath=" + encodeURIComponent(sourceManifestPath);
+
+  try {
+    const manifest = await loadServiceManifest(sourceManifestPath);
+    const targetServiceRoot = path.join(servicesRoot, manifest.id);
+    const targetManifestPath = path.join(targetServiceRoot, "service.json");
+    const targetManifestExists = await pathExists(targetManifestPath);
+    const targetRootExists = await pathExists(targetServiceRoot);
+    const blockers: string[] = [];
+    const prerequisites: string[] = [];
+
+    if (targetManifestExists) {
+      blockers.push("target_manifest_exists");
+      prerequisites.push("choose a different service id or remove the existing service manifest");
+    } else if (targetRootExists) {
+      blockers.push("target_directory_exists");
+      prerequisites.push("choose an empty target service directory");
+    }
+
+    const step = createStep({
+      order: 1,
+      serviceId: manifest.id,
+      action: "importService",
+      status: blockers.length > 0 ? "blocked" : "would_run",
+      reason: blockers.length > 0 ? blockers.join(",") : null,
+      prerequisites,
+      expectedStateChanges:
+        blockers.length > 0
+          ? []
+          : [
+              "service root would be created under servicesRoot",
+              "source service.json would be copied into target service root",
+              "service would be discoverable on next runtime model load",
+            ],
+      actionEndpoint,
+      metadata: {
+        sourceManifestPath,
+        targetServiceRoot,
+        targetManifestPath,
+      },
+    });
+
+    return createPlanResponse("importService", [step]);
+  } catch (error) {
+    const reason =
+      error instanceof Error && /Invalid service manifest/.test(error.message)
+        ? "source_manifest_invalid"
+        : "source_manifest_unreadable";
+    const step = createStep({
+      order: 1,
+      serviceId: "unknown",
+      action: "importService",
+      status: "blocked",
+      reason,
+      prerequisites: ["provide a readable valid service.json manifest path"],
+      expectedStateChanges: [],
+      actionEndpoint,
+      metadata: {
+        sourceManifestPath,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+
+    return createPlanResponse("importService", [step]);
+  }
 }

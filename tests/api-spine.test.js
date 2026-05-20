@@ -453,6 +453,44 @@ test("GET /api/services/:id/update/install/plan reports blockers without writing
   }
 });
 
+test("GET /api/runtime/actions/importService/plan previews app-owned import without copying manifest", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-import-plan-");
+  const sourceRoot = path.join(tempRoot, "source-service");
+  const sourceManifestPath = path.join(sourceRoot, "service.json");
+  const targetManifestPath = path.join(servicesRoot, "imported-service", "service.json");
+  await mkdir(sourceRoot, { recursive: true });
+  await writeFile(sourceManifestPath, JSON.stringify({
+    id: "imported-service",
+    name: "Imported Service",
+    description: "Fixture service import plan.",
+    executable: process.execPath,
+    args: ["runtime/imported-service.mjs"],
+    healthcheck: { type: "process" },
+  }, null, 2));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const plan = await getJson(
+      apiServer.url + "/api/runtime/actions/importService/plan?manifestPath=" + encodeURIComponent(sourceManifestPath),
+    );
+
+    assert.equal(plan.status, 200);
+    assert.equal(plan.body.action, "importService");
+    assert.equal(plan.body.dryRun, true);
+    assert.equal(plan.body.ok, true);
+    assert.equal(plan.body.steps[0].serviceId, "imported-service");
+    assert.equal(plan.body.steps[0].status, "would_run");
+    assert.equal(plan.body.steps[0].metadata.targetManifestPath, targetManifestPath);
+    assert.deepEqual(plan.body.mutations, []);
+    await assert.rejects(readFile(targetManifestPath, "utf8"), /ENOENT/);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("POST /api/runtime/actions/autostart starts only autostart-eligible services deterministically", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-autostart-");
