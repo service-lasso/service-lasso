@@ -45,6 +45,7 @@ import { resolveProviderExecution } from "../runtime/providers/resolveProvider.j
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { reconcilePortReservationLedger, reservePorts, type PortReservationInput } from "../runtime/ports/reservations.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
@@ -216,6 +217,37 @@ async function loadRuntimeModel(servicesRoot: string) {
 
 type RuntimeModel = Awaited<ReturnType<typeof loadRuntimeModel>>;
 
+function isUsablePort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535;
+}
+
+function toServicePortReservations(runtimeModel: RuntimeModel): PortReservationInput[] {
+  return runtimeModel.discovered.flatMap((service) => {
+    const state = getLifecycleState(service.manifest.id);
+    return Object.entries(state.runtime.ports)
+      .filter(([, port]) => isUsablePort(port))
+      .map(([portName, port]) => {
+        const desiredPort = service.manifest.ports?.[portName];
+        return {
+          kind: desiredPort === port && desiredPort !== 0 ? "service-fixed" : "service-negotiated",
+          ownerId: service.manifest.id,
+          portName,
+          port,
+        };
+      });
+  });
+}
+
+function toApiPortReservation(port: number, bindHost: string): PortReservationInput {
+  return {
+    host: bindHost,
+    kind: "api",
+    ownerId: "runtime-api",
+    portName: "http",
+    port,
+  };
+}
+
 async function createServiceSummary(
   service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
   graph: DependencyGraph,
@@ -269,19 +301,20 @@ async function executeLifecycleAction(
   action: string,
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
+  workspaceRoot?: string,
 ): Promise<LifecycleActionResponse> {
   const result = await (async () => {
     switch (action) {
       case "install":
         return await installService(service, registry);
       case "config":
-        return await configService(service, registry);
+        return await configService(service, registry, { workspaceRoot });
       case "start":
-        return await startService(service, registry);
+        return await startService(service, registry, { workspaceRoot });
       case "stop":
         return await stopService(service);
       case "restart":
-        return await restartService(service, registry);
+        return await restartService(service, registry, { workspaceRoot });
       default:
         throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
     }
@@ -321,6 +354,7 @@ async function buildLifecycleActionResponse(
 async function executeRuntimeOrchestrationAction(
   action: "startAll" | "stopAll" | "autostart" | "reload",
   runtimeModel: RuntimeModel,
+  workspaceRoot?: string,
 ): Promise<RuntimeOrchestrationResponse> {
   if (action === "reload") {
     const stopped: LifecycleActionResponse[] = [];
@@ -376,7 +410,7 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      const result = await startService(service, reloadedModel.registry);
+      const result = await startService(service, reloadedModel.registry, { workspaceRoot });
       results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result));
     }
 
@@ -426,7 +460,7 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      const result = await startService(service, runtimeModel.registry);
+      const result = await startService(service, runtimeModel.registry, { workspaceRoot });
       results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
       continue;
     }
@@ -755,7 +789,7 @@ async function routeRequest(
 
     if (request.method === "POST" && pathParts.length === 4) {
       const action = pathParts[3];
-      writeJson(response, 200, await executeLifecycleAction(action, service, runtimeModel.registry));
+      writeJson(response, 200, await executeLifecycleAction(action, service, runtimeModel.registry, config.workspaceRoot));
       return;
     }
   }
@@ -795,7 +829,7 @@ async function routeRequest(
     }
 
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel));
+    writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel, config.workspaceRoot));
     return;
   }
 
@@ -879,8 +913,19 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const bootModel = await loadRuntimeModel(config.servicesRoot);
   await rehydrateDiscoveredServices(bootModel.discovered);
+  const requestedPort = options.port ?? 18080;
+  const activeReservations = [...toServicePortReservations(bootModel)];
+  if (requestedPort !== 0) {
+    activeReservations.push(toApiPortReservation(requestedPort, bindHost));
+    await reservePorts(config.workspaceRoot, [toApiPortReservation(requestedPort, bindHost)]);
+  }
+  await reconcilePortReservationLedger(
+    config.workspaceRoot,
+    activeReservations,
+    "not present in rehydrated runtime state",
+  );
   if (options.autostart) {
-    await executeRuntimeOrchestrationAction("autostart", bootModel);
+    await executeRuntimeOrchestrationAction("autostart", bootModel, config.workspaceRoot);
   }
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
@@ -895,7 +940,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       })
     : null;
   const server = createApiServer(config);
-  const port = options.port ?? 18080;
+  const port = requestedPort;
 
   server.listen(port, bindHost);
   await once(server, "listening");
@@ -908,6 +953,9 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   }
 
   const resolvedPort = address.port;
+  if (requestedPort === 0) {
+    await reservePorts(config.workspaceRoot, [toApiPortReservation(resolvedPort, bindHost)]);
+  }
 
   return {
     server,

@@ -61,6 +61,7 @@ async function runLifecycleAction(
   service: DiscoveredService,
   registry: ServiceRegistry,
   action: LifecycleAction,
+  workspaceRoot?: string,
 ): Promise<LifecycleActionResult> {
   try {
     if (action === "install") {
@@ -68,11 +69,11 @@ async function runLifecycleAction(
     }
 
     if (action === "config") {
-      return await configService(service, registry);
+      return await configService(service, registry, { workspaceRoot });
     }
 
-  if (action === "start") {
-      return await startService(service, registry);
+    if (action === "start") {
+      return await startService(service, registry, { workspaceRoot });
     }
   } catch (error) {
     throw formatActionFailure(service.manifest.id, action, error);
@@ -129,7 +130,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
     if (state.installed) {
       actions.push({ action: "install", status: "skipped", message: "Already installed." });
     } else {
-      const result = await runLifecycleAction(service, registry, "install");
+      const result = await runLifecycleAction(service, registry, "install", runtimeConfig.workspaceRoot);
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "install", status: "completed", message: result.message });
@@ -138,7 +139,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
     if (state.configured) {
       actions.push({ action: "config", status: "skipped", message: "Already configured." });
     } else {
-      const result = await runLifecycleAction(service, registry, "config");
+      const result = await runLifecycleAction(service, registry, "config", runtimeConfig.workspaceRoot);
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "config", status: "completed", message: result.message });
@@ -169,7 +170,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
           : "No executable or artifact command is configured.",
       });
     } else {
-      const result = await runLifecycleAction(service, registry, "start");
+      const result = await runLifecycleAction(service, registry, "start", runtimeConfig.workspaceRoot);
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "start", status: "completed", message: result.message });
