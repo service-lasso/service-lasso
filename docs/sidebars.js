@@ -88,6 +88,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/runtime-instance-registry",
+          label: "Runtime Instance Registry",
+        },
+        {
+          type: "doc",
           id: "reference/local-sso-loop-smoke",
           label: "Local SSO Loop Smoke",
         },

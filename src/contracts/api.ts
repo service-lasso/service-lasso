@@ -92,6 +92,35 @@ export interface RuntimeSummaryResponse {
   };
 }
 
+export type RuntimeInstanceStatus = "active" | "stale";
+
+export interface RuntimeInstanceRecord {
+  instanceId: string;
+  servicesRoot: string;
+  workspaceRoot: string;
+  pid: number;
+  apiPort: number;
+  apiUrl: string;
+  advertisedUrls: string[];
+  startedAt: string;
+  updatedAt: string;
+  version: string;
+  status: RuntimeInstanceStatus;
+  staleReason?: string;
+}
+
+export interface RuntimeInstanceRegistrySnapshot {
+  path: string;
+  activeCount: number;
+  staleCount: number;
+  instances: RuntimeInstanceRecord[];
+}
+
+export interface RuntimeInstanceResponse {
+  instance: RuntimeInstanceRecord | null;
+  registry: RuntimeInstanceRegistrySnapshot;
+}
+
 export interface DashboardLinkResponse {
   label: string;
   url: string;

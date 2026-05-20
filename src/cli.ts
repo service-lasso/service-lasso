@@ -5,11 +5,13 @@ import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } 
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
+import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
+import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "instance" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
@@ -40,6 +42,7 @@ function usageText(): string {
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -50,6 +53,7 @@ function usageText(): string {
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
+    "  - The instance command reads local runtime identity and recent instance registry state.",
   ].join("\n");
 }
 
@@ -83,7 +87,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "instance"
       ? commandToken
       : null;
   if (!command) {
@@ -194,8 +199,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "instance") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and instance commands.");
         }
         parsed.json = true;
         break;
@@ -396,6 +401,27 @@ function printInstallResult(result: Awaited<ReturnType<typeof installServiceFrom
   }
 }
 
+function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] runtime instance");
+  if (!result.instance) {
+    console.log("- current: not recorded");
+  } else {
+    console.log("- current: " + result.instance.instanceId);
+    console.log("- status: " + result.instance.status);
+    console.log("- api: " + result.instance.apiUrl);
+    console.log("- servicesRoot: " + result.instance.servicesRoot);
+    console.log("- workspaceRoot: " + result.instance.workspaceRoot);
+  }
+  console.log("- registry: " + result.registry.path);
+  console.log("- active: " + result.registry.activeCount);
+  console.log("- stale: " + result.registry.staleCount);
+}
+
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const parsed = parseCliArgs(argv);
   const runtimeVersion = resolveRuntimeVersion();
@@ -458,6 +484,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "instance") {
+    const result = await readRuntimeInstanceForCli({
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printInstanceResult(result, parsed.json);
     return;
   }
 

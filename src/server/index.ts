@@ -52,6 +52,11 @@ import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runt
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
 import {
+  createRuntimeInstanceSnapshot,
+  markRuntimeInstanceStopped,
+  registerRuntimeInstance,
+} from "../runtime/instance/registry.js";
+import {
   checkServiceUpdatesForCli,
   downloadServiceUpdateCandidate,
   installServiceUpdateCandidate,
@@ -787,6 +792,11 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/instance") {
+    writeJson(response, 200, await createRuntimeInstanceSnapshot(config));
+    return;
+  }
+
   if (request.method === "POST" && url.pathname.startsWith("/api/runtime/actions/")) {
     const action = url.pathname.split("/").filter(Boolean)[3];
 
@@ -908,17 +918,22 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   }
 
   const resolvedPort = address.port;
+  const instance = await registerRuntimeInstance(config, {
+    apiPort: resolvedPort,
+    apiUrl: "http://" + publicHost + ":" + resolvedPort,
+  });
 
   return {
     server,
     port: resolvedPort,
-    url: `http://${publicHost}:${resolvedPort}`,
+    url: instance.apiUrl,
     monitor,
     updateScheduler,
     stop: async () => {
       await monitor?.stop();
       await updateScheduler?.stop();
       await stopAllManagedProcesses();
+      await markRuntimeInstanceStopped(config);
       server.close();
       await once(server, "close");
     },
