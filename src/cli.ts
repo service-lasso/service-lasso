@@ -3,16 +3,18 @@ import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runti
 import { installServiceFromCli } from "./runtime/cli/install.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
+import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "secrets" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  secretsAction?: SecretsCliAction;
   serviceId?: string;
   stepId?: string;
   port?: number;
@@ -40,6 +42,7 @@ function usageText(): string {
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -83,7 +86,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "secrets"
       ? commandToken
       : null;
   if (!command) {
@@ -162,6 +166,18 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "secrets") {
+    const action = remaining.shift();
+    if (action !== "audit") {
+      throw new Error('The "secrets" command requires: audit.');
+    }
+
+    parsed.secretsAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -194,8 +210,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "secrets") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and secrets commands.");
         }
         parsed.json = true;
         break;
@@ -317,6 +333,43 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] secret reference audit");
+  if ("services" in result) {
+    console.log("- services: " + result.summary.services);
+    console.log("- references: " + result.summary.references);
+    console.log("- present: " + result.summary.present);
+    console.log("- missing: " + result.summary.missing);
+    console.log("- malformed: " + result.summary.malformed);
+    for (const service of result.services) {
+      console.log(
+        "- " +
+          service.serviceId +
+          ": present=" +
+          service.summary.present +
+          " missing=" +
+          service.summary.missing +
+          " malformed=" +
+          service.summary.malformed,
+      );
+    }
+    return;
+  }
+
+  console.log("- service: " + result.serviceId);
+  console.log("- present: " + result.summary.present);
+  console.log("- missing: " + result.summary.missing);
+  console.log("- malformed: " + result.summary.malformed);
+  for (const finding of result.findings) {
+    console.log("- " + finding.status + ": " + finding.ref + " (" + finding.location + ")");
+  }
 }
 
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
@@ -458,6 +511,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "secrets") {
+    const result = await runSecretsCliAction({
+      action: parsed.secretsAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printSecretsResult(result, parsed.json);
     return;
   }
 

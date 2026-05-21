@@ -41,6 +41,10 @@ import { buildDashboardService, buildDashboardSummary } from "../runtime/operato
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import {
+  buildSecretReferenceAudit,
+  buildServiceSecretReferenceAudit,
+} from "../runtime/operator/secret-audit.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -714,6 +718,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "secrets" && pathParts[4] === "audit") {
+      writeJson(response, 200, buildServiceSecretReferenceAudit(service));
+      return;
+    }
+
     if (request.method === "POST" && pathParts.length >= 5 && pathParts[3] === "setup" && pathParts[4] === "run") {
       const stepId = pathParts.length === 6 ? decodeURIComponent(pathParts[5] ?? "") : undefined;
       const result = await runServiceSetup(service, runtimeModel.registry, { stepId, includeManual: stepId !== undefined });
@@ -825,6 +834,12 @@ async function routeRequest(
       ),
     );
     writeJson(response, 200, { services: payload });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/secrets/audit") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildSecretReferenceAudit(runtimeModel.discovered));
     return;
   }
 
