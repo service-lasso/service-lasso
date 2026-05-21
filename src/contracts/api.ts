@@ -39,11 +39,34 @@ export interface ServiceSummary {
   recovery?: ServiceRecoveryHistoryState;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
+  compatibility?: ServiceCompatibilityReport;
   operator?: {
     logPath: string;
     variableCount: number;
     endpointCount: number;
   };
+}
+
+export interface ServiceCompatibilityPortRequirement {
+  name: string;
+  port: number;
+}
+
+export interface ServiceCompatibilityRequirementStatus {
+  kind: "dependency" | "provider" | "port";
+  id: string;
+  status: "satisfied" | "missing" | "declared";
+  detail?: string;
+}
+
+export interface ServiceCompatibilityReport {
+  hostPlatform: string;
+  status: "compatible" | "unsupported" | "missing-requirements";
+  supportedPlatforms: string[];
+  requiredProviders: string[];
+  requiredPorts: ServiceCompatibilityPortRequirement[];
+  requirements: ServiceCompatibilityRequirementStatus[];
+  blockers: string[];
 }
 
 export interface GlobalEnvResponse {

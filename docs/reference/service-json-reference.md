@@ -866,6 +866,26 @@ More complex services can use additional fields such as:
 
 These are not all used in the minimal sample, but they remain relevant for more complex services.
 
+Service catalog compatibility reports derive required ports from `ports`.
+The runtime reports these as declared requirements through `GET /api/services`
+so operators can see which named ports a service expects before install/start.
+
+### Compatibility metadata
+
+The read-only service catalog compatibility report is generated from existing
+manifest fields:
+
+- supported platforms come from `artifact.platforms`, with `default` acting
+  as a cross-platform fallback
+- provider requirements come from `execservice` and setup-step
+  `execservice` declarations
+- declared port requirements come from `ports`
+- service dependency requirements come from `depend_on`
+
+The report classifies the current host as `compatible`, `unsupported`, or
+`missing-requirements` and lists operator-safe blockers without mutating
+install, setup, or lifecycle state.
+
 ### Runtime-provider relationships
 
 Runtime-provider services use:

@@ -41,6 +41,7 @@ import { buildDashboardService, buildDashboardSummary } from "../runtime/operato
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -251,6 +252,7 @@ async function createServiceSummary(
     recovery,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
+    compatibility: buildServiceCompatibilityReport(service, registry),
     operator: {
       logPath: lifecycle.runtime.logs.logPath ?? runtimeLogs.logPath,
       variableCount: variables.variables.length,
