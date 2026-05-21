@@ -5,11 +5,12 @@ import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } 
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
+import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "config-drift" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
@@ -40,6 +41,7 @@ function usageText(): string {
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -83,7 +85,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "config-drift"
       ? commandToken
       : null;
   if (!command) {
@@ -162,6 +165,10 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "config-drift" && remaining[0] && !remaining[0].startsWith("-")) {
+    parsed.serviceId = remaining.shift();
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -194,8 +201,15 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (
+          command !== "install" &&
+          command !== "start" &&
+          command !== "setup" &&
+          command !== "updates" &&
+          command !== "recovery" &&
+          command !== "config-drift"
+        ) {
+          throw new Error("--json is only supported for install, start, setup, updates, recovery, and config-drift commands.");
         }
         parsed.json = true;
         break;
@@ -345,6 +359,21 @@ function printSetupResult(result: SetupCliResult, asJson: boolean): void {
   }
 }
 
+function printConfigDriftResult(result: ConfigDriftCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] config drift");
+  for (const service of result.services) {
+    console.log(`- ${service.serviceId}: ${service.summary.drifted} drifted / ${service.summary.total} files`);
+    for (const file of service.files.filter((entry) => entry.status !== "unchanged")) {
+      console.log(`  - ${file.path}: ${file.status}`);
+    }
+  }
+}
+
 function printBootstrapResult(
   result: BootstrapBaselineResult,
   app: Awaited<ReturnType<typeof startRuntimeApp>>,
@@ -458,6 +487,17 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "config-drift") {
+    const result = await runConfigDriftCliAction({
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printConfigDriftResult(result, parsed.json);
     return;
   }
 
