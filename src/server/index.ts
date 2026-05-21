@@ -41,6 +41,16 @@ import { buildDashboardService, buildDashboardSummary } from "../runtime/operato
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import {
+  mutateOperatorActionItem,
+  readOperatorActionQueue,
+  upsertOperatorActionItem,
+  type OperatorActionEvidence,
+  type OperatorActionInput,
+  type OperatorActionSeverity,
+  type OperatorActionSource,
+  type OperatorActionSourceKind,
+} from "../runtime/operator/action-queue.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -198,6 +208,119 @@ function parseUpdateInstallBody(input: unknown): { force?: boolean } {
 
   return {
     force: typeof candidate.force === "boolean" ? candidate.force : undefined,
+  };
+}
+
+function isOperatorActionSourceKind(value: unknown): value is OperatorActionSourceKind {
+  return (
+    value === "update" ||
+    value === "recovery" ||
+    value === "diagnostic" ||
+    value === "blocked_start" ||
+    value === "failed_check" ||
+    value === "config_drift" ||
+    value === "manual"
+  );
+}
+
+function isOperatorActionSeverity(value: unknown): value is OperatorActionSeverity {
+  return value === "info" || value === "warning" || value === "critical";
+}
+
+function parseOperatorActionEvidence(input: unknown): OperatorActionEvidence[] {
+  if (input === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "\"evidence\" must be an array when present.");
+  }
+
+  return input.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ApiError("invalid_body", 400, "Each evidence entry must be a JSON object.");
+    }
+
+    const candidate = entry as Record<string, unknown>;
+    if (typeof candidate.label !== "string" || typeof candidate.value !== "string") {
+      throw new ApiError("invalid_body", 400, "Each evidence entry requires string label and value fields.");
+    }
+
+    return {
+      label: candidate.label,
+      value: candidate.value,
+    };
+  });
+}
+
+function parseOperatorActionSource(input: unknown): OperatorActionSource {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "\"source\" must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (!isOperatorActionSourceKind(candidate.kind)) {
+    throw new ApiError("invalid_body", 400, "\"source.kind\" must be a supported operator action source kind.");
+  }
+  if (candidate.serviceId !== undefined && candidate.serviceId !== null && typeof candidate.serviceId !== "string") {
+    throw new ApiError("invalid_body", 400, "\"source.serviceId\" must be a string or null when present.");
+  }
+  if (candidate.reference !== undefined && candidate.reference !== null && typeof candidate.reference !== "string") {
+    throw new ApiError("invalid_body", 400, "\"source.reference\" must be a string or null when present.");
+  }
+
+  return {
+    kind: candidate.kind,
+    serviceId: typeof candidate.serviceId === "string" ? candidate.serviceId : null,
+    reference: typeof candidate.reference === "string" ? candidate.reference : null,
+  };
+}
+
+function parseOperatorActionRecordBody(input: unknown): OperatorActionInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator action record body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (typeof candidate.dedupeKey !== "string" || !candidate.dedupeKey.trim()) {
+    throw new ApiError("invalid_body", 400, "\"dedupeKey\" must be a non-empty string.");
+  }
+  if (!isOperatorActionSeverity(candidate.severity)) {
+    throw new ApiError("invalid_body", 400, "\"severity\" must be one of: info, warning, critical.");
+  }
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) {
+    throw new ApiError("invalid_body", 400, "\"title\" must be a non-empty string.");
+  }
+  if (typeof candidate.summary !== "string") {
+    throw new ApiError("invalid_body", 400, "\"summary\" must be a string.");
+  }
+  if (candidate.observedAt !== undefined && typeof candidate.observedAt !== "string") {
+    throw new ApiError("invalid_body", 400, "\"observedAt\" must be a string when present.");
+  }
+
+  return {
+    dedupeKey: candidate.dedupeKey,
+    severity: candidate.severity,
+    source: parseOperatorActionSource(candidate.source),
+    title: candidate.title,
+    summary: candidate.summary,
+    evidence: parseOperatorActionEvidence(candidate.evidence),
+    observedAt: typeof candidate.observedAt === "string" ? candidate.observedAt : undefined,
+  };
+}
+
+function parseOperatorActionMutationBody(input: unknown): { deferredUntil?: string | null } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (candidate.deferredUntil !== undefined && candidate.deferredUntil !== null && typeof candidate.deferredUntil !== "string") {
+    throw new ApiError("invalid_body", 400, "\"deferredUntil\" must be a string or null when present.");
+  }
+
+  return {
+    deferredUntil: typeof candidate.deferredUntil === "string" ? candidate.deferredUntil : null,
   };
 }
 
@@ -547,6 +670,40 @@ async function routeRequest(
     );
 
     writeJson(response, 200, createDashboardServicesResponse(services));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/actions") {
+    writeJson(response, 200, {
+      queue: await readOperatorActionQueue(config.workspaceRoot),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/actions/record") {
+    writeJson(response, 200, {
+      queue: await upsertOperatorActionItem(config.workspaceRoot, parseOperatorActionRecordBody(await readJsonBody(request))),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/api/operator/actions/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const actionId = decodeURIComponent(pathParts[3] ?? "");
+    const mutation = pathParts[4];
+
+    if (!actionId || (mutation !== "acknowledge" && mutation !== "defer" && mutation !== "reopen")) {
+      throw new ApiError("invalid_action", 400, "Unknown operator action mutation route.");
+    }
+
+    writeJson(response, 200, {
+      queue: await mutateOperatorActionItem(
+        config.workspaceRoot,
+        actionId,
+        mutation,
+        parseOperatorActionMutationBody(await readJsonBody(request)),
+      ),
+    });
     return;
   }
 

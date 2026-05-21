@@ -3,17 +3,20 @@ import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runti
 import { installServiceFromCli } from "./runtime/cli/install.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
+import { runOperatorCliAction, type OperatorActionsCliAction, type OperatorCliResult } from "./runtime/cli/operator.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "operator" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  operatorActionsAction?: OperatorActionsCliAction;
   serviceId?: string;
+  actionId?: string;
   stepId?: string;
   port?: number;
   servicesRoot?: string;
@@ -21,6 +24,7 @@ interface ParsedCliOptions {
   json: boolean;
   force: boolean;
   includeManual: boolean;
+  deferredUntil?: string | null;
 }
 
 function usageText(): string {
@@ -40,6 +44,10 @@ function usageText(): string {
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions list [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions acknowledge <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -50,6 +58,7 @@ function usageText(): string {
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
+    "  - The operator actions command reads or updates the workspace-level action-required queue.",
   ].join("\n");
 }
 
@@ -83,7 +92,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "operator"
       ? commandToken
       : null;
   if (!command) {
@@ -162,6 +172,27 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "operator") {
+    const scope = remaining.shift();
+    if (scope !== "actions") {
+      throw new Error('The "operator" command requires the "actions" scope.');
+    }
+
+    const action = remaining.shift();
+    if (action !== "list" && action !== "acknowledge" && action !== "defer" && action !== "reopen") {
+      throw new Error('The "operator actions" command requires one of: list, acknowledge, defer, reopen.');
+    }
+
+    parsed.operatorActionsAction = action;
+    if (action !== "list") {
+      const actionId = remaining.shift();
+      if (!actionId || actionId.startsWith("-")) {
+        throw new Error(`The "operator actions ${action}" command requires an <actionId> argument.`);
+      }
+      parsed.actionId = actionId;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -194,10 +225,21 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "operator") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and operator commands.");
         }
         parsed.json = true;
+        break;
+      }
+      case "--until": {
+        if (command !== "operator" || parsed.operatorActionsAction !== "defer") {
+          throw new Error("--until is only supported for operator actions defer.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --until.");
+        }
+        parsed.deferredUntil = value;
         break;
       }
       case "--force": {
@@ -317,6 +359,20 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printOperatorResult(result: OperatorCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] operator action queue");
+  console.log(`- action: ${result.actionsAction}`);
+  console.log(`- items: ${result.queue.items.length}`);
+  for (const item of result.queue.items) {
+    console.log(`- ${item.id}: ${item.status} ${item.severity} ${item.title}`);
+  }
 }
 
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
@@ -458,6 +514,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "operator") {
+    const result = await runOperatorCliAction({
+      action: "actions",
+      actionsAction: parsed.operatorActionsAction!,
+      itemId: parsed.actionId,
+      deferredUntil: parsed.deferredUntil,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printOperatorResult(result, parsed.json);
     return;
   }
 
