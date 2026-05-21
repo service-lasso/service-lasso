@@ -83,6 +83,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/workspace-backup-restore",
+          label: "Workspace Backup and Restore",
+        },
+        {
+          type: "doc",
           id: "reference/traefik-local-route-generation",
           label: "Traefik Local Route Generation",
         },

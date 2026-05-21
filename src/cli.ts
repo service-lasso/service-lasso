@@ -1,5 +1,6 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
+import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
@@ -9,12 +10,14 @@ import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "backup" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  backupAction?: BackupCliAction;
   serviceId?: string;
   stepId?: string;
+  archivePath?: string;
   port?: number;
   servicesRoot?: string;
   workspaceRoot?: string;
@@ -40,6 +43,8 @@ function usageText(): string {
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -50,6 +55,7 @@ function usageText(): string {
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
+    "  - The backup command creates redacted workspace snapshots or previews restore impact without mutating state.",
   ].join("\n");
 }
 
@@ -83,7 +89,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "backup"
       ? commandToken
       : null;
   if (!command) {
@@ -162,6 +169,22 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "backup") {
+    const action = remaining.shift();
+    if (action !== "create" && action !== "restore-plan") {
+      throw new Error('The "backup" command requires one of: create, restore-plan.');
+    }
+
+    parsed.backupAction = action;
+    if (action === "restore-plan") {
+      const archivePath = remaining.shift();
+      if (!archivePath || archivePath.startsWith("-")) {
+        throw new Error('The "backup restore-plan" command requires an <archivePath> argument.');
+      }
+      parsed.archivePath = archivePath;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -194,8 +217,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "backup") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and backup commands.");
         }
         parsed.json = true;
         break;
@@ -317,6 +340,33 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printBackupResult(result: BackupCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "create") {
+    console.log("[service-lasso] workspace backup created");
+    console.log("- archivePath: " + result.archivePath);
+    console.log("- services: " + result.manifest.serviceCount);
+    console.log("- policy: manifests/state redacted, log contents excluded");
+    return;
+  }
+
+  console.log("[service-lasso] restore plan completed");
+  console.log("- archivePath: " + result.archivePath);
+  console.log("- ok: " + result.ok);
+  console.log("- services: current=" + result.serviceCount.current + " backup=" + result.serviceCount.backup);
+  console.log("- mutated: " + result.mutated);
+  for (const blocked of result.blocked) {
+    console.log("- blocked: " + blocked);
+  }
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.action + " (" + service.reasons.join(", ") + ")");
+  }
 }
 
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
@@ -458,6 +508,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "backup") {
+    const result = await runBackupCliAction({
+      action: parsed.backupAction!,
+      archivePath: parsed.archivePath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printBackupResult(result, parsed.json);
     return;
   }
 
