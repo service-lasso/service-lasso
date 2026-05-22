@@ -230,6 +230,16 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     const infoBody = await infoResponse.json();
     const chunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=default&limit=50`);
     const chunkBody = await chunkResponse.json();
+    const cursorResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=default&limit=1`);
+    const cursorBody = await cursorResponse.json();
+    const nextCursorResponse = await fetch(
+      `${apiServer.url}/api/logs/read?service=reader-service&type=default&cursor=${cursorBody.nextCursor}&limit=1`,
+    );
+    const nextCursorBody = await nextCursorResponse.json();
+    const searchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=reader-service&type=default&q=reader%20stdout&limit=5`,
+    );
+    const searchBody = await searchResponse.json();
 
     assert.equal(infoResponse.status, 200);
     assert.equal(infoBody.serviceId, "reader-service");
@@ -245,6 +255,22 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(chunkBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stderr\"")));
+    assert.equal(chunkBody.cursor, String(chunkBody.end));
+    assert.equal(chunkBody.entries.some((entry) => entry.stream === "stdout" && entry.message === "reader stdout"), true);
+
+    assert.equal(cursorResponse.status, 200);
+    assert.equal(cursorBody.lines.length, 1);
+    assert.equal(typeof cursorBody.nextCursor, "string");
+    assert.equal(nextCursorResponse.status, 200);
+    assert.equal(nextCursorBody.lines.length, 1);
+
+    assert.equal(searchResponse.status, 200);
+    assert.equal(searchBody.serviceId, "reader-service");
+    assert.equal(searchBody.query, "reader stdout");
+    assert.equal(searchBody.includeArchives, false);
+    assert.equal(searchBody.matches.length, 1);
+    assert.equal(searchBody.matches[0].stream, "stdout");
+    assert.equal(searchBody.matches[0].message, "reader stdout");
 
     await postJson(`${apiServer.url}/api/services/reader-service/stop`);
   } finally {
@@ -308,6 +334,23 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
       assert.match(archivedStdout, /archive stdout/);
       assert.match(archivedStderr, /archive stderr/);
     }
+
+    const currentSearchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=archive-loggy-service&type=default&q=archive%20stdout&limit=10`,
+    );
+    const currentSearchBody = await currentSearchResponse.json();
+    const archiveSearchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=archive-loggy-service&type=default&q=archive%20stdout&includeArchives=true&limit=10`,
+    );
+    const archiveSearchBody = await archiveSearchResponse.json();
+
+    assert.equal(currentSearchResponse.status, 200);
+    assert.equal(currentSearchBody.includeArchives, false);
+    assert.equal(currentSearchBody.matches.length, 1);
+    assert.equal(archiveSearchResponse.status, 200);
+    assert.equal(archiveSearchBody.includeArchives, true);
+    assert.equal(archiveSearchBody.matches.length >= 4, true);
+    assert.equal(archiveSearchBody.matches.some((entry) => entry.source.kind === "archive"), true);
 
     const archiveDirectories = await readdir(path.join(serviceRoot, "logs", "archive"), { withFileTypes: true });
     assert.equal(archiveDirectories.filter((entry) => entry.isDirectory()).length, 3);
