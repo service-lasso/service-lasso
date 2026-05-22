@@ -5,16 +5,19 @@ import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } 
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
+import { buildDiagnosticsBundle, writeDiagnosticsBundleFolder } from "./runtime/diagnostics/bundle.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "diagnostics" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  diagnosticsAction?: "bundle";
   serviceId?: string;
   stepId?: string;
+  output?: string;
   port?: number;
   servicesRoot?: string;
   workspaceRoot?: string;
@@ -40,6 +43,7 @@ function usageText(): string {
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso diagnostics bundle [serviceId] [--services-root <path>] [--workspace-root <path>] [--output <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -50,6 +54,7 @@ function usageText(): string {
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
+    "  - The diagnostics command exports a redacted baseline or single-service evidence bundle.",
   ].join("\n");
 }
 
@@ -83,7 +88,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "diagnostics"
       ? commandToken
       : null;
   if (!command) {
@@ -162,6 +168,19 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "diagnostics") {
+    const action = remaining.shift();
+    if (action !== "bundle") {
+      throw new Error('The "diagnostics" command requires: bundle.');
+    }
+
+    parsed.diagnosticsAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      const serviceId = remaining.shift();
+      parsed.serviceId = serviceId === "baseline" ? undefined : serviceId;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -194,10 +213,28 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (
+          command !== "install" &&
+          command !== "start" &&
+          command !== "setup" &&
+          command !== "updates" &&
+          command !== "recovery" &&
+          command !== "diagnostics"
+        ) {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and diagnostics commands.");
         }
         parsed.json = true;
+        break;
+      }
+      case "--output": {
+        if (command !== "diagnostics") {
+          throw new Error("--output is only supported for diagnostics bundle.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --output.");
+        }
+        parsed.output = value;
         break;
       }
       case "--force": {
@@ -317,6 +354,29 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printDiagnosticsResult(
+  result: Awaited<ReturnType<typeof buildDiagnosticsBundle>>,
+  outputPath: string,
+  asJson: boolean,
+): void {
+  const payload = {
+    outputPath,
+    scope: result.scope,
+    serviceCount: result.runtime.serviceCount,
+    generatedAt: result.generatedAt,
+  };
+
+  if (asJson) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] diagnostics bundle exported");
+  console.log("- outputPath: " + outputPath);
+  console.log("- scope: " + result.scope.kind + (result.scope.serviceId ? ":" + result.scope.serviceId : ""));
+  console.log("- services: " + result.runtime.serviceCount);
 }
 
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
@@ -458,6 +518,21 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "diagnostics") {
+    const bundle = await buildDiagnosticsBundle({
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    const outputRoot =
+      parsed.output ??
+      ((bundle.scope.kind === "service" ? "service-" + bundle.scope.serviceId : "baseline") + "-diagnostics-bundle");
+    const outputPath = await writeDiagnosticsBundleFolder(bundle, outputRoot);
+    printDiagnosticsResult(bundle, outputPath, parsed.json);
     return;
   }
 

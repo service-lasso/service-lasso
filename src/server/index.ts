@@ -41,6 +41,7 @@ import { buildDashboardService, buildDashboardSummary } from "../runtime/operato
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -490,6 +491,21 @@ async function routeRequest(
         recovery: await readServiceRecoveryHistory(service),
       }))),
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/diagnostics/bundle") {
+    const serviceId = url.searchParams.get("service") ?? undefined;
+    writeJson(
+      response,
+      200,
+      await buildDiagnosticsBundle({
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
+        version: config.version,
+        serviceId,
+      }),
+    );
     return;
   }
 
