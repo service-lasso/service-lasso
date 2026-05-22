@@ -6,20 +6,20 @@ Service Lasso can export a redacted diagnostics bundle for the full baseline or 
 
 Command:
 
-    service-lasso diagnostics bundle [serviceId|baseline] --services-root <path> --workspace-root <path> --output <path> --json
+    service-lasso diagnostics bundle [serviceId|baseline] --services-root PATH --workspace-root PATH --output PATH --json
 
 When serviceId is omitted, or when baseline is supplied, the bundle includes every discovered service. The command writes a deterministic folder with:
 
 - manifest.json: bundle metadata and service summaries
-- services/<service-id>/summary.json: per-service manifest, state, update, recovery, and lifecycle evidence
-- services/<service-id>/logs.json: bounded redacted log excerpts
+- services/SERVICE_ID/summary.json: per-service manifest, state, update, recovery, and lifecycle evidence
+- services/SERVICE_ID/logs.json: bounded redacted log excerpts
 
 ## API
 
 Endpoints:
 
     GET /api/diagnostics/bundle
-    GET /api/diagnostics/bundle?service=<serviceId>
+    GET /api/diagnostics/bundle?service=SERVICE_ID
 
 The API returns the same redacted JSON shape as manifest.json.
 
