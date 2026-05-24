@@ -199,6 +199,10 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
+  assert.deepEqual(byId.get("@serviceadmin")?.env, {
+    SERVICE_HOST: "0.0.0.0",
+    SERVICE_PORT: "${UI_PORT}",
+  });
 });
 
 test("loadServiceManifest fails explicitly for malformed manifests", async () => {
