@@ -59,6 +59,28 @@ test("GET /api/health returns core API health", async () => {
   }
 });
 
+test("runtime API binds to all interfaces by default while reporting a local URL", async () => {
+  const previousHost = process.env.SERVICE_LASSO_HOST;
+  delete process.env.SERVICE_LASSO_HOST;
+
+  const apiServer = await startApiServer({ port: 0, version: "lan-bind-test" });
+
+  try {
+    const address = apiServer.server.address();
+
+    assert.ok(address && typeof address !== "string");
+    assert.equal(address.address, "0.0.0.0");
+    assert.equal(apiServer.url, `http://127.0.0.1:${apiServer.port}`);
+  } finally {
+    await apiServer.stop();
+    if (previousHost === undefined) {
+      delete process.env.SERVICE_LASSO_HOST;
+    } else {
+      process.env.SERVICE_LASSO_HOST = previousHost;
+    }
+  }
+});
+
 test("GET /api/services returns discovered services from the tracked services root", async () => {
   const servicesRoot = path.resolve("services");
   await clearPersistedFixtureState(servicesRoot);
