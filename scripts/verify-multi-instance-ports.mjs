@@ -49,6 +49,17 @@ async function reservePort() {
   throw new Error(`No free ports remain in ${portStart}-${portEnd}.`);
 }
 
+function assertServiceRangesExcludeApiPorts(instances, apiPorts) {
+  for (const instance of instances) {
+    for (const apiPort of apiPorts) {
+      assert(
+        apiPort < instance.servicePortStart || apiPort > instance.servicePortEnd,
+        `${instance.label} service port range ${instance.servicePortStart}-${instance.servicePortEnd} overlaps reserved API port ${apiPort}.`,
+      );
+    }
+  }
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30_000) {
   return fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
 }
@@ -169,6 +180,7 @@ const instances = [
   await createInstance("a", apiPorts[0], firstServicePort, midpoint),
   await createInstance("b", apiPorts[1], midpoint + 1, portEnd),
 ];
+assertServiceRangesExcludeApiPorts(instances, apiPorts);
 
 try {
   console.error(`[service-lasso multi-instance] reserved API ports ${apiPorts.join(", ")}; service port ranges ${instances.map((instance) => `${instance.label}:${instance.servicePortStart}-${instance.servicePortEnd}`).join(", ")}`);
