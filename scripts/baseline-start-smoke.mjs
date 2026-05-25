@@ -12,6 +12,12 @@ const coreTraefikManifest = JSON.parse(
 const coreNodeManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
 );
+const coreArchiveManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@archive", "service.json"), "utf8"),
+);
+const corePythonManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@python", "service.json"), "utf8"),
+);
 const coreJavaManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@java", "service.json"), "utf8"),
 );
@@ -28,6 +34,14 @@ if (!traefikReleaseVersion || coreTraefikManifest.version !== traefikReleaseVers
 const nodeReleaseVersion = coreNodeManifest.artifact?.source?.tag;
 if (!nodeReleaseVersion) {
   throw new Error("Core @node manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
+const archiveReleaseVersion = coreArchiveManifest.artifact?.source?.tag;
+if (!archiveReleaseVersion) {
+  throw new Error("Core @archive manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
+const pythonReleaseVersion = corePythonManifest.artifact?.source?.tag;
+if (!pythonReleaseVersion) {
+  throw new Error("Core @python manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 const javaReleaseVersion = coreJavaManifest.artifact?.source?.tag;
 if (!javaReleaseVersion) {
@@ -185,6 +199,26 @@ async function writeNodeProviderService(servicesRoot) {
   });
 }
 
+async function writeArchiveProviderService(servicesRoot) {
+  const serviceId = "@archive";
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+  await writeJson(path.join(serviceRoot, "service.json"), {
+    ...coreArchiveManifest,
+    enabled: false,
+  });
+}
+
+async function writePythonProviderService(servicesRoot) {
+  const serviceId = "@python";
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+  await writeJson(path.join(serviceRoot, "service.json"), {
+    ...corePythonManifest,
+    enabled: false,
+  });
+}
+
 async function writeProviderDependencyService(servicesRoot, serviceId) {
   await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
     id: serviceId,
@@ -256,14 +290,26 @@ function assertBaselineServiceSummary(service) {
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (["@java", "@localcert", "@node"].includes(service.serviceId)) {
+  if (["@archive", "@java", "@localcert", "@node", "@python"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
     assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
     assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
+    if (service.serviceId === "@archive") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === archiveReleaseVersion,
+        "@archive provider did not install from the pinned release artifact.",
+      );
+    }
     if (service.serviceId === "@node") {
       assert(
         service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
         "@node provider did not install from the pinned release artifact.",
+      );
+    }
+    if (service.serviceId === "@python") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === pythonReleaseVersion,
+        "@python provider did not install from the pinned release artifact.",
       );
     }
     if (service.serviceId === "@localcert") {
@@ -494,10 +540,12 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await writeArchiveProviderService(servicesRoot);
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
+  await writePythonProviderService(servicesRoot);
   await writeHttpService(servicesRoot, "@secretsbroker", "service", {
     ports: { service: secretsBrokerPort },
     urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
@@ -528,7 +576,7 @@ try {
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
@@ -538,7 +586,7 @@ try {
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["@java", "@localcert", "@node"].includes(serviceId)) {
+    if (["@archive", "@java", "@localcert", "@node", "@python"].includes(serviceId)) {
       assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
     } else {
       assert(service.lifecycle?.running === true, `${serviceId} was not running.`);

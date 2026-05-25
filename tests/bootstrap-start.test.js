@@ -1,11 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+
+async function readJsonWhenReady(filePath, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await readFile(filePath, "utf8"));
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  throw lastError;
+}
 
 test("bootstrapBaselineServices installs, configures, and starts baseline services in dependency order", async () => {
   resetLifecycleState();
@@ -78,6 +94,47 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       );
     }
   } finally {
+    await stopAllManagedProcesses();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("bootstrapBaselineServices passes the owning runtime API URL to Service Admin", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-serviceadmin-runtime-api-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const previousRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+  process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = "http://127.0.0.1:19876";
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "@node", {
+      role: "provider",
+      healthcheck: null,
+    });
+    await writeExecutableFixtureService(servicesRoot, "@serviceadmin", {
+      depend_on: ["@node"],
+      captureEnvKeys: ["SERVICE_LASSO_RUNTIME_API_BASE_URL"],
+    });
+
+    const result = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: "test-version",
+      serviceIds: ["@node", "@serviceadmin"],
+    });
+
+    assert.deepEqual(result.serviceOrder, ["@node", "@serviceadmin"]);
+    assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
+
+    const envSnapshot = await readJsonWhenReady(path.join(servicesRoot, "@serviceadmin", "runtime", "env.json"));
+    assert.equal(envSnapshot.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:19876");
+  } finally {
+    if (previousRuntimeApiBaseUrl === undefined) {
+      delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+    } else {
+      process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = previousRuntimeApiBaseUrl;
+    }
     await stopAllManagedProcesses();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
