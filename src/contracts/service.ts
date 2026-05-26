@@ -119,6 +119,7 @@ export interface ServiceArtifactPlatform {
   assetName?: string;
   assetUrl?: string;
   archiveType: ServiceArtifactArchiveType;
+  sha256?: string;
   command?: string;
   args?: string[];
   checksum?: {

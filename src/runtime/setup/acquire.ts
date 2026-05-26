@@ -4,6 +4,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
+import { getLockedServiceEntry, readServiceLockfile, type ServiceLockfileEntry } from "../lockfile/service-lockfile.js";
 import { getServiceStatePaths } from "../state/paths.js";
 
 export interface AcquiredArtifactState {
@@ -16,6 +17,7 @@ export interface AcquiredArtifactState {
   archiveType: "zip" | "tar.gz" | "tgz";
   archivePath: string;
   extractedPath: string;
+  checksumSha256?: string | null;
   command: string | null;
   args: string[];
   checksum: AcquiredArtifactChecksumState | null;
@@ -45,6 +47,7 @@ interface ResolvedArtifactDownload {
   assetName: string;
   assetUrl: string;
   releaseTag: string | null;
+  checksumSha256: string | null;
   checksumAssetName: string | null;
   checksumAssetUrl: string | null;
 }
@@ -83,29 +86,44 @@ function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): {
 async function resolveGitHubReleaseDownload(
   artifact: ServiceArchiveArtifact,
   platform: ServiceArtifactPlatform,
+  lockedEntry: ServiceLockfileEntry | null,
 ): Promise<ResolvedArtifactDownload> {
-  if (platform.assetUrl) {
+  if (lockedEntry?.assetUrl) {
     return {
-      assetName: platform.assetName ?? path.basename(new URL(platform.assetUrl).pathname),
-      assetUrl: platform.assetUrl,
-      releaseTag: artifact.source.tag ?? artifact.source.channel ?? null,
+      assetName: lockedEntry.assetName,
+      assetUrl: lockedEntry.assetUrl,
+      releaseTag: lockedEntry.releaseTag,
+      checksumSha256: lockedEntry.checksumSha256,
       checksumAssetName: null,
       checksumAssetUrl: null,
     };
   }
 
-  if (!platform.assetName) {
+  if (platform.assetUrl) {
+    return {
+      assetName: platform.assetName ?? path.basename(new URL(platform.assetUrl).pathname),
+      assetUrl: platform.assetUrl,
+      releaseTag: artifact.source.tag ?? artifact.source.channel ?? null,
+      checksumSha256: platform.sha256 ?? null,
+      checksumAssetName: null,
+      checksumAssetUrl: null,
+    };
+  }
+
+  const assetName = lockedEntry?.assetName ?? platform.assetName;
+  if (!assetName) {
     throw new Error("Artifact platform entry must define assetName when assetUrl is not provided.");
   }
 
   const apiBaseUrl = normalizeApiBaseUrl(artifact.source.api_base_url);
   const repoPath = artifact.source.repo.trim().replace(/^\/+|\/+$/g, "");
-  const releasePath = artifact.source.tag?.trim()
-    ? `/repos/${repoPath}/releases/tags/${encodeURIComponent(artifact.source.tag.trim())}`
+  const pinnedTag = lockedEntry?.releaseTag ?? artifact.source.tag?.trim();
+  const releasePath = pinnedTag
+    ? "/repos/" + repoPath + "/releases/tags/" + encodeURIComponent(pinnedTag)
     : artifact.source.channel && artifact.source.channel.trim().length > 0 && artifact.source.channel.trim() !== "latest"
-      ? `/repos/${repoPath}/releases/tags/${encodeURIComponent(artifact.source.channel.trim())}`
-      : `/repos/${repoPath}/releases/latest`;
-  const response = await fetch(`${apiBaseUrl}${releasePath}`, {
+      ? "/repos/" + repoPath + "/releases/tags/" + encodeURIComponent(artifact.source.channel.trim())
+      : "/repos/" + repoPath + "/releases/latest";
+  const response = await fetch(apiBaseUrl + releasePath, {
     headers: githubHeaders(),
   });
 
@@ -116,10 +134,10 @@ async function resolveGitHubReleaseDownload(
   }
 
   const payload = (await response.json()) as GitHubReleaseResponse;
-  const asset = payload.assets?.find((candidate) => candidate.name === platform.assetName);
+  const asset = payload.assets?.find((candidate) => candidate.name === assetName);
   if (!asset) {
     throw new Error(
-      `Release metadata for "${artifact.source.repo}" did not contain asset "${platform.assetName}".`,
+      "Release metadata for " + artifact.source.repo + " did not contain asset " + assetName + ".",
     );
   }
   const checksumAssetName = platform.checksum?.assetName?.trim() || null;
@@ -135,7 +153,8 @@ async function resolveGitHubReleaseDownload(
   return {
     assetName: asset.name,
     assetUrl: asset.browser_download_url,
-    releaseTag: typeof payload.tag_name === "string" ? payload.tag_name : artifact.source.tag ?? artifact.source.channel ?? null,
+    releaseTag: lockedEntry?.releaseTag ?? (typeof payload.tag_name === "string" ? payload.tag_name : artifact.source.tag ?? artifact.source.channel ?? null),
+    checksumSha256: lockedEntry?.checksumSha256 ?? platform.sha256 ?? null,
     checksumAssetName,
     checksumAssetUrl: checksumAsset?.browser_download_url ?? null,
   };
@@ -287,8 +306,11 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
     return null;
   }
 
+  const servicesRoot = path.dirname(service.serviceRoot);
+  const lockfile = await readServiceLockfile(servicesRoot);
+  const lockedEntry = lockfile ? getLockedServiceEntry(service, lockfile) : null;
   const { definition } = getCurrentPlatformArtifact(artifact);
-  const resolved = await resolveGitHubReleaseDownload(artifact, definition);
+  const resolved = await resolveGitHubReleaseDownload(artifact, definition, lockedEntry);
   const paths = getServiceStatePaths(service.serviceRoot);
   const releaseSegment = (resolved.releaseTag ?? "latest").replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.artifacts, releaseSegment, resolved.assetName);
@@ -311,6 +333,7 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
     archiveType: definition.archiveType,
     archivePath,
     extractedPath,
+    checksumSha256: resolved.checksumSha256,
     command: definition.command ?? null,
     args: definition.args ?? [],
     checksum,
