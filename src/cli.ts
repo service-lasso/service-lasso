@@ -5,15 +5,18 @@ import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } 
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
+import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "plan" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  planAction?: RuntimePlanCliAction;
   serviceId?: string;
+  manifestPath?: string;
   stepId?: string;
   port?: number;
   servicesRoot?: string;
@@ -38,6 +41,11 @@ function usageText(): string {
     "  service-lasso updates check [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates download <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso plan start [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan stop [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan autostart [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan update-install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso plan import <manifestPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
@@ -49,6 +57,7 @@ function usageText(): string {
     "  - The install command acquires and installs a service from manifest-owned artifact metadata without starting it.",
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
+    "  - The plan command previews start, stop, update-install, and app-owned service import actions without writing state.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
   ].join("\n");
 }
@@ -83,7 +92,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "plan"
       ? commandToken
       : null;
   if (!command) {
@@ -162,6 +172,29 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "plan") {
+    const action = remaining.shift();
+    if (action !== "start" && action !== "stop" && action !== "autostart" && action !== "update-install" && action !== "import") {
+      throw new Error('The "plan" command requires one of: start, stop, autostart, update-install, import.');
+    }
+
+    parsed.planAction = action;
+    if (action === "update-install") {
+      const serviceId = remaining.shift();
+      if (!serviceId || serviceId.startsWith("-")) {
+        throw new Error('The "plan update-install" command requires a <serviceId> argument.');
+      }
+      parsed.serviceId = serviceId;
+    }
+    if (action === "import") {
+      const manifestPath = remaining.shift();
+      if (!manifestPath || manifestPath.startsWith("-")) {
+        throw new Error('The "plan import" command requires a <manifestPath> argument.');
+      }
+      parsed.manifestPath = manifestPath;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -194,15 +227,15 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "plan") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and plan commands.");
         }
         parsed.json = true;
         break;
       }
       case "--force": {
-        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run"))) {
-          throw new Error("--force is only supported for updates install and setup run commands.");
+        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run") || (command === "plan" && parsed.planAction === "update-install"))) {
+          throw new Error("--force is only supported for updates install, setup run, and plan update-install commands.");
         }
         parsed.force = true;
         break;
@@ -279,6 +312,25 @@ function printUpdatesResult(result: UpdatesCliResult, asJson: boolean): void {
   console.log(`- service: ${result.serviceId}`);
   console.log(`- installedTag: ${result.state.installArtifacts.artifact?.tag ?? "unknown"}`);
   console.log(`- forced: ${result.forced}`);
+}
+
+function printPlanResult(result: RuntimePlanCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] dry-run plan");
+  console.log(`- action: ${result.action}`);
+  console.log(`- ok: ${result.ok}`);
+  console.log(`- servicesRoot: ${result.servicesRoot}`);
+  for (const step of result.steps) {
+    const reason = step.reason ? ` (${step.reason})` : "";
+    console.log(`- ${step.order}. ${step.serviceId}: ${step.action} ${step.status}${reason}`);
+    if (step.prerequisites.length > 0) {
+      console.log(`  prerequisites: ${step.prerequisites.join("; ")}`);
+    }
+  }
 }
 
 function formatRecoveryLine(service: { serviceId: string; recovery: ServiceRecoveryHistoryState }): string {
@@ -446,6 +498,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       force: parsed.force,
     });
     printUpdatesResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "plan") {
+    const result = await runRuntimePlanCliAction({
+      action: parsed.planAction!,
+      serviceId: parsed.serviceId,
+      manifestPath: parsed.manifestPath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+      force: parsed.force,
+    });
+    printPlanResult(result, parsed.json);
     return;
   }
 

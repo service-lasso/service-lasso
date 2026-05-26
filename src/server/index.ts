@@ -42,6 +42,11 @@ import {
   readServiceLogChunk,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
+import {
+  buildAppServiceImportDryRunPlan,
+  buildRuntimeOrchestrationDryRunPlan,
+  buildUpdateInstallDryRunPlan,
+} from "../runtime/operator/dry-run-plan.js";
 import { buildBaselineDependencyDiagnostics } from "../runtime/operator/dependencyDiagnostics.js";
 import { buildOperatorNotifications } from "../runtime/operator/notifications.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
@@ -1164,6 +1169,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 6 && pathParts[3] === "update" && pathParts[4] === "install" && pathParts[5] === "plan") {
+      writeJson(response, 200, await buildUpdateInstallDryRunPlan(service, { force: url.searchParams.get("force") === "true" }));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 3) {
       writeJson(
         response,
@@ -1232,6 +1242,36 @@ async function routeRequest(
 
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel, config.workspaceRoot));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime/actions/importService/plan") {
+    const manifestPath = url.searchParams.get("manifestPath");
+    if (!manifestPath) {
+      throw new ApiError("invalid_request", 400, '"manifestPath" query parameter is required.');
+    }
+
+    writeJson(
+      response,
+      200,
+      await buildAppServiceImportDryRunPlan({
+        manifestPath,
+        servicesRoot: config.servicesRoot,
+      }),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/runtime/actions/") && url.pathname.endsWith("/plan")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const action = pathParts[3];
+
+    if (action !== "startAll" && action !== "stopAll" && action !== "autostart") {
+      throw new ApiError("invalid_action", 400, "Unknown runtime plan action: " + action);
+    }
+
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildRuntimeOrchestrationDryRunPlan(action, runtimeModel.graph, runtimeModel.registry));
     return;
   }
 
