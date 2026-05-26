@@ -1,6 +1,7 @@
 import net from "node:net";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
+import { readPortReservationLedger } from "./reservations.js";
 
 const DEFAULT_DYNAMIC_PORT_START = 4000;
 const DEFAULT_PORT_HOST = "127.0.0.1";
@@ -53,7 +54,15 @@ async function isPortFree(port: number, host = DEFAULT_PORT_HOST): Promise<boole
   }
 }
 
-function collectReservedPorts(services: DiscoveredService[], currentServiceId: string): Set<number> {
+export interface ServicePortNegotiationOptions {
+  workspaceRoot?: string;
+}
+
+async function collectReservedPorts(
+  services: DiscoveredService[],
+  currentServiceId: string,
+  options: ServicePortNegotiationOptions = {},
+): Promise<Set<number>> {
   const reservedPorts = new Set<number>();
 
   for (const service of services) {
@@ -65,17 +74,27 @@ function collectReservedPorts(services: DiscoveredService[], currentServiceId: s
     }
   }
 
+  if (options.workspaceRoot) {
+    const ledger = await readPortReservationLedger(options.workspaceRoot);
+    for (const reservation of ledger.reservations) {
+      if (reservation.stale !== true && reservation.ownerId !== currentServiceId) {
+        reservedPorts.add(reservation.port);
+      }
+    }
+  }
+
   return reservedPorts;
 }
 
 export async function negotiateServicePorts(
   service: DiscoveredService,
   services: DiscoveredService[],
+  options: ServicePortNegotiationOptions = {},
 ): Promise<Record<string, number>> {
   const desiredPorts = service.manifest.ports ?? {};
   const currentPorts = getLifecycleState(service.manifest.id).runtime.ports;
   const negotiatedPorts: Record<string, number> = {};
-  const reservedPorts = collectReservedPorts(services, service.manifest.id);
+  const reservedPorts = await collectReservedPorts(services, service.manifest.id, options);
   const portRange = parseOptionalPortRange();
 
   for (const [name, desiredPort] of Object.entries(desiredPorts)) {
