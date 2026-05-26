@@ -68,6 +68,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-config-drift",
+          label: "Service Config Drift",
+        },
+        {
+          type: "doc",
           id: "reference/one-shot-jobs",
           label: "One-shot Jobs",
         },

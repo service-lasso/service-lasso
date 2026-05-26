@@ -53,6 +53,7 @@ import { buildOperatorNotifications } from "../runtime/operator/notifications.js
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -1129,6 +1130,13 @@ async function routeRequest(
         200,
         createServiceNetworkResponse(buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts)),
       );
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "config-drift") {
+      writeJson(response, 200, {
+        drift: await buildServiceConfigDriftReport(service, runtimeModel.registry.list()),
+      });
       return;
     }
 
