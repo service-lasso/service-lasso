@@ -23,6 +23,16 @@ Endpoints:
 
 The API returns the same redacted JSON shape as manifest.json.
 
+## Health Regression Summary
+
+Bundles include `healthRegression` at the top level and per service. It is derived from persisted service health transitions and is meant for review/support evidence:
+
+- `firstFailure`: earliest unhealthy transition in scope
+- `latestState`: latest observed transition in scope
+- `flappingCount`: count of healthy/unhealthy status changes
+- `impactedServiceIds`: service ids with any failure or flapping
+- per-service transition count, first failure, latest state, flapping count, and impacted flag
+
 ## Redaction Contract
 
 The bundle is operator evidence, not a secret export.
