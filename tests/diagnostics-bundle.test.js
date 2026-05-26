@@ -7,6 +7,7 @@ import {
   writeDiagnosticsBundleFolder,
 } from "../dist/runtime/diagnostics/bundle.js";
 import { getServiceRuntimeLogPaths } from "../dist/runtime/operator/logs.js";
+import { getServiceStatePaths } from "../dist/runtime/state/paths.js";
 import { startApiServer } from "../dist/server/index.js";
 import {
   assertNoSecretMaterial,
@@ -26,6 +27,19 @@ async function writeSecretBearingRuntimeLog(serviceRoot) {
         serviceLassoSecretLeakSentinels[0].value +
         " Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
     }) + "\n",
+  );
+}
+
+async function writeHealthHistory(serviceRoot, serviceId, transitions) {
+  const statePaths = getServiceStatePaths(serviceRoot);
+  await mkdir(statePaths.stateRoot, { recursive: true });
+  await writeFile(
+    statePaths.health,
+    JSON.stringify({
+      serviceId,
+      updatedAt: "2026-05-22T00:04:00.000Z",
+      transitions,
+    }, null, 2),
   );
 }
 
@@ -61,6 +75,77 @@ test("diagnostics bundle exports baseline shape without secret material", async 
     assert.match(serialized, /\[REDACTED\]/);
     assertNoSecretMaterial(bundle);
     assertNoSecretMaterial(serialized);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("diagnostics bundle includes compact health regression summary", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-diagnostics-health-");
+  try {
+    const { serviceRoot: alphaRoot } = await writeExecutableFixtureService(servicesRoot, "alpha-service");
+    const { serviceRoot: betaRoot } = await writeExecutableFixtureService(servicesRoot, "beta-service");
+
+    await writeHealthHistory(alphaRoot, "alpha-service", [
+      {
+        serviceId: "alpha-service",
+        status: "healthy",
+        checkType: "process",
+        observed: { type: "process" },
+        reason: "healthcheck_passed",
+        detail: "started",
+        at: "2026-05-22T00:00:00.000Z",
+      },
+      {
+        serviceId: "alpha-service",
+        status: "unhealthy",
+        checkType: "http",
+        observed: { type: "http", url: "https://user:secret@example.invalid/health?token=keep-out" },
+        reason: "healthcheck_failed",
+        detail: "failed with SERVICE_LASSO_FAKE_SECRET_SENTINEL_ALPHA_DO_NOT_USE",
+        at: "2026-05-22T00:01:00.000Z",
+      },
+      {
+        serviceId: "alpha-service",
+        status: "healthy",
+        checkType: "http",
+        observed: { type: "http", url: "https://example.invalid/health" },
+        reason: "healthcheck_passed",
+        detail: "recovered",
+        at: "2026-05-22T00:02:00.000Z",
+      },
+    ]);
+    await writeHealthHistory(betaRoot, "beta-service", [
+      {
+        serviceId: "beta-service",
+        status: "healthy",
+        checkType: "process",
+        observed: { type: "process" },
+        reason: "healthcheck_passed",
+        detail: "stable",
+        at: "2026-05-22T00:03:00.000Z",
+      },
+    ]);
+
+    const bundle = await buildDiagnosticsBundle({
+      servicesRoot,
+      workspaceRoot: path.join(tempRoot, "workspace"),
+      generatedAt: "2026-05-22T00:05:00.000Z",
+    });
+
+    assert.equal(bundle.healthRegression.serviceCount, 2);
+    assert.deepEqual(bundle.healthRegression.impactedServiceIds, ["alpha-service"]);
+    assert.equal(bundle.healthRegression.flappingCount, 2);
+    assert.equal(bundle.healthRegression.firstFailure?.serviceId, "alpha-service");
+    assert.equal(bundle.healthRegression.firstFailure?.observed.url, "https://example.invalid/health");
+    assert.equal(bundle.healthRegression.latestState?.serviceId, "beta-service");
+
+    const alphaSummary = bundle.services.find((service) => service.serviceId === "alpha-service")?.healthRegression;
+    assert.equal(alphaSummary?.transitionCount, 3);
+    assert.equal(alphaSummary?.flappingCount, 2);
+    assert.equal(alphaSummary?.impacted, true);
+    assert.equal(alphaSummary?.latestState?.status, "healthy");
+    assertNoSecretMaterial(bundle.healthRegression);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }

@@ -10,6 +10,13 @@ import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { readServiceRecoveryHistory } from "../recovery/history.js";
 import { readServiceUpdateState } from "../updates/state.js";
 import { getServiceRuntimeLogPaths } from "../operator/logs.js";
+import {
+  readServiceHealthHistory,
+  summarizeHealthRegression,
+  summarizeServiceHealthRegression,
+  type ServiceHealthRegressionServiceSummary,
+  type ServiceHealthRegressionSummary,
+} from "../health/history.js";
 import type { RuntimeConfigOptions } from "../config.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig } from "../config.js";
 
@@ -59,6 +66,7 @@ export interface DiagnosticsBundleService {
   };
   statePaths: ReturnType<typeof getServiceStatePaths>;
   lifecycle: ReturnType<typeof summarizeLifecycle>;
+  healthRegression: ServiceHealthRegressionServiceSummary;
   updates: Awaited<ReturnType<typeof readServiceUpdateState>>;
   recovery: Awaited<ReturnType<typeof readServiceRecoveryHistory>>;
   logs: DiagnosticsBundleLogExcerpt[];
@@ -77,6 +85,7 @@ export interface DiagnosticsBundle {
     workspaceRoot: string;
     serviceCount: number;
   };
+  healthRegression: ServiceHealthRegressionSummary;
   services: DiagnosticsBundleService[];
   redaction: {
     value: typeof REDACTED;
@@ -185,6 +194,7 @@ async function buildServiceBundle(
   const lifecycle = getLifecycleState(service.manifest.id);
   const logPaths = getServiceRuntimeLogPaths(service.serviceRoot);
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
+  const healthHistory = await readServiceHealthHistory(service);
 
   return {
     serviceId: service.manifest.id,
@@ -207,6 +217,9 @@ async function buildServiceBundle(
     },
     statePaths: getServiceStatePaths(service.serviceRoot),
     lifecycle: summarizeLifecycle(lifecycle),
+    healthRegression: redactDiagnosticsValue(
+      summarizeServiceHealthRegression(healthHistory),
+    ) as ServiceHealthRegressionServiceSummary,
     updates: redactDiagnosticsValue(await readServiceUpdateState(service)) as Awaited<ReturnType<typeof readServiceUpdateState>>,
     recovery: redactDiagnosticsValue(await readServiceRecoveryHistory(service)) as Awaited<ReturnType<typeof readServiceRecoveryHistory>>,
     logs: await Promise.all([
@@ -229,6 +242,9 @@ export async function buildDiagnosticsBundle(options: DiagnosticsBundleOptions =
     throw new Error("Unknown service id: " + options.serviceId);
   }
 
+  const healthHistories = await Promise.all(selected.map((service) => readServiceHealthHistory(service)));
+  const services = await Promise.all(selected.map((service) => buildServiceBundle(service, graph)));
+
   return {
     bundleVersion: 1,
     generatedAt: options.generatedAt ?? new Date().toISOString(),
@@ -242,7 +258,10 @@ export async function buildDiagnosticsBundle(options: DiagnosticsBundleOptions =
       workspaceRoot: config.workspaceRoot,
       serviceCount: selected.length,
     },
-    services: await Promise.all(selected.map((service) => buildServiceBundle(service, graph))),
+    healthRegression: redactDiagnosticsValue(
+      summarizeHealthRegression(healthHistories),
+    ) as ServiceHealthRegressionSummary,
+    services,
     redaction: {
       value: REDACTED,
       rules: [

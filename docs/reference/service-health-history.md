@@ -49,6 +49,16 @@ service-lasso health history [serviceId] [--services-root <path>] [--workspace-r
 
 Without `serviceId`, the command lists persisted health history for all discovered services.
 
+## Regression Summary
+
+Diagnostics bundles derive a compact health regression summary from recent persisted transitions. The summary includes:
+
+- `firstFailure`: earliest unhealthy transition in the selected bundle scope, or `null`
+- `latestState`: latest transition in the selected bundle scope, or `null`
+- `flappingCount`: number of healthy/unhealthy status changes
+- `impactedServiceIds`: services with any failure or flapping
+- per-service transition count, first failure, latest state, flapping count, and impacted flag
+
 ## Safety
 
 Health history is operator-facing metadata only. It must not store raw secret values, credential payloads, provider tokens, private keys, cookies, passwords, environment values, or recovery material.

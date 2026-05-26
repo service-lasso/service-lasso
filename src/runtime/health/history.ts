@@ -33,6 +33,24 @@ export interface ServiceHealthHistoryState {
   transitions: ServiceHealthTransitionEvent[];
 }
 
+export interface ServiceHealthRegressionServiceSummary {
+  serviceId: string;
+  transitionCount: number;
+  firstFailure: ServiceHealthTransitionEvent | null;
+  latestState: ServiceHealthTransitionEvent | null;
+  flappingCount: number;
+  impacted: boolean;
+}
+
+export interface ServiceHealthRegressionSummary {
+  serviceCount: number;
+  impactedServiceIds: string[];
+  firstFailure: ServiceHealthTransitionEvent | null;
+  latestState: ServiceHealthTransitionEvent | null;
+  flappingCount: number;
+  services: ServiceHealthRegressionServiceSummary[];
+}
+
 const healthHistoryAppendQueues = new Map<string, Promise<void>>();
 
 function nowIso(): string {
@@ -291,4 +309,74 @@ export async function recordServiceHealthTransition(
       healthHistoryAppendQueues.delete(paths.health);
     }
   }
+}
+
+function transitionTime(value: ServiceHealthTransitionEvent | null): number {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parsed = Date.parse(value.at);
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function latestTransitionTime(value: ServiceHealthTransitionEvent | null): number {
+  const parsed = value ? Date.parse(value.at) : Number.NEGATIVE_INFINITY;
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+export function summarizeServiceHealthRegression(
+  history: ServiceHealthHistoryState,
+): ServiceHealthRegressionServiceSummary {
+  const transitions = [...history.transitions].sort((left, right) => {
+    const delta = latestTransitionTime(left) - latestTransitionTime(right);
+    return delta === 0 ? left.at.localeCompare(right.at) : delta;
+  });
+  const firstFailure = transitions
+    .filter((transition) => transition.status === "unhealthy")
+    .sort((left, right) => transitionTime(left) - transitionTime(right))[0] ?? null;
+  const latestState = transitions.at(-1) ?? null;
+  let flappingCount = 0;
+
+  for (let index = 1; index < transitions.length; index += 1) {
+    if (transitions[index - 1]?.status !== transitions[index]?.status) {
+      flappingCount += 1;
+    }
+  }
+
+  return {
+    serviceId: history.serviceId,
+    transitionCount: transitions.length,
+    firstFailure,
+    latestState,
+    flappingCount,
+    impacted: Boolean(firstFailure) || flappingCount > 0,
+  };
+}
+
+export function summarizeHealthRegression(
+  histories: ServiceHealthHistoryState[],
+): ServiceHealthRegressionSummary {
+  const services = histories
+    .map((history) => summarizeServiceHealthRegression(history))
+    .sort((left, right) => left.serviceId.localeCompare(right.serviceId));
+  const firstFailure = services
+    .map((service) => service.firstFailure)
+    .filter((transition): transition is ServiceHealthTransitionEvent => Boolean(transition))
+    .sort((left, right) => transitionTime(left) - transitionTime(right))[0] ?? null;
+  const latestState = services
+    .map((service) => service.latestState)
+    .filter((transition): transition is ServiceHealthTransitionEvent => Boolean(transition))
+    .sort((left, right) => latestTransitionTime(right) - latestTransitionTime(left))[0] ?? null;
+
+  return {
+    serviceCount: services.length,
+    impactedServiceIds: services
+      .filter((service) => service.impacted)
+      .map((service) => service.serviceId),
+    firstFailure,
+    latestState,
+    flappingCount: services.reduce((total, service) => total + service.flappingCount, 0),
+    services,
+  };
 }
