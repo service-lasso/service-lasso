@@ -22,6 +22,7 @@ import {
   type ServiceVariableResolutionOptions,
 } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
+import { reservePorts, type PortReservationInput } from "../ports/reservations.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import { assertDoctorPreflightAllowsRestart } from "../recovery/doctor.js";
@@ -112,6 +113,40 @@ function applyProcessLaunchMetrics(
 export interface ServiceLifecycleActionOptions {
   variableResolution?: ServiceVariableResolutionOptions;
   brokerLookup?: BrokerLaunchLookup;
+  workspaceRoot?: string;
+}
+
+function isUsablePort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535;
+}
+
+function toServicePortReservations(service: DiscoveredService, ports: Record<string, number>): PortReservationInput[] {
+  return Object.entries(ports)
+    .filter(([, port]) => isUsablePort(port))
+    .map(([portName, port]) => {
+      const desiredPort = service.manifest.ports?.[portName];
+      return {
+        kind: desiredPort === port && desiredPort !== 0 ? "service-fixed" : "service-negotiated",
+        ownerId: service.manifest.id,
+        portName,
+        port,
+      };
+    });
+}
+
+async function reserveServicePorts(
+  workspaceRoot: string | undefined,
+  service: DiscoveredService,
+  ports: Record<string, number>,
+): Promise<void> {
+  if (!workspaceRoot) {
+    return;
+  }
+
+  const reservations = toServicePortReservations(service, ports);
+  if (reservations.length > 0) {
+    await reservePorts(workspaceRoot, reservations);
+  }
 }
 
 function applyState(
@@ -274,6 +309,7 @@ export async function installService(
 export async function configService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
@@ -284,8 +320,9 @@ export async function configService(
   }
 
   const resolvedPorts = registry
-    ? await negotiateServicePorts(service, registry.list())
+    ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
     : current.runtime.ports;
+  await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
@@ -394,8 +431,9 @@ export async function startService(
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
       : registry
-        ? await negotiateServicePorts(service, registry.list())
+        ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
         : {};
+  await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const variableResolution = await resolveLaunchVariableResolution(
     service,
     options,
@@ -576,8 +614,9 @@ export async function restartService(
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
       : registry
-        ? await negotiateServicePorts(service, registry.list())
+        ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
         : {};
+  await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const variableResolution = await resolveLaunchVariableResolution(
     service,
     options,

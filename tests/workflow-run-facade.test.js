@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { startApiServer } from "../dist/server/index.js";
 import {
   assertWorkflowRunFacadeSecretSafe,
   cancelWorkflowFacadeRun,
@@ -14,6 +15,7 @@ import {
   startWorkflowFacadeRun,
   workflowRunFacadeEndpoints,
 } from "../dist/platform/workflowRunFacade.js";
+import { makeTempServicesRoot } from "./test-helpers.js";
 
 const repoRoot = process.cwd();
 const context = {
@@ -25,6 +27,29 @@ const context = {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+async function getJson(url, headers = {}) {
+  const response = await fetch(url, { headers });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function postJson(url, body = {}, headers = {}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
 }
 
 test("workflow run facade exposes product-facing endpoint contract", () => {
@@ -142,5 +167,130 @@ test("workflow run facade docs cover endpoints status policy and no-secret rende
     "raw secret values",
   ]) {
     assert.ok(docs.includes(requiredText), `Expected docs to include ${requiredText}`);
+  }
+});
+
+test("workflow run facade is exposed through runtime HTTP routes", async () => {
+  const { servicesRoot } = await makeTempServicesRoot("service-lasso-workflow-api-");
+  const state = clone(exampleWorkflowRunFacadeState);
+  state.runs[0].status = "failed";
+  state.runs[0].engine.status = "error";
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workflowRunFacadeState: state });
+  const workspaceId = "wks_local_demo";
+  const workflowId = encodeURIComponent("official.core.maintenance/backup-check");
+
+  try {
+    const list = await getJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows`);
+    assert.equal(list.status, 200);
+    assert.equal(list.body.workflows[0].id, "official.core.maintenance/backup-check");
+
+    const workflow = await getJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}`);
+    assert.equal(workflow.status, 200);
+    assert.equal(workflow.body.workflow.engine.dagu.workflowName, "backup-check");
+
+    const started = await postJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`, { input: { dryRun: true } });
+    assert.equal(started.status, 200);
+    assert.equal(started.body.run.status, "queued");
+    assert.match(started.body.run.facadeRunId, /^wfr_/);
+    assert.equal(started.body.auditEvent.engineRunId, started.body.run.engine.runId);
+
+    const runId = encodeURIComponent(started.body.run.facadeRunId);
+    const fetchedRun = await getJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflow-runs/${runId}`);
+    assert.equal(fetchedRun.status, 200);
+    assert.equal(fetchedRun.body.run.facadeRunId, started.body.run.facadeRunId);
+
+    const logs = await getJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflow-runs/${runId}/logs`);
+    assert.equal(logs.status, 200);
+    assert.deepEqual(logs.body.logs, { available: false });
+
+    const artifacts = await getJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflow-runs/${runId}/artifacts`);
+    assert.equal(artifacts.status, 200);
+    assert.deepEqual(artifacts.body.artifacts, []);
+
+    const cancelled = await postJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflow-runs/${runId}/cancel`);
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.run.status, "cancelling");
+    assert.equal(cancelled.body.auditEvent.action, "workflow.run.cancel");
+
+    const retried = await postJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflow-runs/wfr_20260508_backup_check_01/retry`);
+    assert.equal(retried.status, 200);
+    assert.equal(retried.body.run.status, "retrying");
+    assert.equal(retried.body.auditEvent.action, "workflow.run.retry");
+
+    const serialized = JSON.stringify([list.body, workflow.body, started.body, fetchedRun.body, logs.body, artifacts.body, cancelled.body, retried.body]);
+    assert.equal(serialized.includes("raw-workflow-secret"), false);
+    assert.equal(serialized.includes("access-token-value"), false);
+    assert.equal(serialized.includes("refresh-token-value"), false);
+    assert.equal(serialized.includes("private-key-material"), false);
+  } finally {
+    await apiServer.stop();
+  }
+});
+
+test("workflow runtime HTTP routes fail closed for policy and request errors", async () => {
+  const { servicesRoot } = await makeTempServicesRoot("service-lasso-workflow-api-denied-");
+  const connectionState = clone(exampleWorkflowRunFacadeState);
+  connectionState.providerConnections[0].status = "needs-auth";
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workflowRunFacadeState: connectionState });
+  const workspaceId = "wks_local_demo";
+  const workflowId = encodeURIComponent("official.core.maintenance/backup-check");
+  const errorBodies = [];
+
+  try {
+    const mismatch = await getJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows`, {
+      "x-service-lasso-workspace-id": "wks_other",
+    });
+    assert.equal(mismatch.status, 403);
+    assert.equal(mismatch.body.error, "workspace-mismatch");
+    errorBodies.push(mismatch.body);
+
+    const missingEntitlement = await postJson(
+      `${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`,
+      {},
+      { "x-service-lasso-entitlements": "workspace:read,secrets-broker-source:use,secrets-broker:resolve" },
+    );
+    assert.equal(missingEntitlement.status, 403);
+    assert.equal(missingEntitlement.body.error, "missing-entitlement");
+    errorBodies.push(missingEntitlement.body);
+
+    const connectionNotReady = await postJson(`${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`);
+    assert.equal(connectionNotReady.status, 403);
+    assert.equal(connectionNotReady.body.error, "connection-not-ready");
+    errorBodies.push(connectionNotReady.body);
+  } finally {
+    await apiServer.stop();
+  }
+
+  const secretState = clone(exampleWorkflowRunFacadeState);
+  secretState.workflows[0].secretDependencies[0].status = "missing";
+  const secretApiServer = await startApiServer({ port: 0, servicesRoot, workflowRunFacadeState: secretState });
+
+  try {
+    const missingSecret = await postJson(`${secretApiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`);
+    assert.equal(missingSecret.status, 403);
+    assert.equal(missingSecret.body.error, "missing-secret");
+    errorBodies.push(missingSecret.body);
+
+    const missingWorkflow = await getJson(`${secretApiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${encodeURIComponent("official.core.missing/nope")}`);
+    assert.equal(missingWorkflow.status, 404);
+    assert.equal(missingWorkflow.body.error, "workflow-not-found");
+    errorBodies.push(missingWorkflow.body);
+
+    const invalidBody = await postJson(`${secretApiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`, { input: "not-object" });
+    assert.equal(invalidBody.status, 400);
+    assert.equal(invalidBody.body.error, "invalid_request");
+    errorBodies.push(invalidBody.body);
+
+    const invalidTransition = await postJson(`${secretApiServer.url}/api/platform/workspaces/${workspaceId}/workflow-runs/wfr_20260508_backup_check_01/retry`);
+    assert.equal(invalidTransition.status, 409);
+    assert.equal(invalidTransition.body.error, "invalid-transition");
+    errorBodies.push(invalidTransition.body);
+
+    const serialized = JSON.stringify(errorBodies);
+    assert.equal(serialized.includes("raw-workflow-secret"), false);
+    assert.equal(serialized.includes("access-token-value"), false);
+    assert.equal(serialized.includes("private-key-material"), false);
+  } finally {
+    await secretApiServer.stop();
   }
 });

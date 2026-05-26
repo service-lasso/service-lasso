@@ -48,6 +48,15 @@ export interface ServiceMaterializedArtifactsState {
     extractedPath: string | null;
     command: string | null;
     args: string[];
+    checksum: {
+      algorithm: "sha256";
+      source: "manifest" | "release-asset";
+      expected: string;
+      actual: string;
+      assetName: string;
+      checksumAssetName: string | null;
+      verifiedAt: string;
+    } | null;
   };
 }
 

@@ -134,8 +134,14 @@ POST /api/platform/workflow-packages/validate
 ```
 
 `GET` returns safe package metadata that UI and workflow layers can display.
+When workflow repo sync state has an active revision, the API lists packages
+from that active mounted revision; otherwise it returns the built-in example
+catalog contract.
+
 `POST /validate` validates local package metadata before a package is added to
-the catalog.
+the catalog. The request body may contain `metadata`, `packages`, or
+`entries`; responses include diagnostics and omit package payloads if secret-like
+material is detected.
 
 ## Validation diagnostics
 
