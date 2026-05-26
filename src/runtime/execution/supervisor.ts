@@ -85,6 +85,35 @@ async function closeRuntimeLogStreams(streams: ManagedProcessRecord["logStreams"
   await Promise.all([closeWriteStream(streams.combined), closeWriteStream(streams.stdout), closeWriteStream(streams.stderr)]);
 }
 
+async function waitForCommandExit(command: string, args: string[]): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const child = spawn(command, args, {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
+
+async function forceKillManagedProcessTree(child: ChildProcess): Promise<void> {
+  const pid = child.pid;
+  if (!pid) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    await waitForCommandExit("taskkill", ["/pid", String(pid), "/t", "/f"]);
+    return;
+  }
+
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    // The process may have exited between the timeout and forced kill.
+  }
+}
+
 function writeCombinedLogEntry(stream: WriteStream, level: "stdout" | "stderr", message: string): void {
   stream.write(`${JSON.stringify({ level, message })}\n`);
 }
@@ -330,16 +359,20 @@ export async function stopManagedProcess(
     record.child.kill();
   }
 
+  let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    setTimeout(() => {
-      if (!record.child.killed) {
-        record.child.kill("SIGKILL");
-      }
-      resolve({ exitCode: null, signal: "SIGKILL" });
-    }, timeoutMs).unref?.();
+    timeout = setTimeout(() => {
+      void forceKillManagedProcessTree(record.child).finally(() => {
+        resolve({ exitCode: null, signal: "SIGKILL" });
+      });
+    }, timeoutMs);
+    timeout.unref?.();
   });
 
   const result = await Promise.race([record.exitPromise, timeoutPromise]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
   const finalizer = managedProcessFinalizers.get(serviceId);
   if (finalizer) {
     await finalizer;
