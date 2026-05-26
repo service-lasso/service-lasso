@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
+import { cp } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
@@ -51,6 +54,20 @@ import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
+import {
+  exampleWorkflowPackageCatalog,
+  listWorkflowPackagesSecretSafe,
+  loadWorkflowCatalogFromDirectories,
+  validateWorkflowCatalogEntries,
+  type WorkflowCatalogEntry,
+  type WorkflowPackageSourceKind,
+} from "../platform/workflowCatalog.js";
+import {
+  activateWorkflowRepoSources,
+  readWorkflowRepoSyncState,
+  rollbackWorkflowRepoActivation,
+  type WorkflowRepoSource,
+} from "../platform/workflowSyncController.js";
 import {
   checkServiceUpdatesForCli,
   downloadServiceUpdateCandidate,
@@ -218,6 +235,90 @@ function parseUpdateInstallBody(input: unknown): { force?: boolean } {
   return {
     force: typeof candidate.force === "boolean" ? candidate.force : undefined,
   };
+}
+
+function parseWorkflowCatalogValidateBody(input: unknown): WorkflowCatalogEntry[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Workflow package validation body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  const rawEntries = Array.isArray(candidate.entries)
+    ? candidate.entries
+    : Array.isArray(candidate.packages)
+      ? candidate.packages.map((metadata, index) => ({ metadata, metadataPath: `request.packages[${index}]` }))
+      : candidate.metadata
+        ? [{ metadata: candidate.metadata, metadataPath: "request.metadata" }]
+        : undefined;
+
+  if (!rawEntries) {
+    throw new ApiError("invalid_body", 400, "Workflow package validation requires entries, packages, or metadata.");
+  }
+
+  return rawEntries.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ApiError("invalid_body", 400, `Workflow package entry ${index} must be a JSON object.`);
+    }
+    const record = entry as Record<string, unknown>;
+    const metadata = "metadata" in record ? record.metadata : record;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+      throw new ApiError("invalid_body", 400, `Workflow package entry ${index} must include metadata.`);
+    }
+    return {
+      metadata: metadata as WorkflowCatalogEntry["metadata"],
+      metadataPath: typeof record.metadataPath === "string" ? record.metadataPath : `request.entries[${index}]`,
+    };
+  });
+}
+
+function parseWorkflowRepoSourcesBody(input: unknown): WorkflowRepoSource[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Workflow repo request body must be a JSON object.");
+  }
+
+  const sources = (input as Record<string, unknown>).sources;
+  if (!Array.isArray(sources)) {
+    throw new ApiError("invalid_body", 400, "Workflow repo request requires a sources array.");
+  }
+
+  return sources.map((source, index) => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new ApiError("invalid_body", 400, `Workflow repo source ${index} must be a JSON object.`);
+    }
+    return source as WorkflowRepoSource;
+  });
+}
+
+function workflowRepoWorkspaceRoot(config: RuntimeConfig): string {
+  return path.join(config.workspaceRoot, "workflow-repos");
+}
+
+function workflowRepoStatePath(config: RuntimeConfig): string {
+  return path.join(workflowRepoWorkspaceRoot(config), "state.json");
+}
+
+function resolveLocalWorkflowRepo(repo: string): string {
+  if (repo.startsWith("file:")) {
+    return fileURLToPath(repo);
+  }
+  if (path.isAbsolute(repo)) {
+    return repo;
+  }
+  throw new ApiError(
+    "unsupported_workflow_repo_source",
+    400,
+    "Workflow repo HTTP sync currently accepts local absolute paths or file:// sources only.",
+  );
+}
+
+function countWorkflowPackageSources(packages: Array<{ source: WorkflowPackageSourceKind }>): Record<WorkflowPackageSourceKind, number> {
+  return packages.reduce<Record<WorkflowPackageSourceKind, number>>(
+    (counts, workflowPackage) => {
+      counts[workflowPackage.source] += 1;
+      return counts;
+    },
+    { official: 0, custom: 0 },
+  );
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
@@ -703,6 +804,71 @@ async function routeRequest(
         }))
         .filter((service) => service.steps.length > 0),
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/platform/workflow-packages") {
+    const state = await readWorkflowRepoSyncState(workflowRepoStatePath(config));
+    const activeSources = state.active?.sources ?? [];
+    const catalog = activeSources.length > 0
+      ? await loadWorkflowCatalogFromDirectories(activeSources.map((source) => ({ root: source.packageRoot, source: source.source })))
+      : validateWorkflowCatalogEntries(exampleWorkflowPackageCatalog);
+    const packages = listWorkflowPackagesSecretSafe(catalog.entries);
+    writeJson(response, 200, {
+      ok: catalog.ok,
+      packages,
+      diagnostics: catalog.diagnostics,
+      sources: countWorkflowPackageSources(packages),
+      activeRevision: state.active?.revision ?? null,
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/platform/workflow-packages/validate") {
+    const entries = parseWorkflowCatalogValidateBody(await readJsonBody(request));
+    const validation = validateWorkflowCatalogEntries(entries);
+    let packages: ReturnType<typeof listWorkflowPackagesSecretSafe> = [];
+    try {
+      packages = listWorkflowPackagesSecretSafe(validation.entries);
+    } catch {
+      packages = [];
+    }
+    writeJson(response, 200, {
+      ok: validation.ok,
+      packages,
+      diagnostics: validation.diagnostics,
+      sources: countWorkflowPackageSources(packages),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/platform/workflow-repos/state") {
+    writeJson(response, 200, await readWorkflowRepoSyncState(workflowRepoStatePath(config)));
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    (url.pathname === "/api/platform/workflow-repos/sync" || url.pathname === "/api/platform/workflow-repos/activate")
+  ) {
+    const sources = parseWorkflowRepoSourcesBody(await readJsonBody(request));
+    const result = await activateWorkflowRepoSources(sources, {
+      workspaceRoot: workflowRepoWorkspaceRoot(config),
+      statePath: workflowRepoStatePath(config),
+      fetcher: async ({ source, destination }) => {
+        await cp(resolveLocalWorkflowRepo(source.repo), destination, { recursive: true, force: true });
+        return { revision: source.ref, packageRoot: source.path ?? "." };
+      },
+    });
+    writeJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/platform/workflow-repos/rollback") {
+    writeJson(response, 200, await rollbackWorkflowRepoActivation({
+      workspaceRoot: workflowRepoWorkspaceRoot(config),
+      statePath: workflowRepoStatePath(config),
+    }));
     return;
   }
 
