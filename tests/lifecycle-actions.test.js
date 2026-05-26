@@ -9,8 +9,14 @@ import {
   configService,
   startService,
 } from "../dist/runtime/lifecycle/actions.js";
+import {
+  hasManagedProcess,
+  startManagedProcess,
+  stopManagedProcess,
+} from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
+import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import {
   makeTempServicesRoot,
@@ -520,6 +526,39 @@ test("start waits for configured readiness and returns healthy once ready", asyn
     assert.ok(elapsedMs >= 75);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed process stop escalates after timeout and clears supervisor state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-managed-stop-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "stubborn-service", {
+    ignoreSignals: true,
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    const handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+    });
+
+    assert.equal(handle.pid > 0, true);
+    assert.equal(hasManagedProcess("stubborn-service"), true);
+
+    const stopped = await stopManagedProcess("stubborn-service", 100);
+
+    assert.ok(stopped);
+    assert.equal(hasManagedProcess("stubborn-service"), false);
+    if (process.platform !== "win32") {
+      assert.equal(stopped.signal, "SIGKILL");
+    }
+  } finally {
+    await stopManagedProcess("stubborn-service", 100).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
