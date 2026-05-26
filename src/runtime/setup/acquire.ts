@@ -20,6 +20,17 @@ export interface AcquiredArtifactState {
   checksumSha256?: string | null;
   command: string | null;
   args: string[];
+  checksum: AcquiredArtifactChecksumState | null;
+}
+
+export interface AcquiredArtifactChecksumState {
+  algorithm: "sha256";
+  source: "manifest" | "release-asset";
+  expected: string;
+  actual: string;
+  assetName: string;
+  checksumAssetName: string | null;
+  verifiedAt: string;
 }
 
 interface GitHubReleaseAsset {
@@ -37,6 +48,8 @@ interface ResolvedArtifactDownload {
   assetUrl: string;
   releaseTag: string | null;
   checksumSha256: string | null;
+  checksumAssetName: string | null;
+  checksumAssetUrl: string | null;
 }
 
 function normalizeApiBaseUrl(candidate: string | undefined): string {
@@ -81,6 +94,8 @@ async function resolveGitHubReleaseDownload(
       assetUrl: lockedEntry.assetUrl,
       releaseTag: lockedEntry.releaseTag,
       checksumSha256: lockedEntry.checksumSha256,
+      checksumAssetName: null,
+      checksumAssetUrl: null,
     };
   }
 
@@ -90,6 +105,8 @@ async function resolveGitHubReleaseDownload(
       assetUrl: platform.assetUrl,
       releaseTag: artifact.source.tag ?? artifact.source.channel ?? null,
       checksumSha256: platform.sha256 ?? null,
+      checksumAssetName: null,
+      checksumAssetUrl: null,
     };
   }
 
@@ -123,12 +140,23 @@ async function resolveGitHubReleaseDownload(
       "Release metadata for " + artifact.source.repo + " did not contain asset " + assetName + ".",
     );
   }
+  const checksumAssetName = platform.checksum?.assetName?.trim() || null;
+  const checksumAsset = checksumAssetName
+    ? payload.assets?.find((candidate) => candidate.name === checksumAssetName)
+    : null;
+  if (checksumAssetName && !checksumAsset) {
+    throw new Error(
+      `Release metadata for "${artifact.source.repo}" did not contain checksum asset "${checksumAssetName}".`,
+    );
+  }
 
   return {
     assetName: asset.name,
     assetUrl: asset.browser_download_url,
     releaseTag: lockedEntry?.releaseTag ?? (typeof payload.tag_name === "string" ? payload.tag_name : artifact.source.tag ?? artifact.source.channel ?? null),
     checksumSha256: lockedEntry?.checksumSha256 ?? platform.sha256 ?? null,
+    checksumAssetName,
+    checksumAssetUrl: checksumAsset?.browser_download_url ?? null,
   };
 }
 
@@ -141,6 +169,106 @@ async function downloadToFile(assetUrl: string, destinationPath: string): Promis
   const bytes = Buffer.from(await response.arrayBuffer());
   await mkdir(path.dirname(destinationPath), { recursive: true });
   await writeFile(destinationPath, bytes);
+}
+
+async function downloadText(assetUrl: string): Promise<string> {
+  const response = await fetch(assetUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download service artifact checksum from "${assetUrl}": ${response.status} ${response.statusText}`);
+  }
+
+  return await response.text();
+}
+
+function normalizeSha256(value: string, context: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw new Error(`Malformed SHA-256 checksum for ${context}.`);
+  }
+  return normalized;
+}
+
+function findSha256InChecksumFile(content: string, artifactAssetName: string, checksumAssetName: string): string {
+  let parsedEntries = 0;
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const match = line.match(/^([A-Fa-f0-9]{64})\s+\*?(.+)$/);
+    if (!match) {
+      continue;
+    }
+
+    parsedEntries += 1;
+    const [, checksum, filename] = match;
+    const normalizedFilename = filename.trim().replace(/^\.\//, "");
+    if (normalizedFilename === artifactAssetName || path.basename(normalizedFilename) === artifactAssetName) {
+      return normalizeSha256(checksum, `artifact "${artifactAssetName}" in checksum asset "${checksumAssetName}"`);
+    }
+  }
+
+  if (parsedEntries === 0) {
+    throw new Error(`Malformed checksum asset "${checksumAssetName}": no SHA-256 entries were found.`);
+  }
+
+  throw new Error(`Checksum asset "${checksumAssetName}" did not contain an entry for "${artifactAssetName}".`);
+}
+
+async function verifyArchiveChecksum(
+  archivePath: string,
+  assetName: string,
+  checksum: ServiceArtifactPlatform["checksum"],
+  resolved: ResolvedArtifactDownload,
+): Promise<AcquiredArtifactChecksumState | null> {
+  if (!checksum) {
+    return null;
+  }
+
+  if (checksum.algorithm !== "sha256") {
+    throw new Error(`Unsupported service artifact checksum algorithm "${checksum.algorithm}".`);
+  }
+
+  if (checksum.value && checksum.assetName) {
+    throw new Error("Artifact checksum must declare either value or assetName, not both.");
+  }
+
+  if (!checksum.value && !checksum.assetName) {
+    throw new Error("Artifact checksum must declare value or assetName.");
+  }
+
+  let expected: string;
+  let source: AcquiredArtifactChecksumState["source"];
+  if (checksum.value) {
+    expected = normalizeSha256(checksum.value, `artifact "${assetName}"`);
+    source = "manifest";
+  } else {
+    if (!checksum.assetName || !resolved.checksumAssetUrl) {
+      throw new Error(`Artifact checksum asset "${checksum.assetName}" could not be resolved from release metadata.`);
+    }
+    expected = findSha256InChecksumFile(
+      await downloadText(resolved.checksumAssetUrl),
+      assetName,
+      checksum.assetName,
+    );
+    source = "release-asset";
+  }
+
+  const actual = createHash("sha256").update(await readFile(archivePath)).digest("hex");
+  if (actual !== expected) {
+    throw new Error(`Checksum mismatch for service artifact "${assetName}".`);
+  }
+
+  return {
+    algorithm: "sha256",
+    source,
+    expected,
+    actual,
+    assetName,
+    checksumAssetName: resolved.checksumAssetName,
+    verifiedAt: new Date().toISOString(),
+  };
 }
 
 async function extractArchive(
@@ -172,16 +300,6 @@ async function fileExists(targetPath: string): Promise<boolean> {
   }
 }
 
-async function verifyArchiveChecksum(archivePath: string, checksumSha256: string | null): Promise<void> {
-  if (!checksumSha256) {
-    return;
-  }
-  const actual = createHash("sha256").update(await readFile(archivePath)).digest("hex");
-  if (actual.toLowerCase() !== checksumSha256.toLowerCase()) {
-    throw new Error("Downloaded service artifact checksum did not match service lockfile.");
-  }
-}
-
 export async function acquireInstallArtifact(service: DiscoveredService): Promise<AcquiredArtifactState | null> {
   const artifact = service.manifest.artifact;
   if (!artifact) {
@@ -202,7 +320,7 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
   if (!(await fileExists(archivePath))) {
     await downloadToFile(resolved.assetUrl, archivePath);
   }
-  await verifyArchiveChecksum(archivePath, resolved.checksumSha256);
+  const checksum = await verifyArchiveChecksum(archivePath, resolved.assetName, definition.checksum, resolved);
   await extractArchive(archivePath, definition.archiveType, extractedPath);
 
   return {
@@ -218,5 +336,6 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
     checksumSha256: resolved.checksumSha256,
     command: definition.command ?? null,
     args: definition.args ?? [],
+    checksum,
   };
 }

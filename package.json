@@ -25,6 +25,7 @@
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
     "verify:real-app-e2e": "npm run build && node scripts/verify-real-app-e2e.mjs",
     "verify:multi-instance-ports": "npm run build && node scripts/verify-multi-instance-ports.mjs",
+    "verify:service-catalog": "npm run build && node scripts/verify-service-catalog.mjs",
     "local:multi-instance": "npm run build && node scripts/start-local-multi-instance.mjs",
     "verify:reference-app-lifecycle": "npm run build && node scripts/verify-reference-app-lifecycle.mjs",
     "verify:service-updates": "npm run build && node scripts/verify-service-updates.mjs",

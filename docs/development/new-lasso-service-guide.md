@@ -241,14 +241,18 @@ Core integration steps:
 
 Default baseline services currently are:
 
+- `@archive`
+- `@java`
 - `@localcert`
 - `@nginx`
 - `@traefik`
 - `@node`
+- `@python`
+- `@secretsbroker`
 - `echo-service`
 - `@serviceadmin`
 
-Non-baseline provider and app-owned manifests such as `@python`, `@java`, `zitadel`, `keycloak`, and `dagu` should not be added to default baseline start unless the app has the needed config and dependencies.
+Non-baseline provider and app-owned manifests such as `zitadel`, `keycloak`, and `dagu` should not be added to default baseline start unless the app has the needed config and dependencies.
 
 ## Consumer Integration
 

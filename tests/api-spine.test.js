@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import net from "node:net";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
@@ -59,6 +60,28 @@ test("GET /api/health returns core API health", async () => {
   }
 });
 
+test("runtime API binds to all interfaces by default while reporting a local URL", async () => {
+  const previousHost = process.env.SERVICE_LASSO_HOST;
+  delete process.env.SERVICE_LASSO_HOST;
+
+  const apiServer = await startApiServer({ port: 0, version: "lan-bind-test" });
+
+  try {
+    const address = apiServer.server.address();
+
+    assert.ok(address && typeof address !== "string");
+    assert.equal(address.address, "0.0.0.0");
+    assert.equal(apiServer.url, `http://127.0.0.1:${apiServer.port}`);
+  } finally {
+    await apiServer.stop();
+    if (previousHost === undefined) {
+      delete process.env.SERVICE_LASSO_HOST;
+    } else {
+      process.env.SERVICE_LASSO_HOST = previousHost;
+    }
+  }
+});
+
 test("GET /api/services returns discovered services from the tracked services root", async () => {
   const servicesRoot = path.resolve("services");
   await clearPersistedFixtureState(servicesRoot);
@@ -79,6 +102,100 @@ test("GET /api/services returns discovered services from the tracked services ro
   } finally {
     await apiServer.stop();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("GET /api/diagnostics/dependencies reports start blockers and safe next actions", async () => {
+  resetLifecycleState();
+  const occupiedPortServer = net.createServer();
+  await new Promise((resolve, reject) => {
+    occupiedPortServer.once("error", reject);
+    occupiedPortServer.listen(0, "127.0.0.1", resolve);
+  });
+  const occupiedAddress = occupiedPortServer.address();
+  assert.notEqual(typeof occupiedAddress, "string");
+  const occupiedPort = occupiedAddress.port;
+  await new Promise((resolve) => occupiedPortServer.close(resolve));
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-dependency-diagnostics-");
+
+  await writeExecutableFixtureService(servicesRoot, "alpha-running", {
+    ports: {
+      service: 43150,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "bravo-ready", {
+    depend_on: ["alpha-running"],
+    ports: {
+      service: 43151,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "charlie-missing-dependency", {
+    depend_on: ["missing-service"],
+  });
+  await writeExecutableFixtureService(servicesRoot, "delta-occupied-port", {
+    ports: {
+      service: occupiedPort,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "echo-disabled", {
+    enabled: false,
+  });
+  await writeExecutableFixtureService(servicesRoot, "foxtrot-unhealthy", {
+    healthcheck: {
+      type: "tcp",
+      address: "127.0.0.1:9",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["alpha-running", "bravo-ready", "delta-occupied-port", "foxtrot-unhealthy"]) {
+      let result = await postJson(apiServer.url + "/api/services/" + serviceId + "/install");
+      assert.equal(result.status, 200);
+      result = await postJson(apiServer.url + "/api/services/" + serviceId + "/config");
+      assert.equal(result.status, 200);
+    }
+
+    await new Promise((resolve, reject) => {
+      occupiedPortServer.once("error", reject);
+      occupiedPortServer.listen(occupiedPort, "127.0.0.1", resolve);
+    });
+
+    let result = await postJson(apiServer.url + "/api/services/alpha-running/start");
+    assert.equal(result.status, 200);
+    result = await postJson(apiServer.url + "/api/services/foxtrot-unhealthy/start");
+    assert.equal(result.status, 200);
+
+    const diagnostics = await getJson(apiServer.url + "/api/diagnostics/dependencies");
+    assert.equal(diagnostics.status, 200);
+    assert.equal(diagnostics.body.diagnostics.summary.status, "blocked");
+    assert.equal(diagnostics.body.diagnostics.summary.totalServices, 6);
+    assert.equal(diagnostics.body.diagnostics.summary.disabledServices, 1);
+
+    const byId = new Map(diagnostics.body.diagnostics.services.map((service) => [service.id, service]));
+    assert.equal(byId.get("alpha-running").readiness, "running");
+    assert.equal(byId.get("bravo-ready").readiness, "ready");
+    assert.equal(byId.get("bravo-ready").dependencies[0].ready, true);
+    assert.equal(byId.get("charlie-missing-dependency").readiness, "blocked");
+    assert.equal(byId.get("charlie-missing-dependency").blockingReason, "missing_dependency");
+    assert.equal(byId.get("delta-occupied-port").blockingReason, "port_occupied");
+    assert.equal(byId.get("echo-disabled").readiness, "disabled");
+    assert.equal(byId.get("foxtrot-unhealthy").readiness, "degraded");
+    assert.equal(byId.get("foxtrot-unhealthy").blockingReason, "unhealthy");
+    assert.equal(
+      diagnostics.body.diagnostics.services.every((service) =>
+        service.endpoints.every((endpoint) => !endpoint.url.includes("?") && !endpoint.url.includes("#")),
+      ),
+      true,
+    );
+  } finally {
+    await apiServer.stop();
+    if (occupiedPortServer.listening) {
+      await new Promise((resolve) => occupiedPortServer.close(resolve));
+    }
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
@@ -227,6 +344,89 @@ test("runtime boots from explicit servicesRoot and workspaceRoot config", async 
   }
 });
 
+test("GET /api/runtime/capabilities returns versioned runtime capability metadata", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-capabilities-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+    role: "provider",
+  });
+  await writeExecutableFixtureService(servicesRoot, "@serviceadmin");
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    version: "capability-test-version",
+  });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/runtime/capabilities");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.capabilities.runtime.version, "capability-test-version");
+    assert.equal(result.body.capabilities.api.contractVersion, "service-lasso.runtime-capabilities.v1");
+    assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "runtime"));
+    assert.equal(result.body.capabilities.features.lifecycleActions, true);
+    assert.equal(result.body.capabilities.features.dashboardAdapter, true);
+    assert.equal(result.body.capabilities.features.providerConnections, false);
+    assert.equal(result.body.capabilities.features.workflowFacade, false);
+    assert.equal(result.body.capabilities.features.autostart, false);
+    assert.equal(result.body.capabilities.features.monitor, false);
+    assert.equal(result.body.capabilities.features.updateScheduler, false);
+    assert.deepEqual(result.body.capabilities.baseline.defaultServiceIds, [
+      "@archive",
+      "@java",
+      "@localcert",
+      "@nginx",
+      "@traefik",
+      "@node",
+      "@python",
+      "@secretsbroker",
+      "echo-service",
+      "@serviceadmin",
+    ]);
+    assert.deepEqual(result.body.capabilities.baseline.serviceRoles, [
+      {
+        id: "@serviceadmin",
+        role: "service",
+        enabled: true,
+        defaultBaseline: true,
+      },
+      {
+        id: "alpha-service",
+        role: "provider",
+        enabled: true,
+        defaultBaseline: false,
+      },
+    ]);
+    assert.equal(result.body.capabilities.compatibility.serviceAdmin.runtimeApiBaseUrlRequired, true);
+    assert.equal(result.body.capabilities.compatibility.serviceAdmin.supportsSafeSecretMetadataOnly, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/runtime/capabilities reflects configured runtime option flags", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-capability-flags-");
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    version: "capability-flags-test",
+    monitor: true,
+    updateScheduler: true,
+  });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/runtime/capabilities");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.capabilities.features.monitor, true);
+    assert.equal(result.body.capabilities.features.updateScheduler, true);
+    assert.equal(result.body.capabilities.features.autostart, false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("runtime app honors servicesRoot and workspaceRoot environment overrides", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-app-env-config-"));
   const workspaceRoot = path.join(tempRoot, "workspace");
@@ -356,6 +556,134 @@ test("POST /api/runtime/actions/startAll skips ineligible services deterministic
       { serviceId: "bravo-missing-install", reason: "not_installed" },
       { serviceId: "charlie-running", reason: "already_running" },
     ]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/runtime/actions/startAll/plan returns dependency ordered dry-run without starting services", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-start-plan-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  await writeExecutableFixtureService(servicesRoot, "bravo-service", {
+    depend_on: ["alpha-service"],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    let result = await postJson(apiServer.url + "/api/services/alpha-service/install");
+    assert.equal(result.status, 200);
+    result = await postJson(apiServer.url + "/api/services/alpha-service/config");
+    assert.equal(result.status, 200);
+
+    const plan = await getJson(apiServer.url + "/api/runtime/actions/startAll/plan");
+    assert.equal(plan.status, 200);
+    assert.equal(plan.body.action, "startAll");
+    assert.equal(plan.body.dryRun, true);
+    assert.equal(plan.body.ok, false);
+    assert.deepEqual(plan.body.order, ["alpha-service"]);
+    assert.deepEqual(
+      plan.body.steps.map((step) => [step.serviceId, step.status, step.reason]),
+      [
+        ["alpha-service", "would_run", null],
+        ["bravo-service", "blocked", "not_installed"],
+      ],
+    );
+    assert.deepEqual(plan.body.mutations, []);
+
+    const alphaDetail = await getJson(apiServer.url + "/api/services/alpha-service");
+    const bravoDetail = await getJson(apiServer.url + "/api/services/bravo-service");
+    assert.equal(alphaDetail.body.service.lifecycle.running, false);
+    assert.equal(bravoDetail.body.service.lifecycle.running, false);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/services/:id/update/install/plan reports blockers without writing update state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-update-install-plan-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "update-plan-service", {
+    updates: {
+      mode: "download",
+      runningService: "require-stopped",
+    },
+  });
+  const stateRoot = path.join(serviceRoot, ".state");
+  await mkdir(stateRoot, { recursive: true });
+  const updatesPath = path.join(stateRoot, "updates.json");
+  const before = {
+    serviceId: "update-plan-service",
+    state: "downloadedCandidate",
+    lastCheck: null,
+    available: null,
+    downloadedCandidate: {
+      tag: "2026.5.1",
+      assetName: "update-plan-service.zip",
+      archivePath: "updates/update-plan-service.zip",
+      downloadedAt: "2026-05-20T00:00:00.000Z",
+    },
+    installDeferred: null,
+    failed: null,
+    hookResults: [],
+  };
+  await writeFile(updatesPath, JSON.stringify(before, null, 2));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const plan = await getJson(apiServer.url + "/api/services/update-plan-service/update/install/plan");
+    assert.equal(plan.status, 200);
+    assert.equal(plan.body.action, "updateInstall");
+    assert.equal(plan.body.dryRun, true);
+    assert.equal(plan.body.ok, false);
+    assert.equal(plan.body.steps[0].status, "blocked");
+    assert.match(plan.body.steps[0].reason, /updates_mode_not_install/);
+    assert.deepEqual(plan.body.mutations, []);
+
+    const after = JSON.parse(await readFile(updatesPath, "utf8"));
+    assert.deepEqual(after, before);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/runtime/actions/importService/plan previews app-owned import without copying manifest", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-import-plan-");
+  const sourceRoot = path.join(tempRoot, "source-service");
+  const sourceManifestPath = path.join(sourceRoot, "service.json");
+  const targetManifestPath = path.join(servicesRoot, "imported-service", "service.json");
+  await mkdir(sourceRoot, { recursive: true });
+  await writeFile(sourceManifestPath, JSON.stringify({
+    id: "imported-service",
+    name: "Imported Service",
+    description: "Fixture service import plan.",
+    executable: process.execPath,
+    args: ["runtime/imported-service.mjs"],
+    healthcheck: { type: "process" },
+  }, null, 2));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const plan = await getJson(
+      apiServer.url + "/api/runtime/actions/importService/plan?manifestPath=" + encodeURIComponent(sourceManifestPath),
+    );
+
+    assert.equal(plan.status, 200);
+    assert.equal(plan.body.action, "importService");
+    assert.equal(plan.body.dryRun, true);
+    assert.equal(plan.body.ok, true);
+    assert.equal(plan.body.steps[0].serviceId, "imported-service");
+    assert.equal(plan.body.steps[0].status, "would_run");
+    assert.equal(plan.body.steps[0].metadata.targetManifestPath, targetManifestPath);
+    assert.deepEqual(plan.body.mutations, []);
+    await assert.rejects(readFile(targetManifestPath, "utf8"), /ENOENT/);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

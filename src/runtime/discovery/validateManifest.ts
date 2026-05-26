@@ -825,6 +825,42 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
         );
       }
 
+      let checksum: { algorithm: "sha256"; value?: string; assetName?: string } | undefined;
+      if (platformRecord.checksum !== undefined) {
+        if (!platformRecord.checksum || typeof platformRecord.checksum !== "object" || Array.isArray(platformRecord.checksum)) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.checksum" to be an object when present.`,
+          );
+        }
+
+        const checksumRecord = platformRecord.checksum as Record<string, unknown>;
+        if (checksumRecord.algorithm !== "sha256") {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.checksum.algorithm" to be "sha256".`,
+          );
+        }
+
+        const checksumValue =
+          typeof checksumRecord.value === "string" && checksumRecord.value.trim().length > 0
+            ? checksumRecord.value.trim()
+            : undefined;
+        const checksumAssetName =
+          typeof checksumRecord.assetName === "string" && checksumRecord.assetName.trim().length > 0
+            ? checksumRecord.assetName.trim()
+            : undefined;
+        if ((checksumValue === undefined && checksumAssetName === undefined) || (checksumValue !== undefined && checksumAssetName !== undefined)) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.checksum" to define exactly one of "value" or "assetName".`,
+          );
+        }
+
+        checksum = {
+          algorithm: "sha256",
+          value: checksumValue,
+          assetName: checksumAssetName,
+        };
+      }
+
       if (platformRecord.assetName === undefined && platformRecord.assetUrl === undefined) {
         throw new Error(
           `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}" to define "assetName" and/or "assetUrl".`,
@@ -840,6 +876,7 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
           sha256: typeof platformRecord.sha256 === "string" ? platformRecord.sha256.trim().toLowerCase() : undefined,
           command: typeof platformRecord.command === "string" ? platformRecord.command.trim() : undefined,
           args: Array.isArray(platformRecord.args) ? platformRecord.args.map((entry) => entry.trim()) : undefined,
+          ...(checksum ? { checksum } : {}),
         },
       ];
     }),

@@ -91,6 +91,16 @@ The manifest must point to a real release asset:
       "type": "github-release",
       "repo": "service-lasso/lasso-example",
       "tag": "2026.4.29-abc1234"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-example-win32.zip",
+        "archiveType": "zip",
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
+      }
     }
   }
 }
@@ -98,10 +108,13 @@ The manifest must point to a real release asset:
 
 The release tag uses `yyyy.m.d-<shortsha>`. Artifact names should include the exact upstream service, runtime, framework, or tool version.
 
+For release-backed services, declare checksum verification per platform whenever the release publishes a checksum. Use either a direct SHA-256 `checksum.value` or a release checksum asset such as `checksum.assetName: "SHA256SUMS.txt"`. Service Lasso verifies the archive before extraction or install state mutation and fails closed on missing, malformed, unsupported, or mismatched checksum evidence.
+
 ## Exit Criteria
 
 Move to step 3 only when:
 
 - `service.json` can identify the exact GitHub release asset to download
+- release-backed archive checksums are declared when the release publishes them
 - commands, env, dependencies, ports, and health checks match the planned service shape
 - the manifest can be copied into `services/<service-id>/service.json` without needing a second hidden metadata file
