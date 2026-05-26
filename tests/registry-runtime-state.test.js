@@ -40,7 +40,9 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
   assert.ok(registry.getById("@serviceadmin"));
+  assert.ok(registry.getById("@secretsbroker"));
   assert.ok(registry.getById("@java"));
+  assert.ok(registry.getById("@python"));
   assert.equal(registry.getById("@archive")?.manifest.enabled, false);
   assert.equal(registry.getById("@python")?.manifest.enabled, false);
   assert.equal(registry.getById("@archive")?.manifest.role, "provider");

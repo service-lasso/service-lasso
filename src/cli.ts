@@ -1,21 +1,26 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
+import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
+import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "instance" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "plan" | "lockfile" | "instance" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  planAction?: RuntimePlanCliAction;
+  lockfileAction?: LockfileCliAction;
   serviceId?: string;
+  manifestPath?: string;
   stepId?: string;
   port?: number;
   servicesRoot?: string;
@@ -40,8 +45,16 @@ function usageText(): string {
     "  service-lasso updates check [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates download <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso plan start [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan stop [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan autostart [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan update-install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso plan import <manifestPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
@@ -52,7 +65,10 @@ function usageText(): string {
     "  - The install command acquires and installs a service from manifest-owned artifact metadata without starting it.",
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
+    "  - The plan command previews start, stop, update-install, and app-owned service import actions without writing state.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
+    "  - The instance command reads local runtime identity and recent instance registry state.",
+    "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
     "  - The instance command reads local runtime identity and recent instance registry state.",
   ].join("\n");
 }
@@ -88,6 +104,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "setup" ||
       commandToken === "updates" ||
       commandToken === "recovery" ||
+      commandToken === "plan" ||
+      commandToken === "lockfile" ||
       commandToken === "instance"
       ? commandToken
       : null;
@@ -167,6 +185,38 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "lockfile") {
+    const action = remaining.shift();
+    if (action !== "generate" && action !== "verify") {
+      throw new Error('The "lockfile" command requires one of: generate, verify.');
+    }
+
+    parsed.lockfileAction = action;
+  }
+
+  if (command === "plan") {
+    const action = remaining.shift();
+    if (action !== "start" && action !== "stop" && action !== "autostart" && action !== "update-install" && action !== "import") {
+      throw new Error('The "plan" command requires one of: start, stop, autostart, update-install, import.');
+    }
+
+    parsed.planAction = action;
+    if (action === "update-install") {
+      const serviceId = remaining.shift();
+      if (!serviceId || serviceId.startsWith("-")) {
+        throw new Error('The "plan update-install" command requires a <serviceId> argument.');
+      }
+      parsed.serviceId = serviceId;
+    }
+    if (action === "import") {
+      const manifestPath = remaining.shift();
+      if (!manifestPath || manifestPath.startsWith("-")) {
+        throw new Error('The "plan import" command requires a <manifestPath> argument.');
+      }
+      parsed.manifestPath = manifestPath;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -199,15 +249,15 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "instance") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, and instance commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "plan" && command !== "lockfile" && command !== "instance") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, plan, lockfile, and instance commands.");
         }
         parsed.json = true;
         break;
       }
       case "--force": {
-        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run"))) {
-          throw new Error("--force is only supported for updates install and setup run commands.");
+        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run") || (command === "plan" && parsed.planAction === "update-install"))) {
+          throw new Error("--force is only supported for updates install, setup run, and plan update-install commands.");
         }
         parsed.force = true;
         break;
@@ -286,6 +336,25 @@ function printUpdatesResult(result: UpdatesCliResult, asJson: boolean): void {
   console.log(`- forced: ${result.forced}`);
 }
 
+function printPlanResult(result: RuntimePlanCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] dry-run plan");
+  console.log(`- action: ${result.action}`);
+  console.log(`- ok: ${result.ok}`);
+  console.log(`- servicesRoot: ${result.servicesRoot}`);
+  for (const step of result.steps) {
+    const reason = step.reason ? ` (${step.reason})` : "";
+    console.log(`- ${step.order}. ${step.serviceId}: ${step.action} ${step.status}${reason}`);
+    if (step.prerequisites.length > 0) {
+      console.log(`  prerequisites: ${step.prerequisites.join("; ")}`);
+    }
+  }
+}
+
 function formatRecoveryLine(service: { serviceId: string; recovery: ServiceRecoveryHistoryState }): string {
   const lastEvent = service.recovery.events.at(-1);
   if (!lastEvent) {
@@ -322,6 +391,27 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printLockfileResult(result: LockfileCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "generate") {
+    console.log("[service-lasso] service lockfile generated");
+    console.log("- lockfilePath: " + result.lockfilePath);
+    console.log("- services: " + result.lockfile.services.length);
+    return;
+  }
+
+  console.log(result.ok ? "[service-lasso] service lockfile verified" : "[service-lasso] service lockfile drift detected");
+  console.log("- lockfilePath: " + result.lockfilePath);
+  console.log("- checkedServices: " + result.checkedServices);
+  for (const issue of result.issues) {
+    console.log("- " + issue.serviceId + ": " + issue.status + " (" + issue.message + ")");
+  }
 }
 
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
@@ -475,6 +565,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
+  if (parsed.command === "plan") {
+    const result = await runRuntimePlanCliAction({
+      action: parsed.planAction!,
+      serviceId: parsed.serviceId,
+      manifestPath: parsed.manifestPath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+      force: parsed.force,
+    });
+    printPlanResult(result, parsed.json);
+    return;
+  }
+
   if (parsed.command === "recovery") {
     const result = await runRecoveryCliAction({
       action: parsed.recoveryAction!,
@@ -494,6 +598,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printInstanceResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "lockfile") {
+    const result = await runLockfileCliAction({
+      action: parsed.lockfileAction!,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printLockfileResult(result, parsed.json);
+    if (result.action === "verify" && !result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 

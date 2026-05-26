@@ -63,6 +63,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-lockfile",
+          label: "Service Lockfile",
+        },
+        {
+          type: "doc",
           id: "reference/one-shot-jobs",
           label: "One-shot Jobs",
         },
@@ -90,6 +95,16 @@ const sidebars = {
           type: "doc",
           id: "reference/runtime-instance-registry",
           label: "Runtime Instance Registry",
+        },
+        {
+          type: "doc",
+          id: "reference/baseline-dependency-diagnostics",
+          label: "Baseline Dependency Diagnostics",
+        },
+        {
+          type: "doc",
+          id: "reference/runtime-port-reservations",
+          label: "Runtime Port Reservations",
         },
         {
           type: "doc",

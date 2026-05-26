@@ -435,6 +435,7 @@ export async function installServiceUpdateCandidate(
         extractedPath,
         command: platform.command ?? null,
         args: platform.args ?? [],
+        checksum: null,
       },
     },
   });

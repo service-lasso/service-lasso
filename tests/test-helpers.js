@@ -78,6 +78,7 @@ export async function writeExecutableFixtureService(
     role = undefined,
     enabled = undefined,
     broker = undefined,
+    ignoreSignals = false,
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -123,8 +124,8 @@ async function writeEnvSnapshot() {
   await writeFile(targetPath, JSON.stringify(payload, null, 2));
 }
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.on("SIGTERM", ${ignoreSignals ? "() => {}" : "shutdown"});
+process.on("SIGINT", ${ignoreSignals ? "() => {}" : "shutdown"});
 
 if (captureEnvPath && Array.isArray(captureEnvKeys) && captureEnvKeys.length > 0) {
   void writeEnvSnapshot();
