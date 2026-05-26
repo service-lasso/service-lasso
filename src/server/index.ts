@@ -9,7 +9,7 @@ import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeCapabilitiesResponse, createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthHistoryResponse, createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
-import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
+import { createServiceLogChunkResponse, createServiceLogInfoResponse, createServiceLogSearchResponse } from "./routes/log-reader.js";
 import { createServiceMetricsResponse } from "./routes/metrics.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
@@ -41,6 +41,7 @@ import {
   buildServiceLogs,
   getServiceRuntimeLogPaths,
   readServiceLogChunk,
+  searchServiceLogs,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import {
@@ -161,6 +162,19 @@ function notFound(response: ServerResponse): void {
     message: "Route not found.",
     statusCode: 404,
   });
+}
+
+function parseOptionalInteger(value: string | null): number | undefined {
+  if (value === null || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : undefined;
+}
+
+function parseBooleanQuery(value: string | null): boolean {
+  return value === "1" || value?.toLocaleLowerCase() === "true";
 }
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
@@ -1042,6 +1056,7 @@ async function routeRequest(
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
     const type = url.searchParams.get("type") ?? "default";
+    const cursorParam = url.searchParams.get("cursor");
     const beforeParam = url.searchParams.get("before");
     const limitParam = url.searchParams.get("limit");
 
@@ -1059,10 +1074,45 @@ async function routeRequest(
       return;
     }
 
-    const before = beforeParam === null ? undefined : Number(beforeParam);
-    const limit = limitParam === null ? undefined : Number(limitParam);
+    const before = parseOptionalInteger(cursorParam) ?? parseOptionalInteger(beforeParam);
+    const limit = parseOptionalInteger(limitParam);
 
     writeJson(response, 200, createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/logs/search") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const serviceId = url.searchParams.get("service");
+    const type = url.searchParams.get("type") ?? "default";
+    const query = url.searchParams.get("q") ?? url.searchParams.get("query");
+    const cursor = parseOptionalInteger(url.searchParams.get("cursor"));
+    const limit = parseOptionalInteger(url.searchParams.get("limit"));
+    const includeArchives = parseBooleanQuery(url.searchParams.get("includeArchives"));
+
+    if (!serviceId) {
+      throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
+    }
+
+    if (type !== "default") {
+      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
+    }
+
+    if (query === null || query.trim().length === 0) {
+      throw new ApiError("invalid_request", 400, "Missing required \"q\" query parameter.");
+    }
+
+    const service = runtimeModel.registry.getById(serviceId);
+    if (!service) {
+      notFound(response);
+      return;
+    }
+
+    writeJson(
+      response,
+      200,
+      createServiceLogSearchResponse(await searchServiceLogs(service, query, { cursor, includeArchives, limit })),
+    );
     return;
   }
 

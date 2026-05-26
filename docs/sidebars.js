@@ -128,6 +128,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/runtime-log-api",
+          label: "Runtime Log API",
+        },
+        {
+          type: "doc",
           id: "reference/servicelasso-localhost-sso-test-matrix",
           label: "SSO Test Matrix",
         },

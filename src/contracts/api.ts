@@ -605,6 +605,36 @@ export interface ServiceLogChunkResponse {
   end: number;
   hasMore: boolean;
   nextBefore: number;
+  cursor: string;
+  nextCursor: string | null;
   limit: number;
+  entries: ServiceLogLineResponse[];
   lines: string[];
+}
+
+export interface ServiceLogLineResponse {
+  source: {
+    kind: "current" | "archive";
+    archiveId?: string;
+    path: string;
+    lineNumber: number;
+  };
+  stream: "stdout" | "stderr" | "unknown";
+  message: string;
+  text: string;
+  truncated: boolean;
+}
+
+export interface ServiceLogSearchResponse {
+  serviceId: string;
+  type: "default";
+  path: string;
+  query: string;
+  includeArchives: boolean;
+  limit: number;
+  cursor: string;
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalScanned: number;
+  matches: ServiceLogLineResponse[];
 }

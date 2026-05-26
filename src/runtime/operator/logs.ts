@@ -48,8 +48,38 @@ export interface ServiceLogChunkPayload {
   end: number;
   hasMore: boolean;
   nextBefore: number;
+  cursor: string;
+  nextCursor: string | null;
   limit: number;
+  entries: ServiceLogLinePayload[];
   lines: string[];
+}
+
+export interface ServiceLogLinePayload {
+  source: {
+    kind: "current" | "archive";
+    archiveId?: string;
+    path: string;
+    lineNumber: number;
+  };
+  stream: "stdout" | "stderr" | "unknown";
+  message: string;
+  text: string;
+  truncated: boolean;
+}
+
+export interface ServiceLogSearchPayload {
+  serviceId: string;
+  type: "default";
+  path: string;
+  query: string;
+  includeArchives: boolean;
+  limit: number;
+  cursor: string;
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalScanned: number;
+  matches: ServiceLogLinePayload[];
 }
 
 interface PersistedRuntimeLogEntry {
@@ -58,6 +88,12 @@ interface PersistedRuntimeLogEntry {
 }
 
 export const SERVICE_RUNTIME_LOG_ARCHIVE_RETENTION = 3;
+const DEFAULT_LOG_CHUNK_LIMIT = 100;
+const MAX_LOG_CHUNK_LIMIT = 500;
+const DEFAULT_LOG_SEARCH_LIMIT = 50;
+const MAX_LOG_SEARCH_LIMIT = 100;
+const MAX_LOG_SEARCH_QUERY_LENGTH = 200;
+const MAX_LOG_LINE_TEXT_LENGTH = 2_000;
 
 export function getServiceRuntimeLogsRoot(serviceRoot: string): string {
   return path.join(serviceRoot, "logs");
@@ -229,6 +265,60 @@ async function readRuntimeLogLines(logPath: string): Promise<string[]> {
   }
 }
 
+function sanitizePositiveInteger(value: number | undefined, fallback: number, max: number): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(max, Math.trunc(value)));
+}
+
+function sanitizeCursor(value: number | undefined, fallback: number, max: number): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.min(max, Math.trunc(value)));
+}
+
+function truncateLogText(value: string): { text: string; truncated: boolean } {
+  if (value.length <= MAX_LOG_LINE_TEXT_LENGTH) {
+    return { text: value, truncated: false };
+  }
+
+  return { text: value.slice(0, MAX_LOG_LINE_TEXT_LENGTH), truncated: true };
+}
+
+function parseRuntimeLogLine(text: string): { stream: ServiceLogLinePayload["stream"]; message: string } {
+  try {
+    const entry = JSON.parse(text) as PersistedRuntimeLogEntry;
+    if ((entry.level === "stdout" || entry.level === "stderr") && typeof entry.message === "string") {
+      return { stream: entry.level, message: entry.message };
+    }
+  } catch {
+    // Plain text service logs are still searchable/readable, just not structured.
+  }
+
+  return { stream: "unknown", message: text };
+}
+
+function createLogLinePayload(
+  text: string,
+  source: { kind: "current" | "archive"; archiveId?: string; path: string; lineNumber: number },
+): ServiceLogLinePayload {
+  const parsed = parseRuntimeLogLine(text);
+  const safeText = truncateLogText(text);
+  const safeMessage = truncateLogText(parsed.message);
+
+  return {
+    source,
+    stream: parsed.stream,
+    message: safeMessage.text,
+    text: safeText.text,
+    truncated: safeText.truncated || safeMessage.truncated,
+  };
+}
+
 export async function buildServiceLogs(
   service: DiscoveredService,
   lifecycle: ServiceLifecycleState,
@@ -262,15 +352,22 @@ export function buildServiceLogInfo(service: DiscoveredService): ServiceLogInfoP
 export async function readServiceLogChunk(
   service: DiscoveredService,
   before?: number,
-  limit = 100,
+  limit = DEFAULT_LOG_CHUNK_LIMIT,
 ): Promise<ServiceLogChunkPayload> {
   const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
   const lines = await readRuntimeLogLines(runtimeLogPaths.logPath);
   const totalLines = lines.length;
-  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
-  const end = typeof before === "number" ? Math.max(0, Math.min(totalLines, before)) : totalLines;
+  const safeLimit = sanitizePositiveInteger(limit, DEFAULT_LOG_CHUNK_LIMIT, MAX_LOG_CHUNK_LIMIT);
+  const end = sanitizeCursor(before, totalLines, totalLines);
   const start = Math.max(0, end - safeLimit);
   const slice = lines.slice(start, end);
+  const entries = slice.map((line, index) =>
+    createLogLinePayload(line, {
+      kind: "current",
+      path: runtimeLogPaths.logPath,
+      lineNumber: start + index + 1,
+    }),
+  );
 
   return {
     serviceId: service.manifest.id,
@@ -281,7 +378,94 @@ export async function readServiceLogChunk(
     end,
     hasMore: start > 0,
     nextBefore: start,
+    cursor: String(end),
+    nextCursor: start > 0 ? String(start) : null,
     limit: safeLimit,
-    lines: slice,
+    entries,
+    lines: entries.map((entry) => entry.text),
+  };
+}
+
+async function collectSearchableLogLines(
+  service: DiscoveredService,
+  includeArchives: boolean,
+): Promise<ServiceLogLinePayload[]> {
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+  const currentLines = await readRuntimeLogLines(runtimeLogPaths.logPath);
+  const currentEntries = currentLines.map((line, index) =>
+    createLogLinePayload(line, {
+      kind: "current",
+      path: runtimeLogPaths.logPath,
+      lineNumber: index + 1,
+    }),
+  );
+
+  if (!includeArchives) {
+    return currentEntries;
+  }
+
+  const archives = await listRuntimeLogArchives(service.serviceRoot);
+  const archivedEntries = await Promise.all(
+    archives.map(async (archive) => {
+      const archivedLines = await readRuntimeLogLines(archive.logPath);
+      return archivedLines.map((line, index) =>
+        createLogLinePayload(line, {
+          kind: "archive",
+          archiveId: archive.archiveId,
+          path: archive.logPath,
+          lineNumber: index + 1,
+        }),
+      );
+    }),
+  );
+
+  return [...currentEntries, ...archivedEntries.flat()];
+}
+
+export async function searchServiceLogs(
+  service: DiscoveredService,
+  query: string,
+  options: {
+    cursor?: number;
+    includeArchives?: boolean;
+    limit?: number;
+  } = {},
+): Promise<ServiceLogSearchPayload> {
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+  const safeQuery = query.trim().slice(0, MAX_LOG_SEARCH_QUERY_LENGTH);
+  const includeArchives = options.includeArchives === true;
+  const limit = sanitizePositiveInteger(options.limit, DEFAULT_LOG_SEARCH_LIMIT, MAX_LOG_SEARCH_LIMIT);
+  const lines = await collectSearchableLogLines(service, includeArchives);
+  const cursor = sanitizeCursor(options.cursor, 0, lines.length);
+  const normalizedQuery = safeQuery.toLocaleLowerCase();
+  const matches: ServiceLogLinePayload[] = [];
+  let nextIndex = cursor;
+
+  for (; nextIndex < lines.length; nextIndex += 1) {
+    const entry = lines[nextIndex];
+    const haystack = `${entry.text}\n${entry.message}`.toLocaleLowerCase();
+
+    if (haystack.includes(normalizedQuery)) {
+      matches.push(entry);
+    }
+
+    if (matches.length >= limit) {
+      nextIndex += 1;
+      break;
+    }
+  }
+
+  return {
+    serviceId: service.manifest.id,
+    type: "default",
+    path: runtimeLogPaths.logPath,
+    query: safeQuery,
+    includeArchives,
+    limit,
+    cursor: String(cursor),
+    nextCursor: nextIndex < lines.length ? String(nextIndex) : null,
+    hasMore: nextIndex < lines.length,
+    totalScanned: Math.max(0, nextIndex - cursor),
+    matches,
   };
 }
