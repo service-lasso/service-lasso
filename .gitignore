@@ -1,5 +1,6 @@
 # Local reference material kept out of git history
 ref/
+.work-agent/
 
 # Runtime/build artifacts
 node_modules/
