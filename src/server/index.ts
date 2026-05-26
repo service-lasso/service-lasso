@@ -60,6 +60,13 @@ import {
   buildSecretReferenceAudit,
   buildServiceSecretReferenceAudit,
 } from "../runtime/operator/secret-audit.js";
+import {
+  mutateOperatorActionItem,
+  readOperatorActionQueue,
+  upsertOperatorActionItem,
+  type OperatorActionInput,
+} from "../runtime/operator/action-queue.js";
+import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -179,6 +186,46 @@ function parseBooleanQuery(value: string | null): boolean {
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
   return JSON.parse(JSON.stringify(state)) as WorkflowRunFacadeState;
+}
+
+function parseOperatorActionRecordBody(input: unknown): OperatorActionInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator action record body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  if (typeof candidate.dedupeKey !== "string" || !candidate.dedupeKey.trim()) {
+    throw new ApiError("invalid_body", 400, '"dedupeKey" must be a non-empty string.');
+  }
+  if (candidate.severity !== "info" && candidate.severity !== "warning" && candidate.severity !== "critical") {
+    throw new ApiError("invalid_body", 400, '"severity" must be one of: info, warning, critical.');
+  }
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) {
+    throw new ApiError("invalid_body", 400, '"title" must be a non-empty string.');
+  }
+  if (typeof candidate.summary !== "string") {
+    throw new ApiError("invalid_body", 400, '"summary" must be a string.');
+  }
+
+  return {
+    dedupeKey: candidate.dedupeKey,
+    severity: candidate.severity,
+    source: candidate.source as OperatorActionInput["source"],
+    title: candidate.title,
+    summary: candidate.summary,
+    evidence: Array.isArray(candidate.evidence) ? candidate.evidence as OperatorActionInput["evidence"] : [],
+    observedAt: typeof candidate.observedAt === "string" ? candidate.observedAt : undefined,
+  };
+}
+
+function parseOperatorActionMutationBody(input: unknown): { deferredUntil?: string | null } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.deferredUntil !== undefined && candidate.deferredUntil !== null && typeof candidate.deferredUntil !== "string") {
+    throw new ApiError("invalid_body", 400, '"deferredUntil" must be a string or null when present.');
+  }
+  return { deferredUntil: typeof candidate.deferredUntil === "string" ? candidate.deferredUntil : null };
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -886,6 +933,33 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/operator/actions") {
+    writeJson(response, 200, {
+      queue: await readOperatorActionQueue(config.workspaceRoot),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/actions/record") {
+    writeJson(response, 200, {
+      queue: await upsertOperatorActionItem(config.workspaceRoot, parseOperatorActionRecordBody(await readJsonBody(request))),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/api/operator/actions/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const actionId = decodeURIComponent(pathParts[3] ?? "");
+    const mutation = pathParts[4];
+    if (!actionId || (mutation !== "acknowledge" && mutation !== "defer" && mutation !== "reopen")) {
+      throw new ApiError("invalid_action", 400, "Unknown operator action mutation route.");
+    }
+    writeJson(response, 200, {
+      queue: await mutateOperatorActionItem(config.workspaceRoot, actionId, mutation, parseOperatorActionMutationBody(await readJsonBody(request))),
+    });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/setup") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, {
@@ -1196,6 +1270,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "secrets" && pathParts[4] === "audit") {
+      writeJson(response, 200, buildServiceSecretReferenceAudit(service));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
       writeJson(response, 200, {
         serviceId,
@@ -1384,6 +1463,23 @@ async function routeRequest(
         sharedGlobalEnv,
       ),
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/diagnostics/bundle") {
+    const serviceId = url.searchParams.get("serviceId") ?? undefined;
+    writeJson(response, 200, await buildDiagnosticsBundle({
+      servicesRoot: config.servicesRoot,
+      workspaceRoot: config.workspaceRoot,
+      version: config.version,
+      serviceId,
+    }));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/secrets/audit") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildSecretReferenceAudit(runtimeModel.discovered));
     return;
   }
 

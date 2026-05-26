@@ -867,13 +867,16 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
         );
       }
 
+      const sha256 =
+        typeof platformRecord.sha256 === "string" ? platformRecord.sha256.trim().toLowerCase() : undefined;
+
       return [
         platform.trim(),
         {
           assetName: typeof platformRecord.assetName === "string" ? platformRecord.assetName.trim() : undefined,
           assetUrl: typeof platformRecord.assetUrl === "string" ? platformRecord.assetUrl.trim() : undefined,
           archiveType: archiveType as "zip" | "tar.gz" | "tgz",
-          sha256: typeof platformRecord.sha256 === "string" ? platformRecord.sha256.trim().toLowerCase() : undefined,
+          ...(sha256 ? { sha256 } : {}),
           command: typeof platformRecord.command === "string" ? platformRecord.command.trim() : undefined,
           args: Array.isArray(platformRecord.args) ? platformRecord.args.map((entry) => entry.trim()) : undefined,
           ...(checksum ? { checksum } : {}),

@@ -2,6 +2,7 @@ import { startRuntimeApp } from "./runtime/app.js";
 import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
+import { importServiceManifestFromCli, type ImportServiceManifestCliResult } from "./runtime/cli/importService.js";
 import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "./runtime/cli/health.js";
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
@@ -18,7 +19,8 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "backup" | "operator" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "backup" | "operator" | "services" | "help" | "version";
+  serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
@@ -31,6 +33,9 @@ interface ParsedCliOptions {
   actionId?: string;
   deferredUntil?: string | null;
   serviceId?: string;
+  repo?: string;
+  tag?: string;
+  apiBaseUrl?: string;
   manifestPath?: string;
   stepId?: string;
   archivePath?: string;
@@ -40,6 +45,7 @@ interface ParsedCliOptions {
   json: boolean;
   force: boolean;
   includeManual: boolean;
+  dryRun?: boolean;
 }
 
 function usageText(): string {
@@ -76,6 +82,7 @@ function usageText(): string {
     "  service-lasso operator actions acknowledge <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -131,7 +138,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "config-drift" ||
       commandToken === "secrets" ||
       commandToken === "backup" ||
-      commandToken === "operator"
+      commandToken === "operator" ||
+      commandToken === "services"
       ? commandToken
       : null;
   if (!command) {
@@ -307,6 +315,19 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "services") {
+    const serviceCommand = remaining.shift();
+    if (serviceCommand !== "import") {
+      throw new Error('The "services" command requires one of: import.');
+    }
+    parsed.serviceCommand = serviceCommand;
+    const repo = remaining.shift();
+    if (!repo || repo.startsWith("-")) {
+      throw new Error('The "services import" command requires an <owner/repo> argument.');
+    }
+    parsed.repo = repo;
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -339,8 +360,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "secrets" && command !== "backup") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, secrets, and backup commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "secrets" && command !== "backup" && command !== "operator" && command !== "services") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, secrets, backup, operator, and services commands.");
         }
         parsed.json = true;
         break;
@@ -356,9 +377,38 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         parsed.deferredUntil = value;
         break;
       }
+      case "--dry-run": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--dry-run is only supported for the services import command.");
+        }
+        parsed.dryRun = true;
+        break;
+      }
+      case "--tag": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--tag is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --tag.");
+        }
+        parsed.tag = value;
+        break;
+      }
+      case "--api-base-url": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--api-base-url is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --api-base-url.");
+        }
+        parsed.apiBaseUrl = value;
+        break;
+      }
       case "--force": {
-        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run") || (command === "plan" && parsed.planAction === "update-install"))) {
-          throw new Error("--force is only supported for updates install, setup run, and plan update-install commands.");
+        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run") || (command === "plan" && parsed.planAction === "update-install") || (command === "services" && parsed.serviceCommand === "import"))) {
+          throw new Error("--force is only supported for updates install, setup run, plan update-install, and services import commands.");
         }
         parsed.force = true;
         break;
@@ -702,6 +752,22 @@ function printInstallResult(result: Awaited<ReturnType<typeof installServiceFrom
   }
 }
 
+function printImportServiceResult(result: ImportServiceManifestCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(result.dryRun ? "[service-lasso] service import dry-run completed" : "[service-lasso] service manifest imported");
+  console.log(`- repo: ${result.repo}`);
+  console.log(`- tag: ${result.resolvedTag ?? result.requestedTag ?? "latest"}`);
+  console.log(`- service: ${result.serviceId}`);
+  console.log(`- servicesRoot: ${result.servicesRoot}`);
+  console.log(`- targetPath: ${result.targetPath}`);
+  console.log(`- wrote: ${result.wrote}`);
+  console.log(`- overwritten: ${result.overwritten}`);
+}
+
 function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): void {
   if (asJson) {
     console.log(JSON.stringify(result, null, 2));
@@ -745,6 +811,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printInstallResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "services" && parsed.serviceCommand === "import") {
+    const result = await importServiceManifestFromCli({
+      repo: parsed.repo!,
+      tag: parsed.tag,
+      servicesRoot: parsed.servicesRoot,
+      apiBaseUrl: parsed.apiBaseUrl,
+      force: parsed.force,
+      dryRun: parsed.dryRun,
+    });
+    printImportServiceResult(result, parsed.json);
     return;
   }
 
