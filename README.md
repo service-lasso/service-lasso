@@ -131,6 +131,15 @@ Install a service artifact without starting it:
 node dist/cli.js install echo-service --services-root ./services --workspace-root ./workspace --json
 ```
 
+Import a released app-owned service manifest without enabling or starting it:
+
+```powershell
+node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-example --services-root ./services --dry-run --json
+node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-example --services-root ./services
+```
+
+The import command copies the release `service.json` asset into `services/<service-id>/service.json` and refuses to replace an existing manifest unless `--force` is provided.
+
 Start the baseline services and leave the API running:
 
 ```powershell
