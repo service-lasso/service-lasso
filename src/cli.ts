@@ -1,6 +1,7 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
+import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "./runtime/cli/health.js";
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
@@ -13,10 +14,11 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "plan" | "lockfile" | "instance" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  healthAction?: HealthCliAction;
   planAction?: RuntimePlanCliAction;
   lockfileAction?: LockfileCliAction;
   serviceId?: string;
@@ -52,10 +54,11 @@ function usageText(): string {
     "  service-lasso plan import <manifestPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
-    "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -104,6 +107,7 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "setup" ||
       commandToken === "updates" ||
       commandToken === "recovery" ||
+      commandToken === "health" ||
       commandToken === "plan" ||
       commandToken === "lockfile" ||
       commandToken === "instance"
@@ -185,6 +189,18 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "health") {
+    const action = remaining.shift();
+    if (action !== "history") {
+      throw new Error('The "health" command requires: history.');
+    }
+
+    parsed.healthAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
   if (command === "lockfile") {
     const action = remaining.shift();
     if (action !== "generate" && action !== "verify") {
@@ -249,8 +265,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "plan" && command !== "lockfile" && command !== "instance") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, plan, lockfile, and instance commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, and instance commands.");
         }
         parsed.json = true;
         break;
@@ -391,6 +407,23 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printHealthResult(result: HealthCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] health history");
+  for (const service of result.services) {
+    const last = service.healthHistory.transitions.at(-1);
+    if (!last) {
+      console.log(`- ${service.serviceId}: no health transitions`);
+      continue;
+    }
+    console.log(`- ${service.serviceId}: ${service.healthHistory.transitions.length} transitions, last ${last.status}/${last.checkType} at ${last.at}`);
+  }
 }
 
 function printLockfileResult(result: LockfileCliResult, asJson: boolean): void {
@@ -588,6 +621,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printRecoveryResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "health") {
+    const result = await runHealthCliAction({
+      action: parsed.healthAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printHealthResult(result, parsed.json);
     return;
   }
 
