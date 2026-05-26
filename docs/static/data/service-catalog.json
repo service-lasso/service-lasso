@@ -26,6 +26,14 @@
       "summary": "Managed NGINX Open Source service started before Traefik in the default baseline."
     },
     {
+      "id": "@secretsbroker",
+      "name": "Secrets Broker",
+      "repo": "service-lasso/lasso-secretsbroker",
+      "group": "Baseline Core",
+      "status": "Available",
+      "summary": "Local-first secrets broker for service identities, policy, audit, and secret resolution in the default baseline."
+    },
+    {
       "id": "@traefik",
       "name": "Traefik Edge Router",
       "repo": "service-lasso/lasso-traefik",
