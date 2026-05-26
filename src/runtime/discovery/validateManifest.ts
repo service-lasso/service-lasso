@@ -808,12 +808,57 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
       }
 
       if (
+        platformRecord.sha256 !== undefined &&
+        (typeof platformRecord.sha256 !== "string" || !/^[a-fA-F0-9]{64}$/.test(platformRecord.sha256.trim()))
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.sha256" to be a 64-character hex string when present.`,
+        );
+      }
+
+      if (
         platformRecord.args !== undefined &&
         (!Array.isArray(platformRecord.args) || platformRecord.args.some((entry) => typeof entry !== "string"))
       ) {
         throw new Error(
           `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.args" to be an array of strings when present.`,
         );
+      }
+
+      let checksum: { algorithm: "sha256"; value?: string; assetName?: string } | undefined;
+      if (platformRecord.checksum !== undefined) {
+        if (!platformRecord.checksum || typeof platformRecord.checksum !== "object" || Array.isArray(platformRecord.checksum)) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.checksum" to be an object when present.`,
+          );
+        }
+
+        const checksumRecord = platformRecord.checksum as Record<string, unknown>;
+        if (checksumRecord.algorithm !== "sha256") {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.checksum.algorithm" to be "sha256".`,
+          );
+        }
+
+        const checksumValue =
+          typeof checksumRecord.value === "string" && checksumRecord.value.trim().length > 0
+            ? checksumRecord.value.trim()
+            : undefined;
+        const checksumAssetName =
+          typeof checksumRecord.assetName === "string" && checksumRecord.assetName.trim().length > 0
+            ? checksumRecord.assetName.trim()
+            : undefined;
+        if ((checksumValue === undefined && checksumAssetName === undefined) || (checksumValue !== undefined && checksumAssetName !== undefined)) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "artifact.platforms.${platform}.checksum" to define exactly one of "value" or "assetName".`,
+          );
+        }
+
+        checksum = {
+          algorithm: "sha256",
+          value: checksumValue,
+          assetName: checksumAssetName,
+        };
       }
 
       if (platformRecord.assetName === undefined && platformRecord.assetUrl === undefined) {
@@ -828,8 +873,10 @@ function readArtifact(value: unknown, manifestPath: string): ServiceManifest["ar
           assetName: typeof platformRecord.assetName === "string" ? platformRecord.assetName.trim() : undefined,
           assetUrl: typeof platformRecord.assetUrl === "string" ? platformRecord.assetUrl.trim() : undefined,
           archiveType: archiveType as "zip" | "tar.gz" | "tgz",
+          sha256: typeof platformRecord.sha256 === "string" ? platformRecord.sha256.trim().toLowerCase() : undefined,
           command: typeof platformRecord.command === "string" ? platformRecord.command.trim() : undefined,
           args: Array.isArray(platformRecord.args) ? platformRecord.args.map((entry) => entry.trim()) : undefined,
+          ...(checksum ? { checksum } : {}),
         },
       ];
     }),

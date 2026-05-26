@@ -4,6 +4,8 @@ import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
 import type { ServiceUpdateState } from "../runtime/updates/state.js";
 import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js";
+import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
+import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -35,15 +37,39 @@ export interface ServiceSummary {
   dependents?: string[];
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
+  healthHistory?: ServiceHealthHistoryState;
   updates?: ServiceUpdateState;
   recovery?: ServiceRecoveryHistoryState;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
+  compatibility?: ServiceCompatibilityReport;
   operator?: {
     logPath: string;
     variableCount: number;
     endpointCount: number;
   };
+}
+
+export interface ServiceCompatibilityPortRequirement {
+  name: string;
+  port: number;
+}
+
+export interface ServiceCompatibilityRequirementStatus {
+  kind: "dependency" | "provider" | "port";
+  id: string;
+  status: "satisfied" | "missing" | "declared";
+  detail?: string;
+}
+
+export interface ServiceCompatibilityReport {
+  hostPlatform: string;
+  status: "compatible" | "unsupported" | "missing-requirements";
+  supportedPlatforms: string[];
+  requiredProviders: string[];
+  requiredPorts: ServiceCompatibilityPortRequirement[];
+  requirements: ServiceCompatibilityRequirementStatus[];
+  blockers: string[];
 }
 
 export interface GlobalEnvResponse {
@@ -56,6 +82,10 @@ export interface ServicesResponse {
 
 export interface ServiceDetailResponse {
   service: ServiceSummary;
+}
+
+export interface ServiceConfigDriftResponse {
+  drift: ConfigDriftReport;
 }
 
 export interface ServiceMetaResponse {
@@ -89,6 +119,101 @@ export interface RuntimeSummaryResponse {
     dependencyEdges: number;
     runningServices: number;
     healthyServices: number;
+  };
+}
+
+export type RuntimeInstanceStatus = "active" | "stale";
+
+export interface RuntimeInstanceRecord {
+  instanceId: string;
+  servicesRoot: string;
+  workspaceRoot: string;
+  pid: number;
+  apiPort: number;
+  apiUrl: string;
+  advertisedUrls: string[];
+  startedAt: string;
+  updatedAt: string;
+  version: string;
+  status: RuntimeInstanceStatus;
+  staleReason?: string;
+}
+
+export interface RuntimeInstanceRegistrySnapshot {
+  path: string;
+  activeCount: number;
+  staleCount: number;
+  instances: RuntimeInstanceRecord[];
+}
+
+export interface RuntimeInstanceResponse {
+  instance: RuntimeInstanceRecord | null;
+  registry: RuntimeInstanceRegistrySnapshot;
+}
+
+export interface RuntimeFeatureFlags {
+  serviceDiscovery: boolean;
+  lifecycleActions: boolean;
+  runtimeOrchestration: boolean;
+  dashboardAdapter: boolean;
+  serviceMetadata: boolean;
+  updates: boolean;
+  recovery: boolean;
+  setupSteps: boolean;
+  dependencyGraph: boolean;
+  operatorVariables: boolean;
+  operatorNetwork: boolean;
+  operatorMetrics: boolean;
+  operatorLogs: boolean;
+  providerConnections: boolean;
+  workflowFacade: boolean;
+  localRouteGeneration: boolean;
+  lanBinding: boolean;
+  autostart: boolean;
+  monitor: boolean;
+  updateScheduler: boolean;
+}
+
+export interface RuntimeEndpointGroupResponse {
+  id: string;
+  label: string;
+  methods: string[];
+  pathPrefix: string;
+  mutating: boolean;
+}
+
+export interface RuntimeBaselineServiceRoleResponse {
+  id: string;
+  role: "service" | "provider";
+  enabled: boolean;
+  defaultBaseline: boolean;
+}
+
+export interface RuntimeCapabilitiesResponse {
+  capabilities: {
+    runtime: {
+      version: string;
+    };
+    api: {
+      contractVersion: string;
+      endpointGroups: RuntimeEndpointGroupResponse[];
+    };
+    features: RuntimeFeatureFlags;
+    baseline: {
+      defaultServiceIds: string[];
+      discoveredServiceCount: number;
+      serviceRoles: RuntimeBaselineServiceRoleResponse[];
+    };
+    compatibility: {
+      serviceAdmin: {
+        minimumApiContractVersion: string;
+        runtimeApiBaseUrlRequired: boolean;
+        supportsDashboardAdapter: boolean;
+        supportsSafeSecretMetadataOnly: boolean;
+        preferredEndpointGroups: string[];
+        notes: string[];
+      };
+    };
   };
 }
 
@@ -217,10 +342,106 @@ export interface DashboardServiceDetailResponse {
   service: DashboardServiceResponse;
 }
 
+export type OperatorNotificationSeverity = "critical" | "warning" | "info";
+
+export type OperatorNotificationKind =
+  | "update_available"
+  | "update_failed"
+  | "install_deferred"
+  | "recovery_review"
+  | "lifecycle_crashed"
+  | "health_unhealthy"
+  | "blocked_start"
+  | "diagnostic_warning";
+
+export interface OperatorNotificationResponse {
+  dedupeKey: string;
+  kind: OperatorNotificationKind;
+  severity: OperatorNotificationSeverity;
+  serviceId: string | null;
+  message: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  relatedActionEndpoint: string | null;
+  source: "updates" | "recovery" | "lifecycle" | "health" | "diagnostics";
+}
+
+export interface OperatorNotificationsResponse {
+  notifications: OperatorNotificationResponse[];
+  summary: {
+    generatedAt: string;
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
+}
+
 export interface DependenciesResponse {
   dependencies: {
     nodes: { id: string; name: string }[];
     edges: { from: string; to: string }[];
+  };
+}
+
+export type BaselineDependencyDiagnosticStatus = "startable" | "blocked" | "degraded" | "running";
+
+export type ServiceDependencyReadiness = "ready" | "blocked" | "degraded" | "running" | "disabled";
+
+export type ServiceDependencyBlockerKind =
+  | "disabled"
+  | "missing_dependency"
+  | "dependency_not_ready"
+  | "not_installed"
+  | "not_configured"
+  | "port_occupied"
+  | "unhealthy";
+
+export interface ServiceDependencyDiagnosticEndpoint {
+  label: string;
+  url: string;
+  port: number | null;
+}
+
+export interface ServiceDependencyDiagnosticDependency {
+  id: string;
+  name: string;
+  ready: boolean;
+  readiness: ServiceDependencyReadiness;
+  blockingReason: ServiceDependencyBlockerKind | null;
+}
+
+export interface ServiceDependencyDiagnostic {
+  id: string;
+  name: string;
+  enabled: boolean;
+  installed: boolean;
+  configured: boolean;
+  running: boolean;
+  readiness: ServiceDependencyReadiness;
+  blockingReason: ServiceDependencyBlockerKind | null;
+  blockers: string[];
+  nextAction: string;
+  dependencies: ServiceDependencyDiagnosticDependency[];
+  dependents: string[];
+  ports: Record<string, number>;
+  endpoints: ServiceDependencyDiagnosticEndpoint[];
+  health: ServiceHealthResult;
+}
+
+export interface BaselineDependencyDiagnosticsResponse {
+  diagnostics: {
+    summary: {
+      status: BaselineDependencyDiagnosticStatus;
+      totalServices: number;
+      enabledServices: number;
+      runningServices: number;
+      startableServices: number;
+      blockedServices: number;
+      degradedServices: number;
+      disabledServices: number;
+    };
+    services: ServiceDependencyDiagnostic[];
   };
 }
 
@@ -231,6 +452,7 @@ export interface LifecycleActionResponse {
   message: string;
   state: ServiceLifecycleState;
   health?: ServiceHealthResult;
+  healthHistory?: ServiceHealthHistoryState;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
 }
@@ -238,6 +460,53 @@ export interface LifecycleActionResponse {
 export interface ServiceHealthResponse {
   serviceId: string;
   health: ServiceHealthResult;
+  history: ServiceHealthHistoryState;
+}
+
+export interface ServiceHealthHistoryResponse {
+  serviceId: string;
+  history: ServiceHealthHistoryState;
+}
+
+export interface SecretReferenceAuditFindingResponse {
+  serviceId: string;
+  ref: string;
+  namespace?: string;
+  key?: string;
+  status: "present" | "missing" | "malformed";
+  source:
+    | "env"
+    | "globalenv"
+    | "install"
+    | "config"
+    | "broker.import"
+    | "broker.export"
+    | "broker.writeback";
+  location: string;
+  required?: boolean;
+  reason: string;
+}
+
+export interface ServiceSecretReferenceAuditResponse {
+  serviceId: string;
+  manifestPath: string;
+  findings: SecretReferenceAuditFindingResponse[];
+  summary: {
+    present: number;
+    missing: number;
+    malformed: number;
+  };
+}
+
+export interface SecretReferenceAuditResponse {
+  services: ServiceSecretReferenceAuditResponse[];
+  summary: {
+    services: number;
+    references: number;
+    present: number;
+    missing: number;
+    malformed: number;
+  };
 }
 
 export interface RuntimeOrchestrationSkippedService {
@@ -251,6 +520,30 @@ export interface RuntimeOrchestrationResponse {
   results: LifecycleActionResponse[];
   stopped?: LifecycleActionResponse[];
   skipped: RuntimeOrchestrationSkippedService[];
+}
+
+export interface RuntimeDryRunPlanStep {
+  order: number;
+  serviceId: string;
+  action: "start" | "stop" | "updateInstall" | "importService";
+  status: "would_run" | "skipped" | "blocked";
+  reason: string | null;
+  prerequisites: string[];
+  expectedStateChanges: string[];
+  actionEndpoint: string;
+  metadata?: Record<string, string | number | boolean | null | string[]>;
+}
+
+export interface RuntimeDryRunPlanResponse {
+  action: "startAll" | "stopAll" | "autostart" | "updateInstall" | "importService";
+  dryRun: true;
+  ok: boolean;
+  generatedAt: string;
+  order: string[];
+  steps: RuntimeDryRunPlanStep[];
+  skipped: RuntimeOrchestrationSkippedService[];
+  blockers: RuntimeOrchestrationSkippedService[];
+  mutations: [];
 }
 
 export interface ServiceLogEntryResponse {

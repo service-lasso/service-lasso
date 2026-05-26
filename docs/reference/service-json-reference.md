@@ -810,11 +810,22 @@ Pinned example:
   "platforms": {
     "win32": {
       "assetName": "echo-service-win32.zip",
-      "archiveType": "zip"
+      "archiveType": "zip",
+      "checksum": {
+        "algorithm": "sha256",
+        "assetName": "SHA256SUMS.txt"
+      }
     }
   }
 }
 ```
+
+`artifact.platforms.<platform>.checksum` is optional for compatibility with older manifests, but release-backed services should declare it when checksum evidence exists. Supported checksum forms:
+
+- `{"algorithm": "sha256", "value": "<64-hex-sha256>"}` verifies against a checksum embedded directly in `service.json`.
+- `{"algorithm": "sha256", "assetName": "SHA256SUMS.txt"}` downloads that release asset, parses a SHA-256 entry for the selected archive, and verifies before extraction.
+
+Checksum verification happens before archive extraction and before install state is written. Missing checksum assets, malformed checksum files, unsupported algorithms, or digest mismatches fail closed with an actionable error. Successful installs persist safe verification evidence in install state: algorithm, source, expected digest, actual digest, artifact asset name, checksum asset name when used, and verification timestamp.
 
 If `artifact.source.tag` is present and no active `updates` policy is declared, Service Lasso treats the service as pinned.
 
@@ -865,6 +876,26 @@ More complex services can use additional fields such as:
 - `urls`
 
 These are not all used in the minimal sample, but they remain relevant for more complex services.
+
+Service catalog compatibility reports derive required ports from `ports`.
+The runtime reports these as declared requirements through `GET /api/services`
+so operators can see which named ports a service expects before install/start.
+
+### Compatibility metadata
+
+The read-only service catalog compatibility report is generated from existing
+manifest fields:
+
+- supported platforms come from `artifact.platforms`, with `default` acting
+  as a cross-platform fallback
+- provider requirements come from `execservice` and setup-step
+  `execservice` declarations
+- declared port requirements come from `ports`
+- service dependency requirements come from `depend_on`
+
+The report classifies the current host as `compatible`, `unsupported`, or
+`missing-requirements` and lists operator-safe blockers without mutating
+install, setup, or lifecycle state.
 
 ### Runtime-provider relationships
 
