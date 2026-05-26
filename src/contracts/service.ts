@@ -121,6 +121,11 @@ export interface ServiceArtifactPlatform {
   archiveType: ServiceArtifactArchiveType;
   command?: string;
   args?: string[];
+  checksum?: {
+    algorithm: "sha256";
+    value?: string;
+    assetName?: string;
+  };
 }
 
 export interface ServiceArchiveArtifact {

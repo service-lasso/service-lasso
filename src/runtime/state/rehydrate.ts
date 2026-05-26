@@ -23,6 +23,15 @@ interface StoredInstallState {
     extractedPath?: string | null;
     command?: string | null;
     args?: string[];
+    checksum?: {
+      algorithm?: "sha256" | null;
+      source?: "manifest" | "release-asset" | null;
+      expected?: string | null;
+      actual?: string | null;
+      assetName?: string | null;
+      checksumAssetName?: string | null;
+      verifiedAt?: string | null;
+    } | null;
   };
 }
 
@@ -268,6 +277,26 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
         args: Array.isArray(install?.artifact?.args)
           ? install.artifact.args.filter((entry): entry is string => typeof entry === "string")
           : [],
+        checksum:
+          install?.artifact?.checksum?.algorithm === "sha256" &&
+          (install.artifact.checksum.source === "manifest" || install.artifact.checksum.source === "release-asset") &&
+          typeof install.artifact.checksum.expected === "string" &&
+          typeof install.artifact.checksum.actual === "string" &&
+          typeof install.artifact.checksum.assetName === "string" &&
+          typeof install.artifact.checksum.verifiedAt === "string"
+            ? {
+                algorithm: "sha256",
+                source: install.artifact.checksum.source,
+                expected: install.artifact.checksum.expected,
+                actual: install.artifact.checksum.actual,
+                assetName: install.artifact.checksum.assetName,
+                checksumAssetName:
+                  typeof install.artifact.checksum.checksumAssetName === "string"
+                    ? install.artifact.checksum.checksumAssetName
+                    : null,
+                verifiedAt: install.artifact.checksum.verifiedAt,
+              }
+            : null,
       },
     },
     configArtifacts: {
