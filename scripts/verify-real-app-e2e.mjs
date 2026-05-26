@@ -334,6 +334,10 @@ try {
     assert(serviceIds.includes(serviceId), `Real app service list is missing ${serviceId}.`);
   }
 
+  for (const action of ["install", "config", "start"]) {
+    await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
+  }
+
   for (const serviceId of baselineServiceIds) {
     const isProvider = providerServiceIds.has(serviceId);
     await waitForServiceState(apiUrl, serviceId, { running: !isProvider, healthy: isProvider ? undefined : true });
