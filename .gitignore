@@ -8,6 +8,7 @@ dist/
 artifacts/
 docs/.docusaurus/
 docs/build/
+workspace/
 services/*/.state/
 services/*/data/
 services/*/logs/

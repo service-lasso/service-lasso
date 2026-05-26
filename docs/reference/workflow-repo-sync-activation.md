@@ -11,7 +11,12 @@ The platform surface is intentionally small and state-oriented:
 - `POST /api/platform/workflow-repos/activate` validates staged workflow package metadata and promotes a complete activation.
 - `POST /api/platform/workflow-repos/rollback` restores the previous-good revision pointer when an activated revision must be backed out.
 
-The initial implementation exposes this as a platform controller contract in `src/platform/workflowSyncController.ts`; runtime route binding can wrap the same state shape later.
+The runtime API now binds this shape directly. The current HTTP fetch adapter is
+intentionally local-first for deterministic validation: `sync` and `activate`
+accept local absolute paths or `file://` workflow repo sources, then reuse the
+same activation controller and state file under the runtime workspace. Remote
+Git/release fetching can be added behind the same source contract without
+changing the response shape.
 
 ## Source configuration
 
