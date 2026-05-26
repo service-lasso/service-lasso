@@ -1,14 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getRuntimeInstanceStatePath } from "../dist/runtime/instance/registry.js";
 import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
+const execFileAsync = promisify(execFile);
 
 async function waitFor(readinessCheck, timeoutMs = 1_000) {
   const deadline = Date.now() + timeoutMs;
@@ -32,6 +36,7 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.equal(registry.count(), 11);
   assert.equal(registry.countEnabled(), 9);
   assert.ok(registry.getById("@archive"));
+  assert.ok(registry.getById("@python"));
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
   assert.ok(registry.getById("@serviceadmin"));
@@ -117,6 +122,147 @@ test("GET /api/runtime returns runtime summary state", async () => {
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("runtime instance API and CLI expose distinct local instance records", async () => {
+  resetLifecycleState();
+  const first = await makeTempServicesRoot("service-lasso-instance-a-");
+  const second = await makeTempServicesRoot("service-lasso-instance-b-");
+  const registryPath = path.join(first.tempRoot, "host-registry", "instances.json");
+  const previousRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = registryPath;
+  let firstServer = null;
+  let secondServer = null;
+
+  try {
+    const firstWorkspaceRoot = path.join(first.tempRoot, "workspace");
+    const secondWorkspaceRoot = path.join(second.tempRoot, "workspace");
+    await writeExecutableFixtureService(first.servicesRoot, "first-service");
+    await writeExecutableFixtureService(second.servicesRoot, "second-service");
+
+    firstServer = await startApiServer({ port: 0, servicesRoot: first.servicesRoot, workspaceRoot: firstWorkspaceRoot });
+    secondServer = await startApiServer({ port: 0, servicesRoot: second.servicesRoot, workspaceRoot: secondWorkspaceRoot });
+
+    const firstResponse = await fetch(firstServer.url + "/api/runtime/instance");
+    const secondResponse = await fetch(secondServer.url + "/api/runtime/instance");
+    const firstBody = await firstResponse.json();
+    const secondBody = await secondResponse.json();
+
+    assert.equal(firstResponse.status, 200);
+    assert.equal(secondResponse.status, 200);
+    assert.ok(firstBody.instance.instanceId.startsWith("sl_"));
+    assert.ok(secondBody.instance.instanceId.startsWith("sl_"));
+    assert.notEqual(firstBody.instance.instanceId, secondBody.instance.instanceId);
+    assert.equal(firstBody.instance.status, "active");
+    assert.equal(secondBody.instance.status, "active");
+    assert.equal(firstBody.instance.pid, process.pid);
+    assert.equal(secondBody.instance.pid, process.pid);
+    assert.equal(firstBody.instance.apiPort, firstServer.port);
+    assert.equal(secondBody.instance.apiPort, secondServer.port);
+    assert.equal(firstBody.instance.servicesRoot, first.servicesRoot);
+    assert.equal(secondBody.instance.workspaceRoot, secondWorkspaceRoot);
+    assert.equal(secondBody.registry.path, registryPath);
+    assert.equal(secondBody.registry.activeCount, 2);
+    assert.equal(secondBody.registry.instances.length, 2);
+
+    const instanceFile = JSON.parse(await readFile(getRuntimeInstanceStatePath(firstWorkspaceRoot), "utf8"));
+    assert.equal(instanceFile.instanceId, firstBody.instance.instanceId);
+    assert.equal(instanceFile.apiUrl, firstServer.url);
+
+    const cli = await execFileAsync(
+      process.execPath,
+      [
+        path.resolve("dist", "cli.js"),
+        "instance",
+        "--services-root",
+        first.servicesRoot,
+        "--workspace-root",
+        firstWorkspaceRoot,
+        "--json",
+      ],
+      {
+        env: {
+          ...process.env,
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: registryPath,
+        },
+      },
+    );
+    const cliBody = JSON.parse(cli.stdout);
+    assert.equal(cliBody.instance.instanceId, firstBody.instance.instanceId);
+    assert.equal(cliBody.registry.activeCount, 2);
+  } finally {
+    if (firstServer) await firstServer.stop();
+    if (secondServer) await secondServer.stop();
+    if (previousRegistryPath === undefined) {
+      delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    } else {
+      process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousRegistryPath;
+    }
+    resetLifecycleState();
+    await rm(first.tempRoot, { recursive: true, force: true });
+    await rm(second.tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime instance registry classifies old process entries as stale", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-stale-instance-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const registryPath = path.join(tempRoot, "registry", "instances.json");
+  const previousRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = registryPath;
+  let apiServer = null;
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "active-service");
+    await mkdir(path.dirname(registryPath), { recursive: true });
+    await writeFile(
+      registryPath,
+      JSON.stringify(
+        {
+          version: 1,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          instances: [
+            {
+              instanceId: "sl_old",
+              servicesRoot: path.join(tempRoot, "old-services"),
+              workspaceRoot: path.join(tempRoot, "old-workspace"),
+              pid: 999999999,
+              apiPort: 19000,
+              apiUrl: "http://127.0.0.1:19000",
+              advertisedUrls: ["http://127.0.0.1:19000"],
+              startedAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              version: "0.0.0-test",
+              status: "active",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const response = await fetch(apiServer.url + "/api/runtime/instance");
+    const body = await response.json();
+    const oldEntry = body.registry.instances.find((entry) => entry.instanceId === "sl_old");
+
+    assert.equal(response.status, 200);
+    assert.equal(body.registry.activeCount, 1);
+    assert.equal(body.registry.staleCount, 1);
+    assert.equal(oldEntry.status, "stale");
+    assert.equal(oldEntry.staleReason, "process_not_running");
+  } finally {
+    if (apiServer) await apiServer.stop();
+    if (previousRegistryPath === undefined) {
+      delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    } else {
+      process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousRegistryPath;
+    }
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

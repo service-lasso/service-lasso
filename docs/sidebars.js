@@ -93,6 +93,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/runtime-instance-registry",
+          label: "Runtime Instance Registry",
+        },
+        {
+          type: "doc",
           id: "reference/baseline-dependency-diagnostics",
           label: "Baseline Dependency Diagnostics",
         },

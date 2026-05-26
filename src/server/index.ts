@@ -64,6 +64,11 @@ import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runt
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
 import {
+  createRuntimeInstanceSnapshot,
+  markRuntimeInstanceStopped,
+  registerRuntimeInstance,
+} from "../runtime/instance/registry.js";
+import {
   exampleWorkflowPackageCatalog,
   listWorkflowPackagesSecretSafe,
   loadWorkflowCatalogFromDirectories,
@@ -1219,6 +1224,11 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/instance") {
+    writeJson(response, 200, await createRuntimeInstanceSnapshot(config));
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/runtime/capabilities") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(
@@ -1424,6 +1434,10 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   }
 
   const resolvedPort = address.port;
+  const instance = await registerRuntimeInstance(config, {
+    apiPort: resolvedPort,
+    apiUrl: "http://" + publicHost + ":" + resolvedPort,
+  });
   if (requestedPort === 0) {
     await reservePorts(config.workspaceRoot, [toApiPortReservation(resolvedPort, bindHost)]);
   }
@@ -1431,13 +1445,14 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   return {
     server,
     port: resolvedPort,
-    url: `http://${publicHost}:${resolvedPort}`,
+    url: instance.apiUrl,
     monitor,
     updateScheduler,
     stop: async () => {
       await monitor?.stop();
       await updateScheduler?.stop();
       await stopAllManagedProcesses();
+      await markRuntimeInstanceStopped(config);
       server.close();
       await once(server, "close");
     },

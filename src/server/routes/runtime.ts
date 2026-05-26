@@ -2,6 +2,7 @@ import type {
   RuntimeCapabilitiesResponse,
   RuntimeEndpointGroupResponse,
   RuntimeFeatureFlags,
+  RuntimeInstanceResponse,
   RuntimeSummaryResponse,
 } from "../../contracts/api.js";
 import type { DiscoveredService } from "../../contracts/service.js";
@@ -11,6 +12,10 @@ export function createRuntimeSummaryResponse(input: RuntimeSummaryResponse["runt
   return {
     runtime: input,
   };
+}
+
+export function createRuntimeInstanceResponse(input: RuntimeInstanceResponse): RuntimeInstanceResponse {
+  return input;
 }
 
 export const RUNTIME_CAPABILITIES_CONTRACT_VERSION = "service-lasso.runtime-capabilities.v1";
