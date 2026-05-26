@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
-import { createRuntimeSummaryResponse } from "./routes/runtime.js";
+import { createRuntimeCapabilitiesResponse, createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
 import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
@@ -109,6 +109,14 @@ export interface ApiServerOptions {
   updateScheduler?: boolean;
   updateSchedulerIntervalMs?: number;
   workflowRunFacadeState?: WorkflowRunFacadeState;
+}
+
+interface ApiRouteConfig extends RuntimeConfig {
+  features: {
+    autostart: boolean;
+    monitor: boolean;
+    updateScheduler: boolean;
+  };
 }
 
 export interface RunningApiServer {
@@ -745,7 +753,7 @@ async function routeWorkflowFacadeRequest(
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  config: RuntimeConfig,
+  config: ApiRouteConfig,
   workflowRunFacadeState: WorkflowRunFacadeState,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -1151,6 +1159,20 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/capabilities") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(
+      response,
+      200,
+      createRuntimeCapabilitiesResponse({
+        version: config.version,
+        services: runtimeModel.discovered,
+        features: config.features,
+      }),
+    );
+    return;
+  }
+
   if (request.method === "POST" && url.pathname.startsWith("/api/runtime/actions/")) {
     const action = url.pathname.split("/").filter(Boolean)[3];
 
@@ -1228,10 +1250,18 @@ async function routeRequest(
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedConfig = resolveRuntimeConfig(options);
+  const routeConfig: ApiRouteConfig = {
+    ...resolvedConfig,
+    features: {
+      autostart: options.autostart === true,
+      monitor: options.monitor === true,
+      updateScheduler: options.updateScheduler === true,
+    },
+  };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
 
   return createServer((request, response) => {
-    void routeRequest(request, response, resolvedConfig, workflowRunFacadeState).catch((error: unknown) => {
+    void routeRequest(request, response, routeConfig, workflowRunFacadeState).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });
@@ -1259,7 +1289,13 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         intervalMs: options.updateSchedulerIntervalMs,
       })
     : null;
-  const server = createApiServer({ ...config, workflowRunFacadeState: options.workflowRunFacadeState });
+  const server = createApiServer({
+    ...config,
+    autostart: options.autostart,
+    monitor: options.monitor,
+    updateScheduler: options.updateScheduler,
+    workflowRunFacadeState: options.workflowRunFacadeState,
+  });
   const port = options.port ?? 18080;
 
   server.listen(port, bindHost);

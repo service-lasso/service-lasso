@@ -249,6 +249,89 @@ test("runtime boots from explicit servicesRoot and workspaceRoot config", async 
   }
 });
 
+test("GET /api/runtime/capabilities returns versioned runtime capability metadata", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-capabilities-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+    role: "provider",
+  });
+  await writeExecutableFixtureService(servicesRoot, "@serviceadmin");
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    version: "capability-test-version",
+  });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/runtime/capabilities");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.capabilities.runtime.version, "capability-test-version");
+    assert.equal(result.body.capabilities.api.contractVersion, "service-lasso.runtime-capabilities.v1");
+    assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "runtime"));
+    assert.equal(result.body.capabilities.features.lifecycleActions, true);
+    assert.equal(result.body.capabilities.features.dashboardAdapter, true);
+    assert.equal(result.body.capabilities.features.providerConnections, false);
+    assert.equal(result.body.capabilities.features.workflowFacade, false);
+    assert.equal(result.body.capabilities.features.autostart, false);
+    assert.equal(result.body.capabilities.features.monitor, false);
+    assert.equal(result.body.capabilities.features.updateScheduler, false);
+    assert.deepEqual(result.body.capabilities.baseline.defaultServiceIds, [
+      "@archive",
+      "@java",
+      "@localcert",
+      "@nginx",
+      "@traefik",
+      "@node",
+      "@python",
+      "@secretsbroker",
+      "echo-service",
+      "@serviceadmin",
+    ]);
+    assert.deepEqual(result.body.capabilities.baseline.serviceRoles, [
+      {
+        id: "@serviceadmin",
+        role: "service",
+        enabled: true,
+        defaultBaseline: true,
+      },
+      {
+        id: "alpha-service",
+        role: "provider",
+        enabled: true,
+        defaultBaseline: false,
+      },
+    ]);
+    assert.equal(result.body.capabilities.compatibility.serviceAdmin.runtimeApiBaseUrlRequired, true);
+    assert.equal(result.body.capabilities.compatibility.serviceAdmin.supportsSafeSecretMetadataOnly, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/runtime/capabilities reflects configured runtime option flags", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-capability-flags-");
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    version: "capability-flags-test",
+    monitor: true,
+    updateScheduler: true,
+  });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/runtime/capabilities");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.capabilities.features.monitor, true);
+    assert.equal(result.body.capabilities.features.updateScheduler, true);
+    assert.equal(result.body.capabilities.features.autostart, false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("runtime app honors servicesRoot and workspaceRoot environment overrides", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-app-env-config-"));
   const workspaceRoot = path.join(tempRoot, "workspace");
