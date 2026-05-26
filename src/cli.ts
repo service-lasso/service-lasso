@@ -1,5 +1,6 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
+import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
 import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "./runtime/cli/health.js";
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
@@ -16,7 +17,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "backup" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
@@ -24,9 +25,11 @@ interface ParsedCliOptions {
   planAction?: RuntimePlanCliAction;
   lockfileAction?: LockfileCliAction;
   secretsAction?: SecretsCliAction;
+  backupAction?: BackupCliAction;
   serviceId?: string;
   manifestPath?: string;
   stepId?: string;
+  archivePath?: string;
   port?: number;
   servicesRoot?: string;
   workspaceRoot?: string;
@@ -63,6 +66,8 @@ function usageText(): string {
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -116,7 +121,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "lockfile" ||
       commandToken === "instance" ||
       commandToken === "config-drift" ||
-      commandToken === "secrets"
+      commandToken === "secrets" ||
+      commandToken === "backup"
       ? commandToken
       : null;
   if (!command) {
@@ -255,6 +261,22 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "backup") {
+    const action = remaining.shift();
+    if (action !== "create" && action !== "restore-plan") {
+      throw new Error('The "backup" command requires one of: create, restore-plan.');
+    }
+
+    parsed.backupAction = action;
+    if (action === "restore-plan") {
+      const archivePath = remaining.shift();
+      if (!archivePath || archivePath.startsWith("-")) {
+        throw new Error('The "backup restore-plan" command requires an <archivePath> argument.');
+      }
+      parsed.archivePath = archivePath;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -287,8 +309,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "secrets") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, and secrets commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "secrets" && command !== "backup") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, secrets, and backup commands.");
         }
         parsed.json = true;
         break;
@@ -518,6 +540,33 @@ function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
   console.log("- malformed: " + result.summary.malformed);
   for (const finding of result.findings) {
     console.log("- " + finding.status + ": " + finding.ref + " (" + finding.location + ")");
+  }
+}
+
+function printBackupResult(result: BackupCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "create") {
+    console.log("[service-lasso] workspace backup created");
+    console.log("- archivePath: " + result.archivePath);
+    console.log("- services: " + result.manifest.serviceCount);
+    console.log("- policy: manifests/state redacted, log contents excluded");
+    return;
+  }
+
+  console.log("[service-lasso] restore plan completed");
+  console.log("- archivePath: " + result.archivePath);
+  console.log("- ok: " + result.ok);
+  console.log("- services: current=" + result.serviceCount.current + " backup=" + result.serviceCount.backup);
+  console.log("- mutated: " + result.mutated);
+  for (const blocked of result.blocked) {
+    console.log("- blocked: " + blocked);
+  }
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.action + " (" + service.reasons.join(", ") + ")");
   }
 }
 
@@ -754,6 +803,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printSecretsResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "backup") {
+    const result = await runBackupCliAction({
+      action: parsed.backupAction!,
+      archivePath: parsed.archivePath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printBackupResult(result, parsed.json);
     return;
   }
 

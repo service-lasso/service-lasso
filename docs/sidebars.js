@@ -73,6 +73,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/workspace-backup-restore",
+          label: "Workspace Backup and Restore",
+        },
+        {
+          type: "doc",
           id: "reference/one-shot-jobs",
           label: "One-shot Jobs",
         },
