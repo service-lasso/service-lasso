@@ -62,13 +62,13 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"]);
-    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
-    assert.equal(result.services.length, 10);
+    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"]);
+    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+    assert.equal(result.services.length, 9);
 
     for (const service of result.services) {
       assert.equal(service.status, "completed");
-      const expectedActions = service.serviceId === "@archive" || service.serviceId === "@python"
+      const expectedActions = service.serviceId === "@archive"
         ? ["install:completed", "config:completed", "start:skipped"]
         : ["install:completed", "config:completed", "start:completed"];
       assert.deepEqual(
@@ -78,7 +78,7 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       const state = getLifecycleState(service.serviceId);
       assert.equal(state.installed, true, `${service.serviceId} installed`);
       assert.equal(state.configured, true, `${service.serviceId} configured`);
-      assert.equal(state.running, service.serviceId !== "@archive" && service.serviceId !== "@python", `${service.serviceId} running`);
+      assert.equal(state.running, service.serviceId !== "@archive", `${service.serviceId} running`);
     }
 
     const rerun = await bootstrapBaselineServices({
@@ -190,6 +190,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       servicesRoot,
       workspaceRoot,
       version: "test-version",
+      serviceIds: ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"],
     });
     const archive = result.services.find((service) => service.serviceId === "@archive");
     const node = result.services.find((service) => service.serviceId === "@node");

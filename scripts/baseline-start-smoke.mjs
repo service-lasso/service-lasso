@@ -575,14 +575,21 @@ try {
 
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
+  const expectedServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"];
+  if (serviceIds.includes("@python")) {
+    expectedServiceIds.splice(5, 0, "@python");
+  }
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(expectedServiceIds),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
   for (const serviceId of serviceIds) {
     const detail = await waitForJson(`http://127.0.0.1:${apiPort}/api/services/${encodeURIComponent(serviceId)}`);
     const service = detail.service;
+    if (!cliSummary.requestedServiceIds.includes(serviceId)) {
+      continue;
+    }
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
