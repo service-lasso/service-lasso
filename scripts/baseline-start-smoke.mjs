@@ -199,6 +199,16 @@ async function writeNodeProviderService(servicesRoot) {
   });
 }
 
+async function writeProviderDependencyService(servicesRoot, serviceId, options = {}) {
+  await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
+    id: serviceId,
+    name: serviceId,
+    description: `Baseline smoke provider dependency for ${serviceId}.`,
+    role: "provider",
+    enabled: options.enabled ?? true,
+  });
+}
+
 async function writeArchiveProviderService(servicesRoot) {
   const serviceId = "@archive";
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -216,16 +226,6 @@ async function writePythonProviderService(servicesRoot) {
   await writeJson(path.join(serviceRoot, "service.json"), {
     ...corePythonManifest,
     enabled: false,
-  });
-}
-
-async function writeProviderDependencyService(servicesRoot, serviceId) {
-  await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
-    id: serviceId,
-    name: serviceId,
-    description: `Baseline smoke provider dependency for ${serviceId}.`,
-    role: "provider",
-    enabled: true,
   });
 }
 
