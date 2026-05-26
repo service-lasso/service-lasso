@@ -63,6 +63,21 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-lockfile",
+          label: "Service Lockfile",
+        },
+        {
+          type: "doc",
+          id: "reference/service-config-drift",
+          label: "Service Config Drift",
+        },
+        {
+          type: "doc",
+          id: "reference/workspace-backup-restore",
+          label: "Workspace Backup and Restore",
+        },
+        {
+          type: "doc",
           id: "reference/one-shot-jobs",
           label: "One-shot Jobs",
         },
@@ -83,13 +98,28 @@ const sidebars = {
         },
         {
           type: "doc",
-          id: "reference/workspace-backup-restore",
-          label: "Workspace Backup and Restore",
+          id: "reference/secret-reference-audit",
+          label: "Secret Reference Audit",
         },
         {
           type: "doc",
           id: "reference/traefik-local-route-generation",
           label: "Traefik Local Route Generation",
+        },
+        {
+          type: "doc",
+          id: "reference/runtime-instance-registry",
+          label: "Runtime Instance Registry",
+        },
+        {
+          type: "doc",
+          id: "reference/baseline-dependency-diagnostics",
+          label: "Baseline Dependency Diagnostics",
+        },
+        {
+          type: "doc",
+          id: "reference/runtime-port-reservations",
+          label: "Runtime Port Reservations",
         },
         {
           type: "doc",

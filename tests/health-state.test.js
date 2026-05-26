@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
 import path from "node:path";
+import { promisify } from "node:util";
+import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -11,12 +13,27 @@ import { getServiceStatePaths } from "../dist/runtime/state/paths.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
+const execFile = promisify(execFileCallback);
+
 async function postJson(url) {
   const response = await fetch(url, { method: "POST" });
   return {
     status: response.status,
     body: await response.json(),
   };
+}
+
+async function runCli(args, cwd = path.resolve(".")) {
+  const cliPath = path.join(cwd, "dist", "cli.js");
+  const result = await execFile(process.execPath, [cliPath, ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      npm_package_version: "0.1.0-test",
+    },
+  });
+
+  return result.stdout.trim();
 }
 
 test("lifecycle actions write structured .state records to disk", async () => {
@@ -41,6 +58,131 @@ test("lifecycle actions write structured .state records to disk", async () => {
     assert.equal(stored.install.installed, true);
     assert.equal(stored.config.configured, true);
     assert.equal(stored.runtime.running, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("health checks persist bounded transition history without secret-bearing URL query values", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-health-history-");
+
+  const probeServer = createServer((_, res) => {
+    res.statusCode = 200;
+    res.end("ok");
+  });
+  probeServer.listen(0, "127.0.0.1");
+  await once(probeServer, "listening");
+  const probeAddress = probeServer.address();
+  if (!probeAddress || typeof probeAddress === "string") {
+    throw new Error("Probe server failed to bind.");
+  }
+
+  const serviceRoot = await writeManifest(servicesRoot, "http-history-service", {
+    id: "http-history-service",
+    name: "HTTP History Service",
+    description: "Temporary service for health history proof.",
+    healthcheck: {
+      type: "http",
+      url: `http://127.0.0.1:${probeAddress.port}/health?token=super-secret-token`,
+      expected_status: 200,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const first = await fetch(`${apiServer.url}/api/services/http-history-service/health`);
+    const firstBody = await first.json();
+    const duplicate = await fetch(`${apiServer.url}/api/services/http-history-service/health`);
+    const duplicateBody = await duplicate.json();
+    const history = await fetch(`${apiServer.url}/api/services/http-history-service/health/history`);
+    const historyBody = await history.json();
+    const detail = await fetch(`${apiServer.url}/api/services/http-history-service`);
+    const detailBody = await detail.json();
+    const stored = await readStoredState(serviceRoot);
+    const statePaths = getServiceStatePaths(serviceRoot);
+    const persistedHealth = await readFile(statePaths.health, "utf8");
+
+    assert.equal(first.status, 200);
+    assert.equal(firstBody.history.transitions.length, 1);
+    assert.equal(firstBody.history.transitions[0].status, "healthy");
+    assert.equal(firstBody.history.transitions[0].checkType, "http");
+    assert.equal(firstBody.history.transitions[0].observed.url, `http://127.0.0.1:${probeAddress.port}/health`);
+    assert.equal(duplicateBody.history.transitions.length, 1);
+    assert.equal(history.status, 200);
+    assert.equal(historyBody.history.transitions.length, 1);
+    assert.equal(detailBody.service.healthHistory.transitions.length, 1);
+    assert.equal(stored.health.transitions.length, 1);
+    assert.doesNotMatch(JSON.stringify(firstBody.history), /super-secret-token/);
+    assert.doesNotMatch(JSON.stringify(historyBody.history), /super-secret-token/);
+    assert.doesNotMatch(persistedHealth, /super-secret-token/);
+  } finally {
+    await apiServer.stop();
+    probeServer.close();
+    await once(probeServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("CLI health history reads persisted transitions for one service and all services", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-cli-health-history-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "cli-health-service");
+  await writeExecutableFixtureService(servicesRoot, "empty-health-service");
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await fetch(`${apiServer.url}/api/services/cli-health-service/health`);
+
+    const singleOut = await runCli([
+      "health",
+      "history",
+      "cli-health-service",
+      "--services-root",
+      servicesRoot,
+      "--json",
+    ]);
+    const single = JSON.parse(singleOut);
+
+    assert.equal(single.action, "history");
+    assert.equal(single.services.length, 1);
+    assert.equal(single.services[0].serviceId, "cli-health-service");
+    assert.equal(single.services[0].healthHistory.transitions.length, 1);
+
+    const allOut = await runCli([
+      "health",
+      "history",
+      "--services-root",
+      servicesRoot,
+      "--json",
+    ]);
+    const all = JSON.parse(allOut);
+
+    assert.deepEqual(
+      all.services.map((service) => service.serviceId),
+      ["cli-health-service", "empty-health-service"],
+    );
+    assert.equal(all.services[0].healthHistory.transitions.length, 1);
+    assert.equal(all.services[1].healthHistory.transitions.length, 0);
+
+    const humanOut = await runCli([
+      "health",
+      "history",
+      "cli-health-service",
+      "--services-root",
+      servicesRoot,
+    ]);
+
+    assert.match(humanOut, /\[service-lasso\] health history/);
+    assert.match(humanOut, /cli-health-service: 1 transitions, last unhealthy\/process/);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.health.transitions.length, 1);
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

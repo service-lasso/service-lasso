@@ -810,11 +810,22 @@ Pinned example:
   "platforms": {
     "win32": {
       "assetName": "echo-service-win32.zip",
-      "archiveType": "zip"
+      "archiveType": "zip",
+      "checksum": {
+        "algorithm": "sha256",
+        "assetName": "SHA256SUMS.txt"
+      }
     }
   }
 }
 ```
+
+`artifact.platforms.<platform>.checksum` is optional for compatibility with older manifests, but release-backed services should declare it when checksum evidence exists. Supported checksum forms:
+
+- `{"algorithm": "sha256", "value": "<64-hex-sha256>"}` verifies against a checksum embedded directly in `service.json`.
+- `{"algorithm": "sha256", "assetName": "SHA256SUMS.txt"}` downloads that release asset, parses a SHA-256 entry for the selected archive, and verifies before extraction.
+
+Checksum verification happens before archive extraction and before install state is written. Missing checksum assets, malformed checksum files, unsupported algorithms, or digest mismatches fail closed with an actionable error. Successful installs persist safe verification evidence in install state: algorithm, source, expected digest, actual digest, artifact asset name, checksum asset name when used, and verification timestamp.
 
 If `artifact.source.tag` is present and no active `updates` policy is declared, Service Lasso treats the service as pinned.
 

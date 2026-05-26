@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
@@ -76,6 +77,8 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {})
   let requestCount = 0;
   const releaseAssetName = options.releaseAssetName ?? assetName;
   const downloadStatus = options.downloadStatus ?? 200;
+  const checksumAssetName = options.checksumAssetName;
+  const checksumAssetBytes = options.checksumAssetBytes;
   const server = createServer((request, response) => {
     if (!request.url) {
       response.statusCode = 404;
@@ -95,6 +98,12 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {})
             name: releaseAssetName,
             browser_download_url: `${baseUrl}/downloads/${releaseAssetName}`,
           },
+          ...(checksumAssetName
+            ? [{
+                name: checksumAssetName,
+                browser_download_url: `${baseUrl}/downloads/${checksumAssetName}`,
+              }]
+            : []),
         ],
       }));
       return;
@@ -104,6 +113,11 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {})
       requestCount += 1;
       response.statusCode = downloadStatus;
       response.end(assetBytes);
+      return;
+    }
+
+    if (checksumAssetName && url.pathname === `/downloads/${checksumAssetName}`) {
+      response.end(checksumAssetBytes);
       return;
     }
 
@@ -158,6 +172,10 @@ function createReleaseBackedManifest(releaseServer, assetName, description = "Se
   };
 }
 
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 test("install can acquire and unpack a manifest-owned release artifact without starting the service", async () => {
   resetLifecycleState();
   const { root, servicesRoot } = await makeTempServicesRoot();
@@ -184,6 +202,164 @@ test("install can acquire and unpack a manifest-owned release artifact without s
     assert.equal(typeof stored.install?.artifact?.extractedPath, "string");
     const scriptStat = await import("node:fs/promises").then(({ stat }) => stat(extractedScript));
     assert.equal(scriptStat.isFile(), true);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install verifies and records a manifest-declared artifact checksum before extraction", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const archiveBytes = createZipWithRuntimeScript();
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, archiveBytes);
+  const manifest = createReleaseBackedManifest(releaseServer, assetName);
+  manifest.artifact.platforms.default.checksum = {
+    algorithm: "sha256",
+    value: sha256(archiveBytes),
+  };
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", manifest);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 200);
+    assert.equal(stored.install?.artifact?.checksum?.algorithm, "sha256");
+    assert.equal(stored.install?.artifact?.checksum?.source, "manifest");
+    assert.equal(stored.install?.artifact?.checksum?.assetName, assetName);
+    assert.equal(stored.install?.artifact?.checksum?.expected, sha256(archiveBytes));
+    assert.equal(stored.install?.artifact?.checksum?.actual, sha256(archiveBytes));
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install verifies a release SHA256SUMS asset before extraction", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const archiveBytes = createZipWithRuntimeScript();
+  const checksumAssetName = "SHA256SUMS.txt";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, archiveBytes, {
+    checksumAssetName,
+    checksumAssetBytes: Buffer.from(`${sha256(archiveBytes)}  ${assetName}\n`, "utf8"),
+  });
+  const manifest = createReleaseBackedManifest(releaseServer, assetName);
+  manifest.artifact.platforms.default.checksum = {
+    algorithm: "sha256",
+    assetName: checksumAssetName,
+  };
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", manifest);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 200);
+    assert.equal(stored.install?.artifact?.checksum?.source, "release-asset");
+    assert.equal(stored.install?.artifact?.checksum?.checksumAssetName, checksumAssetName);
+    assert.equal(stored.install?.artifact?.checksum?.actual, sha256(archiveBytes));
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install fails before state mutation when the artifact checksum mismatches", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const archiveBytes = createZipWithRuntimeScript();
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, archiveBytes);
+  const manifest = createReleaseBackedManifest(releaseServer, assetName);
+  manifest.artifact.platforms.default.checksum = {
+    algorithm: "sha256",
+    value: "0".repeat(64),
+  };
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", manifest);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 500);
+    assert.match(install.body.message, /Checksum mismatch/);
+    assert.equal(stored.install, null);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install fails before state mutation when the release checksum asset is missing or malformed", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const archiveBytes = createZipWithRuntimeScript();
+  const checksumAssetName = "SHA256SUMS.txt";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, archiveBytes, {
+    checksumAssetName,
+    checksumAssetBytes: Buffer.from("not a checksum file\n", "utf8"),
+  });
+  const manifest = createReleaseBackedManifest(releaseServer, assetName);
+  manifest.artifact.platforms.default.checksum = {
+    algorithm: "sha256",
+    assetName: checksumAssetName,
+  };
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", manifest);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 500);
+    assert.match(install.body.message, /Malformed checksum asset/);
+    assert.equal(stored.install, null);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install fails before state mutation when the release checksum asset is missing", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const archiveBytes = createZipWithRuntimeScript();
+  const checksumAssetName = "SHA256SUMS.txt";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, archiveBytes);
+  const manifest = createReleaseBackedManifest(releaseServer, assetName);
+  manifest.artifact.platforms.default.checksum = {
+    algorithm: "sha256",
+    assetName: checksumAssetName,
+  };
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", manifest);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 500);
+    assert.match(install.body.message, /did not contain checksum asset/);
+    assert.equal(stored.install, null);
   } finally {
     await apiServer.stop();
     await releaseServer.stop();
