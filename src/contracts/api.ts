@@ -325,6 +325,67 @@ export interface DependenciesResponse {
   };
 }
 
+export type BaselineDependencyDiagnosticStatus = "startable" | "blocked" | "degraded" | "running";
+
+export type ServiceDependencyReadiness = "ready" | "blocked" | "degraded" | "running" | "disabled";
+
+export type ServiceDependencyBlockerKind =
+  | "disabled"
+  | "missing_dependency"
+  | "dependency_not_ready"
+  | "not_installed"
+  | "not_configured"
+  | "port_occupied"
+  | "unhealthy";
+
+export interface ServiceDependencyDiagnosticEndpoint {
+  label: string;
+  url: string;
+  port: number | null;
+}
+
+export interface ServiceDependencyDiagnosticDependency {
+  id: string;
+  name: string;
+  ready: boolean;
+  readiness: ServiceDependencyReadiness;
+  blockingReason: ServiceDependencyBlockerKind | null;
+}
+
+export interface ServiceDependencyDiagnostic {
+  id: string;
+  name: string;
+  enabled: boolean;
+  installed: boolean;
+  configured: boolean;
+  running: boolean;
+  readiness: ServiceDependencyReadiness;
+  blockingReason: ServiceDependencyBlockerKind | null;
+  blockers: string[];
+  nextAction: string;
+  dependencies: ServiceDependencyDiagnosticDependency[];
+  dependents: string[];
+  ports: Record<string, number>;
+  endpoints: ServiceDependencyDiagnosticEndpoint[];
+  health: ServiceHealthResult;
+}
+
+export interface BaselineDependencyDiagnosticsResponse {
+  diagnostics: {
+    summary: {
+      status: BaselineDependencyDiagnosticStatus;
+      totalServices: number;
+      enabledServices: number;
+      runningServices: number;
+      startableServices: number;
+      blockedServices: number;
+      degradedServices: number;
+      disabledServices: number;
+    };
+    services: ServiceDependencyDiagnostic[];
+  };
+}
+
 export interface LifecycleActionResponse {
   action: LifecycleAction;
   serviceId: string;

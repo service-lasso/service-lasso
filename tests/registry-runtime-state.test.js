@@ -37,7 +37,9 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.ok(registry.getById("@serviceadmin"));
   assert.ok(registry.getById("@secretsbroker"));
   assert.ok(registry.getById("@java"));
+  assert.ok(registry.getById("@python"));
   assert.equal(registry.getById("@archive")?.manifest.enabled, false);
+  assert.equal(registry.getById("@python")?.manifest.enabled, false);
   assert.equal(registry.getById("@archive")?.manifest.role, "provider");
   assert.equal(registry.getById("@archive")?.manifest.artifact?.source.repo, "service-lasso/lasso-archive");
   assert.equal(registry.getById("@archive")?.manifest.artifact?.source.tag, "2026.5.2-a223a48");

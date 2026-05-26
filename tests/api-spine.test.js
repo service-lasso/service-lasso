@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import os from "node:os";
+import net from "node:net";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
@@ -101,6 +102,100 @@ test("GET /api/services returns discovered services from the tracked services ro
   } finally {
     await apiServer.stop();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("GET /api/diagnostics/dependencies reports start blockers and safe next actions", async () => {
+  resetLifecycleState();
+  const occupiedPortServer = net.createServer();
+  await new Promise((resolve, reject) => {
+    occupiedPortServer.once("error", reject);
+    occupiedPortServer.listen(0, "127.0.0.1", resolve);
+  });
+  const occupiedAddress = occupiedPortServer.address();
+  assert.notEqual(typeof occupiedAddress, "string");
+  const occupiedPort = occupiedAddress.port;
+  await new Promise((resolve) => occupiedPortServer.close(resolve));
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-dependency-diagnostics-");
+
+  await writeExecutableFixtureService(servicesRoot, "alpha-running", {
+    ports: {
+      service: 43150,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "bravo-ready", {
+    depend_on: ["alpha-running"],
+    ports: {
+      service: 43151,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "charlie-missing-dependency", {
+    depend_on: ["missing-service"],
+  });
+  await writeExecutableFixtureService(servicesRoot, "delta-occupied-port", {
+    ports: {
+      service: occupiedPort,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "echo-disabled", {
+    enabled: false,
+  });
+  await writeExecutableFixtureService(servicesRoot, "foxtrot-unhealthy", {
+    healthcheck: {
+      type: "tcp",
+      address: "127.0.0.1:9",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (const serviceId of ["alpha-running", "bravo-ready", "delta-occupied-port", "foxtrot-unhealthy"]) {
+      let result = await postJson(apiServer.url + "/api/services/" + serviceId + "/install");
+      assert.equal(result.status, 200);
+      result = await postJson(apiServer.url + "/api/services/" + serviceId + "/config");
+      assert.equal(result.status, 200);
+    }
+
+    await new Promise((resolve, reject) => {
+      occupiedPortServer.once("error", reject);
+      occupiedPortServer.listen(occupiedPort, "127.0.0.1", resolve);
+    });
+
+    let result = await postJson(apiServer.url + "/api/services/alpha-running/start");
+    assert.equal(result.status, 200);
+    result = await postJson(apiServer.url + "/api/services/foxtrot-unhealthy/start");
+    assert.equal(result.status, 200);
+
+    const diagnostics = await getJson(apiServer.url + "/api/diagnostics/dependencies");
+    assert.equal(diagnostics.status, 200);
+    assert.equal(diagnostics.body.diagnostics.summary.status, "blocked");
+    assert.equal(diagnostics.body.diagnostics.summary.totalServices, 6);
+    assert.equal(diagnostics.body.diagnostics.summary.disabledServices, 1);
+
+    const byId = new Map(diagnostics.body.diagnostics.services.map((service) => [service.id, service]));
+    assert.equal(byId.get("alpha-running").readiness, "running");
+    assert.equal(byId.get("bravo-ready").readiness, "ready");
+    assert.equal(byId.get("bravo-ready").dependencies[0].ready, true);
+    assert.equal(byId.get("charlie-missing-dependency").readiness, "blocked");
+    assert.equal(byId.get("charlie-missing-dependency").blockingReason, "missing_dependency");
+    assert.equal(byId.get("delta-occupied-port").blockingReason, "port_occupied");
+    assert.equal(byId.get("echo-disabled").readiness, "disabled");
+    assert.equal(byId.get("foxtrot-unhealthy").readiness, "degraded");
+    assert.equal(byId.get("foxtrot-unhealthy").blockingReason, "unhealthy");
+    assert.equal(
+      diagnostics.body.diagnostics.services.every((service) =>
+        service.endpoints.every((endpoint) => !endpoint.url.includes("?") && !endpoint.url.includes("#")),
+      ),
+      true,
+    );
+  } finally {
+    await apiServer.stop();
+    if (occupiedPortServer.listening) {
+      await new Promise((resolve) => occupiedPortServer.close(resolve));
+    }
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

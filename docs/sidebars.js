@@ -88,6 +88,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/baseline-dependency-diagnostics",
+          label: "Baseline Dependency Diagnostics",
+        },
+        {
+          type: "doc",
           id: "reference/runtime-port-reservations",
           label: "Runtime Port Reservations",
         },
