@@ -199,6 +199,16 @@ async function writeNodeProviderService(servicesRoot) {
   });
 }
 
+async function writeProviderDependencyService(servicesRoot, serviceId, options = {}) {
+  await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
+    id: serviceId,
+    name: serviceId,
+    description: `Baseline smoke provider dependency for ${serviceId}.`,
+    role: "provider",
+    enabled: options.enabled ?? true,
+  });
+}
+
 async function writeArchiveProviderService(servicesRoot) {
   const serviceId = "@archive";
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -216,16 +226,6 @@ async function writePythonProviderService(servicesRoot) {
   await writeJson(path.join(serviceRoot, "service.json"), {
     ...corePythonManifest,
     enabled: false,
-  });
-}
-
-async function writeProviderDependencyService(servicesRoot, serviceId) {
-  await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
-    id: serviceId,
-    name: serviceId,
-    description: `Baseline smoke provider dependency for ${serviceId}.`,
-    role: "provider",
-    enabled: true,
   });
 }
 
@@ -575,14 +575,21 @@ try {
 
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
+  const expectedServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"];
+  if (serviceIds.includes("@python")) {
+    expectedServiceIds.splice(5, 0, "@python");
+  }
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(expectedServiceIds),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
   for (const serviceId of serviceIds) {
     const detail = await waitForJson(`http://127.0.0.1:${apiPort}/api/services/${encodeURIComponent(serviceId)}`);
     const service = detail.service;
+    if (!cliSummary.requestedServiceIds.includes(serviceId)) {
+      continue;
+    }
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
     assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
     assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);

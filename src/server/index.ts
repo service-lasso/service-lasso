@@ -74,6 +74,20 @@ import {
   installServiceUpdateCandidate,
   listServiceUpdateStates,
 } from "../runtime/updates/actions.js";
+import {
+  assertWorkflowRunFacadeSecretSafe,
+  cancelWorkflowFacadeRun,
+  exampleWorkflowRunFacadeState,
+  getWorkflowFacadeDefinition,
+  getWorkflowFacadeRun,
+  listWorkflowFacadeDefinitions,
+  retryWorkflowFacadeRun,
+  startWorkflowFacadeRun,
+  type WorkflowFacadeErrorCode,
+  type WorkflowFacadeRun,
+  type WorkflowRunFacadeState,
+} from "../platform/workflowRunFacade.js";
+import type { PlatformEntitlement, PlatformRequestContext } from "../platform/facade.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
@@ -94,6 +108,7 @@ export interface ApiServerOptions {
   monitorIntervalMs?: number;
   updateScheduler?: boolean;
   updateSchedulerIntervalMs?: number;
+  workflowRunFacadeState?: WorkflowRunFacadeState;
 }
 
 export interface RunningApiServer {
@@ -117,6 +132,10 @@ function notFound(response: ServerResponse): void {
     message: "Route not found.",
     statusCode: 404,
   });
+}
+
+function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
+  return JSON.parse(JSON.stringify(state)) as WorkflowRunFacadeState;
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -300,6 +319,87 @@ function countWorkflowPackageSources(packages: Array<{ source: WorkflowPackageSo
     },
     { official: 0, custom: 0 },
   );
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function parseEntitlements(request: IncomingMessage): PlatformEntitlement[] {
+  const header = firstHeader(request.headers["x-service-lasso-entitlements"]);
+  if (header === undefined) {
+    return ["workspace:read", "secrets-broker-source:use", "secrets-broker:resolve", "workflow:run"];
+  }
+
+  return header
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean) as PlatformEntitlement[];
+}
+
+function createWorkflowPlatformContext(request: IncomingMessage, workspaceId: string): PlatformRequestContext {
+  const contextWorkspaceId = firstHeader(request.headers["x-service-lasso-workspace-id"]) ?? workspaceId;
+  const instanceId = firstHeader(request.headers["x-service-lasso-instance-id"]) ?? "inst_local_demo";
+  const userId = firstHeader(request.headers["x-service-lasso-user-id"]) ?? "usr_01hzy9operator";
+  const linkedIdentityId = firstHeader(request.headers["x-service-lasso-linked-identity-id"]) ?? "lid_zitadel_operator";
+
+  return {
+    userId,
+    workspaceId: contextWorkspaceId,
+    instanceId,
+    linkedIdentityId,
+    entitlements: parseEntitlements(request),
+    actor: {
+      kind: "user",
+      id: userId,
+      displayName: "Operator Example",
+    },
+    authMethod: "zitadel-session",
+    audit: {
+      actorKind: "user",
+      actorId: userId,
+      workspaceId: contextWorkspaceId,
+      instanceId,
+      linkedIdentityId,
+      authMethod: "zitadel-session",
+    },
+  };
+}
+
+function workflowFacadeStatusCode(code: WorkflowFacadeErrorCode): number {
+  if (code === "workflow-not-found" || code === "run-not-found") return 404;
+  if (code === "invalid-transition") return 409;
+  return 403;
+}
+
+function throwWorkflowFacadeError(result: { ok: false; error: { code: WorkflowFacadeErrorCode; message: string } }): never {
+  throw new ApiError(result.error.code, workflowFacadeStatusCode(result.error.code), result.error.message);
+}
+
+function upsertWorkflowRun(state: WorkflowRunFacadeState, run: WorkflowFacadeRun): void {
+  const index = state.runs.findIndex((candidate) => candidate.facadeRunId === run.facadeRunId);
+  if (index === -1) {
+    state.runs.push(run);
+    return;
+  }
+
+  state.runs[index] = run;
+}
+
+async function parseStartWorkflowRunInput(request: IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  const body = await readJsonBody(request);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError("invalid_request", 400, "Workflow run start body must be a JSON object.");
+  }
+
+  const input = (body as { input?: unknown }).input;
+  if (input === undefined) return undefined;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_request", 400, "Workflow run input must be an object when provided.");
+  }
+
+  return input as Record<string, unknown>;
 }
 
 async function loadRuntimeModel(servicesRoot: string) {
@@ -549,12 +649,110 @@ async function executeRuntimeOrchestrationAction(
   };
 }
 
+async function routeWorkflowFacadeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  state: WorkflowRunFacadeState,
+): Promise<boolean> {
+  if (!url.pathname.startsWith("/api/platform/workspaces/")) return false;
+
+  const pathParts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const workspaceId = pathParts[3] ?? "";
+  const resource = pathParts[4];
+  const context = createWorkflowPlatformContext(request, workspaceId);
+
+  if (!workspaceId || !resource) {
+    notFound(response);
+    return true;
+  }
+
+  if (resource === "workflows") {
+    const workflowId = pathParts[5];
+
+    if (request.method === "GET" && pathParts.length === 5) {
+      const result = listWorkflowFacadeDefinitions(context, workspaceId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      writeJson(response, 200, { workflows: result.value });
+      return true;
+    }
+
+    if (request.method === "GET" && pathParts.length === 6 && workflowId) {
+      const result = getWorkflowFacadeDefinition(context, workspaceId, workflowId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      writeJson(response, 200, { workflow: result.value });
+      return true;
+    }
+
+    if (request.method === "POST" && pathParts.length === 7 && workflowId && pathParts[6] === "runs") {
+      const input = await parseStartWorkflowRunInput(request);
+      const result = startWorkflowFacadeRun(context, { workspaceId, workflowId, input }, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      upsertWorkflowRun(state, result.value);
+      writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
+      return true;
+    }
+  }
+
+  if (resource === "workflow-runs") {
+    const runId = pathParts[5];
+    const action = pathParts[6];
+
+    if (request.method === "GET" && pathParts.length === 6 && runId) {
+      const result = getWorkflowFacadeRun(context, workspaceId, runId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      writeJson(response, 200, { run: result.value });
+      return true;
+    }
+
+    if (request.method === "POST" && pathParts.length === 7 && runId && action === "cancel") {
+      const result = cancelWorkflowFacadeRun(context, workspaceId, runId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      upsertWorkflowRun(state, result.value);
+      writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
+      return true;
+    }
+
+    if (request.method === "POST" && pathParts.length === 7 && runId && action === "retry") {
+      const result = retryWorkflowFacadeRun(context, workspaceId, runId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      upsertWorkflowRun(state, result.value);
+      writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
+      return true;
+    }
+
+    if (request.method === "GET" && pathParts.length === 7 && runId && action === "logs") {
+      const result = getWorkflowFacadeRun(context, workspaceId, runId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      assertWorkflowRunFacadeSecretSafe(result.value);
+      writeJson(response, 200, { runId: result.value.facadeRunId, logs: result.value.logsSummary ?? { available: false } });
+      return true;
+    }
+
+    if (request.method === "GET" && pathParts.length === 7 && runId && action === "artifacts") {
+      const result = getWorkflowFacadeRun(context, workspaceId, runId, state);
+      if (!result.ok) throwWorkflowFacadeError(result);
+      assertWorkflowRunFacadeSecretSafe(result.value);
+      writeJson(response, 200, { runId: result.value.facadeRunId, artifacts: result.value.artifactsSummary ?? [] });
+      return true;
+    }
+  }
+
+  notFound(response);
+  return true;
+}
+
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: RuntimeConfig,
+  workflowRunFacadeState: WorkflowRunFacadeState,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
+
+  if (await routeWorkflowFacadeRequest(request, response, url, workflowRunFacadeState)) {
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     writeJson(response, 200, createHealthResponse(config.version));
@@ -1030,9 +1228,10 @@ async function routeRequest(
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedConfig = resolveRuntimeConfig(options);
+  const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
 
   return createServer((request, response) => {
-    void routeRequest(request, response, resolvedConfig).catch((error: unknown) => {
+    void routeRequest(request, response, resolvedConfig, workflowRunFacadeState).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });
@@ -1060,7 +1259,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         intervalMs: options.updateSchedulerIntervalMs,
       })
     : null;
-  const server = createApiServer(config);
+  const server = createApiServer({ ...config, workflowRunFacadeState: options.workflowRunFacadeState });
   const port = options.port ?? 18080;
 
   server.listen(port, bindHost);
