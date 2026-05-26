@@ -19,6 +19,15 @@ export function createRuntimeInstanceResponse(input: RuntimeInstanceResponse): R
 }
 
 export const RUNTIME_CAPABILITIES_CONTRACT_VERSION = "service-lasso.runtime-capabilities.v1";
+const nodeBaselineIndex = DEFAULT_BASELINE_SERVICE_IDS.indexOf("@node");
+const bootstrapDefaultBaselineServiceIds: string[] = [...DEFAULT_BASELINE_SERVICE_IDS];
+const RUNTIME_CAPABILITIES_DEFAULT_BASELINE_SERVICE_IDS = bootstrapDefaultBaselineServiceIds.includes("@python")
+  ? DEFAULT_BASELINE_SERVICE_IDS
+  : [
+      ...bootstrapDefaultBaselineServiceIds.slice(0, nodeBaselineIndex + 1),
+      "@python",
+      ...bootstrapDefaultBaselineServiceIds.slice(nodeBaselineIndex + 1),
+    ];
 
 export interface RuntimeCapabilitiesInput {
   version: string;
@@ -113,7 +122,7 @@ function createDefaultFeatureFlags(
 }
 
 export function createRuntimeCapabilitiesResponse(input: RuntimeCapabilitiesInput): RuntimeCapabilitiesResponse {
-  const defaultBaseline = new Set<string>(DEFAULT_BASELINE_SERVICE_IDS);
+  const defaultBaseline = new Set<string>(RUNTIME_CAPABILITIES_DEFAULT_BASELINE_SERVICE_IDS);
   const serviceRoles = input.services
     .map((service) => ({
       id: service.manifest.id,
@@ -134,7 +143,7 @@ export function createRuntimeCapabilitiesResponse(input: RuntimeCapabilitiesInpu
       },
       features: createDefaultFeatureFlags(input),
       baseline: {
-        defaultServiceIds: [...DEFAULT_BASELINE_SERVICE_IDS],
+        defaultServiceIds: [...RUNTIME_CAPABILITIES_DEFAULT_BASELINE_SERVICE_IDS],
         discoveredServiceCount: input.services.length,
         serviceRoles,
       },

@@ -137,7 +137,7 @@ async function resolveGitHubReleaseDownload(
   const asset = payload.assets?.find((candidate) => candidate.name === assetName);
   if (!asset) {
     throw new Error(
-      "Release metadata for " + artifact.source.repo + " did not contain asset " + assetName + ".",
+      `Release metadata for "${artifact.source.repo}" did not contain asset "${assetName}".`,
     );
   }
   const checksumAssetName = platform.checksum?.assetName?.trim() || null;
@@ -223,6 +223,24 @@ async function verifyArchiveChecksum(
   resolved: ResolvedArtifactDownload,
 ): Promise<AcquiredArtifactChecksumState | null> {
   if (!checksum) {
+    if (resolved.checksumSha256) {
+      const expected = normalizeSha256(resolved.checksumSha256, `artifact "${assetName}"`);
+      const actual = createHash("sha256").update(await readFile(archivePath)).digest("hex");
+      if (actual !== expected) {
+        throw new Error(`Service artifact "${assetName}" checksum did not match expected SHA-256.`);
+      }
+
+      return {
+        algorithm: "sha256",
+        source: "manifest",
+        expected,
+        actual,
+        assetName,
+        checksumAssetName: null,
+        verifiedAt: new Date().toISOString(),
+      };
+    }
+
     return null;
   }
 
