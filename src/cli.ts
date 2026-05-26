@@ -6,6 +6,7 @@ import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
+import { runOperatorCliAction, type OperatorActionsCliAction, type OperatorCliResult } from "./runtime/cli/operator.js";
 import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
@@ -17,7 +18,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "backup" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "backup" | "operator" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
@@ -26,6 +27,9 @@ interface ParsedCliOptions {
   lockfileAction?: LockfileCliAction;
   secretsAction?: SecretsCliAction;
   backupAction?: BackupCliAction;
+  operatorActionsAction?: OperatorActionsCliAction;
+  actionId?: string;
+  deferredUntil?: string | null;
   serviceId?: string;
   manifestPath?: string;
   stepId?: string;
@@ -68,6 +72,10 @@ function usageText(): string {
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions list [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions acknowledge <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -122,7 +130,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "instance" ||
       commandToken === "config-drift" ||
       commandToken === "secrets" ||
-      commandToken === "backup"
+      commandToken === "backup" ||
+      commandToken === "operator"
       ? commandToken
       : null;
   if (!command) {
@@ -277,6 +286,27 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "operator") {
+    const scope = remaining.shift();
+    if (scope !== "actions") {
+      throw new Error('The "operator" command requires the "actions" scope.');
+    }
+
+    const action = remaining.shift();
+    if (action !== "list" && action !== "acknowledge" && action !== "defer" && action !== "reopen") {
+      throw new Error('The "operator actions" command requires one of: list, acknowledge, defer, reopen.');
+    }
+
+    parsed.operatorActionsAction = action;
+    if (action !== "list") {
+      const actionId = remaining.shift();
+      if (!actionId || actionId.startsWith("-")) {
+        throw new Error(`The "operator actions ${action}" command requires an <actionId> argument.`);
+      }
+      parsed.actionId = actionId;
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -313,6 +343,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, secrets, and backup commands.");
         }
         parsed.json = true;
+        break;
+      }
+      case "--until": {
+        if (command !== "operator" || parsed.operatorActionsAction !== "defer") {
+          throw new Error("--until is only supported for operator actions defer.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --until.");
+        }
+        parsed.deferredUntil = value;
         break;
       }
       case "--force": {
@@ -570,6 +611,20 @@ function printBackupResult(result: BackupCliResult, asJson: boolean): void {
   }
 }
 
+function printOperatorResult(result: OperatorCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] operator action queue");
+  console.log(`- action: ${result.actionsAction}`);
+  console.log(`- items: ${result.queue.items.length}`);
+  for (const item of result.queue.items) {
+    console.log(`- ${item.id}: ${item.status} ${item.severity} ${item.title}`);
+  }
+}
+
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
   if (asJson) {
     console.log(JSON.stringify(result, null, 2));
@@ -815,6 +870,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printBackupResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "operator") {
+    const result = await runOperatorCliAction({
+      action: "actions",
+      actionsAction: parsed.operatorActionsAction!,
+      itemId: parsed.actionId,
+      deferredUntil: parsed.deferredUntil,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printOperatorResult(result, parsed.json);
     return;
   }
 
