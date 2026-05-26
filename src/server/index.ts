@@ -20,6 +20,7 @@ import {
   createDashboardServicesResponse,
   createDashboardSummaryResponse,
 } from "./routes/dashboard.js";
+import { createOperatorNotificationsResponse } from "./routes/operator-notifications.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -41,6 +42,7 @@ import {
   readServiceLogChunk,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
+import { buildOperatorNotifications } from "../runtime/operator/notifications.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -797,6 +799,19 @@ async function routeRequest(
         recovery: await readServiceRecoveryHistory(service),
       }))),
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/notifications") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    writeJson(
+      response,
+      200,
+      createOperatorNotificationsResponse(
+        await buildOperatorNotifications(runtimeModel.discovered, runtimeModel.registry, sharedGlobalEnv),
+      ),
+    );
     return;
   }
 
