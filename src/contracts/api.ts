@@ -445,6 +445,47 @@ export interface ServiceHealthHistoryResponse {
   history: ServiceHealthHistoryState;
 }
 
+export interface SecretReferenceAuditFindingResponse {
+  serviceId: string;
+  ref: string;
+  namespace?: string;
+  key?: string;
+  status: "present" | "missing" | "malformed";
+  source:
+    | "env"
+    | "globalenv"
+    | "install"
+    | "config"
+    | "broker.import"
+    | "broker.export"
+    | "broker.writeback";
+  location: string;
+  required?: boolean;
+  reason: string;
+}
+
+export interface ServiceSecretReferenceAuditResponse {
+  serviceId: string;
+  manifestPath: string;
+  findings: SecretReferenceAuditFindingResponse[];
+  summary: {
+    present: number;
+    missing: number;
+    malformed: number;
+  };
+}
+
+export interface SecretReferenceAuditResponse {
+  services: ServiceSecretReferenceAuditResponse[];
+  summary: {
+    services: number;
+    references: number;
+    present: number;
+    missing: number;
+    malformed: number;
+  };
+}
+
 export interface RuntimeOrchestrationSkippedService {
   serviceId: string;
   reason: string;

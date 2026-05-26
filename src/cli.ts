@@ -5,6 +5,7 @@ import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
+import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
@@ -15,13 +16,14 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "help" | "version";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
   healthAction?: HealthCliAction;
   planAction?: RuntimePlanCliAction;
   lockfileAction?: LockfileCliAction;
+  secretsAction?: SecretsCliAction;
   serviceId?: string;
   manifestPath?: string;
   stepId?: string;
@@ -60,6 +62,7 @@ function usageText(): string {
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -112,7 +115,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "plan" ||
       commandToken === "lockfile" ||
       commandToken === "instance" ||
-      commandToken === "config-drift"
+      commandToken === "config-drift" ||
+      commandToken === "secrets"
       ? commandToken
       : null;
   if (!command) {
@@ -239,6 +243,18 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     parsed.serviceId = remaining.shift();
   }
 
+  if (command === "secrets") {
+    const action = remaining.shift();
+    if (action !== "audit") {
+      throw new Error('The "secrets" command requires: audit.');
+    }
+
+    parsed.secretsAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -271,8 +287,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, and config-drift commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "secrets") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, and secrets commands.");
         }
         parsed.json = true;
         break;
@@ -465,6 +481,43 @@ function printConfigDriftResult(result: ConfigDriftCliResult, asJson: boolean): 
     for (const file of service.files.filter((entry) => entry.status !== "unchanged")) {
       console.log(`  - ${file.path}: ${file.status}`);
     }
+  }
+}
+
+function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] secret reference audit");
+  if ("services" in result) {
+    console.log("- services: " + result.summary.services);
+    console.log("- references: " + result.summary.references);
+    console.log("- present: " + result.summary.present);
+    console.log("- missing: " + result.summary.missing);
+    console.log("- malformed: " + result.summary.malformed);
+    for (const service of result.services) {
+      console.log(
+        "- " +
+          service.serviceId +
+          ": present=" +
+          service.summary.present +
+          " missing=" +
+          service.summary.missing +
+          " malformed=" +
+          service.summary.malformed,
+      );
+    }
+    return;
+  }
+
+  console.log("- service: " + result.serviceId);
+  console.log("- present: " + result.summary.present);
+  console.log("- missing: " + result.summary.missing);
+  console.log("- malformed: " + result.summary.malformed);
+  for (const finding of result.findings) {
+    console.log("- " + finding.status + ": " + finding.ref + " (" + finding.location + ")");
   }
 }
 
@@ -689,6 +742,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printConfigDriftResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "secrets") {
+    const result = await runSecretsCliAction({
+      action: parsed.secretsAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printSecretsResult(result, parsed.json);
     return;
   }
 

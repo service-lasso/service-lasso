@@ -54,6 +54,10 @@ import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
+import {
+  buildSecretReferenceAudit,
+  buildServiceSecretReferenceAudit,
+} from "../runtime/operator/secret-audit.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
