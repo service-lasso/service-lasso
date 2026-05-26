@@ -92,6 +92,72 @@ export interface RuntimeSummaryResponse {
   };
 }
 
+export interface RuntimeFeatureFlags {
+  serviceDiscovery: boolean;
+  lifecycleActions: boolean;
+  runtimeOrchestration: boolean;
+  dashboardAdapter: boolean;
+  serviceMetadata: boolean;
+  updates: boolean;
+  recovery: boolean;
+  setupSteps: boolean;
+  dependencyGraph: boolean;
+  operatorVariables: boolean;
+  operatorNetwork: boolean;
+  operatorMetrics: boolean;
+  operatorLogs: boolean;
+  providerConnections: boolean;
+  workflowFacade: boolean;
+  localRouteGeneration: boolean;
+  lanBinding: boolean;
+  autostart: boolean;
+  monitor: boolean;
+  updateScheduler: boolean;
+}
+
+export interface RuntimeEndpointGroupResponse {
+  id: string;
+  label: string;
+  methods: string[];
+  pathPrefix: string;
+  mutating: boolean;
+}
+
+export interface RuntimeBaselineServiceRoleResponse {
+  id: string;
+  role: "service" | "provider";
+  enabled: boolean;
+  defaultBaseline: boolean;
+}
+
+export interface RuntimeCapabilitiesResponse {
+  capabilities: {
+    runtime: {
+      version: string;
+    };
+    api: {
+      contractVersion: string;
+      endpointGroups: RuntimeEndpointGroupResponse[];
+    };
+    features: RuntimeFeatureFlags;
+    baseline: {
+      defaultServiceIds: string[];
+      discoveredServiceCount: number;
+      serviceRoles: RuntimeBaselineServiceRoleResponse[];
+    };
+    compatibility: {
+      serviceAdmin: {
+        minimumApiContractVersion: string;
+        runtimeApiBaseUrlRequired: boolean;
+        supportsDashboardAdapter: boolean;
+        supportsSafeSecretMetadataOnly: boolean;
+        preferredEndpointGroups: string[];
+        notes: string[];
+      };
+    };
+  };
+}
+
 export interface DashboardLinkResponse {
   label: string;
   url: string;
@@ -215,6 +281,41 @@ export interface DashboardServicesResponse {
 
 export interface DashboardServiceDetailResponse {
   service: DashboardServiceResponse;
+}
+
+export type OperatorNotificationSeverity = "critical" | "warning" | "info";
+
+export type OperatorNotificationKind =
+  | "update_available"
+  | "update_failed"
+  | "install_deferred"
+  | "recovery_review"
+  | "lifecycle_crashed"
+  | "health_unhealthy"
+  | "blocked_start"
+  | "diagnostic_warning";
+
+export interface OperatorNotificationResponse {
+  dedupeKey: string;
+  kind: OperatorNotificationKind;
+  severity: OperatorNotificationSeverity;
+  serviceId: string | null;
+  message: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  relatedActionEndpoint: string | null;
+  source: "updates" | "recovery" | "lifecycle" | "health" | "diagnostics";
+}
+
+export interface OperatorNotificationsResponse {
+  notifications: OperatorNotificationResponse[];
+  summary: {
+    generatedAt: string;
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
 }
 
 export interface DependenciesResponse {

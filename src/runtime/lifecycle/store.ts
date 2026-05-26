@@ -42,9 +42,10 @@ function createInitialState(): ServiceLifecycleState {
         archiveType: null,
         archivePath: null,
         extractedPath: null,
-        command: null,
-        args: [],
-      },
+      command: null,
+      args: [],
+      checksum: null,
+    },
     },
     configArtifacts: {
       files: [],
@@ -113,6 +114,9 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
               extractedPath: current.installArtifacts.artifact.extractedPath,
               command: current.installArtifacts.artifact.command,
               args: [...current.installArtifacts.artifact.args],
+              checksum: current.installArtifacts.artifact.checksum
+                ? { ...current.installArtifacts.artifact.checksum }
+                : null,
             },
           }
         : {}),
@@ -187,6 +191,9 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
               extractedPath: nextState.installArtifacts.artifact.extractedPath,
               command: nextState.installArtifacts.artifact.command,
               args: [...nextState.installArtifacts.artifact.args],
+              checksum: nextState.installArtifacts.artifact.checksum
+                ? { ...nextState.installArtifacts.artifact.checksum }
+                : null,
             },
           }
         : {}),
