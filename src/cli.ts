@@ -12,6 +12,7 @@ import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } fro
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
+import { runConfigApplyCliAction, type ConfigApplyCliAction, type ConfigApplyCliResult } from "./runtime/cli/config-apply.js";
 import { runConfigSnapshotCliAction, type ConfigSnapshotCliAction, type ConfigSnapshotCliResult } from "./runtime/cli/config-snapshot.js";
 import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
 import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
@@ -20,7 +21,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "config-snapshot" | "secrets" | "backup" | "operator" | "services" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "operator" | "services" | "help" | "version";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
@@ -28,6 +29,7 @@ interface ParsedCliOptions {
   healthAction?: HealthCliAction;
   planAction?: RuntimePlanCliAction;
   lockfileAction?: LockfileCliAction;
+  configApplyAction?: ConfigApplyCliAction;
   configSnapshotAction?: ConfigSnapshotCliAction;
   secretsAction?: SecretsCliAction;
   backupAction?: BackupCliAction;
@@ -78,6 +80,7 @@ function usageText(): string {
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-apply preflight [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-snapshot export [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-snapshot import <snapshotPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -141,6 +144,7 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "lockfile" ||
       commandToken === "instance" ||
       commandToken === "config-drift" ||
+      commandToken === "config-apply" ||
       commandToken === "config-snapshot" ||
       commandToken === "secrets" ||
       commandToken === "backup" ||
@@ -272,6 +276,18 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     parsed.serviceId = remaining.shift();
   }
 
+  if (command === "config-apply") {
+    const action = remaining.shift();
+    if (action !== "preflight") {
+      throw new Error('The "config-apply" command requires: preflight.');
+    }
+
+    parsed.configApplyAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
   if (command === "config-snapshot") {
     const action = remaining.shift();
     if (action !== "export" && action !== "import") {
@@ -386,8 +402,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "operator" && command !== "services") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, config-snapshot, secrets, backup, operator, and services commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "operator" && command !== "services") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, config-apply, config-snapshot, secrets, backup, operator, and services commands.");
         }
         parsed.json = true;
         break;
@@ -619,6 +635,32 @@ function printConfigDriftResult(result: ConfigDriftCliResult, asJson: boolean): 
     console.log(`- ${service.serviceId}: ${service.summary.drifted} drifted / ${service.summary.total} files`);
     for (const file of service.files.filter((entry) => entry.status !== "unchanged")) {
       console.log(`  - ${file.path}: ${file.status}`);
+    }
+  }
+}
+
+function printConfigApplyResult(result: ConfigApplyCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] config apply preflight");
+  console.log("- ok: " + result.ok);
+  console.log("- mutated: " + result.mutated);
+  console.log(
+    "- services: allowed=" +
+      result.summary.allowed +
+      " warning=" +
+      result.summary.warning +
+      " blocked=" +
+      result.summary.blocked,
+  );
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.status);
+    console.log("  restartRequired: " + service.restartRequirement.required);
+    for (const gate of service.policyGates.filter((entry) => entry.status !== "allowed")) {
+      console.log("  gate " + gate.gate + ": " + gate.status + " (" + gate.reason + ")");
     }
   }
 }
@@ -977,6 +1019,21 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printConfigDriftResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "config-apply") {
+    const result = await runConfigApplyCliAction({
+      action: parsed.configApplyAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printConfigApplyResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 

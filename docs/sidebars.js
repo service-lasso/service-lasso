@@ -78,6 +78,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/config-apply-preflight",
+          label: "Config Apply Preflight",
+        },
+        {
+          type: "doc",
           id: "reference/workspace-backup-restore",
           label: "Workspace Backup and Restore",
         },
