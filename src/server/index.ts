@@ -588,7 +588,7 @@ async function createServiceSummary(
     recovery,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
-    compatibility: buildServiceCompatibilityReport(service, registry),
+    compatibility: buildServiceCompatibilityReport(service, registry, { updateState: updates }),
     operator: {
       logPath: lifecycle.runtime.logs.logPath ?? runtimeLogs.logPath,
       variableCount: variables.variables.length,

@@ -62,6 +62,16 @@ export interface ServiceCompatibilityRequirementStatus {
   detail?: string;
 }
 
+export interface ServiceCompatibilityWarning {
+  kind: "release-stale" | "release-metadata-unavailable";
+  severity: "warning";
+  id: string;
+  detail: string;
+  sourceRepo?: string | null;
+  manifestTag?: string | null;
+  latestTag?: string | null;
+}
+
 export interface ServiceCompatibilityReport {
   hostPlatform: string;
   status: "compatible" | "unsupported" | "missing-requirements";
@@ -70,6 +80,7 @@ export interface ServiceCompatibilityReport {
   requiredPorts: ServiceCompatibilityPortRequirement[];
   requirements: ServiceCompatibilityRequirementStatus[];
   blockers: string[];
+  warnings: ServiceCompatibilityWarning[];
 }
 
 export interface GlobalEnvResponse {
