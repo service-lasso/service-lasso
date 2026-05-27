@@ -19,6 +19,20 @@ async function loadRegistry(servicesRoot) {
   return { services, registry: createServiceRegistry(services) };
 }
 
+function createUpdateState(serviceId, lastCheck) {
+  return {
+    serviceId,
+    state: lastCheck.status === "update_available" ? "available" : "installed",
+    updatedAt: lastCheck.checkedAt,
+    lastCheck,
+    available: null,
+    downloadedCandidate: null,
+    installDeferred: null,
+    failed: null,
+    hookResults: [],
+  };
+}
+
 test("service compatibility report classifies supported platform providers and ports", async () => {
   const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-ok-"));
 
@@ -101,6 +115,146 @@ test("service compatibility report identifies platform mismatch and missing prov
     assert.ok(report.blockers.some((blocker) => blocker.includes("Host platform")));
     assert.ok(report.blockers.some((blocker) => blocker.includes("@python")));
     assert.ok(report.requirements.some((requirement) => requirement.kind === "provider" && requirement.status === "missing"));
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("service compatibility report does not warn when pinned release metadata is current", async () => {
+  const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-release-current-"));
+
+  try {
+    await writeManifest(servicesRoot, "current-service", {
+      id: "current-service",
+      name: "Current Service",
+      description: "Service pinned to the tracked release.",
+      artifact: {
+        kind: "archive",
+        source: {
+          type: "github-release",
+          repo: "service-lasso/current-service",
+          tag: "2026.5.20-current",
+        },
+        platforms: {
+          default: {
+            assetName: "current-service.zip",
+            archiveType: "zip",
+          },
+        },
+      },
+    });
+    const { services, registry } = await loadRegistry(servicesRoot);
+
+    const report = buildServiceCompatibilityReport(services[0], registry, {
+      updateState: createUpdateState("current-service", {
+        checkedAt: "2026-05-20T00:00:00.000Z",
+        status: "latest",
+        reason: "Installed release tag matches the tracked release.",
+        sourceRepo: "service-lasso/current-service",
+        track: "latest",
+        installedTag: null,
+        manifestTag: "2026.5.20-current",
+        latestTag: "2026.5.20-current",
+      }),
+    });
+
+    assert.deepEqual(report.warnings, []);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("service compatibility report warns when catalog release metadata is stale", async () => {
+  const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-release-stale-"));
+
+  try {
+    await writeManifest(servicesRoot, "stale-service", {
+      id: "stale-service",
+      name: "Stale Service",
+      description: "Service pinned behind the tracked release.",
+      artifact: {
+        kind: "archive",
+        source: {
+          type: "github-release",
+          repo: "service-lasso/stale-service",
+          tag: "2026.5.10-old",
+        },
+        platforms: {
+          default: {
+            assetName: "stale-service.zip",
+            archiveType: "zip",
+          },
+        },
+      },
+    });
+    const { services, registry } = await loadRegistry(servicesRoot);
+
+    const report = buildServiceCompatibilityReport(services[0], registry, {
+      updateState: createUpdateState("stale-service", {
+        checkedAt: "2026-05-20T00:00:00.000Z",
+        status: "update_available",
+        reason: "Tracked release differs from the installed release tag.",
+        sourceRepo: "service-lasso/stale-service",
+        track: "latest",
+        installedTag: null,
+        manifestTag: "2026.5.10-old",
+        latestTag: "2026.5.20-current",
+      }),
+    });
+
+    assert.equal(report.status, "compatible");
+    assert.equal(report.warnings.length, 1);
+    assert.equal(report.warnings[0].kind, "release-stale");
+    assert.equal(report.warnings[0].sourceRepo, "service-lasso/stale-service");
+    assert.equal(report.warnings[0].manifestTag, "2026.5.10-old");
+    assert.equal(report.warnings[0].latestTag, "2026.5.20-current");
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("service compatibility report warns when latest release metadata is unavailable", async () => {
+  const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-release-unavailable-"));
+
+  try {
+    await writeManifest(servicesRoot, "unavailable-service", {
+      id: "unavailable-service",
+      name: "Unavailable Service",
+      description: "Service with unavailable release metadata.",
+      artifact: {
+        kind: "archive",
+        source: {
+          type: "github-release",
+          repo: "service-lasso/unavailable-service",
+          tag: "2026.5.10-old",
+        },
+        platforms: {
+          default: {
+            assetName: "unavailable-service.zip",
+            archiveType: "zip",
+          },
+        },
+      },
+    });
+    const { services, registry } = await loadRegistry(servicesRoot);
+
+    const report = buildServiceCompatibilityReport(services[0], registry, {
+      updateState: createUpdateState("unavailable-service", {
+        checkedAt: "2026-05-20T00:00:00.000Z",
+        status: "check_failed",
+        reason: "500 Internal Server Error",
+        sourceRepo: "service-lasso/unavailable-service",
+        track: "latest",
+        installedTag: null,
+        manifestTag: "2026.5.10-old",
+        latestTag: null,
+      }),
+    });
+
+    assert.equal(report.status, "compatible");
+    assert.equal(report.warnings.length, 1);
+    assert.equal(report.warnings[0].kind, "release-metadata-unavailable");
+    assert.match(report.warnings[0].detail, /500 Internal Server Error/);
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

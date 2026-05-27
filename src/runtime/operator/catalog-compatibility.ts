@@ -1,9 +1,16 @@
-import type { ServiceCompatibilityReport, ServiceCompatibilityRequirementStatus } from "../../contracts/api.js";
+import type {
+  ServiceCompatibilityReport,
+  ServiceCompatibilityRequirementStatus,
+  ServiceCompatibilityWarning,
+} from "../../contracts/api.js";
 import type { DiscoveredService, ServiceManifest } from "../../contracts/service.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
+import { compareTimestampedReleaseTags } from "../updates/check.js";
+import type { ServiceUpdateState } from "../updates/state.js";
 
 export interface ServiceCompatibilityOptions {
   hostPlatform?: NodeJS.Platform | string;
+  updateState?: ServiceUpdateState | null;
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -34,6 +41,52 @@ function platformIsSupported(supportedPlatforms: string[], hostPlatform: string)
   return supportedPlatforms.length === 0 || supportedPlatforms.includes(hostPlatform) || supportedPlatforms.includes("default");
 }
 
+function buildReleaseWarnings(
+  manifest: ServiceManifest,
+  updateState: ServiceUpdateState | null | undefined,
+): ServiceCompatibilityWarning[] {
+  const source = manifest.artifact?.source;
+  const lastCheck = updateState?.lastCheck;
+  if (!source?.repo || !source.tag || !lastCheck) {
+    return [];
+  }
+
+  const sourceRepo = lastCheck.sourceRepo ?? source.repo;
+  const manifestTag = lastCheck.manifestTag ?? source.tag;
+  const latestTag = lastCheck.latestTag;
+
+  if (lastCheck.status === "check_failed" || lastCheck.status === "unavailable") {
+    return [{
+      kind: "release-metadata-unavailable",
+      severity: "warning",
+      id: "release-metadata-unavailable",
+      detail: `Latest release metadata for "${sourceRepo}" is unavailable: ${lastCheck.reason}`,
+      sourceRepo,
+      manifestTag,
+      latestTag,
+    }];
+  }
+
+  if (!latestTag || manifestTag === latestTag) {
+    return [];
+  }
+
+  const timestampComparison = compareTimestampedReleaseTags(manifestTag, latestTag);
+  if (timestampComparison === 1 || (lastCheck.status === "update_available" && timestampComparison !== -1)) {
+    return [{
+      kind: "release-stale",
+      severity: "warning",
+      id: "release-stale",
+      detail: `Manifest release tag "${manifestTag}" is older than tracked release "${latestTag}".`,
+      sourceRepo,
+      manifestTag,
+      latestTag,
+    }];
+  }
+
+  return [];
+}
+
 export function buildServiceCompatibilityReport(
   service: DiscoveredService,
   registry: ServiceRegistry,
@@ -43,6 +96,7 @@ export function buildServiceCompatibilityReport(
   const supportedPlatforms = collectSupportedPlatforms(service.manifest);
   const requiredProviders = collectRequiredProviders(service.manifest);
   const requiredPorts = collectRequiredPorts(service.manifest);
+  const warnings = buildReleaseWarnings(service.manifest, options.updateState);
   const requirements: ServiceCompatibilityRequirementStatus[] = [
     ...(service.manifest.depend_on ?? []).map((dependencyId) => ({
       kind: "dependency" as const,
@@ -82,5 +136,6 @@ export function buildServiceCompatibilityReport(
     requiredPorts,
     requirements,
     blockers,
+    warnings,
   };
 }
