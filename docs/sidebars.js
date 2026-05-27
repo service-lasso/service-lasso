@@ -133,6 +133,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-start-trace-api",
+          label: "Service Start Trace API",
+        },
+        {
+          type: "doc",
           id: "reference/servicelasso-localhost-sso-test-matrix",
           label: "SSO Test Matrix",
         },

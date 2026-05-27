@@ -5,6 +5,43 @@ export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" 
 
 export type SetupStepStatus = "succeeded" | "failed" | "timeout" | "skipped";
 
+export type ServiceStartTracePhase =
+  | "dependency_resolution"
+  | "port_selection"
+  | "artifact_acquisition"
+  | "env_merge"
+  | "process_spawn"
+  | "health_check"
+  | "terminal_outcome";
+
+export type ServiceStartTraceEventStatus = "completed" | "blocked" | "failed" | "skipped";
+
+export interface ServiceStartTraceEvent {
+  order: number;
+  phase: ServiceStartTracePhase;
+  status: ServiceStartTraceEventStatus;
+  serviceId: string;
+  startedAt: string;
+  finishedAt: string;
+  message: string;
+  metadata: Record<string, string | number | boolean | null | string[]>;
+}
+
+export interface ServiceStartTraceAttempt {
+  attemptId: string;
+  serviceId: string;
+  action: "start" | "restart";
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "succeeded" | "failed" | "blocked";
+  events: ServiceStartTraceEvent[];
+}
+
+export interface ServiceStartTraceState {
+  current: ServiceStartTraceAttempt | null;
+  history: ServiceStartTraceAttempt[];
+}
+
 export interface ServiceSetupStepRunState {
   runId: string;
   serviceId: string;
@@ -87,6 +124,7 @@ export interface ServiceRuntimeState {
   };
   metrics: ServiceRuntimeMetricsState;
   brokerIdentity: ScopedBrokerIdentityMetadata | null;
+  startTrace: ServiceStartTraceState;
 }
 
 export interface ServiceLifecycleState {
