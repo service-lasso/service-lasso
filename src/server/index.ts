@@ -74,6 +74,7 @@ import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from ".
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { reconcilePortReservationLedger, reservePorts, type PortReservationInput } from "../runtime/ports/reservations.js";
+import { explainPortConflict } from "../runtime/ports/conflicts.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
@@ -1430,6 +1431,26 @@ async function routeRequest(
         version: config.version,
         services: runtimeModel.discovered,
         features: config.features,
+      }),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime/ports/conflict") {
+    const port = parseOptionalInteger(url.searchParams.get("port"));
+    if (!isUsablePort(port)) {
+      throw new ApiError("invalid_request", 400, '"port" query parameter must be an integer between 1 and 65535.');
+    }
+
+    writeJson(
+      response,
+      200,
+      await explainPortConflict({
+        workspaceRoot: config.workspaceRoot,
+        host: url.searchParams.get("host"),
+        port,
+        serviceId: url.searchParams.get("serviceId"),
+        portName: url.searchParams.get("portName"),
       }),
     );
     return;
