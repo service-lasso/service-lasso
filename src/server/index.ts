@@ -125,6 +125,7 @@ import type {
   LifecycleActionResponse,
   RuntimeOrchestrationResponse,
   ServiceDetailResponse,
+  ServiceStartTraceResponse,
   ServicesMetaResponse,
   ServiceSummary,
 } from "../contracts/api.js";
@@ -1322,6 +1323,17 @@ async function routeRequest(
         steps: listSetupStepIds(service),
         setup: getLifecycleState(serviceId).setup,
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "start-trace") {
+      const startTrace = getLifecycleState(serviceId).runtime.startTrace;
+      const payload: ServiceStartTraceResponse = {
+        serviceId,
+        trace: startTrace.current,
+        history: startTrace.history,
+      };
+      writeJson(response, 200, payload);
       return;
     }
 

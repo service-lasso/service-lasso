@@ -1,4 +1,4 @@
-import type { LifecycleAction, ServiceLifecycleState } from "../runtime/lifecycle/types.js";
+import type { LifecycleAction, ServiceLifecycleState, ServiceStartTraceState } from "../runtime/lifecycle/types.js";
 import type { ServiceHealthResult } from "../runtime/health/types.js";
 import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
@@ -466,6 +466,12 @@ export interface ServiceHealthResponse {
 export interface ServiceHealthHistoryResponse {
   serviceId: string;
   history: ServiceHealthHistoryState;
+}
+
+export interface ServiceStartTraceResponse {
+  serviceId: string;
+  trace: ServiceStartTraceState["current"];
+  history: ServiceStartTraceState["history"];
 }
 
 export interface SecretReferenceAuditFindingResponse {

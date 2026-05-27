@@ -1,7 +1,16 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
-import type { LifecycleAction, ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
+import type {
+  LifecycleAction,
+  ServiceLifecycleState,
+  ServiceSetupStepRunState,
+  ServiceStartTraceAttempt,
+  ServiceStartTraceEvent,
+  ServiceStartTraceEventStatus,
+  ServiceStartTracePhase,
+  SetupStepStatus,
+} from "../lifecycle/types.js";
 import type { ProviderKind } from "../providers/types.js";
 import type { ServiceBrokerWritebackOperation } from "../../contracts/service.js";
 import { readStoredState } from "./readState.js";
@@ -67,6 +76,7 @@ interface StoredRuntimeState {
     lastRunDurationMs?: number | null;
   };
   brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
+  startTrace?: unknown;
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
 }
@@ -141,6 +151,111 @@ function isProviderKind(value: unknown): value is ProviderKind {
 
 function isSetupStepStatus(value: unknown): value is SetupStepStatus {
   return value === "succeeded" || value === "failed" || value === "timeout" || value === "skipped";
+}
+
+function isStartTracePhase(value: unknown): value is ServiceStartTracePhase {
+  return (
+    value === "dependency_resolution" ||
+    value === "port_selection" ||
+    value === "artifact_acquisition" ||
+    value === "env_merge" ||
+    value === "process_spawn" ||
+    value === "health_check" ||
+    value === "terminal_outcome"
+  );
+}
+
+function isStartTraceEventStatus(value: unknown): value is ServiceStartTraceEventStatus {
+  return value === "completed" || value === "blocked" || value === "failed" || value === "skipped";
+}
+
+function parseStartTraceMetadata(value: unknown): Record<string, string | number | boolean | null | string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) =>
+      typeof entry === "string" ||
+      typeof entry === "number" ||
+      typeof entry === "boolean" ||
+      entry === null ||
+      (Array.isArray(entry) && entry.every((item) => typeof item === "string")),
+    ),
+  ) as Record<string, string | number | boolean | null | string[]>;
+}
+
+function parseStartTraceEvent(value: unknown): ServiceStartTraceEvent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<ServiceStartTraceEvent>;
+  if (
+    typeof record.order !== "number" ||
+    !isStartTracePhase(record.phase) ||
+    !isStartTraceEventStatus(record.status) ||
+    typeof record.serviceId !== "string" ||
+    typeof record.startedAt !== "string" ||
+    typeof record.finishedAt !== "string" ||
+    typeof record.message !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    order: record.order,
+    phase: record.phase,
+    status: record.status,
+    serviceId: record.serviceId,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    message: record.message,
+    metadata: parseStartTraceMetadata(record.metadata),
+  };
+}
+
+function parseStartTraceAttempt(value: unknown): ServiceStartTraceAttempt | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Partial<ServiceStartTraceAttempt>;
+  if (
+    typeof record.attemptId !== "string" ||
+    typeof record.serviceId !== "string" ||
+    (record.action !== "start" && record.action !== "restart") ||
+    typeof record.startedAt !== "string" ||
+    (typeof record.finishedAt !== "string" && record.finishedAt !== null) ||
+    (record.status !== "running" && record.status !== "succeeded" && record.status !== "failed" && record.status !== "blocked") ||
+    !Array.isArray(record.events)
+  ) {
+    return null;
+  }
+
+  return {
+    attemptId: record.attemptId,
+    serviceId: record.serviceId,
+    action: record.action,
+    startedAt: record.startedAt,
+    finishedAt: typeof record.finishedAt === "string" ? record.finishedAt : null,
+    status: record.status,
+    events: record.events.map(parseStartTraceEvent).filter((event): event is ServiceStartTraceEvent => event !== null),
+  };
+}
+
+function parseStartTraceState(value: unknown): ServiceLifecycleState["runtime"]["startTrace"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { current: null, history: [] };
+  }
+
+  const record = value as { current?: unknown; history?: unknown };
+  return {
+    current: parseStartTraceAttempt(record.current),
+    history: Array.isArray(record.history)
+      ? record.history.map(parseStartTraceAttempt).filter((attempt): attempt is ServiceStartTraceAttempt => attempt !== null)
+      : [],
+  };
 }
 
 function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
@@ -340,6 +455,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
           typeof runtime?.metrics?.lastRunDurationMs === "number" ? runtime.metrics.lastRunDurationMs : null,
       },
       brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
+      startTrace: parseStartTraceState(runtime?.startTrace),
     },
   };
 }

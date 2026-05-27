@@ -22,6 +22,27 @@ function cloneBrokerIdentity(identity: ServiceLifecycleState["runtime"]["brokerI
   };
 }
 
+function cloneStartTrace(trace: ServiceLifecycleState["runtime"]["startTrace"]): ServiceLifecycleState["runtime"]["startTrace"] {
+  return {
+    current: trace.current
+      ? {
+          ...trace.current,
+          events: trace.current.events.map((event) => ({
+            ...event,
+            metadata: { ...event.metadata },
+          })),
+        }
+      : null,
+    history: trace.history.map((attempt) => ({
+      ...attempt,
+      events: attempt.events.map((event) => ({
+        ...event,
+        metadata: { ...event.metadata },
+      })),
+    })),
+  };
+}
+
 function createInitialState(): ServiceLifecycleState {
   return {
     installed: false,
@@ -80,6 +101,10 @@ function createInitialState(): ServiceLifecycleState {
         lastRunDurationMs: null,
       },
       brokerIdentity: null,
+      startTrace: {
+        current: null,
+        history: [],
+      },
     },
   };
 }
@@ -163,6 +188,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
         lastRunDurationMs: current.runtime.metrics.lastRunDurationMs,
       },
       brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
+      startTrace: cloneStartTrace(current.runtime.startTrace),
     },
   };
 }
@@ -240,6 +266,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
         lastRunDurationMs: nextState.runtime.metrics.lastRunDurationMs,
       },
       brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
+      startTrace: cloneStartTrace(nextState.runtime.startTrace),
     },
   };
 
