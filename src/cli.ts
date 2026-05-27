@@ -12,6 +12,7 @@ import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } fro
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
+import { runConfigSnapshotCliAction, type ConfigSnapshotCliAction, type ConfigSnapshotCliResult } from "./runtime/cli/config-snapshot.js";
 import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
 import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
@@ -19,7 +20,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "secrets" | "backup" | "operator" | "services" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "config-snapshot" | "secrets" | "backup" | "operator" | "services" | "help" | "version";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
@@ -27,6 +28,7 @@ interface ParsedCliOptions {
   healthAction?: HealthCliAction;
   planAction?: RuntimePlanCliAction;
   lockfileAction?: LockfileCliAction;
+  configSnapshotAction?: ConfigSnapshotCliAction;
   secretsAction?: SecretsCliAction;
   backupAction?: BackupCliAction;
   operatorActionsAction?: OperatorActionsCliAction;
@@ -39,6 +41,7 @@ interface ParsedCliOptions {
   manifestPath?: string;
   stepId?: string;
   archivePath?: string;
+  snapshotPath?: string;
   port?: number;
   servicesRoot?: string;
   workspaceRoot?: string;
@@ -75,6 +78,8 @@ function usageText(): string {
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-snapshot export [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-snapshot import <snapshotPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -136,6 +141,7 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "lockfile" ||
       commandToken === "instance" ||
       commandToken === "config-drift" ||
+      commandToken === "config-snapshot" ||
       commandToken === "secrets" ||
       commandToken === "backup" ||
       commandToken === "operator" ||
@@ -266,6 +272,26 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     parsed.serviceId = remaining.shift();
   }
 
+  if (command === "config-snapshot") {
+    const action = remaining.shift();
+    if (action !== "export" && action !== "import") {
+      throw new Error('The "config-snapshot" command requires one of: export, import.');
+    }
+
+    parsed.configSnapshotAction = action;
+    if (action === "export") {
+      if (remaining[0] && !remaining[0].startsWith("-")) {
+        parsed.serviceId = remaining.shift();
+      }
+    } else {
+      const snapshotPath = remaining.shift();
+      if (!snapshotPath || snapshotPath.startsWith("-")) {
+        throw new Error('The "config-snapshot import" command requires a <snapshotPath> argument.');
+      }
+      parsed.snapshotPath = snapshotPath;
+    }
+  }
+
   if (command === "secrets") {
     const action = remaining.shift();
     if (action !== "audit") {
@@ -360,8 +386,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "secrets" && command !== "backup" && command !== "operator" && command !== "services") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, secrets, backup, operator, and services commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "operator" && command !== "services") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, config-snapshot, secrets, backup, operator, and services commands.");
         }
         parsed.json = true;
         break;
@@ -594,6 +620,32 @@ function printConfigDriftResult(result: ConfigDriftCliResult, asJson: boolean): 
     for (const file of service.files.filter((entry) => entry.status !== "unchanged")) {
       console.log(`  - ${file.path}: ${file.status}`);
     }
+  }
+}
+
+function printConfigSnapshotResult(result: ConfigSnapshotCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "export") {
+    console.log("[service-lasso] config snapshot exported");
+    console.log("- snapshotPath: " + result.snapshotPath);
+    console.log("- services: " + result.snapshot.serviceCount);
+    console.log("- policy: runtime/logs excluded, raw secrets redacted, import dry-run by default");
+    return;
+  }
+
+  console.log("[service-lasso] config snapshot import dry-run");
+  console.log("- snapshotPath: " + result.snapshotPath);
+  console.log("- ok: " + result.ok);
+  console.log("- mutated: " + result.mutated);
+  for (const blocked of result.blocked) {
+    console.log("- blocked: " + blocked);
+  }
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.action + " (" + service.reasons.join(", ") + ")");
   }
 }
 
@@ -925,6 +977,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printConfigDriftResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "config-snapshot") {
+    const result = await runConfigSnapshotCliAction({
+      action: parsed.configSnapshotAction!,
+      serviceId: parsed.serviceId,
+      snapshotPath: parsed.snapshotPath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printConfigSnapshotResult(result, parsed.json);
     return;
   }
 
