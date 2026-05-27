@@ -6,6 +6,7 @@ import type { ServiceUpdateState } from "../runtime/updates/state.js";
 import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js";
 import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
 import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
+import type { ServiceCatalogProvenance } from "./service.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -40,6 +41,7 @@ export interface ServiceSummary {
   healthHistory?: ServiceHealthHistoryState;
   updates?: ServiceUpdateState;
   recovery?: ServiceRecoveryHistoryState;
+  catalogProvenance?: ServiceCatalogProvenance;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
   compatibility?: ServiceCompatibilityReport;

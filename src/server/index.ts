@@ -586,6 +586,7 @@ async function createServiceSummary(
     healthHistory,
     updates,
     recovery,
+    catalogProvenance: service.catalogProvenance,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
     compatibility: buildServiceCompatibilityReport(service, registry, { updateState: updates }),
