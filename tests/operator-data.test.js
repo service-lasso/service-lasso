@@ -50,6 +50,36 @@ test("service detail includes richer operator metadata", async () => {
   }
 });
 
+test("service detail exposes read-only catalog provenance", async () => {
+  resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/${encodeURIComponent("@node")}`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.service.catalogProvenance, {
+      sourcePath: "@node/service.json",
+      sourceType: "github-release",
+      repo: "service-lasso/lasso-node",
+      releaseTag: "2026.4.27-eca215a",
+      assetNames: [
+        "lasso-node-v24.15.0-darwin.tar.gz",
+        "lasso-node-v24.15.0-linux.tar.gz",
+        "lasso-node-v24.15.0-win32.zip",
+      ],
+      checksumPresent: false,
+      packagedRuntimeVersion: "v24.15.0",
+    });
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
 test("GET /api/services/:id/logs returns operator log payload", async () => {
   resetLifecycleState();
   await clearPersistedFixtureState(servicesRoot);

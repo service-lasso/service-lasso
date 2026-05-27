@@ -135,6 +135,16 @@ export interface ServiceArchiveArtifact {
   platforms: Record<string, ServiceArtifactPlatform>;
 }
 
+export interface ServiceCatalogProvenance {
+  sourcePath: string;
+  sourceType: ServiceArtifactSource["type"] | null;
+  repo: string | null;
+  releaseTag: string | null;
+  assetNames: string[];
+  checksumPresent: boolean;
+  packagedRuntimeVersion: string | null;
+}
+
 export type ServiceRole = "service" | "provider";
 
 export type ServiceBrokerBucketKind = "service" | "app" | "shared" | "global";
@@ -221,4 +231,5 @@ export interface DiscoveredService {
   manifest: ServiceManifest;
   manifestPath: string;
   serviceRoot: string;
+  catalogProvenance: ServiceCatalogProvenance;
 }

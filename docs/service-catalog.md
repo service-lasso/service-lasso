@@ -19,6 +19,10 @@ Runtime API consumers can also read host-specific compatibility data from
 `GET /api/services`. Each service summary includes a `compatibility` block
 with the current host platform, declared artifact platforms, required runtime
 providers, declared ports, requirement status, and operator-safe blockers.
+Each service summary also includes a `catalogProvenance` block derived from
+the checked-in manifest: source path, release repo/tag, artifact asset names,
+checksum presence, and packaged runtime version. The provenance block is
+read-only catalog metadata for UI and drift checks.
 This is read-only catalog metadata; it does not change install or start
 behavior.
 

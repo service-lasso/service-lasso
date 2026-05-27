@@ -48,9 +48,61 @@ test("discoverServices loads valid service manifests from a services root", asyn
   }
 });
 
+test("discoverServices records safe provider manifest provenance from artifacts", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "@node", {
+      id: "@node",
+      name: "Node Runtime",
+      description: "Runtime provider",
+      version: "v24.15.0",
+      role: "provider",
+      artifact: {
+        kind: "archive",
+        source: {
+          type: "github-release",
+          repo: "service-lasso/lasso-node",
+          tag: "2026.4.27-eca215a",
+        },
+        platforms: {
+          win32: {
+            assetName: "lasso-node-v24.15.0-win32.zip",
+            archiveType: "zip",
+            checksum: {
+              algorithm: "sha256",
+              assetName: "SHA256SUMS",
+            },
+          },
+          linux: {
+            assetName: "lasso-node-v24.15.0-linux.tar.gz",
+            archiveType: "tar.gz",
+            sha256: "a".repeat(64),
+          },
+        },
+      },
+    });
+
+    const [provider] = await discoverServices(servicesRoot);
+
+    assert.deepEqual(provider.catalogProvenance, {
+      sourcePath: "@node/service.json",
+      sourceType: "github-release",
+      repo: "service-lasso/lasso-node",
+      releaseTag: "2026.4.27-eca215a",
+      assetNames: ["lasso-node-v24.15.0-linux.tar.gz", "lasso-node-v24.15.0-win32.zip"],
+      checksumPresent: true,
+      packagedRuntimeVersion: "v24.15.0",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("core services root declares the clean-clone baseline inventory", async () => {
   const services = await discoverServices(path.join(repoRoot, "services"));
   const byId = new Map(services.map((service) => [service.manifest.id, service.manifest]));
+  const byServiceId = new Map(services.map((service) => [service.manifest.id, service]));
 
   assert.deepEqual(
     ["@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@traefik", "echo-service", "@serviceadmin"].filter((serviceId) => !byId.has(serviceId)),
@@ -96,6 +148,19 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
   assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-eca215a");
   assert.equal(byId.get("@node")?.artifact?.platforms.win32?.assetName, "lasso-node-v24.15.0-win32.zip");
+  assert.deepEqual(byServiceId.get("@node")?.catalogProvenance, {
+    sourcePath: "@node/service.json",
+    sourceType: "github-release",
+    repo: "service-lasso/lasso-node",
+    releaseTag: "2026.4.27-eca215a",
+    assetNames: [
+      "lasso-node-v24.15.0-darwin.tar.gz",
+      "lasso-node-v24.15.0-linux.tar.gz",
+      "lasso-node-v24.15.0-win32.zip",
+    ],
+    checksumPresent: false,
+    packagedRuntimeVersion: "v24.15.0",
+  });
   assert.deepEqual(byId.get("@node")?.globalenv, {
     NODE: "${SERVICE_ARTIFACT_COMMAND}",
     NODE_HOME: "${SERVICE_ARTIFACT_ROOT}",
@@ -107,6 +172,15 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@python")?.role, "provider");
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
+  assert.deepEqual(byServiceId.get("@python")?.catalogProvenance, {
+    sourcePath: "@python/service.json",
+    sourceType: "github-release",
+    repo: "service-lasso/lasso-python",
+    releaseTag: "2026.4.27-63f915c",
+    assetNames: ["lasso-python-3.11.5-win32.zip"],
+    checksumPresent: false,
+    packagedRuntimeVersion: "3.11.5",
+  });
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.deepEqual(byId.get("@traefik")?.depend_on, ["@localcert", "@nginx"]);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
