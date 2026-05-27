@@ -44,9 +44,19 @@ export interface OperatorActionItem {
   reopenedAt: string | null;
 }
 
+export interface OperatorActionAcknowledgementHistoryEntry {
+  itemId: string;
+  acknowledgedAt: string;
+  actor: string;
+  reason: string | null;
+  previousStatus: OperatorActionStatus;
+  currentStatus: "acknowledged";
+}
+
 export interface OperatorActionQueueState {
   updatedAt: string;
   items: OperatorActionItem[];
+  acknowledgementHistory: OperatorActionAcknowledgementHistoryEntry[];
 }
 
 export interface OperatorActionInput {
@@ -62,9 +72,12 @@ export interface OperatorActionInput {
 export interface OperatorActionMutationInput {
   now?: string;
   deferredUntil?: string | null;
+  actor?: string | null;
+  reason?: string | null;
 }
 
 const queueWriteQueues = new Map<string, Promise<void>>();
+const OPERATOR_ACTION_ACKNOWLEDGEMENT_HISTORY_LIMIT = 1000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -185,9 +198,32 @@ function normalizeItem(value: unknown): OperatorActionItem | null {
   };
 }
 
+function normalizeAcknowledgementHistoryEntry(value: unknown): OperatorActionAcknowledgementHistoryEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const itemId = sanitizeText(stringOr(record.itemId, ""));
+  const acknowledgedAt = stringOr(record.acknowledgedAt, "");
+  const previousStatus = isStatus(record.previousStatus) ? record.previousStatus : null;
+  if (!itemId || !acknowledgedAt || !previousStatus) {
+    return null;
+  }
+
+  return {
+    itemId,
+    acknowledgedAt,
+    actor: sanitizeText(stringOr(record.actor, "unknown")) || "unknown",
+    reason: stringOrNull(record.reason) === null ? null : sanitizeText(stringOr(record.reason, "")),
+    previousStatus,
+    currentStatus: "acknowledged",
+  };
+}
+
 export function normalizeOperatorActionQueueState(input: unknown): OperatorActionQueueState {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { updatedAt: nowIso(), items: [] };
+    return { updatedAt: nowIso(), items: [], acknowledgementHistory: [] };
   }
 
   const record = input as Record<string, unknown>;
@@ -197,6 +233,12 @@ export function normalizeOperatorActionQueueState(input: unknown): OperatorActio
       ? record.items.flatMap((entry) => {
           const item = normalizeItem(entry);
           return item ? [item] : [];
+        })
+      : [],
+    acknowledgementHistory: Array.isArray(record.acknowledgementHistory)
+      ? record.acknowledgementHistory.flatMap((entry) => {
+          const historyEntry = normalizeAcknowledgementHistoryEntry(entry);
+          return historyEntry ? [historyEntry] : [];
         })
       : [],
   };
@@ -222,6 +264,11 @@ async function writeOperatorActionQueueWithoutQueue(
       .flatMap((item) => item ? [item] : [])
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, OPERATOR_ACTION_QUEUE_LIMIT),
+    acknowledgementHistory: state.acknowledgementHistory
+      .map((entry) => normalizeAcknowledgementHistoryEntry(entry))
+      .flatMap((entry) => entry ? [entry] : [])
+      .sort((a, b) => b.acknowledgedAt.localeCompare(a.acknowledgedAt))
+      .slice(0, OPERATOR_ACTION_ACKNOWLEDGEMENT_HISTORY_LIMIT),
   };
 
   const filePath = queuePath(workspaceRoot);
@@ -285,6 +332,7 @@ export async function upsertOperatorActionItem(
     return await writeOperatorActionQueueWithoutQueue(workspaceRoot, {
       updatedAt: observedAt,
       items: [nextItem, ...existing.items.filter((item) => item.id !== nextItem.id)],
+      acknowledgementHistory: existing.acknowledgementHistory,
     });
   });
 }
@@ -300,6 +348,7 @@ export async function mutateOperatorActionItem(
     const existing = await readOperatorActionQueue(workspaceRoot);
     const now = input.now ?? nowIso();
     let found = false;
+    const acknowledgementHistory: OperatorActionAcknowledgementHistoryEntry[] = [...existing.acknowledgementHistory];
     const items = existing.items.map((item) => {
       if (item.id !== itemId) {
         return item;
@@ -307,6 +356,14 @@ export async function mutateOperatorActionItem(
 
       found = true;
       if (action === "acknowledge") {
+        acknowledgementHistory.push({
+          itemId: item.id,
+          acknowledgedAt: now,
+          actor: sanitizeText(input.actor ?? "unknown") || "unknown",
+          reason: input.reason === undefined || input.reason === null ? null : sanitizeText(input.reason),
+          previousStatus: item.status,
+          currentStatus: "acknowledged",
+        });
         return {
           ...item,
           status: "acknowledged" as const,
@@ -342,7 +399,15 @@ export async function mutateOperatorActionItem(
     return await writeOperatorActionQueueWithoutQueue(workspaceRoot, {
       updatedAt: now,
       items,
+      acknowledgementHistory,
     });
   });
 }
 
+export async function readOperatorActionAcknowledgementHistory(
+  workspaceRoot: string,
+  itemId: string,
+): Promise<OperatorActionAcknowledgementHistoryEntry[]> {
+  const queue = await readOperatorActionQueue(workspaceRoot);
+  return queue.acknowledgementHistory.filter((entry) => entry.itemId === itemId);
+}

@@ -19,6 +19,10 @@ Each item contains:
 
 Repeated records with the same dedupeKey update the existing item, preserve firstSeenAt, refresh lastSeenAt, and reopen an acknowledged item.
 
+The queue also contains acknowledgementHistory: sanitized acknowledgement audit entries with itemId, actor, reason, acknowledgedAt, previousStatus, and currentStatus.
+
+Acknowledging an item appends an acknowledgementHistory entry even when the item was already acknowledged. History actor and reason values are sanitized before persistence and API output.
+
 ## API
 
 List queue:
@@ -61,7 +65,29 @@ POST /api/operator/actions/{actionId}/defer
 POST /api/operator/actions/{actionId}/reopen
 ~~~
 
-defer accepts an optional deferredUntil string.
+acknowledge accepts optional actor and reason strings. defer accepts an optional deferredUntil string.
+
+Retrieve acknowledgement history for one item:
+
+~~~http
+GET /api/operator/actions/{actionId}/acknowledgements
+~~~
+
+~~~json
+{
+  "itemId": "action-recovery:-node:doctor",
+  "acknowledgements": [
+    {
+      "itemId": "action-recovery:-node:doctor",
+      "acknowledgedAt": "2026-05-22T00:00:00.000Z",
+      "actor": "operator@example.com",
+      "reason": "Reviewed recovery warning.",
+      "previousStatus": "open",
+      "currentStatus": "acknowledged"
+    }
+  ]
+}
+~~~
 
 ## CLI
 
@@ -77,4 +103,3 @@ The CLI uses the same --services-root and --workspace-root options as the other 
 ## Safety
 
 Producers must pass only safe summaries and references. The queue writer also redacts common credential-like patterns from title, summary, and evidence fields before persistence, but that is a guardrail rather than permission to submit secret-bearing data.
-

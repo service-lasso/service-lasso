@@ -6,6 +6,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import {
   mutateOperatorActionItem,
+  readOperatorActionAcknowledgementHistory,
   readOperatorActionQueue,
   upsertOperatorActionItem,
 } from "../dist/runtime/operator/action-queue.js";
@@ -94,9 +95,34 @@ test("operator action queue persists deduped actions and safe mutations", async 
 
     queue = await mutateOperatorActionItem(workspaceRoot, queue.items[0].id, "acknowledge", {
       now: "2026-05-21T18:06:00.000Z",
+      actor: "operator@example.com",
+      reason: "Reviewed failed check.",
     });
     assert.equal(queue.items[0].status, "acknowledged");
     assert.equal(queue.items[0].acknowledgedAt, "2026-05-21T18:06:00.000Z");
+    assert.equal(queue.acknowledgementHistory.length, 1);
+    assert.deepEqual(queue.acknowledgementHistory[0], {
+      itemId: queue.items[0].id,
+      acknowledgedAt: "2026-05-21T18:06:00.000Z",
+      actor: "operator@example.com",
+      reason: "Reviewed failed check.",
+      previousStatus: "open",
+      currentStatus: "acknowledged",
+    });
+
+    queue = await mutateOperatorActionItem(workspaceRoot, queue.items[0].id, "acknowledge", {
+      now: "2026-05-21T18:06:30.000Z",
+      actor: "token=ghp_historySecret",
+      reason: "credential=hunter2 already reviewed",
+    });
+    assert.equal(queue.items[0].status, "acknowledged");
+    assert.equal(queue.acknowledgementHistory.length, 2);
+    assert.equal(queue.acknowledgementHistory[0].previousStatus, "acknowledged");
+    assert.equal(queue.acknowledgementHistory[0].actor, "token=[redacted]");
+    assert.equal(queue.acknowledgementHistory[0].reason, "credential=[redacted] already reviewed");
+
+    const history = await readOperatorActionAcknowledgementHistory(workspaceRoot, queue.items[0].id);
+    assert.equal(history.length, 2);
 
     queue = await mutateOperatorActionItem(workspaceRoot, queue.items[0].id, "defer", {
       now: "2026-05-21T18:07:00.000Z",
@@ -115,7 +141,7 @@ test("operator action queue persists deduped actions and safe mutations", async 
     assert.equal(reread.items.length, 1);
 
     const persisted = await readFile(path.join(workspaceRoot, ".state", "operator-actions.json"), "utf8");
-    assert.doesNotMatch(persisted, /hunter2|ghp_exampleSecret|abcdef123456/);
+    assert.doesNotMatch(persisted, /hunter2|ghp_exampleSecret|abcdef123456|ghp_historySecret/);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -154,9 +180,30 @@ test("operator action queue is available through API and CLI", async () => {
     assert.equal(response.status, 200);
     assert.equal(payload.queue.items[0].id, actionId);
 
-    const acknowledged = await postJson(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/acknowledge");
+    const acknowledged = await postJson(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/acknowledge", {
+      actor: "operator@example.com",
+      reason: "Reviewed token=ghp_apiSecret.",
+    });
     assert.equal(acknowledged.status, 200);
     assert.equal(acknowledged.body.queue.items[0].status, "acknowledged");
+    assert.equal(acknowledged.body.queue.acknowledgementHistory[0].actor, "operator@example.com");
+    assert.equal(acknowledged.body.queue.acknowledgementHistory[0].reason, "Reviewed token=[redacted]");
+
+    const acknowledgedAgain = await postJson(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/acknowledge", {
+      actor: "operator@example.com",
+      reason: "Repeated acknowledgement.",
+    });
+    assert.equal(acknowledgedAgain.status, 200);
+    assert.equal(acknowledgedAgain.body.queue.acknowledgementHistory.length, 2);
+    assert.equal(acknowledgedAgain.body.queue.acknowledgementHistory[0].previousStatus, "acknowledged");
+
+    response = await fetch(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/acknowledgements");
+    payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(payload.itemId, actionId);
+    assert.equal(payload.acknowledgements.length, 2);
+    assert.equal(payload.acknowledgements[1].previousStatus, "open");
+    assert.doesNotMatch(JSON.stringify(payload), /ghp_apiSecret/);
 
     const cliListOut = await runCli([
       "operator",

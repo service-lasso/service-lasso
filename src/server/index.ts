@@ -62,9 +62,11 @@ import {
 } from "../runtime/operator/secret-audit.js";
 import {
   mutateOperatorActionItem,
+  readOperatorActionAcknowledgementHistory,
   readOperatorActionQueue,
   upsertOperatorActionItem,
   type OperatorActionInput,
+  type OperatorActionMutationInput,
 } from "../runtime/operator/action-queue.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
@@ -217,7 +219,7 @@ function parseOperatorActionRecordBody(input: unknown): OperatorActionInput {
   };
 }
 
-function parseOperatorActionMutationBody(input: unknown): { deferredUntil?: string | null } {
+function parseOperatorActionMutationBody(input: unknown): OperatorActionMutationInput {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return {};
   }
@@ -225,7 +227,17 @@ function parseOperatorActionMutationBody(input: unknown): { deferredUntil?: stri
   if (candidate.deferredUntil !== undefined && candidate.deferredUntil !== null && typeof candidate.deferredUntil !== "string") {
     throw new ApiError("invalid_body", 400, '"deferredUntil" must be a string or null when present.');
   }
-  return { deferredUntil: typeof candidate.deferredUntil === "string" ? candidate.deferredUntil : null };
+  if (candidate.actor !== undefined && candidate.actor !== null && typeof candidate.actor !== "string") {
+    throw new ApiError("invalid_body", 400, '"actor" must be a string or null when present.');
+  }
+  if (candidate.reason !== undefined && candidate.reason !== null && typeof candidate.reason !== "string") {
+    throw new ApiError("invalid_body", 400, '"reason" must be a string or null when present.');
+  }
+  return {
+    deferredUntil: typeof candidate.deferredUntil === "string" ? candidate.deferredUntil : null,
+    actor: typeof candidate.actor === "string" ? candidate.actor : null,
+    reason: typeof candidate.reason === "string" ? candidate.reason : null,
+  };
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -938,6 +950,19 @@ async function routeRequest(
       queue: await readOperatorActionQueue(config.workspaceRoot),
     });
     return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/operator/actions/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const actionId = decodeURIComponent(pathParts[3] ?? "");
+    const resource = pathParts[4];
+    if (actionId && resource === "acknowledgements") {
+      writeJson(response, 200, {
+        itemId: actionId,
+        acknowledgements: await readOperatorActionAcknowledgementHistory(config.workspaceRoot, actionId),
+      });
+      return;
+    }
   }
 
   if (request.method === "POST" && url.pathname === "/api/operator/actions/record") {
