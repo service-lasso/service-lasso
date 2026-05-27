@@ -93,6 +93,52 @@ export interface DiagnosticsBundle {
   };
 }
 
+export interface DiagnosticsBundlePreviewFile {
+  path: string;
+  sourcePath: string | null;
+  wouldWrite: true;
+  contents: string[];
+}
+
+export interface DiagnosticsBundlePreviewLogSegment {
+  type: DiagnosticsBundleLogExcerpt["type"];
+  sourcePath: string;
+  totalLines: number;
+  includedLines: number;
+  redaction: "pattern-redacted";
+}
+
+export interface DiagnosticsBundlePreviewRedaction {
+  surface: string;
+  action: "keys-only" | "field-redacted" | "pattern-redacted";
+  keys?: string[];
+  redacted: boolean;
+}
+
+export interface DiagnosticsBundlePreviewService {
+  serviceId: string;
+  manifestPath: string;
+  serviceRoot: string;
+  files: DiagnosticsBundlePreviewFile[];
+  includedFields: string[];
+  logSegments: DiagnosticsBundlePreviewLogSegment[];
+  redactions: DiagnosticsBundlePreviewRedaction[];
+}
+
+export interface DiagnosticsBundlePreview {
+  previewVersion: 1;
+  generatedAt: string;
+  mutated: false;
+  scope: DiagnosticsBundle["scope"];
+  runtime: DiagnosticsBundle["runtime"];
+  output: {
+    wouldWriteBundle: false;
+    files: DiagnosticsBundlePreviewFile[];
+  };
+  services: DiagnosticsBundlePreviewService[];
+  redaction: DiagnosticsBundle["redaction"];
+}
+
 function redactString(value: string): string {
   return sensitiveValuePatterns.reduce((current, pattern) => current.replace(pattern, REDACTED), value);
 }
@@ -275,6 +321,117 @@ export async function buildDiagnosticsBundle(options: DiagnosticsBundleOptions =
 
 function safeServiceDirectoryName(serviceId: string): string {
   return encodeURIComponent(serviceId).replace(/%/g, "_");
+}
+
+function buildServicePreview(service: DiagnosticsBundleService): DiagnosticsBundlePreviewService {
+  const serviceDirectoryName = safeServiceDirectoryName(service.serviceId);
+  return {
+    serviceId: service.serviceId,
+    manifestPath: service.manifestPath,
+    serviceRoot: service.serviceRoot,
+    files: [
+      {
+        path: path.posix.join("services", serviceDirectoryName, "summary.json"),
+        sourcePath: service.manifestPath,
+        wouldWrite: true,
+        contents: [
+          "service manifest metadata",
+          "state paths",
+          "lifecycle summary",
+          "health regression summary",
+          "update and recovery summaries",
+        ],
+      },
+      {
+        path: path.posix.join("services", serviceDirectoryName, "logs.json"),
+        sourcePath: null,
+        wouldWrite: true,
+        contents: ["bounded redacted service/stdout/stderr log excerpts"],
+      },
+    ],
+    includedFields: [
+      "manifest.id",
+      "manifest.name",
+      "manifest.description",
+      "manifest.enabled",
+      "manifest.role",
+      "manifest.version",
+      "manifest.dependencies",
+      "manifest.dependents",
+      "manifest.ports",
+      "manifest.urlKeys",
+      "manifest.envKeys",
+      "manifest.globalenvKeys",
+      "manifest.broker",
+      "statePaths",
+      "lifecycle",
+      "healthRegression",
+      "updates",
+      "recovery",
+      "logs",
+    ],
+    logSegments: service.logs.map((log) => ({
+      type: log.type,
+      sourcePath: log.path,
+      totalLines: log.totalLines,
+      includedLines: log.lines.length,
+      redaction: "pattern-redacted",
+    })),
+    redactions: [
+      {
+        surface: "manifest.env",
+        action: "keys-only",
+        keys: service.manifest.envKeys,
+        redacted: service.manifest.envKeys.length > 0,
+      },
+      {
+        surface: "manifest.globalenv",
+        action: "keys-only",
+        keys: service.manifest.globalenvKeys,
+        redacted: service.manifest.globalenvKeys.length > 0,
+      },
+      {
+        surface: "manifest.broker",
+        action: "field-redacted",
+        redacted: service.manifest.broker !== null && service.manifest.broker !== undefined,
+      },
+      {
+        surface: "lifecycle.runtime.command",
+        action: "field-redacted",
+        redacted: service.lifecycle.runtime.command === REDACTED,
+      },
+      {
+        surface: "logs.lines",
+        action: "pattern-redacted",
+        redacted: service.logs.some((log) => log.lines.length > 0),
+      },
+    ],
+  };
+}
+
+export function buildDiagnosticsBundlePreview(bundle: DiagnosticsBundle): DiagnosticsBundlePreview {
+  const services = bundle.services.map((service) => buildServicePreview(service));
+  return {
+    previewVersion: 1,
+    generatedAt: bundle.generatedAt,
+    mutated: false,
+    scope: bundle.scope,
+    runtime: bundle.runtime,
+    output: {
+      wouldWriteBundle: false,
+      files: [
+        {
+          path: "manifest.json",
+          sourcePath: null,
+          wouldWrite: true,
+          contents: ["bundle metadata", "runtime summary", "service summaries", "redaction rules"],
+        },
+        ...services.flatMap((service) => service.files),
+      ],
+    },
+    services,
+    redaction: bundle.redaction,
+  };
 }
 
 export async function writeDiagnosticsBundleFolder(bundle: DiagnosticsBundle, outputRoot: string): Promise<string> {
