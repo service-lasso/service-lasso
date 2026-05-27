@@ -73,6 +73,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/config-snapshot",
+          label: "Configuration Snapshot",
+        },
+        {
+          type: "doc",
           id: "reference/workspace-backup-restore",
           label: "Workspace Backup and Restore",
         },
