@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile as execFileCallback } from "node:child_process";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import {
   buildDiagnosticsBundle,
   writeDiagnosticsBundleFolder,
@@ -14,6 +16,8 @@ import {
   serviceLassoSecretLeakSentinels,
 } from "../dist/testing/secretLeakHarness.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+
+const execFile = promisify(execFileCallback);
 
 async function writeSecretBearingRuntimeLog(serviceRoot) {
   const logPaths = getServiceRuntimeLogPaths(serviceRoot);
@@ -28,6 +32,28 @@ async function writeSecretBearingRuntimeLog(serviceRoot) {
         " Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
     }) + "\n",
   );
+}
+
+async function pathExists(targetPath) {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runCli(args, cwd = path.resolve(".")) {
+  const cliPath = path.join(cwd, "dist", "cli.js");
+  const result = await execFile(process.execPath, [cliPath, ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      npm_package_version: "0.1.0-test",
+    },
+  });
+
+  return result.stdout.trim();
 }
 
 async function writeHealthHistory(serviceRoot, serviceId, transitions) {
@@ -198,6 +224,53 @@ test("diagnostics bundle API returns redacted baseline evidence", async () => {
     assertNoSecretMaterial(body);
   } finally {
     await apiServer?.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI diagnostics bundle preview reports scope decisions without writing bundle or leaking secrets", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-diagnostics-cli-preview-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  try {
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+      env: {
+        SERVICE_TOKEN: serviceLassoSecretLeakSentinels[0].value,
+      },
+      globalenv: {
+        SERVICE_PASSWORD: serviceLassoSecretLeakSentinels[1].value,
+      },
+    });
+    await writeSecretBearingRuntimeLog(serviceRoot);
+
+    const stdout = await runCli([
+      "diagnostics",
+      "bundle",
+      "baseline",
+      "--preview",
+      "--services-root",
+      servicesRoot,
+      "--workspace-root",
+      workspaceRoot,
+      "--json",
+    ]);
+    const preview = JSON.parse(stdout);
+    const serialized = JSON.stringify(preview);
+
+    assert.equal(preview.action, "bundle-preview");
+    assert.equal(preview.mutated, false);
+    assert.equal(preview.output.wouldWriteBundle, false);
+    assert.deepEqual(preview.output.files.map((file) => file.path), [
+      "manifest.json",
+      "services/alpha-service/summary.json",
+      "services/alpha-service/logs.json",
+    ]);
+    assert.equal(preview.services[0].includedFields.includes("manifest.envKeys"), true);
+    assert.equal(preview.services[0].redactions.some((entry) => entry.surface === "manifest.env" && entry.action === "keys-only"), true);
+    assert.equal(preview.services[0].logSegments.some((entry) => entry.type === "service" && entry.includedLines === 1), true);
+    assert.equal(await pathExists(path.join(tempRoot, "bundle")), false);
+    assertNoSecretMaterial(preview);
+    assert.doesNotMatch(serialized, /abcdefghijklmnopqrstuvwxyz123456|SERVICE_LASSO_FAKE_SECRET_SENTINEL/);
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

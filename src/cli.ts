@@ -14,6 +14,7 @@ import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from
 import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
 import { runConfigApplyCliAction, type ConfigApplyCliAction, type ConfigApplyCliResult } from "./runtime/cli/config-apply.js";
 import { runConfigSnapshotCliAction, type ConfigSnapshotCliAction, type ConfigSnapshotCliResult } from "./runtime/cli/config-snapshot.js";
+import { runDiagnosticsCliAction, type DiagnosticsCliAction, type DiagnosticsCliResult } from "./runtime/cli/diagnostics.js";
 import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
 import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
@@ -21,7 +22,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "operator" | "services" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "help" | "version";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
@@ -33,6 +34,7 @@ interface ParsedCliOptions {
   configSnapshotAction?: ConfigSnapshotCliAction;
   secretsAction?: SecretsCliAction;
   backupAction?: BackupCliAction;
+  diagnosticsAction?: DiagnosticsCliAction;
   operatorActionsAction?: OperatorActionsCliAction;
   actionId?: string;
   deferredUntil?: string | null;
@@ -51,6 +53,7 @@ interface ParsedCliOptions {
   force: boolean;
   includeManual: boolean;
   dryRun?: boolean;
+  preview?: boolean;
 }
 
 function usageText(): string {
@@ -86,6 +89,7 @@ function usageText(): string {
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions list [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions acknowledge <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -148,6 +152,7 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "config-snapshot" ||
       commandToken === "secrets" ||
       commandToken === "backup" ||
+      commandToken === "diagnostics" ||
       commandToken === "operator" ||
       commandToken === "services"
       ? commandToken
@@ -336,6 +341,21 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
   }
 
+  if (command === "diagnostics") {
+    const action = remaining.shift();
+    if (action !== "bundle") {
+      throw new Error('The "diagnostics" command requires: bundle.');
+    }
+
+    parsed.diagnosticsAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      const scope = remaining.shift();
+      if (scope && scope !== "baseline") {
+        parsed.serviceId = scope;
+      }
+    }
+  }
+
   if (command === "operator") {
     const scope = remaining.shift();
     if (scope !== "actions") {
@@ -402,8 +422,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "operator" && command !== "services") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, config-apply, config-snapshot, secrets, backup, operator, and services commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, and services commands.");
         }
         parsed.json = true;
         break;
@@ -420,10 +440,20 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--dry-run": {
-        if (command !== "services" || parsed.serviceCommand !== "import") {
-          throw new Error("--dry-run is only supported for the services import command.");
+        if ((command !== "services" || parsed.serviceCommand !== "import") && command !== "diagnostics") {
+          throw new Error("--dry-run is only supported for the services import and diagnostics bundle commands.");
         }
         parsed.dryRun = true;
+        if (command === "diagnostics") {
+          parsed.preview = true;
+        }
+        break;
+      }
+      case "--preview": {
+        if (command !== "diagnostics") {
+          throw new Error("--preview is only supported for the diagnostics bundle command.");
+        }
+        parsed.preview = true;
         break;
       }
       case "--tag": {
@@ -755,6 +785,27 @@ function printBackupResult(result: BackupCliResult, asJson: boolean): void {
   }
 }
 
+function printDiagnosticsResult(result: DiagnosticsCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] diagnostics bundle preview");
+  console.log("- scope: " + result.scope.kind + (result.scope.serviceId ? " " + result.scope.serviceId : ""));
+  console.log("- services: " + result.runtime.serviceCount);
+  console.log("- wouldWriteBundle: " + result.output.wouldWriteBundle);
+  console.log("- files: " + result.output.files.length);
+  console.log("- redaction: " + result.redaction.value);
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": files=" + service.files.length + " logSegments=" + service.logSegments.length);
+    const envRedaction = service.redactions.find((entry) => entry.surface === "manifest.env");
+    const globalenvRedaction = service.redactions.find((entry) => entry.surface === "manifest.globalenv");
+    console.log("  envKeys: " + (envRedaction?.keys?.join(", ") || "none"));
+    console.log("  globalenvKeys: " + (globalenvRedaction?.keys?.join(", ") || "none"));
+  }
+}
+
 function printOperatorResult(result: OperatorCliResult, asJson: boolean): void {
   if (asJson) {
     console.log(JSON.stringify(result, null, 2));
@@ -1071,6 +1122,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printBackupResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "diagnostics") {
+    const result = await runDiagnosticsCliAction({
+      action: parsed.diagnosticsAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+      preview: parsed.preview ?? false,
+    });
+    printDiagnosticsResult(result, parsed.json);
     return;
   }
 

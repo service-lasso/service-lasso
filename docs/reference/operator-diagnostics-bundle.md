@@ -6,9 +6,11 @@ Service Lasso can export a redacted diagnostics bundle for the full baseline or 
 
 Command:
 
-    service-lasso diagnostics bundle [serviceId|baseline] --services-root PATH --workspace-root PATH --output PATH --json
+    service-lasso diagnostics bundle [serviceId|baseline] --preview --services-root PATH --workspace-root PATH --json
 
-When serviceId is omitted, or when baseline is supplied, the bundle includes every discovered service. The command writes a deterministic folder with:
+Preview mode is non-mutating support-bundle planning evidence. It lists the files that would be written, the safe fields that would be included, bounded log segments that would be sampled, and the redaction decisions that protect env, globalenv, runtime command, broker, and log content. It does not write the bundle folder.
+
+When serviceId is omitted, or when baseline is supplied, the bundle scope includes every discovered service. The underlying written bundle shape is a deterministic folder with:
 
 - manifest.json: bundle metadata and service summaries
 - services/SERVICE_ID/summary.json: per-service manifest, state, update, recovery, and lifecycle evidence
