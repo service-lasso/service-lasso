@@ -17,12 +17,14 @@ import { runConfigSnapshotCliAction, type ConfigSnapshotCliAction, type ConfigSn
 import { runDiagnosticsCliAction, type DiagnosticsCliAction, type DiagnosticsCliResult } from "./runtime/cli/diagnostics.js";
 import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
 import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
+import { runReadinessGateCliAction, type ReadinessGateCliResult } from "./runtime/cli/readiness.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "help" | "version";
+  readinessAction?: "gate";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
@@ -81,6 +83,7 @@ function usageText(): string {
     "  service-lasso recovery restart-preflight <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso readiness gate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -108,8 +111,8 @@ function usageText(): string {
     "  - The plan command previews start, stop, update-install, and app-owned service import actions without writing state.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
     "  - The instance command reads local runtime identity and recent instance registry state.",
+    "  - The readiness command emits a machine-readable gate for baseline automation.",
     "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
-    "  - The instance command reads local runtime identity and recent instance registry state.",
   ].join("\n");
 }
 
@@ -148,6 +151,7 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "plan" ||
       commandToken === "lockfile" ||
       commandToken === "instance" ||
+      commandToken === "readiness" ||
       commandToken === "config-drift" ||
       commandToken === "config-apply" ||
       commandToken === "config-snapshot" ||
@@ -253,6 +257,15 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     }
 
     parsed.lockfileAction = action;
+  }
+
+  if (command === "readiness") {
+    const action = remaining.shift();
+    if (action !== "gate") {
+      throw new Error('The "readiness" command requires: gate.');
+    }
+
+    parsed.readinessAction = action;
   }
 
   if (command === "plan") {
@@ -423,8 +436,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, and services commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, and services commands.");
         }
         parsed.json = true;
         break;
@@ -948,6 +961,27 @@ function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): 
   console.log("- stale: " + result.registry.staleCount);
 }
 
+function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] readiness gate");
+  console.log("- status: " + result.status);
+  console.log("- baselineStartPossible: " + result.baseline.startPossible);
+  console.log("- services: enabled=" + result.baseline.enabledServices + " total=" + result.baseline.totalServices);
+  console.log("- providers: required=" + result.providers.required.length + " missing=" + result.providers.missing.length);
+  console.log("- git: " + (result.workspace.git.branch ?? "unknown") + " clean=" + result.workspace.git.clean);
+  for (const blocker of result.blockers) {
+    console.log("- blocked: " + blocker.message);
+  }
+  for (const warning of result.warnings) {
+    console.log("- warning: " + warning.message);
+  }
+  console.log("- nextAction: " + result.nextAction);
+}
+
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const parsed = parseCliArgs(argv);
   const runtimeVersion = resolveRuntimeVersion();
@@ -1059,6 +1093,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printInstanceResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "readiness") {
+    const result = await runReadinessGateCliAction({
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printReadinessGateResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
