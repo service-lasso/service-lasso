@@ -91,6 +91,7 @@ function usageText(): string {
     "  service-lasso config-snapshot export [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso config-snapshot import <snapshotPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets rotation-readiness [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -329,8 +330,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "secrets") {
     const action = remaining.shift();
-    if (action !== "audit") {
-      throw new Error('The "secrets" command requires: audit.');
+    if (action !== "audit" && action !== "rotation-readiness") {
+      throw new Error('The "secrets" command requires one of: audit, rotation-readiness.');
     }
 
     parsed.secretsAction = action;
@@ -751,6 +752,48 @@ function printConfigSnapshotResult(result: ConfigSnapshotCliResult, asJson: bool
 function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
   if (asJson) {
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "rotation-readiness") {
+    console.log("[service-lasso] secret rotation readiness");
+    if ("services" in result) {
+      console.log("- services: " + result.summary.services);
+      console.log("- references: " + result.summary.references);
+      console.log("- ready: " + result.summary.ready);
+      console.log("- needsPolicy: " + result.summary.needsPolicy);
+      console.log("- needsCapability: " + result.summary.needsCapability);
+      console.log("- needsAuthCheck: " + result.summary.needsAuthCheck);
+      console.log("- blocked: " + result.summary.blocked);
+      for (const service of result.services) {
+        console.log(
+          "- " +
+            service.serviceId +
+            ": ready=" +
+            service.summary.ready +
+            " needsPolicy=" +
+            service.summary.needsPolicy +
+            " needsCapability=" +
+            service.summary.needsCapability +
+            " needsAuthCheck=" +
+            service.summary.needsAuthCheck +
+            " blocked=" +
+            service.summary.blocked,
+        );
+      }
+      return;
+    }
+
+    console.log("- service: " + result.serviceId);
+    console.log("- ready: " + result.summary.ready);
+    console.log("- needsPolicy: " + result.summary.needsPolicy);
+    console.log("- needsCapability: " + result.summary.needsCapability);
+    console.log("- needsAuthCheck: " + result.summary.needsAuthCheck);
+    console.log("- blocked: " + result.summary.blocked);
+    for (const ref of result.refs) {
+      const suffix = ref.blockers.length > 0 ? " [" + ref.blockers.join(", ") + "]" : "";
+      console.log("- " + ref.status + ": " + ref.ref + suffix);
+    }
     return;
   }
 

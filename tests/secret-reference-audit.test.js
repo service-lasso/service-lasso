@@ -51,6 +51,50 @@ async function writeSecretAuditFixture(servicesRoot) {
   });
 }
 
+async function writeRotationReadinessFixture(servicesRoot) {
+  await writeSecretAuditFixture(servicesRoot);
+  await writeManifest(servicesRoot, "rotation-consumer", {
+    id: "rotation-consumer",
+    name: "Rotation Consumer",
+    description: "Service with a declared rotate-capable secret reference.",
+    env: {
+      ROTATE_TOKEN: "\${secretsbroker.ROTATE_TOKEN}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.ROTATE_TOKEN",
+          as: "ROTATE_TOKEN",
+          required: true,
+        },
+      ],
+      exports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.ROTATE_TOKEN",
+          source: "env.ROTATE_TOKEN",
+          required: true,
+        },
+      ],
+      writeback: {
+        allowedNamespaces: ["secretsbroker"],
+        allowedOperations: ["rotate"],
+        allowedRefs: ["secretsbroker.ROTATE_TOKEN"],
+        generatedSecrets: [
+          {
+            ref: "secretsbroker.ROTATE_TOKEN",
+            source: "env.ROTATE_TOKEN",
+            operation: "rotate",
+            required: true,
+          },
+        ],
+      },
+    },
+  });
+}
+
 test("secret reference audit reports declared missing and malformed refs without raw values", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-audit-");
   await writeSecretAuditFixture(servicesRoot);
@@ -74,6 +118,46 @@ test("secret reference audit reports declared missing and malformed refs without
     assert.equal(serviceResult.status, 200);
     assert.equal(serviceResult.body.serviceId, "audit-consumer");
     assert.deepEqual(serviceResult.body.summary, result.body.services[0].summary);
+    assertNoSecretMaterial(serviceResult.body);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("secret rotation readiness classifies policy capability and auth states without raw values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-rotation-readiness-");
+  await writeRotationReadinessFixture(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/secrets/rotation-readiness");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.summary.services, 2);
+    assert.equal(result.body.summary.needsPolicy, 1);
+    assert.equal(result.body.summary.needsCapability, 1);
+    assert.equal(result.body.summary.needsAuthCheck, 1);
+    assert.equal(result.body.summary.blocked, 1);
+    assertNoSecretMaterial(result.body);
+
+    const auditConsumer = result.body.services.find((service) => service.serviceId === "audit-consumer");
+    assert.ok(auditConsumer.refs.some((ref) => ref.ref === "secretsbroker.API_TOKEN" && ref.status === "needs_capability"));
+    assert.ok(auditConsumer.refs.some((ref) => ref.ref === "secretsbroker.DB_PASSWORD" && ref.status === "needs_policy"));
+    assert.ok(auditConsumer.refs.some((ref) => ref.ref === "LOCAL_SECRET_TOKEN" && ref.status === "blocked"));
+
+    const rotationConsumer = result.body.services.find((service) => service.serviceId === "rotation-consumer");
+    const rotateRef = rotationConsumer.refs.find((ref) => ref.ref === "secretsbroker.ROTATE_TOKEN");
+    assert.equal(rotateRef.status, "needs_auth_check");
+    assert.equal(rotateRef.policy.status, "declared");
+    assert.equal(rotateRef.providerCapability.status, "supported");
+    assert.equal(rotateRef.authRequirement.status, "unknown");
+    assert.deepEqual(rotateRef.blockers, ["provider_auth_requirement_unknown"]);
+    assert.ok(rotateRef.lastUsed.locations.includes("broker.writeback.generatedSecrets[0].ref"));
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/rotation-consumer/secrets/rotation-readiness");
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.serviceId, "rotation-consumer");
+    assert.equal(serviceResult.body.summary.needsAuthCheck, 1);
     assertNoSecretMaterial(serviceResult.body);
   } finally {
     await apiServer.stop();
@@ -113,6 +197,43 @@ test("CLI secrets audit returns the same safe reference metadata", async () => {
     assert.equal(result.summary.present, 3);
     assert.equal(result.summary.missing, 1);
     assert.equal(result.summary.malformed, 1);
+    assertNoSecretMaterial(result);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI secrets rotation-readiness returns the same safe classification metadata", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-secret-rotation-cli-");
+  await writeRotationReadinessFixture(servicesRoot);
+
+  try {
+    const stdout = await execFile(
+      process.execPath,
+      [
+        path.resolve("dist", "cli.js"),
+        "secrets",
+        "rotation-readiness",
+        "rotation-consumer",
+        "--services-root",
+        servicesRoot,
+        "--workspace-root",
+        workspaceRoot,
+        "--json",
+      ],
+      {
+        cwd: path.resolve("."),
+        env: {
+          ...process.env,
+          npm_package_version: "0.1.0-test",
+        },
+      },
+    );
+    const result = JSON.parse(stdout.stdout);
+    assert.equal(result.action, "rotation-readiness");
+    assert.equal(result.serviceId, "rotation-consumer");
+    assert.equal(result.summary.needsAuthCheck, 1);
+    assert.equal(result.refs[0].providerCapability.status, "supported");
     assertNoSecretMaterial(result);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

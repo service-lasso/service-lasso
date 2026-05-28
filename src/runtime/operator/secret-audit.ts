@@ -44,6 +44,61 @@ export interface SecretReferenceAudit {
   };
 }
 
+export type SecretRotationReadinessStatus = "ready" | "needs_policy" | "needs_capability" | "needs_auth_check" | "blocked";
+export type SecretRotationPolicyStatus = "declared" | "missing" | "malformed";
+export type SecretRotationCapabilityStatus = "supported" | "unsupported" | "unknown" | "blocked";
+export type SecretRotationAuthRequirementStatus = "not_required" | "required" | "unknown" | "blocked";
+
+export interface SecretRotationReadinessRef {
+  serviceId: string;
+  ref: string;
+  namespace?: string;
+  key?: string;
+  status: SecretRotationReadinessStatus;
+  policy: {
+    status: SecretRotationPolicyStatus;
+    reason: string;
+  };
+  providerCapability: {
+    operation: "rotate";
+    status: SecretRotationCapabilityStatus;
+    reason: string;
+  };
+  authRequirement: {
+    status: SecretRotationAuthRequirementStatus;
+    reason: string;
+  };
+  lastUsed: {
+    observedInManifest: boolean;
+    referenceCount: number;
+    sources: SecretReferenceAuditSource[];
+    locations: string[];
+    required: boolean;
+  };
+  blockers: string[];
+}
+
+export interface ServiceSecretRotationReadinessReport {
+  serviceId: string;
+  manifestPath: string;
+  refs: SecretRotationReadinessRef[];
+  summary: {
+    ready: number;
+    needsPolicy: number;
+    needsCapability: number;
+    needsAuthCheck: number;
+    blocked: number;
+  };
+}
+
+export interface SecretRotationReadinessReport {
+  services: ServiceSecretRotationReadinessReport[];
+  summary: ServiceSecretRotationReadinessReport["summary"] & {
+    services: number;
+    references: number;
+  };
+}
+
 interface CandidateRef {
   ref: string;
   source: SecretReferenceAuditSource;
@@ -255,6 +310,226 @@ export function buildSecretReferenceAudit(services: DiscoveredService[]): Secret
       present: serviceSummaries.reduce((total, summary) => total + summary.present, 0),
       missing: serviceSummaries.reduce((total, summary) => total + summary.missing, 0),
       malformed: serviceSummaries.reduce((total, summary) => total + summary.malformed, 0),
+    },
+  };
+}
+
+function uniqueSorted<T extends string>(values: T[]): T[] {
+  return [...new Set(values)].sort();
+}
+
+function mostSeverePolicyStatus(findings: SecretReferenceAuditFinding[]): SecretRotationPolicyStatus {
+  if (findings.some((finding) => finding.status === "malformed")) {
+    return "malformed";
+  }
+  if (findings.some((finding) => finding.status === "missing")) {
+    return "missing";
+  }
+  return "declared";
+}
+
+function hasRotationWritebackPolicy(service: DiscoveredService, ref: string, namespace?: string): boolean {
+  const writeback = service.manifest.broker?.writeback;
+  if (!writeback) {
+    return false;
+  }
+
+  if ((writeback.generatedSecrets ?? []).some((entry) => entry.ref === ref && entry.operation === "rotate")) {
+    return true;
+  }
+
+  const allowedOperations = writeback.allowedOperations ?? [];
+  if (!allowedOperations.includes("rotate")) {
+    return false;
+  }
+
+  const allowedRefs = writeback.allowedRefs ?? [];
+  if (allowedRefs.length > 0 && !allowedRefs.includes(ref)) {
+    return false;
+  }
+
+  const allowedNamespaces = writeback.allowedNamespaces ?? [];
+  if (namespace && allowedNamespaces.length > 0 && !allowedNamespaces.includes(namespace)) {
+    return false;
+  }
+
+  return true;
+}
+
+function classifyCapability(
+  service: DiscoveredService,
+  ref: string,
+  policyStatus: SecretRotationPolicyStatus,
+  namespace?: string,
+): SecretRotationReadinessRef["providerCapability"] {
+  if (policyStatus !== "declared") {
+    return {
+      operation: "rotate",
+      status: "blocked",
+      reason: "Rotation capability cannot be evaluated until the reference policy is valid.",
+    };
+  }
+
+  if (hasRotationWritebackPolicy(service, ref, namespace)) {
+    return {
+      operation: "rotate",
+      status: "supported",
+      reason: "The service manifest declares rotate writeback capability for this reference.",
+    };
+  }
+
+  if (service.manifest.broker?.writeback) {
+    return {
+      operation: "rotate",
+      status: "unsupported",
+      reason: "The service manifest has broker writeback policy but does not allow rotate for this reference.",
+    };
+  }
+
+  return {
+    operation: "rotate",
+    status: "unknown",
+    reason: "No provider rotation capability is declared in the service manifest.",
+  };
+}
+
+function classifyAuthRequirement(
+  policyStatus: SecretRotationPolicyStatus,
+  capabilityStatus: SecretRotationCapabilityStatus,
+): SecretRotationReadinessRef["authRequirement"] {
+  if (policyStatus !== "declared" || capabilityStatus === "blocked") {
+    return {
+      status: "blocked",
+      reason: "Provider auth requirement cannot be evaluated until policy and capability blockers are cleared.",
+    };
+  }
+
+  if (capabilityStatus === "supported") {
+    return {
+      status: "unknown",
+      reason: "Core manifests do not carry live provider auth state; the Secrets Broker must confirm reconnect requirements before rotation.",
+    };
+  }
+
+  return {
+    status: "unknown",
+    reason: "Provider auth requirement is unknown because rotation capability is not declared.",
+  };
+}
+
+function toRotationReadinessRef(
+  service: DiscoveredService,
+  ref: string,
+  findings: SecretReferenceAuditFinding[],
+): SecretRotationReadinessRef {
+  const parsed = parseBrokerRef(ref);
+  const policyStatus = mostSeverePolicyStatus(findings);
+  const capability = classifyCapability(service, ref, policyStatus, parsed?.namespace);
+  const authRequirement = classifyAuthRequirement(policyStatus, capability.status);
+  const blockers: string[] = [];
+
+  if (policyStatus === "malformed") {
+    blockers.push("malformed_ref");
+  }
+  if (policyStatus === "missing") {
+    blockers.push("missing_broker_policy");
+  }
+  if (capability.status === "unsupported") {
+    blockers.push("rotation_capability_not_declared");
+  }
+  if (capability.status === "unknown") {
+    blockers.push("rotation_capability_unknown");
+  }
+  if (capability.status === "supported" && authRequirement.status === "unknown") {
+    blockers.push("provider_auth_requirement_unknown");
+  }
+
+  const status: SecretRotationReadinessStatus =
+    policyStatus === "malformed"
+      ? "blocked"
+      : policyStatus === "missing"
+        ? "needs_policy"
+        : capability.status === "supported" && authRequirement.status === "not_required"
+          ? "ready"
+          : capability.status === "supported"
+            ? "needs_auth_check"
+            : "needs_capability";
+
+  return {
+    serviceId: service.manifest.id,
+    ref,
+    namespace: parsed?.namespace,
+    key: parsed?.key,
+    status,
+    policy: {
+      status: policyStatus,
+      reason:
+        policyStatus === "declared"
+          ? "Reference is declared in broker policy."
+          : policyStatus === "missing"
+            ? "Reference is used but not declared in broker policy."
+            : "Reference is not in supported namespace.key form.",
+    },
+    providerCapability: capability,
+    authRequirement,
+    lastUsed: {
+      observedInManifest: findings.length > 0,
+      referenceCount: findings.length,
+      sources: uniqueSorted(findings.map((finding) => finding.source)),
+      locations: uniqueSorted(findings.map((finding) => finding.location)),
+      required: findings.some((finding) => finding.required !== false),
+    },
+    blockers,
+  };
+}
+
+function summarizeRotationReadiness(refs: SecretRotationReadinessRef[]): ServiceSecretRotationReadinessReport["summary"] {
+  return {
+    ready: refs.filter((ref) => ref.status === "ready").length,
+    needsPolicy: refs.filter((ref) => ref.status === "needs_policy").length,
+    needsCapability: refs.filter((ref) => ref.status === "needs_capability").length,
+    needsAuthCheck: refs.filter((ref) => ref.status === "needs_auth_check").length,
+    blocked: refs.filter((ref) => ref.status === "blocked").length,
+  };
+}
+
+export function buildServiceSecretRotationReadinessReport(service: DiscoveredService): ServiceSecretRotationReadinessReport {
+  const audit = buildServiceSecretReferenceAudit(service);
+  const findingsByRef = new Map<string, SecretReferenceAuditFinding[]>();
+
+  for (const finding of audit.findings) {
+    findingsByRef.set(finding.ref, [...(findingsByRef.get(finding.ref) ?? []), finding]);
+  }
+
+  const refs = [...findingsByRef.entries()]
+    .map(([ref, findings]) => toRotationReadinessRef(service, ref, findings))
+    .sort((left, right) =>
+      left.status.localeCompare(right.status) ||
+      left.ref.localeCompare(right.ref),
+    );
+
+  return {
+    serviceId: service.manifest.id,
+    manifestPath: service.manifestPath,
+    refs,
+    summary: summarizeRotationReadiness(refs),
+  };
+}
+
+export function buildSecretRotationReadinessReport(services: DiscoveredService[]): SecretRotationReadinessReport {
+  const serviceReports = services.map((service) => buildServiceSecretRotationReadinessReport(service));
+  const summaries = serviceReports.map((service) => service.summary);
+
+  return {
+    services: serviceReports,
+    summary: {
+      services: serviceReports.length,
+      references: serviceReports.reduce((total, service) => total + service.refs.length, 0),
+      ready: summaries.reduce((total, summary) => total + summary.ready, 0),
+      needsPolicy: summaries.reduce((total, summary) => total + summary.needsPolicy, 0),
+      needsCapability: summaries.reduce((total, summary) => total + summary.needsCapability, 0),
+      needsAuthCheck: summaries.reduce((total, summary) => total + summary.needsAuthCheck, 0),
+      blocked: summaries.reduce((total, summary) => total + summary.blocked, 0),
     },
   };
 }

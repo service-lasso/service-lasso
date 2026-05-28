@@ -59,7 +59,9 @@ import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-com
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import {
   buildSecretReferenceAudit,
+  buildSecretRotationReadinessReport,
   buildServiceSecretReferenceAudit,
+  buildServiceSecretRotationReadinessReport,
 } from "../runtime/operator/secret-audit.js";
 import {
   mutateOperatorActionItem,
@@ -1304,6 +1306,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "secrets" && pathParts[4] === "rotation-readiness") {
+      writeJson(response, 200, buildServiceSecretRotationReadinessReport(service));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
       writeJson(response, 200, {
         serviceId,
@@ -1559,6 +1566,12 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/secrets/audit") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, buildSecretReferenceAudit(runtimeModel.discovered));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/secrets/rotation-readiness") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildSecretRotationReadinessReport(runtimeModel.discovered));
     return;
   }
 

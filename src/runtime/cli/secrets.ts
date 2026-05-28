@@ -3,12 +3,16 @@ import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
 import {
   buildSecretReferenceAudit,
+  buildSecretRotationReadinessReport,
   buildServiceSecretReferenceAudit,
+  buildServiceSecretRotationReadinessReport,
   type SecretReferenceAudit,
+  type SecretRotationReadinessReport,
   type ServiceSecretReferenceAudit,
+  type ServiceSecretRotationReadinessReport,
 } from "../operator/secret-audit.js";
 
-export type SecretsCliAction = "audit";
+export type SecretsCliAction = "audit" | "rotation-readiness";
 
 export interface SecretsCliOptions extends RuntimeConfigOptions {
   action: SecretsCliAction;
@@ -25,6 +29,16 @@ export type SecretsCliResult =
       action: "audit";
       servicesRoot: string;
       workspaceRoot: string;
+    })
+  | (SecretRotationReadinessReport & {
+      action: "rotation-readiness";
+      servicesRoot: string;
+      workspaceRoot: string;
+    })
+  | (ServiceSecretRotationReadinessReport & {
+      action: "rotation-readiness";
+      servicesRoot: string;
+      workspaceRoot: string;
     });
 
 export async function runSecretsCliAction(options: SecretsCliOptions): Promise<SecretsCliResult> {
@@ -35,12 +49,21 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
   });
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
 
-  if (!options.serviceId) {
+  if (!options.serviceId && options.action === "audit") {
     return {
       action: "audit",
       servicesRoot: runtimeConfig.servicesRoot,
       workspaceRoot: runtimeConfig.workspaceRoot,
       ...buildSecretReferenceAudit(discovered),
+    };
+  }
+
+  if (!options.serviceId) {
+    return {
+      action: "rotation-readiness",
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      ...buildSecretRotationReadinessReport(discovered),
     };
   }
 
@@ -52,10 +75,19 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
     throw new Error("Unknown service id: " + options.serviceId + "." + hint);
   }
 
+  if (options.action === "audit") {
+    return {
+      action: "audit",
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      ...buildServiceSecretReferenceAudit(service),
+    };
+  }
+
   return {
-    action: "audit",
+    action: "rotation-readiness",
     servicesRoot: runtimeConfig.servicesRoot,
     workspaceRoot: runtimeConfig.workspaceRoot,
-    ...buildServiceSecretReferenceAudit(service),
+    ...buildServiceSecretRotationReadinessReport(service),
   };
 }
