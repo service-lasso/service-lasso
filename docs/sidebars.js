@@ -153,6 +153,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "development/telegram-group-control-plan",
+          label: "Telegram Group Control Plan",
+        },
+        {
+          type: "doc",
           id: "reference/service-start-trace-api",
           label: "Service Start Trace API",
         },
