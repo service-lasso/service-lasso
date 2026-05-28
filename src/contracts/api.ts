@@ -135,7 +135,7 @@ export interface RuntimeSummaryResponse {
   };
 }
 
-export type RuntimeInstanceStatus = "active" | "stale";
+export type RuntimeInstanceStatus = "active" | "stale" | "unknown";
 
 export interface RuntimeInstanceRecord {
   instanceId: string;
@@ -147,8 +147,12 @@ export interface RuntimeInstanceRecord {
   advertisedUrls: string[];
   startedAt: string;
   updatedAt: string;
+  heartbeatAt: string;
+  leaseExpiresAt: string;
+  leaseTtlMs: number;
   version: string;
   status: RuntimeInstanceStatus;
+  statusReason?: string;
   staleReason?: string;
 }
 
@@ -156,6 +160,7 @@ export interface RuntimeInstanceRegistrySnapshot {
   path: string;
   activeCount: number;
   staleCount: number;
+  unknownCount: number;
   instances: RuntimeInstanceRecord[];
 }
 

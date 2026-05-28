@@ -1036,6 +1036,7 @@ function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): 
   console.log("- registry: " + result.registry.path);
   console.log("- active: " + result.registry.activeCount);
   console.log("- stale: " + result.registry.staleCount);
+  console.log("- unknown: " + result.registry.unknownCount);
 }
 
 function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {

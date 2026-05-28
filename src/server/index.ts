@@ -87,8 +87,10 @@ import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runt
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
 import {
+  DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS,
   createRuntimeInstanceSnapshot,
   markRuntimeInstanceStopped,
+  refreshRuntimeInstanceLease,
   registerRuntimeInstance,
 } from "../runtime/instance/registry.js";
 import {
@@ -1714,6 +1716,10 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     apiPort: resolvedPort,
     apiUrl: "http://" + publicHost + ":" + resolvedPort,
   });
+  const leaseHeartbeat = setInterval(() => {
+    void refreshRuntimeInstanceLease(config).catch(() => undefined);
+  }, DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS);
+  leaseHeartbeat.unref?.();
   if (requestedPort === 0) {
     await reservePorts(config.workspaceRoot, [toApiPortReservation(resolvedPort, bindHost)]);
   }
@@ -1725,6 +1731,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     monitor,
     updateScheduler,
     stop: async () => {
+      clearInterval(leaseHeartbeat);
       await monitor?.stop();
       await updateScheduler?.stop();
       await stopAllManagedProcesses();
