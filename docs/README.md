@@ -28,6 +28,7 @@ Use this short list as the public documentation map:
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
 - [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
+- [Template Upgrade Compatibility](reference/template-upgrade-compatibility.md): read-only checker for app/template inventories against current core provider expectations.
 - [Reference Apps](reference-apps.md): choose the right host/template repo and understand the release output options.
 
 ## Source of truth for `service.json`

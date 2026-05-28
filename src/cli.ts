@@ -10,6 +10,7 @@ import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js"
 import { runOperatorCliAction, type OperatorActionsCliAction, type OperatorCliResult } from "./runtime/cli/operator.js";
 import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
+import { runTemplateCliAction, type TemplateCliAction, type TemplateCliResult } from "./runtime/cli/template.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
 import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
 import { runConfigApplyCliAction, type ConfigApplyCliAction, type ConfigApplyCliResult } from "./runtime/cli/config-apply.js";
@@ -23,7 +24,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "help" | "version";
   readinessAction?: "gate";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
@@ -38,6 +39,7 @@ interface ParsedCliOptions {
   backupAction?: BackupCliAction;
   diagnosticsAction?: DiagnosticsCliAction;
   operatorActionsAction?: OperatorActionsCliAction;
+  templateAction?: TemplateCliAction;
   actionId?: string;
   deferredUntil?: string | null;
   serviceId?: string;
@@ -50,6 +52,8 @@ interface ParsedCliOptions {
   snapshotPath?: string;
   port?: number;
   servicesRoot?: string;
+  targetServicesRoot?: string;
+  coreServicesRoot?: string;
   workspaceRoot?: string;
   json: boolean;
   force: boolean;
@@ -101,6 +105,7 @@ function usageText(): string {
     "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
+    "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -115,6 +120,7 @@ function usageText(): string {
     "  - The instance command reads local runtime identity and recent instance registry state.",
     "  - The readiness command emits a machine-readable gate for baseline automation.",
     "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
+    "  - The template check-upgrade command compares an app/template service inventory to current core provider expectations.",
   ].join("\n");
 }
 
@@ -161,7 +167,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "backup" ||
       commandToken === "diagnostics" ||
       commandToken === "operator" ||
-      commandToken === "services"
+      commandToken === "services" ||
+      commandToken === "template"
       ? commandToken
       : null;
   if (!command) {
@@ -406,6 +413,19 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     parsed.repo = repo;
   }
 
+  if (command === "template") {
+    const action = remaining.shift();
+    if (action !== "check-upgrade") {
+      throw new Error('The "template" command requires one of: check-upgrade.');
+    }
+    parsed.templateAction = action;
+    const targetServicesRoot = remaining.shift();
+    if (!targetServicesRoot || targetServicesRoot.startsWith("-")) {
+      throw new Error('The "template check-upgrade" command requires a <targetServicesRoot> argument.');
+    }
+    parsed.targetServicesRoot = targetServicesRoot;
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -438,8 +458,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, and services commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, and template commands.");
         }
         parsed.json = true;
         break;
@@ -492,6 +512,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --api-base-url.");
         }
         parsed.apiBaseUrl = value;
+        break;
+      }
+      case "--core-services-root": {
+        if (command !== "template" || parsed.templateAction !== "check-upgrade") {
+          throw new Error("--core-services-root is only supported for the template check-upgrade command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --core-services-root.");
+        }
+        parsed.coreServicesRoot = value;
         break;
       }
       case "--force": {
@@ -680,6 +711,25 @@ function printLockfileResult(result: LockfileCliResult, asJson: boolean): void {
   console.log("- checkedServices: " + result.checkedServices);
   for (const issue of result.issues) {
     console.log("- " + issue.serviceId + ": " + issue.status + " (" + issue.message + ")");
+  }
+}
+
+function printTemplateResult(result: TemplateCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(result.ok ? "[service-lasso] template upgrade compatibility checked" : "[service-lasso] template upgrade compatibility blocked");
+  console.log("- status: " + result.status);
+  console.log("- targetServicesRoot: " + result.targetServicesRoot);
+  console.log("- checkedProviders: " + result.checkedProviders);
+  console.log("- findings: errors=" + result.summary.errors + " warnings=" + result.summary.warnings);
+  for (const provider of result.providers) {
+    console.log("- " + provider.serviceId + ": " + provider.status);
+  }
+  for (const finding of result.findings) {
+    console.log("- " + finding.severity + " " + finding.serviceId + ": " + finding.kind + " - " + finding.hint);
   }
 }
 
@@ -1095,6 +1145,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       dryRun: parsed.dryRun,
     });
     printImportServiceResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "template") {
+    const result = await runTemplateCliAction({
+      action: parsed.templateAction!,
+      targetServicesRoot: parsed.targetServicesRoot!,
+      coreServicesRoot: parsed.coreServicesRoot,
+    });
+    printTemplateResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
