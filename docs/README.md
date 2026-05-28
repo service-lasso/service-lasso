@@ -27,6 +27,7 @@ Use this short list as the public documentation map:
 - [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
+- [Release Manifest Verification](reference/release-manifest-verification.md): read-only checks for service release manifests, platform assets, release labels, and checksums.
 - [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
 - [Template Upgrade Compatibility](reference/template-upgrade-compatibility.md): read-only checker for app/template inventories against current core provider expectations.
 - [Reference Apps](reference-apps.md): choose the right host/template repo and understand the release output options.

@@ -6,6 +6,7 @@ import { importServiceManifestFromCli, type ImportServiceManifestCliResult } fro
 import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "./runtime/cli/health.js";
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
+import { runReleaseCliAction, type ReleaseCliAction, type ReleaseCliResult } from "./runtime/cli/release.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runOperatorCliAction, type OperatorActionsCliAction, type OperatorCliResult } from "./runtime/cli/operator.js";
 import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
@@ -24,7 +25,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
   readinessAction?: "gate";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
@@ -40,6 +41,7 @@ interface ParsedCliOptions {
   diagnosticsAction?: DiagnosticsCliAction;
   operatorActionsAction?: OperatorActionsCliAction;
   templateAction?: TemplateCliAction;
+  releaseAction?: ReleaseCliAction;
   actionId?: string;
   deferredUntil?: string | null;
   serviceId?: string;
@@ -47,6 +49,8 @@ interface ParsedCliOptions {
   tag?: string;
   apiBaseUrl?: string;
   manifestPath?: string;
+  assetsRoot?: string;
+  releaseVersion?: string;
   stepId?: string;
   archivePath?: string;
   snapshotPath?: string;
@@ -106,6 +110,7 @@ function usageText(): string {
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
     "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
+    "  service-lasso release verify-manifest <manifestPath> [--assets-root <path>] [--release-version <version>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -121,6 +126,7 @@ function usageText(): string {
     "  - The readiness command emits a machine-readable gate for baseline automation.",
     "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
     "  - The template check-upgrade command compares an app/template service inventory to current core provider expectations.",
+    "  - The release verify-manifest command checks service.json, platform assets, release labels, and SHA-256 checksums.",
   ].join("\n");
 }
 
@@ -168,7 +174,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "diagnostics" ||
       commandToken === "operator" ||
       commandToken === "services" ||
-      commandToken === "template"
+      commandToken === "template" ||
+      commandToken === "release"
       ? commandToken
       : null;
   if (!command) {
@@ -426,6 +433,19 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     parsed.targetServicesRoot = targetServicesRoot;
   }
 
+  if (command === "release") {
+    const action = remaining.shift();
+    if (action !== "verify-manifest") {
+      throw new Error('The "release" command requires one of: verify-manifest.');
+    }
+    parsed.releaseAction = action;
+    const manifestPath = remaining.shift();
+    if (!manifestPath || manifestPath.startsWith("-")) {
+      throw new Error('The "release verify-manifest" command requires a <manifestPath> argument.');
+    }
+    parsed.manifestPath = manifestPath;
+  }
+
   while (remaining.length > 0) {
     const token = remaining.shift();
 
@@ -458,8 +478,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, and template commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template" && command !== "release") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, template, and release commands.");
         }
         parsed.json = true;
         break;
@@ -523,6 +543,28 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --core-services-root.");
         }
         parsed.coreServicesRoot = value;
+        break;
+      }
+      case "--assets-root": {
+        if (command !== "release" || parsed.releaseAction !== "verify-manifest") {
+          throw new Error("--assets-root is only supported for the release verify-manifest command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --assets-root.");
+        }
+        parsed.assetsRoot = value;
+        break;
+      }
+      case "--release-version": {
+        if (command !== "release" || parsed.releaseAction !== "verify-manifest") {
+          throw new Error("--release-version is only supported for the release verify-manifest command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --release-version.");
+        }
+        parsed.releaseVersion = value;
         break;
       }
       case "--force": {
@@ -730,6 +772,38 @@ function printTemplateResult(result: TemplateCliResult, asJson: boolean): void {
   }
   for (const finding of result.findings) {
     console.log("- " + finding.severity + " " + finding.serviceId + ": " + finding.kind + " - " + finding.hint);
+  }
+}
+
+function printReleaseResult(result: ReleaseCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(result.ok ? "[service-lasso] release manifest verified" : "[service-lasso] release manifest verification blocked");
+  console.log("- service: " + (result.service.id ?? "unknown"));
+  console.log("- version: " + (result.service.version ?? "unknown"));
+  console.log("- releaseVersion: " + (result.releaseVersion ?? "unknown"));
+  console.log("- assetsRoot: " + result.assetsRoot);
+  console.log("- assets: " + result.summary.presentAssets + "/" + result.summary.expectedAssets);
+  console.log("- checksumsVerified: " + result.summary.checksumsVerified);
+  console.log("- findings: errors=" + result.summary.errors + " warnings=" + result.summary.warnings);
+  for (const asset of result.assets) {
+    console.log(
+      "- " +
+        asset.platform +
+        ": " +
+        (asset.assetName ?? "unknown") +
+        " asset=" +
+        asset.status +
+        " checksum=" +
+        asset.checksum.status,
+    );
+  }
+  for (const finding of result.findings) {
+    const context = finding.platform ? " " + finding.platform : "";
+    console.log("- " + finding.severity + context + ": " + finding.code + " - " + finding.message);
   }
 }
 
@@ -1155,6 +1229,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       coreServicesRoot: parsed.coreServicesRoot,
     });
     printTemplateResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "release") {
+    const result = await runReleaseCliAction({
+      action: parsed.releaseAction!,
+      manifestPath: parsed.manifestPath!,
+      assetsRoot: parsed.assetsRoot,
+      releaseVersion: parsed.releaseVersion,
+    });
+    printReleaseResult(result, parsed.json);
     if (!result.ok) {
       process.exitCode = 1;
     }
