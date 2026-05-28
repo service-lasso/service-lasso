@@ -54,6 +54,7 @@ import { buildOperatorNotifications } from "../runtime/operator/notifications.js
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
 import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-safety-preflight.js";
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
@@ -132,6 +133,7 @@ import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
   RuntimeOrchestrationResponse,
+  OperatorCommandRequest,
   ServiceDetailResponse,
   ServiceStartTraceResponse,
   ServicesMetaResponse,
@@ -246,6 +248,33 @@ function parseOperatorActionMutationBody(input: unknown): OperatorActionMutation
     deferredUntil: typeof candidate.deferredUntil === "string" ? candidate.deferredUntil : null,
     actor: typeof candidate.actor === "string" ? candidate.actor : null,
     reason: typeof candidate.reason === "string" ? candidate.reason : null,
+  };
+}
+
+function parseOperatorCommandBody(input: unknown): OperatorCommandRequest {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator command body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (candidate.command !== undefined && typeof candidate.command !== "string") {
+    throw new ApiError("invalid_body", 400, '"command" must be a string when present.');
+  }
+  if (candidate.args !== undefined && (!Array.isArray(candidate.args) || candidate.args.some((entry) => typeof entry !== "string"))) {
+    throw new ApiError("invalid_body", 400, '"args" must be an array of strings when present.');
+  }
+  if (candidate.serviceId !== undefined && typeof candidate.serviceId !== "string") {
+    throw new ApiError("invalid_body", 400, '"serviceId" must be a string when present.');
+  }
+  if (candidate.tail !== undefined && typeof candidate.tail !== "number") {
+    throw new ApiError("invalid_body", 400, '"tail" must be a number when present.');
+  }
+
+  return {
+    command: typeof candidate.command === "string" ? candidate.command : undefined,
+    args: Array.isArray(candidate.args) ? candidate.args : undefined,
+    serviceId: typeof candidate.serviceId === "string" ? candidate.serviceId : undefined,
+    tail: typeof candidate.tail === "number" ? candidate.tail : undefined,
   };
 }
 
@@ -952,6 +981,23 @@ async function routeRequest(
         await buildOperatorNotifications(runtimeModel.discovered, runtimeModel.registry, sharedGlobalEnv),
       ),
     );
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/commands") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const commandResponse = await executeOperatorCommandFacade(parseOperatorCommandBody(await readJsonBody(request)), {
+      discovered: runtimeModel.discovered,
+      registry: runtimeModel.registry,
+      graph: runtimeModel.graph,
+      servicesRoot: config.servicesRoot,
+      workspaceRoot: config.workspaceRoot,
+      version: config.version,
+      sharedGlobalEnv,
+    });
+
+    writeJson(response, commandResponse.statusCode, commandResponse);
     return;
   }
 

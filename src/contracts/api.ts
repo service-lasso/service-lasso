@@ -235,6 +235,51 @@ export interface RuntimeCapabilitiesResponse {
   };
 }
 
+export type OperatorCommandKind =
+  | "status"
+  | "services"
+  | "service.status"
+  | "service.logs.tail"
+  | "updates.check.plan"
+  | "diagnostics.bundle.preview"
+  | "restart.plan";
+
+export type OperatorCommandErrorCode =
+  | "invalid_command"
+  | "invalid_log_tail"
+  | "missing_service_id"
+  | "mutating_command_blocked"
+  | "service_not_found"
+  | "unsupported_command";
+
+export interface OperatorCommandRequest {
+  command?: string;
+  args?: string[];
+  serviceId?: string;
+  tail?: number;
+}
+
+export interface OperatorCommandResponse {
+  contractVersion: "operator-command.v1";
+  ok: boolean;
+  statusCode: number;
+  command: OperatorCommandKind | "unsupported";
+  commandClass: "read" | "plan" | "blocked";
+  generatedAt: string;
+  summary: string;
+  data: unknown;
+  error: {
+    code: OperatorCommandErrorCode;
+    message: string;
+  } | null;
+  safety: {
+    mutating: false;
+    redacted: boolean;
+    truncated: boolean;
+    omittedSensitiveFields: string[];
+  };
+}
+
 export interface DashboardLinkResponse {
   label: string;
   url: string;
