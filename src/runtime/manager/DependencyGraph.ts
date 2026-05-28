@@ -16,6 +16,36 @@ export interface ServiceDependencySummary {
   dependents: string[];
 }
 
+export interface ReverseDependencyBlockedBy {
+  id: string;
+  name: string | null;
+  missing: boolean;
+}
+
+export interface ReverseDependencyDependent {
+  id: string;
+  name: string;
+  relation: "direct" | "transitive";
+  depth: number;
+  path: string[];
+  blockedBy: ReverseDependencyBlockedBy[];
+}
+
+export interface ReverseDependencyLookup {
+  target: {
+    id: string;
+    name: string | null;
+    exists: boolean;
+  };
+  dependents: ReverseDependencyDependent[];
+  summary: {
+    total: number;
+    direct: number;
+    transitive: number;
+    missingTarget: boolean;
+  };
+}
+
 export class DependencyGraph {
   readonly #registry: ServiceRegistry;
 
@@ -57,6 +87,78 @@ export class DependencyGraph {
     return {
       dependencies,
       dependents,
+    };
+  }
+
+  getReverseDependencies(serviceId: string): ReverseDependencyLookup {
+    const target = this.#registry.getById(serviceId);
+    const services = this.#registry.list();
+    const visited = new Set<string>();
+    const dependents: ReverseDependencyDependent[] = [];
+    const queue: Array<{ id: string; path: string[] }> = services
+      .filter((candidate) => (candidate.manifest.depend_on ?? []).includes(serviceId))
+      .map((candidate) => ({ id: candidate.manifest.id, path: [serviceId, candidate.manifest.id] }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || current.id === serviceId || visited.has(current.id)) {
+        continue;
+      }
+
+      const service = this.#registry.getById(current.id);
+      if (!service) {
+        continue;
+      }
+
+      visited.add(current.id);
+      const depth = current.path.length - 1;
+      const blockedBy = current.path.slice(0, -1).map((dependencyId) => {
+        const dependency = this.#registry.getById(dependencyId);
+        return {
+          id: dependencyId,
+          name: dependency?.manifest.name ?? null,
+          missing: dependency === undefined,
+        };
+      });
+
+      dependents.push({
+        id: service.manifest.id,
+        name: service.manifest.name,
+        relation: depth === 1 ? "direct" : "transitive",
+        depth,
+        path: current.path,
+        blockedBy,
+      });
+
+      const nextDependents = services
+        .filter((candidate) => (candidate.manifest.depend_on ?? []).includes(current.id))
+        .map((candidate) => candidate.manifest.id)
+        .sort((left, right) => left.localeCompare(right));
+
+      for (const nextId of nextDependents) {
+        if (nextId !== serviceId && !visited.has(nextId)) {
+          queue.push({ id: nextId, path: [...current.path, nextId] });
+        }
+      }
+    }
+
+    dependents.sort((left, right) => left.depth - right.depth || left.id.localeCompare(right.id));
+    const direct = dependents.filter((dependent) => dependent.relation === "direct").length;
+
+    return {
+      target: {
+        id: serviceId,
+        name: target?.manifest.name ?? null,
+        exists: target !== undefined,
+      },
+      dependents,
+      summary: {
+        total: dependents.length,
+        direct,
+        transitive: dependents.length - direct,
+        missingTarget: target === undefined,
+      },
     };
   }
 
