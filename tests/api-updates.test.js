@@ -174,11 +174,14 @@ test("update API checks and returns persisted update status", async () => {
     assert.equal(check.status, 200);
     assert.equal(check.body.action, "check");
     assert.equal(check.body.services[0].result.status, "update_available");
+    assert.equal(check.body.services[0].result.provenance.sourceRepo, "service-lasso/update-fixture");
     assert.equal(single.status, 200);
     assert.equal(single.body.update.state, "available");
     assert.equal(single.body.update.available.tag, "2026.4.24-new");
+    assert.equal(single.body.update.provenance.tag, "2026.4.24-new");
     assert.equal(all.status, 200);
     assert.equal(all.body.services[0].serviceId, "update-fixture");
+    assert.equal(all.body.services[0].update.provenance.current.comparison, "different");
   } finally {
     await apiServer.stop();
     await releaseServer.stop();

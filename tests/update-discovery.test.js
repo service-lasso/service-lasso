@@ -78,6 +78,7 @@ async function startFakeGitHubReleaseServer(options = {}) {
   const latestStatus = options.latestStatus ?? 200;
   const releaseTag = options.releaseTag ?? "2026.4.24-new";
   const assetName = options.assetName ?? "update-fixture.zip";
+  const extraAssets = options.extraAssets ?? [];
   const server = createServer((request, response) => {
     if (!request.url) {
       response.statusCode = 404;
@@ -109,6 +110,10 @@ async function startFakeGitHubReleaseServer(options = {}) {
             name: assetName,
             browser_download_url: `${baseUrl}/downloads/${assetName}`,
           },
+          ...extraAssets.map((asset) => ({
+            name: asset.name,
+            browser_download_url: asset.browser_download_url ?? `${baseUrl}/downloads/${asset.name}`,
+          })),
         ],
       }));
       return;
@@ -243,6 +248,11 @@ test("update discovery reports pinned manifests without calling the release API"
     assert.equal(result.status, "pinned");
     assert.equal(result.current.manifestTag, "2026.4.20-old");
     assert.equal(result.available, null);
+    assert.equal(result.provenance.sourceRepo, "service-lasso/update-fixture");
+    assert.equal(result.provenance.tag, "2026.4.20-old");
+    assert.equal(result.provenance.assetName, "update-fixture.zip");
+    assert.equal(result.provenance.checksum.available, false);
+    assert.equal(result.provenance.current.comparison, "same");
     assert.equal(releaseServer.getReleaseRequests(), 0);
   } finally {
     await releaseServer.stop();
@@ -252,15 +262,22 @@ test("update discovery reports pinned manifests without calling the release API"
 
 test("update discovery reports update_available for a newer tracked release", async () => {
   const servicesRoot = await makeTempServicesRoot();
-  const releaseServer = await startFakeGitHubReleaseServer();
+  const releaseServer = await startFakeGitHubReleaseServer({
+    extraAssets: [{ name: "SHA256SUMS.txt" }],
+  });
 
   try {
-    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+    const manifest = createUpdateManifest(releaseServer, {
       updates: {
         mode: "notify",
         track: "latest",
       },
-    }));
+    });
+    manifest.artifact.platforms.default.checksum = {
+      algorithm: "sha256",
+      assetName: "SHA256SUMS.txt",
+    };
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", manifest);
     await writeInstalledArtifact(serviceRoot, {
       sourceType: "github-release",
       repo: "service-lasso/update-fixture",
@@ -275,8 +292,16 @@ test("update discovery reports update_available for a newer tracked release", as
     assert.equal(result.current.installedTag, "2026.4.20-old");
     assert.equal(result.available.tag, "2026.4.24-new");
     assert.equal(result.available.releaseUrl.endsWith("/releases/2026.4.24-new"), true);
-    assert.deepEqual(result.available.assetNames, ["update-fixture.zip"]);
+    assert.deepEqual(result.available.assetNames, ["update-fixture.zip", "SHA256SUMS.txt"]);
     assert.equal(result.available.matchedAssetName, "update-fixture.zip");
+    assert.equal(result.provenance.sourceRepo, "service-lasso/update-fixture");
+    assert.equal(result.provenance.tag, "2026.4.24-new");
+    assert.equal(result.provenance.assetName, "update-fixture.zip");
+    assert.equal(result.provenance.releaseUrl.endsWith("/releases/2026.4.24-new"), true);
+    assert.equal(result.provenance.checksum.available, true);
+    assert.equal(result.provenance.checksum.source, "release-asset");
+    assert.equal(result.provenance.checksum.assetName, "SHA256SUMS.txt");
+    assert.equal(result.provenance.current.comparison, "different");
   } finally {
     await releaseServer.stop();
     await rm(servicesRoot, { recursive: true, force: true });
@@ -330,6 +355,11 @@ test("update discovery reports unavailable when the tracked release is missing t
     assert.equal(result.status, "unavailable");
     assert.match(result.reason, /did not contain expected asset "update-fixture\.zip"/);
     assert.deepEqual(result.available.assetNames, ["other.zip"]);
+    assert.equal(result.provenance.sourceRepo, "service-lasso/update-fixture");
+    assert.equal(result.provenance.tag, "2026.4.24-new");
+    assert.equal(result.provenance.assetName, "update-fixture.zip");
+    assert.equal(result.provenance.checksum.available, false);
+    assert.equal(result.provenance.current.comparison, "different");
   } finally {
     await releaseServer.stop();
     await rm(servicesRoot, { recursive: true, force: true });
@@ -395,8 +425,12 @@ test("update check results persist durable operator state", async () => {
     assert.equal(persisted.lastCheck.status, "update_available");
     assert.equal(persisted.lastCheck.sourceRepo, "service-lasso/update-fixture");
     assert.equal(persisted.lastCheck.installedTag, "2026.4.20-old");
+    assert.equal(persisted.provenance.sourceRepo, "service-lasso/update-fixture");
+    assert.equal(persisted.provenance.tag, "2026.4.24-new");
+    assert.equal(persisted.provenance.current.comparison, "different");
     assert.equal(persisted.available.tag, "2026.4.24-new");
     assert.equal(stored.updates.state, "available");
+    assert.equal(stored.updates.provenance.sourceRepo, "service-lasso/update-fixture");
     assert.equal(JSON.parse(await readFile(path.join(serviceRoot, ".state", "updates.json"), "utf8")).available.tag, "2026.4.24-new");
   } finally {
     await releaseServer.stop();

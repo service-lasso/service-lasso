@@ -697,6 +697,26 @@ export async function installServiceUpdateCandidate(
       matchedAssetName: candidate.assetName,
       assetUrl: candidate.assetUrl,
     },
+    provenance: {
+      sourceRepo: artifact.source.repo,
+      tag: candidate.tag,
+      assetName: candidate.assetName,
+      checksum: {
+        available: Boolean(platform.checksum?.value),
+        source: platform.checksum?.value ? "manifest" : platform.checksum?.assetName ? "release-asset" : null,
+        algorithm: platform.checksum?.algorithm ?? null,
+        assetName: platform.checksum?.assetName ?? null,
+      },
+      releaseUrl: update.available?.releaseUrl ?? null,
+      discoveredAt: installedAt,
+      current: {
+        manifestTag: artifact.source.tag ?? null,
+        installedTag: candidate.tag,
+        version: service.manifest.version ?? null,
+        assetName: candidate.assetName,
+        comparison: "same",
+      },
+    },
     checkedAt: installedAt,
   });
   await writeServiceUpdateState(service, {

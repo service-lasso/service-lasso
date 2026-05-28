@@ -204,6 +204,9 @@ test("CLI updates check returns JSON with recommended action", async () => {
     assert.equal(payload.action, "check");
     assert.equal(payload.services[0].serviceId, "update-fixture");
     assert.equal(payload.services[0].result.status, "update_available");
+    assert.equal(payload.services[0].result.provenance.sourceRepo, "service-lasso/update-fixture");
+    assert.equal(payload.services[0].result.provenance.tag, "2026.4.24-new");
+    assert.equal(payload.services[0].update.provenance.current.comparison, "different");
     assert.equal(payload.services[0].recommendedAction, "download");
   } finally {
     await releaseServer.stop();
