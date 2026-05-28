@@ -88,3 +88,48 @@ test("CLI recovery doctor records history readable by recovery status", async ()
   }
 });
 
+test("CLI recovery restart-preflight emits machine-readable blocked restart safety report", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-cli-restart-preflight-");
+  await writeExecutableFixtureService(servicesRoot, "api", {
+    depend_on: ["missing-database"],
+    execservice: "missing-provider",
+  });
+
+  try {
+    const out = await runCli([
+      "recovery",
+      "restart-preflight",
+      "api",
+      "--services-root",
+      servicesRoot,
+      "--workspace-root",
+      workspaceRoot,
+      "--json",
+    ]);
+    const result = JSON.parse(out);
+
+    assert.equal(result.action, "restart-preflight");
+    assert.equal(result.serviceId, "api");
+    assert.equal(result.preflight.ok, false);
+    assert.equal(result.preflight.status, "blocked");
+    assert.equal(result.preflight.dryRun, true);
+    assert.equal(result.preflight.mutated, false);
+    assert.deepEqual(result.preflight.dependencyGraph.missingDependencies, ["missing-database"]);
+    assert.ok(result.preflight.blockers.some((blocker) => blocker.code === "provider_missing"));
+
+    const humanOut = await runCli([
+      "recovery",
+      "restart-preflight",
+      "api",
+      "--services-root",
+      servicesRoot,
+      "--workspace-root",
+      workspaceRoot,
+    ]);
+
+    assert.match(humanOut, /\[service-lasso\] restart preflight/);
+    assert.match(humanOut, /status: blocked/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});

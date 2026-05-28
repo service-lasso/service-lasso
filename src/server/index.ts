@@ -54,6 +54,7 @@ import { buildOperatorNotifications } from "../runtime/operator/notifications.js
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-safety-preflight.js";
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import {
@@ -1315,6 +1316,14 @@ async function routeRequest(
       writeJson(response, 200, {
         serviceId,
         recovery: await readServiceRecoveryHistory(service),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "recovery" && pathParts[4] === "restart-preflight") {
+      writeJson(response, 200, {
+        serviceId,
+        preflight: buildRestartSafetyPreflightReport(service, runtimeModel.registry),
       });
       return;
     }

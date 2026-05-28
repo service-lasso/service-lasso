@@ -56,9 +56,11 @@ The sixth implemented slice adds operator and app-host surfaces:
 
 - `service-lasso recovery status [serviceId]` reads bounded recovery history with human or JSON output
 - `service-lasso recovery doctor <serviceId>` runs configured doctor/preflight steps without restarting the service and persists the result
+- `service-lasso recovery restart-preflight <serviceId>` computes a read-only restart safety report for dependency/provider-ref changes, including dependent services, restart-order risk, doctor requirements, and lifecycle/provider blockers
 - `GET /api/recovery` lists persisted recovery history for all services
 - `GET /api/services/:id/recovery` returns persisted recovery history for one service
 - `POST /api/services/:id/recovery/doctor` runs manual doctor/preflight checks and returns the updated recovery history
+- `GET /api/services/:id/recovery/restart-preflight` returns the same non-mutating restart safety preflight report for operator/API callers
 
 The seventh implemented slice adds Service Admin visibility:
 
