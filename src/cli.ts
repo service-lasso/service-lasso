@@ -78,6 +78,7 @@ function usageText(): string {
     "  service-lasso plan import <manifestPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso recovery restart-preflight <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -217,15 +218,15 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "recovery") {
     const action = remaining.shift();
-    if (action !== "status" && action !== "doctor") {
-      throw new Error('The "recovery" command requires one of: status, doctor.');
+    if (action !== "status" && action !== "doctor" && action !== "restart-preflight") {
+      throw new Error('The "recovery" command requires one of: status, doctor, restart-preflight.');
     }
 
     parsed.recoveryAction = action;
-    if (action === "doctor") {
+    if (action === "doctor" || action === "restart-preflight") {
       const serviceId = remaining.shift();
       if (!serviceId || serviceId.startsWith("-")) {
-        throw new Error('The "recovery doctor" command requires a <serviceId> argument.');
+        throw new Error(`The "recovery ${action}" command requires a <serviceId> argument.`);
       }
       parsed.serviceId = serviceId;
     } else if (remaining[0] && !remaining[0].startsWith("-")) {
@@ -607,6 +608,18 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
     for (const service of result.services) {
       console.log(`- ${formatRecoveryLine(service)}`);
     }
+    return;
+  }
+
+  if (result.action === "restart-preflight") {
+    console.log("[service-lasso] restart preflight");
+    console.log(`- service: ${result.serviceId}`);
+    console.log(`- ok: ${result.preflight.ok}`);
+    console.log(`- status: ${result.preflight.status}`);
+    console.log(`- blockers: ${result.preflight.blockers.length}`);
+    console.log(`- warnings: ${result.preflight.warnings.length}`);
+    console.log(`- dependents: ${result.preflight.dependencyGraph.dependents.length}`);
+    console.log(`- restartOrderRisk: ${result.preflight.restartOrderRisk.level}`);
     return;
   }
 

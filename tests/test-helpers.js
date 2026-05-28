@@ -37,8 +37,10 @@ export async function clearPersistedFixtureState(servicesRoot) {
 export async function makeTempServicesRoot(prefix = "service-lasso-fixture-") {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), prefix));
   const servicesRoot = path.join(tempRoot, "services");
+  const workspaceRoot = path.join(tempRoot, "workspace");
   await mkdir(servicesRoot, { recursive: true });
-  return { tempRoot, servicesRoot };
+  await mkdir(workspaceRoot, { recursive: true });
+  return { tempRoot, servicesRoot, workspaceRoot };
 }
 
 export async function writeManifest(servicesRoot, serviceId, body) {
@@ -71,6 +73,7 @@ export async function writeExecutableFixtureService(
     doctor = undefined,
     ports = undefined,
     depend_on = undefined,
+    execservice = undefined,
     urls = undefined,
     install = undefined,
     config = undefined,
@@ -196,6 +199,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     doctor,
     ports,
     depend_on,
+    execservice,
     urls,
     install,
     config,

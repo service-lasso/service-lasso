@@ -67,3 +67,29 @@ test("recovery API exposes status and manual doctor execution", async () => {
   }
 });
 
+test("recovery API exposes read-only restart safety preflight", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-api-restart-preflight-");
+  await writeExecutableFixtureService(servicesRoot, "api", {
+    depend_on: ["missing-database"],
+    execservice: "missing-provider",
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const preflight = await getJson(`${apiServer.url}/api/services/api/recovery/restart-preflight`);
+
+    assert.equal(preflight.status, 200);
+    assert.equal(preflight.body.serviceId, "api");
+    assert.equal(preflight.body.preflight.action, "restart-preflight");
+    assert.equal(preflight.body.preflight.ok, false);
+    assert.equal(preflight.body.preflight.dryRun, true);
+    assert.equal(preflight.body.preflight.mutated, false);
+    assert.deepEqual(preflight.body.preflight.dependencyGraph.missingDependencies, ["missing-database"]);
+    assert.ok(preflight.body.preflight.blockers.some((blocker) => blocker.code === "provider_missing"));
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
