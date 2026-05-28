@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
 import type {
@@ -15,6 +15,7 @@ import type { ServiceLifecycleState } from "../lifecycle/types.js";
 import { startService, stopService } from "../lifecycle/actions.js";
 import { runLifecycleHookPhase, type LifecycleHookPhaseResult, type ServiceHookPhase } from "../recovery/hooks.js";
 import { getServiceStatePaths } from "../state/paths.js";
+import { readStoredState } from "../state/readState.js";
 import { writeServiceState } from "../state/writeState.js";
 import { checkServiceUpdate, type ServiceUpdateCheckResult } from "./check.js";
 import {
@@ -59,12 +60,36 @@ export interface UpdateInstallActionResult {
   forced: boolean;
   stoppedForInstall: boolean;
   restartedAfterInstall: boolean;
+  rollbackReadiness: UpdateRollbackReadinessReport;
 }
 
 export interface UpdateInstallOptions {
   force?: boolean;
   registry?: ServiceRegistry;
   now?: () => Date;
+}
+
+export type UpdateRollbackReadinessStatus = "ready" | "warning" | "blocked";
+
+export type UpdateRollbackReadinessCheckId =
+  | "previous_install_state"
+  | "current_artifact_reference"
+  | "rollback_hook_support"
+  | "running_service_policy"
+  | "backup_availability";
+
+export interface UpdateRollbackReadinessCheck {
+  id: UpdateRollbackReadinessCheckId;
+  status: UpdateRollbackReadinessStatus;
+  reason: string;
+  evidence: Record<string, string | number | boolean | null>;
+}
+
+export interface UpdateRollbackReadinessReport {
+  status: UpdateRollbackReadinessStatus;
+  checks: UpdateRollbackReadinessCheck[];
+  blocked: UpdateRollbackReadinessCheckId[];
+  warnings: UpdateRollbackReadinessCheckId[];
 }
 
 const windowDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -287,6 +312,210 @@ async function extractArchive(
   });
 }
 
+function summarizeReadiness(checks: UpdateRollbackReadinessCheck[]): UpdateRollbackReadinessReport {
+  const blocked = checks.filter((check) => check.status === "blocked").map((check) => check.id);
+  const warnings = checks.filter((check) => check.status === "warning").map((check) => check.id);
+  return {
+    status: blocked.length > 0 ? "blocked" : warnings.length > 0 ? "warning" : "ready",
+    checks,
+    blocked,
+    warnings,
+  };
+}
+
+async function hasLocalBackupEvidence(service: DiscoveredService): Promise<{ available: boolean; count: number }> {
+  const paths = getServiceStatePaths(service.serviceRoot);
+  try {
+    const entries = await readdir(paths.backups, { withFileTypes: true });
+    const count = entries.filter((entry) => entry.isFile() || entry.isDirectory()).length;
+    return { available: count > 0, count };
+  } catch {
+    return { available: false, count: 0 };
+  }
+}
+
+type RollbackArtifactEvidence = NonNullable<ServiceLifecycleState["installArtifacts"]["artifact"]>;
+
+function hasArtifactReference(artifact: RollbackArtifactEvidence | undefined): boolean {
+  return Boolean(artifact && (artifact.tag || artifact.assetName || artifact.archivePath || artifact.extractedPath));
+}
+
+function normalizeStoredArtifactEvidence(input: unknown): RollbackArtifactEvidence | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+
+  const record = input as Record<string, unknown>;
+  return {
+    sourceType: record.sourceType === "github-release" ? "github-release" : null,
+    repo: typeof record.repo === "string" ? record.repo : null,
+    channel: typeof record.channel === "string" ? record.channel : null,
+    tag: typeof record.tag === "string" ? record.tag : null,
+    assetName: typeof record.assetName === "string" ? record.assetName : null,
+    assetUrl: typeof record.assetUrl === "string" ? record.assetUrl : null,
+    archiveType:
+      record.archiveType === "zip" || record.archiveType === "tar.gz" || record.archiveType === "tgz"
+        ? record.archiveType
+        : null,
+    archivePath: typeof record.archivePath === "string" ? record.archivePath : null,
+    extractedPath: typeof record.extractedPath === "string" ? record.extractedPath : null,
+    command: typeof record.command === "string" ? record.command : null,
+    args: Array.isArray(record.args) ? record.args.filter((entry): entry is string => typeof entry === "string") : [],
+    checksum: null,
+  };
+}
+
+async function readPersistedInstallEvidence(service: DiscoveredService): Promise<{
+  installed: boolean;
+  artifact: RollbackArtifactEvidence | undefined;
+}> {
+  const snapshot = await readStoredState(service.serviceRoot);
+  if (!snapshot.install || typeof snapshot.install !== "object" || Array.isArray(snapshot.install)) {
+    return { installed: false, artifact: undefined };
+  }
+
+  const install = snapshot.install as Record<string, unknown>;
+  return {
+    installed: install.installed === true,
+    artifact: normalizeStoredArtifactEvidence(install.artifact),
+  };
+}
+
+export async function buildUpdateRollbackReadinessReport(
+  service: DiscoveredService,
+  lifecycle: ServiceLifecycleState = getLifecycleState(service.manifest.id),
+  options: UpdateInstallOptions = {},
+): Promise<UpdateRollbackReadinessReport> {
+  const persisted = await readPersistedInstallEvidence(service);
+  const lifecycleArtifact = lifecycle.installArtifacts.artifact;
+  const artifact = hasArtifactReference(lifecycleArtifact) ? lifecycleArtifact : persisted.artifact;
+  const installed = lifecycle.installed || persisted.installed;
+  const hasCurrentArtifactReference = hasArtifactReference(artifact);
+  const rollbackHookCount = service.manifest.hooks?.rollback?.length ?? 0;
+  const runningPolicy = service.manifest.updates?.runningService ?? "skip";
+  const backupEvidence = await hasLocalBackupEvidence(service);
+
+  const checks: UpdateRollbackReadinessCheck[] = [
+    installed
+      ? {
+          id: "previous_install_state",
+          status: "ready",
+          reason: "A previous installed state is recorded for rollback comparison.",
+          evidence: { installed: true, persisted: persisted.installed },
+        }
+      : {
+          id: "previous_install_state",
+          status: "blocked",
+          reason: "No previous installed state is recorded.",
+          evidence: { installed: false, persisted: false },
+        },
+    hasCurrentArtifactReference
+      ? {
+          id: "current_artifact_reference",
+          status: "ready",
+          reason: "The current install has artifact reference metadata.",
+          evidence: {
+            repo: artifact?.repo ?? null,
+            tag: artifact?.tag ?? null,
+            assetName: artifact?.assetName ?? null,
+            archiveType: artifact?.archiveType ?? null,
+            hasArchivePath: Boolean(artifact?.archivePath),
+            hasExtractedPath: Boolean(artifact?.extractedPath),
+          },
+        }
+      : {
+          id: "current_artifact_reference",
+          status: "blocked",
+          reason: "The current install is missing artifact reference metadata.",
+          evidence: {
+            repo: artifact?.repo ?? null,
+            tag: artifact?.tag ?? null,
+            assetName: artifact?.assetName ?? null,
+            archiveType: artifact?.archiveType ?? null,
+            hasArchivePath: Boolean(artifact?.archivePath),
+            hasExtractedPath: Boolean(artifact?.extractedPath),
+          },
+        },
+    rollbackHookCount > 0
+      ? {
+          id: "rollback_hook_support",
+          status: "ready",
+          reason: "A rollback hook is declared for recovery handling.",
+          evidence: { hookCount: rollbackHookCount },
+        }
+      : {
+          id: "rollback_hook_support",
+          status: "warning",
+          reason: "No rollback hook is declared; recovery may require manual artifact restore.",
+          evidence: { hookCount: 0 },
+        },
+  ];
+
+  if (!lifecycle.running) {
+    checks.push({
+      id: "running_service_policy",
+      status: "ready",
+      reason: "The service is not running, so install does not require stop/start handling.",
+      evidence: { running: false, policy: runningPolicy, forced: options.force === true },
+    });
+  } else if (options.force === true) {
+    checks.push({
+      id: "running_service_policy",
+      status: "warning",
+      reason: "The service is running and --force bypasses managed stop/start handling.",
+      evidence: { running: true, policy: runningPolicy, forced: true },
+    });
+  } else if (runningPolicy === "stop-start" || runningPolicy === "restart") {
+    checks.push({
+      id: "running_service_policy",
+      status: "ready",
+      reason: `The service is running and updates.runningService is "${runningPolicy}", so install may manage stop/start.`,
+      evidence: { running: true, policy: runningPolicy, forced: false },
+    });
+  } else {
+    checks.push({
+      id: "running_service_policy",
+      status: "warning",
+      reason: `The service is running and updates.runningService is "${runningPolicy}"; install will defer unless the service is stopped first.`,
+      evidence: { running: true, policy: runningPolicy, forced: false },
+    });
+  }
+
+  checks.push(
+    backupEvidence.available
+      ? {
+          id: "backup_availability",
+          status: "ready",
+          reason: "Local backup evidence exists for this service.",
+          evidence: { backupCount: backupEvidence.count },
+        }
+      : {
+          id: "backup_availability",
+          status: "warning",
+          reason: "No local backup evidence was found for this service.",
+          evidence: { backupCount: 0 },
+        },
+  );
+
+  return summarizeReadiness(checks);
+}
+
+async function assertRollbackReadinessAllowsInstall(
+  service: DiscoveredService,
+  lifecycle: ServiceLifecycleState,
+  options: UpdateInstallOptions,
+): Promise<UpdateRollbackReadinessReport> {
+  const report = await buildUpdateRollbackReadinessReport(service, lifecycle, options);
+  if (report.status !== "blocked") {
+    return report;
+  }
+
+  const update = await persistUpdateInstallDeferred(service, {
+    reason: `Rollback readiness check blocked update install: ${report.blocked.join(", ")}.`,
+  });
+  throw new UpdateInstallDeferredError(`Update install for "${service.manifest.id}" is blocked by rollback readiness.`, update);
+}
+
 export async function listServiceUpdateStates(services: DiscoveredService[]): Promise<UpdateServiceSummary[]> {
   return await Promise.all(
     services.map(async (service) => ({
@@ -387,6 +616,8 @@ export async function installServiceUpdateCandidate(
   }
 
   await assertInstallWindowAllows(service, options);
+  const beforeInstallState = getLifecycleState(service.manifest.id);
+  const rollbackReadiness = await assertRollbackReadinessAllowsInstall(service, beforeInstallState, options);
   const runningSafety = await stopRunningServiceForInstall(service, options);
   let update = await readServiceUpdateState(service);
   if (!update.downloadedCandidate) {
@@ -495,5 +726,6 @@ export async function installServiceUpdateCandidate(
     forced: options.force === true,
     stoppedForInstall: runningSafety.stoppedForInstall,
     restartedAfterInstall,
+    rollbackReadiness,
   };
 }
