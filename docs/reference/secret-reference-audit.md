@@ -8,6 +8,8 @@ Service Lasso exposes a read-only secret reference audit so operators and API co
 - GET /api/services/SERVICE_ID/secrets/audit
 - GET /api/secrets/rotation-readiness
 - GET /api/services/SERVICE_ID/secrets/rotation-readiness
+- GET /api/secrets/provider-auth-required
+- GET /api/services/SERVICE_ID/secrets/provider-auth-required
 
 The response includes service id, manifest path, reference metadata, location, status, and aggregate counts. It never includes resolved values, raw env values, provider credentials, tokens, passwords, or private-key material.
 
@@ -25,6 +27,8 @@ Commands:
 - service-lasso secrets audit SERVICE_ID --json
 - service-lasso secrets rotation-readiness --json
 - service-lasso secrets rotation-readiness SERVICE_ID --json
+- service-lasso secrets provider-auth-required --json
+- service-lasso secrets provider-auth-required SERVICE_ID --json
 
 Human output prints aggregate counts only. JSON output returns the same safe metadata as the API.
 
@@ -47,6 +51,17 @@ Readiness statuses:
 - needs_capability: policy is declared but rotate capability is unsupported or unknown.
 - needs_auth_check: rotate capability is declared but the Secrets Broker must confirm live provider auth state before rotation.
 - blocked: the ref is malformed or cannot be evaluated safely.
+
+## Provider Auth-Required Summary
+
+The provider-auth-required summary is a narrow operator view for reconnect planning before rotation or migration workflows. It reports safe metadata only:
+
+- service id, ref, namespace/key, provider name, and manifest locations.
+- per-ref status: auth_required, not_required, or blocked.
+- provider aggregates for refs that need broker auth/reconnect confirmation.
+- counts for affected services, providers, references, auth-required refs, not-required refs, and blocked refs.
+
+Core does not return provider credentials, raw secret values, OAuth tokens, provider response bodies, cookies, private keys, passwords, or raw env values. An `auth_required` status means the Secrets Broker must confirm provider reconnect/auth state before the ref is used by rotate or migration workflows; it is not a raw secret reveal path.
 
 ## Scope
 

@@ -99,6 +99,50 @@ export interface SecretRotationReadinessReport {
   };
 }
 
+export type SecretProviderAuthRequiredStatus = "auth_required" | "not_required" | "blocked";
+
+export interface SecretProviderAuthRequiredRef {
+  serviceId: string;
+  ref: string;
+  namespace?: string;
+  key?: string;
+  provider: string;
+  status: SecretProviderAuthRequiredStatus;
+  required: boolean;
+  reason: string;
+  sources: SecretReferenceAuditSource[];
+  locations: string[];
+  blockers: string[];
+}
+
+export interface SecretProviderAuthRequiredProviderSummary {
+  provider: string;
+  authRequiredRefs: number;
+  services: string[];
+  refs: string[];
+}
+
+export interface ServiceSecretProviderAuthRequiredSummary {
+  serviceId: string;
+  manifestPath: string;
+  refs: SecretProviderAuthRequiredRef[];
+  summary: {
+    authRequired: number;
+    notRequired: number;
+    blocked: number;
+  };
+}
+
+export interface SecretProviderAuthRequiredSummary {
+  services: ServiceSecretProviderAuthRequiredSummary[];
+  providers: SecretProviderAuthRequiredProviderSummary[];
+  summary: ServiceSecretProviderAuthRequiredSummary["summary"] & {
+    services: number;
+    providers: number;
+    references: number;
+  };
+}
+
 interface CandidateRef {
   ref: string;
   source: SecretReferenceAuditSource;
@@ -529,6 +573,137 @@ export function buildSecretRotationReadinessReport(services: DiscoveredService[]
       needsPolicy: summaries.reduce((total, summary) => total + summary.needsPolicy, 0),
       needsCapability: summaries.reduce((total, summary) => total + summary.needsCapability, 0),
       needsAuthCheck: summaries.reduce((total, summary) => total + summary.needsAuthCheck, 0),
+      blocked: summaries.reduce((total, summary) => total + summary.blocked, 0),
+    },
+  };
+}
+
+function providerFromRef(ref: SecretRotationReadinessRef): string {
+  if (ref.namespace) {
+    return ref.namespace;
+  }
+  const dotIndex = ref.ref.indexOf(".");
+  return dotIndex > 0 ? ref.ref.slice(0, dotIndex) : "unknown";
+}
+
+function toProviderAuthRequiredRef(ref: SecretRotationReadinessRef): SecretProviderAuthRequiredRef {
+  if (ref.policy.status !== "declared" || ref.providerCapability.status === "blocked") {
+    return {
+      serviceId: ref.serviceId,
+      ref: ref.ref,
+      namespace: ref.namespace,
+      key: ref.key,
+      provider: providerFromRef(ref),
+      status: "blocked",
+      required: ref.lastUsed.required,
+      reason: "Provider auth state cannot be evaluated until broker policy and capability blockers are cleared.",
+      sources: ref.lastUsed.sources,
+      locations: ref.lastUsed.locations,
+      blockers: ref.blockers,
+    };
+  }
+
+  if (ref.providerCapability.status === "supported" && ref.authRequirement.status === "unknown") {
+    return {
+      serviceId: ref.serviceId,
+      ref: ref.ref,
+      namespace: ref.namespace,
+      key: ref.key,
+      provider: providerFromRef(ref),
+      status: "auth_required",
+      required: ref.lastUsed.required,
+      reason: "The Secrets Broker must confirm provider reconnect/auth state before rotate or migration workflows use this ref.",
+      sources: ref.lastUsed.sources,
+      locations: ref.lastUsed.locations,
+      blockers: ["provider_auth_required"],
+    };
+  }
+
+  return {
+    serviceId: ref.serviceId,
+    ref: ref.ref,
+    namespace: ref.namespace,
+    key: ref.key,
+    provider: providerFromRef(ref),
+    status: "not_required",
+    required: ref.lastUsed.required,
+    reason: "No provider auth-required state is surfaced for this ref by the current manifest contract.",
+    sources: ref.lastUsed.sources,
+    locations: ref.lastUsed.locations,
+    blockers: [],
+  };
+}
+
+function summarizeProviderAuthRequiredRefs(
+  refs: SecretProviderAuthRequiredRef[],
+): ServiceSecretProviderAuthRequiredSummary["summary"] {
+  return {
+    authRequired: refs.filter((ref) => ref.status === "auth_required").length,
+    notRequired: refs.filter((ref) => ref.status === "not_required").length,
+    blocked: refs.filter((ref) => ref.status === "blocked").length,
+  };
+}
+
+export function buildServiceSecretProviderAuthRequiredSummary(
+  service: DiscoveredService,
+): ServiceSecretProviderAuthRequiredSummary {
+  const readiness = buildServiceSecretRotationReadinessReport(service);
+  const refs = readiness.refs
+    .map(toProviderAuthRequiredRef)
+    .sort((left, right) =>
+      left.status.localeCompare(right.status) ||
+      left.provider.localeCompare(right.provider) ||
+      left.ref.localeCompare(right.ref),
+    );
+
+  return {
+    serviceId: service.manifest.id,
+    manifestPath: service.manifestPath,
+    refs,
+    summary: summarizeProviderAuthRequiredRefs(refs),
+  };
+}
+
+function summarizeProviders(services: ServiceSecretProviderAuthRequiredSummary[]): SecretProviderAuthRequiredProviderSummary[] {
+  const byProvider = new Map<string, { services: Set<string>; refs: Set<string>; count: number }>();
+
+  for (const service of services) {
+    for (const ref of service.refs) {
+      if (ref.status !== "auth_required") {
+        continue;
+      }
+      const entry = byProvider.get(ref.provider) ?? { services: new Set<string>(), refs: new Set<string>(), count: 0 };
+      entry.services.add(service.serviceId);
+      entry.refs.add(ref.ref);
+      entry.count += 1;
+      byProvider.set(ref.provider, entry);
+    }
+  }
+
+  return [...byProvider.entries()]
+    .map(([provider, entry]) => ({
+      provider,
+      authRequiredRefs: entry.count,
+      services: [...entry.services].sort(),
+      refs: [...entry.refs].sort(),
+    }))
+    .sort((left, right) => left.provider.localeCompare(right.provider));
+}
+
+export function buildSecretProviderAuthRequiredSummary(services: DiscoveredService[]): SecretProviderAuthRequiredSummary {
+  const serviceSummaries = services.map((service) => buildServiceSecretProviderAuthRequiredSummary(service));
+  const summaries = serviceSummaries.map((service) => service.summary);
+  const providers = summarizeProviders(serviceSummaries);
+
+  return {
+    services: serviceSummaries,
+    providers,
+    summary: {
+      services: serviceSummaries.length,
+      providers: providers.length,
+      references: serviceSummaries.reduce((total, service) => total + service.refs.length, 0),
+      authRequired: summaries.reduce((total, summary) => total + summary.authRequired, 0),
+      notRequired: summaries.reduce((total, summary) => total + summary.notRequired, 0),
       blocked: summaries.reduce((total, summary) => total + summary.blocked, 0),
     },
   };

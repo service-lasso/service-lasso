@@ -2,17 +2,21 @@ import { discoverServices } from "../discovery/discoverServices.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
 import {
+  buildSecretProviderAuthRequiredSummary,
   buildSecretReferenceAudit,
   buildSecretRotationReadinessReport,
+  buildServiceSecretProviderAuthRequiredSummary,
   buildServiceSecretReferenceAudit,
   buildServiceSecretRotationReadinessReport,
+  type SecretProviderAuthRequiredSummary,
   type SecretReferenceAudit,
   type SecretRotationReadinessReport,
+  type ServiceSecretProviderAuthRequiredSummary,
   type ServiceSecretReferenceAudit,
   type ServiceSecretRotationReadinessReport,
 } from "../operator/secret-audit.js";
 
-export type SecretsCliAction = "audit" | "rotation-readiness";
+export type SecretsCliAction = "audit" | "rotation-readiness" | "provider-auth-required";
 
 export interface SecretsCliOptions extends RuntimeConfigOptions {
   action: SecretsCliAction;
@@ -39,6 +43,16 @@ export type SecretsCliResult =
       action: "rotation-readiness";
       servicesRoot: string;
       workspaceRoot: string;
+    })
+  | (SecretProviderAuthRequiredSummary & {
+      action: "provider-auth-required";
+      servicesRoot: string;
+      workspaceRoot: string;
+    })
+  | (ServiceSecretProviderAuthRequiredSummary & {
+      action: "provider-auth-required";
+      servicesRoot: string;
+      workspaceRoot: string;
     });
 
 export async function runSecretsCliAction(options: SecretsCliOptions): Promise<SecretsCliResult> {
@@ -58,12 +72,21 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
     };
   }
 
-  if (!options.serviceId) {
+  if (!options.serviceId && options.action === "rotation-readiness") {
     return {
       action: "rotation-readiness",
       servicesRoot: runtimeConfig.servicesRoot,
       workspaceRoot: runtimeConfig.workspaceRoot,
       ...buildSecretRotationReadinessReport(discovered),
+    };
+  }
+
+  if (!options.serviceId) {
+    return {
+      action: "provider-auth-required",
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      ...buildSecretProviderAuthRequiredSummary(discovered),
     };
   }
 
@@ -84,10 +107,19 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
     };
   }
 
+  if (options.action === "rotation-readiness") {
+    return {
+      action: "rotation-readiness",
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      ...buildServiceSecretRotationReadinessReport(service),
+    };
+  }
+
   return {
-    action: "rotation-readiness",
+    action: "provider-auth-required",
     servicesRoot: runtimeConfig.servicesRoot,
     workspaceRoot: runtimeConfig.workspaceRoot,
-    ...buildServiceSecretRotationReadinessReport(service),
+    ...buildServiceSecretProviderAuthRequiredSummary(service),
   };
 }

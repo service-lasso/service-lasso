@@ -92,6 +92,7 @@ function usageText(): string {
     "  service-lasso config-snapshot import <snapshotPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets rotation-readiness [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets provider-auth-required [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -330,8 +331,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "secrets") {
     const action = remaining.shift();
-    if (action !== "audit" && action !== "rotation-readiness") {
-      throw new Error('The "secrets" command requires one of: audit, rotation-readiness.');
+    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required") {
+      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required.');
     }
 
     parsed.secretsAction = action;
@@ -789,6 +790,39 @@ function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
     console.log("- needsPolicy: " + result.summary.needsPolicy);
     console.log("- needsCapability: " + result.summary.needsCapability);
     console.log("- needsAuthCheck: " + result.summary.needsAuthCheck);
+    console.log("- blocked: " + result.summary.blocked);
+    for (const ref of result.refs) {
+      const suffix = ref.blockers.length > 0 ? " [" + ref.blockers.join(", ") + "]" : "";
+      console.log("- " + ref.status + ": " + ref.ref + suffix);
+    }
+    return;
+  }
+
+  if (result.action === "provider-auth-required") {
+    console.log("[service-lasso] secret provider auth-required summary");
+    if ("services" in result) {
+      console.log("- services: " + result.summary.services);
+      console.log("- providers: " + result.summary.providers);
+      console.log("- references: " + result.summary.references);
+      console.log("- authRequired: " + result.summary.authRequired);
+      console.log("- notRequired: " + result.summary.notRequired);
+      console.log("- blocked: " + result.summary.blocked);
+      for (const provider of result.providers) {
+        console.log(
+          "- provider " +
+            provider.provider +
+            ": authRequiredRefs=" +
+            provider.authRequiredRefs +
+            " services=" +
+            provider.services.join(", "),
+        );
+      }
+      return;
+    }
+
+    console.log("- service: " + result.serviceId);
+    console.log("- authRequired: " + result.summary.authRequired);
+    console.log("- notRequired: " + result.summary.notRequired);
     console.log("- blocked: " + result.summary.blocked);
     for (const ref of result.refs) {
       const suffix = ref.blockers.length > 0 ? " [" + ref.blockers.join(", ") + "]" : "";

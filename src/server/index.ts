@@ -58,8 +58,10 @@ import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-s
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import {
+  buildSecretProviderAuthRequiredSummary,
   buildSecretReferenceAudit,
   buildSecretRotationReadinessReport,
+  buildServiceSecretProviderAuthRequiredSummary,
   buildServiceSecretReferenceAudit,
   buildServiceSecretRotationReadinessReport,
 } from "../runtime/operator/secret-audit.js";
@@ -1311,6 +1313,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "secrets" && pathParts[4] === "provider-auth-required") {
+      writeJson(response, 200, buildServiceSecretProviderAuthRequiredSummary(service));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
       writeJson(response, 200, {
         serviceId,
@@ -1572,6 +1579,12 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/secrets/rotation-readiness") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, buildSecretRotationReadinessReport(runtimeModel.discovered));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/secrets/provider-auth-required") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildSecretProviderAuthRequiredSummary(runtimeModel.discovered));
     return;
   }
 
