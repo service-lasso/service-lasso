@@ -12,10 +12,17 @@ The current instance includes:
 - pid: API process id.
 - apiPort, apiUrl, and advertisedUrls.
 - servicesRoot and workspaceRoot.
-- startedAt and updatedAt.
-- status: active or stale.
+- startedAt, updatedAt, heartbeatAt, leaseExpiresAt, and leaseTtlMs.
+- status: active, stale, or unknown.
+- statusReason / staleReason when the runtime can classify why a record is not active.
 
-The registry includes active and stale recent entries from the local host registry file. Stale entries are retained for troubleshooting instead of being trusted as live runtimes.
+The registry includes active, stale, and unknown recent entries from the local host registry file. A running API process refreshes its lease heartbeat while it is serving requests. Records are classified as:
+
+- active: the process exists and its lease has not expired.
+- stale: the process is explicitly stopped or no longer exists.
+- unknown: the process id exists, but the lease expired or cannot be trusted.
+
+Stale and unknown entries are retained for troubleshooting instead of being trusted as live runtimes.
 
 ## CLI
 

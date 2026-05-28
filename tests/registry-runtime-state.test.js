@@ -8,7 +8,12 @@ import { discoverServices } from "../dist/runtime/discovery/discoverServices.js"
 import { DependencyGraph, createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { getRuntimeInstanceStatePath } from "../dist/runtime/instance/registry.js";
+import {
+  getRuntimeInstanceStatePath,
+  readRuntimeInstanceRegistry,
+  refreshRuntimeInstanceLease,
+  registerRuntimeInstance,
+} from "../dist/runtime/instance/registry.js";
 import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
@@ -207,7 +212,12 @@ test("runtime instance API and CLI expose distinct local instance records", asyn
     assert.equal(secondBody.instance.workspaceRoot, secondWorkspaceRoot);
     assert.equal(secondBody.registry.path, registryPath);
     assert.equal(secondBody.registry.activeCount, 2);
+    assert.equal(secondBody.registry.staleCount, 0);
+    assert.equal(secondBody.registry.unknownCount, 0);
     assert.equal(secondBody.registry.instances.length, 2);
+    assert.equal(typeof firstBody.instance.heartbeatAt, "string");
+    assert.equal(typeof firstBody.instance.leaseExpiresAt, "string");
+    assert.ok(firstBody.instance.leaseTtlMs > 0);
 
     const instanceFile = JSON.parse(await readFile(getRuntimeInstanceStatePath(firstWorkspaceRoot), "utf8"));
     assert.equal(instanceFile.instanceId, firstBody.instance.instanceId);
@@ -234,6 +244,7 @@ test("runtime instance API and CLI expose distinct local instance records", asyn
     const cliBody = JSON.parse(cli.stdout);
     assert.equal(cliBody.instance.instanceId, firstBody.instance.instanceId);
     assert.equal(cliBody.registry.activeCount, 2);
+    assert.equal(cliBody.registry.unknownCount, 0);
   } finally {
     if (firstServer) await firstServer.stop();
     if (secondServer) await secondServer.stop();
@@ -295,10 +306,109 @@ test("runtime instance registry classifies old process entries as stale", async 
     assert.equal(response.status, 200);
     assert.equal(body.registry.activeCount, 1);
     assert.equal(body.registry.staleCount, 1);
+    assert.equal(body.registry.unknownCount, 0);
     assert.equal(oldEntry.status, "stale");
+    assert.equal(oldEntry.statusReason, "process_not_running");
     assert.equal(oldEntry.staleReason, "process_not_running");
   } finally {
     if (apiServer) await apiServer.stop();
+    if (previousRegistryPath === undefined) {
+      delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    } else {
+      process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousRegistryPath;
+    }
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime instance leases classify active, expired, and refreshed records", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-instance-lease-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const registryPath = path.join(tempRoot, "registry", "instances.json");
+  const previousRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = registryPath;
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "lease-service");
+    await mkdir(path.dirname(registryPath), { recursive: true });
+    const now = new Date();
+    const expiredHeartbeat = new Date(now.getTime() - 120_000).toISOString();
+    const expiredLease = new Date(now.getTime() - 60_000).toISOString();
+    const activeLease = new Date(now.getTime() + 60_000).toISOString();
+
+    await writeFile(
+      registryPath,
+      JSON.stringify(
+        {
+          version: 1,
+          updatedAt: now.toISOString(),
+          instances: [
+            {
+              instanceId: "sl_active",
+              servicesRoot,
+              workspaceRoot: path.join(tempRoot, "active-workspace"),
+              pid: process.pid,
+              apiPort: 19001,
+              apiUrl: "http://127.0.0.1:19001",
+              advertisedUrls: ["http://127.0.0.1:19001"],
+              startedAt: now.toISOString(),
+              updatedAt: now.toISOString(),
+              heartbeatAt: now.toISOString(),
+              leaseExpiresAt: activeLease,
+              leaseTtlMs: 45_000,
+              version: "0.0.0-test",
+              status: "active",
+            },
+            {
+              instanceId: "sl_expired",
+              servicesRoot,
+              workspaceRoot: path.join(tempRoot, "expired-workspace"),
+              pid: process.pid,
+              apiPort: 19002,
+              apiUrl: "http://127.0.0.1:19002",
+              advertisedUrls: ["http://127.0.0.1:19002"],
+              startedAt: expiredHeartbeat,
+              updatedAt: expiredHeartbeat,
+              heartbeatAt: expiredHeartbeat,
+              leaseExpiresAt: expiredLease,
+              leaseTtlMs: 45_000,
+              version: "0.0.0-test",
+              status: "active",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const registry = await readRuntimeInstanceRegistry();
+    const activeEntry = registry.instances.find((entry) => entry.instanceId === "sl_active");
+    const expiredEntry = registry.instances.find((entry) => entry.instanceId === "sl_expired");
+
+    assert.equal(registry.activeCount, 1);
+    assert.equal(registry.unknownCount, 1);
+    assert.equal(registry.staleCount, 0);
+    assert.equal(activeEntry.status, "active");
+    assert.equal(expiredEntry.status, "unknown");
+    assert.equal(expiredEntry.statusReason, "lease_expired");
+
+    const config = { servicesRoot, workspaceRoot, version: "0.0.0-test" };
+    const registered = await registerRuntimeInstance(config, {
+      apiPort: 19003,
+      apiUrl: "http://127.0.0.1:19003",
+      startedAt: expiredHeartbeat,
+    });
+    const refreshed = await refreshRuntimeInstanceLease(config, { now: new Date(now.getTime() + 10_000) });
+
+    assert.equal(refreshed.instanceId, registered.instanceId);
+    assert.equal(refreshed.status, "active");
+    assert.equal(refreshed.statusReason, undefined);
+    assert.ok(Date.parse(refreshed.heartbeatAt) > Date.parse(registered.heartbeatAt));
+    assert.ok(Date.parse(refreshed.leaseExpiresAt) > Date.parse(refreshed.heartbeatAt));
+  } finally {
     if (previousRegistryPath === undefined) {
       delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
     } else {
