@@ -128,6 +128,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/readiness-gate",
+          label: "Readiness Gate CLI",
+        },
+        {
+          type: "doc",
           id: "reference/dependency-graph-api",
           label: "Dependency Graph API",
         },
