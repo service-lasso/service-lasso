@@ -173,3 +173,137 @@ test("CLI backup restore-plan reports version mismatches without mutating state"
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("CLI backup restore-plan reports valid overwrite operations and archive structure", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempRuntime("service-lasso-cli-restore-valid-");
+  const serviceRoot = await writeManifest(servicesRoot, "restore-valid", {
+    id: "restore-valid",
+    name: "Restore Valid",
+    description: "Fixture used for valid restore plan checks.",
+    version: "1.0.0",
+  });
+  await writeRuntimeState(serviceRoot);
+
+  try {
+    const createOut = await runCli([
+      "backup",
+      "create",
+      "--services-root",
+      servicesRoot,
+      "--workspace-root",
+      workspaceRoot,
+      "--json",
+    ]);
+    const backup = JSON.parse(createOut);
+
+    const planOut = await runCli([
+      "backup",
+      "restore-plan",
+      backup.archivePath,
+      "--services-root",
+      servicesRoot,
+      "--workspace-root",
+      workspaceRoot,
+      "--json",
+    ]);
+    const plan = JSON.parse(planOut);
+
+    assert.equal(plan.ok, true);
+    assert.equal(plan.archive.manifestEntry, true);
+    assert.equal(plan.archive.structureOk, true);
+    assert.deepEqual(plan.archive.issues, []);
+    assert.equal(plan.services[0].serviceId, "restore-valid");
+    assert.equal(plan.services[0].action, "restore");
+    assert.equal(plan.services[0].operation, "overwrite");
+    assert.deepEqual(plan.services[0].blocked, []);
+    assert.equal(plan.services[0].targetExists, true);
+    assert.equal(plan.services[0].targetKind, "directory");
+    assert.equal(plan.services[0].archiveEntries.redactedManifest, true);
+    assert.equal(plan.services[0].archiveEntries.logsMetadata, true);
+    assert.equal(plan.services[0].archiveEntries.stateFilesExpected, 2);
+    assert.equal(plan.services[0].archiveEntries.stateFilesPresent, 2);
+    assert.equal(plan.services[0].manifestCompatibility.compatible, true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI backup restore-plan blocks archives missing the top-level manifest", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempRuntime("service-lasso-cli-restore-missing-manifest-");
+  const archivePath = path.join(workspaceRoot, "missing-manifest.zip");
+  const zip = new AdmZip();
+  zip.addFile("not-the-manifest.json", Buffer.from("{}\n", "utf8"));
+  zip.writeZip(archivePath);
+
+  try {
+    const planOut = await runCli([
+      "backup",
+      "restore-plan",
+      archivePath,
+      "--services-root",
+      servicesRoot,
+      "--workspace-root",
+      workspaceRoot,
+      "--json",
+    ]);
+    const plan = JSON.parse(planOut);
+
+    assert.equal(plan.ok, false);
+    assert.equal(plan.archive.manifestEntry, false);
+    assert.equal(plan.archive.structureOk, false);
+    assert.deepEqual(plan.blocked, ["backup_manifest_missing"]);
+    assert.deepEqual(plan.services, []);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI backup restore-plan reports create target path conflicts", async () => {
+  const source = await makeTempRuntime("service-lasso-cli-restore-source-");
+  const target = await makeTempRuntime("service-lasso-cli-restore-target-");
+  const sourceServiceRoot = await writeManifest(source.servicesRoot, "path-conflict", {
+    id: "path-conflict",
+    name: "Path Conflict",
+    description: "Fixture used for restore path conflict checks.",
+    version: "1.0.0",
+  });
+  await writeRuntimeState(sourceServiceRoot);
+  await writeFile(path.join(target.servicesRoot, "path-conflict"), "occupied by a file");
+
+  try {
+    const createOut = await runCli([
+      "backup",
+      "create",
+      "--services-root",
+      source.servicesRoot,
+      "--workspace-root",
+      source.workspaceRoot,
+      "--json",
+    ]);
+    const backup = JSON.parse(createOut);
+
+    const planOut = await runCli([
+      "backup",
+      "restore-plan",
+      backup.archivePath,
+      "--services-root",
+      target.servicesRoot,
+      "--workspace-root",
+      target.workspaceRoot,
+      "--json",
+    ]);
+    const plan = JSON.parse(planOut);
+
+    assert.equal(plan.ok, false);
+    assert.equal(plan.archive.structureOk, false);
+    assert.deepEqual(plan.blocked, ["path-conflict:target_path_conflict"]);
+    assert.equal(plan.services[0].action, "create");
+    assert.equal(plan.services[0].operation, "create");
+    assert.equal(plan.services[0].targetExists, true);
+    assert.equal(plan.services[0].targetKind, "file");
+    assert.deepEqual(plan.services[0].blocked, ["target_path_conflict"]);
+  } finally {
+    await rm(source.tempRoot, { recursive: true, force: true });
+    await rm(target.tempRoot, { recursive: true, force: true });
+  }
+});

@@ -18,7 +18,7 @@ Preview a restore:
 service-lasso backup restore-plan ./workspace/backups/service-lasso-backup-2026-05-21T00-00-00-000Z.zip --services-root ./services --workspace-root ./workspace --json
 ~~~
 
-The restore-plan command is read-only. It reports what would be restored or created, version mismatches, root mismatches, service count differences, and unsupported backup schemas. It does not write service state, launch services, or overwrite files.
+The restore-plan command is read-only. It reports what would be overwritten or created, archive structure findings, redacted manifest compatibility, version mismatches, root mismatches, service count differences, target path conflicts, and unsupported backup schemas. It does not write service state, launch services, or overwrite files.
 
 ## Backup Archive Contract
 
@@ -47,6 +47,19 @@ Each service has:
 - manifest.redacted.json
 - redacted .state/*.json files when present
 - logs.metadata.json with log paths and file sizes only
+
+## Restore Dry-Run Report
+
+`backup restore-plan --json` emits a machine-readable report with:
+
+- `archive.manifestEntry`, `archive.structureOk`, and `archive.issues`
+- per-service `operation` of `create` or `overwrite`
+- per-service `targetPath`, `targetExists`, and `targetKind`
+- per-service archive entry counts for redacted manifests, logs metadata, and expected state files
+- per-service `manifestCompatibility` based on the redacted service manifest
+- `blocked` reason codes such as `backup_manifest_missing`, `unsupported_backup_schema`, `<serviceId>:target_path_conflict`, `<serviceId>:redacted_manifest_missing`, and `<serviceId>:state_file_missing`
+
+The report remains non-mutating even when `ok` is `false`.
 
 ## Secret-Safety Rules
 
