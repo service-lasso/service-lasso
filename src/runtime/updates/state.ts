@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { appendServiceRecoveryHistoryEvents } from "../recovery/history.js";
 import { getServiceStatePaths } from "../state/paths.js";
-import type { ServiceUpdateCheckResult } from "./check.js";
+import type { ServiceUpdateCheckResult, ServiceUpdateProvenanceSummary } from "./check.js";
 
 export type ServiceUpdateStateKind =
   | "installed"
@@ -80,6 +80,7 @@ export interface ServiceUpdateState {
   state: ServiceUpdateStateKind;
   updatedAt: string;
   lastCheck: ServiceUpdateLastCheckState | null;
+  provenance: ServiceUpdateProvenanceSummary | null;
   available: ServiceUpdateAvailableState | null;
   downloadedCandidate: ServiceUpdateDownloadedCandidateState | null;
   installDeferred: ServiceUpdateDeferredState | null;
@@ -113,6 +114,7 @@ export const EMPTY_UPDATE_STATE: Omit<ServiceUpdateState, "serviceId"> = {
   state: "installed",
   updatedAt: "",
   lastCheck: null,
+  provenance: null,
   available: null,
   downloadedCandidate: null,
   installDeferred: null,
@@ -246,6 +248,60 @@ function normalizeLastCheck(value: unknown): ServiceUpdateLastCheckState | null 
   };
 }
 
+function normalizeProvenance(value: unknown): ServiceUpdateProvenanceSummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const checksum = record.checksum;
+  const current = record.current;
+  if (
+    !checksum ||
+    typeof checksum !== "object" ||
+    Array.isArray(checksum) ||
+    !current ||
+    typeof current !== "object" ||
+    Array.isArray(current) ||
+    typeof record.discoveredAt !== "string"
+  ) {
+    return null;
+  }
+
+  const checksumRecord = checksum as Record<string, unknown>;
+  const currentRecord = current as Record<string, unknown>;
+  const comparison = currentRecord.comparison;
+  if (
+    typeof checksumRecord.available !== "boolean" ||
+    (checksumRecord.source !== null && checksumRecord.source !== "manifest" && checksumRecord.source !== "release-asset") ||
+    (checksumRecord.algorithm !== null && checksumRecord.algorithm !== "sha256") ||
+    (comparison !== "same" && comparison !== "different" && comparison !== "installed_newer" && comparison !== "unknown")
+  ) {
+    return null;
+  }
+
+  return {
+    sourceRepo: stringOrNull(record.sourceRepo),
+    tag: stringOrNull(record.tag),
+    assetName: stringOrNull(record.assetName),
+    checksum: {
+      available: checksumRecord.available,
+      source: checksumRecord.source,
+      algorithm: checksumRecord.algorithm,
+      assetName: stringOrNull(checksumRecord.assetName),
+    },
+    releaseUrl: stringOrNull(record.releaseUrl),
+    discoveredAt: record.discoveredAt,
+    current: {
+      manifestTag: stringOrNull(currentRecord.manifestTag),
+      installedTag: stringOrNull(currentRecord.installedTag),
+      version: stringOrNull(currentRecord.version),
+      assetName: stringOrNull(currentRecord.assetName),
+      comparison,
+    },
+  };
+}
+
 function normalizeHookStep(value: unknown): ServiceUpdateHookStepState | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -335,6 +391,7 @@ export function normalizeServiceUpdateState(input: unknown, serviceId: string): 
     state: isStateKind(record.state) ? record.state : "installed",
     updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : nowIso(),
     lastCheck: normalizeLastCheck(record.lastCheck),
+    provenance: normalizeProvenance(record.provenance),
     available: normalizeAvailable(record.available),
     downloadedCandidate: normalizeDownloadedCandidate(record.downloadedCandidate),
     installDeferred: normalizeDeferred(record.installDeferred),
@@ -409,6 +466,7 @@ export async function persistUpdateCheckResult(
       manifestTag: result.current.manifestTag,
       latestTag: result.available?.tag ?? null,
     },
+    provenance: result.provenance,
     available,
     downloadedCandidate: state === "installed" ? null : existing.downloadedCandidate,
     installDeferred: existing.installDeferred,

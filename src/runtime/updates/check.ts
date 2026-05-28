@@ -34,6 +34,31 @@ export interface ServiceUpdateAvailableSummary {
   assetUrl: string | null;
 }
 
+export type ServiceUpdateCurrentComparison =
+  | "same"
+  | "different"
+  | "installed_newer"
+  | "unknown";
+
+export interface ServiceUpdateChecksumAvailability {
+  available: boolean;
+  source: "manifest" | "release-asset" | null;
+  algorithm: "sha256" | null;
+  assetName: string | null;
+}
+
+export interface ServiceUpdateProvenanceSummary {
+  sourceRepo: string | null;
+  tag: string | null;
+  assetName: string | null;
+  checksum: ServiceUpdateChecksumAvailability;
+  releaseUrl: string | null;
+  discoveredAt: string;
+  current: ServiceUpdateCurrentSummary & {
+    comparison: ServiceUpdateCurrentComparison;
+  };
+}
+
 export interface ServiceUpdateCheckResult {
   serviceId: string;
   status: ServiceUpdateStatus;
@@ -42,6 +67,7 @@ export interface ServiceUpdateCheckResult {
   source: ServiceUpdateSourceSummary | null;
   current: ServiceUpdateCurrentSummary;
   available: ServiceUpdateAvailableSummary | null;
+  provenance: ServiceUpdateProvenanceSummary;
   checkedAt: string;
 }
 
@@ -100,6 +126,77 @@ function getExpectedAssetName(platform: ServiceArtifactPlatform): string | null 
   return null;
 }
 
+function summarizeChecksumAvailability(
+  platform: ServiceArtifactPlatform | null,
+  releaseAssetNames: string[] = [],
+): ServiceUpdateChecksumAvailability {
+  const checksum = platform?.checksum;
+  if (!checksum) {
+    return {
+      available: false,
+      source: null,
+      algorithm: null,
+      assetName: null,
+    };
+  }
+
+  if (checksum.value) {
+    return {
+      available: true,
+      source: "manifest",
+      algorithm: checksum.algorithm,
+      assetName: null,
+    };
+  }
+
+  const assetName = checksum.assetName ?? null;
+  return {
+    available: Boolean(assetName && releaseAssetNames.includes(assetName)),
+    source: "release-asset",
+    algorithm: checksum.algorithm,
+    assetName,
+  };
+}
+
+function compareCurrentToCandidate(
+  current: ServiceUpdateCurrentSummary,
+  candidateTag: string | null,
+): ServiceUpdateCurrentComparison {
+  const currentTag = current.installedTag ?? current.manifestTag;
+  if (!currentTag || !candidateTag) {
+    return "unknown";
+  }
+
+  if (currentTag === candidateTag) {
+    return "same";
+  }
+
+  return compareTimestampedReleaseTags(currentTag, candidateTag) === -1 ? "installed_newer" : "different";
+}
+
+function createProvenanceSummary(input: {
+  sourceRepo: string | null;
+  tag: string | null;
+  assetName: string | null;
+  checksum: ServiceUpdateChecksumAvailability;
+  releaseUrl: string | null;
+  discoveredAt: string;
+  current: ServiceUpdateCurrentSummary;
+}): ServiceUpdateProvenanceSummary {
+  return {
+    sourceRepo: input.sourceRepo,
+    tag: input.tag,
+    assetName: input.assetName,
+    checksum: input.checksum,
+    releaseUrl: input.releaseUrl,
+    discoveredAt: input.discoveredAt,
+    current: {
+      ...input.current,
+      comparison: compareCurrentToCandidate(input.current, input.tag),
+    },
+  };
+}
+
 function getUpdateMode(manifest: ServiceManifest): ServiceUpdateMode {
   if (manifest.updates?.enabled === false || manifest.updates?.mode === "disabled") {
     return "disabled";
@@ -147,6 +244,9 @@ function createPinnedResult(
   reason: string,
 ): ServiceUpdateCheckResult {
   const source = service.manifest.artifact?.source;
+  const platform = service.manifest.artifact ? getCurrentPlatformArtifact(service.manifest.artifact) : null;
+  const tag = current.installedTag ?? current.manifestTag ?? source?.tag ?? source?.channel ?? null;
+  const assetName = platform ? getExpectedAssetName(platform) : current.assetName;
 
   return {
     serviceId: service.manifest.id,
@@ -163,6 +263,15 @@ function createPinnedResult(
       : null,
     current,
     available: null,
+    provenance: createProvenanceSummary({
+      sourceRepo: source?.repo ?? null,
+      tag,
+      assetName,
+      checksum: summarizeChecksumAvailability(platform),
+      releaseUrl: null,
+      discoveredAt: checkedAt,
+      current,
+    }),
     checkedAt,
   };
 }
@@ -284,6 +393,15 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
       },
       current,
       available: null,
+      provenance: createProvenanceSummary({
+        sourceRepo: artifact.source.repo,
+        tag: current.installedTag ?? current.manifestTag ?? null,
+        assetName: current.assetName,
+        checksum: summarizeChecksumAvailability(null),
+        releaseUrl: null,
+        discoveredAt: checkedAt,
+        current,
+      }),
       checkedAt,
     };
   }
@@ -293,9 +411,13 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
   try {
     const release = await fetchGitHubRelease(artifact.source, track);
     const assets = release.assets ?? [];
+    const assetNames = assets.map((asset) => asset.name);
     const matchedAsset = expectedAssetName
       ? assets.find((asset) => asset.name === expectedAssetName)
       : undefined;
+    const releaseTag = release.tag_name ?? null;
+    const releaseUrl = release.html_url ?? null;
+    const checksum = summarizeChecksumAvailability(platform, assetNames);
 
     if (expectedAssetName && !matchedAsset) {
       return {
@@ -311,19 +433,28 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
         },
         current,
         available: {
-          tag: release.tag_name ?? null,
-          version: release.tag_name ?? release.name ?? null,
-          releaseUrl: release.html_url ?? null,
+          tag: releaseTag,
+          version: releaseTag ?? release.name ?? null,
+          releaseUrl,
           publishedAt: release.published_at ?? release.created_at ?? null,
-          assetNames: assets.map((asset) => asset.name),
+          assetNames,
           matchedAssetName: null,
           assetUrl: null,
         },
+        provenance: createProvenanceSummary({
+          sourceRepo: artifact.source.repo,
+          tag: releaseTag,
+          assetName: expectedAssetName,
+          checksum,
+          releaseUrl,
+          discoveredAt: checkedAt,
+          current,
+        }),
         checkedAt,
       };
     }
 
-    const availableTag = release.tag_name ?? null;
+    const availableTag = releaseTag;
     const classification = classifyUpdate(current.installedTag ?? current.manifestTag, availableTag);
 
     return {
@@ -341,12 +472,21 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
       available: {
         tag: availableTag,
         version: availableTag ?? release.name ?? null,
-        releaseUrl: release.html_url ?? null,
+        releaseUrl,
         publishedAt: release.published_at ?? release.created_at ?? null,
-        assetNames: assets.map((asset) => asset.name),
+        assetNames,
         matchedAssetName: matchedAsset?.name ?? expectedAssetName,
         assetUrl: matchedAsset?.browser_download_url ?? platform.assetUrl ?? null,
       },
+      provenance: createProvenanceSummary({
+        sourceRepo: artifact.source.repo,
+        tag: availableTag,
+        assetName: matchedAsset?.name ?? expectedAssetName,
+        checksum,
+        releaseUrl,
+        discoveredAt: checkedAt,
+        current,
+      }),
       checkedAt,
     };
   } catch (error: unknown) {
@@ -363,6 +503,15 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
       },
       current,
       available: null,
+      provenance: createProvenanceSummary({
+        sourceRepo: artifact.source.repo,
+        tag: current.installedTag ?? current.manifestTag ?? track,
+        assetName: expectedAssetName,
+        checksum: summarizeChecksumAvailability(platform),
+        releaseUrl: null,
+        discoveredAt: checkedAt,
+        current,
+      }),
       checkedAt,
     };
   }
