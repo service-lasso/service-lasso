@@ -1,8 +1,9 @@
 import path from "node:path";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { lstat, mkdir, readdir, stat } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import type { ServiceManifest } from "../../contracts/service.js";
 import { discoverServices } from "../discovery/discoverServices.js";
+import { validateServiceManifest } from "../discovery/validateManifest.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig } from "../config.js";
 import { readStoredState, type StoredStateSnapshot } from "../state/readState.js";
 
@@ -63,9 +64,25 @@ export interface BackupCreateResult {
 export interface RestorePlanServiceChange {
   serviceId: string;
   action: "restore" | "create";
+  operation: "overwrite" | "create";
   reasons: string[];
+  blocked: string[];
   currentVersion: string | null;
   backupVersion: string | null;
+  targetPath: string;
+  targetExists: boolean;
+  targetKind: "directory" | "file" | "other" | "missing";
+  archiveEntries: {
+    redactedManifest: boolean;
+    logsMetadata: boolean;
+    stateFilesExpected: number;
+    stateFilesPresent: number;
+    missingStateFiles: string[];
+  };
+  manifestCompatibility: {
+    compatible: boolean;
+    issues: string[];
+  };
 }
 
 export interface BackupRestorePlanResult {
@@ -92,6 +109,11 @@ export interface BackupRestorePlanResult {
   };
   services: RestorePlanServiceChange[];
   blocked: string[];
+  archive: {
+    manifestEntry: boolean;
+    structureOk: boolean;
+    issues: string[];
+  };
   mutated: false;
 }
 
@@ -200,14 +222,25 @@ function addJson(zip: AdmZip, entryPath: string, value: unknown): void {
   zip.addFile(entryPath, Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8"));
 }
 
-async function readArchiveManifest(archivePath: string): Promise<WorkspaceBackupManifest | null> {
+function readArchive(archivePath: string): { zip: AdmZip; manifest: WorkspaceBackupManifest | null; issues: string[] } {
   const zip = new AdmZip(archivePath);
+  const issues: string[] = [];
   const manifestEntry = zip.getEntry("backup-manifest.json");
+
   if (!manifestEntry) {
-    return null;
+    return { zip, manifest: null, issues };
   }
 
-  return JSON.parse(manifestEntry.getData().toString("utf8")) as WorkspaceBackupManifest;
+  try {
+    return {
+      zip,
+      manifest: JSON.parse(manifestEntry.getData().toString("utf8")) as WorkspaceBackupManifest,
+      issues,
+    };
+  } catch {
+    issues.push("backup_manifest_invalid_json");
+    return { zip, manifest: null, issues };
+  }
 }
 
 export async function createWorkspaceBackup(options: Omit<BackupCliOptions, "action" | "archivePath">): Promise<BackupCreateResult> {
@@ -273,21 +306,145 @@ export async function createWorkspaceBackup(options: Omit<BackupCliOptions, "act
   };
 }
 
-function buildServicePlan(backup: WorkspaceBackupManifest, current: Awaited<ReturnType<typeof discoverServices>>): RestorePlanServiceChange[] {
-  const currentById = new Map(current.map((service) => [service.manifest.id, service]));
+function parseArchiveJson(zip: AdmZip, entryPath: string): { ok: true; value: unknown } | { ok: false; issue: string } {
+  const entry = zip.getEntry(entryPath);
+  if (!entry) {
+    return { ok: false, issue: "missing" };
+  }
 
-  return backup.services.map((backupService) => {
+  try {
+    return { ok: true, value: JSON.parse(entry.getData().toString("utf8")) as unknown };
+  } catch {
+    return { ok: false, issue: "invalid_json" };
+  }
+}
+
+function pathIsInside(root: string, candidate: string): boolean {
+  const relativePath = path.relative(root, candidate);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+function resolveServiceTargetPath(servicesRoot: string, backupService: BackupServiceEntry): { targetPath: string; escapesRoot: boolean } {
+  const serviceRootSegment = backupService.serviceRoot || safeSegment(backupService.serviceId);
+  const targetPath = path.resolve(servicesRoot, serviceRootSegment);
+
+  return {
+    targetPath,
+    escapesRoot: !pathIsInside(path.resolve(servicesRoot), targetPath),
+  };
+}
+
+async function inspectTargetPath(targetPath: string): Promise<{ exists: boolean; kind: "directory" | "file" | "other" | "missing" }> {
+  try {
+    const stats = await lstat(targetPath);
+    return {
+      exists: true,
+      kind: stats.isDirectory() ? "directory" : stats.isFile() ? "file" : "other",
+    };
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { exists: false, kind: "missing" };
+    }
+    throw error;
+  }
+}
+
+function validateBackupServiceManifest(zip: AdmZip, backupService: BackupServiceEntry): RestorePlanServiceChange["manifestCompatibility"] {
+  const serviceArchiveRoot = toArchivePath("services", safeSegment(backupService.serviceId));
+  const manifestEntryPath = toArchivePath(serviceArchiveRoot, "manifest.redacted.json");
+  const parsed = parseArchiveJson(zip, manifestEntryPath);
+  const issues: string[] = [];
+
+  if (!parsed.ok) {
+    issues.push(parsed.issue === "missing" ? "redacted_manifest_missing" : "redacted_manifest_invalid_json");
+    return { compatible: false, issues };
+  }
+
+  try {
+    const manifest = validateServiceManifest(parsed.value, manifestEntryPath);
+    if (manifest.id !== backupService.serviceId) {
+      issues.push("manifest_service_id_mismatch");
+    }
+    if ((manifest.version ?? null) !== backupService.version) {
+      issues.push("manifest_version_mismatch");
+    }
+  } catch {
+    issues.push("redacted_manifest_incompatible");
+  }
+
+  return {
+    compatible: issues.length === 0,
+    issues,
+  };
+}
+
+async function buildServicePlan(
+  backup: WorkspaceBackupManifest,
+  current: Awaited<ReturnType<typeof discoverServices>>,
+  zip: AdmZip,
+  servicesRoot: string,
+): Promise<RestorePlanServiceChange[]> {
+  const currentById = new Map(current.map((service) => [service.manifest.id, service]));
+  const seenServiceIds = new Set<string>();
+
+  return await Promise.all(backup.services.map(async (backupService) => {
     const currentService = currentById.get(backupService.serviceId);
     const reasons: string[] = [];
+    const blocked: string[] = [];
+    const serviceArchiveRoot = toArchivePath("services", safeSegment(backupService.serviceId));
+    const manifestEntryPath = toArchivePath(serviceArchiveRoot, "manifest.redacted.json");
+    const logsEntryPath = toArchivePath(serviceArchiveRoot, "logs.metadata.json");
+    const missingStateFiles = backupService.stateFiles.filter((stateFile) => !zip.getEntry(toArchivePath(serviceArchiveRoot, "state", stateFile)));
+    const manifestCompatibility = validateBackupServiceManifest(zip, backupService);
+    const target = resolveServiceTargetPath(servicesRoot, backupService);
+    const targetState = await inspectTargetPath(target.targetPath);
+
+    if (!backupService.serviceId || backupService.serviceId.trim().length === 0) {
+      blocked.push("service_id_missing");
+    }
+    if (seenServiceIds.has(backupService.serviceId)) {
+      blocked.push("duplicate_service_id");
+    }
+    seenServiceIds.add(backupService.serviceId);
+
+    if (target.escapesRoot) {
+      blocked.push("target_path_escapes_services_root");
+    }
+    if (targetState.exists && targetState.kind !== "directory") {
+      blocked.push("target_path_conflict");
+    }
+    if (!zip.getEntry(manifestEntryPath)) {
+      blocked.push("redacted_manifest_missing");
+    }
+    if (!zip.getEntry(logsEntryPath)) {
+      blocked.push("logs_metadata_missing");
+    }
+    if (missingStateFiles.length > 0) {
+      blocked.push("state_file_missing");
+    }
+    blocked.push(...manifestCompatibility.issues);
 
     if (!currentService) {
       reasons.push("service_missing_currently");
       return {
         serviceId: backupService.serviceId,
         action: "create",
+        operation: "create",
         reasons,
+        blocked: Array.from(new Set(blocked)).sort(),
         currentVersion: null,
         backupVersion: backupService.version,
+        targetPath: target.targetPath,
+        targetExists: targetState.exists,
+        targetKind: targetState.kind,
+        archiveEntries: {
+          redactedManifest: Boolean(zip.getEntry(manifestEntryPath)),
+          logsMetadata: Boolean(zip.getEntry(logsEntryPath)),
+          stateFilesExpected: backupService.stateFiles.length,
+          stateFilesPresent: backupService.stateFiles.length - missingStateFiles.length,
+          missingStateFiles,
+        },
+        manifestCompatibility,
       };
     }
 
@@ -307,24 +464,45 @@ function buildServicePlan(backup: WorkspaceBackupManifest, current: Awaited<Retu
     return {
       serviceId: backupService.serviceId,
       action: "restore",
+      operation: "overwrite",
       reasons,
+      blocked: Array.from(new Set(blocked)).sort(),
       currentVersion,
       backupVersion: backupService.version,
+      targetPath: target.targetPath,
+      targetExists: targetState.exists,
+      targetKind: targetState.kind,
+      archiveEntries: {
+        redactedManifest: Boolean(zip.getEntry(manifestEntryPath)),
+        logsMetadata: Boolean(zip.getEntry(logsEntryPath)),
+        stateFilesExpected: backupService.stateFiles.length,
+        stateFilesPresent: backupService.stateFiles.length - missingStateFiles.length,
+        missingStateFiles,
+      },
+      manifestCompatibility,
     };
-  });
+  }));
 }
 
 export async function planWorkspaceRestore(options: Omit<BackupCliOptions, "action"> & { archivePath: string }): Promise<BackupRestorePlanResult> {
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
-  const backup = await readArchiveManifest(options.archivePath);
+  const archive = readArchive(options.archivePath);
+  const backup = archive.manifest;
   const currentServices = await discoverServices(config.servicesRoot);
-  const blocked: string[] = [];
+  const blocked: string[] = [...archive.issues];
 
   if (!backup) {
     blocked.push("backup_manifest_missing");
   } else if (backup.schemaVersion !== BACKUP_SCHEMA_VERSION) {
     blocked.push("unsupported_backup_schema");
   }
+
+  const servicePlans = backup
+    ? await buildServicePlan(backup, currentServices, archive.zip, config.servicesRoot)
+    : [];
+  const serviceBlocked = servicePlans.flatMap((service) => service.blocked.map((entry) => `${service.serviceId}:${entry}`));
+  const archiveIssues = Array.from(new Set([...blocked, ...serviceBlocked])).sort();
+  blocked.push(...serviceBlocked);
 
   return {
     action: "restore-plan",
@@ -348,8 +526,13 @@ export async function planWorkspaceRestore(options: Omit<BackupCliOptions, "acti
       current: currentServices.length,
       backup: backup?.serviceCount ?? 0,
     },
-    services: backup ? buildServicePlan(backup, currentServices) : [],
-    blocked,
+    services: servicePlans,
+    blocked: Array.from(new Set(blocked)).sort(),
+    archive: {
+      manifestEntry: Boolean(archive.zip.getEntry("backup-manifest.json")),
+      structureOk: archiveIssues.length === 0,
+      issues: archiveIssues,
+    },
     mutated: false,
   };
 }
