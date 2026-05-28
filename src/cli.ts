@@ -557,6 +557,7 @@ function printUpdatesResult(result: UpdatesCliResult, asJson: boolean): void {
   console.log(`- service: ${result.serviceId}`);
   console.log(`- installedTag: ${result.state.installArtifacts.artifact?.tag ?? "unknown"}`);
   console.log(`- forced: ${result.forced}`);
+  console.log(`- rollbackReadiness: ${result.rollbackReadiness.status}`);
 }
 
 function printPlanResult(result: RuntimePlanCliResult, asJson: boolean): void {

@@ -49,6 +49,12 @@ async function writeInstalledArtifact(serviceRoot, tag = "2026.4.20-old") {
   );
 }
 
+async function writeLocalBackupEvidence(serviceRoot) {
+  const backupRoot = path.join(serviceRoot, ".state", "backups");
+  await mkdir(backupRoot, { recursive: true });
+  await writeFile(path.join(backupRoot, "latest.json"), JSON.stringify({ createdAt: "2026-04-20T00:00:00Z" }, null, 2));
+}
+
 function createZipWithRuntimeScript() {
   const zip = new AdmZip();
   zip.addFile("runtime/update-fixture.mjs", Buffer.from('console.log("updated");\n', "utf8"));
@@ -137,6 +143,19 @@ function createUpdateManifest(releaseServer, updates = { mode: "notify", track: 
       },
     },
     updates,
+  };
+}
+
+function createInstallUpdates() {
+  return {
+    mode: "install",
+    track: "latest",
+    runningService: "stop-start",
+    installWindow: {
+      days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      start: "00:00",
+      end: "23:59",
+    },
   };
 }
 
@@ -281,6 +300,84 @@ test("CLI updates install --force installs a resolvable candidate", async () => 
     assert.equal(payload.state.installArtifacts.artifact.tag, "2026.4.24-new");
     assert.equal(stored.install.artifact.tag, "2026.4.24-new");
     assert.equal(stored.updates.state, "installed");
+  } finally {
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI updates install reports ready rollback readiness before installing", async () => {
+  const { root, servicesRoot, workspaceRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const manifest = createUpdateManifest(releaseServer, createInstallUpdates());
+    manifest.hooks = {
+      rollback: [
+        {
+          name: "restore-current-artifact",
+          command: process.execPath,
+          args: ["-e", "process.exit(0)"],
+        },
+      ],
+    };
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", manifest);
+    await writeInstalledArtifact(serviceRoot);
+    await writeLocalBackupEvidence(serviceRoot);
+
+    const stdout = await runCli(["updates", "install", "update-fixture", "--services-root", servicesRoot, "--workspace-root", workspaceRoot, "--json"]);
+    const payload = JSON.parse(stdout);
+
+    assert.equal(payload.rollbackReadiness.status, "ready");
+    assert.deepEqual(payload.rollbackReadiness.blocked, []);
+    assert.deepEqual(payload.rollbackReadiness.warnings, []);
+    assert.equal(payload.rollbackReadiness.checks.find((check) => check.id === "backup_availability").status, "ready");
+  } finally {
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI updates install allows warning-only rollback readiness", async () => {
+  const { root, servicesRoot, workspaceRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, createInstallUpdates()));
+    await writeInstalledArtifact(serviceRoot);
+
+    const stdout = await runCli(["updates", "install", "update-fixture", "--services-root", servicesRoot, "--workspace-root", workspaceRoot, "--json"]);
+    const payload = JSON.parse(stdout);
+
+    assert.equal(payload.rollbackReadiness.status, "warning");
+    assert.deepEqual(payload.rollbackReadiness.blocked, []);
+    assert.deepEqual(
+      payload.rollbackReadiness.warnings.sort(),
+      ["backup_availability", "rollback_hook_support"],
+    );
+    assert.equal(payload.state.installArtifacts.artifact.tag, "2026.4.24-new");
+  } finally {
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI updates install blocks when rollback readiness has no previous install evidence", async () => {
+  const { root, servicesRoot, workspaceRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, createInstallUpdates()));
+
+    await assert.rejects(
+      () => runCli(["updates", "install", "update-fixture", "--services-root", servicesRoot, "--workspace-root", workspaceRoot, "--json"]),
+      /blocked by rollback readiness/i,
+    );
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.updates.state, "installDeferred");
+    assert.match(stored.updates.installDeferred.reason, /previous_install_state/);
+    assert.match(stored.updates.installDeferred.reason, /current_artifact_reference/);
+    assert.equal(releaseServer.getDownloadRequests(), 0);
   } finally {
     await releaseServer.stop();
     await rm(root, { recursive: true, force: true });
