@@ -95,6 +95,71 @@ async function writeRotationReadinessFixture(servicesRoot) {
   });
 }
 
+async function writeProviderAuthNotRequiredFixture(servicesRoot) {
+  await writeManifest(servicesRoot, "no-auth-consumer", {
+    id: "no-auth-consumer",
+    name: "No Auth Consumer",
+    description: "Service with a declared broker ref and no rotate-capable writeback.",
+    env: {
+      API_TOKEN: "\${secretsbroker.API_TOKEN}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.API_TOKEN",
+          as: "API_TOKEN",
+          required: true,
+        },
+      ],
+    },
+  });
+}
+
+async function writeProviderAuthRequiredFixture(servicesRoot) {
+  await writeManifest(servicesRoot, "auth-required-consumer", {
+    id: "auth-required-consumer",
+    name: "Auth Required Consumer",
+    description: "Service with a rotate-capable ref that needs broker auth confirmation.",
+    env: {
+      ROTATE_TOKEN: "\${secretsbroker.ROTATE_TOKEN}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.ROTATE_TOKEN",
+          as: "ROTATE_TOKEN",
+          required: true,
+        },
+      ],
+      exports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.ROTATE_TOKEN",
+          source: "env.ROTATE_TOKEN",
+          required: true,
+        },
+      ],
+      writeback: {
+        allowedNamespaces: ["secretsbroker"],
+        allowedOperations: ["rotate"],
+        allowedRefs: ["secretsbroker.ROTATE_TOKEN"],
+        generatedSecrets: [
+          {
+            ref: "secretsbroker.ROTATE_TOKEN",
+            source: "env.ROTATE_TOKEN",
+            operation: "rotate",
+            required: true,
+          },
+        ],
+      },
+    },
+  });
+}
+
 test("secret reference audit reports declared missing and malformed refs without raw values", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-audit-");
   await writeSecretAuditFixture(servicesRoot);
@@ -159,6 +224,93 @@ test("secret rotation readiness classifies policy capability and auth states wit
     assert.equal(serviceResult.body.serviceId, "rotation-consumer");
     assert.equal(serviceResult.body.summary.needsAuthCheck, 1);
     assertNoSecretMaterial(serviceResult.body);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("provider auth-required summary reports no auth-required refs without raw values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-auth-none-");
+  await writeProviderAuthNotRequiredFixture(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/secrets/provider-auth-required");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.summary.services, 1);
+    assert.equal(result.body.summary.references, 1);
+    assert.equal(result.body.summary.authRequired, 0);
+    assert.equal(result.body.summary.notRequired, 1);
+    assert.equal(result.body.summary.blocked, 0);
+    assert.deepEqual(result.body.providers, []);
+    assertNoSecretMaterial(result.body);
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/no-auth-consumer/secrets/provider-auth-required");
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.serviceId, "no-auth-consumer");
+    assert.equal(serviceResult.body.refs[0].ref, "secretsbroker.API_TOKEN");
+    assert.equal(serviceResult.body.refs[0].status, "not_required");
+    assertNoSecretMaterial(serviceResult.body);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("provider auth-required summary identifies provider refs that need broker auth confirmation", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-auth-required-");
+  await writeProviderAuthRequiredFixture(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/secrets/provider-auth-required");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.summary.authRequired, 1);
+    assert.equal(result.body.summary.notRequired, 0);
+    assert.equal(result.body.summary.blocked, 0);
+    assert.deepEqual(result.body.providers, [
+      {
+        provider: "secretsbroker",
+        authRequiredRefs: 1,
+        services: ["auth-required-consumer"],
+        refs: ["secretsbroker.ROTATE_TOKEN"],
+      },
+    ]);
+    assertNoSecretMaterial(result.body);
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/auth-required-consumer/secrets/provider-auth-required");
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.refs[0].status, "auth_required");
+    assert.deepEqual(serviceResult.body.refs[0].blockers, ["provider_auth_required"]);
+    assertNoSecretMaterial(serviceResult.body);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("provider auth-required summary handles mixed provider states", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-auth-mixed-");
+  await writeProviderAuthNotRequiredFixture(servicesRoot);
+  await writeProviderAuthRequiredFixture(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/secrets/provider-auth-required");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.summary.services, 2);
+    assert.equal(result.body.summary.references, 2);
+    assert.equal(result.body.summary.authRequired, 1);
+    assert.equal(result.body.summary.notRequired, 1);
+    assert.equal(result.body.summary.blocked, 0);
+
+    const byService = Object.fromEntries(result.body.services.map((service) => [service.serviceId, service]));
+    assert.equal(byService["no-auth-consumer"].summary.notRequired, 1);
+    assert.equal(byService["auth-required-consumer"].summary.authRequired, 1);
+    assert.equal(result.body.providers[0].provider, "secretsbroker");
+    assert.equal(result.body.providers[0].authRequiredRefs, 1);
+    assertNoSecretMaterial(result.body);
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
@@ -234,6 +386,43 @@ test("CLI secrets rotation-readiness returns the same safe classification metada
     assert.equal(result.serviceId, "rotation-consumer");
     assert.equal(result.summary.needsAuthCheck, 1);
     assert.equal(result.refs[0].providerCapability.status, "supported");
+    assertNoSecretMaterial(result);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI secrets provider-auth-required returns the same safe summary metadata", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-secret-auth-cli-");
+  await writeProviderAuthRequiredFixture(servicesRoot);
+
+  try {
+    const stdout = await execFile(
+      process.execPath,
+      [
+        path.resolve("dist", "cli.js"),
+        "secrets",
+        "provider-auth-required",
+        "auth-required-consumer",
+        "--services-root",
+        servicesRoot,
+        "--workspace-root",
+        workspaceRoot,
+        "--json",
+      ],
+      {
+        cwd: path.resolve("."),
+        env: {
+          ...process.env,
+          npm_package_version: "0.1.0-test",
+        },
+      },
+    );
+    const result = JSON.parse(stdout.stdout);
+    assert.equal(result.action, "provider-auth-required");
+    assert.equal(result.serviceId, "auth-required-consumer");
+    assert.equal(result.summary.authRequired, 1);
+    assert.equal(result.refs[0].status, "auth_required");
     assertNoSecretMaterial(result);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
