@@ -397,6 +397,34 @@ export interface DependenciesResponse {
   };
 }
 
+export interface DependencyReverseLookupResponse {
+  dependencies: {
+    target: {
+      id: string;
+      name: string | null;
+      exists: boolean;
+    };
+    dependents: Array<{
+      id: string;
+      name: string;
+      relation: "direct" | "transitive";
+      depth: number;
+      path: string[];
+      blockedBy: Array<{
+        id: string;
+        name: string | null;
+        missing: boolean;
+      }>;
+    }>;
+    summary: {
+      total: number;
+      direct: number;
+      transitive: number;
+      missingTarget: boolean;
+    };
+  };
+}
+
 export type BaselineDependencyDiagnosticStatus = "startable" | "blocked" | "degraded" | "running";
 
 export type ServiceDependencyReadiness = "ready" | "blocked" | "degraded" | "running" | "disabled";

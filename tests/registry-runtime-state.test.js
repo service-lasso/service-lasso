@@ -83,6 +83,49 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.deepEqual(graph.getStartupOrder("@serviceadmin"), ["@node"]);
 });
 
+test("DependencyGraph reverse lookup classifies direct, transitive, cyclic, and missing targets", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-reverse-deps-");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "base-service");
+    await writeExecutableFixtureService(servicesRoot, "direct-a", { depend_on: ["base-service"] });
+    await writeExecutableFixtureService(servicesRoot, "direct-b", { depend_on: ["base-service"] });
+    await writeExecutableFixtureService(servicesRoot, "transitive-c", { depend_on: ["direct-a", "cycle-d"] });
+    await writeExecutableFixtureService(servicesRoot, "cycle-d", { depend_on: ["transitive-c"] });
+    await writeExecutableFixtureService(servicesRoot, "missing-consumer", { depend_on: ["missing-provider"] });
+
+    const registry = createServiceRegistry(await discoverServices(servicesRoot));
+    const graph = new DependencyGraph(registry);
+    const reverse = graph.getReverseDependencies("base-service");
+    const byId = new Map(reverse.dependents.map((dependent) => [dependent.id, dependent]));
+
+    assert.deepEqual(reverse.target, { id: "base-service", name: "base-service", exists: true });
+    assert.deepEqual(reverse.summary, { total: 4, direct: 2, transitive: 2, missingTarget: false });
+    assert.equal(byId.get("direct-a")?.relation, "direct");
+    assert.equal(byId.get("direct-a")?.depth, 1);
+    assert.deepEqual(byId.get("direct-a")?.path, ["base-service", "direct-a"]);
+    assert.deepEqual(byId.get("direct-a")?.blockedBy, [
+      { id: "base-service", name: "base-service", missing: false },
+    ]);
+    assert.equal(byId.get("transitive-c")?.relation, "transitive");
+    assert.equal(byId.get("transitive-c")?.depth, 2);
+    assert.deepEqual(byId.get("transitive-c")?.path, ["base-service", "direct-a", "transitive-c"]);
+    assert.equal(byId.get("cycle-d")?.relation, "transitive");
+    assert.deepEqual(byId.get("cycle-d")?.path, ["base-service", "direct-a", "transitive-c", "cycle-d"]);
+
+    const missingReverse = graph.getReverseDependencies("missing-provider");
+    assert.deepEqual(missingReverse.target, { id: "missing-provider", name: null, exists: false });
+    assert.deepEqual(missingReverse.summary, { total: 1, direct: 1, transitive: 0, missingTarget: true });
+    assert.deepEqual(missingReverse.dependents[0]?.blockedBy, [
+      { id: "missing-provider", name: null, missing: true },
+    ]);
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/services/:id returns discovered service detail with dependency context", async () => {
   resetLifecycleState();
   await clearPersistedFixtureState(servicesRoot);
@@ -288,6 +331,50 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("GET /api/dependencies/:id/dependents returns reverse dependency lookup", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-reverse-deps-api-");
+  let apiServer = null;
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "base-service");
+    await writeExecutableFixtureService(servicesRoot, "direct-a", { depend_on: ["base-service"] });
+    await writeExecutableFixtureService(servicesRoot, "transitive-b", { depend_on: ["direct-a"] });
+    await writeExecutableFixtureService(servicesRoot, "missing-consumer", { depend_on: ["missing-provider"] });
+
+    apiServer = await startApiServer({ port: 0, servicesRoot });
+
+    const response = await fetch(`${apiServer.url}/api/dependencies/base-service/dependents`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.dependencies.target, { id: "base-service", name: "base-service", exists: true });
+    assert.deepEqual(body.dependencies.summary, { total: 2, direct: 1, transitive: 1, missingTarget: false });
+    assert.deepEqual(
+      body.dependencies.dependents.map((dependent) => ({
+        id: dependent.id,
+        relation: dependent.relation,
+        path: dependent.path,
+      })),
+      [
+        { id: "direct-a", relation: "direct", path: ["base-service", "direct-a"] },
+        { id: "transitive-b", relation: "transitive", path: ["base-service", "direct-a", "transitive-b"] },
+      ],
+    );
+
+    const missingResponse = await fetch(`${apiServer.url}/api/dependencies/missing-provider/dependents`);
+    const missingBody = await missingResponse.json();
+
+    assert.equal(missingResponse.status, 200);
+    assert.deepEqual(missingBody.dependencies.target, { id: "missing-provider", name: null, exists: false });
+    assert.deepEqual(missingBody.dependencies.summary, { total: 1, direct: 1, transitive: 0, missingTarget: true });
+  } finally {
+    if (apiServer) await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

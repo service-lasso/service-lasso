@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
-import { createDependenciesResponse } from "./routes/dependencies.js";
+import { createDependenciesResponse, createDependencyReverseLookupResponse } from "./routes/dependencies.js";
 import { createRuntimeCapabilitiesResponse, createRuntimeSummaryResponse } from "./routes/runtime.js";
 import { createServiceHealthHistoryResponse, createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
@@ -1518,6 +1518,17 @@ async function routeRequest(
       }),
     );
     return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/dependencies/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const serviceId = decodeURIComponent(pathParts[2] ?? "");
+
+    if (pathParts.length === 4 && pathParts[3] === "dependents") {
+      const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+      writeJson(response, 200, createDependencyReverseLookupResponse(runtimeModel.graph.getReverseDependencies(serviceId)));
+      return;
+    }
   }
 
   if (request.method === "GET" && url.pathname === "/api/diagnostics/dependencies") {

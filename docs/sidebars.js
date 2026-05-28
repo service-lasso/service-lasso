@@ -128,6 +128,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/dependency-graph-api",
+          label: "Dependency Graph API",
+        },
+        {
+          type: "doc",
           id: "reference/runtime-port-reservations",
           label: "Runtime Port Reservations",
         },
