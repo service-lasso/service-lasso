@@ -56,6 +56,10 @@ import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
+import {
+  confirmOperatorCommandConfirmation,
+  issueOperatorCommandConfirmation,
+} from "../runtime/operator/command-confirmations.js";
 import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-safety-preflight.js";
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
@@ -133,6 +137,8 @@ import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
+  OperatorCommandConfirmationConfirmRequest,
+  OperatorCommandConfirmationIssueRequest,
   RuntimeOrchestrationResponse,
   OperatorCommandRequest,
   ServiceDetailResponse,
@@ -1013,6 +1019,39 @@ async function routeRequest(
     });
 
     writeJson(response, commandResponse.statusCode, commandResponse);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/confirmations") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(
+      response,
+      201,
+      await issueOperatorCommandConfirmation(await readJsonBody(request) as OperatorCommandConfirmationIssueRequest, {
+        workspaceRoot: config.workspaceRoot,
+        registry: runtimeModel.registry,
+        trustedChatBridge: isTrustedChatBridgeRequest(request),
+      }),
+    );
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/api/operator/confirmations/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length !== 5 || pathParts[4] !== "confirm") {
+      throw new ApiError("invalid_action", 400, "Unknown operator confirmation route.");
+    }
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const confirmationResponse = await confirmOperatorCommandConfirmation(
+      decodeURIComponent(pathParts[3] ?? ""),
+      await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest,
+      {
+        workspaceRoot: config.workspaceRoot,
+        registry: runtimeModel.registry,
+        trustedChatBridge: isTrustedChatBridgeRequest(request),
+      },
+    );
+    writeJson(response, 200, confirmationResponse);
     return;
   }
 

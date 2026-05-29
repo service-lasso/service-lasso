@@ -62,3 +62,46 @@ Audit records include the normalized actor, command, read/plan/blocked class, ta
 Unsupported commands, unknown services, mutating commands without `--plan`, and invalid or unbounded log tails fail closed with a 4xx response. The facade does not handle Telegram SDK details, allowlists, or confirmation tokens; those stay in the OpenClaw bridge and later confirmation-token work.
 
 The facade must not return raw environment values, secrets, provider credentials, tokens, cookies, private keys, or diagnostic payload contents. Log output is bounded, redacted, and marked when redaction or truncation occurred.
+
+## Mutating Command Confirmations
+
+Chat or automation bridges can issue a short-lived confirmation record after they have shown a fresh dry-run plan to the operator:
+
+```http
+POST /api/operator/confirmations
+```
+
+```json
+{
+  "command": "restart @serviceadmin",
+  "actor": {
+    "source": "chat-bridge",
+    "channel": "telegram",
+    "chatId": "-5128051597",
+    "senderId": "42",
+    "sourceMessageId": "1001"
+  },
+  "planId": "restart-plan-2026-05-29T00:00:00Z",
+  "plan": {
+    "dryRun": true,
+    "serviceId": "@serviceadmin"
+  },
+  "expiresInSeconds": 300
+}
+```
+
+The response returns `operator-command-confirmation-response.v1`, the pending confirmation metadata, and a short confirmation phrase such as `confirm restart @serviceadmin`. The persisted public record stores only metadata and plan/capability fingerprints; it does not store the raw plan or the bridge credential.
+
+To confirm, the bridge must send the same actor, the same dry-run plan, and the exact phrase before expiry:
+
+```http
+POST /api/operator/confirmations/{confirmationId}/confirm
+```
+
+Confirmation fails closed when the actor changes, the phrase does not match, the plan changes, the record expires, the record is no longer pending, or the target service capability/lifecycle fingerprint changes. Audit events are appended to:
+
+```text
+<workspaceRoot>/.state/operator-command-confirmation-audit.jsonl
+```
+
+Confirmation audit records are metadata-only and include the event kind, result status, stable error code when denied, actor id, chat metadata, command, target service id, and plan id.
