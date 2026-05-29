@@ -6,9 +6,12 @@ import type {
   OperatorCommandActorEnvelope,
   OperatorCommandConfirmationAuditEvent,
   OperatorCommandConfirmationConfirmRequest,
+  OperatorCommandConfirmationExecuteRequest,
+  OperatorCommandConfirmationExecutionResponse,
   OperatorCommandConfirmationIssueRequest,
   OperatorCommandConfirmationRecord,
   OperatorCommandConfirmationResponse,
+  LifecycleActionResponse,
 } from "../../contracts/api.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
@@ -172,6 +175,91 @@ export async function confirmOperatorCommandConfirmation(
   };
 }
 
+export async function executeOperatorCommandConfirmation(
+  confirmationId: string,
+  request: OperatorCommandConfirmationExecuteRequest,
+  model: ConfirmationModel,
+  executor: (record: OperatorCommandConfirmationRecord) => Promise<LifecycleActionResponse>,
+): Promise<OperatorCommandConfirmationExecutionResponse> {
+  const actor = normalizeTrustedActor(request.actor, model.trustedChatBridge);
+  const store = await readConfirmationStore(model.workspaceRoot);
+  const index = store.records.findIndex((entry) => entry.id === confirmationId);
+  if (index < 0) {
+    throw new OperatorCommandConfirmationError("confirmation_not_found", 404, "Confirmation record was not found.");
+  }
+
+  const record = store.records[index];
+  const deny = async (code: string, statusCode: number, message: string, status: "denied" | "expired" = "denied"): Promise<never> => {
+    const now = new Date().toISOString();
+    record.status = status;
+    record.deniedAt = status === "denied" ? now : record.deniedAt;
+    record.denialReason = code;
+    store.records[index] = record;
+    await writeConfirmationStore(model.workspaceRoot, store);
+    await appendConfirmationAuditEvent(model.workspaceRoot, record, status, actor, code);
+    throw new OperatorCommandConfirmationError(code, statusCode, message);
+  };
+
+  if (record.status === "executed") {
+    throw new OperatorCommandConfirmationError("confirmation_already_executed", 409, "Confirmation has already been executed.");
+  }
+  if (record.status !== "confirmed") {
+    throw new OperatorCommandConfirmationError("confirmation_not_confirmed", 409, `Confirmation is ${record.status}.`);
+  }
+  if (Date.parse(record.expiresAt) <= Date.now()) {
+    await deny("confirmation_expired", 409, "Confirmation expired before it was executed.", "expired");
+  }
+  if (!sameActor(record.actor, actor)) {
+    await deny("actor_mismatch", 403, "Confirmation must be executed by the same authorized actor.");
+  }
+  if (fingerprintPlan(request.plan) !== record.planFingerprint) {
+    await deny("plan_changed", 409, "Dry-run plan changed before execution.");
+  }
+  if (fingerprintCapabilities(record.targetServiceId, model.registry) !== record.capabilityFingerprint) {
+    await deny("capability_drift", 409, "Runtime service state changed before execution.");
+  }
+
+  let action: LifecycleActionResponse;
+  try {
+    action = await executor(publicRecord(record));
+  } catch (error) {
+    record.status = "executed";
+    record.executedAt = new Date().toISOString();
+    store.records[index] = record;
+    await writeConfirmationStore(model.workspaceRoot, store);
+    await appendConfirmationAuditEvent(
+      model.workspaceRoot,
+      record,
+      "executed",
+      actor,
+      "lifecycle_action_failed",
+      "failed",
+    );
+    throw error;
+  }
+
+  record.status = "executed";
+  record.executedAt = new Date().toISOString();
+  store.records[index] = record;
+  await writeConfirmationStore(model.workspaceRoot, store);
+  const audit = await appendConfirmationAuditEvent(
+    model.workspaceRoot,
+    record,
+    "executed",
+    actor,
+    action.ok ? null : "lifecycle_action_failed",
+    action.ok ? "success" : "failed",
+  );
+
+  return {
+    contractVersion: "operator-command-confirmation-execution-response.v1",
+    ok: action.ok,
+    confirmation: publicRecord(record),
+    audit,
+    action,
+  };
+}
+
 function normalizeTrustedActor(input: OperatorCommandActorEnvelope | undefined, trustedChatBridge: boolean | undefined): NormalizedOperatorCommandActorEnvelope {
   const actor = normalizeOperatorCommandActor(input);
   if (actor.source === "chat-bridge" && trustedChatBridge !== true) {
@@ -296,6 +384,7 @@ async function appendConfirmationAuditEvent(
   event: OperatorCommandConfirmationAuditEvent["event"],
   actor: NormalizedOperatorCommandActorEnvelope,
   errorCode: string | null,
+  resultStatus: OperatorCommandConfirmationAuditEvent["resultStatus"] = errorCode ? "denied" : "success",
 ): Promise<OperatorCommandConfirmationAuditEvent> {
   const audit: OperatorCommandConfirmationAuditEvent = {
     contractVersion: "operator-command-confirmation-audit.v1",
@@ -303,7 +392,7 @@ async function appendConfirmationAuditEvent(
     at: new Date().toISOString(),
     confirmationId: record.id,
     event,
-    resultStatus: errorCode ? "denied" : "success",
+    resultStatus,
     errorCode,
     actorId: actor.actorId,
     channel: actor.channel ?? null,
