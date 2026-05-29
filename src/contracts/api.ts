@@ -257,6 +257,60 @@ export interface OperatorCommandRequest {
   args?: string[];
   serviceId?: string;
   tail?: number;
+  actor?: OperatorCommandActorEnvelope;
+}
+
+export type OperatorCommandActorSource = "api" | "shell" | "web" | "chat-bridge";
+export type OperatorCommandChatChannel = "telegram" | "custom";
+
+export interface OperatorCommandActorEnvelope {
+  source?: OperatorCommandActorSource;
+  actorId?: string;
+  roles?: string[];
+  channel?: OperatorCommandChatChannel;
+  chatId?: string;
+  senderId?: string;
+  senderDisplay?: string | null;
+  sourceMessageId?: string | null;
+  planId?: string | null;
+  confirmationId?: string | null;
+}
+
+export interface NormalizedOperatorCommandActorEnvelope {
+  source: OperatorCommandActorSource;
+  actorId: string;
+  roles: string[];
+  channel?: OperatorCommandChatChannel;
+  chatId?: string;
+  senderId?: string;
+  senderDisplay?: string | null;
+  sourceMessageId?: string | null;
+  planId?: string | null;
+  confirmationId?: string | null;
+}
+
+export interface OperatorCommandAuditEvent {
+  contractVersion: "operator-command-audit.v1";
+  id: string;
+  at: string;
+  source: OperatorCommandActorSource;
+  actorId: string;
+  roles: string[];
+  channel: OperatorCommandChatChannel | null;
+  chatId: string | null;
+  senderId: string | null;
+  senderDisplay: string | null;
+  sourceMessageId: string | null;
+  command: OperatorCommandKind | "unsupported";
+  commandClass: "read" | "plan" | "blocked";
+  targetServiceId: string | null;
+  resultStatus: "success" | "denied" | "failed";
+  statusCode: number;
+  errorCode: OperatorCommandErrorCode | null;
+  redacted: boolean;
+  truncated: boolean;
+  planId: string | null;
+  confirmationId: string | null;
 }
 
 export interface OperatorCommandResponse {
@@ -278,6 +332,7 @@ export interface OperatorCommandResponse {
     truncated: boolean;
     omittedSensitiveFields: string[];
   };
+  audit: OperatorCommandAuditEvent;
 }
 
 export interface DashboardLinkResponse {

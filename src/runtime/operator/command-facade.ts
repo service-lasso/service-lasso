@@ -10,6 +10,12 @@ import { readServiceLogChunk } from "./logs.js";
 import { buildOperatorNotifications } from "./notifications.js";
 import { buildRestartSafetyPreflightReport } from "./restart-safety-preflight.js";
 import { listServiceUpdateStates } from "../updates/actions.js";
+import {
+  appendOperatorCommandAuditEvent,
+  buildOperatorCommandAuditEvent,
+  normalizeOperatorCommandActor,
+  OperatorActorValidationError,
+} from "./command-audit.js";
 
 const DEFAULT_LOG_TAIL_LINES = 20;
 const MAX_COMMAND_LOG_TAIL_LINES = 80;
@@ -22,6 +28,7 @@ export interface OperatorCommandFacadeModel {
   workspaceRoot: string;
   version: string;
   sharedGlobalEnv: Record<string, string>;
+  trustedChatBridge?: boolean;
 }
 
 type NormalizedOperatorCommand =
@@ -29,6 +36,8 @@ type NormalizedOperatorCommand =
   | { kind: "blocked"; reason: "invalid_log_tail"; attempted: string }
   | { kind: "blocked"; reason: "mutating_command_blocked"; attempted: string }
   | { kind: "unsupported"; attempted: string };
+
+type OperatorCommandResponseDraft = Omit<OperatorCommandResponse, "audit">;
 
 function createResponse(input: {
   ok: boolean;
@@ -40,7 +49,7 @@ function createResponse(input: {
   error?: OperatorCommandResponse["error"];
   redacted?: boolean;
   truncated?: boolean;
-}): OperatorCommandResponse {
+}): OperatorCommandResponseDraft {
   return {
     contractVersion: "operator-command.v1",
     ok: input.ok,
@@ -159,7 +168,7 @@ function redactOperatorText(value: string): string {
   );
 }
 
-function getServiceOrError(model: OperatorCommandFacadeModel, serviceId: string | undefined): DiscoveredService | OperatorCommandResponse {
+function getServiceOrError(model: OperatorCommandFacadeModel, serviceId: string | undefined): DiscoveredService | OperatorCommandResponseDraft {
   if (!serviceId) {
     return createResponse({
       ok: false,
@@ -185,12 +194,10 @@ function getServiceOrError(model: OperatorCommandFacadeModel, serviceId: string 
   return service;
 }
 
-export async function executeOperatorCommandFacade(
-  request: OperatorCommandRequest,
+async function executeNormalizedOperatorCommand(
+  normalized: NormalizedOperatorCommand,
   model: OperatorCommandFacadeModel,
-): Promise<OperatorCommandResponse> {
-  const normalized = normalizeOperatorCommand(request);
-
+): Promise<OperatorCommandResponseDraft> {
   if (normalized.kind === "blocked") {
     if (normalized.reason === "invalid_log_tail") {
       return createResponse({
@@ -331,7 +338,10 @@ export async function executeOperatorCommandFacade(
       normalized.serviceId ? [model.registry.getById(normalized.serviceId)].filter((service): service is DiscoveredService => Boolean(service)) : model.registry.list(),
     );
     if (normalized.serviceId && updateStates.length === 0) {
-      return getServiceOrError(model, normalized.serviceId) as OperatorCommandResponse;
+      const service = getServiceOrError(model, normalized.serviceId);
+      if ("contractVersion" in service) {
+        return service;
+      }
     }
     return createResponse({
       ok: true,
@@ -359,7 +369,10 @@ export async function executeOperatorCommandFacade(
 
   if (normalized.kind === "diagnostics.bundle.preview") {
     if (normalized.serviceId && !model.registry.getById(normalized.serviceId)) {
-      return getServiceOrError(model, normalized.serviceId) as OperatorCommandResponse;
+      const service = getServiceOrError(model, normalized.serviceId);
+      if ("contractVersion" in service) {
+        return service;
+      }
     }
     const preview = buildDiagnosticsBundlePreview(await buildDiagnosticsBundle({
       servicesRoot: model.servicesRoot,
@@ -407,4 +420,31 @@ export async function executeOperatorCommandFacade(
     summary: "Unsupported operator command.",
     error: { code: "unsupported_command", message: "Unsupported operator command." },
   });
+}
+
+export async function executeOperatorCommandFacade(
+  request: OperatorCommandRequest,
+  model: OperatorCommandFacadeModel,
+): Promise<OperatorCommandResponse> {
+  const actor = normalizeOperatorCommandActor(request.actor);
+  if (actor.source === "chat-bridge" && model.trustedChatBridge !== true) {
+    throw new OperatorActorValidationError(
+      "untrusted_chat_bridge",
+      403,
+      "Chat bridge actor metadata requires trusted local bridge authentication.",
+    );
+  }
+
+  const normalized = normalizeOperatorCommand(request);
+  const response = await executeNormalizedOperatorCommand(normalized, model);
+  const audit = buildOperatorCommandAuditEvent({
+    actor,
+    response,
+    targetServiceId: "serviceId" in normalized ? normalized.serviceId ?? null : null,
+  });
+  await appendOperatorCommandAuditEvent(model.workspaceRoot, audit);
+  return {
+    ...response,
+    audit,
+  };
 }

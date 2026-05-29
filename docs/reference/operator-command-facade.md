@@ -13,7 +13,16 @@ The endpoint accepts a small command request:
   "command": "service @serviceadmin logs --tail 20",
   "args": [],
   "serviceId": "@serviceadmin",
-  "tail": 20
+  "tail": 20,
+  "actor": {
+    "source": "chat-bridge",
+    "channel": "telegram",
+    "chatId": "-5128051597",
+    "senderId": "42",
+    "senderDisplay": "Operator",
+    "sourceMessageId": "1001",
+    "roles": ["operator"]
+  }
 }
 ```
 
@@ -36,6 +45,19 @@ Responses use contract version `operator-command.v1` and include:
 - `summary`: compact operator-facing text.
 - `data`: structured payload for OpenClaw or another bridge to render.
 - `safety`: redaction/truncation flags and omitted sensitive field classes.
+- `audit`: the persisted audit metadata for the command.
+
+Actor metadata is optional for local API/shell callers. When omitted, Service Lasso records `source: "api"` and `actorId: "api:local"`. Chat bridge callers must send `actor.source: "chat-bridge"` with `channel`, `chatId`, and `senderId`.
+
+Chat-originated actor metadata is accepted only from a trusted local bridge request. Configure the local runtime with `SERVICE_LASSO_CHAT_BRIDGE_TOKEN` and send the matching value in the `X-Service-Lasso-Chat-Bridge-Token` header. The token itself is not included in command responses or audit records.
+
+Audit events are appended to:
+
+```text
+<workspaceRoot>/.state/operator-command-audit.jsonl
+```
+
+Audit records include the normalized actor, command, read/plan/blocked class, target service id when present, status code, stable error code, redaction/truncation flags, and future `planId`/`confirmationId` fields. Audit records must stay metadata-only.
 
 Unsupported commands, unknown services, mutating commands without `--plan`, and invalid or unbounded log tails fail closed with a 4xx response. The facade does not handle Telegram SDK details, allowlists, or confirmation tokens; those stay in the OpenClaw bridge and later confirmation-token work.
 
