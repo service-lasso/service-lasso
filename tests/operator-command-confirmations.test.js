@@ -34,16 +34,16 @@ function chatActor(senderId = "42") {
   };
 }
 
-function safePlan() {
+function safePlan(action = "restart") {
   return {
     dryRun: true,
-    action: "restart",
+    action,
     serviceId: "alpha-service",
     generatedAt: "2026-05-29T00:00:00.000Z",
     steps: [
       {
         serviceId: "alpha-service",
-        action: "restart",
+        action,
         status: "would_run",
       },
     ],
@@ -119,6 +119,193 @@ test("operator command confirmations issue and confirm with the same trusted cha
     assert.deepEqual(events.map((event) => event.event), ["issued", "confirmed"]);
     assert.equal(events.every((event) => event.actorId === "telegram:42"), true);
     assert.equal(JSON.stringify({ issued, confirmed, events }).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
+  });
+});
+
+test("operator command confirmations execute a confirmed mutation once", async () => {
+  await withApiServer("service-lasso-command-confirmation-execute-", async ({ apiServer, workspaceRoot }) => {
+    const headers = { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" };
+    setLifecycleState("alpha-service", {
+      ...getLifecycleState("alpha-service"),
+      running: true,
+    });
+    const issued = await postJson(
+      apiServer.url + "/api/operator/confirmations",
+      {
+        command: "stop alpha-service",
+        actor: chatActor(),
+        planId: "stop-plan-1",
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+    const confirmed = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/confirm`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+        confirmationPhrase: issued.body.confirmationPhrase,
+      },
+      headers,
+    );
+    assert.equal(confirmed.status, 200);
+
+    const executed = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/execute`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+
+    assert.equal(executed.status, 200);
+    assert.equal(executed.body.ok, true);
+    assert.equal(executed.body.contractVersion, "operator-command-confirmation-execution-response.v1");
+    assert.equal(executed.body.confirmation.status, "executed");
+    assert.equal(executed.body.confirmation.executedAt !== null, true);
+    assert.equal(executed.body.action.action, "stop");
+    assert.equal(executed.body.action.serviceId, "alpha-service");
+    assert.equal(executed.body.audit.event, "executed");
+    assert.equal(executed.body.audit.resultStatus, "success");
+
+    const reused = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/execute`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+    assert.equal(reused.status, 409);
+    assert.equal(reused.body.error, "confirmation_already_executed");
+
+    const store = JSON.parse(await readFile(path.join(workspaceRoot, ".state", "operator-command-confirmations.json"), "utf8"));
+    assert.equal(store.records[0].status, "executed");
+
+    const auditLog = await readFile(path.join(workspaceRoot, ".state", "operator-command-confirmation-audit.jsonl"), "utf8");
+    const events = auditLog.trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(events.map((event) => event.event), ["issued", "confirmed", "executed"]);
+    assert.equal(JSON.stringify({ executed, events }).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
+  });
+});
+
+test("operator command confirmations reject execution when the confirmed plan changes", async () => {
+  await withApiServer("service-lasso-command-confirmation-execute-plan-drift-", async ({ apiServer, workspaceRoot }) => {
+    const headers = { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" };
+    const issued = await postJson(
+      apiServer.url + "/api/operator/confirmations",
+      {
+        command: "stop alpha-service",
+        actor: chatActor(),
+        planId: "stop-plan-2",
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+    await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/confirm`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+        confirmationPhrase: issued.body.confirmationPhrase,
+      },
+      headers,
+    );
+
+    const rejected = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/execute`,
+      {
+        actor: chatActor(),
+        plan: { ...safePlan("stop"), generatedAt: "2026-05-29T00:01:00.000Z" },
+      },
+      headers,
+    );
+
+    assert.equal(rejected.status, 409);
+    assert.equal(rejected.body.error, "plan_changed");
+
+    const store = JSON.parse(await readFile(path.join(workspaceRoot, ".state", "operator-command-confirmations.json"), "utf8"));
+    assert.equal(store.records[0].status, "denied");
+    assert.equal(store.records[0].denialReason, "plan_changed");
+  });
+});
+
+test("operator command confirmations reject execution when actor or capability state changes", async () => {
+  await withApiServer("service-lasso-command-confirmation-execute-drift-", async ({ apiServer, workspaceRoot }) => {
+    const headers = { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" };
+
+    const actorMismatchIssued = await postJson(
+      apiServer.url + "/api/operator/confirmations",
+      {
+        command: "stop alpha-service",
+        actor: chatActor(),
+        planId: "stop-plan-actor-drift",
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+    await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(actorMismatchIssued.body.confirmation.id)}/confirm`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+        confirmationPhrase: actorMismatchIssued.body.confirmationPhrase,
+      },
+      headers,
+    );
+
+    const actorMismatch = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(actorMismatchIssued.body.confirmation.id)}/execute`,
+      {
+        actor: chatActor("99"),
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+
+    assert.equal(actorMismatch.status, 403);
+    assert.equal(actorMismatch.body.error, "actor_mismatch");
+
+    const capabilityDriftIssued = await postJson(
+      apiServer.url + "/api/operator/confirmations",
+      {
+        command: "stop alpha-service",
+        actor: chatActor(),
+        planId: "stop-plan-capability-drift",
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+    await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(capabilityDriftIssued.body.confirmation.id)}/confirm`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+        confirmationPhrase: capabilityDriftIssued.body.confirmationPhrase,
+      },
+      headers,
+    );
+    setLifecycleState("alpha-service", {
+      ...getLifecycleState("alpha-service"),
+      installed: true,
+    });
+
+    const capabilityDrift = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(capabilityDriftIssued.body.confirmation.id)}/execute`,
+      {
+        actor: chatActor(),
+        plan: safePlan("stop"),
+      },
+      headers,
+    );
+
+    assert.equal(capabilityDrift.status, 409);
+    assert.equal(capabilityDrift.body.error, "capability_drift");
+
+    const store = JSON.parse(await readFile(path.join(workspaceRoot, ".state", "operator-command-confirmations.json"), "utf8"));
+    assert.equal(store.records.some((record) => record.denialReason === "actor_mismatch"), true);
+    assert.equal(store.records.some((record) => record.denialReason === "capability_drift"), true);
   });
 });
 

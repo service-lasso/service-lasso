@@ -58,6 +58,7 @@ import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
 import {
   confirmOperatorCommandConfirmation,
+  executeOperatorCommandConfirmation,
   issueOperatorCommandConfirmation,
 } from "../runtime/operator/command-confirmations.js";
 import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-safety-preflight.js";
@@ -137,6 +138,7 @@ import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
+  OperatorCommandConfirmationExecuteRequest,
   OperatorCommandConfirmationConfirmRequest,
   OperatorCommandConfirmationIssueRequest,
   RuntimeOrchestrationResponse,
@@ -1038,20 +1040,39 @@ async function routeRequest(
 
   if (request.method === "POST" && url.pathname.startsWith("/api/operator/confirmations/")) {
     const pathParts = url.pathname.split("/").filter(Boolean);
-    if (pathParts.length !== 5 || pathParts[4] !== "confirm") {
+    if (pathParts.length !== 5 || (pathParts[4] !== "confirm" && pathParts[4] !== "execute")) {
       throw new ApiError("invalid_action", 400, "Unknown operator confirmation route.");
     }
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    const confirmationResponse = await confirmOperatorCommandConfirmation(
-      decodeURIComponent(pathParts[3] ?? ""),
-      await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest,
-      {
-        workspaceRoot: config.workspaceRoot,
-        registry: runtimeModel.registry,
-        trustedChatBridge: isTrustedChatBridgeRequest(request),
+    const confirmationId = decodeURIComponent(pathParts[3] ?? "");
+    const confirmationModel = {
+      workspaceRoot: config.workspaceRoot,
+      registry: runtimeModel.registry,
+      trustedChatBridge: isTrustedChatBridgeRequest(request),
+    };
+    if (pathParts[4] === "confirm") {
+      const confirmationResponse = await confirmOperatorCommandConfirmation(
+        confirmationId,
+        await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest,
+        confirmationModel,
+      );
+      writeJson(response, 200, confirmationResponse);
+      return;
+    }
+
+    const executionResponse = await executeOperatorCommandConfirmation(
+      confirmationId,
+      await readJsonBody(request) as OperatorCommandConfirmationExecuteRequest,
+      confirmationModel,
+      async (record) => {
+        const service = runtimeModel.registry.getById(record.targetServiceId);
+        if (!service) {
+          throw new ApiError("service_not_found", 404, `Unknown service id: ${record.targetServiceId}.`);
+        }
+        return await executeLifecycleAction(record.command, service, runtimeModel.registry, config.workspaceRoot);
       },
     );
-    writeJson(response, 200, confirmationResponse);
+    writeJson(response, executionResponse.action.ok ? 200 : 409, executionResponse);
     return;
   }
 

@@ -105,3 +105,27 @@ Confirmation fails closed when the actor changes, the phrase does not match, the
 ```
 
 Confirmation audit records are metadata-only and include the event kind, result status, stable error code when denied, actor id, chat metadata, command, target service id, and plan id.
+
+After confirmation, the same trusted actor can execute the confirmed mutation through the guarded handoff endpoint:
+
+```http
+POST /api/operator/confirmations/{confirmationId}/execute
+```
+
+```json
+{
+  "actor": {
+    "source": "chat-bridge",
+    "channel": "telegram",
+    "chatId": "-5128051597",
+    "senderId": "42",
+    "sourceMessageId": "1001"
+  },
+  "plan": {
+    "dryRun": true,
+    "serviceId": "@serviceadmin"
+  }
+}
+```
+
+Execution requires a confirmed, unexpired, unused record for the same actor and the same plan fingerprint. Service capability/lifecycle state is checked again immediately before the lifecycle action runs. A successful handoff marks the confirmation `executed`, appends an `executed` confirmation audit event, and returns the lifecycle action response. Reuse, actor mismatch, plan drift, expiry, or capability drift fail closed.

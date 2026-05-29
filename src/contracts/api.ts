@@ -354,6 +354,11 @@ export interface OperatorCommandConfirmationConfirmRequest {
   confirmationPhrase?: string;
 }
 
+export interface OperatorCommandConfirmationExecuteRequest {
+  actor?: OperatorCommandActorEnvelope;
+  plan?: unknown;
+}
+
 export interface OperatorCommandConfirmationRecord {
   contractVersion: "operator-command-confirmation.v1";
   id: string;
@@ -397,6 +402,14 @@ export interface OperatorCommandConfirmationResponse {
   confirmation: OperatorCommandConfirmationRecord;
   confirmationPhrase?: string;
   audit: OperatorCommandConfirmationAuditEvent;
+}
+
+export interface OperatorCommandConfirmationExecutionResponse {
+  contractVersion: "operator-command-confirmation-execution-response.v1";
+  ok: boolean;
+  confirmation: OperatorCommandConfirmationRecord;
+  audit: OperatorCommandConfirmationAuditEvent;
+  action: LifecycleActionResponse;
 }
 
 export interface DashboardLinkResponse {
