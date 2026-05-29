@@ -50,16 +50,18 @@ OpenClaw should map the Telegram sender to a Service Lasso actor envelope before
 
 ~~~json
 {
+  "source": "chat-bridge",
   "channel": "telegram",
   "chatId": "-5128051597",
   "senderId": "123456789",
   "senderDisplay": "operator",
-  "serviceLassoActor": "telegram:123456789",
+  "actorId": "telegram:123456789",
+  "sourceMessageId": "1001",
   "roles": ["operator"]
 }
 ~~~
 
-Service Lasso should trust only a locally configured OpenClaw bridge or explicit local token, not arbitrary remote Telegram metadata. Runtime API calls should include safe actor headers or a local bridge credential so audit records can distinguish shell, web UI, and chat-originated activity.
+Service Lasso should trust only a locally configured OpenClaw bridge or explicit local token, not arbitrary remote Telegram metadata. Runtime API calls should include the actor envelope in the operator command body and a local bridge credential, such as `X-Service-Lasso-Chat-Bridge-Token`, so audit records can distinguish shell, web UI, and chat-originated activity without storing the credential.
 
 ## Confirmation Model
 

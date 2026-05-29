@@ -1,16 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
-async function postJson(url, body) {
+async function postJson(url, body, headers = {}) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      ...headers,
     },
     body: JSON.stringify(body),
   });
@@ -44,12 +45,144 @@ test("operator command facade lists services without leaking environment values"
     assert.equal(response.body.ok, true);
     assert.equal(response.body.command, "services");
     assert.equal(response.body.commandClass, "read");
+    assert.equal(response.body.audit.source, "api");
+    assert.equal(response.body.audit.command, "services");
     assert.equal(response.body.data.services.length, 1);
     assert.equal(response.body.data.services[0].id, "alpha-service");
     assert.ok(response.body.data.services[0].envKeyCount >= 1);
     assert.equal(JSON.stringify(response.body).includes("SERVICE_LASSO_FAKE_SECRET_SENTINEL_OPERATOR_COMMAND_DO_NOT_USE"), false);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("operator command facade records trusted chat actor audit metadata", async () => {
+  resetLifecycleState();
+  const previousToken = process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = "SERVICE_LASSO_TEST_BRIDGE_TOKEN";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-operator-command-audit-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const response = await postJson(
+      apiServer.url + "/api/operator/commands",
+      {
+        command: "service alpha-service status",
+        actor: {
+          source: "chat-bridge",
+          channel: "telegram",
+          chatId: "-5128051597",
+          senderId: "42",
+          senderDisplay: "Operator",
+          sourceMessageId: "1001",
+          roles: ["operator"],
+        },
+      },
+      { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.audit.source, "chat-bridge");
+    assert.equal(response.body.audit.channel, "telegram");
+    assert.equal(response.body.audit.chatId, "-5128051597");
+    assert.equal(response.body.audit.senderId, "42");
+    assert.equal(response.body.audit.actorId, "telegram:42");
+    assert.equal(response.body.audit.command, "service.status");
+    assert.equal(response.body.audit.targetServiceId, "alpha-service");
+
+    const auditLog = await readFile(path.join(workspaceRoot, ".state", "operator-command-audit.jsonl"), "utf8");
+    const events = auditLog.trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(events.length, 1);
+    assert.deepEqual(events[0], response.body.audit);
+    assert.equal(JSON.stringify(events[0]).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
+  } finally {
+    await apiServer.stop();
+    if (previousToken === undefined) {
+      delete process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = previousToken;
+    }
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("operator command facade rejects untrusted chat bridge actor metadata", async () => {
+  resetLifecycleState();
+  const previousToken = process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  delete process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-operator-command-untrusted-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const response = await postJson(apiServer.url + "/api/operator/commands", {
+      command: "services",
+      actor: {
+        source: "chat-bridge",
+        channel: "telegram",
+        chatId: "-5128051597",
+        senderId: "42",
+        roles: ["operator"],
+      },
+    });
+
+    assert.equal(response.status, 403);
+    assert.equal(response.body.error, "untrusted_chat_bridge");
+  } finally {
+    await apiServer.stop();
+    if (previousToken === undefined) {
+      delete process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = previousToken;
+    }
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("operator command facade rejects secret-like actor metadata without auditing it", async () => {
+  resetLifecycleState();
+  const previousToken = process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = "SERVICE_LASSO_TEST_BRIDGE_TOKEN";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-operator-command-actor-secret-");
+  await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const response = await postJson(
+      apiServer.url + "/api/operator/commands",
+      {
+        command: "services",
+        actor: {
+          source: "chat-bridge",
+          channel: "telegram",
+          chatId: "-5128051597",
+          senderId: "42",
+          senderDisplay: "token=SERVICE_LASSO_FAKE_SECRET_SENTINEL_ACTOR_DO_NOT_USE",
+          roles: ["operator"],
+        },
+      },
+      { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" },
+    );
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, "invalid_actor");
+    assert.equal(JSON.stringify(response.body).includes("SERVICE_LASSO_FAKE_SECRET_SENTINEL_ACTOR_DO_NOT_USE"), false);
+    await assert.rejects(
+      readFile(path.join(workspaceRoot, ".state", "operator-command-audit.jsonl"), "utf8"),
+      /ENOENT/,
+    );
+  } finally {
+    await apiServer.stop();
+    if (previousToken === undefined) {
+      delete process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = previousToken;
+    }
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

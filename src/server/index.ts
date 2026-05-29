@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
+import { timingSafeEqual } from "node:crypto";
 import { cp } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -275,6 +276,7 @@ function parseOperatorCommandBody(input: unknown): OperatorCommandRequest {
     args: Array.isArray(candidate.args) ? candidate.args : undefined,
     serviceId: typeof candidate.serviceId === "string" ? candidate.serviceId : undefined,
     tail: typeof candidate.tail === "number" ? candidate.tail : undefined,
+    actor: candidate.actor as OperatorCommandRequest["actor"],
   };
 }
 
@@ -464,6 +466,18 @@ function countWorkflowPackageSources(packages: Array<{ source: WorkflowPackageSo
 function firstHeader(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+function isTrustedChatBridgeRequest(request: IncomingMessage): boolean {
+  const expected = process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  const provided = firstHeader(request.headers["x-service-lasso-chat-bridge-token"]);
+  if (!expected || !provided) {
+    return false;
+  }
+
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const providedBuffer = Buffer.from(provided, "utf8");
+  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 function parseEntitlements(request: IncomingMessage): PlatformEntitlement[] {
@@ -995,6 +1009,7 @@ async function routeRequest(
       workspaceRoot: config.workspaceRoot,
       version: config.version,
       sharedGlobalEnv,
+      trustedChatBridge: isTrustedChatBridgeRequest(request),
     });
 
     writeJson(response, commandResponse.statusCode, commandResponse);
