@@ -335,6 +335,70 @@ export interface OperatorCommandResponse {
   audit: OperatorCommandAuditEvent;
 }
 
+export type OperatorCommandConfirmationStatus = "pending" | "confirmed" | "expired" | "denied" | "executed";
+export type OperatorCommandConfirmationEventKind = "issued" | "confirmed" | "expired" | "denied" | "executed";
+
+export interface OperatorCommandConfirmationIssueRequest {
+  command?: string;
+  args?: string[];
+  serviceId?: string;
+  actor?: OperatorCommandActorEnvelope;
+  planId?: string;
+  plan?: unknown;
+  expiresInSeconds?: number;
+}
+
+export interface OperatorCommandConfirmationConfirmRequest {
+  actor?: OperatorCommandActorEnvelope;
+  plan?: unknown;
+  confirmationPhrase?: string;
+}
+
+export interface OperatorCommandConfirmationRecord {
+  contractVersion: "operator-command-confirmation.v1";
+  id: string;
+  status: OperatorCommandConfirmationStatus;
+  command: "restart" | "start" | "stop";
+  canonicalCommand: string;
+  targetServiceId: string;
+  planId: string;
+  planFingerprint: string;
+  capabilityFingerprint: string;
+  actor: NormalizedOperatorCommandActorEnvelope;
+  issuedAt: string;
+  expiresAt: string;
+  confirmedAt: string | null;
+  deniedAt: string | null;
+  denialReason: string | null;
+  executedAt: string | null;
+}
+
+export interface OperatorCommandConfirmationAuditEvent {
+  contractVersion: "operator-command-confirmation-audit.v1";
+  id: string;
+  at: string;
+  confirmationId: string;
+  event: OperatorCommandConfirmationEventKind;
+  resultStatus: "success" | "denied" | "failed";
+  errorCode: string | null;
+  actorId: string;
+  channel: OperatorCommandChatChannel | null;
+  chatId: string | null;
+  senderId: string | null;
+  sourceMessageId: string | null;
+  command: OperatorCommandConfirmationRecord["command"];
+  targetServiceId: string;
+  planId: string;
+}
+
+export interface OperatorCommandConfirmationResponse {
+  contractVersion: "operator-command-confirmation-response.v1";
+  ok: boolean;
+  confirmation: OperatorCommandConfirmationRecord;
+  confirmationPhrase?: string;
+  audit: OperatorCommandConfirmationAuditEvent;
+}
+
 export interface DashboardLinkResponse {
   label: string;
   url: string;
