@@ -35,6 +35,7 @@ test("CLI plan start returns structured dry-run without creating workspace state
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await rm(workspaceRoot, { recursive: true, force: true });
     await writeExecutableFixtureService(servicesRoot, "alpha-service");
 
     const stdout = await runCli([
