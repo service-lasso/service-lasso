@@ -1,12 +1,21 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawn } from "node:child_process";
 import { access, readFile, rm } from "node:fs/promises";
+import net from "node:net";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
-export const demoServiceIds = ["echo-service", "@node", "node-sample-service"];
+export const demoServiceIds = ["@serviceadmin", "@secretsbroker", "echo-service", "@node", "node-sample-service"];
+export const demoRequiredServiceIds = ["@serviceadmin", "@secretsbroker", "echo-service", "@node", "node-sample-service"];
+export const demoProviderServiceIds = new Set(["@node"]);
+export const demoFixedPortChecks = [
+  { serviceId: "@serviceadmin", portName: "ui", host: "127.0.0.1", port: 17700 },
+  { serviceId: "@secretsbroker", portName: "service", host: "127.0.0.1", port: 17890 },
+  { serviceId: "echo-service", portName: "health", host: "127.0.0.1", port: 4011 },
+];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -14,11 +23,15 @@ function parseFlag(args, name) {
   return match ? match.slice(prefix.length) : undefined;
 }
 
+function parseOption(args, name, envName) {
+  return parseFlag(args, name) ?? process.env[`npm_config_${name.replaceAll("-", "_")}`] ?? process.env[envName];
+}
+
 export function resolveDemoOptions(args = process.argv.slice(2)) {
   return {
-    servicesRoot: path.resolve(parseFlag(args, "services-root") ?? defaultDemoServicesRoot),
-    workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? defaultDemoWorkspaceRoot),
-    port: Number(parseFlag(args, "port") ?? process.env.SERVICE_LASSO_PORT ?? 18080),
+    servicesRoot: path.resolve(parseOption(args, "services-root", "SERVICE_LASSO_SERVICES_ROOT") ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(parseOption(args, "workspace-root", "SERVICE_LASSO_WORKSPACE_ROOT") ?? defaultDemoWorkspaceRoot),
+    port: Number(parseOption(args, "port", "SERVICE_LASSO_PORT") ?? 18080),
     preserve: args.includes("--preserve"),
   };
 }
@@ -30,6 +43,177 @@ async function pathExists(targetPath) {
   } catch {
     return false;
   }
+}
+
+async function readJsonIfPresent(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function processExists(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processExists(pid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !processExists(pid);
+}
+
+async function waitForCommandExit(command, args) {
+  await new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
+
+async function commandOutput(command, args, options = {}) {
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, {
+      ...options,
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.once("close", (code) => resolve(code === 0 ? stdout.trim() : ""));
+    child.once("error", () => resolve(""));
+  });
+}
+
+async function terminateProcessTree(pid, label) {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !processExists(pid)) {
+    return { label, pid, stopped: false, reason: "not_running" };
+  }
+
+  if (process.platform === "win32") {
+    await waitForCommandExit("taskkill", ["/pid", String(pid), "/t", "/f"]);
+    return { label, pid, stopped: !processExists(pid), reason: processExists(pid) ? "still_running" : "terminated" };
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return { label, pid, stopped: true, reason: "terminated" };
+  }
+
+  if (!(await waitForProcessExit(pid))) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Process exited between checks.
+    }
+  }
+
+  return { label, pid, stopped: !processExists(pid), reason: processExists(pid) ? "still_running" : "terminated" };
+}
+
+async function canBindPort(host, port) {
+  const server = net.createServer();
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (server.listening) {
+      await new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }).catch(() => undefined);
+    }
+  }
+}
+
+export async function assertDemoPortsAvailable({ port, workspaceRoot, fixedPortChecks = demoFixedPortChecks } = {}) {
+  const checks = [
+    { serviceId: "runtime-api", portName: "http", host: "127.0.0.1", port },
+    ...fixedPortChecks,
+  ].filter((entry) => Number.isInteger(entry.port) && entry.port > 0);
+  const blocked = [];
+
+  for (const check of checks) {
+    if (!(await canBindPort(check.host, check.port))) {
+      blocked.push(check);
+    }
+  }
+
+  if (blocked.length > 0) {
+    const details = blocked
+      .map((entry) => `${entry.serviceId} ${entry.portName} ${entry.host}:${entry.port}`)
+      .join(", ");
+    const workspaceHint = workspaceRoot ? ` for workspace ${path.resolve(workspaceRoot)}` : "";
+    throw new Error(
+      `Demo recycle blocked by live non-managed listener(s)${workspaceHint}: ${details}. Stop the external preview/process or choose a different demo port before retrying.`,
+    );
+  }
+}
+
+function commandLooksServiceOwned(command, serviceRoot) {
+  return typeof command === "string" && command.includes(path.resolve(serviceRoot));
+}
+
+export async function stopDemoManagedProcesses(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const stopped = [];
+  const skipped = [];
+  const runtimeInstance = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"));
+
+  if (
+    runtimeInstance
+    && path.resolve(runtimeInstance.servicesRoot ?? "") === servicesRoot
+    && path.resolve(runtimeInstance.workspaceRoot ?? "") === workspaceRoot
+  ) {
+    stopped.push(await terminateProcessTree(runtimeInstance.pid, "runtime-api"));
+  }
+
+  for (const serviceId of demoServiceIds) {
+    const serviceRoot = path.join(servicesRoot, serviceId);
+    const runtimeState = await readJsonIfPresent(path.join(serviceRoot, ".state", "runtime.json"));
+    if (!runtimeState || !processExists(runtimeState.pid)) {
+      continue;
+    }
+
+    if (!commandLooksServiceOwned(runtimeState.command, serviceRoot)) {
+      skipped.push({
+        serviceId,
+        pid: runtimeState.pid,
+        reason: "runtime_state_command_not_owned_by_service_root",
+      });
+      continue;
+    }
+
+    stopped.push(await terminateProcessTree(runtimeState.pid, serviceId));
+  }
+
+  return { stopped, skipped };
 }
 
 async function removeManifestDeclaredFiles(serviceRoot) {
@@ -89,11 +273,19 @@ export async function startDemoRuntime(options = {}) {
   });
 }
 
-async function getJson(url, method = "GET") {
-  const response = await fetch(url, { method });
+async function getJson(url, method = "GET", timeoutMs = 30_000) {
+  const response = await fetch(url, { method, signal: AbortSignal.timeout(timeoutMs) });
   return {
     status: response.status,
     body: await response.json(),
+  };
+}
+
+async function getText(url, timeoutMs = 30_000) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  return {
+    status: response.status,
+    body: await response.text(),
   };
 }
 
@@ -114,6 +306,148 @@ async function waitFor(check, timeoutMs = 2_000, intervalMs = 50) {
   }
 
   throw new Error(`Condition not met within ${timeoutMs}ms.`);
+}
+
+async function postServiceAction(apiUrl, serviceId, action) {
+  const result = await getJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}/${action}`, "POST");
+  assertCondition(result.status === 200, `Expected ${serviceId} ${action} to return 200.`);
+  return result.body;
+}
+
+async function waitForHttpOk(url, label, timeoutMs = 300_000) {
+  return await waitFor(async () => {
+    try {
+      const result = await getText(url, 10_000);
+      return result.status >= 200 && result.status < 300 ? result : null;
+    } catch {
+      return null;
+    }
+  }, timeoutMs, 500).catch((error) => {
+    throw new Error(`${label} did not become reachable at ${url}: ${error.message}`);
+  });
+}
+
+async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_000) {
+  const wantsHealthy = Object.hasOwn(expected, "healthy") ? expected.healthy : true;
+  return await waitFor(async () => {
+    const result = await getJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}`);
+    if (result.status !== 200 || result.body.service?.id !== serviceId) {
+      return null;
+    }
+
+    const service = result.body.service;
+    if (
+      service.lifecycle?.installed === true
+      && service.lifecycle?.configured === true
+      && service.lifecycle?.running === expected.running
+      && (wantsHealthy === undefined || service.health?.healthy === wantsHealthy)
+    ) {
+      return service;
+    }
+    return null;
+  }, timeoutMs, 500).catch((error) => {
+    throw new Error(`${serviceId} did not reach running=${expected.running} healthy=${wantsHealthy ?? "any"}: ${error.message}`);
+  });
+}
+
+async function getGitSummary() {
+  const [branch, commit] = await Promise.all([
+    commandOutput("git", ["branch", "--show-current"], { cwd: repoRoot }),
+    commandOutput("git", ["rev-parse", "--short=12", "HEAD"], { cwd: repoRoot }),
+  ]);
+
+  return {
+    branch: branch || "unknown",
+    commit: commit || "unknown",
+  };
+}
+
+export async function runDemoRecycle(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const preserve = options.preserve === true;
+  const stopped = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
+
+  await assertDemoPortsAvailable({ port, workspaceRoot });
+  await resetDemoInstance({ servicesRoot, workspaceRoot });
+
+  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port });
+  let servicesStopped = false;
+
+  try {
+    const apiUrl = runtime.apiServer.url;
+    const apiHealth = await getJson(`${apiUrl}/api/health`);
+    assertCondition(apiHealth.status === 200 && apiHealth.body.status === "ok", "Expected runtime API health to report ok.");
+
+    for (const serviceId of demoRequiredServiceIds) {
+      await postServiceAction(apiUrl, serviceId, "install");
+      await postServiceAction(apiUrl, serviceId, "config");
+    }
+
+    for (const serviceId of demoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
+      await postServiceAction(apiUrl, serviceId, "start");
+    }
+
+    const serviceStates = [];
+    for (const serviceId of demoRequiredServiceIds) {
+      const expected = demoProviderServiceIds.has(serviceId)
+        ? { running: false, healthy: undefined }
+        : { running: true, healthy: true };
+      serviceStates.push(await waitForServiceState(apiUrl, serviceId, expected));
+    }
+
+    const serviceAdminUrl = "http://127.0.0.1:17700";
+    const secretsBrokerHealthUrl = "http://127.0.0.1:17890/health";
+    const echoHealthUrl = "http://127.0.0.1:4011/health";
+
+    const serviceAdminRoot = await waitForHttpOk(`${serviceAdminUrl}/`, "Service Admin UI");
+    const serviceAdminHealth = await waitForHttpOk(`${serviceAdminUrl}/health`, "Service Admin health");
+    const secretsBrokerHealth = await waitForHttpOk(secretsBrokerHealthUrl, "Secrets Broker health");
+    const echoHealth = await waitForHttpOk(echoHealthUrl, "Echo Service health");
+    const services = await getJson(`${apiUrl}/api/services`);
+    assertCondition(services.status === 200, "Expected runtime /api/services to return 200.");
+
+    const git = await getGitSummary();
+
+    return {
+      apiUrl,
+      serviceAdminUrl,
+      servicesRoot,
+      workspaceRoot,
+      git,
+      stopped,
+      endpoints: {
+        runtimeApiHealth: { url: `${apiUrl}/api/health`, status: apiHealth.status },
+        serviceAdminRoot: { url: `${serviceAdminUrl}/`, status: serviceAdminRoot.status },
+        serviceAdminHealth: { url: `${serviceAdminUrl}/health`, status: serviceAdminHealth.status },
+        secretsBrokerHealth: { url: secretsBrokerHealthUrl, status: secretsBrokerHealth.status },
+        echoHealth: { url: echoHealthUrl, status: echoHealth.status },
+        runtimeServices: { url: `${apiUrl}/api/services`, status: services.status },
+      },
+      services: serviceStates.map((service) => ({
+        id: service.id,
+        running: service.lifecycle?.running === true,
+        healthy: service.health?.healthy === true,
+      })),
+    };
+  } catch (error) {
+    try {
+      await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
+      servicesStopped = true;
+    } catch {}
+    throw error;
+  } finally {
+    if (!preserve) {
+      if (!servicesStopped) {
+        try {
+          await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
+        } catch {}
+      }
+      await resetDemoInstance({ servicesRoot, workspaceRoot });
+    }
+    await runtime.apiServer.stop();
+  }
 }
 
 export async function runDemoSmoke(options = {}) {

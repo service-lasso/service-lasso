@@ -2,6 +2,45 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import net from "node:net";
+import { assertDemoPortsAvailable } from "../scripts/demo-instance-lib.mjs";
+
+async function listenOnLoopback() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  assert.notEqual(address, null);
+
+  return {
+    server,
+    port: address.port,
+    close: async () => {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    },
+  };
+}
+
+test("demo recycle preflight reports live non-managed listeners", async () => {
+  const listener = await listenOnLoopback();
+
+  try {
+    await assert.rejects(
+      () => assertDemoPortsAvailable({
+        port: listener.port,
+        workspaceRoot: path.join(process.cwd(), "workspace", "demo-instance-test"),
+        fixedPortChecks: [],
+      }),
+      /Demo recycle blocked by live non-managed listener\(s\).*runtime-api http 127\.0\.0\.1:/,
+    );
+  } finally {
+    await listener.close();
+  }
+});
 
 test("demo smoke script validates the bounded demo instance end to end", async () => {
   const demoScript = path.resolve("scripts", "demo-smoke.mjs");
