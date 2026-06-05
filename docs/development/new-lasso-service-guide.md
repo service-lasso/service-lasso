@@ -247,7 +247,6 @@ Default baseline services currently are:
 - `@nginx`
 - `@traefik`
 - `@node`
-- `@python`
 - `@secretsbroker`
 - `echo-service`
 - `@serviceadmin`

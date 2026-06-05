@@ -132,6 +132,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-341` | `done` | Migrate TypeRefinery Keycloak service or document Zitadel replacement decision | `SPEC-002`, `AC-4Y`, `AC-4Z`, `AC-4AK` | GitHub issue: `#341`. Implemented as `service-lasso/lasso-keycloak`; release `2026.5.2-9801925` publishes Keycloak `23.0.4` Windows/Linux/macOS archives, released `service.json`, and `SHA256SUMS.txt`. The manifest depends on `@java` and `postgres`, declares HTTP/HTTPS ports, health/metrics URLs, env/globalenv, and setup steps for keystore/database/build preparation. |
 | `ISS-342` | `done` | Classify disabled TypeRefinery WebSocket examples for migration | `SPEC-002`, `AC-4Y`, `AC-4Z`, `AC-6` | GitHub issue: `#342`. `wsecho` and `messageservice-client` are deprecated/superseded and are not active Service Catalog entries. Use `service-lasso/lasso-echoservice` for echo/lifecycle harness coverage and `service-lasso/lasso-totaljs-messageservice` plus `service-lasso/lasso-totaljs-flow` for maintained messaging/flow examples. Decision recorded in `docs/development/deprecated-service-decisions.md`; no migration repo is required. |
 
+| `ISS-570` | `in_progress` | Pin Service Admin baseline to current release for demo freshness | `SPEC-002`, `AC-4Y`, `AC-4Z` | GitHub issue: `#570`. The local demo proved the core `@serviceadmin` manifest was still pinned to `2026.5.15-c66d8ce` while the current Service Admin release is `2026.6.4-de50799`; update the release pin and verify canonical LAN demo URLs serve the current artifact. |
+
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
 | --- | --- | --- | --- | --- | --- |

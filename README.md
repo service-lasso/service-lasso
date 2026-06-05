@@ -87,10 +87,9 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | `@nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
 | `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.5.9-9511770` |
 | `@node` | release-backed Node runtime provider | acquired from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.4.27-eca215a`; installed/configured but not launched as a daemon |
-| `@python` | release-backed Python runtime provider | acquired from [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) release `2026.4.27-63f915c`; installed/configured as a provider and skipped for daemon launch |
 | `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.5.9-c7dca55`; started as a managed daemon with HTTP `/health` |
 | `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.5.14-0821754` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.6.4-de50799` |
 
 Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage. `@archive` is optional because Service Lasso already extracts normal `zip`, `tar.gz`, and `tgz` release artifacts without an external archive provider; keep it disabled unless a service needs external 7-Zip tooling for formats such as `.7z`, `.rar`, `.xz`, split archives, or legacy install flows.
 
