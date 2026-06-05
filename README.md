@@ -89,7 +89,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | `@node` | release-backed Node runtime provider | acquired from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.4.27-eca215a`; installed/configured but not launched as a daemon |
 | `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.5.9-c7dca55`; started as a managed daemon with HTTP `/health` |
 | `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.6.5-745e36c` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.6.5-6f71840` |
 
 Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage, but the canonical baseline and demo instance install the production baseline service set. `@archive` is part of that baseline so archive-capable services are present in proper instances instead of relying on fixture-only installs.
 
