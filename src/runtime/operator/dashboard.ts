@@ -19,6 +19,7 @@ import { buildServiceVariables } from "./variables.js";
 import { readServiceMeta } from "../state/meta.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
+import { isProviderRole } from "../roles.js";
 
 type DashboardServiceStatus = DashboardServiceResponse["status"];
 
@@ -191,6 +192,10 @@ function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker"):
 }
 
 function inferServiceType(service: DiscoveredService, runtimeLabel: string, endpoints: DashboardEndpointResponse[]): string {
+  if (isProviderRole(service.manifest)) {
+    return "provider";
+  }
+
   if (service.manifest.id.startsWith("@")) {
     return "runtime";
   }
@@ -302,16 +307,23 @@ async function buildRelatedServices(
   );
 }
 
-function buildDashboardActions(service: DashboardServiceResponse): DashboardActionResponse[] {
+function buildDashboardActions(service: DashboardServiceResponse, manifestRole: DiscoveredService["manifest"]["role"]): DashboardActionResponse[] {
   const actions: DashboardActionResponse[] = [
     { id: "install", label: "Install service", kind: "install" },
-    { id: "start", label: "Start service", kind: "start" },
-    { id: "stop", label: "Stop service", kind: "stop" },
-    { id: "restart", label: "Restart service", kind: "restart" },
     { id: "reload", label: "Reload service", kind: "reload" },
     { id: "open_logs", label: "Open logs", kind: "open_logs" },
     { id: "open_config", label: "Open config", kind: "open_config" },
   ];
+
+  if (manifestRole !== "provider") {
+    actions.splice(
+      1,
+      0,
+      { id: "start", label: "Start service", kind: "start" },
+      { id: "stop", label: "Stop service", kind: "stop" },
+      { id: "restart", label: "Restart service", kind: "restart" },
+    );
+  }
 
   if (service.links.length > 0) {
     actions.push({ id: "open_admin", label: "Open endpoint", kind: "open_admin" });
@@ -368,7 +380,7 @@ export async function buildDashboardService(
     note: health.detail,
     links: buildDashboardLinks(endpoints),
     installed: lifecycle.installed,
-    role: runtimeLabel,
+    role: service.manifest.role ?? "service",
     runtimeHealth,
     endpoints,
     metadata: {
@@ -409,7 +421,7 @@ export async function buildDashboardService(
     actions: [],
   };
 
-  dashboardService.actions = buildDashboardActions(dashboardService);
+  dashboardService.actions = buildDashboardActions(dashboardService, service.manifest.role);
   return dashboardService;
 }
 
