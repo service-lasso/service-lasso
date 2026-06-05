@@ -33,6 +33,7 @@ export function resolveDemoOptions(args = process.argv.slice(2)) {
     workspaceRoot: path.resolve(parseOption(args, "workspace-root", "SERVICE_LASSO_WORKSPACE_ROOT") ?? defaultDemoWorkspaceRoot),
     port: Number(parseOption(args, "port", "SERVICE_LASSO_PORT") ?? 18080),
     preserve: args.includes("--preserve"),
+    foreground: args.includes("--foreground"),
   };
 }
 
@@ -367,6 +368,7 @@ export async function runDemoRecycle(options = {}) {
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
   const preserve = options.preserve === true;
+  const keepAlive = options.keepAlive === true;
   const stopped = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
 
   await assertDemoPortsAvailable({ port, workspaceRoot });
@@ -374,6 +376,7 @@ export async function runDemoRecycle(options = {}) {
 
   const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port });
   let servicesStopped = false;
+  let runtimeKeptAlive = false;
 
   try {
     const apiUrl = runtime.apiServer.url;
@@ -410,7 +413,7 @@ export async function runDemoRecycle(options = {}) {
 
     const git = await getGitSummary();
 
-    return {
+    const result = {
       apiUrl,
       serviceAdminUrl,
       servicesRoot,
@@ -431,6 +434,12 @@ export async function runDemoRecycle(options = {}) {
         healthy: service.health?.healthy === true,
       })),
     };
+
+    if (keepAlive) {
+      runtimeKeptAlive = true;
+    }
+
+    return result;
   } catch (error) {
     try {
       await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
@@ -438,7 +447,7 @@ export async function runDemoRecycle(options = {}) {
     } catch {}
     throw error;
   } finally {
-    if (!preserve) {
+    if (!preserve && !runtimeKeptAlive) {
       if (!servicesStopped) {
         try {
           await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
@@ -446,7 +455,9 @@ export async function runDemoRecycle(options = {}) {
       }
       await resetDemoInstance({ servicesRoot, workspaceRoot });
     }
-    await runtime.apiServer.stop();
+    if (!runtimeKeptAlive) {
+      await runtime.apiServer.stop();
+    }
   }
 }
 
