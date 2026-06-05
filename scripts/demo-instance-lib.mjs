@@ -8,12 +8,14 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
-export const demoServiceIds = ["@serviceadmin", "@secretsbroker", "echo-service", "@node", "node-sample-service"];
-export const demoRequiredServiceIds = ["@serviceadmin", "@secretsbroker", "echo-service", "@node", "node-sample-service"];
-export const demoProviderServiceIds = new Set(["@node"]);
+export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const demoServiceIds = [...demoRequiredServiceIds, "node-sample-service"];
+export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node"]);
 export const demoFixedPortChecks = [
   { serviceId: "@serviceadmin", portName: "ui", host: "127.0.0.1", port: 17700 },
   { serviceId: "@secretsbroker", portName: "service", host: "127.0.0.1", port: 17890 },
+  { serviceId: "@nginx", portName: "http", host: "127.0.0.1", port: 18080 },
+  { serviceId: "@traefik", portName: "admin", host: "127.0.0.1", port: 19081 },
   { serviceId: "echo-service", portName: "health", host: "127.0.0.1", port: 4011 },
 ];
 
@@ -383,13 +385,31 @@ export async function runDemoRecycle(options = {}) {
     const apiHealth = await getJson(`${apiUrl}/api/health`);
     assertCondition(apiHealth.status === 200 && apiHealth.body.status === "ok", "Expected runtime API health to report ok.");
 
-    for (const serviceId of demoRequiredServiceIds) {
-      await postServiceAction(apiUrl, serviceId, "install");
-      await postServiceAction(apiUrl, serviceId, "config");
-    }
+    const previousRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+    const previousApiBaseUrl = process.env.SERVICE_LASSO_API_BASE_URL;
+    process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiUrl;
+    process.env.SERVICE_LASSO_API_BASE_URL = apiUrl;
 
-    for (const serviceId of demoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
-      await postServiceAction(apiUrl, serviceId, "start");
+    try {
+      for (const serviceId of demoRequiredServiceIds) {
+        await postServiceAction(apiUrl, serviceId, "install");
+        await postServiceAction(apiUrl, serviceId, "config");
+      }
+
+      for (const serviceId of demoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
+        await postServiceAction(apiUrl, serviceId, "start");
+      }
+    } finally {
+      if (previousRuntimeApiBaseUrl === undefined) {
+        delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+      } else {
+        process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = previousRuntimeApiBaseUrl;
+      }
+      if (previousApiBaseUrl === undefined) {
+        delete process.env.SERVICE_LASSO_API_BASE_URL;
+      } else {
+        process.env.SERVICE_LASSO_API_BASE_URL = previousApiBaseUrl;
+      }
     }
 
     const serviceStates = [];
@@ -402,11 +422,15 @@ export async function runDemoRecycle(options = {}) {
 
     const serviceAdminUrl = "http://127.0.0.1:17700";
     const secretsBrokerHealthUrl = "http://127.0.0.1:17890/health";
+    const nginxHealthUrl = "http://127.0.0.1:18080/health";
+    const traefikHealthUrl = "http://127.0.0.1:19081/ping";
     const echoHealthUrl = "http://127.0.0.1:4011/health";
 
     const serviceAdminRoot = await waitForHttpOk(`${serviceAdminUrl}/`, "Service Admin UI");
     const serviceAdminHealth = await waitForHttpOk(`${serviceAdminUrl}/health`, "Service Admin health");
     const secretsBrokerHealth = await waitForHttpOk(secretsBrokerHealthUrl, "Secrets Broker health");
+    const nginxHealth = await waitForHttpOk(nginxHealthUrl, "NGINX health");
+    const traefikHealth = await waitForHttpOk(traefikHealthUrl, "Traefik health");
     const echoHealth = await waitForHttpOk(echoHealthUrl, "Echo Service health");
     const services = await getJson(`${apiUrl}/api/services`);
     assertCondition(services.status === 200, "Expected runtime /api/services to return 200.");
@@ -425,6 +449,8 @@ export async function runDemoRecycle(options = {}) {
         serviceAdminRoot: { url: `${serviceAdminUrl}/`, status: serviceAdminRoot.status },
         serviceAdminHealth: { url: `${serviceAdminUrl}/health`, status: serviceAdminHealth.status },
         secretsBrokerHealth: { url: secretsBrokerHealthUrl, status: secretsBrokerHealth.status },
+        nginxHealth: { url: nginxHealthUrl, status: nginxHealth.status },
+        traefikHealth: { url: traefikHealthUrl, status: traefikHealth.status },
         echoHealth: { url: echoHealthUrl, status: echoHealth.status },
         runtimeServices: { url: `${apiUrl}/api/services`, status: services.status },
       },

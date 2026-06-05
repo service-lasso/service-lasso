@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import net from "node:net";
-import { assertDemoPortsAvailable } from "../scripts/demo-instance-lib.mjs";
+import { DEFAULT_BASELINE_SERVICE_IDS } from "../dist/runtime/cli/bootstrap.js";
+import { assertDemoPortsAvailable, demoProviderServiceIds, demoRequiredServiceIds } from "../scripts/demo-instance-lib.mjs";
 
 async function listenOnLoopback() {
   const server = net.createServer();
@@ -40,6 +41,13 @@ test("demo recycle preflight reports live non-managed listeners", async () => {
   } finally {
     await listener.close();
   }
+});
+
+test("demo recycle uses the canonical baseline service set", () => {
+  assert.deepEqual(demoRequiredServiceIds, [...DEFAULT_BASELINE_SERVICE_IDS]);
+  assert.equal(demoProviderServiceIds.has("@archive"), true);
+  assert.equal(demoProviderServiceIds.has("@node"), true);
+  assert.equal(demoProviderServiceIds.has("@serviceadmin"), false);
 });
 
 test("demo smoke script validates the bounded demo instance end to end", async () => {
