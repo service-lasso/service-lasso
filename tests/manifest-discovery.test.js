@@ -171,14 +171,18 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.4.27-b313cb0");
   assert.equal(byId.get("@python")?.role, "provider");
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
-  assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
+  assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.6.6-14a26fd");
   assert.deepEqual(byServiceId.get("@python")?.catalogProvenance, {
     sourcePath: "@python/service.json",
     sourceType: "github-release",
     repo: "service-lasso/lasso-python",
-    releaseTag: "2026.4.27-63f915c",
-    assetNames: ["lasso-python-3.11.5-win32.zip"],
-    checksumPresent: false,
+    releaseTag: "2026.6.6-14a26fd",
+    assetNames: [
+      "lasso-python-3.11.5-darwin.tar.gz",
+      "lasso-python-3.11.5-linux.tar.gz",
+      "lasso-python-3.11.5-win32.zip",
+    ],
+    checksumPresent: true,
     packagedRuntimeVersion: "3.11.5",
   });
   assert.equal(byId.get("@traefik")?.enabled, true);

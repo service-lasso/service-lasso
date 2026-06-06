@@ -80,7 +80,7 @@ For each sibling repo:
 - copy/adapt core `services/@java/service.json`
 - keep release pins aligned with core verified releases
 - keep both manifests disabled by default
-- preserve platform-support honesty, especially Windows-only Python
+- preserve platform-support honesty by matching the current core provider manifests
 
 Target repos:
 

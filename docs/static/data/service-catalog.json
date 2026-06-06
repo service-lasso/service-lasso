@@ -183,7 +183,7 @@
       "repo": "service-lasso/lasso-fastapi",
       "group": "App-Owned Services",
       "status": "Available",
-      "summary": "Release-backed TypeRefinery FastAPI service for apps that need the Python API surface; current package targets Windows through the @python provider."
+      "summary": "Release-backed TypeRefinery FastAPI service for apps that need the Python API surface through the @python provider."
     },
     {
       "id": "jupyterlab",
@@ -191,7 +191,7 @@
       "repo": "service-lasso/lasso-jupyterlab",
       "group": "App-Owned Services",
       "status": "Available",
-      "summary": "Release-backed JupyterLab notebook service for app-owned notebooks; current package targets Windows through the @python provider."
+      "summary": "Release-backed JupyterLab notebook service for app-owned notebooks through the @python provider."
     },
     {
       "id": "totaljs-messageservice",

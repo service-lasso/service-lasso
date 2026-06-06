@@ -30,7 +30,7 @@ It separates current truth from target delivery so the repo does not imply relea
 | --- | --- | --- | --- | --- |
 | `@node` | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-eca215a`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
 | `@localcert` | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-591ed28`, acquires local cert material, exports certificate globals, and skips provider daemon launch. |
-| `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | non-baseline release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
+| `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | non-baseline release-backed provider in core | yes, repo release exists | Core manifest pins `2026.6.6-14a26fd` and can acquire Python `3.11.5` across Windows/Linux/macOS. |
 | `@java` | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | non-baseline release-backed provider in core | yes, repo release exists | Core manifest pins `2026.4.27-b313cb0` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |
 | `@traefik` | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed managed router service depending on local `@localcert` and `@nginx` utility manifests | yes | Current verified release is `2026.4.27-bbc7f15`. |
 | `@nginx` | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed managed NGINX dependency in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-712c75f`, acquires NGINX Open Source `1.30.0`, and starts it before Traefik. |
@@ -108,7 +108,7 @@ Use a predictable artifact name per platform:
 | --- | --- | --- | --- |
 | `@node` `v24.15.0` | `lasso-node-v24.15.0-win32.zip` | `lasso-node-v24.15.0-linux.tar.gz` | `lasso-node-v24.15.0-darwin.tar.gz` |
 | `@node` `v25.9.0` | `lasso-node-v25.9.0-win32.zip` | `lasso-node-v25.9.0-linux.tar.gz` | `lasso-node-v25.9.0-darwin.tar.gz` |
-| `@python` `3.11.5` | `lasso-python-3.11.5-win32.zip` | Deferred | Deferred |
+| `@python` `3.11.5` | `lasso-python-3.11.5-win32.zip` | `lasso-python-3.11.5-linux.tar.gz` | `lasso-python-3.11.5-darwin.tar.gz` |
 | `@python` `3.14.4` | `lasso-python-3.14.4-win32.zip` | Deferred | Deferred |
 | `@java` `17.0.18+8` | `lasso-java-17.0.18+8-win32.zip` | `lasso-java-17.0.18+8-linux.tar.gz` | `lasso-java-17.0.18+8-darwin.tar.gz` |
 | `@java` `21.0.10+7` | `lasso-java-21.0.10+7-win32.zip` | `lasso-java-21.0.10+7-linux.tar.gz` | `lasso-java-21.0.10+7-darwin.tar.gz` |
@@ -191,15 +191,15 @@ Recommended first delivery:
 
 Key risk:
 
-- Python.org publishes Windows embeddable archives, but does not publish equivalent portable runtime archives for Linux/macOS. The first provider release is intentionally Windows-only until an approved cross-platform Python distribution source exists.
+- Python.org publishes Windows embeddable archives, but does not publish equivalent portable runtime archives for Linux/macOS. The current provider release uses Astral `python-build-standalone` install-only CPython archives for Linux/macOS.
 
 Current delivery evidence:
 
 - Repo: [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python)
-- Release: `https://github.com/service-lasso/lasso-python/releases/tag/2026.4.27-63f915c`
-- Release workflow: `https://github.com/service-lasso/lasso-python/actions/runs/24978375174`
-- Assets: `lasso-python-3.11.5-win32.zip`, `lasso-python-3.14.4-win32.zip`, `service.json`, and `SHA256SUMS.txt`
-- Core proof: `service-lasso install @python` against the checked-in core manifest acquired `lasso-python-3.11.5-win32.zip` from release `2026.4.27-63f915c` and left `running=false`.
+- Release: `https://github.com/service-lasso/lasso-python/releases/tag/2026.6.6-14a26fd`
+- Release workflow: `https://github.com/service-lasso/lasso-python/actions/runs/27057709938`
+- Assets: `lasso-python-3.11.5-win32.zip`, `lasso-python-3.11.5-linux.tar.gz`, `lasso-python-3.11.5-darwin.tar.gz`, `lasso-python-3.14.4-win32.zip`, `service.json`, and `SHA256SUMS.txt`
+- Core proof: the checked-in core manifest now pins release `2026.6.6-14a26fd`, declares checksum-backed Windows/Linux/macOS `3.11.5` artifacts, and keeps provider daemon launch disabled.
 
 ### `@java`
 
@@ -290,7 +290,7 @@ Recommended order:
 1. Harden the shared service repo template/contract using `lasso-traefik` as the reference implementation.
 2. Deliver `lasso-node`, because `@node` is already part of the baseline and unlocks a no-host-Node provider path for app services.
 3. Integrate release-backed `@node` into core and revalidate the baseline. Completed under `#172`.
-4. Deliver `lasso-python`, because Python is a common provider class but not baseline-critical. Completed with a Windows-only first release.
+4. Deliver `lasso-python`, because Python is a common provider class but not baseline-critical. Completed with a cross-platform `3.11.5` release and a Windows-only `3.14.4` secondary artifact.
 5. Deliver `lasso-java` after the JRE vendor/license/security decision. Completed with Eclipse Temurin JRE releases.
 6. Deliver `lasso-nginx` as a managed core service for the Traefik dependency. Completed under `#198`.
 7. Update core/reference app/service-template inventories as each provider becomes release-backed and verified. Completed under `#172` and `#198`; sibling inventories now carry disabled optional `@python` and `@java` provider manifests. See `docs/development/reference-template-provider-inventory-plan.md`.
@@ -334,7 +334,7 @@ Reference repos must prove:
 
 This provider-release program is complete when:
 
-- `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons. Current state: all three repos exist; Python is Windows-only for its first release.
+- `lasso-node`, `lasso-python`, and `lasso-java` either have verified release-backed repos or are explicitly deferred with approved reasons. Current state: all three repos exist; Python `3.11.5` now has Windows/Linux/macOS release assets.
 - `lasso-traefik` remains aligned with the shared service repo contract; current proof is release `2026.4.27-bbc7f15` with checksum output, HTTP `/ping` readiness, env/globalenv outputs, the full service-port map, `portmapping`, platform `commandline`, and explicit `@localcert` / `@nginx` dependencies in core.
 - `lasso-nginx` has a verified release-backed managed-service repo and core manifest pin. Current proof is release `2026.4.27-712c75f` with NGINX Open Source `1.30.0` Windows/Linux/macOS archives, HTTP `/health`, and checksums.
 - core manifests accurately distinguish release-backed providers from any remaining local/no-download providers.

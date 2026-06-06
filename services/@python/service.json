@@ -27,13 +27,37 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-python",
-      "tag": "2026.4.27-63f915c"
+      "tag": "2026.6.6-14a26fd"
     },
     "platforms": {
       "win32": {
         "assetName": "lasso-python-3.11.5-win32.zip",
         "archiveType": "zip",
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        },
         "command": ".\\python.exe",
+        "args": ["--version"]
+      },
+      "linux": {
+        "assetName": "lasso-python-3.11.5-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        },
+        "command": "./bin/python3",
+        "args": ["--version"]
+      },
+      "darwin": {
+        "assetName": "lasso-python-3.11.5-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        },
+        "command": "./bin/python3",
         "args": ["--version"]
       }
     }
