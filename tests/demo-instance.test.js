@@ -3,11 +3,17 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { DEFAULT_BASELINE_SERVICE_IDS } from "../dist/runtime/cli/bootstrap.js";
 import { assertDemoPortsAvailable, demoProviderServiceIds, demoRequiredServiceIds } from "../scripts/demo-instance-lib.mjs";
 import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
+import {
+  canonicalRuntimePort,
+  canonicalServiceAdminPort,
+  resolveCanonicalVerifierOptions,
+  verifyCanonicalDemo,
+} from "../scripts/demo-verify-canonical.mjs";
 
 async function listenOnLoopback() {
   const server = net.createServer();
@@ -26,6 +32,102 @@ async function listenOnLoopback() {
     close: async () => {
       await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     },
+  };
+}
+
+async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports }) {
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(serviceRoot, { recursive: true });
+  await writeFile(
+    path.join(serviceRoot, "service.json"),
+    `${JSON.stringify({
+      id: serviceId,
+      artifact: {
+        source: { repo, tag },
+        platforms: {
+          [process.platform]: { assetName },
+        },
+      },
+      ports,
+    }, null, 2)}\n`,
+  );
+}
+
+function jsonResponse(status, body) {
+  return {
+    status,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  };
+}
+
+function textResponse(status, body) {
+  return {
+    status,
+    json: async () => JSON.parse(body),
+    text: async () => body,
+  };
+}
+
+function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good", secretsBrokerTag = "2026.6.8-good" }) {
+  const services = [
+    {
+      id: "@serviceadmin",
+      serviceRoot: path.join(servicesRoot, "@serviceadmin"),
+      lifecycle: {
+        running: true,
+        installArtifacts: {
+          artifact: {
+            repo: "service-lasso/lasso-serviceadmin",
+            tag: serviceAdminTag,
+            assetName: "@serviceadmin-win32.zip",
+          },
+        },
+        runtime: { ports: { ui: 17700 } },
+      },
+      health: { healthy: true },
+      catalogProvenance: {
+        repo: "service-lasso/lasso-serviceadmin",
+        releaseTag: serviceAdminTag,
+      },
+    },
+    {
+      id: "@secretsbroker",
+      serviceRoot: path.join(servicesRoot, "@secretsbroker"),
+      lifecycle: {
+        running: true,
+        installArtifacts: {
+          artifact: {
+            repo: "service-lasso/lasso-secretsbroker",
+            tag: secretsBrokerTag,
+            assetName: "secretsbroker-win32.zip",
+          },
+        },
+        runtime: { ports: { service: 17890 } },
+      },
+      health: { healthy: true },
+      catalogProvenance: {
+        repo: "service-lasso/lasso-secretsbroker",
+        releaseTag: secretsBrokerTag,
+      },
+    },
+  ];
+
+  return async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/") {
+      return textResponse(200, "<html>Service Admin</html>");
+    }
+    if (parsed.pathname === "/api/health") {
+      return jsonResponse(200, { status: "ok" });
+    }
+    if (parsed.pathname === "/api/runtime") {
+      return jsonResponse(200, { runtime: { servicesRoot, workspaceRoot } });
+    }
+    if (parsed.pathname === "/api/services") {
+      return jsonResponse(200, { services });
+    }
+    return jsonResponse(404, { error: "not_found" });
   };
 }
 
@@ -62,6 +164,96 @@ test("demo watchdog defaults to the canonical LAN endpoints and runtime port", (
   const recovery = buildRecoveryCommand(options);
   assert.deepEqual(recovery.args, ["run", "demo:recycle", "--", "--port=17883"]);
   assert.equal(recovery.env.SERVICE_LASSO_PORT, "17883");
+});
+
+test("canonical demo verifier defaults to canonical LAN URLs", () => {
+  const options = resolveCanonicalVerifierOptions([], {});
+  assert.equal(options.runtimePort, canonicalRuntimePort);
+  assert.equal(options.serviceAdminPort, canonicalServiceAdminPort);
+  assert.equal(options.runtimeUrl, "http://192.168.1.53:17883");
+  assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
+  assert.equal(options.runtimeHealthUrl, "http://192.168.1.53:17883/api/health");
+});
+
+test("canonical demo verifier accepts live metadata matching checked-in release pins", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalManifest(servicesRoot, "@serviceadmin", {
+      repo: "service-lasso/lasso-serviceadmin",
+      tag: "2026.6.6-good",
+      assetName: "@serviceadmin-win32.zip",
+      ports: { ui: 17700 },
+    });
+    await writeCanonicalManifest(servicesRoot, "@secretsbroker", {
+      repo: "service-lasso/lasso-secretsbroker",
+      tag: "2026.6.8-good",
+      assetName: "secretsbroker-win32.zip",
+      ports: { service: 17890 },
+    });
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot }) },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.failures.length, 0);
+    assert.equal(result.summary.services.length, 2);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier reports wrong runtime lane and stale release pins", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalManifest(servicesRoot, "@serviceadmin", {
+      repo: "service-lasso/lasso-serviceadmin",
+      tag: "2026.6.6-good",
+      assetName: "@serviceadmin-win32.zip",
+      ports: { ui: 17700 },
+    });
+    await writeCanonicalManifest(servicesRoot, "@secretsbroker", {
+      repo: "service-lasso/lasso-secretsbroker",
+      tag: "2026.6.8-good",
+      assetName: "secretsbroker-win32.zip",
+      ports: { service: 17890 },
+    });
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:18080",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      {
+        fetch: canonicalFetch({
+          servicesRoot,
+          workspaceRoot,
+          serviceAdminTag: "2026.5.15-stale",
+        }),
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.ok(result.failures.some((failure) => failure.code === "wrong_runtime_port"));
+    assert.ok(result.failures.some((failure) => failure.code === "stale_release_pin"));
+    assert.ok(result.failures.some((failure) => failure.code === "stale_installed_artifact"));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("demo watchdog refuses to overlap an active recovery lock", async () => {
