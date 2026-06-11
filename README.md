@@ -187,6 +187,8 @@ GET  /api/recovery
 POST /api/services/:id/recovery/doctor
 ```
 
+`POST /api/services/:id/start` and `POST /api/runtime/actions/startAll` use full start semantics: enabled services are installed, configured, non-manual setup steps are reconciled, and then startable services are started in dependency order. Provider-role services are still prepared, but they do not require a managed daemon process. Disabled services, already-running services, autostart filtering, and truly non-startable services remain skip/blocker cases instead of being forced.
+
 ## Use From npm
 
 The public package is:

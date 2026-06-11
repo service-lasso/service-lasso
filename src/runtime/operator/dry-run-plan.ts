@@ -6,6 +6,7 @@ import { loadServiceManifest } from "../discovery/loadManifest.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
+import { isProviderRole } from "../roles.js";
 import { readServiceUpdateState } from "../updates/state.js";
 
 type RuntimePlanAction = "startAll" | "stopAll" | "autostart";
@@ -110,28 +111,26 @@ export function buildRuntimeOrchestrationDryRunPlan(
         continue;
       }
 
-      if (!lifecycle.installed) {
-        steps.push(createStep({
-          order,
-          serviceId,
-          action: "start",
-          status: "blocked",
-          reason: "not_installed",
-          prerequisites: ["install"],
-          expectedStateChanges: [],
-          actionEndpoint,
-        }));
-        continue;
-      }
+      const prerequisites = [
+        ...(!lifecycle.installed ? ["install"] : []),
+        ...(!lifecycle.configured ? ["config"] : []),
+        ...(Object.keys(service.manifest.setup?.steps ?? {}).length > 0 ? ["setup"] : []),
+      ];
 
-      if (!lifecycle.configured) {
+      if (
+        lifecycle.installed &&
+        lifecycle.configured &&
+        !isProviderRole(service.manifest) &&
+        !service.manifest.execservice &&
+        !service.manifest.executable &&
+        !lifecycle.installArtifacts.artifact?.command
+      ) {
         steps.push(createStep({
           order,
           serviceId,
           action: "start",
-          status: "blocked",
-          reason: "not_configured",
-          prerequisites: ["config"],
+          status: "skipped",
+          reason: "not_startable",
           expectedStateChanges: [],
           actionEndpoint,
         }));
@@ -144,7 +143,15 @@ export function buildRuntimeOrchestrationDryRunPlan(
         action: "start",
         status: "would_run",
         reason: null,
-        expectedStateChanges: ["running=true", "runtime.pid assigned", "runtime.startedAt updated"],
+        prerequisites,
+        expectedStateChanges: [
+          ...(!lifecycle.installed ? ["installed=true"] : []),
+          ...(!lifecycle.configured ? ["configured=true"] : []),
+          ...(Object.keys(service.manifest.setup?.steps ?? {}).length > 0 ? ["setup steps reconciled"] : []),
+          ...(isProviderRole(service.manifest)
+            ? ["provider daemon not required"]
+            : ["running=true", "runtime.pid assigned", "runtime.startedAt updated"]),
+        ],
         actionEndpoint,
       }));
       continue;
