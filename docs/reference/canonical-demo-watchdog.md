@@ -25,6 +25,19 @@ The command also sets `SERVICE_LASSO_PORT=17883` in the recovery process. This
 keeps the runtime on the canonical port instead of falling back to the generic
 development default.
 
+Before claiming a demo deploy or recycle succeeded, run the canonical verifier:
+
+```powershell
+npm run demo:verify-canonical
+```
+
+The verifier checks the canonical LAN ports, runtime health, Service Admin
+reachability, runtime `servicesRoot` / `workspaceRoot`, and the live
+`@serviceadmin` / `@secretsbroker` release metadata against the checked-in
+`services/` manifests. It reports separate failure codes for wrong runtime port,
+wrong lane, missing service, unhealthy service, stale release pin, stale
+installed artifact, wrong service port, and unreachable LAN endpoints.
+
 Logs are appended under `.demo-logs/`, including
 `.demo-logs/demo-watchdog-recovery.log` for recovery output and the existing
 `demo-recycle.*.log` files for detached demo runtime output.
@@ -41,5 +54,5 @@ Useful overrides:
 | `--dry-run` | Check health and report that recovery would be needed without recycling. |
 
 Every final demo handoff should include the branch, commit, `npm run demo:watchdog`
-or `npm run demo:recycle -- --port=17883` result, and live LAN proof for both
-canonical URLs.
+or `npm run demo:recycle -- --port=17883` result, `npm run demo:verify-canonical`
+output, and live LAN proof for both canonical URLs.
