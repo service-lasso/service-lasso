@@ -30,3 +30,5 @@ Plans must not include raw secret values, provider credentials, environment payl
 - `service-lasso plan import {manifestPath} --json`
 
 The CLI commands use the same response contract as the API and add `servicesRoot` and `workspaceRoot` to show which local runtime roots were inspected. The plan commands are read-only: they do not create workspace directories, write service state, copy app-owned manifests, launch processes, or install update candidates.
+
+Start plans mirror mutating start semantics. A service missing install or config state is not a hard blocker when those prerequisites can be repaired by the start action; the plan marks the service as `would_run`, lists `install`, `config`, and any setup reconciliation in `prerequisites`, and reports the expected state changes. Provider-role services can appear as planned preparation without a daemon launch because they only need install/config/setup state.

@@ -31,6 +31,7 @@ import {
   startService,
   stopService,
 } from "../runtime/lifecycle/actions.js";
+import { prepareAndStartService, type PreparedStartSkipReason } from "../runtime/lifecycle/prepareStart.js";
 import { getLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import { readServiceHealthHistory, recordServiceHealthTransition } from "../runtime/health/history.js";
@@ -134,7 +135,7 @@ import {
   type WorkflowRunFacadeState,
 } from "../platform/workflowRunFacade.js";
 import type { PlatformEntitlement, PlatformRequestContext } from "../platform/facade.js";
-import { ApiError, toApiErrorBody } from "./errors.js";
+import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
@@ -676,7 +677,7 @@ async function executeLifecycleAction(
       case "config":
         return await configService(service, registry, { workspaceRoot });
       case "start":
-        return await startService(service, registry, { workspaceRoot });
+        return await executePreparedServiceStart(service, registry, workspaceRoot);
       case "stop":
         return await stopService(service);
       case "restart":
@@ -687,6 +688,42 @@ async function executeLifecycleAction(
   })();
 
   return await buildLifecycleActionResponse(service, registry, result);
+}
+
+async function executePreparedServiceStart(
+  service: RuntimeModel["discovered"][number],
+  registry: RuntimeModel["registry"],
+  workspaceRoot?: string,
+): Promise<Awaited<ReturnType<typeof startService>>> {
+  const prepared = await prepareAndStartService(service, registry, { workspaceRoot });
+
+  if (prepared.result) {
+    return prepared.result;
+  }
+
+  if (prepared.skippedReason === "provider_role") {
+    return {
+      action: "start",
+      serviceId: service.manifest.id,
+      ok: true,
+      state: prepared.state,
+      message: `Prepared provider-role service "${service.manifest.id}"; no managed daemon process is required.`,
+    };
+  }
+
+  throw new LifecycleStateError(formatPreparedStartSkipMessage(service.manifest.id, prepared.skippedReason));
+}
+
+function formatPreparedStartSkipMessage(serviceId: string, reason: PreparedStartSkipReason | null): string {
+  if (reason === "already_running") {
+    return `Cannot start service "${serviceId}" because it is already running.`;
+  }
+
+  if (reason === "not_startable") {
+    return `Cannot start service "${serviceId}" because no executable is configured.`;
+  }
+
+  return `Cannot start service "${serviceId}".`;
 }
 
 async function buildLifecycleActionResponse(
@@ -818,18 +855,12 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      if (!lifecycle.installed) {
-        skipped.push({ serviceId, reason: "not_installed" });
-        continue;
+      const prepared = await prepareAndStartService(service, runtimeModel.registry, { workspaceRoot });
+      if (prepared.result) {
+        results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result));
+      } else {
+        skipped.push({ serviceId, reason: prepared.skippedReason ?? "not_started" });
       }
-
-      if (!lifecycle.configured) {
-        skipped.push({ serviceId, reason: "not_configured" });
-        continue;
-      }
-
-      const result = await startService(service, runtimeModel.registry, { workspaceRoot });
-      results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
       continue;
     }
 
