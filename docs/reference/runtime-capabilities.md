@@ -11,6 +11,7 @@ The response includes:
 - option-derived flags for autostart, monitor, and update scheduler state
 - discovered service roles and default-baseline membership
 - Service Admin compatibility hints
+- the read-only operator MCP endpoint group
 
 The endpoint exposes metadata only. It must not include raw environment values, provider credentials, secret payloads, tokens, cookies, private keys, or recovery material.
 
@@ -48,6 +49,7 @@ Example shape:
       "operatorNetwork": true,
       "operatorMetrics": true,
       "operatorLogs": true,
+      "operatorMcp": true,
       "providerConnections": false,
       "workflowFacade": false,
       "localRouteGeneration": true,
