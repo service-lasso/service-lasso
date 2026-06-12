@@ -6,7 +6,12 @@ import os from "node:os";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { DEFAULT_BASELINE_SERVICE_IDS } from "../dist/runtime/cli/bootstrap.js";
-import { assertDemoPortsAvailable, demoProviderServiceIds, demoRequiredServiceIds } from "../scripts/demo-instance-lib.mjs";
+import {
+  assertDemoPortsAvailable,
+  assertDemoRecycleOwnership,
+  demoProviderServiceIds,
+  demoRequiredServiceIds,
+} from "../scripts/demo-instance-lib.mjs";
 import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
 import {
   canonicalRuntimePort,
@@ -145,6 +150,32 @@ test("demo recycle preflight reports live non-managed listeners", async () => {
     );
   } finally {
     await listener.close();
+  }
+});
+
+test("demo recycle preflight fails closed on orphan runtime ownership", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-orphan-runtime-"));
+  const listener = await listenOnLoopback();
+
+  try {
+    await assert.rejects(
+      () => assertDemoRecycleOwnership({
+        port: listener.port,
+        servicesRoot: path.join(tempDir, "services"),
+        workspaceRoot: path.join(tempDir, "workspace", "demo-instance"),
+      }),
+      (error) => {
+        assert.match(error.message, /stale\/orphan runtime ownership/);
+        assert.match(error.message, /runtime-instance\.json is missing/);
+        assert.match(error.message, /runtime-api http 127\.0\.0\.1:\d+ is already listening/);
+        assert.match(error.message, /Process evidence:/);
+        assert.match(error.message, /demo:watchdog recovery/);
+        return true;
+      },
+    );
+  } finally {
+    await listener.close();
+    await rm(tempDir, { recursive: true, force: true });
   }
 });
 

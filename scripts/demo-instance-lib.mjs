@@ -154,6 +154,150 @@ async function canBindPort(host, port) {
   }
 }
 
+function sameResolvedPath(left, right) {
+  const leftResolved = path.resolve(String(left ?? ""));
+  const rightResolved = path.resolve(String(right ?? ""));
+  return process.platform === "win32"
+    ? leftResolved.toLowerCase() === rightResolved.toLowerCase()
+    : leftResolved === rightResolved;
+}
+
+function runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot }) {
+  return Boolean(
+    runtimeInstance
+      && sameResolvedPath(runtimeInstance.servicesRoot, servicesRoot)
+      && sameResolvedPath(runtimeInstance.workspaceRoot, workspaceRoot),
+  );
+}
+
+async function getProcessCommandEvidence(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return {};
+  }
+
+  if (process.platform === "win32") {
+    const raw = await commandOutput("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object -First 1 ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress`,
+    ]);
+    if (!raw) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return {
+        executablePath: typeof parsed.ExecutablePath === "string" ? parsed.ExecutablePath : undefined,
+        commandLine: typeof parsed.CommandLine === "string" ? parsed.CommandLine : undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  const commandLine = await commandOutput("ps", ["-p", String(pid), "-o", "command="]);
+  return commandLine ? { commandLine } : {};
+}
+
+async function getListeningPortEvidence(port) {
+  if (!Number.isInteger(port) || port <= 0) {
+    return [];
+  }
+
+  if (process.platform === "win32") {
+    const netstat = await commandOutput("netstat", ["-ano", "-p", "tcp"]);
+    const pids = new Set();
+    for (const line of netstat.split(/\r?\n/)) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 5 || columns[0].toUpperCase() !== "TCP" || columns[3].toUpperCase() !== "LISTENING") {
+        continue;
+      }
+      const localAddress = columns[1];
+      if (localAddress.endsWith(`:${port}`) || localAddress.endsWith(`]:${port}`)) {
+        const pid = Number(columns[4]);
+        if (Number.isInteger(pid) && pid > 0) {
+          pids.add(pid);
+        }
+      }
+    }
+
+    return await Promise.all(
+      [...pids].map(async (pid) => ({
+        pid,
+        ...(await getProcessCommandEvidence(pid)),
+      })),
+    );
+  }
+
+  const lsof = await commandOutput("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
+  const pids = new Set();
+  for (const line of lsof.split(/\r?\n/).slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    const pid = Number(columns[1]);
+    if (Number.isInteger(pid) && pid > 0) {
+      pids.add(pid);
+    }
+  }
+
+  return await Promise.all(
+    [...pids].map(async (pid) => ({
+      pid,
+      ...(await getProcessCommandEvidence(pid)),
+    })),
+  );
+}
+
+function truncateEvidence(value, maxLength = 260) {
+  if (typeof value !== "string" || value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function formatListeningPortEvidence(evidence) {
+  if (!evidence.length) {
+    return "process evidence unavailable";
+  }
+
+  return evidence
+    .map((entry) => {
+      const details = [`pid=${entry.pid}`];
+      if (entry.executablePath) {
+        details.push(`exe=${JSON.stringify(truncateEvidence(entry.executablePath))}`);
+      }
+      if (entry.commandLine) {
+        details.push(`command=${JSON.stringify(truncateEvidence(entry.commandLine))}`);
+      }
+      return details.join(" ");
+    })
+    .join("; ");
+}
+
+export async function assertDemoRecycleOwnership(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const runtimeInstancePath = path.join(workspaceRoot, ".service-lasso", "runtime-instance.json");
+  const runtimeInstance = await readJsonIfPresent(runtimeInstancePath);
+
+  if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
+    return;
+  }
+
+  if (await canBindPort("127.0.0.1", port)) {
+    return;
+  }
+
+  const metadataState = runtimeInstance
+    ? `runtime-instance.json points at servicesRoot=${JSON.stringify(runtimeInstance.servicesRoot ?? null)} workspaceRoot=${JSON.stringify(runtimeInstance.workspaceRoot ?? null)}`
+    : "runtime-instance.json is missing";
+  const evidence = await getListeningPortEvidence(port);
+
+  throw new Error(
+    `Demo recycle blocked by stale/orphan runtime ownership for workspace ${workspaceRoot}: ${metadataState} while runtime-api http 127.0.0.1:${port} is already listening. Process evidence: ${formatListeningPortEvidence(evidence)}. Recovery: wait for any scheduled demo:watchdog recovery to finish, then stop only the verified stale foreground demo process or choose a different demo port before retrying.`,
+  );
+}
+
 export async function assertDemoPortsAvailable({ port, workspaceRoot, fixedPortChecks = demoFixedPortChecks } = {}) {
   const checks = [
     { serviceId: "runtime-api", portName: "http", host: "127.0.0.1", port },
@@ -371,6 +515,7 @@ export async function runDemoRecycle(options = {}) {
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
   const preserve = options.preserve === true;
   const keepAlive = options.keepAlive === true;
+  await assertDemoRecycleOwnership({ servicesRoot, workspaceRoot, port });
   const stopped = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
 
   await assertDemoPortsAvailable({ port, workspaceRoot });

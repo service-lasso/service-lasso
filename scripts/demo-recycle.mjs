@@ -99,6 +99,44 @@ async function getLiveServiceSummary(apiUrl) {
     }));
 }
 
+function sameResolvedPath(left, right) {
+  const leftResolved = path.resolve(String(left ?? ""));
+  const rightResolved = path.resolve(String(right ?? ""));
+  return process.platform === "win32"
+    ? leftResolved.toLowerCase() === rightResolved.toLowerCase()
+    : leftResolved === rightResolved;
+}
+
+async function assertLiveRuntimeOwnedByChild(apiUrl, childPid) {
+  const result = await fetchJson(`${apiUrl}/api/runtime/instance`);
+  const instance = result.body.instance;
+  const mismatches = [];
+
+  if (result.status !== 200 || !instance) {
+    throw new Error(`Detached demo recycle could not verify runtime ownership at ${apiUrl}/api/runtime/instance.`);
+  }
+  if (instance.pid !== childPid) {
+    mismatches.push(`pid expected ${childPid}, got ${instance.pid ?? "missing"}`);
+  }
+  if (instance.apiPort !== options.port) {
+    mismatches.push(`apiPort expected ${options.port}, got ${instance.apiPort ?? "missing"}`);
+  }
+  if (!sameResolvedPath(instance.servicesRoot, options.servicesRoot)) {
+    mismatches.push(`servicesRoot expected ${options.servicesRoot}, got ${instance.servicesRoot ?? "missing"}`);
+  }
+  if (!sameResolvedPath(instance.workspaceRoot, options.workspaceRoot)) {
+    mismatches.push(`workspaceRoot expected ${options.workspaceRoot}, got ${instance.workspaceRoot ?? "missing"}`);
+  }
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Detached demo recycle produced stale runtime ownership: ${mismatches.join("; ")}. The live endpoints are not owned by the newly spawned foreground worker.`,
+    );
+  }
+
+  return instance;
+}
+
 function printResult(result) {
   console.log("[service-lasso demo] recycle passed");
   console.log(`- api: ${result.apiUrl}`);
@@ -155,6 +193,7 @@ async function runDetachedRecycle() {
   try {
     const apiUrl = `http://127.0.0.1:${options.port}`;
     const endpoints = await waitForLiveDemo();
+    const instance = await assertLiveRuntimeOwnedByChild(apiUrl, child.pid);
     const [git, services] = await Promise.all([
       getGitSummary(),
       getLiveServiceSummary(apiUrl),
@@ -167,12 +206,16 @@ async function runDetachedRecycle() {
     console.log(`- git: ${git.branch}@${git.commit}`);
     console.log("- mode: detached live demo");
     console.log(`- pid: ${child.pid}`);
+    console.log(`- runtimeOwner: ${instance.instanceId} pid=${instance.pid}`);
     console.log(`- logs: ${logsRoot}`);
     console.log(`- services: ${services.map((service) => `${service.id}:running=${service.running}:healthy=${service.healthy}`).join(", ")}`);
     console.log("- endpoints:");
     for (const [name, endpoint] of Object.entries(endpoints)) {
       console.log(`  - ${name}: ${endpoint.status} ${endpoint.url}`);
     }
+  } catch (error) {
+    child.kill("SIGTERM");
+    throw error;
   } finally {
     await stdout.close();
     await stderr.close();
