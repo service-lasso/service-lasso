@@ -141,7 +141,7 @@ function requiredServicesReady(services) {
   return true;
 }
 
-async function waitForLiveServices(apiUrl, { timeoutMs = 300_000, childExited = () => false } = {}) {
+export async function waitForLiveServices(apiUrl, { timeoutMs = 300_000, intervalMs = 500 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
 
@@ -157,10 +157,7 @@ async function waitForLiveServices(apiUrl, { timeoutMs = 300_000, childExited = 
       lastError = error.message;
     }
 
-    if (childExited()) {
-      break;
-    }
-    await delay(500);
+    await delay(intervalMs);
   }
 
   throw new Error(`Detached demo recycle did not finish service readiness: ${lastError || "timeout"}.`);
@@ -315,7 +312,7 @@ async function runDetachedRecycle() {
     });
     const [git, services] = await Promise.all([
       getGitSummary(),
-      waitForLiveServices(apiUrl, { childExited }),
+      waitForLiveServices(apiUrl),
     ]);
     console.log("[service-lasso demo] recycle passed");
     console.log(`- api: ${apiUrl}`);

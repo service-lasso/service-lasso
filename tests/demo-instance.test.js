@@ -15,7 +15,7 @@ import {
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
-import { shouldStopWaitingForDetachedChild } from "../scripts/demo-recycle.mjs";
+import { shouldStopWaitingForDetachedChild, waitForLiveServices } from "../scripts/demo-recycle.mjs";
 import {
   canonicalRuntimePort,
   canonicalServiceAdminPort,
@@ -251,6 +251,46 @@ test("detached demo recycle keeps waiting when an exited child still has a live 
   assert.equal(shouldStopWaitingForDetachedChild(null, true), false);
   assert.equal(shouldStopWaitingForDetachedChild({ code: 0, signal: null }, true), false);
   assert.equal(shouldStopWaitingForDetachedChild({ code: 1, signal: null }, false), true);
+});
+
+test("detached demo recycle service readiness waits after ownership handoff", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  const readyServices = demoRequiredServiceIds.map((serviceId) => ({
+    id: serviceId,
+    lifecycle: {
+      installed: true,
+      configured: true,
+      running: demoProviderServiceIds.has(serviceId) ? false : true,
+    },
+    health: { healthy: true },
+  }));
+
+  try {
+    globalThis.fetch = async () => {
+      calls += 1;
+      if (calls < 3) {
+        return jsonResponse(200, {
+          services: demoRequiredServiceIds.map((serviceId) => ({
+            id: serviceId,
+            lifecycle: { installed: false, configured: false, running: false },
+            health: { healthy: false },
+          })),
+        });
+      }
+      return jsonResponse(200, { services: readyServices });
+    };
+
+    const services = await waitForLiveServices("http://127.0.0.1:17883", {
+      timeoutMs: 1_000,
+      intervalMs: 1,
+    });
+
+    assert.equal(calls >= 3, true);
+    assert.equal(services.some((service) => service.id === "@serviceadmin" && service.running && service.healthy), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("demo watchdog defaults to the canonical LAN endpoints and runtime port", () => {
