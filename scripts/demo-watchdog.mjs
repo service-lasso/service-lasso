@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoRoot } from "./demo-instance-lib.mjs";
@@ -7,6 +7,7 @@ import { repoRoot } from "./demo-instance-lib.mjs";
 const defaultRuntimePort = 17883;
 const defaultDemoHost = "192.168.1.53";
 const defaultLockTtlMs = 30 * 60 * 1000;
+const defaultLegacySchedulerLockTtlMs = 10 * 60 * 1000;
 const defaultRecoveryTimeoutMs = 15 * 60 * 1000;
 
 function parseFlag(args, name) {
@@ -38,13 +39,22 @@ export function resolveWatchdogOptions(args = process.argv.slice(2), env = proce
     parseFlag(args, "lock-path")
     ?? env.SERVICE_LASSO_DEMO_WATCHDOG_LOCK
     ?? path.join(repoRoot, ".demo-logs", "demo-watchdog.lock.json");
+  const legacySchedulerLockPath =
+    parseFlag(args, "legacy-scheduler-lock-path")
+    ?? env.SERVICE_LASSO_DEMO_LEGACY_WATCHDOG_LOCK
+    ?? path.join(repoRoot, ".demo-logs", "watchdog.lock");
 
   return {
     runtimePort,
     serviceAdminUrl,
     runtimeHealthUrl,
     lockPath,
+    legacySchedulerLockPath,
     lockTtlMs: parseNumber(parseFlag(args, "lock-ttl-ms") ?? env.SERVICE_LASSO_DEMO_WATCHDOG_LOCK_TTL_MS, defaultLockTtlMs),
+    legacySchedulerLockTtlMs: parseNumber(
+      parseFlag(args, "legacy-scheduler-lock-ttl-ms") ?? env.SERVICE_LASSO_DEMO_LEGACY_WATCHDOG_LOCK_TTL_MS,
+      defaultLegacySchedulerLockTtlMs,
+    ),
     recoveryTimeoutMs: parseNumber(
       parseFlag(args, "recovery-timeout-ms") ?? env.SERVICE_LASSO_DEMO_RECOVERY_TIMEOUT_MS,
       defaultRecoveryTimeoutMs,
@@ -139,6 +149,71 @@ export async function acquireWatchdogLock(lockPath, { ttlMs = defaultLockTtlMs, 
 export async function releaseWatchdogLock(lockPath) {
   const existing = await readLock(lockPath);
   if (existing?.pid === process.pid) {
+    await rm(lockPath, { force: true });
+  }
+}
+
+async function readLegacySchedulerLock(lockPath) {
+  try {
+    const [raw, fileStat] = await Promise.all([
+      readFile(lockPath, "utf8").catch(() => ""),
+      stat(lockPath),
+    ]);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {}
+    return { raw, parsed, mtimeMs: fileStat.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+export async function acquireLegacySchedulerLock(
+  lockPath,
+  { ttlMs = defaultLegacySchedulerLockTtlMs, now = () => new Date() } = {},
+) {
+  await mkdir(path.dirname(lockPath), { recursive: true });
+  const existing = await readLegacySchedulerLock(lockPath);
+  const nowMs = now().getTime();
+
+  if (existing) {
+    const ageMs = nowMs - existing.mtimeMs;
+    if (ageMs < ttlMs) {
+      return {
+        acquired: false,
+        reason: "legacy_recovery_already_running",
+        lock: existing.parsed ?? { raw: existing.raw.trim(), ageMs },
+      };
+    }
+    await rm(lockPath, { force: true });
+  }
+
+  const lock = {
+    owner: "service-lasso-demo-recycle",
+    pid: process.pid,
+    startedAt: new Date(nowMs).toISOString(),
+    ttlMs,
+  };
+
+  try {
+    const handle = await open(lockPath, "wx");
+    await handle.writeFile(`${JSON.stringify(lock, null, 2)}\n`);
+    await handle.close();
+    return { acquired: true, lock };
+  } catch {
+    const raced = await readLegacySchedulerLock(lockPath);
+    return {
+      acquired: false,
+      reason: "legacy_lock_race_lost",
+      lock: raced?.parsed ?? { raw: raced?.raw?.trim() ?? "" },
+    };
+  }
+}
+
+export async function releaseLegacySchedulerLock(lockPath) {
+  const existing = await readLegacySchedulerLock(lockPath);
+  if (existing?.parsed?.owner === "service-lasso-demo-recycle" && existing.parsed.pid === process.pid) {
     await rm(lockPath, { force: true });
   }
 }

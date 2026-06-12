@@ -14,10 +14,17 @@ import {
   resolveCanonicalVerifierOptions,
   verifyCanonicalDemo,
 } from "./demo-verify-canonical.mjs";
-import { acquireWatchdogLock, releaseWatchdogLock, resolveWatchdogOptions } from "./demo-watchdog.mjs";
+import {
+  acquireLegacySchedulerLock,
+  acquireWatchdogLock,
+  releaseLegacySchedulerLock,
+  releaseWatchdogLock,
+  resolveWatchdogOptions,
+} from "./demo-watchdog.mjs";
 
 const options = resolveDemoOptions();
 const recoveryLockAlreadyHeldEnv = "SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD";
+const detachedLockWaitTimeoutMs = 10 * 60 * 1000;
 
 async function commandOutput(command, args) {
   return await new Promise((resolve) => {
@@ -84,6 +91,10 @@ async function getGitSummary() {
     branch: branch || "unknown",
     commit: commit || "unknown",
   };
+}
+
+function formatGitSummary(git) {
+  return `${git.branch}@${git.commit}`;
 }
 
 async function ensureGitHubTokenEnv() {
@@ -243,7 +254,12 @@ export function shouldAcquireDetachedRecycleLock(env = process.env) {
   return env[recoveryLockAlreadyHeldEnv] !== "1";
 }
 
-async function acquireDetachedRecycleLock() {
+function activeLockDescription(lock) {
+  const pid = lock.lock?.pid ? ` pid=${lock.lock.pid}` : "";
+  return `${lock.reason}${pid}`;
+}
+
+async function acquireDetachedRecycleLocks({ timeoutMs = detachedLockWaitTimeoutMs, intervalMs = 1_000 } = {}) {
   if (!shouldAcquireDetachedRecycleLock()) {
     return null;
   }
@@ -251,15 +267,35 @@ async function acquireDetachedRecycleLock() {
   const watchdogOptions = resolveWatchdogOptions([
     `--port=${options.port}`,
   ]);
-  const lock = await acquireWatchdogLock(watchdogOptions.lockPath, { ttlMs: watchdogOptions.lockTtlMs });
-  if (!lock.acquired) {
-    const pid = lock.lock?.pid ? ` pid=${lock.lock.pid}` : "";
-    throw new Error(
-      `Demo recycle blocked by active demo recovery lock (${lock.reason}${pid}). Wait for scheduled demo:watchdog recovery to finish before retrying.`,
-    );
+  const deadline = Date.now() + timeoutMs;
+  let lastBlocker = "";
+
+  while (Date.now() < deadline) {
+    const legacyLock = await acquireLegacySchedulerLock(watchdogOptions.legacySchedulerLockPath, {
+      ttlMs: watchdogOptions.legacySchedulerLockTtlMs,
+    });
+    if (!legacyLock.acquired) {
+      lastBlocker = `legacy scheduled watchdog lock (${activeLockDescription(legacyLock)})`;
+      await delay(intervalMs);
+      continue;
+    }
+
+    const watchdogLock = await acquireWatchdogLock(watchdogOptions.lockPath, { ttlMs: watchdogOptions.lockTtlMs });
+    if (watchdogLock.acquired) {
+      return {
+        watchdogLockPath: watchdogOptions.lockPath,
+        legacySchedulerLockPath: watchdogOptions.legacySchedulerLockPath,
+      };
+    }
+
+    await releaseLegacySchedulerLock(watchdogOptions.legacySchedulerLockPath);
+    lastBlocker = `demo watchdog recovery lock (${activeLockDescription(watchdogLock)})`;
+    await delay(intervalMs);
   }
 
-  return watchdogOptions.lockPath;
+  throw new Error(
+    `Demo recycle blocked by active demo recovery lock after waiting ${Math.round(timeoutMs / 1000)}s: ${lastBlocker || "unknown lock"}. Wait for scheduled demo:watchdog recovery to finish before retrying.`,
+  );
 }
 
 async function assertLiveRuntimeOwnedByChild(apiUrl, childPid, { timeoutMs = 300_000, childExited = () => false } = {}) {
@@ -329,7 +365,8 @@ async function runForegroundWorker() {
 
 async function runDetachedRecycle() {
   await ensureGitHubTokenEnv();
-  const lockPath = await acquireDetachedRecycleLock();
+  const startedGit = await getGitSummary();
+  const locks = await acquireDetachedRecycleLocks();
   const logsRoot = path.join(process.cwd(), ".demo-logs");
   await mkdir(logsRoot, { recursive: true });
 
@@ -372,6 +409,11 @@ async function runDetachedRecycle() {
       getGitSummary(),
       waitForLiveServices(apiUrl),
     ]);
+    if (formatGitSummary(git) !== formatGitSummary(startedGit)) {
+      throw new Error(
+        `Detached demo recycle checkout changed while validation was running: started ${formatGitSummary(startedGit)}, ended ${formatGitSummary(git)}.`,
+      );
+    }
     await waitForCanonicalPostRecycle();
     console.log("[service-lasso demo] recycle passed");
     console.log(`- api: ${apiUrl}`);
@@ -394,8 +436,9 @@ async function runDetachedRecycle() {
     }
     throw error;
   } finally {
-    if (lockPath) {
-      await releaseWatchdogLock(lockPath);
+    if (locks) {
+      await releaseWatchdogLock(locks.watchdogLockPath);
+      await releaseLegacySchedulerLock(locks.legacySchedulerLockPath);
     }
     await stdout.close();
     await stderr.close();

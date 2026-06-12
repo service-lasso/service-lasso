@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
 import os from "node:os";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { DEFAULT_BASELINE_SERVICE_IDS } from "../dist/runtime/cli/bootstrap.js";
 import {
@@ -14,7 +14,14 @@ import {
   demoRequiredServiceIds,
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
-import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
+import {
+  acquireLegacySchedulerLock,
+  acquireWatchdogLock,
+  buildRecoveryCommand,
+  releaseLegacySchedulerLock,
+  releaseWatchdogLock,
+  resolveWatchdogOptions,
+} from "../scripts/demo-watchdog.mjs";
 import {
   shouldAcquireDetachedRecycleLock,
   shouldStopWaitingForDetachedChild,
@@ -307,6 +314,7 @@ test("demo watchdog defaults to the canonical LAN endpoints and runtime port", (
   assert.equal(options.runtimePort, 17883);
   assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
   assert.equal(options.runtimeHealthUrl, "http://192.168.1.53:17883/api/health");
+  assert.equal(options.legacySchedulerLockPath, path.resolve(".demo-logs", "watchdog.lock"));
 
   const recovery = buildRecoveryCommand(options);
   assert.deepEqual(recovery.args, ["run", "demo:recycle", "--", "--port=17883"]);
@@ -433,6 +441,31 @@ test("demo watchdog lock is released only by the owning process", async () => {
     const reacquired = await acquireWatchdogLock(lockPath, { ttlMs: 60_000 });
     assert.equal(reacquired.acquired, true);
     await releaseWatchdogLock(lockPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo recycle coordinates with the legacy scheduled watchdog lock", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-legacy-watchdog-"));
+  const lockPath = path.join(tempDir, "watchdog.lock");
+
+  try {
+    const acquired = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
+    assert.equal(acquired.acquired, true);
+
+    const lockFile = JSON.parse(await readFile(lockPath, "utf8"));
+    assert.equal(lockFile.owner, "service-lasso-demo-recycle");
+    assert.equal(lockFile.pid, process.pid);
+
+    const blocked = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
+    assert.equal(blocked.acquired, false);
+    assert.equal(blocked.reason, "legacy_recovery_already_running");
+
+    await releaseLegacySchedulerLock(lockPath);
+    const reacquired = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
+    assert.equal(reacquired.acquired, true);
+    await releaseLegacySchedulerLock(lockPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
