@@ -8,8 +8,16 @@ import {
   resolveDemoOptions,
   runDemoRecycle,
 } from "./demo-instance-lib.mjs";
+import {
+  canonicalRuntimePort,
+  formatCanonicalVerifierResult,
+  resolveCanonicalVerifierOptions,
+  verifyCanonicalDemo,
+} from "./demo-verify-canonical.mjs";
+import { acquireWatchdogLock, releaseWatchdogLock, resolveWatchdogOptions } from "./demo-watchdog.mjs";
 
 const options = resolveDemoOptions();
+const recoveryLockAlreadyHeldEnv = "SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD";
 
 async function commandOutput(command, args) {
   return await new Promise((resolve) => {
@@ -121,6 +129,32 @@ async function getLiveServiceSummary(apiUrl) {
     }));
 }
 
+async function waitForCanonicalPostRecycle({ timeoutMs = 300_000, intervalMs = 500 } = {}) {
+  if (options.port !== canonicalRuntimePort) {
+    return null;
+  }
+
+  const verifierOptions = resolveCanonicalVerifierOptions([
+    `--port=${options.port}`,
+    `--services-root=${options.servicesRoot}`,
+    `--workspace-root=${options.workspaceRoot}`,
+  ]);
+  const deadline = Date.now() + timeoutMs;
+  let lastResult = null;
+
+  while (Date.now() < deadline) {
+    lastResult = await verifyCanonicalDemo(verifierOptions);
+    if (lastResult.ok) {
+      return lastResult;
+    }
+    await delay(intervalMs);
+  }
+
+  throw new Error(
+    `Detached demo recycle did not finish canonical LAN verification before releasing the watchdog lock.\n${formatCanonicalVerifierResult(lastResult)}`,
+  );
+}
+
 function requiredServicesReady(services) {
   const byId = new Map(services.map((service) => [service.id, service]));
   for (const serviceId of demoRequiredServiceIds) {
@@ -205,6 +239,29 @@ export function shouldStopWaitingForDetachedChild(childExit, childAlive) {
   return childExit !== null && childAlive !== true;
 }
 
+export function shouldAcquireDetachedRecycleLock(env = process.env) {
+  return env[recoveryLockAlreadyHeldEnv] !== "1";
+}
+
+async function acquireDetachedRecycleLock() {
+  if (!shouldAcquireDetachedRecycleLock()) {
+    return null;
+  }
+
+  const watchdogOptions = resolveWatchdogOptions([
+    `--port=${options.port}`,
+  ]);
+  const lock = await acquireWatchdogLock(watchdogOptions.lockPath, { ttlMs: watchdogOptions.lockTtlMs });
+  if (!lock.acquired) {
+    const pid = lock.lock?.pid ? ` pid=${lock.lock.pid}` : "";
+    throw new Error(
+      `Demo recycle blocked by active demo recovery lock (${lock.reason}${pid}). Wait for scheduled demo:watchdog recovery to finish before retrying.`,
+    );
+  }
+
+  return watchdogOptions.lockPath;
+}
+
 async function assertLiveRuntimeOwnedByChild(apiUrl, childPid, { timeoutMs = 300_000, childExited = () => false } = {}) {
   const instanceUrl = `${apiUrl}/api/runtime/instance`;
   const deadline = Date.now() + timeoutMs;
@@ -272,6 +329,7 @@ async function runForegroundWorker() {
 
 async function runDetachedRecycle() {
   await ensureGitHubTokenEnv();
+  const lockPath = await acquireDetachedRecycleLock();
   const logsRoot = path.join(process.cwd(), ".demo-logs");
   await mkdir(logsRoot, { recursive: true });
 
@@ -314,6 +372,7 @@ async function runDetachedRecycle() {
       getGitSummary(),
       waitForLiveServices(apiUrl),
     ]);
+    await waitForCanonicalPostRecycle();
     console.log("[service-lasso demo] recycle passed");
     console.log(`- api: ${apiUrl}`);
     console.log("- serviceAdmin: http://127.0.0.1:17700");
@@ -335,6 +394,9 @@ async function runDetachedRecycle() {
     }
     throw error;
   } finally {
+    if (lockPath) {
+      await releaseWatchdogLock(lockPath);
+    }
     await stdout.close();
     await stderr.close();
   }

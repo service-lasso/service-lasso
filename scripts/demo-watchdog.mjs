@@ -149,6 +149,7 @@ export function buildRecoveryCommand(options) {
     args: ["run", "demo:recycle", "--", `--port=${options.runtimePort}`],
     env: {
       SERVICE_LASSO_PORT: String(options.runtimePort),
+      SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD: "1",
     },
   };
 }

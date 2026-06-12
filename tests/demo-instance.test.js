@@ -15,7 +15,11 @@ import {
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
-import { shouldStopWaitingForDetachedChild, waitForLiveServices } from "../scripts/demo-recycle.mjs";
+import {
+  shouldAcquireDetachedRecycleLock,
+  shouldStopWaitingForDetachedChild,
+  waitForLiveServices,
+} from "../scripts/demo-recycle.mjs";
 import {
   canonicalRuntimePort,
   canonicalServiceAdminPort,
@@ -253,6 +257,11 @@ test("detached demo recycle keeps waiting when an exited child still has a live 
   assert.equal(shouldStopWaitingForDetachedChild({ code: 1, signal: null }, false), true);
 });
 
+test("detached demo recycle skips lock acquisition when watchdog already owns it", () => {
+  assert.equal(shouldAcquireDetachedRecycleLock({}), true);
+  assert.equal(shouldAcquireDetachedRecycleLock({ SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD: "1" }), false);
+});
+
 test("detached demo recycle service readiness waits after ownership handoff", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -302,6 +311,7 @@ test("demo watchdog defaults to the canonical LAN endpoints and runtime port", (
   const recovery = buildRecoveryCommand(options);
   assert.deepEqual(recovery.args, ["run", "demo:recycle", "--", "--port=17883"]);
   assert.equal(recovery.env.SERVICE_LASSO_PORT, "17883");
+  assert.equal(recovery.env.SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD, "1");
 });
 
 test("canonical demo verifier defaults to canonical LAN URLs", () => {
