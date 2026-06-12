@@ -326,6 +326,32 @@ function commandLooksServiceOwned(command, serviceRoot) {
   return typeof command === "string" && command.includes(path.resolve(serviceRoot));
 }
 
+async function stopRuntimeServices(runtimeInstance) {
+  const apiUrl = runtimeInstance?.apiUrl ?? (
+    Number.isInteger(runtimeInstance?.apiPort)
+      ? `http://127.0.0.1:${runtimeInstance.apiPort}`
+      : null
+  );
+  if (!apiUrl) {
+    return { label: "runtime-api-stopAll", stopped: false, reason: "missing_runtime_api_url" };
+  }
+
+  try {
+    const result = await getJson(`${apiUrl}/api/runtime/actions/stopAll`, "POST", 15_000);
+    return {
+      label: "runtime-api-stopAll",
+      stopped: result.status === 200,
+      reason: result.status === 200 ? "stop_all_requested" : `http_${result.status}`,
+    };
+  } catch (error) {
+    return {
+      label: "runtime-api-stopAll",
+      stopped: false,
+      reason: `stop_all_failed:${error.message}`,
+    };
+  }
+}
+
 export async function stopDemoManagedProcesses(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
@@ -333,11 +359,8 @@ export async function stopDemoManagedProcesses(options = {}) {
   const skipped = [];
   const runtimeInstance = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"));
 
-  if (
-    runtimeInstance
-    && path.resolve(runtimeInstance.servicesRoot ?? "") === servicesRoot
-    && path.resolve(runtimeInstance.workspaceRoot ?? "") === workspaceRoot
-  ) {
+  if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
+    stopped.push(await stopRuntimeServices(runtimeInstance));
     stopped.push(await terminateProcessTree(runtimeInstance.pid, "runtime-api"));
   }
 
@@ -457,7 +480,10 @@ async function waitFor(check, timeoutMs = 2_000, intervalMs = 50) {
 
 async function postServiceAction(apiUrl, serviceId, action) {
   const result = await getJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}/${action}`, "POST");
-  assertCondition(result.status === 200, `Expected ${serviceId} ${action} to return 200.`);
+  assertCondition(
+    result.status === 200,
+    `Expected ${serviceId} ${action} to return 200, got ${result.status}: ${JSON.stringify(result.body)}`,
+  );
   return result.body;
 }
 

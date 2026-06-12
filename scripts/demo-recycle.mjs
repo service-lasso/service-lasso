@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
 import { mkdir, open } from "node:fs/promises";
 import path from "node:path";
-import { resolveDemoOptions, runDemoRecycle } from "./demo-instance-lib.mjs";
+import {
+  demoProviderServiceIds,
+  demoRequiredServiceIds,
+  resolveDemoOptions,
+  runDemoRecycle,
+} from "./demo-instance-lib.mjs";
 
 const options = resolveDemoOptions();
 
@@ -58,6 +63,8 @@ async function fetchJson(url) {
   };
 }
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function getGitSummary() {
   const [branch, commit] = await Promise.all([
     commandOutput("git", ["branch", "--show-current"]),
@@ -68,6 +75,20 @@ async function getGitSummary() {
     branch: branch || "unknown",
     commit: commit || "unknown",
   };
+}
+
+async function ensureGitHubTokenEnv() {
+  if (process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()) {
+    return;
+  }
+
+  const token = await commandOutput("gh", ["auth", "token"]);
+  if (!token) {
+    return;
+  }
+
+  process.env.GITHUB_TOKEN = token;
+  process.env.GH_TOKEN = token;
 }
 
 async function waitForLiveDemo() {
@@ -99,6 +120,51 @@ async function getLiveServiceSummary(apiUrl) {
     }));
 }
 
+function requiredServicesReady(services) {
+  const byId = new Map(services.map((service) => [service.id, service]));
+  for (const serviceId of demoRequiredServiceIds) {
+    const service = byId.get(serviceId);
+    if (!service?.lifecycle?.installed || !service?.lifecycle?.configured) {
+      return false;
+    }
+    if (demoProviderServiceIds.has(serviceId)) {
+      if (service.lifecycle?.running !== false) {
+        return false;
+      }
+      continue;
+    }
+    if (service.lifecycle?.running !== true || service.health?.healthy !== true) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function waitForLiveServices(apiUrl, { timeoutMs = 300_000, childExited = () => false } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "";
+
+  while (Date.now() < deadline) {
+    try {
+      const result = await fetchJson(`${apiUrl}/api/services`);
+      const services = Array.isArray(result.body.services) ? result.body.services : [];
+      if (result.status === 200 && requiredServicesReady(services)) {
+        return getLiveServiceSummary(apiUrl);
+      }
+      lastError = `required services not ready (${services.filter((service) => service.lifecycle?.running).length}/${demoRequiredServiceIds.length} running)`;
+    } catch (error) {
+      lastError = error.message;
+    }
+
+    if (childExited()) {
+      break;
+    }
+    await delay(500);
+  }
+
+  throw new Error(`Detached demo recycle did not finish service readiness: ${lastError || "timeout"}.`);
+}
+
 function sameResolvedPath(left, right) {
   const leftResolved = path.resolve(String(left ?? ""));
   const rightResolved = path.resolve(String(right ?? ""));
@@ -107,14 +173,8 @@ function sameResolvedPath(left, right) {
     : leftResolved === rightResolved;
 }
 
-async function assertLiveRuntimeOwnedByChild(apiUrl, childPid) {
-  const result = await fetchJson(`${apiUrl}/api/runtime/instance`);
-  const instance = result.body.instance;
+function runtimeOwnershipMismatches(instance, childPid) {
   const mismatches = [];
-
-  if (result.status !== 200 || !instance) {
-    throw new Error(`Detached demo recycle could not verify runtime ownership at ${apiUrl}/api/runtime/instance.`);
-  }
   if (instance.pid !== childPid) {
     mismatches.push(`pid expected ${childPid}, got ${instance.pid ?? "missing"}`);
   }
@@ -127,14 +187,41 @@ async function assertLiveRuntimeOwnedByChild(apiUrl, childPid) {
   if (!sameResolvedPath(instance.workspaceRoot, options.workspaceRoot)) {
     mismatches.push(`workspaceRoot expected ${options.workspaceRoot}, got ${instance.workspaceRoot ?? "missing"}`);
   }
+  return mismatches;
+}
 
-  if (mismatches.length > 0) {
-    throw new Error(
-      `Detached demo recycle produced stale runtime ownership: ${mismatches.join("; ")}. The live endpoints are not owned by the newly spawned foreground worker.`,
-    );
+async function assertLiveRuntimeOwnedByChild(apiUrl, childPid, { timeoutMs = 300_000, childExited = () => false } = {}) {
+  const instanceUrl = `${apiUrl}/api/runtime/instance`;
+  const deadline = Date.now() + timeoutMs;
+  let lastMismatch = "";
+
+  while (Date.now() < deadline) {
+    try {
+      const result = await fetchJson(instanceUrl);
+      const instance = result.body.instance;
+
+      if (result.status === 200 && instance) {
+        const mismatches = runtimeOwnershipMismatches(instance, childPid);
+        if (mismatches.length === 0) {
+          return instance;
+        }
+        lastMismatch = mismatches.join("; ");
+      } else {
+        lastMismatch = `runtime instance missing at ${instanceUrl}`;
+      }
+    } catch (error) {
+      lastMismatch = error.message;
+    }
+
+    if (childExited()) {
+      break;
+    }
+    await delay(500);
   }
 
-  return instance;
+  throw new Error(
+    `Detached demo recycle produced stale runtime ownership: ${lastMismatch || "ownership did not converge before timeout"}. The live endpoints are not owned by the newly spawned foreground worker.`,
+  );
 }
 
 function printResult(result) {
@@ -152,17 +239,24 @@ function printResult(result) {
 }
 
 async function runForegroundWorker() {
+  await ensureGitHubTokenEnv();
   const result = await runDemoRecycle({ ...options, preserve: true, keepAlive: true });
   printResult(result);
 
-  await new Promise((resolve) => {
-    const shutdown = () => resolve();
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-  });
+  const keepAlive = setInterval(() => {}, 60_000);
+  try {
+    await new Promise((resolve) => {
+      const shutdown = () => resolve();
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
+    });
+  } finally {
+    clearInterval(keepAlive);
+  }
 }
 
 async function runDetachedRecycle() {
+  await ensureGitHubTokenEnv();
   const logsRoot = path.join(process.cwd(), ".demo-logs");
   await mkdir(logsRoot, { recursive: true });
 
@@ -188,15 +282,21 @@ async function runDetachedRecycle() {
     },
   });
 
+  let childExit = null;
+  child.once("exit", (code, signal) => {
+    childExit = { code, signal };
+  });
   child.unref();
 
   try {
     const apiUrl = `http://127.0.0.1:${options.port}`;
     const endpoints = await waitForLiveDemo();
-    const instance = await assertLiveRuntimeOwnedByChild(apiUrl, child.pid);
+    const instance = await assertLiveRuntimeOwnedByChild(apiUrl, child.pid, {
+      childExited: () => childExit !== null,
+    });
     const [git, services] = await Promise.all([
       getGitSummary(),
-      getLiveServiceSummary(apiUrl),
+      waitForLiveServices(apiUrl, { childExited: () => childExit !== null }),
     ]);
     console.log("[service-lasso demo] recycle passed");
     console.log(`- api: ${apiUrl}`);
@@ -214,7 +314,9 @@ async function runDetachedRecycle() {
       console.log(`  - ${name}: ${endpoint.status} ${endpoint.url}`);
     }
   } catch (error) {
-    child.kill("SIGTERM");
+    if (!childExit) {
+      child.kill("SIGTERM");
+    }
     throw error;
   } finally {
     await stdout.close();

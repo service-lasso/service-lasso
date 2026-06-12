@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import path from "node:path";
 import os from "node:os";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -11,6 +12,7 @@ import {
   assertDemoRecycleOwnership,
   demoProviderServiceIds,
   demoRequiredServiceIds,
+  stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
 import {
@@ -175,6 +177,64 @@ test("demo recycle preflight fails closed on orphan runtime ownership", async ()
     );
   } finally {
     await listener.close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo recycle asks the previous managed runtime to stop services before replacing it", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-managed-runtime-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const runtimeStateDir = path.join(workspaceRoot, ".service-lasso");
+  let stopAllCalls = 0;
+  const server = createServer((request, response) => {
+    if (request.method === "POST" && request.url === "/api/runtime/actions/stopAll") {
+      stopAllCalls += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ results: [], skipped: [] }));
+      return;
+    }
+
+    response.writeHead(404, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "not_found" }));
+  });
+
+  try {
+    await mkdir(runtimeStateDir, { recursive: true });
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    assert.equal(typeof address, "object");
+    assert.notEqual(address, null);
+    const apiUrl = `http://127.0.0.1:${address.port}`;
+
+    await writeFile(
+      path.join(runtimeStateDir, "runtime-instance.json"),
+      `${JSON.stringify({
+        servicesRoot,
+        workspaceRoot,
+        pid: process.pid,
+        apiUrl,
+      }, null, 2)}\n`,
+    );
+
+    const result = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
+
+    assert.equal(stopAllCalls, 1);
+    assert.ok(
+      result.stopped.some((entry) => entry.label === "runtime-api-stopAll" && entry.stopped === true),
+      "Expected recycle to request stopAll from the previous runtime.",
+    );
+    assert.ok(
+      result.stopped.some((entry) => entry.label === "runtime-api" && entry.pid === process.pid && entry.stopped === false),
+      "Expected process termination guard to avoid stopping the test runner.",
+    );
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    }).catch(() => undefined);
     await rm(tempDir, { recursive: true, force: true });
   }
 });
