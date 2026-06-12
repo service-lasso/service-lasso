@@ -1,4 +1,6 @@
 import type {
+  ServiceBrokerAccessOperation,
+  ServiceBrokerAccessScope,
   ServiceBrokerBucketKind,
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
@@ -19,6 +21,8 @@ const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-s
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
 const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
+const brokerAccessOperations = new Set(["resolve", "create", "update", "rotate", "delete"]);
+const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "global"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
 const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
@@ -426,7 +430,7 @@ function validateUniqueEntries(values: string[], field: string, manifestPath: st
   }
 }
 
-function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest["broker"] | undefined {
+function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: string): ServiceManifest["broker"] | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -448,6 +452,66 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
   if (exports !== undefined && !Array.isArray(exports)) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.exports" to be an array.`);
   }
+
+  const accessPolicy = record.accessPolicy;
+  if (accessPolicy !== undefined && (!accessPolicy || typeof accessPolicy !== "object" || Array.isArray(accessPolicy))) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.accessPolicy" to be an object.`);
+  }
+  const accessPolicyRecord = accessPolicy as Record<string, unknown> | undefined;
+  const accessPolicyServiceId =
+    accessPolicyRecord?.serviceId === undefined
+      ? undefined
+      : expectNonEmptyString(accessPolicyRecord.serviceId, "broker.accessPolicy.serviceId", manifestPath);
+  if (accessPolicyServiceId !== undefined && accessPolicyServiceId !== serviceId) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: broker.accessPolicy.serviceId must match manifest id "${serviceId}".`,
+    );
+  }
+  const accessPolicyWorkspace =
+    accessPolicyRecord?.workspace === undefined
+      ? undefined
+      : expectNonEmptyString(accessPolicyRecord.workspace, "broker.accessPolicy.workspace", manifestPath);
+  const accessPolicyGrants = accessPolicyRecord?.grants;
+  if (accessPolicyGrants !== undefined && !Array.isArray(accessPolicyGrants)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker.accessPolicy.grants" to be an array.`);
+  }
+  const parsedAccessPolicyGrants = Array.isArray(accessPolicyGrants)
+    ? accessPolicyGrants.map((entry, index) => {
+        const field = `broker.accessPolicy.grants[${index}]`;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+        }
+        const grantRecord = entry as Record<string, unknown>;
+        const rawScope = grantRecord.scope;
+        if (rawScope !== undefined && (typeof rawScope !== "string" || !brokerAccessScopes.has(rawScope))) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "${field}.scope" to be one of workspace, service, app, shared, or global.`,
+          );
+        }
+        const operations = readNonEmptyStringArray(grantRecord.operations, `${field}.operations`, manifestPath);
+        if (!operations || operations.length === 0 || operations.some((operation) => !brokerAccessOperations.has(operation))) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "${field}.operations" to contain resolve, create, update, rotate, or delete.`,
+          );
+        }
+        validateUniqueEntries(operations, `${field}.operations`, manifestPath);
+        const refs = readNonEmptyStringArray(grantRecord.refs, `${field}.refs`, manifestPath);
+        refs?.forEach((ref) => expectBrokerRef(ref, `${field}.refs`, manifestPath));
+        validateUniqueEntries(refs ?? [], `${field}.refs`, manifestPath);
+        return {
+          namespace: expectBrokerNamespace(grantRecord.namespace, `${field}.namespace`, manifestPath),
+          ...(rawScope === undefined ? {} : { scope: rawScope as ServiceBrokerAccessScope }),
+          refs,
+          operations: operations as ServiceBrokerAccessOperation[],
+          purpose: expectNonEmptyString(grantRecord.purpose, `${field}.purpose`, manifestPath),
+        };
+      })
+    : undefined;
+  validateUniqueEntries(
+    (parsedAccessPolicyGrants ?? []).map((grant) => `${grant.namespace}:${grant.scope ?? ""}:${(grant.refs ?? ["*"]).join(",")}:${grant.operations.join(",")}`),
+    "broker.accessPolicy.grants",
+    manifestPath,
+  );
 
   const writeback = record.writeback;
   if (writeback !== undefined && (!writeback || typeof writeback !== "object" || Array.isArray(writeback))) {
@@ -559,7 +623,14 @@ function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest
             source: expectNonEmptyString(exportRecord.source, `${field}.source`, manifestPath),
             required: expectOptionalBoolean(exportRecord.required, `${field}.required`, manifestPath),
           };
-        })
+      })
+      : undefined,
+    accessPolicy: accessPolicyRecord
+      ? {
+          serviceId: accessPolicyServiceId,
+          workspace: accessPolicyWorkspace,
+          grants: parsedAccessPolicyGrants,
+        }
       : undefined,
     writeback: writebackRecord
       ? {
@@ -598,6 +669,23 @@ function validateBrokerCollisions(
   const allowedWritebackNamespaces = new Set(broker.writeback?.allowedNamespaces ?? []);
   const allowedWritebackRefs = new Set(broker.writeback?.allowedRefs ?? []);
   const allowedWritebackOperations = new Set(broker.writeback?.allowedOperations ?? []);
+  const accessGrants = broker.accessPolicy?.grants ?? [];
+  const accessGrantAllows = (namespace: string, ref: string, operation: ServiceBrokerAccessOperation): boolean =>
+    accessGrants.some((grant) => {
+      if (grant.namespace !== namespace || !grant.operations.includes(operation)) {
+        return false;
+      }
+      return (grant.refs ?? []).length === 0 || (grant.refs ?? []).includes(ref);
+    });
+
+  for (const entry of broker.imports ?? []) {
+    if (broker.accessPolicy && !accessGrantAllows(entry.namespace, entry.ref, "resolve")) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.imports ref "${entry.ref}" is outside broker.accessPolicy resolve grants for namespace "${entry.namespace}".`,
+      );
+    }
+  }
+
   for (const entry of broker.writeback?.generatedSecrets ?? []) {
     const exportEntry = (broker.exports ?? []).find((candidate) => candidate.ref === entry.ref);
     if (!exportEntry) {
@@ -618,6 +706,12 @@ function validateBrokerCollisions(
     if (entry.operation && allowedWritebackOperations.size > 0 && !allowedWritebackOperations.has(entry.operation)) {
       throw new Error(
         `Invalid service manifest at ${manifestPath}: broker.writeback.generatedSecrets ref "${entry.ref}" uses operation "${entry.operation}" outside broker.writeback.allowedOperations.`,
+      );
+    }
+    const operation = entry.operation ?? "create";
+    if (broker.accessPolicy && !accessGrantAllows(exportEntry.namespace, entry.ref, operation)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: broker.writeback.generatedSecrets ref "${entry.ref}" uses operation "${operation}" outside broker.accessPolicy grants for namespace "${exportEntry.namespace}".`,
       );
     }
   }
@@ -907,6 +1001,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   }
 
   const record = input as Record<string, unknown>;
+  const serviceId = expectNonEmptyString(record.id, "id", manifestPath);
 
   const dependOn = record.depend_on;
   if (
@@ -1052,7 +1147,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
   }
 
-  const broker = readBrokerPolicy(record.broker, manifestPath);
+  const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
   const globalenv = rawGlobalEnv
     ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
@@ -1069,7 +1164,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
 
   return {
-    id: expectNonEmptyString(record.id, "id", manifestPath),
+    id: serviceId,
     name: expectNonEmptyString(record.name, "name", manifestPath),
     description: expectNonEmptyString(record.description, "description", manifestPath),
     version: typeof record.version === "string" ? record.version : undefined,

@@ -434,6 +434,26 @@ Shape:
       "required": false
     }
   ],
+  "accessPolicy": {
+    "serviceId": "consumer",
+    "workspace": "local-demo",
+    "grants": [
+      {
+        "namespace": "shared/database",
+        "scope": "shared",
+        "refs": ["database.PASSWORD"],
+        "operations": ["resolve"],
+        "purpose": "connect to the shared database at runtime"
+      },
+      {
+        "namespace": "services/producer",
+        "scope": "service",
+        "refs": ["producer.API_TOKEN"],
+        "operations": ["create", "rotate"],
+        "purpose": "capture and rotate generated service token metadata"
+      }
+    ]
+  },
   "writeback": {
     "allowedNamespaces": ["services/producer"],
     "allowedOperations": ["create", "update", "rotate"],
@@ -470,6 +490,15 @@ Fields:
 - `exports[].ref`: dotted broker selector such as `producer.PUBLIC_URL`.
 - `exports[].source`: local selector or literal value to export, for example `${SERVICE_URL}`.
 - `exports[].required`: optional boolean; required exports should fail closed when the source is unavailable.
+- `accessPolicy`: optional manifest-side assignment for Secrets Broker authorization. It does not carry secret values.
+- `accessPolicy.serviceId`: optional service id the assignment applies to; when present it must match the top-level manifest `id`.
+- `accessPolicy.workspace`: optional workspace/deployment scope such as `local-demo` or an operator-defined site/workspace id.
+- `accessPolicy.grants[]`: allowed namespace/ref operation grants with purpose metadata.
+- `accessPolicy.grants[].namespace`: broker namespace boundary such as `shared/database` or `services/producer`.
+- `accessPolicy.grants[].scope`: optional scope classification: `workspace`, `service`, `app`, `shared`, or `global`.
+- `accessPolicy.grants[].refs`: optional array of dotted refs. Omit only when a namespace-wide grant is intentional for the listed operations.
+- `accessPolicy.grants[].operations`: allowed operations: `resolve`, `create`, `update`, `rotate`, or `delete`.
+- `accessPolicy.grants[].purpose`: non-empty audit/review purpose metadata.
 - `writeback.allowedNamespaces`: optional array limiting namespaces this service may write generated secrets into.
 - `writeback.allowedOperations`: optional array of allowed generated-secret operations: `create`, `update`, `rotate`, `delete`.
 - `writeback.allowedRefs`: optional array limiting generated-secret refs within the allowed namespaces.
@@ -498,6 +527,8 @@ Selector semantics:
 - Broker refs must be dotted. This keeps broker access reviewable and prevents accidental secret reads from ordinary env selectors.
 - Duplicate bucket namespaces, duplicate import refs, duplicate `imports[].as` names, duplicate export namespace/ref pairs, duplicate writeback refs, and duplicate generated-secret refs are invalid.
 - `imports[].as` may intentionally line up with an `env` key only when that env value is exactly the same dotted broker selector, for example `"DB_PASSWORD": "${database.PASSWORD}"`. It must not collide with `globalenv` output names.
+- If `broker.accessPolicy` is present, every declared broker import must have a matching `resolve` grant, and every generated writeback capture must have a matching operation grant for the export namespace.
+- Selectors used without a matching `broker.imports[]` declaration or access-policy grant are treated as missing policy metadata, not as implicit broker access. See [Service Secret Access Policy](./service-secret-access-policy.md).
 
 Producer example:
 

@@ -98,6 +98,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-secret-access-policy",
+          label: "Service Secret Access Policy",
+        },
+        {
+          type: "doc",
           id: "reference/legacy-globalenv-migration",
           label: "Legacy globalenv Migration",
         },

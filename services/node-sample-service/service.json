@@ -50,6 +50,26 @@
         "required": false
       }
     ],
+    "accessPolicy": {
+      "serviceId": "node-sample-service",
+      "workspace": "local-demo",
+      "grants": [
+        {
+          "namespace": "shared/sample",
+          "scope": "shared",
+          "refs": ["sample.API_TOKEN"],
+          "operations": ["resolve"],
+          "purpose": "read sample API token metadata during runtime startup"
+        },
+        {
+          "namespace": "services/node-sample-service",
+          "scope": "service",
+          "refs": ["sample.GENERATED_TOKEN"],
+          "operations": ["create", "rotate"],
+          "purpose": "capture and rotate sample generated token metadata"
+        }
+      ]
+    },
     "writeback": {
       "allowedNamespaces": [
         "services/node-sample-service"

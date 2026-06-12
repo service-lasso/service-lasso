@@ -1,6 +1,7 @@
 import type { DiscoveredService, ServiceBrokerImport } from "../../contracts/service.js";
 
 export type SecretReferenceAuditStatus = "present" | "missing" | "malformed";
+export type SecretAccessPolicyAssignmentStatus = "allowed" | "missing" | "not_applicable";
 export type SecretReferenceAuditSource =
   | "env"
   | "globalenv"
@@ -20,6 +21,11 @@ export interface SecretReferenceAuditFinding {
   location: string;
   required?: boolean;
   reason: string;
+  accessPolicy: {
+    operation: "resolve";
+    status: SecretAccessPolicyAssignmentStatus;
+    reason: string;
+  };
 }
 
 export interface ServiceSecretReferenceAudit {
@@ -145,6 +151,7 @@ export interface SecretProviderAuthRequiredSummary {
 
 interface CandidateRef {
   ref: string;
+  namespace?: string;
   source: SecretReferenceAuditSource;
   location: string;
   required?: boolean;
@@ -229,6 +236,7 @@ function addBrokerImport(
   }
   candidates.push({
     ref: entry.ref,
+    namespace: entry.namespace,
     source: "broker.import",
     location: "broker.imports[" + index + "].ref",
     required: entry.required !== false,
@@ -248,6 +256,7 @@ function collectCandidates(service: DiscoveredService): CandidateRef[] {
     declaredRefs.add(entry.ref);
     candidates.push({
       ref: entry.ref,
+      namespace: entry.namespace,
       source: "broker.export",
       location: "broker.exports[" + index + "].ref",
       required: entry.required !== false,
@@ -288,22 +297,69 @@ function collectCandidates(service: DiscoveredService): CandidateRef[] {
   return candidates;
 }
 
-function toFinding(serviceId: string, candidate: CandidateRef): SecretReferenceAuditFinding {
+function accessPolicyAssignment(
+  service: DiscoveredService,
+  candidate: CandidateRef,
+  parsed: { namespace: string; key: string } | null,
+): SecretReferenceAuditFinding["accessPolicy"] {
+  if (!parsed || candidate.source !== "broker.import") {
+    return {
+      operation: "resolve",
+      status: "not_applicable",
+      reason: "Resolve access policy applies to declared broker imports only.",
+    };
+  }
+
+  const policy = service.manifest.broker?.accessPolicy;
+  if (!policy) {
+    return {
+      operation: "resolve",
+      status: "missing",
+      reason: "No broker.accessPolicy assignment declares resolve access for this import.",
+    };
+  }
+
+  const policyNamespace = candidate.namespace ?? parsed.namespace;
+  const allowed = (policy.grants ?? []).some((grant) => {
+    if (grant.namespace !== policyNamespace) {
+      return false;
+    }
+    if (!grant.operations.includes("resolve")) {
+      return false;
+    }
+    return (grant.refs ?? []).length === 0 || (grant.refs ?? []).includes(candidate.ref);
+  });
+
+  return allowed
+    ? {
+        operation: "resolve",
+        status: "allowed",
+        reason: "broker.accessPolicy grants resolve access for this namespace/ref.",
+      }
+    : {
+        operation: "resolve",
+        status: "missing",
+        reason: "broker.accessPolicy is present but does not grant resolve access for this namespace/ref.",
+      };
+}
+
+function toFinding(service: DiscoveredService, candidate: CandidateRef): SecretReferenceAuditFinding {
   const parsed = parseBrokerRef(candidate.ref);
   if (!parsed) {
     return {
-      serviceId,
+      serviceId: service.manifest.id,
       ref: candidate.ref,
       status: "malformed",
       source: candidate.source,
       location: candidate.location,
       required: candidate.required,
       reason: "Reference is secret-shaped but is not a supported broker ref in namespace.key form.",
+      accessPolicy: accessPolicyAssignment(service, candidate, parsed),
     };
   }
 
   return {
-    serviceId,
+    serviceId: service.manifest.id,
     ref: candidate.ref,
     namespace: parsed.namespace,
     key: parsed.key,
@@ -314,6 +370,7 @@ function toFinding(serviceId: string, candidate: CandidateRef): SecretReferenceA
     reason: candidate.declared
       ? "Broker reference is declared in the service manifest."
       : "Broker selector is used but not declared in broker imports, exports, or writeback policy.",
+    accessPolicy: accessPolicyAssignment(service, candidate, parsed),
   };
 }
 
@@ -327,7 +384,7 @@ function summarize(findings: SecretReferenceAuditFinding[]): ServiceSecretRefere
 
 export function buildServiceSecretReferenceAudit(service: DiscoveredService): ServiceSecretReferenceAudit {
   const findings = collectCandidates(service)
-    .map((candidate) => toFinding(service.manifest.id, candidate))
+    .map((candidate) => toFinding(service, candidate))
     .sort((left, right) =>
       left.status.localeCompare(right.status) ||
       left.ref.localeCompare(right.ref) ||
