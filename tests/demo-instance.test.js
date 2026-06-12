@@ -1,13 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import path from "node:path";
 import os from "node:os";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { DEFAULT_BASELINE_SERVICE_IDS } from "../dist/runtime/cli/bootstrap.js";
-import { assertDemoPortsAvailable, demoProviderServiceIds, demoRequiredServiceIds } from "../scripts/demo-instance-lib.mjs";
-import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
+import {
+  assertDemoPortsAvailable,
+  assertDemoRecycleOwnership,
+  demoProviderServiceIds,
+  demoRequiredServiceIds,
+  stopDemoManagedProcesses,
+} from "../scripts/demo-instance-lib.mjs";
+import {
+  acquireLegacySchedulerLock,
+  acquireWatchdogLock,
+  buildRecoveryCommand,
+  releaseLegacySchedulerLock,
+  releaseWatchdogLock,
+  resolveWatchdogOptions,
+} from "../scripts/demo-watchdog.mjs";
+import {
+  shouldAcquireDetachedRecycleLock,
+  shouldStopWaitingForDetachedChild,
+  waitForLiveServices,
+} from "../scripts/demo-recycle.mjs";
 import {
   canonicalRuntimePort,
   canonicalServiceAdminPort,
@@ -148,6 +167,90 @@ test("demo recycle preflight reports live non-managed listeners", async () => {
   }
 });
 
+test("demo recycle preflight fails closed on orphan runtime ownership", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-orphan-runtime-"));
+  const listener = await listenOnLoopback();
+
+  try {
+    await assert.rejects(
+      () => assertDemoRecycleOwnership({
+        port: listener.port,
+        servicesRoot: path.join(tempDir, "services"),
+        workspaceRoot: path.join(tempDir, "workspace", "demo-instance"),
+      }),
+      (error) => {
+        assert.match(error.message, /stale\/orphan runtime ownership/);
+        assert.match(error.message, /runtime-instance\.json is missing/);
+        assert.match(error.message, /runtime-api http 127\.0\.0\.1:\d+ is already listening/);
+        assert.match(error.message, /Process evidence:/);
+        assert.match(error.message, /demo:watchdog recovery/);
+        return true;
+      },
+    );
+  } finally {
+    await listener.close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo recycle asks the previous managed runtime to stop services before replacing it", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-managed-runtime-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const runtimeStateDir = path.join(workspaceRoot, ".service-lasso");
+  let stopAllCalls = 0;
+  const server = createServer((request, response) => {
+    if (request.method === "POST" && request.url === "/api/runtime/actions/stopAll") {
+      stopAllCalls += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ results: [], skipped: [] }));
+      return;
+    }
+
+    response.writeHead(404, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "not_found" }));
+  });
+
+  try {
+    await mkdir(runtimeStateDir, { recursive: true });
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    assert.equal(typeof address, "object");
+    assert.notEqual(address, null);
+    const apiUrl = `http://127.0.0.1:${address.port}`;
+
+    await writeFile(
+      path.join(runtimeStateDir, "runtime-instance.json"),
+      `${JSON.stringify({
+        servicesRoot,
+        workspaceRoot,
+        pid: process.pid,
+        apiUrl,
+      }, null, 2)}\n`,
+    );
+
+    const result = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
+
+    assert.equal(stopAllCalls, 1);
+    assert.ok(
+      result.stopped.some((entry) => entry.label === "runtime-api-stopAll" && entry.stopped === true),
+      "Expected recycle to request stopAll from the previous runtime.",
+    );
+    assert.ok(
+      result.stopped.some((entry) => entry.label === "runtime-api" && entry.pid === process.pid && entry.stopped === false),
+      "Expected process termination guard to avoid stopping the test runner.",
+    );
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    }).catch(() => undefined);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("demo recycle uses the canonical baseline service set", () => {
   assert.deepEqual(demoRequiredServiceIds, [...DEFAULT_BASELINE_SERVICE_IDS]);
   assert.equal(demoProviderServiceIds.has("@archive"), true);
@@ -155,15 +258,68 @@ test("demo recycle uses the canonical baseline service set", () => {
   assert.equal(demoProviderServiceIds.has("@serviceadmin"), false);
 });
 
+test("detached demo recycle keeps waiting when an exited child still has a live pid", () => {
+  assert.equal(shouldStopWaitingForDetachedChild(null, true), false);
+  assert.equal(shouldStopWaitingForDetachedChild({ code: 0, signal: null }, true), false);
+  assert.equal(shouldStopWaitingForDetachedChild({ code: 1, signal: null }, false), true);
+});
+
+test("detached demo recycle skips lock acquisition when watchdog already owns it", () => {
+  assert.equal(shouldAcquireDetachedRecycleLock({}), true);
+  assert.equal(shouldAcquireDetachedRecycleLock({ SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD: "1" }), false);
+});
+
+test("detached demo recycle service readiness waits after ownership handoff", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  const readyServices = demoRequiredServiceIds.map((serviceId) => ({
+    id: serviceId,
+    lifecycle: {
+      installed: true,
+      configured: true,
+      running: demoProviderServiceIds.has(serviceId) ? false : true,
+    },
+    health: { healthy: true },
+  }));
+
+  try {
+    globalThis.fetch = async () => {
+      calls += 1;
+      if (calls < 3) {
+        return jsonResponse(200, {
+          services: demoRequiredServiceIds.map((serviceId) => ({
+            id: serviceId,
+            lifecycle: { installed: false, configured: false, running: false },
+            health: { healthy: false },
+          })),
+        });
+      }
+      return jsonResponse(200, { services: readyServices });
+    };
+
+    const services = await waitForLiveServices("http://127.0.0.1:17883", {
+      timeoutMs: 1_000,
+      intervalMs: 1,
+    });
+
+    assert.equal(calls >= 3, true);
+    assert.equal(services.some((service) => service.id === "@serviceadmin" && service.running && service.healthy), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("demo watchdog defaults to the canonical LAN endpoints and runtime port", () => {
   const options = resolveWatchdogOptions([], {});
   assert.equal(options.runtimePort, 17883);
   assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
   assert.equal(options.runtimeHealthUrl, "http://192.168.1.53:17883/api/health");
+  assert.equal(options.legacySchedulerLockPath, path.resolve(".demo-logs", "watchdog.lock"));
 
   const recovery = buildRecoveryCommand(options);
   assert.deepEqual(recovery.args, ["run", "demo:recycle", "--", "--port=17883"]);
   assert.equal(recovery.env.SERVICE_LASSO_PORT, "17883");
+  assert.equal(recovery.env.SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD, "1");
 });
 
 test("canonical demo verifier defaults to canonical LAN URLs", () => {
@@ -285,6 +441,31 @@ test("demo watchdog lock is released only by the owning process", async () => {
     const reacquired = await acquireWatchdogLock(lockPath, { ttlMs: 60_000 });
     assert.equal(reacquired.acquired, true);
     await releaseWatchdogLock(lockPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo recycle coordinates with the legacy scheduled watchdog lock", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-legacy-watchdog-"));
+  const lockPath = path.join(tempDir, "watchdog.lock");
+
+  try {
+    const acquired = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
+    assert.equal(acquired.acquired, true);
+
+    const lockFile = JSON.parse(await readFile(lockPath, "utf8"));
+    assert.equal(lockFile.owner, "service-lasso-demo-recycle");
+    assert.equal(lockFile.pid, process.pid);
+
+    const blocked = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
+    assert.equal(blocked.acquired, false);
+    assert.equal(blocked.reason, "legacy_recovery_already_running");
+
+    await releaseLegacySchedulerLock(lockPath);
+    const reacquired = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
+    assert.equal(reacquired.acquired, true);
+    await releaseLegacySchedulerLock(lockPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

@@ -15,7 +15,10 @@ npm run demo:watchdog
 
 The watchdog checks both LAN URLs before it attempts recovery. If either URL is
 unreachable, it acquires `.demo-logs/demo-watchdog.lock.json` before launching
-recovery so repeated scheduler runs cannot overlap. Recovery runs:
+recovery so repeated scheduler runs cannot overlap. Manual recycle also acquires
+the scheduled-task compatibility lock `.demo-logs/watchdog.lock`, which keeps the
+Windows scheduled watchdog from starting a second recovery while validation is
+already recycling the canonical demo. Recovery runs:
 
 ```powershell
 npm run demo:recycle -- --port=17883
@@ -50,7 +53,8 @@ Useful overrides:
 | `--runtime-port=<port>` / `SERVICE_LASSO_PORT` | Runtime port used for health and recovery. |
 | `--service-admin-url=<url>` | Explicit Service Admin check URL. |
 | `--runtime-health-url=<url>` | Explicit runtime health check URL. |
-| `--lock-path=<path>` | Alternate lock file for validation. |
+| `--lock-path=<path>` | Alternate repo-owned watchdog lock file for validation. |
+| `--legacy-scheduler-lock-path=<path>` / `SERVICE_LASSO_DEMO_LEGACY_WATCHDOG_LOCK` | Alternate compatibility lock honored by the Windows scheduled task. |
 | `--dry-run` | Check health and report that recovery would be needed without recycling. |
 
 Every final demo handoff should include the branch, commit, `npm run demo:watchdog`
