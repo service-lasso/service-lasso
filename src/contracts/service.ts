@@ -177,6 +177,22 @@ export interface ServiceBrokerExport {
 }
 
 export type ServiceBrokerWritebackOperation = "create" | "update" | "rotate" | "delete";
+export type ServiceBrokerAccessOperation = "resolve" | ServiceBrokerWritebackOperation;
+export type ServiceBrokerAccessScope = "workspace" | "service" | "app" | "shared" | "global";
+
+export interface ServiceBrokerAccessGrant {
+  namespace: string;
+  scope?: ServiceBrokerAccessScope;
+  refs?: string[];
+  operations: ServiceBrokerAccessOperation[];
+  purpose: string;
+}
+
+export interface ServiceBrokerAccessPolicy {
+  serviceId?: string;
+  workspace?: string;
+  grants?: ServiceBrokerAccessGrant[];
+}
 
 export interface ServiceBrokerWritebackPolicy {
   allowedNamespaces?: string[];
@@ -193,6 +209,7 @@ export interface ServiceBrokerPolicy {
   buckets?: ServiceBrokerBucket[];
   imports?: ServiceBrokerImport[];
   exports?: ServiceBrokerExport[];
+  accessPolicy?: ServiceBrokerAccessPolicy;
   writeback?: ServiceBrokerWritebackPolicy;
 }
 

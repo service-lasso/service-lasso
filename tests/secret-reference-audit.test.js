@@ -175,7 +175,8 @@ test("secret reference audit reports declared missing and malformed refs without
     assertNoSecretMaterial(result.body);
 
     const findings = result.body.services[0].findings;
-    assert.ok(findings.some((finding) => finding.ref === "secretsbroker.API_TOKEN" && finding.status === "present"));
+    const declaredToken = findings.find((finding) => finding.ref === "secretsbroker.API_TOKEN" && finding.status === "present");
+    assert.equal(declaredToken.accessPolicy.status, "missing");
     assert.ok(findings.some((finding) => finding.ref === "secretsbroker.DB_PASSWORD" && finding.status === "missing"));
     assert.ok(findings.some((finding) => finding.ref === "LOCAL_SECRET_TOKEN" && finding.status === "malformed"));
 
@@ -184,6 +185,62 @@ test("secret reference audit reports declared missing and malformed refs without
     assert.equal(serviceResult.body.serviceId, "audit-consumer");
     assert.deepEqual(serviceResult.body.summary, result.body.services[0].summary);
     assertNoSecretMaterial(serviceResult.body);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("secret reference audit reports broker access policy assignment without raw values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-policy-audit-");
+  await writeManifest(servicesRoot, "policy-consumer", {
+    id: "policy-consumer",
+    name: "Policy Consumer",
+    description: "Service with explicit broker access policy assignment.",
+    env: {
+      API_TOKEN: "\${secretsbroker.API_TOKEN}",
+      DENIED_TOKEN: "\${secretsbroker.DENIED_TOKEN}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "shared/secretsbroker",
+          ref: "secretsbroker.API_TOKEN",
+          as: "API_TOKEN",
+          required: true,
+        },
+      ],
+      accessPolicy: {
+        serviceId: "policy-consumer",
+        workspace: "local-demo",
+        grants: [
+          {
+            namespace: "shared/secretsbroker",
+            scope: "shared",
+            refs: ["secretsbroker.API_TOKEN"],
+            operations: ["resolve"],
+            purpose: "read API token metadata for runtime startup",
+          },
+        ],
+      },
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/secrets/audit");
+    assert.equal(result.status, 200);
+    assertNoSecretMaterial(result.body);
+
+    const findings = result.body.services[0].findings;
+    const allowed = findings.find((finding) => finding.ref === "secretsbroker.API_TOKEN" && finding.source === "broker.import");
+    assert.equal(allowed.accessPolicy.status, "allowed");
+    assert.equal(allowed.accessPolicy.operation, "resolve");
+
+    const denied = findings.find((finding) => finding.ref === "secretsbroker.DENIED_TOKEN");
+    assert.equal(denied.status, "missing");
+    assert.equal(denied.accessPolicy.status, "not_applicable");
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

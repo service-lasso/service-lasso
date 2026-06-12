@@ -186,7 +186,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.5.9-9511770");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
-  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.6.7-eecdb39");
+  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.6.8-f7a35b1");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
   assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{MONGO_PORT\}"/);
@@ -499,6 +499,26 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
               required: false,
             },
           ],
+          accessPolicy: {
+            serviceId: "broker-consumer",
+            workspace: "local-demo",
+            grants: [
+              {
+                namespace: "shared/database",
+                scope: "shared",
+                refs: ["database.PASSWORD"],
+                operations: ["resolve"],
+                purpose: "connect to the shared database during runtime startup",
+              },
+              {
+                namespace: "broker-consumer/runtime",
+                scope: "service",
+                refs: ["runtime.API_TOKEN"],
+                operations: ["create", "rotate"],
+                purpose: "capture and rotate generated runtime token metadata",
+              },
+            ],
+          },
           writeback: {
             allowedNamespaces: ["broker-consumer/runtime"],
             allowedOperations: ["create", "update", "rotate"],
@@ -550,6 +570,26 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
           required: false,
         },
       ],
+      accessPolicy: {
+        serviceId: "broker-consumer",
+        workspace: "local-demo",
+        grants: [
+          {
+            namespace: "shared/database",
+            scope: "shared",
+            refs: ["database.PASSWORD"],
+            operations: ["resolve"],
+            purpose: "connect to the shared database during runtime startup",
+          },
+          {
+            namespace: "broker-consumer/runtime",
+            scope: "service",
+            refs: ["runtime.API_TOKEN"],
+            operations: ["create", "rotate"],
+            purpose: "capture and rotate generated runtime token metadata",
+          },
+        ],
+      },
       writeback: {
         allowedNamespaces: ["broker-consumer/runtime"],
         allowedOperations: ["create", "update", "rotate"],
@@ -650,6 +690,59 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
         },
       },
     });
+    await writeManifest(servicesRoot, "bad-access-policy-service", {
+      id: "bad-access-policy-service",
+      name: "Bad Access Policy Service",
+      description: "Access policy assigned to a different service id.",
+      broker: {
+        accessPolicy: {
+          serviceId: "other-service",
+          grants: [
+            {
+              namespace: "shared/database",
+              refs: ["database.PASSWORD"],
+              operations: ["resolve"],
+              purpose: "connect to shared database",
+            },
+          ],
+        },
+      },
+    });
+    await writeManifest(servicesRoot, "bad-access-policy-operation", {
+      id: "bad-access-policy-operation",
+      name: "Bad Access Policy Operation",
+      description: "Access policy uses an unsupported operation.",
+      broker: {
+        accessPolicy: {
+          grants: [
+            {
+              namespace: "shared/database",
+              refs: ["database.PASSWORD"],
+              operations: ["reveal"],
+              purpose: "connect to shared database",
+            },
+          ],
+        },
+      },
+    });
+    await writeManifest(servicesRoot, "access-policy-missing-resolve", {
+      id: "access-policy-missing-resolve",
+      name: "Access Policy Missing Resolve",
+      description: "Broker import outside access policy grants.",
+      broker: {
+        imports: [{ namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD" }],
+        accessPolicy: {
+          grants: [
+            {
+              namespace: "shared/database",
+              refs: ["database.USER"],
+              operations: ["resolve"],
+              purpose: "connect to shared database as a non-secret user",
+            },
+          ],
+        },
+      },
+    });
 
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "bad-enabled", "service.json")),
@@ -682,6 +775,18 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "writeback-denied-operation", "service.json")),
       /outside broker\.writeback\.allowedOperations/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-access-policy-service", "service.json")),
+      /broker\.accessPolicy\.serviceId must match manifest id/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-access-policy-operation", "service.json")),
+      /broker\.accessPolicy\.grants\[0\]\.operations/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "access-policy-missing-resolve", "service.json")),
+      /outside broker\.accessPolicy resolve grants/i,
     );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
