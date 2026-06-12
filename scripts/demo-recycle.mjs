@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, open } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   demoProviderServiceIds,
   demoRequiredServiceIds,
@@ -190,6 +191,23 @@ function runtimeOwnershipMismatches(instance, childPid) {
   return mismatches;
 }
 
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function shouldStopWaitingForDetachedChild(childExit, childAlive) {
+  return childExit !== null && childAlive !== true;
+}
+
 async function assertLiveRuntimeOwnedByChild(apiUrl, childPid, { timeoutMs = 300_000, childExited = () => false } = {}) {
   const instanceUrl = `${apiUrl}/api/runtime/instance`;
   const deadline = Date.now() + timeoutMs;
@@ -287,16 +305,17 @@ async function runDetachedRecycle() {
     childExit = { code, signal };
   });
   child.unref();
+  const childExited = () => shouldStopWaitingForDetachedChild(childExit, isProcessAlive(child.pid));
 
   try {
     const apiUrl = `http://127.0.0.1:${options.port}`;
     const endpoints = await waitForLiveDemo();
     const instance = await assertLiveRuntimeOwnedByChild(apiUrl, child.pid, {
-      childExited: () => childExit !== null,
+      childExited,
     });
     const [git, services] = await Promise.all([
       getGitSummary(),
-      waitForLiveServices(apiUrl, { childExited: () => childExit !== null }),
+      waitForLiveServices(apiUrl, { childExited }),
     ]);
     console.log("[service-lasso demo] recycle passed");
     console.log(`- api: ${apiUrl}`);
@@ -324,8 +343,10 @@ async function runDetachedRecycle() {
   }
 }
 
-if (options.foreground) {
-  await runForegroundWorker();
-} else {
-  await runDetachedRecycle();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  if (options.foreground) {
+    await runForegroundWorker();
+  } else {
+    await runDetachedRecycle();
+  }
 }

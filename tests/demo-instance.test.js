@@ -15,6 +15,7 @@ import {
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import { acquireWatchdogLock, buildRecoveryCommand, releaseWatchdogLock, resolveWatchdogOptions } from "../scripts/demo-watchdog.mjs";
+import { shouldStopWaitingForDetachedChild } from "../scripts/demo-recycle.mjs";
 import {
   canonicalRuntimePort,
   canonicalServiceAdminPort,
@@ -244,6 +245,12 @@ test("demo recycle uses the canonical baseline service set", () => {
   assert.equal(demoProviderServiceIds.has("@archive"), true);
   assert.equal(demoProviderServiceIds.has("@node"), true);
   assert.equal(demoProviderServiceIds.has("@serviceadmin"), false);
+});
+
+test("detached demo recycle keeps waiting when an exited child still has a live pid", () => {
+  assert.equal(shouldStopWaitingForDetachedChild(null, true), false);
+  assert.equal(shouldStopWaitingForDetachedChild({ code: 0, signal: null }, true), false);
+  assert.equal(shouldStopWaitingForDetachedChild({ code: 1, signal: null }, false), true);
 });
 
 test("demo watchdog defaults to the canonical LAN endpoints and runtime port", () => {
