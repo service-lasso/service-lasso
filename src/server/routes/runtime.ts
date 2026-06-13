@@ -92,6 +92,13 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     pathPrefix: "/api/variables",
     mutating: false,
   },
+  {
+    id: "operator-mcp",
+    label: "Operator MCP",
+    methods: ["GET", "POST"],
+    pathPrefix: "/api/mcp",
+    mutating: false,
+  },
 ];
 
 function createDefaultFeatureFlags(
@@ -111,6 +118,7 @@ function createDefaultFeatureFlags(
     operatorNetwork: true,
     operatorMetrics: true,
     operatorLogs: true,
+    operatorMcp: true,
     providerConnections: false,
     workflowFacade: false,
     localRouteGeneration: true,

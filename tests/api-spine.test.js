@@ -371,8 +371,10 @@ test("GET /api/runtime/capabilities returns versioned runtime capability metadat
     assert.equal(result.body.capabilities.runtime.version, "capability-test-version");
     assert.equal(result.body.capabilities.api.contractVersion, "service-lasso.runtime-capabilities.v1");
     assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "runtime"));
+    assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "operator-mcp" && group.mutating === false));
     assert.equal(result.body.capabilities.features.lifecycleActions, true);
     assert.equal(result.body.capabilities.features.dashboardAdapter, true);
+    assert.equal(result.body.capabilities.features.operatorMcp, true);
     assert.equal(result.body.capabilities.features.providerConnections, false);
     assert.equal(result.body.capabilities.features.workflowFacade, false);
     assert.equal(result.body.capabilities.features.autostart, false);

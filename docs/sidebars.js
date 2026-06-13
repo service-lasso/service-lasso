@@ -158,6 +158,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/operator-mcp",
+          label: "Operator MCP",
+        },
+        {
+          type: "doc",
           id: "development/telegram-group-control-plan",
           label: "Telegram Group Control Plan",
         },

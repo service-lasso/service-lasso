@@ -74,6 +74,11 @@ import {
   buildServiceSecretRotationReadinessReport,
 } from "../runtime/operator/secret-audit.js";
 import {
+  getServiceLassoMcpCapabilities,
+  handleServiceLassoMcpJsonRpcRequest,
+  type McpJsonRpcRequest,
+} from "../runtime/operator/mcp.js";
+import {
   mutateOperatorActionItem,
   readOperatorActionAcknowledgementHistory,
   readOperatorActionQueue,
@@ -988,6 +993,39 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     writeJson(response, 200, createHealthResponse(config.version));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/mcp") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(
+      response,
+      200,
+      getServiceLassoMcpCapabilities({
+        ...runtimeModel,
+        version: config.version,
+        workspaceRoot: config.workspaceRoot,
+        sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
+      }),
+    );
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/mcp") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(
+      response,
+      200,
+      await handleServiceLassoMcpJsonRpcRequest(
+        {
+          ...runtimeModel,
+          version: config.version,
+          workspaceRoot: config.workspaceRoot,
+          sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
+        },
+        await readJsonBody(request) as McpJsonRpcRequest,
+      ),
+    );
     return;
   }
 
