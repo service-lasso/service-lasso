@@ -54,13 +54,14 @@ async function listenOnLoopback() {
   };
 }
 
-async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports }) {
+async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports, role }) {
   const serviceRoot = path.join(servicesRoot, serviceId);
   await mkdir(serviceRoot, { recursive: true });
   await writeFile(
     path.join(serviceRoot, "service.json"),
     `${JSON.stringify({
       id: serviceId,
+      role,
       artifact: {
         source: { repo, tag },
         platforms: {
@@ -69,6 +70,25 @@ async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, asse
       },
       ports,
     }, null, 2)}\n`,
+  );
+}
+
+const canonicalFixtureServices = [
+  { id: "@archive", repo: "service-lasso/lasso-archive", tag: "2026.5.2-good", assetName: "archive-win32.zip", role: "provider", ports: {} },
+  { id: "@java", repo: "service-lasso/lasso-java", tag: "2026.4.27-good", assetName: "java-win32.zip", role: "provider", ports: {} },
+  { id: "@localcert", repo: "service-lasso/lasso-localcert", tag: "2026.5.2-good", assetName: "localcert-win32.zip", role: "provider", ports: {} },
+  { id: "@nginx", repo: "service-lasso/lasso-nginx", tag: "2026.4.27-good", assetName: "nginx-win32.zip", role: undefined, ports: { http: 18080 } },
+  { id: "@traefik", repo: "service-lasso/lasso-traefik", tag: "2026.5.9-good", assetName: "traefik-win32.zip", role: undefined, ports: { admin: 19081 } },
+  { id: "@node", repo: "service-lasso/lasso-node", tag: "2026.4.27-good", assetName: "node-win32.zip", role: "provider", ports: {} },
+  { id: "@python", repo: "service-lasso/lasso-python", tag: "2026.4.27-good", assetName: "python-win32.zip", role: "provider", ports: {} },
+  { id: "@secretsbroker", repo: "service-lasso/lasso-secretsbroker", tag: "2026.6.8-good", assetName: "secretsbroker-win32.zip", role: undefined, ports: { service: 17890 } },
+  { id: "echo-service", repo: "service-lasso/lasso-echoservice", tag: "2026.5.1-good", assetName: "echo-win32.zip", role: undefined, ports: { health: 4011 } },
+  { id: "@serviceadmin", repo: "service-lasso/lasso-serviceadmin", tag: "2026.6.6-good", assetName: "@serviceadmin-win32.zip", role: undefined, ports: { ui: 17700 } },
+];
+
+async function writeCanonicalFixtureManifests(servicesRoot) {
+  await Promise.all(
+    canonicalFixtureServices.map((service) => writeCanonicalManifest(servicesRoot, service.id, service)),
   );
 }
 
@@ -88,49 +108,33 @@ function textResponse(status, body) {
   };
 }
 
-function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good", secretsBrokerTag = "2026.6.8-good" }) {
-  const services = [
-    {
-      id: "@serviceadmin",
-      serviceRoot: path.join(servicesRoot, "@serviceadmin"),
+function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good" }) {
+  const services = canonicalFixtureServices.map((service) => {
+    const tag = service.id === "@serviceadmin" ? serviceAdminTag : service.tag;
+    const providerRole = service.role === "provider";
+    return {
+      id: service.id,
+      serviceRoot: path.join(servicesRoot, service.id),
       lifecycle: {
-        running: true,
+        installed: true,
+        configured: true,
+        running: !providerRole,
         installArtifacts: {
           artifact: {
-            repo: "service-lasso/lasso-serviceadmin",
-            tag: serviceAdminTag,
-            assetName: "@serviceadmin-win32.zip",
+            repo: service.repo,
+            tag,
+            assetName: service.assetName,
           },
         },
-        runtime: { ports: { ui: 17700 } },
+        runtime: { ports: service.ports },
       },
       health: { healthy: true },
       catalogProvenance: {
-        repo: "service-lasso/lasso-serviceadmin",
-        releaseTag: serviceAdminTag,
+        repo: service.repo,
+        releaseTag: tag,
       },
-    },
-    {
-      id: "@secretsbroker",
-      serviceRoot: path.join(servicesRoot, "@secretsbroker"),
-      lifecycle: {
-        running: true,
-        installArtifacts: {
-          artifact: {
-            repo: "service-lasso/lasso-secretsbroker",
-            tag: secretsBrokerTag,
-            assetName: "secretsbroker-win32.zip",
-          },
-        },
-        runtime: { ports: { service: 17890 } },
-      },
-      health: { healthy: true },
-      catalogProvenance: {
-        repo: "service-lasso/lasso-secretsbroker",
-        releaseTag: secretsBrokerTag,
-      },
-    },
-  ];
+    };
+  });
 
   return async (url) => {
     const parsed = new URL(url);
@@ -337,18 +341,7 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
 
   try {
-    await writeCanonicalManifest(servicesRoot, "@serviceadmin", {
-      repo: "service-lasso/lasso-serviceadmin",
-      tag: "2026.6.6-good",
-      assetName: "@serviceadmin-win32.zip",
-      ports: { ui: 17700 },
-    });
-    await writeCanonicalManifest(servicesRoot, "@secretsbroker", {
-      repo: "service-lasso/lasso-secretsbroker",
-      tag: "2026.6.8-good",
-      assetName: "secretsbroker-win32.zip",
-      ports: { service: 17890 },
-    });
+    await writeCanonicalFixtureManifests(servicesRoot);
 
     const result = await verifyCanonicalDemo(
       {
@@ -362,7 +355,7 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
 
     assert.equal(result.ok, true);
     assert.equal(result.failures.length, 0);
-    assert.equal(result.summary.services.length, 2);
+    assert.equal(result.summary.services.length, canonicalFixtureServices.length);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -374,18 +367,7 @@ test("canonical demo verifier reports wrong runtime lane and stale release pins"
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
 
   try {
-    await writeCanonicalManifest(servicesRoot, "@serviceadmin", {
-      repo: "service-lasso/lasso-serviceadmin",
-      tag: "2026.6.6-good",
-      assetName: "@serviceadmin-win32.zip",
-      ports: { ui: 17700 },
-    });
-    await writeCanonicalManifest(servicesRoot, "@secretsbroker", {
-      repo: "service-lasso/lasso-secretsbroker",
-      tag: "2026.6.8-good",
-      assetName: "secretsbroker-win32.zip",
-      ports: { service: 17890 },
-    });
+    await writeCanonicalFixtureManifests(servicesRoot);
 
     const result = await verifyCanonicalDemo(
       {

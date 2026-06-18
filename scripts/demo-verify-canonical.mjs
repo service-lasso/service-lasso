@@ -10,7 +10,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 export const canonicalDemoHost = "192.168.1.53";
 export const canonicalRuntimePort = 17883;
 export const canonicalServiceAdminPort = 17700;
-export const canonicalServiceIds = ["@serviceadmin", "@secretsbroker"];
+export const canonicalServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -125,6 +125,7 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
     const platform = manifest.artifact?.platforms?.[process.platform];
     expected.set(serviceId, {
       id: serviceId,
+      providerRole: manifest.role === "provider",
       repo: manifest.artifact?.source?.repo ?? null,
       tag: manifest.artifact?.source?.tag ?? null,
       assetName: platform?.assetName ?? null,
@@ -139,6 +140,8 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
 function serviceSummary(service, expected) {
   return {
     id: service.id,
+    installed: service.lifecycle?.installed === true,
+    configured: service.lifecycle?.configured === true,
     running: service.lifecycle?.running === true,
     healthy: service.health?.healthy === true,
     catalogTag: service.catalogProvenance?.releaseTag ?? null,
@@ -238,7 +241,15 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     }
 
     serviceSummaries.push(serviceSummary(live, expected));
-    check(checks, `${serviceId} is running`, live.lifecycle?.running === true, "unhealthy_service", `running=${live.lifecycle?.running === true}`);
+    check(checks, `${serviceId} is installed`, live.lifecycle?.installed === true, "unprepared_service", `installed=${live.lifecycle?.installed === true}`);
+    check(checks, `${serviceId} is configured`, live.lifecycle?.configured === true, "unprepared_service", `configured=${live.lifecycle?.configured === true}`);
+    check(
+      checks,
+      expected.providerRole ? `${serviceId} provider daemon is not required` : `${serviceId} is running`,
+      live.lifecycle?.running === !expected.providerRole,
+      "unhealthy_service",
+      `running=${live.lifecycle?.running === true}`,
+    );
     check(checks, `${serviceId} is healthy`, live.health?.healthy === true, "unhealthy_service", `healthy=${live.health?.healthy === true}`);
     checkEqual(
       checks,
@@ -299,7 +310,7 @@ export function formatCanonicalVerifierResult(result) {
     lines.push("- release pins:");
     for (const service of result.summary.services) {
       lines.push(
-        `  - ${service.id}: expected=${service.expectedTag} catalog=${service.catalogTag} installed=${service.installedTag} running=${service.running} healthy=${service.healthy}`,
+        `  - ${service.id}: expected=${service.expectedTag} catalog=${service.catalogTag} installed=${service.installedTag} prepared=${service.installed}/${service.configured} running=${service.running} healthy=${service.healthy}`,
       );
     }
   }

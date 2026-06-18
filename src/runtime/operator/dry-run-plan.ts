@@ -69,7 +69,10 @@ export function buildRuntimeOrchestrationDryRunPlan(
       continue;
     }
 
-    if (service.manifest.enabled === false) {
+    if (
+      service.manifest.enabled === false
+      && (action !== "startAll" || !isProviderRole(service.manifest))
+    ) {
       steps.push(createStep({
         order,
         serviceId,

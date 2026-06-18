@@ -568,6 +568,15 @@ test("POST /api/services/:id/start prepares missing dependencies before starting
 test("POST /api/runtime/actions/startAll preserves only true skip semantics", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-skips-");
+  await writeManifest(servicesRoot, "@python", {
+    id: "@python",
+    name: "Python Runtime",
+    description: "Disabled-by-default provider fixture that canonical startAll should still prepare.",
+    role: "provider",
+    enabled: false,
+    install: { files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }] },
+    config: { files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }] },
+  });
   await writeExecutableFixtureService(servicesRoot, "alpha-installed-only");
   await writeExecutableFixtureService(servicesRoot, "bravo-missing-install");
   await writeExecutableFixtureService(servicesRoot, "charlie-running");
@@ -591,6 +600,7 @@ test("POST /api/runtime/actions/startAll preserves only true skip semantics", as
       ["alpha-installed-only", "bravo-missing-install"],
     );
     assert.deepEqual(startAll.body.skipped, [
+      { serviceId: "@python", reason: "provider_role" },
       { serviceId: "charlie-running", reason: "already_running" },
     ]);
     assert.equal(startAll.body.results[0].state.configured, true);
@@ -598,6 +608,12 @@ test("POST /api/runtime/actions/startAll preserves only true skip semantics", as
     assert.equal(startAll.body.results[1].state.installed, true);
     assert.equal(startAll.body.results[1].state.configured, true);
     assert.equal(startAll.body.results[1].state.running, true);
+
+    const pythonDetail = await getJson(`${apiServer.url}/api/services/%40python`);
+    assert.equal(pythonDetail.body.service.enabled, false);
+    assert.equal(pythonDetail.body.service.lifecycle.installed, true);
+    assert.equal(pythonDetail.body.service.lifecycle.configured, true);
+    assert.equal(pythonDetail.body.service.lifecycle.running, false);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
