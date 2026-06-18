@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startApiServer } from "../dist/server/index.js";
+import { buildReachabilityTargets } from "./demo-verify-canonical.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
@@ -256,6 +257,44 @@ async function waitForHealthyHttp(url, label, timeoutMs = 300_000) {
   throw lastError ?? new Error(`Timed out waiting for ${label} endpoint ${url}`);
 }
 
+async function waitForReachableEndpoint(url, label, expectedStatus = 200, timeoutMs = 300_000) {
+  const startedAt = Date.now();
+  let lastError = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetchWithTimeout(url, {}, 10_000);
+      const body = await response.text().catch(() => "");
+      if (response.status === expectedStatus) {
+        console.error(`[service-lasso e2e] ${label} reachable: ${url} HTTP ${response.status}`);
+        return body;
+      }
+      lastError = new Error(`GET ${url} failed with ${response.status}: ${body.slice(0, 500)}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(250);
+  }
+
+  throw lastError ?? new Error(`Timed out waiting for ${label} endpoint ${url}`);
+}
+
+async function verifyAdvertisedReachability(servicesRoot, service) {
+  const manifest = await readJson(path.join(servicesRoot, service.id, "service.json"));
+  if (providerServiceIds.has(service.id)) {
+    const providerTargets = buildReachabilityTargets(service.id, manifest, service.lifecycle?.runtime?.ports ?? manifest.ports ?? {});
+    assert(providerTargets.length === 0, `${service.id} provider service should not advertise daemon URL reachability targets.`);
+    console.error(`[service-lasso e2e] ${service.id} provider/non-daemon URL reachability not applicable`);
+    return;
+  }
+
+  const targets = buildReachabilityTargets(service.id, manifest, service.lifecycle?.runtime?.ports ?? manifest.ports ?? {});
+  for (const target of targets) {
+    const body = await waitForReachableEndpoint(target.url, `${service.id} ${target.label}`, target.expectedStatus);
+    assert(body.length > 0, `${service.id} ${target.label} returned an empty body.`);
+  }
+}
+
 async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_000) {
   const { running } = expected;
   const healthy = Object.hasOwn(expected, "healthy") ? expected.healthy : true;
@@ -365,6 +404,11 @@ try {
   await waitForHealthyHttp(`http://127.0.0.1:${nginxManifest.ports.http}/health`, "NGINX health");
   await waitForHealthyHttp(`http://127.0.0.1:${echoManifest.ports.service}/health`, "Echo Service health");
   await waitForHealthyHttp(`http://127.0.0.1:${traefikManifest.ports.admin}/ping`, "Traefik ping");
+
+  const liveAfterStart = await waitForJson(`${apiUrl}/api/services`);
+  for (const service of liveAfterStart.services.filter((entry) => baselineServiceIds.includes(entry.id))) {
+    await verifyAdvertisedReachability(servicesRoot, service);
+  }
 
   const serviceAdminHtml = await waitForText(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/`);
   assert(/Service Lasso|service-lasso|root/i.test(serviceAdminHtml), "Service Admin UI root did not return recognizable app content.");

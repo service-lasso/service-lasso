@@ -24,10 +24,19 @@
       "label": "service",
       "url": "http://127.0.0.1:${SERVICE_PORT}",
       "kind": "local"
+    },
+    {
+      "label": "health",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "kind": "local"
     }
   ],
   "healthcheck": {
-    "type": "process"
+    "type": "http",
+    "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+    "expected_status": 200,
+    "retries": 80,
+    "interval": 250
   },
   "broker": {
     "enabled": true,

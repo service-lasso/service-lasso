@@ -35,11 +35,15 @@ npm run demo:verify-canonical
 ```
 
 The verifier checks the canonical LAN ports, runtime health, Service Admin
-reachability, runtime `servicesRoot` / `workspaceRoot`, and the live
-`@serviceadmin` / `@secretsbroker` release metadata against the checked-in
-`services/` manifests. It reports separate failure codes for wrong runtime port,
-wrong lane, missing service, unhealthy service, stale release pin, stale
-installed artifact, wrong service port, and unreachable LAN endpoints.
+reachability, runtime `servicesRoot` / `workspaceRoot`, the live release
+metadata against the checked-in `services/` manifests, and each checkable
+advertised service UI/API/health URL from those manifests. Provider-only
+services are reported as URL reachability not applicable. Traefik web/websecure
+entrypoints are excluded because they are routing entrypoints, not standalone
+service pages. It reports separate failure codes for wrong runtime port, wrong
+lane, missing service, unhealthy service, stale release pin, stale installed
+artifact, wrong service port, unreachable LAN endpoints, and unreachable
+advertised service URLs.
 
 Logs are appended under `.demo-logs/`, including
 `.demo-logs/demo-watchdog-recovery.log` for recovery output and the existing

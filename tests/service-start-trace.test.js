@@ -6,6 +6,7 @@ import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import {
   makeTempServicesRoot,
+  writeManifest,
   writeExecutableFixtureService,
 } from "./test-helpers.js";
 
@@ -83,13 +84,19 @@ test("service start trace API returns ordered redacted success timeline", async 
   }
 });
 
-test("service start trace API records blocked start without leaking request material", async () => {
+test("service start trace API records failed start without leaking request material", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-start-trace-blocked-");
-  await writeExecutableFixtureService(servicesRoot, "trace-blocked", {
+  await writeManifest(servicesRoot, "trace-blocked", {
+    id: "trace-blocked",
+    name: "trace-blocked",
+    description: "Fixture with a missing executable.",
+    executable: "./runtime/missing-executable.exe",
+    args: [],
     env: {
       CLIENT_SECRET: "raw-client-secret",
     },
+    healthcheck: { type: "process" },
   });
   const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot: path.join(tempRoot, "workspace") });
 
@@ -99,11 +106,11 @@ test("service start trace API records blocked start without leaking request mate
 
     const result = await getJson(apiServer.url + "/api/services/trace-blocked/start-trace");
     assert.equal(result.status, 200);
-    assert.equal(result.body.trace.status, "blocked");
-    assert.equal(result.body.trace.events[0].phase, "artifact_acquisition");
-    assert.equal(result.body.trace.events[0].status, "blocked");
+    assert.equal(result.body.trace.status, "failed");
+    assert.equal(result.body.trace.events.at(-2).phase, "process_spawn");
+    assert.equal(result.body.trace.events.at(-2).status, "failed");
     assert.equal(result.body.trace.events.at(-1).phase, "terminal_outcome");
-    assert.equal(result.body.history[0].status, "blocked");
+    assert.equal(result.body.history[0].status, "failed");
     assert.doesNotMatch(JSON.stringify(result.body), /raw-client-secret/);
   } finally {
     await apiServer.stop();
