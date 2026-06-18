@@ -17,6 +17,8 @@ If you use the bundled GitHub release artifact instead of cloning source, the ba
 
 ## 1. Clone the Repo
 
+The plain clone path is the supported Quick Start path:
+
 ```powershell
 git clone https://github.com/service-lasso/service-lasso.git
 cd service-lasso
@@ -32,10 +34,12 @@ npm run build
 ## 3. Start Service Lasso
 
 ```powershell
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --json
+node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18090 --json
 ```
 
 This starts the Service Lasso API and runs the baseline service set from `services/`.
+
+The API uses port `18090` so it does not collide with the checked-in `@nginx` baseline service on port `18080`.
 
 Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 
@@ -43,10 +47,11 @@ Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 
 | URL | Purpose |
 | --- | --- |
-| `http://127.0.0.1:18080/api/health` | Service Lasso API health |
-| `http://127.0.0.1:18080/api/services` | discovered services and lifecycle state |
+| `http://127.0.0.1:18090/api/health` | Service Lasso API health |
+| `http://127.0.0.1:18090/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:17700/` | Service Admin UI |
 | `http://127.0.0.1:4010/` | Echo Service UI/API |
+| `http://127.0.0.1:18080/` | NGINX baseline web page |
 | `http://127.0.0.1:19081/dashboard/` | Traefik dashboard |
 
 ## 5. Stop Services
@@ -54,7 +59,7 @@ Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 Before closing the runtime, stop managed services:
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:18080/api/runtime/actions/stopAll
+Invoke-RestMethod -Method Post http://127.0.0.1:18090/api/runtime/actions/stopAll
 ```
 
 Then press `Ctrl+C` in the terminal running Service Lasso.
