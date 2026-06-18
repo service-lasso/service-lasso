@@ -57,6 +57,15 @@ function shouldStartService(service: DiscoveredService, state: ServiceLifecycleS
   return Boolean(service.manifest.execservice || service.manifest.executable || state.installArtifacts.artifact?.command);
 }
 
+function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform = process.platform): boolean {
+  const platforms = service.manifest.artifact?.platforms;
+  if (!platforms) {
+    return true;
+  }
+
+  return Boolean(platforms[hostPlatform] ?? platforms.default);
+}
+
 async function runLifecycleAction(
   service: DiscoveredService,
   registry: ServiceRegistry,
@@ -120,6 +129,19 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
         actions: [],
         state: getLifecycleState(serviceId),
         message: `Skipped disabled baseline service "${serviceId}".`,
+      });
+      continue;
+    }
+
+    if (!serviceArtifactSupportsHostPlatform(service)) {
+      const message = `Skipped baseline service "${serviceId}" because its artifact does not support host platform "${process.platform}".`;
+      summaries.push({
+        serviceId,
+        status: "skipped",
+        enabled: service.manifest.enabled !== false,
+        actions: [{ action: "install", status: "skipped", message }],
+        state: getLifecycleState(serviceId),
+        message,
       });
       continue;
     }

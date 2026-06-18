@@ -287,6 +287,15 @@ async function writeNginxService(servicesRoot, httpPort) {
 }
 
 function assertBaselineServiceSummary(service) {
+  if (service.status === "skipped") {
+    assert(
+      service.message.includes(`host platform "${process.platform}"`),
+      `${service.serviceId} was skipped without an explicit host platform reason.`,
+    );
+    assert(service.actions.some((action) => action.action === "install" && action.status === "skipped"));
+    return;
+  }
+
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
@@ -587,7 +596,8 @@ try {
   for (const serviceId of serviceIds) {
     const detail = await waitForJson(`http://127.0.0.1:${apiPort}/api/services/${encodeURIComponent(serviceId)}`);
     const service = detail.service;
-    if (!cliSummary.requestedServiceIds.includes(serviceId)) {
+    const summary = cliSummary.services.find((entry) => entry.serviceId === serviceId);
+    if (!cliSummary.requestedServiceIds.includes(serviceId) || summary?.status === "skipped") {
       continue;
     }
     assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
