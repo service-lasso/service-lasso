@@ -20,6 +20,7 @@ import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import {
   makeTempServicesRoot,
+  writeManifest,
   writeExecutableFixtureService,
 } from "./test-helpers.js";
 
@@ -47,7 +48,9 @@ test("lifecycle actions execute in the expected bounded order", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-lifecycle-",
   );
-  await writeExecutableFixtureService(servicesRoot, "echo-service");
+  await writeExecutableFixtureService(servicesRoot, "echo-service", {
+    config: { files: [{ path: "./runtime/configured.txt", content: "configured\n" }] },
+  });
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
@@ -412,27 +415,29 @@ test("start blocks required broker failures with safe ref and status metadata", 
   }
 });
 
-test("start fails before config and keeps the error explicit", async () => {
+test("start fails when the executable is missing and keeps the error explicit", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-lifecycle-",
   );
-  await writeExecutableFixtureService(servicesRoot, "echo-service");
+  await writeManifest(servicesRoot, "missing-executable", {
+    id: "missing-executable",
+    name: "missing-executable",
+    description: "Fixture with a missing executable.",
+    executable: "./runtime/missing-executable.exe",
+    args: [],
+    healthcheck: { type: "process" },
+  });
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
-    const install = await postJson(
-      `${apiServer.url}/api/services/echo-service/install`,
-    );
-    assert.equal(install.status, 200);
-
     const start = await postJson(
-      `${apiServer.url}/api/services/echo-service/start`,
+      `${apiServer.url}/api/services/missing-executable/start`,
     );
     assert.equal(start.status, 409);
     assert.equal(start.body.error, "invalid_lifecycle_state");
     assert.equal(start.body.statusCode, 409);
-    assert.match(start.body.message, /before config/i);
+    assert.match(start.body.message, /process spawn failed/i);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

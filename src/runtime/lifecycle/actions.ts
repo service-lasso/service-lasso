@@ -670,20 +670,34 @@ export async function startService(
       brokerRefCount: selectorPlan.brokerRefs.length,
     },
   );
-  const handle = await startManagedProcess({
-    service,
-    executionPlan,
-    sharedGlobalEnv,
-    resolvedPorts,
-    secureEnv: scopedBrokerIdentity?.env,
-    variableResolution,
-    onExit: async ({ exitCode, wasStopping }) => {
-      if (wasStopping) {
-        return;
-      }
-      await persistProcessExit(service, exitCode);
-    },
-  });
+  let handle: Awaited<ReturnType<typeof startManagedProcess>>;
+  try {
+    handle = await startManagedProcess({
+      service,
+      executionPlan,
+      sharedGlobalEnv,
+      resolvedPorts,
+      secureEnv: scopedBrokerIdentity?.env,
+      variableResolution,
+      onExit: async ({ exitCode, wasStopping }) => {
+        if (wasStopping) {
+          return;
+        }
+        await persistProcessExit(service, exitCode);
+      },
+    });
+  } catch (error) {
+    const message = `Cannot start service "${serviceId}" because process spawn failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    revokeServiceScopedBrokerIdentities(serviceId);
+    recordStartTraceEvent(serviceId, trace, "process_spawn", "failed", message, {
+      provider: executionPlan.provider,
+      providerServiceId: executionPlan.providerServiceId,
+    });
+    finishStartTrace(serviceId, trace, "failed", message);
+    throw new LifecycleStateError(message);
+  }
   recordStartTraceEvent(
     serviceId,
     trace,

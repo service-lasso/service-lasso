@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
 import os from "node:os";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { DEFAULT_BASELINE_SERVICE_IDS } from "../dist/runtime/cli/bootstrap.js";
 import {
@@ -28,6 +28,7 @@ import {
   waitForLiveServices,
 } from "../scripts/demo-recycle.mjs";
 import {
+  buildReachabilityTargets,
   canonicalRuntimePort,
   canonicalServiceAdminPort,
   resolveCanonicalVerifierOptions,
@@ -54,7 +55,7 @@ async function listenOnLoopback() {
   };
 }
 
-async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports, role }) {
+async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports, role, urls, healthcheck }) {
   const serviceRoot = path.join(servicesRoot, serviceId);
   await mkdir(serviceRoot, { recursive: true });
   await writeFile(
@@ -69,6 +70,8 @@ async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, asse
         },
       },
       ports,
+      urls,
+      healthcheck,
     }, null, 2)}\n`,
   );
 }
@@ -77,14 +80,86 @@ const canonicalFixtureServices = [
   { id: "@archive", repo: "service-lasso/lasso-archive", tag: "2026.5.2-good", assetName: "archive-win32.zip", role: "provider", ports: {} },
   { id: "@java", repo: "service-lasso/lasso-java", tag: "2026.4.27-good", assetName: "java-win32.zip", role: "provider", ports: {} },
   { id: "@localcert", repo: "service-lasso/lasso-localcert", tag: "2026.5.2-good", assetName: "localcert-win32.zip", role: "provider", ports: {} },
-  { id: "@nginx", repo: "service-lasso/lasso-nginx", tag: "2026.4.27-good", assetName: "nginx-win32.zip", role: undefined, ports: { http: 18080 } },
-  { id: "@traefik", repo: "service-lasso/lasso-traefik", tag: "2026.5.9-good", assetName: "traefik-win32.zip", role: undefined, ports: { admin: 19081 } },
+  {
+    id: "@nginx",
+    repo: "service-lasso/lasso-nginx",
+    tag: "2026.4.27-good",
+    assetName: "nginx-win32.zip",
+    role: undefined,
+    ports: { http: 18080 },
+    urls: [
+      { label: "web", url: "http://127.0.0.1:${HTTP_PORT}/", kind: "local" },
+      { label: "health", url: "http://127.0.0.1:${HTTP_PORT}/health", kind: "local" },
+    ],
+    healthcheck: { type: "http", url: "http://127.0.0.1:${HTTP_PORT}/health", expected_status: 200 },
+  },
+  {
+    id: "@traefik",
+    repo: "service-lasso/lasso-traefik",
+    tag: "2026.5.9-good",
+    assetName: "traefik-win32.zip",
+    role: undefined,
+    ports: { admin: 19081 },
+    urls: [
+      { label: "dashboard", url: "http://127.0.0.1:${ADMIN_PORT}/dashboard/", kind: "local" },
+      { label: "ping", url: "http://127.0.0.1:${ADMIN_PORT}/ping", kind: "local" },
+    ],
+    healthcheck: { type: "http", url: "http://127.0.0.1:${ADMIN_PORT}/ping", expected_status: 200 },
+  },
   { id: "@node", repo: "service-lasso/lasso-node", tag: "2026.4.27-good", assetName: "node-win32.zip", role: "provider", ports: {} },
   { id: "@python", repo: "service-lasso/lasso-python", tag: "2026.4.27-good", assetName: "python-win32.zip", role: "provider", ports: {} },
-  { id: "@secretsbroker", repo: "service-lasso/lasso-secretsbroker", tag: "2026.6.8-good", assetName: "secretsbroker-win32.zip", role: undefined, ports: { service: 17890 } },
-  { id: "echo-service", repo: "service-lasso/lasso-echoservice", tag: "2026.5.1-good", assetName: "echo-win32.zip", role: undefined, ports: { health: 4011 } },
-  { id: "@serviceadmin", repo: "service-lasso/lasso-serviceadmin", tag: "2026.6.6-good", assetName: "@serviceadmin-win32.zip", role: undefined, ports: { ui: 17700 } },
+  {
+    id: "@secretsbroker",
+    repo: "service-lasso/lasso-secretsbroker",
+    tag: "2026.6.8-good",
+    assetName: "secretsbroker-win32.zip",
+    role: undefined,
+    ports: { service: 17890 },
+    urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
+    healthcheck: { type: "http", url: "http://127.0.0.1:${SERVICE_PORT}/health", expected_status: 200 },
+  },
+  {
+    id: "echo-service",
+    repo: "service-lasso/lasso-echoservice",
+    tag: "2026.5.1-good",
+    assetName: "echo-win32.zip",
+    role: undefined,
+    ports: { service: 4010, health: 4011 },
+    urls: [
+      { label: "ui", url: "http://127.0.0.1:${SERVICE_PORT}/", kind: "local" },
+      { label: "health", url: "http://127.0.0.1:${HEALTH_PORT}/health", kind: "local" },
+    ],
+  },
+  {
+    id: "@serviceadmin",
+    repo: "service-lasso/lasso-serviceadmin",
+    tag: "2026.6.6-good",
+    assetName: "@serviceadmin-win32.zip",
+    role: undefined,
+    ports: { ui: 17700 },
+    urls: [{ label: "ui", url: "http://127.0.0.1:${UI_PORT}/", kind: "local" }],
+  },
 ];
+
+test("canonical reachability target builder accepts a single manifest url object", () => {
+  const targets = buildReachabilityTargets(
+    "@secretsbroker",
+    {
+      urls: { label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" },
+      healthcheck: { type: "http", url: "http://127.0.0.1:${SERVICE_PORT}/health", expected_status: 200 },
+    },
+    { service: 17890 },
+  );
+
+  assert.deepEqual(targets, [
+    {
+      label: "health",
+      url: "http://127.0.0.1:17890/health",
+      source: "manifest.urls",
+      expectedStatus: 200,
+    },
+  ]);
+});
 
 async function writeCanonicalFixtureManifests(servicesRoot) {
   await Promise.all(
@@ -141,6 +216,15 @@ function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6
     if (parsed.pathname === "/") {
       return textResponse(200, "<html>Service Admin</html>");
     }
+    if (parsed.pathname === "/health") {
+      return textResponse(200, "ok");
+    }
+    if (parsed.pathname === "/dashboard/") {
+      return textResponse(200, "<html>Traefik dashboard</html>");
+    }
+    if (parsed.pathname === "/ping") {
+      return textResponse(200, "OK");
+    }
     if (parsed.pathname === "/api/health") {
       return jsonResponse(200, { status: "ok" });
     }
@@ -168,6 +252,40 @@ test("demo recycle preflight reports live non-managed listeners", async () => {
     );
   } finally {
     await listener.close();
+  }
+});
+
+test("canonical demo verifier fails when an advertised service URL is unreachable", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      {
+        fetch: async (url, options) => {
+          const parsed = new URL(url);
+          if (parsed.port === "4011" && parsed.pathname === "/health") {
+            return textResponse(503, "not ready");
+          }
+          return canonicalFetch({ servicesRoot, workspaceRoot })(url, options);
+        },
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.ok(result.failures.some((failure) => failure.code === "unreachable_service_url"));
+    assert.ok(result.failures.some((failure) => /echo-service advertised health/.test(failure.name)));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
   }
 });
 
@@ -455,33 +573,44 @@ test("demo recycle coordinates with the legacy scheduled watchdog lock", async (
 
 test("demo smoke script validates the bounded demo instance end to end", async () => {
   const demoScript = path.resolve("scripts", "demo-smoke.mjs");
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-smoke-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
 
-  const result = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [demoScript], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SERVICE_LASSO_PORT: "0",
-      },
+  try {
+    await cp(path.resolve("services"), servicesRoot, { recursive: true });
+
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [demoScript], {
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          SERVICE_LASSO_PORT: "0",
+          SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
+          SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
+        },
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.once("error", reject);
+      child.once("close", (code) => resolve({ code, stdout, stderr }));
     });
 
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.once("error", reject);
-    child.once("close", (code) => resolve({ code, stdout, stderr }));
-  });
-
-  assert.equal(result.code, 0, `Expected demo smoke to pass.\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
-  assert.match(result.stdout, /\[service-lasso demo] smoke passed/);
-  assert.match(result.stdout, /echo-service, @node, node-sample-service/);
+    assert.equal(result.code, 0, `Expected demo smoke to pass.\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+    assert.match(result.stdout, /\[service-lasso demo] smoke passed/);
+    assert.match(result.stdout, /echo-service, @node, node-sample-service/);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });

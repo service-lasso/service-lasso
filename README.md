@@ -240,7 +240,7 @@ Run the real app E2E state gate against the checked-in baseline manifests:
 npm run verify:real-app-e2e
 ```
 
-This starts the built CLI/API runtime, verifies Service Admin/API state for the real baseline services, exercises a real lifecycle stop/start, and checks concrete service health endpoints including `@secretsbroker`. The gate pins API and managed-service port negotiation to the local Service Lasso range `17880-17980` by setting `SERVICE_LASSO_PORT_RANGE_START`/`SERVICE_LASSO_PORT_RANGE_END`, so repeated or parallel local runs do not drift into random Windows firewall prompt ports.
+This starts the built CLI/API runtime, verifies Service Admin/API state for the real baseline services, exercises a real lifecycle stop/start, and checks concrete service health endpoints including `@secretsbroker`. It also verifies every checkable advertised UI/API/health URL in the baseline manifests, including NGINX, Echo Service, Service Admin, Secrets Broker, Traefik admin, and the provider-backed Node sample service. The gate pins API and managed-service port negotiation to the local Service Lasso range `17880-17980` by setting `SERVICE_LASSO_PORT_RANGE_START`/`SERVICE_LASSO_PORT_RANGE_END`, so repeated or parallel local runs do not drift into random Windows firewall prompt ports.
 
 Run the multi-instance port gate:
 

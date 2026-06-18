@@ -44,6 +44,28 @@ function normalizePathForCompare(value) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
+function safeEvidenceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.search) parsed.search = "?<redacted>";
+    return parsed.toString();
+  } catch {
+    return String(url).replace(/\?.*$/, "?<redacted>");
+  }
+}
+
+function safeBodySnippet(body) {
+  const compact = String(body ?? "")
+    .replace(/("(?:token|secret|password|cookie|credential|authorization|api[_-]?key)"\s*:\s*)"[^"]*"/gi, "$1\"<redacted>\"")
+    .replace(
+      /(^|[\s,{;&])((?:token|secret|password|cookie|credential|authorization|api[_-]?key)[^=:\s]*\s*[=:]\s*)[^\s,;&]+/gi,
+      "$1$2<redacted>",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
+}
+
 function check(checks, name, ok, code, detail = "") {
   checks.push({ name, ok, code: ok ? null : code, detail });
 }
@@ -78,6 +100,83 @@ async function fetchText(url, fetchImpl, timeoutMs) {
 
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
+}
+
+export function resolveServiceText(value, ports = {}) {
+  const replacements = new Map();
+  for (const [name, port] of Object.entries(ports ?? {})) {
+    const normalized = String(name).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+    replacements.set(`${normalized}_PORT`, String(port));
+    if (name === "service") replacements.set("SERVICE_PORT", String(port));
+  }
+
+  return String(value).replace(/\$\{([A-Z0-9_]+)\}/g, (match, variableName) => replacements.get(variableName) ?? match);
+}
+
+function shouldCheckAdvertisedUrl(serviceId, endpoint) {
+  const label = String(endpoint.label ?? "").toLowerCase();
+  if (label === "websecure") return false;
+  if (serviceId === "@traefik" && label === "web") return false;
+  return ["api", "dashboard", "health", "ping", "service", "ui", "web"].includes(label);
+}
+
+function manifestUrls(manifest) {
+  if (Array.isArray(manifest.urls)) {
+    return manifest.urls;
+  }
+  return manifest.urls ? [manifest.urls] : [];
+}
+
+export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
+  const targets = [];
+  const seen = new Set();
+
+  for (const endpoint of manifestUrls(manifest)) {
+    if (!endpoint?.url || !shouldCheckAdvertisedUrl(serviceId, endpoint)) {
+      continue;
+    }
+    const resolvedUrl = resolveServiceText(endpoint.url, ports);
+    if (resolvedUrl.includes("${") || (!resolvedUrl.startsWith("http://") && !resolvedUrl.startsWith("https://"))) {
+      continue;
+    }
+    seen.add(resolvedUrl);
+    targets.push({
+      label: endpoint.label ?? "url",
+      url: resolvedUrl,
+      source: "manifest.urls",
+      expectedStatus: 200,
+    });
+  }
+
+  if (manifest.healthcheck?.type === "http" && manifest.healthcheck.url) {
+    const resolvedUrl = resolveServiceText(manifest.healthcheck.url, ports);
+    if (!resolvedUrl.includes("${") && !seen.has(resolvedUrl)) {
+      targets.push({
+        label: "healthcheck",
+        url: resolvedUrl,
+        source: "healthcheck",
+        expectedStatus: manifest.healthcheck.expected_status ?? 200,
+      });
+    }
+  }
+
+  return targets;
+}
+
+async function checkReachabilityTarget(checks, serviceId, target, fetchImpl, timeoutMs) {
+  const result = await fetchText(target.url, fetchImpl, timeoutMs);
+  const ok = result.status === target.expectedStatus;
+  const evidenceUrl = safeEvidenceUrl(target.url);
+  const detail = ok
+    ? `${evidenceUrl}: HTTP ${result.status}, body="${safeBodySnippet(result.body)}"`
+    : `${evidenceUrl}: ${result.error ?? `HTTP ${result.status}`}, body="${safeBodySnippet(result.body)}"`;
+  check(
+    checks,
+    `${serviceId} advertised ${target.label} reachable`,
+    ok,
+    "unreachable_service_url",
+    detail,
+  );
 }
 
 export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), env = process.env) {
@@ -130,6 +229,7 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
       tag: manifest.artifact?.source?.tag ?? null,
       assetName: platform?.assetName ?? null,
       ports: manifest.ports ?? {},
+      reachabilityTargets: buildReachabilityTargets(serviceId, manifest, manifest.ports ?? {}),
       serviceRoot: path.join(servicesRoot, serviceId),
     });
   }
@@ -280,6 +380,21 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
         port,
         "wrong_service_port",
       );
+    }
+
+    if (expected.providerRole) {
+      check(checks, `${serviceId} advertised URL reachability not applicable`, expected.reachabilityTargets.length === 0, "unexpected_provider_url", `targets=${expected.reachabilityTargets.length}`);
+      continue;
+    }
+
+    const runtimePorts = live.lifecycle?.runtime?.ports ?? expected.ports;
+    const manifest = await readJson(path.join(expected.serviceRoot, "service.json"));
+    const targets = buildReachabilityTargets(serviceId, manifest, runtimePorts);
+    if (targets.length === 0) {
+      check(checks, `${serviceId} has no advertised URL reachability target`, true, null, "not applicable");
+    }
+    for (const target of targets) {
+      await checkReachabilityTarget(checks, serviceId, target, fetchImpl, resolved.timeoutMs);
     }
   }
 
