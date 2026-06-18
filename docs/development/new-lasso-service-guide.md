@@ -247,6 +247,7 @@ Default baseline services currently are:
 - `@nginx`
 - `@traefik`
 - `@node`
+- `@python` where the pinned provider release supports the host platform; unsupported hosts get an explicit baseline skip until the provider repo publishes matching artifacts
 - `@secretsbroker`
 - `echo-service`
 - `@serviceadmin`

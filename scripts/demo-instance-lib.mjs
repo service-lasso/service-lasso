@@ -8,9 +8,9 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
-export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
 export const demoServiceIds = [...demoRequiredServiceIds, "node-sample-service"];
-export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node"]);
+export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
 export const demoFixedPortChecks = [
   { serviceId: "@serviceadmin", portName: "ui", host: "127.0.0.1", port: 17700 },
   { serviceId: "@secretsbroker", portName: "service", host: "127.0.0.1", port: 17890 },

@@ -52,8 +52,9 @@ test("CLI plan start returns structured dry-run without creating workspace state
     assert.equal(payload.action, "startAll");
     assert.equal(payload.dryRun, true);
     assert.equal(payload.steps[0].serviceId, "alpha-service");
-    assert.equal(payload.steps[0].status, "blocked");
-    assert.equal(payload.steps[0].reason, "not_installed");
+    assert.equal(payload.steps[0].status, "would_run");
+    assert.equal(payload.steps[0].reason, null);
+    assert.deepEqual(payload.steps[0].prerequisites, ["install", "config"]);
     assert.deepEqual(payload.mutations, []);
     assert.equal(await pathExists(workspaceRoot), false);
   } finally {

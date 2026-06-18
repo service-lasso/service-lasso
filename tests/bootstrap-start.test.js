@@ -5,7 +5,7 @@ import { readFile, rm } from "node:fs/promises";
 import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 async function readJsonWhenReady(filePath, timeoutMs = 1_000) {
   const deadline = Date.now() + timeoutMs;
@@ -62,13 +62,13 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@secretsbroker", "echo-service", "@serviceadmin"]);
-    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
-    assert.equal(result.services.length, 9);
+    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"]);
+    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+    assert.equal(result.services.length, 10);
 
     for (const service of result.services) {
       assert.equal(service.status, "completed");
-      const expectedActions = service.serviceId === "@archive"
+      const expectedActions = service.serviceId === "@archive" || service.serviceId === "@python"
         ? ["install:completed", "config:completed", "start:skipped"]
         : ["install:completed", "config:completed", "start:completed"];
       assert.deepEqual(
@@ -78,7 +78,7 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       const state = getLifecycleState(service.serviceId);
       assert.equal(state.installed, true, `${service.serviceId} installed`);
       assert.equal(state.configured, true, `${service.serviceId} configured`);
-      assert.equal(state.running, service.serviceId !== "@archive", `${service.serviceId} running`);
+      assert.equal(state.running, service.serviceId !== "@archive" && service.serviceId !== "@python", `${service.serviceId} running`);
     }
 
     const rerun = await bootstrapBaselineServices({
@@ -252,6 +252,58 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
     assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
   } finally {
     await stopAllManagedProcesses();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("bootstrapBaselineServices skips baseline services with unsupported host artifacts explicitly", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-baseline-unsupported-platform-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await writeManifest(servicesRoot, "@python", {
+      id: "@python",
+      name: "Python Runtime",
+      description: "Unsupported platform provider fixture.",
+      role: "provider",
+      enabled: false,
+      artifact: {
+        kind: "archive",
+        source: {
+          type: "github-release",
+          repo: "service-lasso/lasso-python",
+          tag: "2026.4.27-test",
+        },
+        platforms: {
+          unsupported_test_platform: {
+            assetName: "python-unsupported.zip",
+            archiveType: "zip",
+            command: "./python",
+          },
+        },
+      },
+    });
+
+    const result = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: "test-version",
+      serviceIds: ["@python"],
+    });
+    const python = result.services.find((service) => service.serviceId === "@python");
+
+    assert.ok(python);
+    assert.equal(python.status, "skipped");
+    assert.equal(python.state.installed, false);
+    assert.equal(python.state.configured, false);
+    assert.deepEqual(
+      python.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:skipped"],
+    );
+    assert.match(python.message, new RegExp(`host platform "${process.platform}"`));
+  } finally {
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

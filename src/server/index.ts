@@ -91,6 +91,7 @@ import { resolveProviderExecution } from "../runtime/providers/resolveProvider.j
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { isProviderRole } from "../runtime/roles.js";
 import { reconcilePortReservationLedger, reservePorts, type PortReservationInput } from "../runtime/ports/reservations.js";
 import { explainPortConflict } from "../runtime/ports/conflicts.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
@@ -843,7 +844,11 @@ async function executeRuntimeOrchestrationAction(
   for (const serviceId of orderedServiceIds) {
     const service = runtimeModel.registry.getById(serviceId);
 
-    if (!service || service.manifest.enabled === false) {
+    if (!service) {
+      continue;
+    }
+
+    if (service.manifest.enabled === false && !isProviderRole(service.manifest)) {
       continue;
     }
 
