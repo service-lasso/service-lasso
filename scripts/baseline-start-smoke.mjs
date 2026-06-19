@@ -56,6 +56,9 @@ if (!nginxReleaseVersion) {
   throw new Error("Core @nginx manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 
+const baselineProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+const baselineDaemonServiceIds = new Set(["@nginx", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -533,6 +536,123 @@ function assert(condition, message) {
   }
 }
 
+function summarizeLogEntries(entries) {
+  return entries.slice(-5).map((entry) => `${entry.level}:${entry.message}`);
+}
+
+function buildBaselineFailureEvidence(serviceId, service, logs, chunk) {
+  const runtime = service?.lifecycle?.runtime;
+  return {
+    serviceId,
+    lifecycle: {
+      installed: service?.lifecycle?.installed ?? null,
+      configured: service?.lifecycle?.configured ?? null,
+      running: service?.lifecycle?.running ?? null,
+      lastAction: service?.lifecycle?.lastAction ?? null,
+      actionHistory: service?.lifecycle?.actionHistory ?? [],
+    },
+    health: service?.health ?? null,
+    runtime: {
+      pid: runtime?.pid ?? null,
+      ports: runtime?.ports ?? {},
+      command: runtime?.command ?? null,
+      logs: runtime?.logs ?? null,
+    },
+    logApi: logs
+      ? {
+          logPath: logs.logPath,
+          stdoutPath: logs.stdoutPath,
+          stderrPath: logs.stderrPath,
+          entries: summarizeLogEntries(logs.entries ?? []),
+          archiveCount: logs.archives?.length ?? 0,
+          retention: logs.retention ?? null,
+        }
+      : null,
+    logReadApi: chunk
+      ? {
+          path: chunk.path,
+          totalLines: chunk.totalLines,
+          returnedLines: chunk.lines?.length ?? 0,
+          tail: chunk.lines?.slice(-5) ?? [],
+        }
+      : null,
+  };
+}
+
+function assertServiceEvidence(condition, serviceId, message, evidence) {
+  if (!condition) {
+    throw new Error(`${serviceId}: ${message}\n${JSON.stringify(evidence, null, 2)}`);
+  }
+}
+
+async function assertBaselineServiceDetail(serviceId, service, summary) {
+  const evidence = buildBaselineFailureEvidence(serviceId, service);
+  assertServiceEvidence(service?.lifecycle?.installed === true, serviceId, "service was not installed.", evidence);
+  assertServiceEvidence(service.lifecycle?.configured === true, serviceId, "service was not configured.", evidence);
+  assertServiceEvidence(service.health?.healthy === true, serviceId, "service health did not report healthy.", evidence);
+
+  if (baselineProviderServiceIds.has(serviceId)) {
+    assertServiceEvidence(service.lifecycle?.running === false, serviceId, "provider service should not be marked running.", evidence);
+    assertServiceEvidence(summary?.actions.some((action) => action.action === "start" && action.status === "skipped") === true, serviceId, "provider start was not explicitly skipped.", evidence);
+    return;
+  }
+
+  assertServiceEvidence(baselineDaemonServiceIds.has(serviceId), serviceId, "service is neither an expected daemon nor provider baseline service.", evidence);
+  assertServiceEvidence(service.lifecycle?.running === true, serviceId, "daemon service was not running.", evidence);
+  assertServiceEvidence(Number.isInteger(service.lifecycle?.runtime?.pid), serviceId, "daemon service did not expose a runtime pid.", evidence);
+}
+
+async function assertBaselineServiceLogs(apiPort, serviceId, service) {
+  const encodedServiceId = encodeURIComponent(serviceId);
+  const logsPayload = await waitForJson(`http://127.0.0.1:${apiPort}/api/services/${encodedServiceId}/logs`);
+  const logs = logsPayload.logs;
+  const chunk = await waitForJson(
+    `http://127.0.0.1:${apiPort}/api/logs/read?service=${encodedServiceId}&type=default&limit=20`,
+  );
+  const evidence = buildBaselineFailureEvidence(serviceId, service, logs, chunk);
+  const expectedLogSuffix = path.join(serviceId, "logs", "runtime", "service.log");
+  const expectedStdoutSuffix = path.join(serviceId, "logs", "runtime", "stdout.log");
+  const expectedStderrSuffix = path.join(serviceId, "logs", "runtime", "stderr.log");
+
+  assertServiceEvidence(logs?.serviceId === serviceId, serviceId, "operator log payload returned the wrong service id.", evidence);
+  assertServiceEvidence(
+    typeof logs.logPath === "string" && logs.logPath.endsWith(expectedLogSuffix),
+    serviceId,
+    "operator log payload did not include the runtime service log path.",
+    evidence,
+  );
+  assertServiceEvidence(
+    typeof logs.stdoutPath === "string" && logs.stdoutPath.endsWith(expectedStdoutSuffix),
+    serviceId,
+    "operator log payload did not include the runtime stdout log path.",
+    evidence,
+  );
+  assertServiceEvidence(
+    typeof logs.stderrPath === "string" && logs.stderrPath.endsWith(expectedStderrSuffix),
+    serviceId,
+    "operator log payload did not include the runtime stderr log path.",
+    evidence,
+  );
+  assertServiceEvidence(Array.isArray(logs.entries), serviceId, "operator log entries were not an array.", evidence);
+  assertServiceEvidence(
+    logs.entries.length > 0 || Number.isInteger(chunk?.totalLines),
+    serviceId,
+    "operator logs exposed neither synthetic lifecycle metadata nor retrievable log state.",
+    evidence,
+  );
+  assertServiceEvidence(chunk?.serviceId === serviceId, serviceId, "log reader returned the wrong service id.", evidence);
+  assertServiceEvidence(Number.isInteger(chunk.totalLines), serviceId, "log reader did not expose total line state.", evidence);
+
+  if (baselineDaemonServiceIds.has(serviceId)) {
+    assertServiceEvidence(
+      logs.entries.length > 0 || chunk.totalLines > 0,
+      serviceId,
+      "daemon service did not expose runtime log content.",
+      evidence,
+    );
+  }
+}
+
 const smokeTempParent = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Temp") : os.tmpdir();
 const tempRoot = await mkdtemp(path.join(smokeTempParent, "service-lasso-baseline-start-smoke-"));
 const servicesRoot = path.join(tempRoot, "services");
@@ -600,14 +720,8 @@ try {
     if (!cliSummary.requestedServiceIds.includes(serviceId) || summary?.status === "skipped") {
       continue;
     }
-    assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
-    assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
-    assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["@archive", "@java", "@localcert", "@node", "@python"].includes(serviceId)) {
-      assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
-    } else {
-      assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
-    }
+    await assertBaselineServiceDetail(serviceId, service, summary);
+    await assertBaselineServiceLogs(apiPort, serviceId, service);
   }
 
   const nginx = await fetch(`http://127.0.0.1:${nginxHttpPort}/health`);
