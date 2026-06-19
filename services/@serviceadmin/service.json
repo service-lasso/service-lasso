@@ -24,7 +24,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-serviceadmin",
-      "tag": "2026.6.19-5965479"
+      "tag": "2026.6.19-840bd2c"
     },
     "platforms": {
       "win32": {
