@@ -2,7 +2,7 @@
   "id": "@secretsbroker",
   "name": "Service Lasso Secrets Broker",
   "description": "Release-backed local-first secrets broker for Service Lasso bootstrap, service identities, policy, audit, and secret resolution.",
-  "version": "2026.6.20-4dc7bb2",
+  "version": "2026.6.20-176636f",
   "enabled": true,
   "ports": {
     "service": 17890
@@ -27,7 +27,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-secretsbroker",
-      "tag": "2026.6.20-4dc7bb2"
+      "tag": "2026.6.20-176636f"
     },
     "platforms": {
       "win32": {
