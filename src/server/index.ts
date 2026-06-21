@@ -12,6 +12,10 @@ import { createServiceHealthHistoryResponse, createServiceHealthResponse } from 
 import { createServiceLogsResponse } from "./routes/logs.js";
 import { createServiceLogChunkResponse, createServiceLogInfoResponse, createServiceLogSearchResponse } from "./routes/log-reader.js";
 import { createServiceMetricsResponse } from "./routes/metrics.js";
+import {
+  createRuntimeTelemetryPreviewResponse,
+  createServiceTelemetryPreviewResponse,
+} from "./routes/telemetry.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
@@ -54,6 +58,10 @@ import {
 import { buildBaselineDependencyDiagnostics } from "../runtime/operator/dependencyDiagnostics.js";
 import { buildOperatorNotifications } from "../runtime/operator/notifications.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
+import {
+  buildRuntimeTelemetryPreview,
+  buildServiceTelemetryPreview,
+} from "../runtime/operator/telemetry.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
@@ -1471,6 +1479,17 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "telemetry") {
+      const lifecycle = getLifecycleState(serviceId);
+      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+      writeJson(
+        response,
+        200,
+        createServiceTelemetryPreviewResponse(buildServiceTelemetryPreview(service, lifecycle, health)),
+      );
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "variables") {
       const lifecycle = getLifecycleState(serviceId);
       const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
@@ -1829,6 +1848,20 @@ async function routeRequest(
       runtimeModel.discovered.map((service) => buildServiceMetrics(service, getLifecycleState(service.manifest.id))),
     );
     writeJson(response, 200, { services: payload });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/telemetry") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const services = await Promise.all(
+      runtimeModel.discovered.map(async (service) => {
+        const lifecycle = getLifecycleState(service.manifest.id);
+        const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+        return buildServiceTelemetryPreview(service, lifecycle, health);
+      }),
+    );
+    writeJson(response, 200, createRuntimeTelemetryPreviewResponse(buildRuntimeTelemetryPreview(services)));
     return;
   }
 
