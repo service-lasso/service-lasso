@@ -182,6 +182,7 @@ export interface RuntimeFeatureFlags {
   operatorVariables: boolean;
   operatorNetwork: boolean;
   operatorMetrics: boolean;
+  operatorTelemetry: boolean;
   operatorLogs: boolean;
   operatorMcp: boolean;
   providerConnections: boolean;

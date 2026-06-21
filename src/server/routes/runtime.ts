@@ -84,6 +84,13 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     mutating: false,
   },
   {
+    id: "telemetry",
+    label: "Redacted telemetry preview",
+    methods: ["GET"],
+    pathPrefix: "/api/telemetry",
+    mutating: false,
+  },
+  {
     id: "operator-mcp",
     label: "Operator MCP",
     methods: ["GET", "POST"],
@@ -108,6 +115,7 @@ function createDefaultFeatureFlags(
     operatorVariables: true,
     operatorNetwork: true,
     operatorMetrics: true,
+    operatorTelemetry: true,
     operatorLogs: true,
     operatorMcp: true,
     providerConnections: false,
@@ -152,7 +160,7 @@ export function createRuntimeCapabilitiesResponse(input: RuntimeCapabilitiesInpu
           runtimeApiBaseUrlRequired: true,
           supportsDashboardAdapter: true,
           supportsSafeSecretMetadataOnly: true,
-          preferredEndpointGroups: ["runtime", "dashboard", "services", "dependencies", "updates", "recovery"],
+          preferredEndpointGroups: ["runtime", "dashboard", "services", "dependencies", "updates", "recovery", "telemetry"],
           notes: [
             "Use this endpoint before enabling runtime-dependent controls.",
             "Use Secrets Broker references and metadata only; do not request or render raw secret values from capability discovery.",
