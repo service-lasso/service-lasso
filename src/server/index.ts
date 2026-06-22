@@ -17,6 +17,7 @@ import {
   createRuntimeTelemetryPreviewResponse,
   createServiceTelemetryPreviewResponse,
 } from "./routes/telemetry.js";
+import { createRuntimeLogShippingPreviewResponse } from "./routes/log-shipping.js";
 import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
@@ -66,6 +67,7 @@ import {
   classifyTelemetryRoute,
   type ApiRequestTelemetryPreview,
 } from "../runtime/operator/telemetry.js";
+import { buildRuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
@@ -1873,6 +1875,16 @@ async function routeRequest(
       }),
     );
     writeJson(response, 200, createRuntimeTelemetryPreviewResponse(buildRuntimeTelemetryPreview(services, apiRequestTelemetry)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/log-shipping") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const services = runtimeModel.discovered.map((service) => ({
+      service,
+      lifecycle: getLifecycleState(service.manifest.id),
+    }));
+    writeJson(response, 200, createRuntimeLogShippingPreviewResponse(await buildRuntimeLogShippingPreview(services)));
     return;
   }
 
