@@ -85,10 +85,10 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
   },
   {
     id: "telemetry",
-    label: "Redacted telemetry preview",
-    methods: ["GET"],
+    label: "Redacted telemetry",
+    methods: ["GET", "POST"],
     pathPrefix: "/api/telemetry",
-    mutating: false,
+    mutating: true,
   },
   {
     id: "log-shipping",

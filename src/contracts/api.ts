@@ -7,6 +7,7 @@ import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js
 import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
 import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
 import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
+import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportTestResult } from "../runtime/operator/telemetry.js";
 import type { ServiceCatalogProvenance } from "./service.js";
 
 export interface HealthResponse {
@@ -874,4 +875,16 @@ export interface ServiceLogSearchResponse {
 
 export interface RuntimeLogShippingPreviewResponse {
   logShipping: RuntimeLogShippingPreview;
+}
+
+export interface RuntimeTelemetryPreviewResponse {
+  telemetry: RuntimeTelemetryPreview;
+}
+
+export interface ServiceTelemetryPreviewResponse {
+  telemetry: ServiceTelemetryPreview;
+}
+
+export interface RuntimeTelemetryExportTestResponse {
+  exportTest: TelemetryExportTestResult;
 }

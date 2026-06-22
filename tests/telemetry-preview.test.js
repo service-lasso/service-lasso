@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { assertNoSecretMaterial } from "../dist/testing/secretLeakHarness.js";
@@ -19,6 +20,42 @@ async function getJson(url) {
   return {
     status: response.status,
     body: await response.json(),
+  };
+}
+
+async function startMockCollector() {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.from(chunk));
+    }
+    requests.push({
+      method: request.method,
+      url: request.url,
+      headers: request.headers,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    response.statusCode = 202;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ accepted: true }));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    requests,
+    url: `http://127.0.0.1:${address.port}/v1/traces`,
+    stop: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
 }
 
@@ -164,6 +201,96 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
   }
 });
 
+test("POST /api/telemetry/export-test sends only sanitized metadata to a local mock collector", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-export-test-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-export", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+    config: {
+      files: [
+        {
+          path: "config/secret.env",
+          content: "SECRET=" + rawSecretSentinel,
+        },
+      ],
+    },
+  });
+
+  const collector = await startMockCollector();
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url;
+  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel;
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "mock-collector";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await fetch(apiServer.url + "/api/telemetry/export-test", { method: "POST" });
+    const body = await result.json();
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(body.exportTest, {
+      mode: "mock_collector",
+      status: "sent",
+      protocol: "otlp-http",
+      contentType: "application/json",
+      signalCount: 3,
+      serviceCount: 1,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      localCollectorOnly: true,
+      collectorStatusCode: 202,
+      reason: "Sanitized telemetry was sent to the configured local mock collector.",
+    });
+    assert.equal(collector.requests.length, 1);
+    assert.equal(collector.requests[0].method, "POST");
+    assert.match(collector.requests[0].headers["content-type"], /application\/json/);
+
+    const payload = JSON.parse(collector.requests[0].body);
+    assert.deepEqual(payload.resource, {
+      serviceName: "service-lasso-core",
+      serviceNamespace: "service-lasso",
+      serviceInstanceId: "local-runtime",
+    });
+    assert.equal(payload.signals.length, 3);
+    assert.equal(payload.signals[0].attributes["service.id"], "telemetry-export");
+    assertNoSecretMaterial(body, { sentinels });
+    assertNoSecretMaterial(payload, { sentinels });
+    assert.equal(JSON.stringify(body).includes("signals"), false);
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    await apiServer.stop();
+    await collector.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/telemetry reports safe API request outcome telemetry without raw URL material", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-api-request-");
   await writeExecutableFixtureService(servicesRoot, "telemetry-api", {});
@@ -229,6 +356,18 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
     assert.match(result.body.telemetry.exportPreview.reason, /OTLP export remains disabled/i);
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
+
+    const exportResult = await fetch(apiServer.url + "/api/telemetry/export-test", { method: "POST" });
+    const exportBody = await exportResult.json();
+    assert.equal(exportResult.status, 200);
+    assert.equal(exportBody.exportTest.mode, "disabled");
+    assert.equal(exportBody.exportTest.status, "not_sent");
+    assert.equal(exportBody.exportTest.endpointConfigured, false);
+    assert.equal(exportBody.exportTest.collectorStatusCode, null);
+    assert.equal(exportBody.exportTest.endpointValueReturned, false);
+    assert.equal(exportBody.exportTest.headersValueReturned, false);
+    assert.equal(exportBody.exportTest.bodyValueReturned, false);
+    assertNoSecretMaterial(exportBody, { sentinels });
   } finally {
     if (previousEnabled === undefined) {
       delete process.env.SERVICE_LASSO_OTEL_ENABLED;

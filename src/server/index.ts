@@ -65,6 +65,7 @@ import {
   buildRuntimeTelemetryPreview,
   buildServiceTelemetryPreview,
   classifyTelemetryRoute,
+  sendRuntimeTelemetryMockExport,
   type ApiRequestTelemetryPreview,
 } from "../runtime/operator/telemetry.js";
 import { buildRuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
@@ -1875,6 +1876,21 @@ async function routeRequest(
       }),
     );
     writeJson(response, 200, createRuntimeTelemetryPreviewResponse(buildRuntimeTelemetryPreview(services, apiRequestTelemetry)));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/telemetry/export-test") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const services = await Promise.all(
+      runtimeModel.discovered.map(async (service) => {
+        const lifecycle = getLifecycleState(service.manifest.id);
+        const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+        return buildServiceTelemetryPreview(service, lifecycle, health);
+      }),
+    );
+    const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry);
+    writeJson(response, 200, { exportTest: await sendRuntimeTelemetryMockExport(telemetry) });
     return;
   }
 

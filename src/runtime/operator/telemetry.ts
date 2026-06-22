@@ -7,6 +7,8 @@ export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-previ
 
 export type TelemetryExporterStatus = "disabled" | "configured";
 export type TelemetryExportMode = "disabled" | "dry_run";
+export type TelemetryExportTestMode = "disabled" | "mock_collector";
+export type TelemetryExportTestStatus = "not_sent" | "sent" | "failed" | "blocked";
 export type TelemetrySignalKind = "span" | "metric";
 export type ApiRequestOutcome = "success" | "client_error" | "server_error" | "redirect" | "informational";
 
@@ -49,6 +51,22 @@ export interface TelemetryExportEnvelopePreview {
   reason: string;
 }
 
+export interface TelemetryExportTestResult {
+  mode: TelemetryExportTestMode;
+  status: TelemetryExportTestStatus;
+  protocol: "otlp-http";
+  contentType: "application/json";
+  signalCount: number;
+  serviceCount: number;
+  endpointConfigured: boolean;
+  endpointValueReturned: false;
+  headersValueReturned: false;
+  bodyValueReturned: false;
+  localCollectorOnly: true;
+  collectorStatusCode: number | null;
+  reason: string;
+}
+
 export interface TelemetrySignalPreview {
   kind: TelemetrySignalKind;
   name: string;
@@ -77,6 +95,11 @@ export interface RuntimeTelemetryPreview {
   exportPreview: TelemetryExportEnvelopePreview;
   apiRequests: ApiRequestTelemetryPreview[];
   services: ServiceTelemetryPreview[];
+}
+
+export interface TelemetryExportPayload {
+  resource: TelemetryResourcePreview;
+  signals: TelemetrySignalPreview[];
 }
 
 const allowedTelemetryAttributes = [
@@ -329,6 +352,9 @@ export function classifyTelemetryRoute(pathname: string): {
   }
 
   if (parts[1] === "telemetry") {
+    if (parts[2] === "export-test") {
+      return { routeGroup: "telemetry", routeTemplate: "/api/telemetry/export-test", mutating: true };
+    }
     return { routeGroup: "telemetry", routeTemplate: "/api/telemetry", mutating: false };
   }
 
@@ -496,6 +522,107 @@ function readExportModeFromEnv(
   }
 
   return "disabled";
+}
+
+function readExportTestModeFromEnv(
+  env: NodeJS.ProcessEnv,
+  exporter: TelemetryExporterPreview,
+): TelemetryExportTestMode {
+  const requestedMode = String(env.SERVICE_LASSO_OTEL_EXPORT_MODE ?? "").trim().toLowerCase();
+
+  if (exporter.status === "configured" && requestedMode === "mock-collector") {
+    return "mock_collector";
+  }
+
+  return "disabled";
+}
+
+function isLoopbackEndpoint(endpoint: string): boolean {
+  try {
+    const parsed = new URL(endpoint);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function buildTelemetryExportPayload(telemetry: RuntimeTelemetryPreview): TelemetryExportPayload {
+  return {
+    resource: telemetry.resource,
+    signals: [
+      ...telemetry.services.flatMap((service) => service.signals),
+      ...telemetry.apiRequests.map((request) => request.signal),
+    ],
+  };
+}
+
+export async function sendRuntimeTelemetryMockExport(
+  telemetry: RuntimeTelemetryPreview,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TelemetryExportTestResult> {
+  const mode = readExportTestModeFromEnv(env, telemetry.exporter);
+  const endpoint = String(env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "").trim();
+  const baseResult = {
+    mode,
+    protocol: "otlp-http" as const,
+    contentType: "application/json" as const,
+    signalCount: telemetry.exportPreview.signalCount,
+    serviceCount: telemetry.exportPreview.serviceCount,
+    endpointConfigured: telemetry.exporter.endpointConfigured,
+    endpointValueReturned: false as const,
+    headersValueReturned: false as const,
+    bodyValueReturned: false as const,
+    localCollectorOnly: true as const,
+  };
+
+  if (mode !== "mock_collector") {
+    return {
+      ...baseResult,
+      status: "not_sent",
+      collectorStatusCode: null,
+      reason:
+        "Mock collector export is disabled; set SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=mock-collector to run a local export smoke test.",
+    };
+  }
+
+  if (!isLoopbackEndpoint(endpoint)) {
+    return {
+      ...baseResult,
+      status: "blocked",
+      collectorStatusCode: null,
+      reason: "Mock collector export only sends to loopback HTTP(S) endpoints.",
+    };
+  }
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(buildTelemetryExportPayload(telemetry)),
+    });
+
+    return {
+      ...baseResult,
+      status: response.ok ? "sent" : "failed",
+      collectorStatusCode: response.status,
+      reason: response.ok
+        ? "Sanitized telemetry was sent to the configured local mock collector."
+        : "The configured local mock collector returned a non-success response.",
+    };
+  } catch (error) {
+    return {
+      ...baseResult,
+      status: "failed",
+      collectorStatusCode: null,
+      reason: `Mock collector export failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 function buildTelemetryExportEnvelopePreview(
