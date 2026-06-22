@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { once } from "node:events";
 import { timingSafeEqual } from "node:crypto";
 import { cp } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHealthResponse } from "./routes/health.js";
@@ -60,8 +61,11 @@ import { buildBaselineDependencyDiagnostics } from "../runtime/operator/dependen
 import { buildOperatorNotifications } from "../runtime/operator/notifications.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import {
+  buildApiRequestTelemetryPreview,
   buildRuntimeTelemetryPreview,
   buildServiceTelemetryPreview,
+  classifyTelemetryRoute,
+  type ApiRequestTelemetryPreview,
 } from "../runtime/operator/telemetry.js";
 import { buildRuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
@@ -994,11 +998,18 @@ async function routeWorkflowFacadeRequest(
   return true;
 }
 
+const API_TELEMETRY_BUFFER_LIMIT = 50;
+
+function isMutatingHttpMethod(method: string): boolean {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   config: ApiRouteConfig,
   workflowRunFacadeState: WorkflowRunFacadeState,
+  apiRequestTelemetry: ApiRequestTelemetryPreview[],
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
@@ -1863,7 +1874,7 @@ async function routeRequest(
         return buildServiceTelemetryPreview(service, lifecycle, health);
       }),
     );
-    writeJson(response, 200, createRuntimeTelemetryPreviewResponse(buildRuntimeTelemetryPreview(services)));
+    writeJson(response, 200, createRuntimeTelemetryPreviewResponse(buildRuntimeTelemetryPreview(services, apiRequestTelemetry)));
     return;
   }
 
@@ -1891,9 +1902,28 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     },
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
+  const apiRequestTelemetry: ApiRequestTelemetryPreview[] = [];
 
   return createServer((request, response) => {
-    void routeRequest(request, response, routeConfig, workflowRunFacadeState).catch((error: unknown) => {
+    const startedAt = performance.now();
+    const method = request.method ?? "GET";
+    const route = classifyTelemetryRoute(new URL(request.url ?? "/", "http://localhost").pathname);
+
+    response.once("finish", () => {
+      apiRequestTelemetry.push(buildApiRequestTelemetryPreview({
+        method,
+        routeGroup: route.routeGroup,
+        routeTemplate: route.routeTemplate,
+        mutating: route.mutating || isMutatingHttpMethod(method),
+        statusCode: response.statusCode,
+        durationMs: performance.now() - startedAt,
+      }));
+      if (apiRequestTelemetry.length > API_TELEMETRY_BUFFER_LIMIT) {
+        apiRequestTelemetry.splice(0, apiRequestTelemetry.length - API_TELEMETRY_BUFFER_LIMIT);
+      }
+    });
+
+    void routeRequest(request, response, routeConfig, workflowRunFacadeState, apiRequestTelemetry).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });
