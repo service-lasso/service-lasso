@@ -158,6 +158,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/log-shipping",
+          label: "Log Shipping Preview API",
+        },
+        {
+          type: "doc",
           id: "reference/operator-mcp",
           label: "Operator MCP",
         },
