@@ -35,6 +35,7 @@
     "demo:start": "npm run build && node scripts/demo-start.mjs",
     "demo:reset": "npm run build && node scripts/demo-reset.mjs",
     "demo:recycle": "npm run build && node scripts/demo-recycle.mjs",
+    "demo:deploy-canonical": "npm run build && node scripts/demo-deploy-canonical.mjs",
     "demo:smoke": "npm run build && node scripts/demo-smoke.mjs",
     "demo:watchdog": "node scripts/demo-watchdog.mjs",
     "demo:verify-canonical": "node scripts/demo-verify-canonical.mjs",

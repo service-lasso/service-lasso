@@ -28,6 +28,12 @@ import {
   waitForLiveServices,
 } from "../scripts/demo-recycle.mjs";
 import {
+  hasJsonPath,
+  parseEndpointExpectations,
+  resolveCanonicalDeployOptions,
+  runCanonicalDeploy,
+} from "../scripts/demo-deploy-canonical.mjs";
+import {
   buildReachabilityTargets,
   canonicalRuntimePort,
   canonicalServiceAdminPort,
@@ -159,6 +165,119 @@ test("canonical reachability target builder accepts a single manifest url object
       expectedStatus: 200,
     },
   ]);
+});
+
+test("canonical deploy parses status and JSON endpoint expectations", () => {
+  assert.deepEqual(
+    parseEndpointExpectations([
+      "--expect",
+      "/api/log-shipping:200",
+      "--expect-json",
+      "/api/telemetry:apiRequests",
+    ]),
+    {
+      statusExpectations: [{ path: "/api/log-shipping", expectedStatus: 200 }],
+      jsonExpectations: [{ path: "/api/telemetry", jsonPath: "apiRequests" }],
+    },
+  );
+  assert.equal(hasJsonPath({ apiRequests: [] }, "apiRequests"), true);
+  assert.equal(hasJsonPath({ telemetry: { apiRequests: [] } }, "telemetry.apiRequests"), true);
+  assert.equal(hasJsonPath({ telemetry: { apiRequests: [] } }, "apiRequests"), true);
+  assert.equal(hasJsonPath({ telemetry: {} }, "telemetry.apiRequests"), false);
+});
+
+test("canonical deploy accepts npm-forwarded positional deploy args", () => {
+  assert.deepEqual(
+    resolveCanonicalDeployOptions([
+      "HEAD",
+      "/api/log-shipping:200",
+      "/api/telemetry:telemetry.apiRequests",
+    ], {
+      SERVICE_LASSO_DEMO_HOST: "127.0.0.1",
+      npm_config_expect: "true",
+      npm_config_expect_json: "true",
+      npm_config_ref: "true",
+    }),
+    {
+      ref: "HEAD",
+      host: "127.0.0.1",
+      runtimePort: canonicalRuntimePort,
+      serviceAdminPort: canonicalServiceAdminPort,
+      runtimeUrl: `http://127.0.0.1:${canonicalRuntimePort}`,
+      serviceAdminUrl: `http://127.0.0.1:${canonicalServiceAdminPort}/`,
+      servicesRoot: path.resolve("services"),
+      workspaceRoot: path.resolve("workspace", "demo-instance"),
+      logsRoot: path.resolve(".demo-logs"),
+      summaryPath: path.resolve(".demo-logs", "canonical-deploy-summary.json"),
+      forceRecovery: false,
+      timeoutMs: 15 * 60 * 1000,
+      fetchTimeoutMs: 15_000,
+      allowDirtyWorktree: false,
+      statusExpectations: [{ path: "/api/log-shipping", expectedStatus: 200 }],
+      jsonExpectations: [{ path: "/api/telemetry", jsonPath: "telemetry.apiRequests" }],
+    },
+  );
+});
+
+test("canonical deploy fails closed and writes summary for unmanaged canonical port owner", async () => {
+  const listener = await listenOnLoopback();
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-deploy-"));
+  const summaryPath = path.join(tempDir, "summary.json");
+
+  try {
+    const head = await new Promise((resolve, reject) => {
+      const child = spawn("git", ["rev-parse", "HEAD"], {
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.once("error", reject);
+      child.once("close", (code) => {
+        if (code === 0) {
+          resolve(stdout.trim());
+        } else {
+          reject(new Error(stderr || stdout));
+        }
+      });
+    });
+
+    await assert.rejects(
+      () => runCanonicalDeploy({
+        ref: head,
+        runtimePort: listener.port,
+        serviceAdminPort: 65530,
+        runtimeUrl: `http://127.0.0.1:${listener.port}`,
+        serviceAdminUrl: "http://127.0.0.1:65530/",
+        servicesRoot: path.join(tempDir, "services"),
+        workspaceRoot: path.join(tempDir, "workspace", "demo-instance"),
+        logsRoot: tempDir,
+        summaryPath,
+        forceRecovery: false,
+        timeoutMs: 1_000,
+        fetchTimeoutMs: 100,
+        allowDirtyWorktree: true,
+        statusExpectations: [],
+        jsonExpectations: [],
+      }),
+      /non-managed process/,
+    );
+
+    const summary = JSON.parse(await readFile(summaryPath, "utf8"));
+    assert.equal(summary.ok, false);
+    assert.equal(summary.failure.code, "unmanaged_port_owner");
+    assert.ok(summary.ports.unmanaged.some((entry) => entry.port === listener.port));
+  } finally {
+    await listener.close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 async function writeCanonicalFixtureManifests(servicesRoot) {
