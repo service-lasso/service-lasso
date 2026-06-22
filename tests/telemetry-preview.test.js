@@ -37,6 +37,19 @@ function assertAllowlistedSignals(telemetry) {
       }
     }
   }
+
+  for (const request of telemetry.apiRequests ?? []) {
+    assert.equal(typeof request.routeGroup, "string");
+    assert.equal(typeof request.routeTemplate, "string");
+    assert.equal(request.routeTemplate.includes(rawSecretSentinel), false);
+    assert.match(request.signal.traceId, /^[a-f0-9]{32}$/);
+    assert.match(request.signal.spanId, /^[a-f0-9]{16}$/);
+    assert.match(request.signal.correlationId, /^sl-[a-f0-9]{16}$/);
+    assert.equal(request.signal.kind, "span");
+    for (const key of Object.keys(request.signal.attributes)) {
+      assert.equal(allowed.has(key), true, key);
+    }
+  }
 }
 
 test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metadata", async () => {
@@ -84,6 +97,7 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
     assert.equal(result.body.telemetry.exporter.endpointConfigured, true);
     assert.equal(result.body.telemetry.exporter.endpointValueReturned, false);
     assert.equal(result.body.telemetry.exporter.headersValueReturned, false);
+    assert.deepEqual(result.body.telemetry.apiRequests, []);
     assert.deepEqual(result.body.telemetry.exportPreview, {
       mode: "dry_run",
       status: "not_sent",
@@ -107,6 +121,8 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
         "signals.spanId",
         "signals.correlationId",
         "signals.attributes",
+        "apiRequests.routeGroup",
+        "apiRequests.routeTemplate",
       ],
       reason:
         "Dry-run OTLP export envelope is ready for local verification; the runtime does not send telemetry from this preview API.",
@@ -143,6 +159,44 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
     } else {
       process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
     }
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports safe API request outcome telemetry without raw URL material", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-api-request-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-api", {});
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const missingService = await fetch(
+      apiServer.url + "/api/services/" + encodeURIComponent(rawSecretSentinel) + "/health?token=" + rawSecretSentinel,
+    );
+    assert.equal(missingService.status, 404);
+
+    const health = await getJson(apiServer.url + "/api/health?token=" + rawSecretSentinel);
+    assert.equal(health.status, 200);
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.apiRequests.length, 2);
+    assert.deepEqual(
+      result.body.telemetry.apiRequests.map((request) => request.routeTemplate),
+      ["/api/services/{serviceId}/health", "/api/health"],
+    );
+    assert.deepEqual(
+      result.body.telemetry.apiRequests.map((request) => request.signal.attributes["http.response.status_class"]),
+      ["4xx", "2xx"],
+    );
+    assert.equal(result.body.telemetry.apiRequests[0].signal.attributes["service.operation.outcome"], "client_error");
+    assert.equal(result.body.telemetry.apiRequests[1].signal.attributes["service.operation.outcome"], "success");
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 5);
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }

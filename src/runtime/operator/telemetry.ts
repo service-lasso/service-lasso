@@ -8,6 +8,7 @@ export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-previ
 export type TelemetryExporterStatus = "disabled" | "configured";
 export type TelemetryExportMode = "disabled" | "dry_run";
 export type TelemetrySignalKind = "span" | "metric";
+export type ApiRequestOutcome = "success" | "client_error" | "server_error" | "redirect" | "informational";
 
 export interface TelemetryAttributePolicy {
   mode: "allowlist";
@@ -62,16 +63,29 @@ export interface ServiceTelemetryPreview {
   signals: TelemetrySignalPreview[];
 }
 
+export interface ApiRequestTelemetryPreview {
+  routeGroup: string;
+  routeTemplate: string;
+  signal: TelemetrySignalPreview;
+}
+
 export interface RuntimeTelemetryPreview {
   contractVersion: typeof TELEMETRY_PREVIEW_CONTRACT_VERSION;
   exporter: TelemetryExporterPreview;
   resource: TelemetryResourcePreview;
   redaction: TelemetryAttributePolicy;
   exportPreview: TelemetryExportEnvelopePreview;
+  apiRequests: ApiRequestTelemetryPreview[];
   services: ServiceTelemetryPreview[];
 }
 
 const allowedTelemetryAttributes = [
+  "api.mutating",
+  "api.route_group",
+  "http.request.method",
+  "http.route",
+  "http.response.status_class",
+  "http.response.status_code",
   "service.id",
   "service.role",
   "service.enabled",
@@ -90,6 +104,7 @@ const allowedTelemetryAttributes = [
   "service.operation.phase",
   "service.operation.outcome",
   "service.operation.duration_ms",
+  "service.operation.count",
 ] as const;
 
 const allowedTelemetryAttributeSet = new Set<string>(allowedTelemetryAttributes);
@@ -104,6 +119,7 @@ export const telemetryAttributePolicy: TelemetryAttributePolicy = {
     "cookies and authorization headers",
     "private keys and recovery material",
     "raw request or response bodies",
+    "raw URL paths and query strings",
     "full file contents",
     "raw service config values",
   ],
@@ -113,6 +129,8 @@ export const telemetryAttributePolicy: TelemetryAttributePolicy = {
     "config.files[].content",
     "install.files[].content",
     "headers",
+    "request.url",
+    "request.query",
     "requestBody",
     "responseBody",
     "providerCredential",
@@ -133,6 +151,18 @@ function spanIdFor(serviceId: string, name: string): string {
 
 function correlationIdFor(serviceId: string): string {
   return `sl-${hashHex(`service-lasso:correlation:${serviceId}`, 16)}`;
+}
+
+function requestTraceIdFor(routeTemplate: string, method: string): string {
+  return hashHex(`service-lasso:api-request:${method}:${routeTemplate}`, 32);
+}
+
+function requestSpanIdFor(routeTemplate: string, method: string, statusCode: number): string {
+  return hashHex(`service-lasso:api-request:${method}:${routeTemplate}:${statusCode}`, 16);
+}
+
+function requestCorrelationIdFor(routeTemplate: string, method: string): string {
+  return `sl-${hashHex(`service-lasso:api-correlation:${method}:${routeTemplate}`, 16)}`;
 }
 
 function allowlistedAttributes(
@@ -178,6 +208,192 @@ function lifecycleOutcome(lifecycle: ServiceLifecycleState, health: ServiceHealt
     return "not_running";
   }
   return health.healthy ? "healthy" : "unhealthy";
+}
+
+function statusClass(statusCode: number): string {
+  if (statusCode >= 100 && statusCode < 600) {
+    return `${Math.trunc(statusCode / 100)}xx`;
+  }
+  return "unknown";
+}
+
+function requestOutcome(statusCode: number): ApiRequestOutcome {
+  if (statusCode >= 500) {
+    return "server_error";
+  }
+  if (statusCode >= 400) {
+    return "client_error";
+  }
+  if (statusCode >= 300) {
+    return "redirect";
+  }
+  if (statusCode >= 200) {
+    return "success";
+  }
+  return "informational";
+}
+
+export interface ApiRequestTelemetryInput {
+  method: string;
+  routeGroup: string;
+  routeTemplate: string;
+  mutating: boolean;
+  statusCode: number;
+  durationMs: number;
+}
+
+export function classifyTelemetryRoute(pathname: string): {
+  routeGroup: string;
+  routeTemplate: string;
+  mutating: boolean;
+} {
+  const parts = pathname.split("/").filter(Boolean);
+
+  if (parts[0] !== "api") {
+    return {
+      routeGroup: "static",
+      routeTemplate: "/{static}",
+      mutating: false,
+    };
+  }
+
+  if (parts[1] === "services") {
+    if (parts.length === 2) {
+      return { routeGroup: "services", routeTemplate: "/api/services", mutating: false };
+    }
+    if (parts.length === 3) {
+      return { routeGroup: "services", routeTemplate: "/api/services/{serviceId}", mutating: false };
+    }
+
+    const leaf = parts[3];
+    const child = parts[4];
+    const leafTemplates: Record<string, string> = {
+      "config-drift": "/api/services/{serviceId}/config-drift",
+      health: child === "history" ? "/api/services/{serviceId}/health/history" : "/api/services/{serviceId}/health",
+      logs: "/api/services/{serviceId}/logs",
+      meta: "/api/services/{serviceId}/meta",
+      metrics: "/api/services/{serviceId}/metrics",
+      network: "/api/services/{serviceId}/network",
+      recovery:
+        child === "doctor"
+          ? "/api/services/{serviceId}/recovery/doctor"
+          : child === "restart-preflight"
+            ? "/api/services/{serviceId}/recovery/restart-preflight"
+            : "/api/services/{serviceId}/recovery",
+      secrets:
+        child === "audit"
+          ? "/api/services/{serviceId}/secrets/audit"
+          : child === "rotation-readiness"
+            ? "/api/services/{serviceId}/secrets/rotation-readiness"
+            : child === "provider-auth-required"
+              ? "/api/services/{serviceId}/secrets/provider-auth-required"
+              : "/api/services/{serviceId}/secrets/{section}",
+      setup: child === "run" ? "/api/services/{serviceId}/setup/run/{stepId}" : "/api/services/{serviceId}/setup",
+      "start-trace": "/api/services/{serviceId}/start-trace",
+      telemetry: "/api/services/{serviceId}/telemetry",
+      update:
+        child === "download"
+          ? "/api/services/{serviceId}/update/download"
+          : child === "install"
+            ? "/api/services/{serviceId}/update/install"
+            : "/api/services/{serviceId}/update/{action}",
+      variables: "/api/services/{serviceId}/variables",
+    };
+
+    return {
+      routeGroup: "services",
+      routeTemplate: leafTemplates[leaf] ?? "/api/services/{serviceId}/{section}",
+      mutating: false,
+    };
+  }
+
+  if (parts[1] === "runtime") {
+    let routeTemplate = "/api/runtime";
+    if (parts[2] === "actions") {
+      routeTemplate = parts[4] === "plan" ? "/api/runtime/actions/{action}/plan" : "/api/runtime/actions/{action}";
+    } else if (parts[2] === "capabilities") {
+      routeTemplate = "/api/runtime/capabilities";
+    } else if (parts[2] === "instance") {
+      routeTemplate = "/api/runtime/instance";
+    } else if (parts[2] === "ports" && parts[3] === "conflict") {
+      routeTemplate = "/api/runtime/ports/conflict";
+    } else if (typeof parts[2] === "string") {
+      routeTemplate = "/api/runtime/{section}";
+    }
+
+    return {
+      routeGroup: "runtime",
+      routeTemplate,
+      mutating: false,
+    };
+  }
+
+  if (parts[1] === "telemetry") {
+    return { routeGroup: "telemetry", routeTemplate: "/api/telemetry", mutating: false };
+  }
+
+  if (parts[1] === "health") {
+    return { routeGroup: "health", routeTemplate: "/api/health", mutating: false };
+  }
+
+  const topLevelRoutes = new Set([
+    "dashboard",
+    "dependencies",
+    "diagnostics",
+    "globalenv",
+    "logs",
+    "metrics",
+    "mcp",
+    "network",
+    "operator",
+    "secrets",
+    "updates",
+    "variables",
+    "workflows",
+  ]);
+
+  if (typeof parts[1] === "string" && topLevelRoutes.has(parts[1])) {
+    return {
+      routeGroup: parts[1],
+      routeTemplate: `/api/${parts[1]}`,
+      mutating: false,
+    };
+  }
+
+  return {
+    routeGroup: "api-other",
+    routeTemplate: "/api/{unmatched}",
+    mutating: false,
+  };
+}
+
+export function buildApiRequestTelemetryPreview(input: ApiRequestTelemetryInput): ApiRequestTelemetryPreview {
+  const method = input.method.toUpperCase();
+  const durationMs = Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0;
+
+  return {
+    routeGroup: input.routeGroup,
+    routeTemplate: input.routeTemplate,
+    signal: {
+      kind: "span",
+      name: "service_lasso.api.request",
+      traceId: requestTraceIdFor(input.routeTemplate, method),
+      spanId: requestSpanIdFor(input.routeTemplate, method, input.statusCode),
+      correlationId: requestCorrelationIdFor(input.routeTemplate, method),
+      attributes: allowlistedAttributes({
+        "http.request.method": method,
+        "http.route": input.routeTemplate,
+        "http.response.status_code": input.statusCode,
+        "http.response.status_class": statusClass(input.statusCode),
+        "api.route_group": input.routeGroup,
+        "api.mutating": input.mutating,
+        "service.operation.phase": "api_request",
+        "service.operation.outcome": requestOutcome(input.statusCode),
+        "service.operation.duration_ms": durationMs,
+        "service.operation.count": 1,
+      }),
+    },
+  };
 }
 
 export function buildServiceTelemetryPreview(
@@ -284,12 +500,14 @@ function readExportModeFromEnv(
 
 function buildTelemetryExportEnvelopePreview(
   services: ServiceTelemetryPreview[],
+  apiRequests: ApiRequestTelemetryPreview[],
   exporter: TelemetryExporterPreview,
   redaction: TelemetryAttributePolicy,
   env: NodeJS.ProcessEnv,
 ): TelemetryExportEnvelopePreview {
   const mode = readExportModeFromEnv(env, exporter);
-  const signalCount = services.reduce((count, service) => count + service.signals.length, 0);
+  const serviceSignalCount = services.reduce((count, service) => count + service.signals.length, 0);
+  const signalCount = serviceSignalCount + apiRequests.length;
 
   return {
     mode,
@@ -314,6 +532,8 @@ function buildTelemetryExportEnvelopePreview(
       "signals.spanId",
       "signals.correlationId",
       "signals.attributes",
+      "apiRequests.routeGroup",
+      "apiRequests.routeTemplate",
     ],
     reason:
       mode === "dry_run"
@@ -324,6 +544,7 @@ function buildTelemetryExportEnvelopePreview(
 
 export function buildRuntimeTelemetryPreview(
   services: ServiceTelemetryPreview[],
+  apiRequests: ApiRequestTelemetryPreview[] = [],
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeTelemetryPreview {
   const exporter = readExporterPreviewFromEnv(env);
@@ -340,10 +561,12 @@ export function buildRuntimeTelemetryPreview(
     redaction: telemetryAttributePolicy,
     exportPreview: buildTelemetryExportEnvelopePreview(
       services,
+      apiRequests,
       exporter,
       telemetryAttributePolicy,
       env,
     ),
+    apiRequests,
     services,
   };
 }
