@@ -6,6 +6,7 @@ import type { ServiceLifecycleState } from "../lifecycle/types.js";
 export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-preview.v1";
 
 export type TelemetryExporterStatus = "disabled" | "configured";
+export type TelemetryExportMode = "disabled" | "dry_run";
 export type TelemetrySignalKind = "span" | "metric";
 
 export interface TelemetryAttributePolicy {
@@ -30,6 +31,23 @@ export interface TelemetryResourcePreview {
   serviceInstanceId: "local-runtime";
 }
 
+export interface TelemetryExportEnvelopePreview {
+  mode: TelemetryExportMode;
+  status: "not_sent";
+  protocol: "otlp-http";
+  contentType: "application/json";
+  signalCount: number;
+  serviceCount: number;
+  endpointConfigured: boolean;
+  endpointValueReturned: false;
+  headersValueReturned: false;
+  bodyValueReturned: false;
+  allowedAttributeCount: number;
+  droppedFieldClasses: string[];
+  safeEnvelopeFields: string[];
+  reason: string;
+}
+
 export interface TelemetrySignalPreview {
   kind: TelemetrySignalKind;
   name: string;
@@ -49,6 +67,7 @@ export interface RuntimeTelemetryPreview {
   exporter: TelemetryExporterPreview;
   resource: TelemetryResourcePreview;
   redaction: TelemetryAttributePolicy;
+  exportPreview: TelemetryExportEnvelopePreview;
   services: ServiceTelemetryPreview[];
 }
 
@@ -250,19 +269,81 @@ function readExporterPreviewFromEnv(env: NodeJS.ProcessEnv): TelemetryExporterPr
   };
 }
 
+function readExportModeFromEnv(
+  env: NodeJS.ProcessEnv,
+  exporter: TelemetryExporterPreview,
+): TelemetryExportMode {
+  const requestedMode = String(env.SERVICE_LASSO_OTEL_EXPORT_MODE ?? "").trim().toLowerCase();
+
+  if (exporter.status === "configured" && requestedMode === "dry-run") {
+    return "dry_run";
+  }
+
+  return "disabled";
+}
+
+function buildTelemetryExportEnvelopePreview(
+  services: ServiceTelemetryPreview[],
+  exporter: TelemetryExporterPreview,
+  redaction: TelemetryAttributePolicy,
+  env: NodeJS.ProcessEnv,
+): TelemetryExportEnvelopePreview {
+  const mode = readExportModeFromEnv(env, exporter);
+  const signalCount = services.reduce((count, service) => count + service.signals.length, 0);
+
+  return {
+    mode,
+    status: "not_sent",
+    protocol: "otlp-http",
+    contentType: "application/json",
+    signalCount,
+    serviceCount: services.length,
+    endpointConfigured: exporter.endpointConfigured,
+    endpointValueReturned: false,
+    headersValueReturned: false,
+    bodyValueReturned: false,
+    allowedAttributeCount: redaction.allowedAttributes.length,
+    droppedFieldClasses: [...redaction.forbiddenFieldClasses],
+    safeEnvelopeFields: [
+      "resource.serviceName",
+      "resource.serviceNamespace",
+      "resource.serviceInstanceId",
+      "signals.kind",
+      "signals.name",
+      "signals.traceId",
+      "signals.spanId",
+      "signals.correlationId",
+      "signals.attributes",
+    ],
+    reason:
+      mode === "dry_run"
+        ? "Dry-run OTLP export envelope is ready for local verification; the runtime does not send telemetry from this preview API."
+        : "OTLP export remains disabled; set SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=dry-run to preview an export envelope.",
+  };
+}
+
 export function buildRuntimeTelemetryPreview(
   services: ServiceTelemetryPreview[],
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeTelemetryPreview {
+  const exporter = readExporterPreviewFromEnv(env);
+  const resource: TelemetryResourcePreview = {
+    serviceName: "service-lasso-core",
+    serviceNamespace: "service-lasso",
+    serviceInstanceId: "local-runtime",
+  };
+
   return {
     contractVersion: TELEMETRY_PREVIEW_CONTRACT_VERSION,
-    exporter: readExporterPreviewFromEnv(env),
-    resource: {
-      serviceName: "service-lasso-core",
-      serviceNamespace: "service-lasso",
-      serviceInstanceId: "local-runtime",
-    },
+    exporter,
+    resource,
     redaction: telemetryAttributePolicy,
+    exportPreview: buildTelemetryExportEnvelopePreview(
+      services,
+      exporter,
+      telemetryAttributePolicy,
+      env,
+    ),
     services,
   };
 }
