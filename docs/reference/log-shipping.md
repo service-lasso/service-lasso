@@ -35,6 +35,13 @@ The response is rooted at `logShipping` and includes:
 - `redaction`: forbidden field classes and pattern classes.
 - `sources`: source coverage and queued-record estimates.
 - `sampleRecords`: bounded redacted runtime-log samples.
+- `redactionSelfTest`: deterministic redaction test proof for Service Admin to surface as a redaction status test action.
 - `exportPreview`: dry-run envelope readiness and safe envelope fields.
 
 `exportPreview.status` is always `not_sent` for this endpoint.
+
+## Redaction Self-Test
+
+`redactionSelfTest` is a deterministic proof object. It exercises representative secret, token, authorization, private-key, and basic-auth patterns through the same redaction helper used for runtime log samples. It returns only redacted output, pattern labels, counts, status, and boolean safety flags.
+
+The self-test never returns test sentinel values, endpoint values, headers, spool paths, request/response bodies, raw environment values, credentials, or payload bodies. It is status evidence only; the endpoint still does not transmit records.
