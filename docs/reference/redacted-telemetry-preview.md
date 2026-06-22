@@ -5,6 +5,7 @@ Service Lasso exposes a read-only telemetry preview for the first OpenTelemetry-
 ```text
 GET /api/telemetry
 GET /api/services/{serviceId}/telemetry
+POST /api/telemetry/export-test
 ```
 
 The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime metric signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
@@ -39,6 +40,18 @@ Exporter endpoint values, OTLP headers, and payload bodies are never returned. `
 - `endpointValueReturned`, `headersValueReturned`, and `bodyValueReturned` are always `false`.
 - `droppedFieldClasses` repeats the redaction boundary so operators can see which categories stay out of the envelope.
 
+## Local Mock Export Test
+
+`POST /api/telemetry/export-test` is an explicit operator smoke-test action for a local mock collector. It is disabled by default and only sends when all of the following are true:
+
+- `SERVICE_LASSO_OTEL_ENABLED` is enabled.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` is configured to a loopback HTTP(S) endpoint.
+- `SERVICE_LASSO_OTEL_EXPORT_MODE=mock-collector`.
+
+The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, or operator-supplied OTLP headers.
+
+The API response reports only safe proof fields: mode, status, protocol, signal count, service count, collector status code, local-only enforcement, and redaction booleans. It never returns the endpoint value, headers, or exported payload body.
+
 ## Scope
 
-This is a preview/status contract, not a full collector. It does not send telemetry to an OTLP endpoint during normal runtime execution yet. Follow-up work can connect real export once lifecycle/health events use this allowlisted attribute model and the dry-run envelope has been verified in the canonical demo.
+This is a preview/status contract plus a local mock-collector smoke path, not a production exporter. Normal telemetry export remains disabled by default. Follow-up work can connect production collector export once lifecycle/health/request events use this allowlisted attribute model and local mock export has been verified in the canonical demo.
