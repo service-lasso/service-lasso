@@ -60,6 +60,27 @@ export interface LogShippingSampleRecord {
   redacted: boolean;
 }
 
+export interface LogShippingRedactionSelfTestCase {
+  id: string;
+  patternClass: string;
+  redactedText: string;
+  redacted: boolean;
+  inputValueReturned: false;
+}
+
+export interface LogShippingRedactionSelfTest {
+  status: "passed" | "failed";
+  testCaseCount: number;
+  passedTestCaseCount: number;
+  sentinelValueReturned: false;
+  endpointValueReturned: false;
+  headersValueReturned: false;
+  spoolPathValueReturned: false;
+  bodyValueReturned: false;
+  cases: LogShippingRedactionSelfTestCase[];
+  reason: string;
+}
+
 export interface LogShippingExportPreview {
   mode: LogShippingPreviewMode;
   status: "not_sent";
@@ -82,6 +103,7 @@ export interface RuntimeLogShippingPreview {
   redaction: LogShippingRedactionPolicy;
   sources: LogShippingSourcePreview[];
   sampleRecords: LogShippingSampleRecord[];
+  redactionSelfTest: LogShippingRedactionSelfTest;
   exportPreview: LogShippingExportPreview;
 }
 
@@ -95,6 +117,7 @@ const DEFAULT_SOURCES: LogShippingSourceKind[] = [
 ];
 const MAX_SAMPLE_RECORDS_PER_SERVICE = 3;
 const MAX_SAMPLE_TEXT_LENGTH = 500;
+const SELF_TEST_SENTINEL = "SERVICE_LASSO_FAKE_LOG_SECRET_SENTINEL_DO_NOT_USE";
 
 const sourceAliases: Record<string, LogShippingSourceKind> = {
   core: "core_runtime",
@@ -385,6 +408,64 @@ function buildExportPreview(
   };
 }
 
+function buildRedactionSelfTest(): LogShippingRedactionSelfTest {
+  const testInputs = [
+    {
+      id: "sensitive-key-value",
+      patternClass: "sensitive key-value pairs",
+      input: `password=${SELF_TEST_SENTINEL}`,
+    },
+    {
+      id: "authorization-bearer",
+      patternClass: "bearer tokens",
+      input: `authorization=Bearer ${SELF_TEST_SENTINEL}`,
+    },
+    {
+      id: "basic-auth-url",
+      patternClass: "basic-auth URLs",
+      input: `https://operator:${SELF_TEST_SENTINEL}@logs.example.invalid/ingest`,
+    },
+    {
+      id: "private-key-block",
+      patternClass: "private key blocks",
+      input: [
+        "-----BEGIN PRIVATE KEY-----",
+        SELF_TEST_SENTINEL,
+        "-----END PRIVATE KEY-----",
+      ].join("\n"),
+    },
+  ];
+
+  const cases = testInputs.map((entry) => {
+    const redacted = redactLogShippingText(entry.input);
+    return {
+      id: entry.id,
+      patternClass: entry.patternClass,
+      redactedText: redacted.text,
+      redacted: redacted.redacted && !redacted.text.includes(SELF_TEST_SENTINEL),
+      inputValueReturned: false as const,
+    };
+  });
+  const passedTestCaseCount = cases.filter((entry) => entry.redacted).length;
+  const status = passedTestCaseCount === cases.length ? "passed" : "failed";
+
+  return {
+    status,
+    testCaseCount: cases.length,
+    passedTestCaseCount,
+    sentinelValueReturned: false,
+    endpointValueReturned: false,
+    headersValueReturned: false,
+    spoolPathValueReturned: false,
+    bodyValueReturned: false,
+    cases,
+    reason:
+      status === "passed"
+        ? "Representative log-shipping redaction self-test cases passed without returning raw sentinel or sink values."
+        : "One or more representative redaction self-test cases failed and must be treated as a shipping blocker.",
+  };
+}
+
 export async function buildRuntimeLogShippingPreview(
   services: Array<{ service: DiscoveredService; lifecycle: ServiceLifecycleState }>,
   env: NodeJS.ProcessEnv = process.env,
@@ -411,6 +492,7 @@ export async function buildRuntimeLogShippingPreview(
     redaction: logShippingRedactionPolicy,
     sources,
     sampleRecords,
+    redactionSelfTest: buildRedactionSelfTest(),
     exportPreview: buildExportPreview(sink, sources, sampleRecords, env),
   };
 }
