@@ -6,6 +6,7 @@ import type { ServiceUpdateState } from "../runtime/updates/state.js";
 import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js";
 import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
 import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
+import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import type { ServiceCatalogProvenance } from "./service.js";
 
 export interface HealthResponse {
@@ -183,6 +184,7 @@ export interface RuntimeFeatureFlags {
   operatorNetwork: boolean;
   operatorMetrics: boolean;
   operatorTelemetry: boolean;
+  operatorLogShipping: boolean;
   operatorLogs: boolean;
   operatorMcp: boolean;
   providerConnections: boolean;
@@ -868,4 +870,8 @@ export interface ServiceLogSearchResponse {
   hasMore: boolean;
   totalScanned: number;
   matches: ServiceLogLineResponse[];
+}
+
+export interface RuntimeLogShippingPreviewResponse {
+  logShipping: RuntimeLogShippingPreview;
 }
