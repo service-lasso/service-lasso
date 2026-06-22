@@ -63,6 +63,9 @@ test("GET /api/log-shipping returns disabled-by-default source coverage without 
     assert.equal(result.body.logShipping.sink.endpointValueReturned, false);
     assert.equal(result.body.logShipping.exportPreview.mode, "disabled");
     assert.equal(result.body.logShipping.exportPreview.status, "not_sent");
+    assert.equal(result.body.logShipping.redactionSelfTest.status, "passed");
+    assert.equal(result.body.logShipping.redactionSelfTest.sentinelValueReturned, false);
+    assert.equal(result.body.logShipping.redactionSelfTest.bodyValueReturned, false);
     assert.ok(result.body.logShipping.sources.some((source) => source.kind === "service_runtime"));
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {
@@ -129,6 +132,16 @@ test("GET /api/log-shipping dry-run previews redacted runtime log samples and so
     assert.equal(logShipping.exportPreview.status, "not_sent");
     assert.equal(logShipping.exportPreview.bodyValueReturned, false);
     assert.ok(logShipping.exportPreview.recordCountEstimate >= 3);
+
+    assert.equal(logShipping.redactionSelfTest.status, "passed");
+    assert.equal(logShipping.redactionSelfTest.testCaseCount, 4);
+    assert.equal(logShipping.redactionSelfTest.passedTestCaseCount, 4);
+    assert.equal(logShipping.redactionSelfTest.endpointValueReturned, false);
+    assert.equal(logShipping.redactionSelfTest.headersValueReturned, false);
+    assert.equal(logShipping.redactionSelfTest.spoolPathValueReturned, false);
+    assert.equal(logShipping.redactionSelfTest.bodyValueReturned, false);
+    assert.ok(logShipping.redactionSelfTest.cases.every((entry) => entry.inputValueReturned === false));
+    assert.ok(logShipping.redactionSelfTest.cases.every((entry) => entry.redactedText.includes("[REDACTED]")));
 
     const serviceSource = logShipping.sources.find((source) => source.id === "service:log-source:runtime");
     assert.equal(serviceSource.enabled, true);
