@@ -73,6 +73,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-config-editor-api",
+          label: "Service Config Editor API",
+        },
+        {
+          type: "doc",
           id: "reference/config-snapshot",
           label: "Configuration Snapshot",
         },
