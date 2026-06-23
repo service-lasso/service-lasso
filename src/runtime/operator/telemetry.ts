@@ -14,8 +14,10 @@ export type ApiRequestOutcome = "success" | "client_error" | "server_error" | "r
 
 export interface TelemetryAttributePolicy {
   mode: "allowlist";
+  redactedValue: "[REDACTED]";
   allowedAttributes: string[];
   forbiddenFieldClasses: string[];
+  patternClasses: string[];
   omittedFieldExamples: string[];
 }
 
@@ -131,9 +133,11 @@ const allowedTelemetryAttributes = [
 ] as const;
 
 const allowedTelemetryAttributeSet = new Set<string>(allowedTelemetryAttributes);
+const REDACTED = "[REDACTED]";
 
 export const telemetryAttributePolicy: TelemetryAttributePolicy = {
   mode: "allowlist",
+  redactedValue: REDACTED,
   allowedAttributes: [...allowedTelemetryAttributes],
   forbiddenFieldClasses: [
     "raw secret values",
@@ -145,6 +149,15 @@ export const telemetryAttributePolicy: TelemetryAttributePolicy = {
     "raw URL paths and query strings",
     "full file contents",
     "raw service config values",
+  ],
+  patternClasses: [
+    "bearer tokens",
+    "GitHub-style tokens",
+    "AWS access keys",
+    "private key blocks",
+    "basic-auth URLs",
+    "sensitive key-value pairs",
+    "Service Lasso secret regression sentinels",
   ],
   omittedFieldExamples: [
     "env",
@@ -159,6 +172,30 @@ export const telemetryAttributePolicy: TelemetryAttributePolicy = {
     "providerCredential",
   ],
 };
+
+function redactTelemetryString(value: string): string {
+  const patterns: RegExp[] = [
+    /Bearer\s+[A-Za-z0-9._~+/-]{12,}/g,
+    /gh[pousr]_[A-Za-z0-9_]{20,}/g,
+    /AKIA[0-9A-Z]{16}/g,
+    /https?:\/\/[^\s/:]+:[^\s/@]{6,}@/g,
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    /SERVICE_LASSO_FAKE_[A-Z0-9_]*(SECRET|TOKEN|PASSWORD|CREDENTIAL)[A-Z0-9_]*_DO_NOT_USE/g,
+    /\b(api[_-]?key|auth|authorization|bearer|cookie|credential|env|password|private[_-]?key|secret|token)\b\s*[:=]\s*("[^"]+"|'[^']+'|[^\s,;]+)/gi,
+  ];
+  let redacted = value;
+
+  for (const pattern of patterns) {
+    redacted = redacted.replace(pattern, (match, key: string | undefined) => {
+      if (typeof key === "string" && key.length > 0 && /[:=]\s*/.test(match)) {
+        return match.replace(/[:=]\s*("[^"]+"|'[^']+'|[^\s,;]+)/, `=${REDACTED}`);
+      }
+      return REDACTED;
+    });
+  }
+
+  return redacted;
+}
 
 function hashHex(input: string, length: number): string {
   return createHash("sha256").update(input).digest("hex").slice(0, length);
@@ -197,7 +234,7 @@ function allowlistedAttributes(
     if (!allowedTelemetryAttributeSet.has(key) || value === null || value === undefined) {
       continue;
     }
-    result[key] = value;
+    result[key] = typeof value === "string" ? redactTelemetryString(value) : value;
   }
 
   return result;

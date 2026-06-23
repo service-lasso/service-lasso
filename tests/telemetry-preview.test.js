@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { assertNoSecretMaterial } from "../dist/testing/secretLeakHarness.js";
-import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const rawSecretSentinel = "SERVICE_LASSO_FAKE_OTEL_SECRET_SENTINEL_DO_NOT_USE";
 const sentinels = [
@@ -287,6 +287,44 @@ test("POST /api/telemetry/export-test sends only sanitized metadata to a local m
     }
     await apiServer.stop();
     await collector.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry redacts sensitive-looking values even on allowlisted attributes", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-attribute-redaction-");
+  await writeManifest(servicesRoot, "telemetry-redaction", {
+    id: "telemetry-redaction",
+    name: "telemetry-redaction",
+    description: "Fixture with sensitive-looking metadata.",
+    version: rawSecretSentinel,
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.redaction.redactedValue, "[REDACTED]");
+    assert.deepEqual(result.body.telemetry.redaction.patternClasses, [
+      "bearer tokens",
+      "GitHub-style tokens",
+      "AWS access keys",
+      "private key blocks",
+      "basic-auth URLs",
+      "sensitive key-value pairs",
+      "Service Lasso secret regression sentinels",
+    ]);
+    const attributes = result.body.telemetry.services[0].signals[0].attributes;
+    assert.equal(attributes["service.version"], "[REDACTED]");
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

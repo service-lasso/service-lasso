@@ -163,6 +163,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/redacted-telemetry-preview",
+          label: "Redacted Telemetry Preview",
+        },
+        {
+          type: "doc",
           id: "reference/operator-mcp",
           label: "Operator MCP",
         },

@@ -14,7 +14,7 @@ The runtime also includes a bounded in-memory `apiRequests` preview for recent o
 
 ## Redaction Contract
 
-Telemetry attributes use an allowlist. The API may return:
+Telemetry attributes use an allowlist and value-level redaction. The API may return:
 
 - service id, role, enabled state, version, artifact tag, and artifact asset name
 - lifecycle booleans and last lifecycle action
@@ -25,6 +25,8 @@ Telemetry attributes use an allowlist. The API may return:
 - deterministic trace id, span id, and Service Lasso correlation id
 
 The API must not return raw secret values, environment values, provider credentials, cookies, authorization headers, private keys, recovery material, raw URL paths or query strings, raw request/response bodies, full file contents, or raw service config values.
+
+Allowed string attributes are still checked for sensitive-looking content before they are returned or sent to the local mock collector. Bearer tokens, GitHub-style tokens, AWS access keys, private-key blocks, basic-auth URLs, sensitive key/value pairs, and Service Lasso secret regression sentinels are replaced with `[REDACTED]`. This prevents an otherwise allowed field such as service version, artifact metadata, health detail, or provider metadata from carrying secret-shaped values through the preview.
 
 Exporter endpoint values, OTLP headers, and payload bodies are never returned. `/api/telemetry` only reports whether `SERVICE_LASSO_OTEL_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT` make export configured.
 
