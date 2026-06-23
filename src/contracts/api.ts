@@ -825,15 +825,19 @@ export interface ServiceMetricsResponse {
 
 export interface ServiceLogInfoResponse {
   serviceId: string;
-  type: "default";
+  type: "default" | "stdout" | "stderr";
   path: string;
-  availableTypes: ["default"];
+  available: boolean;
+  availableTypes: Array<"default" | "stdout" | "stderr">;
+  sources: ServiceLogSourceResponse[];
 }
 
 export interface ServiceLogChunkResponse {
   serviceId: string;
-  type: "default";
+  type: "default" | "stdout" | "stderr";
   path: string;
+  available: boolean;
+  source: ServiceLogSourceResponse;
   totalLines: number;
   start: number;
   end: number;
@@ -861,7 +865,7 @@ export interface ServiceLogLineResponse {
 
 export interface ServiceLogSearchResponse {
   serviceId: string;
-  type: "default";
+  type: "default" | "stdout" | "stderr";
   path: string;
   query: string;
   includeArchives: boolean;
@@ -871,6 +875,15 @@ export interface ServiceLogSearchResponse {
   hasMore: boolean;
   totalScanned: number;
   matches: ServiceLogLineResponse[];
+}
+
+export interface ServiceLogSourceResponse {
+  kind: "current" | "archive";
+  stream: "combined" | "stdout" | "stderr";
+  runId: string;
+  archiveId?: string;
+  path: string;
+  available: boolean;
 }
 
 export interface RuntimeLogShippingPreviewResponse {

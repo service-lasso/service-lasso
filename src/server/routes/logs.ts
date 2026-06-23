@@ -3,12 +3,14 @@ import type { ServiceLogEntryResponse } from "../../contracts/api.js";
 export interface ServiceLogsResponse {
   logs: {
     serviceId: string;
+    runId: string;
     logPath: string;
     stdoutPath: string;
     stderrPath: string;
     entries: ServiceLogEntryResponse[];
     archives: {
       archiveId: string;
+      runId: string;
       archivedAt: string;
       directoryPath: string;
       logPath: string;

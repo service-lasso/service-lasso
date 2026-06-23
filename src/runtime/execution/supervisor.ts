@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
-import { archiveRuntimeLogs, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
+import { archiveRuntimeLogs, buildServiceRuntimeLogRunId, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 
 export interface ManagedProcessHandle {
@@ -53,12 +53,12 @@ interface StartProcessOptions {
 const managedProcesses = new Map<string, ManagedProcessRecord>();
 const managedProcessFinalizers = new Map<string, Promise<void>>();
 
-async function prepareRuntimeLogStreams(serviceRoot: string): Promise<{
+async function prepareRuntimeLogStreams(serviceRoot: string, startedAt: string): Promise<{
   paths: ServiceRuntimeLogPaths;
   streams: ManagedProcessRecord["logStreams"];
 }> {
   await archiveRuntimeLogs(serviceRoot);
-  const paths = getServiceRuntimeLogPaths(serviceRoot);
+  const paths = getServiceRuntimeLogPaths(serviceRoot, buildServiceRuntimeLogRunId(startedAt));
   await mkdir(path.dirname(paths.logPath), { recursive: true });
 
   return {
@@ -261,7 +261,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   );
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
-  const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot);
+  const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
 
   const child = spawn(executable, args, {
     cwd: workingDirectory,

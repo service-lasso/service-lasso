@@ -50,6 +50,7 @@ import {
   getServiceRuntimeLogPaths,
   readServiceLogChunk,
   searchServiceLogs,
+  type ServiceLogReadType,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import {
@@ -226,6 +227,18 @@ function parseOptionalInteger(value: string | null): number | undefined {
 
 function parseBooleanQuery(value: string | null): boolean {
   return value === "1" || value?.toLocaleLowerCase() === "true";
+}
+
+function parseServiceLogReadType(value: string | null): ServiceLogReadType {
+  if (value === null || value === "default") {
+    return "default";
+  }
+
+  if (value === "stdout" || value === "stderr") {
+    return value;
+  }
+
+  throw new ApiError("invalid_request", 400, "Log type must be one of: default, stdout, stderr.");
 }
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
@@ -1358,14 +1371,10 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/services/log-info") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = url.searchParams.get("type") ?? "default";
+    const type = parseServiceLogReadType(url.searchParams.get("type"));
 
     if (!serviceId) {
       throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
-    }
-
-    if (type !== "default") {
-      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
     }
 
     const service = runtimeModel.registry.getById(serviceId);
@@ -1374,24 +1383,24 @@ async function routeRequest(
       return;
     }
 
-    writeJson(response, 200, createServiceLogInfoResponse(buildServiceLogInfo(service)));
+    writeJson(
+      response,
+      200,
+      createServiceLogInfoResponse(await buildServiceLogInfo(service, type, getLifecycleState(serviceId).runtime.logs.runId ?? "current")),
+    );
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/logs/read") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = url.searchParams.get("type") ?? "default";
+    const type = parseServiceLogReadType(url.searchParams.get("type"));
     const cursorParam = url.searchParams.get("cursor");
     const beforeParam = url.searchParams.get("before");
     const limitParam = url.searchParams.get("limit");
 
     if (!serviceId) {
       throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
-    }
-
-    if (type !== "default") {
-      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
     }
 
     const service = runtimeModel.registry.getById(serviceId);
@@ -1403,14 +1412,18 @@ async function routeRequest(
     const before = parseOptionalInteger(cursorParam) ?? parseOptionalInteger(beforeParam);
     const limit = parseOptionalInteger(limitParam);
 
-    writeJson(response, 200, createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit)));
+    writeJson(
+      response,
+      200,
+      createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit, type, getLifecycleState(serviceId).runtime.logs.runId ?? "current")),
+    );
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/logs/search") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = url.searchParams.get("type") ?? "default";
+    const type = parseServiceLogReadType(url.searchParams.get("type"));
     const query = url.searchParams.get("q") ?? url.searchParams.get("query");
     const cursor = parseOptionalInteger(url.searchParams.get("cursor"));
     const limit = parseOptionalInteger(url.searchParams.get("limit"));
@@ -1418,10 +1431,6 @@ async function routeRequest(
 
     if (!serviceId) {
       throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
-    }
-
-    if (type !== "default") {
-      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
     }
 
     if (query === null || query.trim().length === 0) {
@@ -1437,7 +1446,7 @@ async function routeRequest(
     writeJson(
       response,
       200,
-      createServiceLogSearchResponse(await searchServiceLogs(service, query, { cursor, includeArchives, limit })),
+      createServiceLogSearchResponse(await searchServiceLogs(service, query, { cursor, includeArchives, limit, type })),
     );
     return;
   }
