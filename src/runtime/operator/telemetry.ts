@@ -395,6 +395,13 @@ export function classifyTelemetryRoute(pathname: string): {
     return { routeGroup: "telemetry", routeTemplate: "/api/telemetry", mutating: false };
   }
 
+  if (parts[1] === "log-shipping") {
+    if (parts[2] === "export-test") {
+      return { routeGroup: "log-shipping", routeTemplate: "/api/log-shipping/export-test", mutating: true };
+    }
+    return { routeGroup: "log-shipping", routeTemplate: "/api/log-shipping", mutating: false };
+  }
+
   if (parts[1] === "health") {
     return { routeGroup: "health", routeTemplate: "/api/health", mutating: false };
   }
