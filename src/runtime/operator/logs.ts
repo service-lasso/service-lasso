@@ -9,6 +9,7 @@ export interface ServiceLogEntry {
 }
 
 export interface ServiceRuntimeLogPaths {
+  runId: string;
   logPath: string;
   stdoutPath: string;
   stderrPath: string;
@@ -16,6 +17,7 @@ export interface ServiceRuntimeLogPaths {
 
 export interface ServiceRuntimeLogArchive {
   archiveId: string;
+  runId: string;
   archivedAt: string;
   directoryPath: string;
   logPath: string;
@@ -34,15 +36,19 @@ export interface ServiceLogsPayload extends ServiceRuntimeLogPaths {
 
 export interface ServiceLogInfoPayload {
   serviceId: string;
-  type: "default";
+  type: ServiceLogReadType;
   path: string;
-  availableTypes: ["default"];
+  available: boolean;
+  availableTypes: ServiceLogReadType[];
+  sources: ServiceLogSourceInfo[];
 }
 
 export interface ServiceLogChunkPayload {
   serviceId: string;
-  type: "default";
+  type: ServiceLogReadType;
   path: string;
+  available: boolean;
+  source: ServiceLogSourceInfo;
   totalLines: number;
   start: number;
   end: number;
@@ -70,7 +76,7 @@ export interface ServiceLogLinePayload {
 
 export interface ServiceLogSearchPayload {
   serviceId: string;
-  type: "default";
+  type: ServiceLogReadType;
   path: string;
   query: string;
   includeArchives: boolean;
@@ -87,6 +93,17 @@ interface PersistedRuntimeLogEntry {
   message?: string;
 }
 
+export type ServiceLogReadType = "default" | "stdout" | "stderr";
+
+export interface ServiceLogSourceInfo {
+  kind: "current" | "archive";
+  stream: "combined" | "stdout" | "stderr";
+  runId: string;
+  archiveId?: string;
+  path: string;
+  available: boolean;
+}
+
 export const SERVICE_RUNTIME_LOG_ARCHIVE_RETENTION = 3;
 const DEFAULT_LOG_CHUNK_LIMIT = 100;
 const MAX_LOG_CHUNK_LIMIT = 500;
@@ -99,10 +116,15 @@ export function getServiceRuntimeLogsRoot(serviceRoot: string): string {
   return path.join(serviceRoot, "logs");
 }
 
-export function getServiceRuntimeLogPaths(serviceRoot: string): ServiceRuntimeLogPaths {
+function buildRunId(timestamp = new Date()): string {
+  return timestamp.toISOString().replace(/[:.]/g, "-");
+}
+
+export function getServiceRuntimeLogPaths(serviceRoot: string, runId = "current"): ServiceRuntimeLogPaths {
   const runtimeLogsRoot = path.join(getServiceRuntimeLogsRoot(serviceRoot), "runtime");
 
   return {
+    runId,
     logPath: path.join(runtimeLogsRoot, "service.log"),
     stdoutPath: path.join(runtimeLogsRoot, "stdout.log"),
     stderrPath: path.join(runtimeLogsRoot, "stderr.log"),
@@ -114,7 +136,10 @@ export function getServiceRuntimeArchiveRoot(serviceRoot: string): string {
 }
 
 function getArchiveLogPaths(archiveRoot: string): ServiceRuntimeLogPaths {
+  const runId = path.basename(archiveRoot);
+
   return {
+    runId,
     logPath: path.join(archiveRoot, "service.log"),
     stdoutPath: path.join(archiveRoot, "stdout.log"),
     stderrPath: path.join(archiveRoot, "stderr.log"),
@@ -122,7 +147,7 @@ function getArchiveLogPaths(archiveRoot: string): ServiceRuntimeLogPaths {
 }
 
 function buildArchiveId(timestamp: Date): string {
-  return timestamp.toISOString().replace(/[:.]/g, "-");
+  return buildRunId(timestamp);
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -220,6 +245,19 @@ export async function listRuntimeLogArchives(serviceRoot: string): Promise<Servi
   return pruneRuntimeLogArchives(serviceRoot, SERVICE_RUNTIME_LOG_ARCHIVE_RETENTION);
 }
 
+export function buildServiceRuntimeLogRunId(startedAt?: string | null): string {
+  if (!startedAt) {
+    return buildRunId();
+  }
+
+  const parsed = new Date(startedAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return buildRunId();
+  }
+
+  return buildRunId(parsed);
+}
+
 function buildSyntheticEntries(serviceId: string, lifecycle: ServiceLifecycleState): ServiceLogEntry[] {
   return lifecycle.actionHistory.map((action) => ({
     level: "info" as const,
@@ -263,6 +301,10 @@ async function readRuntimeLogLines(logPath: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+async function runtimeLogAvailable(logPath: string): Promise<boolean> {
+  return pathExists(logPath);
 }
 
 function sanitizePositiveInteger(value: number | undefined, fallback: number, max: number): number {
@@ -319,11 +361,48 @@ function createLogLinePayload(
   };
 }
 
+function getLogPathForType(paths: ServiceRuntimeLogPaths, type: ServiceLogReadType): string {
+  if (type === "stdout") return paths.stdoutPath;
+  if (type === "stderr") return paths.stderrPath;
+  return paths.logPath;
+}
+
+function getStreamForType(type: ServiceLogReadType): ServiceLogSourceInfo["stream"] {
+  if (type === "stdout") return "stdout";
+  if (type === "stderr") return "stderr";
+  return "combined";
+}
+
+async function buildCurrentSourceInfo(
+  paths: ServiceRuntimeLogPaths,
+  type: ServiceLogReadType,
+): Promise<ServiceLogSourceInfo> {
+  const logPath = getLogPathForType(paths, type);
+
+  return {
+    kind: "current",
+    stream: getStreamForType(type),
+    runId: paths.runId,
+    path: logPath,
+    available: await runtimeLogAvailable(logPath),
+  };
+}
+
+async function buildLogSources(
+  paths: ServiceRuntimeLogPaths,
+): Promise<ServiceLogSourceInfo[]> {
+  return Promise.all(
+    (["default", "stdout", "stderr"] as const).map((type) =>
+      buildCurrentSourceInfo(paths, type),
+    ),
+  );
+}
+
 export async function buildServiceLogs(
   service: DiscoveredService,
   lifecycle: ServiceLifecycleState,
 ): Promise<ServiceLogsPayload> {
-  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, lifecycle.runtime.logs.runId ?? "current");
   const capturedEntries = await readRuntimeLogEntries(runtimeLogPaths.logPath);
   const archives = await listRuntimeLogArchives(service.serviceRoot);
 
@@ -338,14 +417,21 @@ export async function buildServiceLogs(
   };
 }
 
-export function buildServiceLogInfo(service: DiscoveredService): ServiceLogInfoPayload {
-  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+export async function buildServiceLogInfo(
+  service: DiscoveredService,
+  type: ServiceLogReadType = "default",
+  runId = "current",
+): Promise<ServiceLogInfoPayload> {
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, runId);
+  const source = await buildCurrentSourceInfo(runtimeLogPaths, type);
 
   return {
     serviceId: service.manifest.id,
-    type: "default",
-    path: runtimeLogPaths.logPath,
-    availableTypes: ["default"],
+    type,
+    path: source.path,
+    available: source.available,
+    availableTypes: ["default", "stdout", "stderr"],
+    sources: await buildLogSources({ ...runtimeLogPaths, runId }),
   };
 }
 
@@ -353,26 +439,40 @@ export async function readServiceLogChunk(
   service: DiscoveredService,
   before?: number,
   limit = DEFAULT_LOG_CHUNK_LIMIT,
+  type: ServiceLogReadType = "default",
+  runId = "current",
 ): Promise<ServiceLogChunkPayload> {
-  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
-  const lines = await readRuntimeLogLines(runtimeLogPaths.logPath);
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, runId);
+  const logPath = getLogPathForType(runtimeLogPaths, type);
+  const source = await buildCurrentSourceInfo(runtimeLogPaths, type);
+  const lines = await readRuntimeLogLines(logPath);
   const totalLines = lines.length;
   const safeLimit = sanitizePositiveInteger(limit, DEFAULT_LOG_CHUNK_LIMIT, MAX_LOG_CHUNK_LIMIT);
   const end = sanitizeCursor(before, totalLines, totalLines);
   const start = Math.max(0, end - safeLimit);
   const slice = lines.slice(start, end);
-  const entries = slice.map((line, index) =>
-    createLogLinePayload(line, {
+  const entries = slice.map((line, index) => {
+    const entry = createLogLinePayload(line, {
       kind: "current",
-      path: runtimeLogPaths.logPath,
+      path: logPath,
       lineNumber: start + index + 1,
-    }),
-  );
+    });
+    return type === "default"
+      ? entry
+      : {
+          ...entry,
+          stream: type,
+          message: truncateLogText(line).text,
+          text: truncateLogText(line).text,
+        };
+  });
 
   return {
     serviceId: service.manifest.id,
-    type: "default",
-    path: runtimeLogPaths.logPath,
+    type,
+    path: logPath,
+    available: source.available,
+    source,
     totalLines,
     start,
     end,
@@ -429,13 +529,27 @@ export async function searchServiceLogs(
     cursor?: number;
     includeArchives?: boolean;
     limit?: number;
+    type?: ServiceLogReadType;
   } = {},
 ): Promise<ServiceLogSearchPayload> {
   const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
+  const type = options.type ?? "default";
   const safeQuery = query.trim().slice(0, MAX_LOG_SEARCH_QUERY_LENGTH);
   const includeArchives = options.includeArchives === true;
   const limit = sanitizePositiveInteger(options.limit, DEFAULT_LOG_SEARCH_LIMIT, MAX_LOG_SEARCH_LIMIT);
-  const lines = await collectSearchableLogLines(service, includeArchives);
+  const lines = type === "default"
+    ? await collectSearchableLogLines(service, includeArchives)
+    : (await readRuntimeLogLines(getLogPathForType(runtimeLogPaths, type))).map((line, index) => ({
+        source: {
+          kind: "current" as const,
+          path: getLogPathForType(runtimeLogPaths, type),
+          lineNumber: index + 1,
+        },
+        stream: type,
+        message: truncateLogText(line).text,
+        text: truncateLogText(line).text,
+        truncated: truncateLogText(line).truncated,
+      }));
   const cursor = sanitizeCursor(options.cursor, 0, lines.length);
   const normalizedQuery = safeQuery.toLocaleLowerCase();
   const matches: ServiceLogLinePayload[] = [];
@@ -457,8 +571,8 @@ export async function searchServiceLogs(
 
   return {
     serviceId: service.manifest.id,
-    type: "default",
-    path: runtimeLogPaths.logPath,
+    type,
+    path: getLogPathForType(runtimeLogPaths, type),
     query: safeQuery,
     includeArchives,
     limit,

@@ -62,6 +62,7 @@ interface StoredRuntimeState {
   lastTermination?: "stopped" | "exited" | "crashed" | null;
   ports?: Record<string, number>;
   logs?: {
+    runId?: string | null;
     logPath?: string | null;
     stdoutPath?: string | null;
     stderrPath?: string | null;
@@ -440,6 +441,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
             )
           : {},
       logs: {
+        runId: typeof runtime?.logs?.runId === "string" ? runtime.logs.runId : null,
         logPath: typeof runtime?.logs?.logPath === "string" ? runtime.logs.logPath : null,
         stdoutPath: typeof runtime?.logs?.stdoutPath === "string" ? runtime.logs.stdoutPath : null,
         stderrPath: typeof runtime?.logs?.stderrPath === "string" ? runtime.logs.stderrPath : null,

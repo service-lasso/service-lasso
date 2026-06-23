@@ -709,6 +709,7 @@ export async function startService(
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       logPath: handle.logs.logPath,
+      runId: handle.logs.runId,
       stdoutPath: handle.logs.stdoutPath,
       stderrPath: handle.logs.stderrPath,
     },
@@ -729,6 +730,7 @@ export async function startService(
       lastTermination: null,
       ports: resolvedPorts,
       logs: {
+        runId: handle.logs.runId,
         logPath: handle.logs.logPath,
         stdoutPath: handle.logs.stdoutPath,
         stderrPath: handle.logs.stderrPath,
@@ -923,6 +925,7 @@ export async function restartService(
       lastTermination: null,
       ports: resolvedPorts,
       logs: {
+        runId: handle.logs.runId,
         logPath: handle.logs.logPath,
         stdoutPath: handle.logs.stdoutPath,
         stderrPath: handle.logs.stderrPath,

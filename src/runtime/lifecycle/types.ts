@@ -118,6 +118,7 @@ export interface ServiceRuntimeState {
   lastTermination: "stopped" | "exited" | "crashed" | null;
   ports: Record<string, number>;
   logs: {
+    runId: string | null;
     logPath: string | null;
     stdoutPath: string | null;
     stderrPath: string | null;
