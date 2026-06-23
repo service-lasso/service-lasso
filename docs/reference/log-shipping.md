@@ -40,6 +40,18 @@ The response is rooted at `logShipping` and includes:
 
 `exportPreview.status` is always `not_sent` for this endpoint.
 
+## Local Mock Export Smoke
+
+`POST /api/log-shipping/export-test` runs an explicit local mock-collector smoke action. It is disabled by default and sends nothing unless all of these are true:
+
+- `SERVICE_LASSO_LOG_SHIPPING_ENABLED=1`
+- `SERVICE_LASSO_LOG_SHIPPING_ENDPOINT` points to a loopback HTTP(S) collector such as `http://127.0.0.1:<port>/ingest`
+- `SERVICE_LASSO_LOG_SHIPPING_MODE=mock-collector`
+
+The response reports status, counts, collector status code, and safety flags. It never returns the endpoint value, headers, spool path, exported payload body, sentinel values, credentials, or raw environment/config material.
+
+When enabled, the action posts only a sanitized JSON envelope containing redacted runtime-log sample metadata and source identifiers to the loopback collector. Non-loopback endpoints are blocked.
+
 ## Redaction Self-Test
 
 `redactionSelfTest` is a deterministic proof object. It exercises representative secret, token, authorization, private-key, and basic-auth patterns through the same redaction helper used for runtime log samples. It returns only redacted output, pattern labels, counts, status, and boolean safety flags.

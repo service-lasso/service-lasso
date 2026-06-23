@@ -69,7 +69,7 @@ import {
   sendRuntimeTelemetryMockExport,
   type ApiRequestTelemetryPreview,
 } from "../runtime/operator/telemetry.js";
-import { buildRuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
+import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
@@ -1967,6 +1967,17 @@ async function routeRequest(
       lifecycle: getLifecycleState(service.manifest.id),
     }));
     writeJson(response, 200, createRuntimeLogShippingPreviewResponse(await buildRuntimeLogShippingPreview(services)));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/log-shipping/export-test") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const services = runtimeModel.discovered.map((service) => ({
+      service,
+      lifecycle: getLifecycleState(service.manifest.id),
+    }));
+    const logShipping = await buildRuntimeLogShippingPreview(services);
+    writeJson(response, 200, { exportTest: await sendRuntimeLogShippingMockExport(logShipping) });
     return;
   }
 

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import path from "node:path";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
@@ -20,6 +21,42 @@ async function getJson(url) {
   return {
     status: response.status,
     body: await response.json(),
+  };
+}
+
+async function startMockCollector() {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.from(chunk));
+    }
+    requests.push({
+      method: request.method,
+      url: request.url,
+      headers: request.headers,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    response.statusCode = 202;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ accepted: true }));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    requests,
+    url: `http://127.0.0.1:${address.port}/ingest`,
+    stop: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
 }
 
@@ -68,6 +105,19 @@ test("GET /api/log-shipping returns disabled-by-default source coverage without 
     assert.equal(result.body.logShipping.redactionSelfTest.bodyValueReturned, false);
     assert.ok(result.body.logShipping.sources.some((source) => source.kind === "service_runtime"));
     assertNoSecretMaterial(result.body, { sentinels });
+
+    const exportResult = await fetch(apiServer.url + "/api/log-shipping/export-test", { method: "POST" });
+    const exportBody = await exportResult.json();
+    assert.equal(exportResult.status, 200);
+    assert.equal(exportBody.exportTest.mode, "disabled");
+    assert.equal(exportBody.exportTest.status, "not_sent");
+    assert.equal(exportBody.exportTest.endpointConfigured, false);
+    assert.equal(exportBody.exportTest.collectorStatusCode, null);
+    assert.equal(exportBody.exportTest.endpointValueReturned, false);
+    assert.equal(exportBody.exportTest.headersValueReturned, false);
+    assert.equal(exportBody.exportTest.spoolPathValueReturned, false);
+    assert.equal(exportBody.exportTest.bodyValueReturned, false);
+    assertNoSecretMaterial(exportBody, { sentinels });
   } finally {
     await apiServer.stop();
     restoreEnv(previousEnv);
@@ -158,6 +208,96 @@ test("GET /api/log-shipping dry-run previews redacted runtime log samples and so
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {
     await apiServer.stop();
+    restoreEnv(previousEnv);
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/log-shipping/export-test sends only redacted samples to a local mock collector", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-log-shipping-export-test-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "log-export", {
+    env: {
+      SERVICE_TOKEN: rawSecretSentinel,
+    },
+    config: {
+      files: [
+        {
+          path: "config/logging.env",
+          content: "SECRET=" + rawSecretSentinel,
+        },
+      ],
+    },
+  });
+  const runtimeLogRoot = path.join(serviceRoot, "logs", "runtime");
+  await mkdir(runtimeLogRoot, { recursive: true });
+  await writeFile(
+    path.join(runtimeLogRoot, "service.log"),
+    [
+      JSON.stringify({ level: "stdout", message: "ready for mock collector" }),
+      JSON.stringify({ level: "stderr", message: `password=${rawSecretSentinel}` }),
+      `https://operator:${rawSecretSentinel}@logs.example.invalid/ingest`,
+    ].join("\n") + "\n",
+  );
+
+  const collector = await startMockCollector();
+  const envKeys = [
+    "SERVICE_LASSO_LOG_SHIPPING_ENABLED",
+    "SERVICE_LASSO_LOG_SHIPPING_SINK",
+    "SERVICE_LASSO_LOG_SHIPPING_ENDPOINT",
+    "SERVICE_LASSO_LOG_SHIPPING_HEADERS",
+    "SERVICE_LASSO_LOG_SHIPPING_SPOOL_DIR",
+    "SERVICE_LASSO_LOG_SHIPPING_MODE",
+    "SERVICE_LASSO_LOG_SHIPPING_SOURCES",
+  ];
+  const previousEnv = snapshotEnv(envKeys);
+  process.env.SERVICE_LASSO_LOG_SHIPPING_ENABLED = "1";
+  process.env.SERVICE_LASSO_LOG_SHIPPING_SINK = "openobserve";
+  process.env.SERVICE_LASSO_LOG_SHIPPING_ENDPOINT = collector.url + "?token=" + rawSecretSentinel;
+  process.env.SERVICE_LASSO_LOG_SHIPPING_HEADERS = "authorization=Bearer " + rawSecretSentinel;
+  process.env.SERVICE_LASSO_LOG_SHIPPING_SPOOL_DIR = path.join(tempRoot, "spool", rawSecretSentinel);
+  process.env.SERVICE_LASSO_LOG_SHIPPING_MODE = "mock-collector";
+  process.env.SERVICE_LASSO_LOG_SHIPPING_SOURCES = "service_runtime";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(apiServer.url + "/api/log-shipping/export-test", { method: "POST" });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.exportTest, {
+      mode: "mock_collector",
+      status: "sent",
+      sinkType: "openobserve",
+      contentType: "application/json",
+      sourceCount: 5,
+      recordCountEstimate: 3,
+      sampleRecordCount: 3,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersValueReturned: false,
+      spoolPathValueReturned: false,
+      bodyValueReturned: false,
+      localCollectorOnly: true,
+      collectorStatusCode: 202,
+      reason: "Redacted log-shipping sample metadata was sent to the configured local mock collector.",
+    });
+    assert.equal(collector.requests.length, 1);
+    assert.equal(collector.requests[0].method, "POST");
+    assert.match(collector.requests[0].headers["content-type"], /application\/json/);
+
+    const payload = JSON.parse(collector.requests[0].body);
+    assert.equal(payload.contractVersion, "service-lasso.log-shipping.v1");
+    assert.equal(payload.sinkType, "openobserve");
+    assert.equal(payload.mode, "mock_collector");
+    assert.equal(payload.records.length, 3);
+    assert.ok(payload.records.some((record) => record.redactedText.includes("[REDACTED]")));
+    assert.equal(JSON.stringify(body).includes("records"), false);
+    assertNoSecretMaterial(body, { sentinels });
+    assertNoSecretMaterial(payload, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await collector.stop();
     restoreEnv(previousEnv);
     await rm(tempRoot, { recursive: true, force: true });
   }

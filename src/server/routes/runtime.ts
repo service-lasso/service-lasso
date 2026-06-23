@@ -93,9 +93,9 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
   {
     id: "log-shipping",
     label: "Log shipping preview",
-    methods: ["GET"],
+    methods: ["GET", "POST"],
     pathPrefix: "/api/log-shipping",
-    mutating: false,
+    mutating: true,
   },
   {
     id: "operator-mcp",

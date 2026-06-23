@@ -8,6 +8,8 @@ export const LOG_SHIPPING_CONTRACT_VERSION = "service-lasso.log-shipping.v1";
 export type LogShippingSinkType = "openobserve" | "otlp-http" | "generic-http" | "filebeat";
 export type LogShippingSinkStatus = "disabled" | "configured";
 export type LogShippingPreviewMode = "disabled" | "dry_run";
+export type LogShippingExportTestMode = "disabled" | "mock_collector";
+export type LogShippingExportTestStatus = "not_sent" | "sent" | "failed" | "blocked";
 export type LogShippingSourceKind =
   | "core_runtime"
   | "service_runtime"
@@ -97,6 +99,24 @@ export interface LogShippingExportPreview {
   reason: string;
 }
 
+export interface LogShippingExportTestResult {
+  mode: LogShippingExportTestMode;
+  status: LogShippingExportTestStatus;
+  sinkType: LogShippingSinkType;
+  contentType: "application/json";
+  sourceCount: number;
+  recordCountEstimate: number;
+  sampleRecordCount: number;
+  endpointConfigured: boolean;
+  endpointValueReturned: false;
+  headersValueReturned: false;
+  spoolPathValueReturned: false;
+  bodyValueReturned: false;
+  localCollectorOnly: true;
+  collectorStatusCode: number | null;
+  reason: string;
+}
+
 export interface RuntimeLogShippingPreview {
   contractVersion: typeof LOG_SHIPPING_CONTRACT_VERSION;
   sink: LogShippingSinkPreview;
@@ -105,6 +125,24 @@ export interface RuntimeLogShippingPreview {
   sampleRecords: LogShippingSampleRecord[];
   redactionSelfTest: LogShippingRedactionSelfTest;
   exportPreview: LogShippingExportPreview;
+}
+
+export interface LogShippingExportPayload {
+  contractVersion: typeof LOG_SHIPPING_CONTRACT_VERSION;
+  sinkType: LogShippingSinkType;
+  mode: "mock_collector";
+  sources: Array<{
+    id: string;
+    kind: LogShippingSourceKind;
+    serviceId: string | null;
+    status: LogShippingSourcePreview["status"];
+  }>;
+  records: Array<{
+    sourceId: string;
+    stream: LogShippingSampleRecord["stream"];
+    redactedText: string;
+    redacted: boolean;
+  }>;
 }
 
 const REDACTED = "[REDACTED]";
@@ -231,6 +269,23 @@ function readSinkPreviewFromEnv(env: NodeJS.ProcessEnv): LogShippingSinkPreview 
 function readPreviewMode(env: NodeJS.ProcessEnv, sink: LogShippingSinkPreview): LogShippingPreviewMode {
   const requestedMode = String(env.SERVICE_LASSO_LOG_SHIPPING_MODE ?? "").trim().toLowerCase();
   return sink.status === "configured" && requestedMode === "dry-run" ? "dry_run" : "disabled";
+}
+
+function readExportTestMode(env: NodeJS.ProcessEnv, sink: LogShippingSinkPreview): LogShippingExportTestMode {
+  const requestedMode = String(env.SERVICE_LASSO_LOG_SHIPPING_MODE ?? "").trim().toLowerCase();
+  return sink.status === "configured" && requestedMode === "mock-collector" ? "mock_collector" : "disabled";
+}
+
+function isLoopbackEndpoint(endpoint: string): boolean {
+  try {
+    const parsed = new URL(endpoint);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function truncateText(value: string): string {
@@ -406,6 +461,106 @@ function buildExportPreview(
         ? "Dry-run shipping preview is ready; this API does not transmit records."
         : "Log shipping remains disabled; set SERVICE_LASSO_LOG_SHIPPING_ENABLED, SERVICE_LASSO_LOG_SHIPPING_ENDPOINT, and SERVICE_LASSO_LOG_SHIPPING_MODE=dry-run to preview a redacted shipping envelope.",
   };
+}
+
+export function buildLogShippingExportPayload(preview: RuntimeLogShippingPreview): LogShippingExportPayload {
+  return {
+    contractVersion: preview.contractVersion,
+    sinkType: preview.sink.type,
+    mode: "mock_collector",
+    sources: preview.sources
+      .filter((source) => source.enabled)
+      .map((source) => ({
+        id: source.id,
+        kind: source.kind,
+        serviceId: source.serviceId,
+        status: source.status,
+      })),
+    records: preview.sampleRecords.map((record) => ({
+      sourceId: record.sourceId,
+      stream: record.stream,
+      redactedText: record.text,
+      redacted: record.redacted,
+    })),
+  };
+}
+
+export async function sendRuntimeLogShippingMockExport(
+  preview: RuntimeLogShippingPreview,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LogShippingExportTestResult> {
+  const mode = readExportTestMode(env, preview.sink);
+  const endpoint = String(env.SERVICE_LASSO_LOG_SHIPPING_ENDPOINT ?? "").trim();
+  const recordCountEstimate = preview.sources.reduce((count, source) => count + source.queuedRecordEstimate, 0);
+  const baseResult = {
+    mode,
+    sinkType: preview.sink.type,
+    contentType: "application/json" as const,
+    sourceCount: preview.sources.length,
+    recordCountEstimate,
+    sampleRecordCount: preview.sampleRecords.length,
+    endpointConfigured: preview.sink.endpointConfigured,
+    endpointValueReturned: false as const,
+    headersValueReturned: false as const,
+    spoolPathValueReturned: false as const,
+    bodyValueReturned: false as const,
+    localCollectorOnly: true as const,
+  };
+
+  if (mode !== "mock_collector") {
+    return {
+      ...baseResult,
+      status: "not_sent",
+      collectorStatusCode: null,
+      reason:
+        "Mock collector log shipping is disabled; set SERVICE_LASSO_LOG_SHIPPING_ENABLED, SERVICE_LASSO_LOG_SHIPPING_ENDPOINT, and SERVICE_LASSO_LOG_SHIPPING_MODE=mock-collector to run a local export smoke test.",
+    };
+  }
+
+  if (!isLoopbackEndpoint(endpoint)) {
+    return {
+      ...baseResult,
+      status: "blocked",
+      collectorStatusCode: null,
+      reason: "Mock collector log shipping only sends to loopback HTTP(S) endpoints.",
+    };
+  }
+
+  if (preview.redactionSelfTest.status !== "passed") {
+    return {
+      ...baseResult,
+      status: "blocked",
+      collectorStatusCode: null,
+      reason: "Mock collector log shipping is blocked because the redaction self-test did not pass.",
+    };
+  }
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(buildLogShippingExportPayload(preview)),
+    });
+
+    return {
+      ...baseResult,
+      status: response.ok ? "sent" : "failed",
+      collectorStatusCode: response.status,
+      reason: response.ok
+        ? "Redacted log-shipping sample metadata was sent to the configured local mock collector."
+        : "The configured local mock collector returned a non-success response.",
+    };
+  } catch (error) {
+    return {
+      ...baseResult,
+      status: "failed",
+      collectorStatusCode: null,
+      reason: `Mock collector log shipping failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 function buildRedactionSelfTest(): LogShippingRedactionSelfTest {
