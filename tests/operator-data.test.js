@@ -166,6 +166,97 @@ test("service meta routes persist favorites and dependency graph layout across r
   }
 });
 
+test("service config editor routes read, validate, save, and retain backups", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-config-editor-");
+  await writeManifest(servicesRoot, "editable-service", {
+    id: "editable-service",
+    name: "Editable Service",
+    description: "Service with editable manifest.",
+    env: {
+      TOKEN_REF: "secret://editable-service/token",
+    },
+    healthcheck: { type: "process" },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const readResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`);
+    const readBody = await readResponse.json();
+
+    assert.equal(readResponse.status, 200);
+    assert.equal(readBody.serviceId, "editable-service");
+    assert.equal(readBody.fileName, "server.json");
+    assert.match(readBody.path, /service\.json$/);
+    assert.match(readBody.content, /Editable Service/);
+    assert.equal(readBody.safety.rawSecretValuesLoaded, false);
+    assert.deepEqual(readBody.revisions, []);
+
+    const invalidResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "{not-json" }),
+    });
+    const invalidBody = await invalidResponse.json();
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(invalidBody.error, "invalid_body");
+
+    const nextContent = JSON.stringify(
+      {
+        id: "editable-service",
+        name: "Editable Service",
+        description: "Updated safely from Service Admin.",
+        enabled: true,
+        env: {
+          TOKEN_REF: "secret://editable-service/token",
+        },
+        healthcheck: { type: "process" },
+      },
+      null,
+      2,
+    );
+    const saveResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        content: nextContent,
+        actor: "service-admin-test",
+        reason: "operator config editor save test",
+      }),
+    });
+    const saveBody = await saveResponse.json();
+
+    assert.equal(saveResponse.status, 200);
+    assert.equal(saveBody.serviceId, "editable-service");
+    assert.equal(saveBody.validationStatus, "valid");
+    assert.equal(saveBody.backup.actor, "service-admin-test");
+    assert.equal(saveBody.backup.reason, "operator config editor save test");
+    assert.equal(saveBody.backup.validationStatus, "valid");
+    assert.match(saveBody.backup.content, /Editable Service/);
+    assert.match(saveBody.backup.content, /secret:\/\/editable-service\/token/);
+
+    const updatedManifest = JSON.parse(await readFile(path.join(servicesRoot, "editable-service", "service.json"), "utf8"));
+    assert.equal(updatedManifest.description, "Updated safely from Service Admin.");
+
+    const backupsResponse = await fetch(`${apiServer.url}/api/services/editable-service/config/backups`);
+    const backupsBody = await backupsResponse.json();
+    assert.equal(backupsResponse.status, 200);
+    assert.equal(backupsBody.revisions.length, 1);
+    assert.equal(backupsBody.revisions[0].id, saveBody.backup.id);
+    assert.equal(backupsBody.revisions[0].previousHash, saveBody.backup.previousHash);
+
+    const rereadResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`);
+    const rereadBody = await rereadResponse.json();
+    assert.equal(rereadResponse.status, 200);
+    assert.equal(rereadBody.backupCount, 1);
+    assert.match(rereadBody.content, /Updated safely from Service Admin/);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("managed stdout/stderr are captured into runtime-owned log files and surfaced through API/state", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-logs-");

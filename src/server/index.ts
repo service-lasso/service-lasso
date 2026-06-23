@@ -82,6 +82,11 @@ import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-s
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import {
+  listServiceConfigRevisions,
+  readServiceConfigDocument,
+  saveServiceConfigDocument,
+} from "../runtime/operator/service-config-editor.js";
+import {
   buildSecretProviderAuthRequiredSummary,
   buildSecretReferenceAudit,
   buildSecretRotationReadinessReport,
@@ -419,6 +424,38 @@ function parseUpdateInstallBody(input: unknown): { force?: boolean } {
 
   return {
     force: typeof candidate.force === "boolean" ? candidate.force : undefined,
+  };
+}
+
+function parseServiceConfigSaveBody(input: unknown): { content: string; actor?: string; reason?: string | null } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Service config save body must be a JSON object.");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (typeof candidate.content !== "string") {
+    throw new ApiError("invalid_body", 400, '"content" must be a JSON string.');
+  }
+  if (candidate.actor !== undefined && candidate.actor !== null && typeof candidate.actor !== "string") {
+    throw new ApiError("invalid_body", 400, '"actor" must be a string when present.');
+  }
+  if (candidate.reason !== undefined && candidate.reason !== null && typeof candidate.reason !== "string") {
+    throw new ApiError("invalid_body", 400, '"reason" must be a string or null when present.');
+  }
+
+  try {
+    const parsed = JSON.parse(candidate.content) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("not_object");
+    }
+  } catch {
+    throw new ApiError("invalid_body", 400, '"content" must be a valid JSON object string.');
+  }
+
+  return {
+    content: candidate.content,
+    actor: typeof candidate.actor === "string" ? candidate.actor : undefined,
+    reason: typeof candidate.reason === "string" ? candidate.reason : null,
   };
 }
 
@@ -1532,6 +1569,26 @@ async function routeRequest(
         200,
         createServiceNetworkResponse(buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts)),
       );
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "config") {
+      writeJson(response, 200, await readServiceConfigDocument(service, config.workspaceRoot));
+      return;
+    }
+
+    if (request.method === "PUT" && pathParts.length === 4 && pathParts[3] === "config") {
+      const body = parseServiceConfigSaveBody(await readJsonBody(request));
+      writeJson(response, 200, await saveServiceConfigDocument(service, config.workspaceRoot, body));
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "config" && pathParts[4] === "backups") {
+      writeJson(response, 200, {
+        serviceId,
+        fileName: "server.json",
+        revisions: await listServiceConfigRevisions(service, config.workspaceRoot),
+      });
       return;
     }
 
