@@ -1064,6 +1064,7 @@ async function routeRequest(
   config: ApiRouteConfig,
   workflowRunFacadeState: WorkflowRunFacadeState,
   apiRequestTelemetry: ApiRequestTelemetryPreview[],
+  getApiRequestTelemetryDroppedCount: () => number,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
@@ -1944,7 +1945,16 @@ async function routeRequest(
         return buildServiceTelemetryPreview(service, lifecycle, health);
       }),
     );
-    writeJson(response, 200, createRuntimeTelemetryPreviewResponse(buildRuntimeTelemetryPreview(services, apiRequestTelemetry)));
+    writeJson(
+      response,
+      200,
+      createRuntimeTelemetryPreviewResponse(
+        buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
+          capacity: API_TELEMETRY_BUFFER_LIMIT,
+          droppedCount: getApiRequestTelemetryDroppedCount(),
+        }),
+      ),
+    );
     return;
   }
 
@@ -1958,7 +1968,10 @@ async function routeRequest(
         return buildServiceTelemetryPreview(service, lifecycle, health);
       }),
     );
-    const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry);
+    const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
+      capacity: API_TELEMETRY_BUFFER_LIMIT,
+      droppedCount: getApiRequestTelemetryDroppedCount(),
+    });
     writeJson(response, 200, { exportTest: await sendRuntimeTelemetryMockExport(telemetry) });
     return;
   }
@@ -1999,6 +2012,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetry: ApiRequestTelemetryPreview[] = [];
+  let apiRequestTelemetryDroppedCount = 0;
 
   return createServer((request, response) => {
     const startedAt = performance.now();
@@ -2019,11 +2033,20 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
         identity: telemetryIdentity,
       }));
       if (apiRequestTelemetry.length > API_TELEMETRY_BUFFER_LIMIT) {
-        apiRequestTelemetry.splice(0, apiRequestTelemetry.length - API_TELEMETRY_BUFFER_LIMIT);
+        const overflowCount = apiRequestTelemetry.length - API_TELEMETRY_BUFFER_LIMIT;
+        apiRequestTelemetry.splice(0, overflowCount);
+        apiRequestTelemetryDroppedCount += overflowCount;
       }
     });
 
-    void routeRequest(request, response, routeConfig, workflowRunFacadeState, apiRequestTelemetry).catch((error: unknown) => {
+    void routeRequest(
+      request,
+      response,
+      routeConfig,
+      workflowRunFacadeState,
+      apiRequestTelemetry,
+      () => apiRequestTelemetryDroppedCount,
+    ).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });

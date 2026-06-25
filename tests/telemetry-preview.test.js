@@ -135,6 +135,13 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
     assert.equal(result.body.telemetry.exporter.endpointValueReturned, false);
     assert.equal(result.body.telemetry.exporter.headersValueReturned, false);
     assert.deepEqual(result.body.telemetry.apiRequests, []);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 0,
+      droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
     assert.deepEqual(result.body.telemetry.exportPreview, {
       mode: "dry_run",
       status: "not_sent",
@@ -373,6 +380,13 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
     assert.equal(result.body.telemetry.apiRequests[2].signal.correlationId, healthCorrelationId);
     assert.equal(result.body.telemetry.apiRequests[2].signal.traceId, healthTraceId);
     assert.equal(result.body.telemetry.exportPreview.signalCount, 6);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 3,
+      droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {
@@ -405,6 +419,13 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
     assert.equal(result.body.telemetry.exportPreview.endpointValueReturned, false);
     assert.equal(result.body.telemetry.exportPreview.headersValueReturned, false);
     assert.equal(result.body.telemetry.exportPreview.bodyValueReturned, false);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 0,
+      droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
     assert.match(result.body.telemetry.exportPreview.reason, /OTLP export remains disabled/i);
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
@@ -436,6 +457,44 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
     } else {
       process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
     }
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports bounded API request buffer metadata without raw request material", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-buffer-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-buffer", {});
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (let index = 0; index < 55; index += 1) {
+      const response = await fetch(
+        apiServer.url + "/api/health?token=" + encodeURIComponent(rawSecretSentinel) + "&index=" + index,
+      );
+      assert.equal(response.status, 200);
+    }
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 50,
+      droppedCount: 5,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.equal(result.body.telemetry.apiRequests.length, 50);
+    assert.equal(
+      result.body.telemetry.apiRequests.every((request) => request.routeTemplate === "/api/health"),
+      true,
+    );
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 53);
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }

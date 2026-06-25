@@ -97,12 +97,21 @@ export interface ApiRequestTelemetryPreview {
   signal: TelemetrySignalPreview;
 }
 
+export interface ApiRequestTelemetryBufferPreview {
+  capacity: number;
+  retainedCount: number;
+  droppedCount: number;
+  routeTemplateOnly: true;
+  rawMaterialReturned: false;
+}
+
 export interface RuntimeTelemetryPreview {
   contractVersion: typeof TELEMETRY_PREVIEW_CONTRACT_VERSION;
   exporter: TelemetryExporterPreview;
   resource: TelemetryResourcePreview;
   redaction: TelemetryAttributePolicy;
   exportPreview: TelemetryExportEnvelopePreview;
+  apiRequestBuffer: ApiRequestTelemetryBufferPreview;
   apiRequests: ApiRequestTelemetryPreview[];
   services: ServiceTelemetryPreview[];
 }
@@ -733,6 +742,7 @@ function buildTelemetryExportEnvelopePreview(
 export function buildRuntimeTelemetryPreview(
   services: ServiceTelemetryPreview[],
   apiRequests: ApiRequestTelemetryPreview[] = [],
+  apiRequestBuffer?: Partial<Pick<ApiRequestTelemetryBufferPreview, "capacity" | "droppedCount">>,
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeTelemetryPreview {
   const exporter = readExporterPreviewFromEnv(env);
@@ -754,6 +764,13 @@ export function buildRuntimeTelemetryPreview(
       telemetryAttributePolicy,
       env,
     ),
+    apiRequestBuffer: {
+      capacity: apiRequestBuffer?.capacity ?? apiRequests.length,
+      retainedCount: apiRequests.length,
+      droppedCount: apiRequestBuffer?.droppedCount ?? 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    },
     apiRequests,
     services,
   };
