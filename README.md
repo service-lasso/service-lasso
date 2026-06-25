@@ -90,7 +90,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | `@python` | release-backed Python runtime provider | acquired from [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) release `2026.4.27-63f915c` on supported hosts; the current pinned release is Windows-only, so other platforms report an explicit unsupported-platform skip instead of a broken install; installed/configured but not launched as a daemon when supported |
 | `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.6.25-337fd83`; started as a managed daemon with HTTP `/health` |
 | `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.6.25-4bee563` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.6.25-5a630a0` |
 
 Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage, but the canonical baseline and demo instance install the production baseline service set. `@archive` and supported `@python` artifacts are part of that baseline so archive-capable and Python-backed services can rely on prepared providers instead of fixture-only installs.
 
