@@ -340,25 +340,39 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
       apiServer.url + "/api/services/" + encodeURIComponent(rawSecretSentinel) + "/health?token=" + rawSecretSentinel,
     );
     assert.equal(missingService.status, 404);
+    const missingServiceCorrelationId = missingService.headers.get("x-service-lasso-correlation-id");
+    const missingServiceTraceId = missingService.headers.get("x-service-lasso-trace-id");
+    assert.match(missingServiceCorrelationId, /^sl-[a-f0-9]{16}$/);
+    assert.match(missingServiceTraceId, /^[a-f0-9]{32}$/);
 
     const health = await getJson(apiServer.url + "/api/health?token=" + rawSecretSentinel);
     assert.equal(health.status, 200);
+    const healthResponse = await fetch(apiServer.url + "/api/health");
+    assert.equal(healthResponse.status, 200);
+    const healthCorrelationId = healthResponse.headers.get("x-service-lasso-correlation-id");
+    const healthTraceId = healthResponse.headers.get("x-service-lasso-trace-id");
+    assert.match(healthCorrelationId, /^sl-[a-f0-9]{16}$/);
+    assert.match(healthTraceId, /^[a-f0-9]{32}$/);
 
     const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.telemetry.apiRequests.length, 2);
+    assert.equal(result.body.telemetry.apiRequests.length, 3);
     assert.deepEqual(
       result.body.telemetry.apiRequests.map((request) => request.routeTemplate),
-      ["/api/services/{serviceId}/health", "/api/health"],
+      ["/api/services/{serviceId}/health", "/api/health", "/api/health"],
     );
     assert.deepEqual(
       result.body.telemetry.apiRequests.map((request) => request.signal.attributes["http.response.status_class"]),
-      ["4xx", "2xx"],
+      ["4xx", "2xx", "2xx"],
     );
     assert.equal(result.body.telemetry.apiRequests[0].signal.attributes["service.operation.outcome"], "client_error");
     assert.equal(result.body.telemetry.apiRequests[1].signal.attributes["service.operation.outcome"], "success");
-    assert.equal(result.body.telemetry.exportPreview.signalCount, 5);
+    assert.equal(result.body.telemetry.apiRequests[0].signal.correlationId, missingServiceCorrelationId);
+    assert.equal(result.body.telemetry.apiRequests[0].signal.traceId, missingServiceTraceId);
+    assert.equal(result.body.telemetry.apiRequests[2].signal.correlationId, healthCorrelationId);
+    assert.equal(result.body.telemetry.apiRequests[2].signal.traceId, healthTraceId);
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 6);
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {

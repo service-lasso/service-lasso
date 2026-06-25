@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
 
 export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-preview.v1";
+export const TELEMETRY_CORRELATION_ID_HEADER = "x-service-lasso-correlation-id";
+export const TELEMETRY_TRACE_ID_HEADER = "x-service-lasso-trace-id";
 
 export type TelemetryExporterStatus = "disabled" | "configured";
 export type TelemetryExportMode = "disabled" | "dry_run";
@@ -76,6 +78,12 @@ export interface TelemetrySignalPreview {
   spanId: string;
   correlationId: string;
   attributes: Record<string, string | number | boolean>;
+}
+
+export interface ApiRequestTelemetryIdentity {
+  traceId: string;
+  spanId: string;
+  correlationId: string;
 }
 
 export interface ServiceTelemetryPreview {
@@ -225,6 +233,14 @@ function requestCorrelationIdFor(routeTemplate: string, method: string): string 
   return `sl-${hashHex(`service-lasso:api-correlation:${method}:${routeTemplate}`, 16)}`;
 }
 
+export function createApiRequestTelemetryIdentity(seed = randomUUID()): ApiRequestTelemetryIdentity {
+  return {
+    traceId: hashHex(`service-lasso:api-request-trace:${seed}`, 32),
+    spanId: hashHex(`service-lasso:api-request-span:${seed}`, 16),
+    correlationId: `sl-${hashHex(`service-lasso:api-request-correlation:${seed}`, 16)}`,
+  };
+}
+
 function allowlistedAttributes(
   attributes: Record<string, string | number | boolean | null | undefined>,
 ): Record<string, string | number | boolean> {
@@ -300,6 +316,7 @@ export interface ApiRequestTelemetryInput {
   mutating: boolean;
   statusCode: number;
   durationMs: number;
+  identity?: ApiRequestTelemetryIdentity;
 }
 
 export function classifyTelemetryRoute(pathname: string): {
@@ -447,9 +464,9 @@ export function buildApiRequestTelemetryPreview(input: ApiRequestTelemetryInput)
     signal: {
       kind: "span",
       name: "service_lasso.api.request",
-      traceId: requestTraceIdFor(input.routeTemplate, method),
-      spanId: requestSpanIdFor(input.routeTemplate, method, input.statusCode),
-      correlationId: requestCorrelationIdFor(input.routeTemplate, method),
+      traceId: input.identity?.traceId ?? requestTraceIdFor(input.routeTemplate, method),
+      spanId: input.identity?.spanId ?? requestSpanIdFor(input.routeTemplate, method, input.statusCode),
+      correlationId: input.identity?.correlationId ?? requestCorrelationIdFor(input.routeTemplate, method),
       attributes: allowlistedAttributes({
         "http.request.method": method,
         "http.route": input.routeTemplate,

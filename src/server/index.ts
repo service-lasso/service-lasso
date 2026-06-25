@@ -63,10 +63,13 @@ import { buildOperatorNotifications } from "../runtime/operator/notifications.js
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import {
   buildApiRequestTelemetryPreview,
+  createApiRequestTelemetryIdentity,
   buildRuntimeTelemetryPreview,
   buildServiceTelemetryPreview,
   classifyTelemetryRoute,
   sendRuntimeTelemetryMockExport,
+  TELEMETRY_CORRELATION_ID_HEADER,
+  TELEMETRY_TRACE_ID_HEADER,
   type ApiRequestTelemetryPreview,
 } from "../runtime/operator/telemetry.js";
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
@@ -2001,6 +2004,9 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     const startedAt = performance.now();
     const method = request.method ?? "GET";
     const route = classifyTelemetryRoute(new URL(request.url ?? "/", "http://localhost").pathname);
+    const telemetryIdentity = createApiRequestTelemetryIdentity();
+    response.setHeader(TELEMETRY_CORRELATION_ID_HEADER, telemetryIdentity.correlationId);
+    response.setHeader(TELEMETRY_TRACE_ID_HEADER, telemetryIdentity.traceId);
 
     response.once("finish", () => {
       apiRequestTelemetry.push(buildApiRequestTelemetryPreview({
@@ -2010,6 +2016,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
         mutating: route.mutating || isMutatingHttpMethod(method),
         statusCode: response.statusCode,
         durationMs: performance.now() - startedAt,
+        identity: telemetryIdentity,
       }));
       if (apiRequestTelemetry.length > API_TELEMETRY_BUFFER_LIMIT) {
         apiRequestTelemetry.splice(0, apiRequestTelemetry.length - API_TELEMETRY_BUFFER_LIMIT);
