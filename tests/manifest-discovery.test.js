@@ -271,7 +271,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   });
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
-  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.6.25-e3c180e");
+  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.6.25-a2227c8");
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
