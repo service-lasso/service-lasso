@@ -8,7 +8,7 @@ GET /api/services/{serviceId}/telemetry
 POST /api/telemetry/export-test
 ```
 
-The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
+The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
 
 The runtime also includes a bounded in-memory `apiRequests` preview for recent operator/API request outcomes. These entries use route templates and status classes only, such as `/api/services/{serviceId}/health` and `2xx`; they do not include raw URL paths, query strings, headers, request bodies, or response bodies.
 
@@ -46,6 +46,7 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - operation phase, outcome, and duration/count metadata
 - safe runtime operation count metadata for launches, stops, exits, crashes, and restarts
 - safe health-history transition count metadata for total, healthy, unhealthy, and flapping transitions
+- safe dependency-readiness count metadata for declared, present, and missing dependencies
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
 - safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, and outcome counts
@@ -61,6 +62,8 @@ Start-trace phase signals use the `service_lasso.service.start_trace_event` name
 Runtime operation count signals use the `service_lasso.service.runtime.operation_count` name. They expose one metric each for launch, stop, exit, crash, and restart counts using the existing lifecycle runtime counters. These metrics do not include process command lines, pids, log paths, exit messages, raw paths, environment values, credentials, or secret/config material.
 
 Health-history transition count signals use the `service_lasso.service.health.transition_count` name. They expose one metric each for total, healthy, unhealthy, and flapping transition counts using persisted health history counts only. These metrics do not include transition details, observed targets, raw paths, URLs, variable expressions, health detail text, environment values, credentials, or secret/config material.
+
+Dependency-readiness count signals use the `service_lasso.service.dependency.readiness_count` name. They expose one metric each for declared, present, and missing dependency counts using the service manifest dependency list and current runtime registry only. They do not include dependency lists, missing dependency IDs, dependency paths, route URLs, variable expressions, environment values, credentials, or secret/config material.
 
 Exporter endpoint values, OTLP headers, and payload bodies are never returned. `/api/telemetry` only reports whether `SERVICE_LASSO_OTEL_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT` make export configured.
 
@@ -84,7 +87,7 @@ Exporter endpoint values, OTLP headers, and payload bodies are never returned. `
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is configured to a loopback HTTP(S) endpoint.
 - `SERVICE_LASSO_OTEL_EXPORT_MODE=mock-collector`.
 
-The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime duration/count, health-history transition count, start-trace, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, or operator-supplied OTLP headers.
+The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime duration/count, health-history transition count, dependency-readiness count, start-trace, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, or operator-supplied OTLP headers.
 
 The API response reports only safe proof fields: mode, status, protocol, signal count, service count, collector status code, local-only enforcement, and redaction booleans. It never returns the endpoint value, headers, or exported payload body.
 

@@ -443,6 +443,42 @@ function healthTransitionCountSignals(
   });
 }
 
+function dependencyReadinessCountSignals(
+  serviceId: string,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+  dependencyIds: string[],
+  knownServiceIds: ReadonlySet<string>,
+): TelemetrySignalPreview[] {
+  const uniqueDependencyIds = [...new Set(dependencyIds)].sort((left, right) => left.localeCompare(right));
+  const presentCount = uniqueDependencyIds.filter((dependencyId) => knownServiceIds.has(dependencyId)).length;
+  const counts = [
+    ["declared", uniqueDependencyIds.length],
+    ["present", presentCount],
+    ["missing", uniqueDependencyIds.length - presentCount],
+  ] as const;
+
+  return counts.map(([status, count]) => {
+    const spanId = spanIdFor(serviceId, `dependency_readiness_count:${status}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.dependency.readiness_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `dependency.${status}`,
+        "service.operation.outcome": status,
+        "service.operation.count": count,
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -648,6 +684,7 @@ export function buildServiceTelemetryPreview(
   lifecycle: ServiceLifecycleState,
   health: ServiceHealthResult,
   healthHistory: ServiceHealthHistoryState,
+  knownServiceIds: ReadonlySet<string> = new Set([service.manifest.id]),
 ): ServiceTelemetryPreview {
   const serviceId = service.manifest.id;
   const common = {
@@ -675,6 +712,14 @@ export function buildServiceTelemetryPreview(
   const runtimeLaunchesSpanId = spanIdFor(serviceId, "runtime_launches");
   const runtimeOperationSignals = runtimeOperationCountSignals(serviceId, traceId, correlationId, common, lifecycle);
   const healthTransitionSignals = healthTransitionCountSignals(serviceId, traceId, correlationId, common, healthHistory);
+  const dependencyReadinessSignals = dependencyReadinessCountSignals(
+    serviceId,
+    traceId,
+    correlationId,
+    common,
+    service.manifest.depend_on ?? [],
+    knownServiceIds,
+  );
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -749,6 +794,7 @@ export function buildServiceTelemetryPreview(
       ...startTraceSignals,
       ...runtimeOperationSignals,
       ...healthTransitionSignals,
+      ...dependencyReadinessSignals,
     ],
   };
 }
