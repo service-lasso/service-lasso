@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
-import type { ServiceLifecycleState } from "../lifecycle/types.js";
+import type { ServiceLifecycleState, ServiceStartTraceAttempt, ServiceStartTraceEvent } from "../lifecycle/types.js";
 
 export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-preview.v1";
 export const TELEMETRY_CORRELATION_ID_HEADER = "x-service-lasso-correlation-id";
@@ -183,6 +183,11 @@ const allowedTelemetryAttributes = [
   "service.operation.outcome",
   "service.operation.duration_ms",
   "service.operation.count",
+  "service.start_trace.action",
+  "service.start_trace.attempt_status",
+  "service.start_trace.event_order",
+  "service.start_trace.event_phase",
+  "service.start_trace.event_status",
 ] as const;
 
 const allowedTelemetryAttributeSet = new Set<string>(allowedTelemetryAttributes);
@@ -336,6 +341,33 @@ function lifecycleOutcome(lifecycle: ServiceLifecycleState, health: ServiceHealt
     return "not_running";
   }
   return health.healthy ? "healthy" : "unhealthy";
+}
+
+function latestStartTraceAttempt(lifecycle: ServiceLifecycleState): ServiceStartTraceAttempt | null {
+  return lifecycle.runtime.startTrace.current ?? lifecycle.runtime.startTrace.history[0] ?? null;
+}
+
+function durationBetween(startedAt: string, finishedAt: string | null): number | null {
+  if (finishedAt === null) {
+    return null;
+  }
+
+  const started = Date.parse(startedAt);
+  const finished = Date.parse(finishedAt);
+
+  if (!Number.isFinite(started) || !Number.isFinite(finished)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(finished - started));
+}
+
+function startTraceEventDuration(attempt: ServiceStartTraceAttempt, event: ServiceStartTraceEvent): number | null {
+  if (event.phase === "terminal_outcome") {
+    return durationBetween(attempt.startedAt, attempt.finishedAt);
+  }
+
+  return durationBetween(event.startedAt, event.finishedAt);
 }
 
 function statusClass(statusCode: number): string {
@@ -567,6 +599,32 @@ export function buildServiceTelemetryPreview(
   const lifecycleSpanId = spanIdFor(serviceId, "lifecycle");
   const healthCheckSpanId = spanIdFor(serviceId, "health_check");
   const runtimeLaunchesSpanId = spanIdFor(serviceId, "runtime_launches");
+  const startTrace = latestStartTraceAttempt(lifecycle);
+  const startTraceSignals: TelemetrySignalPreview[] =
+    startTrace?.events.map((event) => {
+      const spanId = spanIdFor(serviceId, `start_trace:${startTrace.attemptId}:${event.order}:${event.phase}`);
+
+      return {
+        kind: "span",
+        name: "service_lasso.service.start_trace_event",
+        traceId,
+        spanId,
+        traceparent: traceparentFor(traceId, spanId),
+        correlationId,
+        attributes: allowlistedAttributes({
+          ...common,
+          "service.operation.phase": `start_trace.${event.phase}`,
+          "service.operation.outcome": event.status,
+          "service.operation.duration_ms": startTraceEventDuration(startTrace, event),
+          "service.operation.count": 1,
+          "service.start_trace.action": startTrace.action,
+          "service.start_trace.attempt_status": startTrace.status,
+          "service.start_trace.event_order": event.order,
+          "service.start_trace.event_phase": event.phase,
+          "service.start_trace.event_status": event.status,
+        }),
+      };
+    }) ?? [];
 
   return {
     serviceId,
@@ -612,6 +670,7 @@ export function buildServiceTelemetryPreview(
           "service.operation.duration_ms": lifecycle.runtime.metrics.totalRunDurationMs,
         }),
       },
+      ...startTraceSignals,
     ],
   };
 }

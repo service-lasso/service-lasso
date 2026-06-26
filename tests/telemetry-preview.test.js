@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
+import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { assertNoSecretMaterial } from "../dist/testing/secretLeakHarness.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
@@ -17,6 +18,14 @@ const sentinels = [
 
 async function getJson(url) {
   const response = await fetch(url);
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function postJson(url) {
+  const response = await fetch(url, { method: "POST" });
   return {
     status: response.status,
     body: await response.json(),
@@ -522,6 +531,73 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
       process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
     }
     await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports start-trace phases without trace messages or metadata values", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-start-trace-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-start-trace", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+      PUBLIC_MODE: "demo",
+    },
+    globalenv: {
+      UPSTREAM_PASSWORD: rawSecretSentinel,
+    },
+    ports: {
+      service: 0,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    assert.equal((await postJson(apiServer.url + "/api/services/telemetry-start-trace/install")).status, 200);
+    assert.equal((await postJson(apiServer.url + "/api/services/telemetry-start-trace/config")).status, 200);
+    assert.equal((await postJson(apiServer.url + "/api/services/telemetry-start-trace/start")).status, 200);
+
+    const result = await getJson(apiServer.url + "/api/telemetry");
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-start-trace",
+    );
+    assert.ok(serviceTelemetry);
+    const traceSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.start_trace_event",
+    );
+    assert.equal(traceSignals.length, 7);
+    assert.deepEqual(
+      traceSignals.map((signal) => signal.attributes["service.start_trace.event_phase"]),
+      [
+        "dependency_resolution",
+        "port_selection",
+        "artifact_acquisition",
+        "env_merge",
+        "process_spawn",
+        "health_check",
+        "terminal_outcome",
+      ],
+    );
+    assert.deepEqual(
+      traceSignals.map((signal) => signal.attributes["service.start_trace.event_order"]),
+      [1, 2, 3, 4, 5, 6, 7],
+    );
+    assert.equal(traceSignals.at(-1).attributes["service.start_trace.attempt_status"], "succeeded");
+    assert.equal(traceSignals.at(-1).attributes["service.operation.phase"], "start_trace.terminal_outcome");
+    assert.equal(typeof traceSignals.at(-1).attributes["service.operation.duration_ms"], "number");
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 13);
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("metadata"), false);
+    assert.equal(serialized.includes("message"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
