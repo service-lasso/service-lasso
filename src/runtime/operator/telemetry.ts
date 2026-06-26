@@ -233,6 +233,27 @@ const allowedTelemetryAttributes = [
   "service.start_trace.event_order",
   "service.start_trace.event_phase",
   "service.start_trace.event_status",
+  "broker.audit.status",
+  "broker.api.duration_bucket",
+  "broker.api.method",
+  "broker.api.mutating",
+  "broker.api.route",
+  "broker.api.route_group",
+  "broker.api.status_class",
+  "broker.lockout.active_count",
+  "broker.operation",
+  "broker.operation.count",
+  "broker.operation.duration_ms",
+  "broker.operation.outcome",
+  "broker.policy.outcome",
+  "broker.provider.id",
+  "broker.provider.outcome",
+  "broker.provider.state",
+  "broker.source.id",
+  "broker.source.outcome",
+  "broker.source.state",
+  "service.api_version",
+  "service.namespace",
 ] as const;
 
 const allowedTelemetryAttributeSet = new Set<string>(allowedTelemetryAttributes);
@@ -316,8 +337,75 @@ function correlationIdFor(serviceId: string): string {
   return `sl-${hashHex(`service-lasso:correlation:${serviceId}`, 16)}`;
 }
 
+function safeTelemetrySignalName(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  const normalized = value.trim();
+  return /^[a-z0-9_.-]+$/i.test(normalized) ? normalized : fallback;
+}
+
+function validHexId(value: unknown, length: number): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return new RegExp(`^[a-f0-9]{${length}}$`).test(normalized) ? normalized : null;
+}
+
+function validCorrelationId(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return /^sl-[a-f0-9]{16}$/.test(normalized) ? normalized : null;
+}
+
+function rawAttributes(input: unknown): Record<string, string | number | boolean | null | undefined> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const attributes: Record<string, string | number | boolean | null | undefined> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
+      attributes[key] = value;
+    }
+  }
+  return attributes;
+}
+
 export function traceparentFor(traceId: string, spanId: string): string {
   return `00-${traceId}-${spanId}-01`;
+}
+
+export function normalizeExternalServiceTelemetrySignals(
+  serviceId: string,
+  signals: unknown[],
+): TelemetrySignalPreview[] {
+  return signals.slice(0, 50).flatMap((signal, index) => {
+    if (!signal || typeof signal !== "object" || Array.isArray(signal)) {
+      return [];
+    }
+
+    const candidate = signal as Record<string, unknown>;
+    const name = safeTelemetrySignalName(candidate.name, "service_lasso.external.telemetry");
+    const kind: TelemetrySignalKind = candidate.kind === "span" ? "span" : "metric";
+    const traceId = validHexId(candidate.traceId, 32) ?? hashHex(`service-lasso:external:${serviceId}:${name}:${index}`, 32);
+    const spanId = validHexId(candidate.spanId, 16) ?? spanIdFor(serviceId, `external:${name}:${index}`);
+    const correlationId = validCorrelationId(candidate.correlationId) ?? correlationIdFor(`${serviceId}:external:${index}`);
+
+    return [
+      {
+        kind,
+        name,
+        traceId,
+        spanId,
+        traceparent: traceparentFor(traceId, spanId),
+        correlationId,
+        attributes: allowlistedAttributes(rawAttributes(candidate.attributes)),
+      },
+    ];
+  });
 }
 
 function requestTraceIdFor(routeTemplate: string, method: string): string {

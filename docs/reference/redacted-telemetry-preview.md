@@ -9,7 +9,7 @@ POST /api/telemetry/export-test
 POST /api/telemetry/export
 ```
 
-The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, artifact-readiness count metrics, network endpoint exposure count metrics, update-state count metrics, setup step state count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope. Live OTLP export is disabled by default and only happens through the explicit export action.
+The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, artifact-readiness count metrics, network endpoint exposure count metrics, update-state count metrics, setup step state count metrics, start-trace phase signals, optional local `@secretsbroker` metadata-only signals, and a redacted OTLP export-readiness envelope. Live OTLP export is disabled by default and only happens through the explicit export action.
 
 The runtime also includes a bounded in-memory `apiRequests` preview for recent operator/API request outcomes. These entries use route templates and status classes only, such as `/api/services/{serviceId}/health` and `2xx`; they do not include raw URL paths, query strings, headers, request bodies, or response bodies.
 
@@ -52,6 +52,7 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - safe network endpoint exposure count metadata for declared, local, external, and health endpoints
 - safe update-state count metadata for installed, available, downloaded candidate, install deferred, and failed service update states
 - safe setup step state count metadata for declared, succeeded, failed, timed out, and skipped setup steps
+- safe `@secretsbroker` telemetry metadata when the local broker is reachable: active lockout aggregate count, provider/source aggregate state, route-template API latency buckets, route group, method, mutating flag, status class, outcome, and operation count
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
 - safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, outcome counts, and bounded latency bucket counts
@@ -79,6 +80,8 @@ Network endpoint exposure count signals use the `service_lasso.service.network.e
 Update-state count signals use the `service_lasso.service.update.state_count` name. They expose one metric each for installed, available, downloaded candidate, install deferred, and failed states using persisted update state only. These metrics do not include release URLs, source repos, update tags, asset names, asset URLs, archive/extract paths, deferred reasons, failure reasons, hook stdout/stderr, environment values, credentials, or secret/config material.
 
 Setup step state count signals use the `service_lasso.service.setup.step_state_count` name. They expose one metric each for declared, succeeded, failed, timeout, and skipped setup step counts using manifest setup declarations and persisted setup state only. These metrics do not include setup step IDs, descriptions, command lines, args, env values, dependency IDs, run IDs, run messages, exit signals, log paths, stdout/stderr paths, stdout/stderr contents, credentials, or secret/config material.
+
+For `@secretsbroker`, the service-scoped telemetry preview may also include broker-emitted metric signals from the local broker `/v1/telemetry` endpoint. The core bridge keeps only the broker's low-cardinality allowlisted attributes, such as `broker.lockout.active_count`, provider/source state and outcome labels, route templates, route groups, status classes, bounded duration buckets, and operation counts. It does not return raw refs, provider tokens, client addresses, authorization headers, cookies, raw URL paths, query strings, request bodies, response bodies, endpoint values, environment values, provider response bodies, or raw config values. If the local broker telemetry endpoint is unavailable, the core service telemetry preview still returns the runtime-owned service lifecycle and health signals without treating broker telemetry absence as a fatal API error.
 
 Exporter endpoint values, OTLP headers, and payload bodies are never returned. `/api/telemetry` only reports whether `SERVICE_LASSO_OTEL_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT` make export configured.
 
@@ -142,4 +145,4 @@ The interval defaults to 60 seconds and may be configured with `SERVICE_LASSO_OT
 
 ## Scope
 
-This is a preview/status contract plus explicit operator-triggered and disabled-by-default background export actions for core runtime telemetry. Follow-up work can widen the same allowlisted trace/correlation model into Secrets Broker telemetry emission and any remaining Service Admin operator surfacing.
+This is a preview/status contract plus explicit operator-triggered and disabled-by-default background export actions for core runtime telemetry. The `@secretsbroker` bridge is intentionally limited to the broker's existing metadata-only telemetry contract. Follow-up work can widen the same allowlisted trace/correlation model into any remaining Service Admin operator surfacing or additional service-owned telemetry contracts.
