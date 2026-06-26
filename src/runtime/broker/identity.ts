@@ -4,8 +4,17 @@ import type { DiscoveredService, ServiceBrokerWritebackOperation } from "../../c
 export const BROKER_IDENTITY_ID_ENV = "SERVICE_LASSO_BROKER_IDENTITY_ID";
 export const BROKER_CREDENTIAL_ENV = "SERVICE_LASSO_BROKER_CREDENTIAL";
 export const BROKER_CREDENTIAL_EXPIRES_AT_ENV = "SERVICE_LASSO_BROKER_CREDENTIAL_EXPIRES_AT";
+export const BROKER_TRANSPORT_BINDING_KIND_ENV = "SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND";
+export const BROKER_TRANSPORT_BINDING_SUBJECT_ENV = "SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT";
 
 const DEFAULT_CREDENTIAL_TTL_MS = 60 * 60 * 1000;
+
+export type BrokerTransportBindingKind = "unix-uid" | "windows-sid";
+
+export interface BrokerTransportBinding {
+  kind: BrokerTransportBindingKind;
+  subject: string;
+}
 
 export interface ScopedBrokerIdentityScope {
   namespaces: string[];
@@ -27,6 +36,7 @@ export interface ScopedBrokerIdentityMetadata {
   issuedAt: string;
   expiresAt: string;
   revokedAt: string | null;
+  transportBinding: BrokerTransportBinding | null;
   scope: ScopedBrokerIdentityScope;
   audit: ScopedBrokerIdentityAuditContext;
 }
@@ -71,6 +81,7 @@ function cloneMetadata(metadata: ScopedBrokerIdentityMetadata): ScopedBrokerIden
     issuedAt: metadata.issuedAt,
     expiresAt: metadata.expiresAt,
     revokedAt: metadata.revokedAt,
+    transportBinding: metadata.transportBinding ? { ...metadata.transportBinding } : null,
     scope: {
       namespaces: [...metadata.scope.namespaces],
       operations: [...metadata.scope.operations],
@@ -90,9 +101,43 @@ export function serviceNeedsScopedBrokerIdentity(service: DiscoveredService): bo
   return service.manifest.broker?.writeback !== undefined;
 }
 
+function normalizeTransportBinding(
+  binding: BrokerTransportBinding | null | undefined,
+): BrokerTransportBinding | null {
+  if (!binding) {
+    return null;
+  }
+
+  const kind = binding.kind.trim().toLowerCase();
+  const subject = binding.subject.trim();
+  if ((kind !== "unix-uid" && kind !== "windows-sid") || subject === "") {
+    return null;
+  }
+
+  return { kind, subject };
+}
+
+export function resolveLauncherTransportBinding(
+  env: Record<string, string | undefined> = process.env,
+): BrokerTransportBinding | null {
+  const configured = normalizeTransportBinding({
+    kind: (env[BROKER_TRANSPORT_BINDING_KIND_ENV] ?? "") as BrokerTransportBindingKind,
+    subject: env[BROKER_TRANSPORT_BINDING_SUBJECT_ENV] ?? "",
+  });
+  if (configured) {
+    return configured;
+  }
+
+  if (process.platform !== "win32" && typeof process.getuid === "function") {
+    return { kind: "unix-uid", subject: String(process.getuid()) };
+  }
+
+  return null;
+}
+
 export function mintScopedBrokerIdentity(
   service: DiscoveredService,
-  options: { now?: Date; ttlMs?: number } = {},
+  options: { now?: Date; ttlMs?: number; transportBinding?: BrokerTransportBinding | null } = {},
 ): ScopedBrokerCredential | null {
   const writeback = service.manifest.broker?.writeback;
   if (!writeback) {
@@ -106,12 +151,17 @@ export function mintScopedBrokerIdentity(
   const identityId = randomUUID();
   const token = `slb_${randomBytes(32).toString("base64url")}`;
   const allowedOperations = writeback.allowedOperations ?? ["create", "update", "rotate", "delete"];
+  const transportBinding =
+    options.transportBinding === undefined
+      ? resolveLauncherTransportBinding()
+      : normalizeTransportBinding(options.transportBinding);
   const metadata: ScopedBrokerIdentityMetadata = {
     id: identityId,
     serviceId: service.manifest.id,
     issuedAt,
     expiresAt,
     revokedAt: null,
+    transportBinding,
     scope: {
       namespaces: [...(writeback.allowedNamespaces ?? [])],
       operations: [...allowedOperations],
@@ -139,6 +189,12 @@ export function mintScopedBrokerIdentity(
       [BROKER_IDENTITY_ID_ENV]: identityId,
       [BROKER_CREDENTIAL_ENV]: token,
       [BROKER_CREDENTIAL_EXPIRES_AT_ENV]: expiresAt,
+      ...(transportBinding
+        ? {
+            [BROKER_TRANSPORT_BINDING_KIND_ENV]: transportBinding.kind,
+            [BROKER_TRANSPORT_BINDING_SUBJECT_ENV]: transportBinding.subject,
+          }
+        : {}),
     },
   };
 }

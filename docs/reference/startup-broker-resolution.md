@@ -41,6 +41,8 @@ Precedence at launch is:
 3. broker imports with `as` names that do not override existing manifest env keys
 4. scoped broker writeback identity env, when the service declares broker writeback permissions
 
+When scoped broker writeback identity env is issued, Service Lasso also records safe transport-binding metadata when the launcher identity is known. Unix launchers default to the current launcher UID as `unix-uid`. Windows launchers can provide a stable service-account or launcher SID with `SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND=windows-sid` and `SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT=<sid>`. These values are metadata only; the scoped credential value remains secret and must not be logged or persisted.
+
 Raw broker values may be present only in the process environment/config handed to the launched service. They must not be written to logs, status payloads, diagnostics, issue comments, PR bodies, or test artifacts.
 
 ## Startup pipeline
@@ -59,7 +61,8 @@ The runtime startup path is formalized as:
    - `degraded`
 5. Fail closed before process spawn when any `required: true` import is unresolved.
 6. Materialize resolved values only into the launched service environment/config.
-7. Emit safe metadata only: ref name, classification, `required`, and `as` target.
+7. Issue a scoped broker writeback identity when the service declares writeback permissions, including transport-binding metadata when available.
+8. Emit safe metadata only: ref name, classification, `required`, `as` target, identity id, expiry, and transport-binding kind/subject when present.
 
 Policy-denied refs are intentionally separate from missing refs. Operators should see that access was denied, not that config disappeared.
 
