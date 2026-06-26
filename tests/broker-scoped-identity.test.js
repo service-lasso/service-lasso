@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import {
   authorizeScopedBrokerWriteback,
   BROKER_CREDENTIAL_ENV,
   BROKER_CREDENTIAL_EXPIRES_AT_ENV,
   BROKER_IDENTITY_ID_ENV,
+  BROKER_IDENTITY_LEASE_ENV,
   BROKER_TRANSPORT_BINDING_KIND_ENV,
   BROKER_TRANSPORT_BINDING_SUBJECT_ENV,
   mintScopedBrokerIdentity,
@@ -241,6 +242,139 @@ test("runtime injects scoped broker credential without persisting or logging raw
     );
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    resetScopedBrokerIdentities();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime can inject a broker-issued signed launch lease without persisting raw authority", async () => {
+  resetLifecycleState();
+  resetScopedBrokerIdentities();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-broker-lease-");
+  const helperPath = path.join(tempRoot, "issue-lease-helper.mjs");
+  await writeFile(
+    helperPath,
+    `
+const args = process.argv.slice(2);
+function flag(name) {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : null;
+}
+const refs = args.flatMap((arg, index) => arg === "--allowed-ref" ? [args[index + 1]] : []);
+const namespaces = args.flatMap((arg, index) => arg === "--allowed-namespace" ? [args[index + 1]] : []);
+const operations = args.flatMap((arg, index) => arg === "--operation" ? [args[index + 1]] : []);
+const lease = {
+  issuer: "service-lasso-local-launcher",
+  serviceId: flag("--service-id"),
+  workspaceId: flag("--workspace-id"),
+  allowedRefs: refs,
+  allowedNamespaces: namespaces,
+  allowedOperations: operations,
+  issuedAt: flag("--issued-at"),
+  expiresAt: flag("--expires-at"),
+  jti: flag("--jti"),
+  transportBinding: {
+    kind: flag("--transport-binding-kind"),
+    subject: flag("--transport-binding-subject"),
+  },
+  signature: "hmac-sha256:test-signature"
+};
+process.stdout.write(JSON.stringify({ serviceId: "@secretsbroker", apiVersion: "test", outcome: "ready", lease }));
+`.trim(),
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "writer", {
+    captureEnvKeys: [BROKER_IDENTITY_ID_ENV, BROKER_CREDENTIAL_ENV, BROKER_IDENTITY_LEASE_ENV],
+    broker: {
+      imports: [
+        {
+          namespace: "shared/writer",
+          ref: "writer.API_TOKEN",
+          required: false,
+        },
+      ],
+      writeback: {
+        allowedNamespaces: ["services/writer"],
+        allowedOperations: ["create", "rotate"],
+        allowedRefs: ["writer.GENERATED_TOKEN"],
+        auditReason: "capture writer token",
+      },
+    },
+  });
+  const priorCommand = process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND;
+  const priorArgs = process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON;
+  const priorSigningKey = process.env.SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY;
+  const priorBindingKind = process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND;
+  const priorBindingSubject = process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT;
+  process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND = process.execPath;
+  process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON = JSON.stringify([helperPath]);
+  process.env.SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY = "SERVICE_LASSO_FAKE_SIGNING_KEY_DO_NOT_USE";
+  process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND = "windows-sid";
+  process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT = "S-1-5-21-lease-test";
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/writer/install`);
+    await postJson(`${apiServer.url}/api/services/writer/config`);
+    const start = await postJson(`${apiServer.url}/api/services/writer/start`);
+    assert.equal(start.status, 200);
+
+    const envPath = path.join(serviceRoot, "runtime", "env.json");
+    await waitFor(async () => {
+      try {
+        const env = JSON.parse(await readFile(envPath, "utf8"));
+        return typeof env[BROKER_IDENTITY_LEASE_ENV] === "string";
+      } catch {
+        return false;
+      }
+    });
+
+    const env = JSON.parse(await readFile(envPath, "utf8"));
+    const lease = JSON.parse(env[BROKER_IDENTITY_LEASE_ENV]);
+    assert.equal(lease.serviceId, "writer");
+    assert.equal(lease.workspaceId, "local-demo");
+    assert.deepEqual(lease.transportBinding, {
+      kind: "windows-sid",
+      subject: "S-1-5-21-lease-test",
+    });
+    assert.deepEqual(lease.allowedNamespaces, ["services/writer", "shared/writer"]);
+    assert.deepEqual(lease.allowedOperations, ["create", "resolve", "rotate"]);
+    assert.equal(lease.allowedRefs.includes("shared/writer/writer.API_TOKEN"), true);
+    assert.equal(lease.allowedRefs.includes("services/writer/writer.GENERATED_TOKEN"), true);
+
+    const storedRunning = await readStoredState(serviceRoot);
+    assert.equal(JSON.stringify(start.body).includes("SERVICE_LASSO_FAKE_SIGNING_KEY_DO_NOT_USE"), false);
+    assert.equal(JSON.stringify(storedRunning.runtime).includes("SERVICE_LASSO_FAKE_SIGNING_KEY_DO_NOT_USE"), false);
+    assert.equal(JSON.stringify(storedRunning.runtime).includes("hmac-sha256:test-signature"), false);
+
+    await postJson(`${apiServer.url}/api/services/writer/stop`);
+  } finally {
+    await apiServer.stop();
+    if (priorCommand === undefined) {
+      delete process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND;
+    } else {
+      process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND = priorCommand;
+    }
+    if (priorArgs === undefined) {
+      delete process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON;
+    } else {
+      process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON = priorArgs;
+    }
+    if (priorSigningKey === undefined) {
+      delete process.env.SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY;
+    } else {
+      process.env.SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY = priorSigningKey;
+    }
+    if (priorBindingKind === undefined) {
+      delete process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND;
+    } else {
+      process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND = priorBindingKind;
+    }
+    if (priorBindingSubject === undefined) {
+      delete process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT;
+    } else {
+      process.env.SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT = priorBindingSubject;
+    }
     resetLifecycleState();
     resetScopedBrokerIdentities();
     await rm(tempRoot, { recursive: true, force: true });

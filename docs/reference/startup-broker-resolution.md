@@ -43,6 +43,8 @@ Precedence at launch is:
 
 When scoped broker writeback identity env is issued, Service Lasso also records safe transport-binding metadata when the launcher identity is known. Unix launchers default to the current launcher UID as `unix-uid`. Windows launchers can provide a stable service-account or launcher SID with `SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND=windows-sid` and `SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT=<sid>`. These values are metadata only; the scoped credential value remains secret and must not be logged or persisted.
 
+When an installed or configured Secrets Broker helper and signing material are available, the launcher also asks `secretsbroker admin launch-lease issue` for a signed launch identity lease and injects it through `SERVICE_LASSO_BROKER_IDENTITY_LEASE`. The helper receives service id, workspace id, allowed refs/namespaces, allowed operations, expiry, one-time identity id, and optional transport binding. If the helper is unavailable or no signing key/API token is configured, the runtime keeps the existing local scoped credential path so bootstrap and tests remain compatible. The signed lease is launch-only authority and must not be written to lifecycle state, logs, diagnostics, issue comments, PR bodies, or persisted fixtures.
+
 Raw broker values may be present only in the process environment/config handed to the launched service. They must not be written to logs, status payloads, diagnostics, issue comments, PR bodies, or test artifacts.
 
 ## Startup pipeline
@@ -62,7 +64,8 @@ The runtime startup path is formalized as:
 5. Fail closed before process spawn when any `required: true` import is unresolved.
 6. Materialize resolved values only into the launched service environment/config.
 7. Issue a scoped broker writeback identity when the service declares writeback permissions, including transport-binding metadata when available.
-8. Emit safe metadata only: ref name, classification, `required`, `as` target, identity id, expiry, and transport-binding kind/subject when present.
+8. Issue a broker-signed launch identity lease through the Secrets Broker helper when available and inject it only into the launched process environment.
+9. Emit safe metadata only: ref name, classification, `required`, `as` target, identity id, expiry, and transport-binding kind/subject when present.
 
 Policy-denied refs are intentionally separate from missing refs. Operators should see that access was denied, not that config disappeared.
 

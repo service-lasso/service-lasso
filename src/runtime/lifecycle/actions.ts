@@ -1,12 +1,14 @@
 import type { DiscoveredService } from "../../contracts/service.js";
+import path from "node:path";
 import { LifecycleStateError } from "../../server/errors.js";
 import {
   startManagedProcess,
   stopManagedProcess,
 } from "../execution/supervisor.js";
 import {
-  mintScopedBrokerIdentity,
+  issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
+  type SecretsBrokerLaunchLeaseIssuer,
 } from "../broker/identity.js";
 import {
   mergeServiceVariableResolutionOptions,
@@ -46,6 +48,10 @@ import type {
 } from "./types.js";
 
 const START_TRACE_HISTORY_LIMIT = 5;
+const SECRETSBROKER_SERVICE_ID = "@secretsbroker";
+const LAUNCH_LEASE_COMMAND_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND";
+const LAUNCH_LEASE_ARGS_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON";
+const WORKSPACE_ID_ENV = "SERVICE_LASSO_WORKSPACE_ID";
 const SECRET_LIKE_VALUE_PATTERN =
   /(BEGIN PRIVATE KEY|access_token\s*[:=]\s*[^\s,;}]+|refresh_token\s*[:=]\s*[^\s,;}]+|id_token\s*[:=]\s*[^\s,;}]+|session_cookie\s*[:=]\s*[^\s,;}]+|client_secret\s*[:=]\s*[^\s,;}]+|provider_credential\s*[:=]\s*[^\s,;}]+|raw_secret\s*[:=]\s*[^\s,;}]+|password\s*[:=]\s*[^\s,;}]+|token\s*[:=]\s*[^\s,;}]+|Bearer\s+[A-Za-z0-9._~+/-]{12,})/gi;
 const SECRET_LIKE_KEY_PATTERN = /(secret|token|password|credential|private|cookie|key)/i;
@@ -89,6 +95,59 @@ function applyRunCompletionMetrics(
     totalRunDurationMs:
       current.runtime.metrics.totalRunDurationMs + (runDurationMs ?? 0),
     lastRunDurationMs: runDurationMs,
+  };
+}
+
+function parseConfiguredLaunchLeaseArgs(): string[] {
+  const raw = process.env[LAUNCH_LEASE_ARGS_ENV]?.trim();
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) && parsed.every((value) => typeof value === "string")
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function resolveInstalledCommand(extractedPath: string, command: string): string {
+  return path.isAbsolute(command) ? command : path.resolve(extractedPath, command);
+}
+
+function resolveSecretsBrokerLaunchLeaseIssuer(
+  registry?: ServiceRegistry,
+): SecretsBrokerLaunchLeaseIssuer | undefined {
+  const configuredCommand = process.env[LAUNCH_LEASE_COMMAND_ENV]?.trim();
+  if (configuredCommand) {
+    return {
+      command: {
+        command: configuredCommand,
+        args: parseConfiguredLaunchLeaseArgs(),
+        env: process.env,
+      },
+      workspaceId: process.env[WORKSPACE_ID_ENV],
+    };
+  }
+
+  if (!registry?.getById(SECRETSBROKER_SERVICE_ID)) {
+    return undefined;
+  }
+
+  const artifact = getLifecycleState(SECRETSBROKER_SERVICE_ID).installArtifacts.artifact;
+  if (!artifact?.command || !artifact.extractedPath) {
+    return undefined;
+  }
+
+  return {
+    command: {
+      command: resolveInstalledCommand(artifact.extractedPath, artifact.command),
+      cwd: artifact.extractedPath,
+      env: process.env,
+    },
+    workspaceId: process.env[WORKSPACE_ID_ENV],
   };
 }
 
@@ -618,7 +677,9 @@ export async function startService(
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
   revokeServiceScopedBrokerIdentities(serviceId);
-  const scopedBrokerIdentity = mintScopedBrokerIdentity(service);
+  const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
+    launchLeaseIssuer: resolveSecretsBrokerLaunchLeaseIssuer(registry),
+  });
   const resolvedPorts =
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -883,7 +944,9 @@ export async function restartService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const scopedBrokerIdentity = mintScopedBrokerIdentity(service);
+  const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
+    launchLeaseIssuer: resolveSecretsBrokerLaunchLeaseIssuer(registry),
+  });
   const resolvedPorts =
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
