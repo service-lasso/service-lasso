@@ -530,6 +530,71 @@ function artifactReadinessCountSignals(
   });
 }
 
+function endpointUrlKind(value: string): "local" | "external" | "unknown" {
+  try {
+    const parsed = new URL(value);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return "unknown";
+    }
+    if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)) {
+      return "local";
+    }
+    return "external";
+  } catch {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|::1)(?::|\b|\/)/i.test(value)) {
+      return "local";
+    }
+    if (/^https?:\/\//i.test(value)) {
+      return "external";
+    }
+    return "unknown";
+  }
+}
+
+function networkEndpointCountSignals(
+  service: DiscoveredService,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+): TelemetrySignalPreview[] {
+  const endpointUrls = (service.manifest.urls ?? []).map((endpoint) => ({
+    kind: endpoint.kind ?? endpoint.label,
+    url: endpoint.url,
+  }));
+  if (service.manifest.healthcheck?.type === "http") {
+    endpointUrls.push({ kind: "health", url: service.manifest.healthcheck.url });
+  }
+
+  const localCount = endpointUrls.filter((endpoint) => endpointUrlKind(endpoint.url) === "local").length;
+  const externalCount = endpointUrls.filter((endpoint) => endpointUrlKind(endpoint.url) === "external").length;
+  const healthCount = endpointUrls.filter((endpoint) => endpoint.kind === "health").length;
+  const counts = [
+    ["declared", endpointUrls.length],
+    ["local", localCount],
+    ["external", externalCount],
+    ["health", healthCount],
+  ] as const;
+
+  return counts.map(([status, count]) => {
+    const spanId = spanIdFor(service.manifest.id, `network_endpoint_count:${status}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.network.endpoint_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `network.endpoint.${status}`,
+        "service.operation.outcome": status,
+        "service.operation.count": count,
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -772,6 +837,7 @@ export function buildServiceTelemetryPreview(
     knownServiceIds,
   );
   const artifactReadinessSignals = artifactReadinessCountSignals(service, lifecycle, traceId, correlationId, common);
+  const networkEndpointSignals = networkEndpointCountSignals(service, traceId, correlationId, common);
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -848,6 +914,7 @@ export function buildServiceTelemetryPreview(
       ...healthTransitionSignals,
       ...dependencyReadinessSignals,
       ...artifactReadinessSignals,
+      ...networkEndpointSignals,
     ],
   };
 }
