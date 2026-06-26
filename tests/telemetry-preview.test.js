@@ -113,6 +113,18 @@ function assertAllowlistedSignals(telemetry) {
   }
 }
 
+function assertSafeLatencyBuckets(summary) {
+  const allowed = new Set(["lt_50ms", "50_249ms", "250_999ms", "1s_plus"]);
+  const total = summary.latencyBuckets.reduce((count, bucket) => {
+    assert.equal(allowed.has(bucket.key), true, bucket.key);
+    assert.equal(Number.isInteger(bucket.count), true);
+    assert.equal(bucket.count > 0, true);
+    return count + bucket.count;
+  }, 0);
+
+  assert.equal(total, summary.retainedCount);
+}
+
 test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metadata", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-preview-");
   await writeExecutableFixtureService(servicesRoot, "telemetry-consumer", {
@@ -187,6 +199,7 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
       routeGroups: [],
       statusClasses: [],
       outcomes: [],
+      latencyBuckets: [],
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
@@ -1033,26 +1046,25 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
-    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
-      retainedCount: 3,
-      droppedCount: 0,
-      totalObservedCount: 3,
-      mutatingCount: 0,
-      routeGroups: [
-        { key: "health", count: 2 },
-        { key: "services", count: 1 },
-      ],
-      statusClasses: [
-        { key: "2xx", count: 2 },
-        { key: "4xx", count: 1 },
-      ],
-      outcomes: [
-        { key: "success", count: 2 },
-        { key: "client_error", count: 1 },
-      ],
-      routeTemplateOnly: true,
-      rawMaterialReturned: false,
-    });
+    assert.equal(result.body.telemetry.apiRequestSummary.retainedCount, 3);
+    assert.equal(result.body.telemetry.apiRequestSummary.droppedCount, 0);
+    assert.equal(result.body.telemetry.apiRequestSummary.totalObservedCount, 3);
+    assert.equal(result.body.telemetry.apiRequestSummary.mutatingCount, 0);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.routeGroups, [
+      { key: "health", count: 2 },
+      { key: "services", count: 1 },
+    ]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.statusClasses, [
+      { key: "2xx", count: 2 },
+      { key: "4xx", count: 1 },
+    ]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.outcomes, [
+      { key: "success", count: 2 },
+      { key: "client_error", count: 1 },
+    ]);
+    assert.equal(result.body.telemetry.apiRequestSummary.routeTemplateOnly, true);
+    assert.equal(result.body.telemetry.apiRequestSummary.rawMaterialReturned, false);
+    assertSafeLatencyBuckets(result.body.telemetry.apiRequestSummary);
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {
@@ -1100,6 +1112,7 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
       routeGroups: [],
       statusClasses: [],
       outcomes: [],
+      latencyBuckets: [],
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
@@ -1237,17 +1250,16 @@ test("GET /api/telemetry reports bounded API request buffer metadata without raw
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
-    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
-      retainedCount: 50,
-      droppedCount: 5,
-      totalObservedCount: 55,
-      mutatingCount: 0,
-      routeGroups: [{ key: "health", count: 50 }],
-      statusClasses: [{ key: "2xx", count: 50 }],
-      outcomes: [{ key: "success", count: 50 }],
-      routeTemplateOnly: true,
-      rawMaterialReturned: false,
-    });
+    assert.equal(result.body.telemetry.apiRequestSummary.retainedCount, 50);
+    assert.equal(result.body.telemetry.apiRequestSummary.droppedCount, 5);
+    assert.equal(result.body.telemetry.apiRequestSummary.totalObservedCount, 55);
+    assert.equal(result.body.telemetry.apiRequestSummary.mutatingCount, 0);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.routeGroups, [{ key: "health", count: 50 }]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.statusClasses, [{ key: "2xx", count: 50 }]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.outcomes, [{ key: "success", count: 50 }]);
+    assert.equal(result.body.telemetry.apiRequestSummary.routeTemplateOnly, true);
+    assert.equal(result.body.telemetry.apiRequestSummary.rawMaterialReturned, false);
+    assertSafeLatencyBuckets(result.body.telemetry.apiRequestSummary);
     assert.equal(result.body.telemetry.apiRequests.length, 50);
     assert.equal(
       result.body.telemetry.apiRequests.every((request) => request.routeTemplate === "/api/health"),

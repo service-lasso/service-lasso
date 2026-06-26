@@ -14,7 +14,7 @@ The runtime also includes a bounded in-memory `apiRequests` preview for recent o
 
 `/api/telemetry` reports an `apiRequestBuffer` object next to the request entries. It contains `capacity`, `retainedCount`, `droppedCount`, `routeTemplateOnly: true`, and `rawMaterialReturned: false`. This lets Service Admin show whether recent API request telemetry has rolled over without exposing discarded request URLs, query strings, headers, or bodies.
 
-`/api/telemetry` also reports an `apiRequestSummary` object built from the same sanitized request entries. It contains retained/dropped/total observed counts, mutating request count, route-group counts, status-class counts, and outcome counts. These aggregates are safe for compact Service Admin cards or tables because they use route groups, status classes, and operation outcomes only; they never include raw URL paths, query strings, route parameters, headers, bodies, endpoint values, or discarded request material.
+`/api/telemetry` also reports an `apiRequestSummary` object built from the same sanitized request entries. It contains retained/dropped/total observed counts, mutating request count, route-group counts, status-class counts, outcome counts, and bounded latency bucket counts. These aggregates are safe for compact Service Admin cards or tables because they use route groups, status classes, operation outcomes, and coarse latency buckets only; they never include raw URL paths, query strings, route parameters, headers, bodies, endpoint values, exact per-request timing streams, or discarded request material.
 
 Every core API response also includes safe correlation headers:
 
@@ -53,11 +53,13 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - safe setup step state count metadata for declared, succeeded, failed, timed out, and skipped setup steps
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
-- safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, and outcome counts
+- safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, outcome counts, and bounded latency bucket counts
 - safe start-trace metadata: latest start/restart action, attempt status, event phase, event status, event order, and bounded duration
 - trace id, span id, W3C `traceparent`, and Service Lasso correlation id
 
 The API must not return raw secret values, environment values, provider credentials, cookies, authorization headers, private keys, recovery material, raw URL paths or query strings, raw request/response bodies, full file contents, or raw service config values.
+
+Latency bucket counts use fixed low-cardinality bucket keys: `lt_50ms`, `50_249ms`, `250_999ms`, and `1s_plus`. They let operator surfaces show whether recent API responses are drifting slow without returning exact timing streams, raw URLs, query strings, route parameters, headers, bodies, endpoint values, credentials, or discarded request material.
 
 Allowed string attributes are still checked for sensitive-looking content before they are returned or sent to the local mock collector. Bearer tokens, GitHub-style tokens, AWS access keys, private-key blocks, basic-auth URLs, sensitive key/value pairs, and Service Lasso secret regression sentinels are replaced with `[REDACTED]`. This prevents an otherwise allowed field such as service version, artifact metadata, health detail, or provider metadata from carrying secret-shaped values through the preview.
 
@@ -87,7 +89,7 @@ Exporter endpoint values, OTLP headers, and payload bodies are never returned. `
 - `mode` becomes `dry_run` only when `SERVICE_LASSO_OTEL_ENABLED` is enabled, `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, and `SERVICE_LASSO_OTEL_EXPORT_MODE=dry-run`.
 - `status` remains `not_sent`; this API does not send telemetry to the OTLP endpoint.
 - `signalCount`, `serviceCount`, `allowedAttributeCount`, and `safeEnvelopeFields` describe the sanitized envelope that would be eligible for export.
-- API request preview entries count as safe signals only after route/path values have been reduced to route templates.
+- API request preview entries count as safe signals only after route/path values have been reduced to route templates; latency appears only as rounded per-entry duration metadata and aggregate bounded latency buckets.
 - `endpointValueReturned`, `headersValueReturned`, and `bodyValueReturned` are always `false`.
 - `droppedFieldClasses` repeats the redaction boundary so operators can see which categories stay out of the envelope.
 
