@@ -137,6 +137,7 @@ export interface ApiRequestTelemetrySummaryPreview {
   routeGroups: ApiRequestTelemetryCountPreview[];
   statusClasses: ApiRequestTelemetryCountPreview[];
   outcomes: ApiRequestTelemetryCountPreview[];
+  latencyBuckets: ApiRequestTelemetryCountPreview[];
   routeTemplateOnly: true;
   rawMaterialReturned: false;
 }
@@ -1195,6 +1196,19 @@ function toSortedCounts(counts: Map<string, number>): ApiRequestTelemetryCountPr
     .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
 }
 
+function apiRequestLatencyBucket(durationMs: number): string {
+  if (durationMs < 50) {
+    return "lt_50ms";
+  }
+  if (durationMs < 250) {
+    return "50_249ms";
+  }
+  if (durationMs < 1000) {
+    return "250_999ms";
+  }
+  return "1s_plus";
+}
+
 function buildApiRequestTelemetrySummaryPreview(
   apiRequests: ApiRequestTelemetryPreview[],
   droppedCount: number,
@@ -1202,6 +1216,7 @@ function buildApiRequestTelemetrySummaryPreview(
   const routeGroups = new Map<string, number>();
   const statusClasses = new Map<string, number>();
   const outcomes = new Map<string, number>();
+  const latencyBuckets = new Map<string, number>();
   let mutatingCount = 0;
 
   for (const request of apiRequests) {
@@ -1209,6 +1224,11 @@ function buildApiRequestTelemetrySummaryPreview(
     incrementCount(routeGroups, request.routeGroup);
     incrementCount(statusClasses, String(attributes["http.response.status_class"] ?? "unknown"));
     incrementCount(outcomes, String(attributes["service.operation.outcome"] ?? "unknown"));
+    const durationMs =
+      typeof attributes["service.operation.duration_ms"] === "number"
+        ? attributes["service.operation.duration_ms"]
+        : 0;
+    incrementCount(latencyBuckets, apiRequestLatencyBucket(durationMs));
     if (attributes["api.mutating"] === true) {
       mutatingCount += 1;
     }
@@ -1222,6 +1242,7 @@ function buildApiRequestTelemetrySummaryPreview(
     routeGroups: toSortedCounts(routeGroups),
     statusClasses: toSortedCounts(statusClasses),
     outcomes: toSortedCounts(outcomes),
+    latencyBuckets: toSortedCounts(latencyBuckets),
     routeTemplateOnly: true,
     rawMaterialReturned: false,
   };
