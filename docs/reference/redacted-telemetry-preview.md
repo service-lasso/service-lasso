@@ -6,9 +6,10 @@ Service Lasso exposes a read-only telemetry preview for the first OpenTelemetry-
 GET /api/telemetry
 GET /api/services/{serviceId}/telemetry
 POST /api/telemetry/export-test
+POST /api/telemetry/export
 ```
 
-The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, artifact-readiness count metrics, network endpoint exposure count metrics, update-state count metrics, setup step state count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
+The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, artifact-readiness count metrics, network endpoint exposure count metrics, update-state count metrics, setup step state count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope. Live OTLP export is disabled by default and only happens through the explicit export action.
 
 The runtime also includes a bounded in-memory `apiRequests` preview for recent operator/API request outcomes. These entries use route templates and status classes only, such as `/api/services/{serviceId}/health` and `2xx`; they do not include raw URL paths, query strings, headers, request bodies, or response bodies.
 
@@ -87,6 +88,7 @@ Exporter endpoint values, OTLP headers, and payload bodies are never returned. `
 
 - `mode` is `disabled` by default.
 - `mode` becomes `dry_run` only when `SERVICE_LASSO_OTEL_ENABLED` is enabled, `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, and `SERVICE_LASSO_OTEL_EXPORT_MODE=dry-run`.
+- `mode` becomes `export_configured` when `SERVICE_LASSO_OTEL_ENABLED` is enabled, `OTEL_EXPORTER_OTLP_ENDPOINT` is configured, and `SERVICE_LASSO_OTEL_EXPORT_MODE=export`; the preview still does not send telemetry.
 - `status` remains `not_sent`; this API does not send telemetry to the OTLP endpoint.
 - `signalCount`, `serviceCount`, `allowedAttributeCount`, and `safeEnvelopeFields` describe the sanitized envelope that would be eligible for export.
 - API request preview entries count as safe signals only after route/path values have been reduced to route templates; latency appears only as rounded per-entry duration metadata and aggregate bounded latency buckets.
@@ -105,6 +107,18 @@ The action sends a sanitized OTLP-shaped JSON envelope made from the same allowl
 
 The API response reports only safe proof fields: mode, status, protocol, signal count, service count, collector status code, local-only enforcement, and redaction booleans. It never returns the endpoint value, headers, or exported payload body.
 
+## Explicit OTLP Export Action
+
+`POST /api/telemetry/export` is the live OTLP HTTP export action. It is disabled by default and only sends when all of the following are true:
+
+- `SERVICE_LASSO_OTEL_ENABLED` is enabled.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` is configured to an HTTP(S) endpoint.
+- `SERVICE_LASSO_OTEL_EXPORT_MODE=export`.
+
+The action sends the same sanitized OTLP-shaped JSON envelope described by `exportPreview`. Operator-supplied `OTEL_EXPORTER_OTLP_HEADERS` may be passed to the exporter for authentication or routing, but header names/values are never returned by the API. The response only reports safe proof fields: mode, status, protocol, signal count, service count, exporter status code, whether headers were configured, and non-return booleans for endpoint, headers, and body.
+
+The action blocks unsupported endpoint schemes and unsupported header shapes before sending. It never returns endpoint values, OTLP header values, exported payload bodies, raw URL paths, query strings, request/response bodies, env values, config file contents, release URLs, asset paths, setup commands, setup log paths, credentials, or secret/config material.
+
 ## Scope
 
-This is a preview/status contract plus a local mock-collector smoke path, not a production exporter. Normal telemetry export remains disabled by default. Follow-up work can connect production collector export once lifecycle/health/request events use this allowlisted attribute model and local mock export has been verified in the canonical demo.
+This is a preview/status contract plus explicit operator-triggered export actions. Normal telemetry export remains disabled by default; the runtime does not run a background exporter or scheduler yet. Follow-up work can add continuous collector export once Service Admin and Secrets Broker use the same allowlisted trace/correlation model.
