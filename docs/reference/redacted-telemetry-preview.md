@@ -21,9 +21,19 @@ Every core API response also includes safe correlation headers:
 ```text
 x-service-lasso-correlation-id
 x-service-lasso-trace-id
+traceparent
 ```
 
-The values match the corresponding `apiRequests[].signal.correlationId` and `apiRequests[].signal.traceId` entries in `/api/telemetry`, allowing Service Admin or support tooling to match an operator-visible response with the redacted telemetry preview without logging raw URLs, query strings, headers, request bodies, or response bodies.
+The values match the corresponding `apiRequests[].signal.correlationId`, `apiRequests[].signal.traceId`, and `apiRequests[].signal.traceparent` entries in `/api/telemetry`, allowing Service Admin or support tooling to match an operator-visible response with the redacted telemetry preview without logging raw URLs, query strings, headers, request bodies, or response bodies. `traceparent` uses W3C Trace Context shape with runtime-generated IDs only; incoming trace headers are not accepted, stored, or returned by this preview slice.
+
+`/api/telemetry` reports the response-header posture in `traceContext`:
+
+- `propagation: "w3c-trace-context"`
+- response header names for `x-service-lasso-correlation-id`, `x-service-lasso-trace-id`, and `traceparent`
+- `incomingHeadersAccepted: false`
+- `incomingHeadersReturned: false`
+- `rawHeadersReturned: false`
+- `routeTemplateOnly: true`
 
 ## Redaction Contract
 
@@ -37,7 +47,7 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
 - safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, and outcome counts
-- trace id, span id, and Service Lasso correlation id
+- trace id, span id, W3C `traceparent`, and Service Lasso correlation id
 
 The API must not return raw secret values, environment values, provider credentials, cookies, authorization headers, private keys, recovery material, raw URL paths or query strings, raw request/response bodies, full file contents, or raw service config values.
 

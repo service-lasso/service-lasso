@@ -70,6 +70,7 @@ import {
   sendRuntimeTelemetryMockExport,
   TELEMETRY_CORRELATION_ID_HEADER,
   TELEMETRY_TRACE_ID_HEADER,
+  TELEMETRY_TRACEPARENT_HEADER,
   type ApiRequestTelemetryPreview,
 } from "../runtime/operator/telemetry.js";
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
@@ -2021,6 +2022,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     const telemetryIdentity = createApiRequestTelemetryIdentity();
     response.setHeader(TELEMETRY_CORRELATION_ID_HEADER, telemetryIdentity.correlationId);
     response.setHeader(TELEMETRY_TRACE_ID_HEADER, telemetryIdentity.traceId);
+    response.setHeader(TELEMETRY_TRACEPARENT_HEADER, telemetryIdentity.traceparent);
 
     response.once("finish", () => {
       apiRequestTelemetry.push(buildApiRequestTelemetryPreview({

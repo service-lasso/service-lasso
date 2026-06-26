@@ -6,6 +6,7 @@ import type { ServiceLifecycleState } from "../lifecycle/types.js";
 export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-preview.v1";
 export const TELEMETRY_CORRELATION_ID_HEADER = "x-service-lasso-correlation-id";
 export const TELEMETRY_TRACE_ID_HEADER = "x-service-lasso-trace-id";
+export const TELEMETRY_TRACEPARENT_HEADER = "traceparent";
 
 export type TelemetryExporterStatus = "disabled" | "configured";
 export type TelemetryExportMode = "disabled" | "dry_run";
@@ -76,6 +77,7 @@ export interface TelemetrySignalPreview {
   name: string;
   traceId: string;
   spanId: string;
+  traceparent: string;
   correlationId: string;
   attributes: Record<string, string | number | boolean>;
 }
@@ -83,7 +85,22 @@ export interface TelemetrySignalPreview {
 export interface ApiRequestTelemetryIdentity {
   traceId: string;
   spanId: string;
+  traceparent: string;
   correlationId: string;
+}
+
+export interface TelemetryTraceContextPreview {
+  propagation: "w3c-trace-context";
+  responseHeaders: {
+    correlationId: typeof TELEMETRY_CORRELATION_ID_HEADER;
+    traceId: typeof TELEMETRY_TRACE_ID_HEADER;
+    traceparent: typeof TELEMETRY_TRACEPARENT_HEADER;
+  };
+  traceparentSampled: true;
+  incomingHeadersAccepted: false;
+  incomingHeadersReturned: false;
+  rawHeadersReturned: false;
+  routeTemplateOnly: true;
 }
 
 export interface ServiceTelemetryPreview {
@@ -126,6 +143,7 @@ export interface RuntimeTelemetryPreview {
   contractVersion: typeof TELEMETRY_PREVIEW_CONTRACT_VERSION;
   exporter: TelemetryExporterPreview;
   resource: TelemetryResourcePreview;
+  traceContext: TelemetryTraceContextPreview;
   redaction: TelemetryAttributePolicy;
   exportPreview: TelemetryExportEnvelopePreview;
   apiRequestBuffer: ApiRequestTelemetryBufferPreview;
@@ -248,6 +266,10 @@ function correlationIdFor(serviceId: string): string {
   return `sl-${hashHex(`service-lasso:correlation:${serviceId}`, 16)}`;
 }
 
+export function traceparentFor(traceId: string, spanId: string): string {
+  return `00-${traceId}-${spanId}-01`;
+}
+
 function requestTraceIdFor(routeTemplate: string, method: string): string {
   return hashHex(`service-lasso:api-request:${method}:${routeTemplate}`, 32);
 }
@@ -261,9 +283,12 @@ function requestCorrelationIdFor(routeTemplate: string, method: string): string 
 }
 
 export function createApiRequestTelemetryIdentity(seed = randomUUID()): ApiRequestTelemetryIdentity {
+  const traceId = hashHex(`service-lasso:api-request-trace:${seed}`, 32);
+  const spanId = hashHex(`service-lasso:api-request-span:${seed}`, 16);
   return {
-    traceId: hashHex(`service-lasso:api-request-trace:${seed}`, 32),
-    spanId: hashHex(`service-lasso:api-request-span:${seed}`, 16),
+    traceId,
+    spanId,
+    traceparent: traceparentFor(traceId, spanId),
     correlationId: `sl-${hashHex(`service-lasso:api-request-correlation:${seed}`, 16)}`,
   };
 }
@@ -484,6 +509,8 @@ export function classifyTelemetryRoute(pathname: string): {
 export function buildApiRequestTelemetryPreview(input: ApiRequestTelemetryInput): ApiRequestTelemetryPreview {
   const method = input.method.toUpperCase();
   const durationMs = Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0;
+  const traceId = input.identity?.traceId ?? requestTraceIdFor(input.routeTemplate, method);
+  const spanId = input.identity?.spanId ?? requestSpanIdFor(input.routeTemplate, method, input.statusCode);
 
   return {
     routeGroup: input.routeGroup,
@@ -491,8 +518,9 @@ export function buildApiRequestTelemetryPreview(input: ApiRequestTelemetryInput)
     signal: {
       kind: "span",
       name: "service_lasso.api.request",
-      traceId: input.identity?.traceId ?? requestTraceIdFor(input.routeTemplate, method),
-      spanId: input.identity?.spanId ?? requestSpanIdFor(input.routeTemplate, method, input.statusCode),
+      traceId,
+      spanId,
+      traceparent: input.identity?.traceparent ?? traceparentFor(traceId, spanId),
       correlationId: input.identity?.correlationId ?? requestCorrelationIdFor(input.routeTemplate, method),
       attributes: allowlistedAttributes({
         "http.request.method": method,
@@ -536,6 +564,9 @@ export function buildServiceTelemetryPreview(
 
   const traceId = traceIdFor(serviceId);
   const correlationId = correlationIdFor(serviceId);
+  const lifecycleSpanId = spanIdFor(serviceId, "lifecycle");
+  const healthCheckSpanId = spanIdFor(serviceId, "health_check");
+  const runtimeLaunchesSpanId = spanIdFor(serviceId, "runtime_launches");
 
   return {
     serviceId,
@@ -544,7 +575,8 @@ export function buildServiceTelemetryPreview(
         kind: "span",
         name: "service_lasso.service.lifecycle",
         traceId,
-        spanId: spanIdFor(serviceId, "lifecycle"),
+        spanId: lifecycleSpanId,
+        traceparent: traceparentFor(traceId, lifecycleSpanId),
         correlationId,
         attributes: allowlistedAttributes({
           ...common,
@@ -557,7 +589,8 @@ export function buildServiceTelemetryPreview(
         kind: "span",
         name: "service_lasso.service.health_check",
         traceId,
-        spanId: spanIdFor(serviceId, "health_check"),
+        spanId: healthCheckSpanId,
+        traceparent: traceparentFor(traceId, healthCheckSpanId),
         correlationId,
         attributes: allowlistedAttributes({
           ...common,
@@ -569,7 +602,8 @@ export function buildServiceTelemetryPreview(
         kind: "metric",
         name: "service_lasso.service.runtime.launches",
         traceId,
-        spanId: spanIdFor(serviceId, "runtime_launches"),
+        spanId: runtimeLaunchesSpanId,
+        traceparent: traceparentFor(traceId, runtimeLaunchesSpanId),
         correlationId,
         attributes: allowlistedAttributes({
           ...common,
@@ -745,6 +779,7 @@ function buildTelemetryExportEnvelopePreview(
       "signals.name",
       "signals.traceId",
       "signals.spanId",
+      "signals.traceparent",
       "signals.correlationId",
       "signals.attributes",
       "apiRequests.routeGroup",
@@ -817,6 +852,19 @@ export function buildRuntimeTelemetryPreview(
     contractVersion: TELEMETRY_PREVIEW_CONTRACT_VERSION,
     exporter,
     resource,
+    traceContext: {
+      propagation: "w3c-trace-context",
+      responseHeaders: {
+        correlationId: TELEMETRY_CORRELATION_ID_HEADER,
+        traceId: TELEMETRY_TRACE_ID_HEADER,
+        traceparent: TELEMETRY_TRACEPARENT_HEADER,
+      },
+      traceparentSampled: true,
+      incomingHeadersAccepted: false,
+      incomingHeadersReturned: false,
+      rawHeadersReturned: false,
+      routeTemplateOnly: true,
+    },
     redaction: telemetryAttributePolicy,
     exportPreview: buildTelemetryExportEnvelopePreview(
       services,
