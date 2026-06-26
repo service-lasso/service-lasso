@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { summarizeServiceHealthRegression, type ServiceHealthHistoryState } from "../health/history.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import type { ServiceLifecycleState, ServiceStartTraceAttempt, ServiceStartTraceEvent } from "../lifecycle/types.js";
 
@@ -405,6 +406,43 @@ function runtimeOperationCountSignals(
   });
 }
 
+function healthTransitionCountSignals(
+  serviceId: string,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+  healthHistory: ServiceHealthHistoryState,
+): TelemetrySignalPreview[] {
+  const summary = summarizeServiceHealthRegression(healthHistory);
+  const healthyCount = healthHistory.transitions.filter((transition) => transition.status === "healthy").length;
+  const unhealthyCount = healthHistory.transitions.filter((transition) => transition.status === "unhealthy").length;
+  const counts = [
+    ["total", healthHistory.transitions.length],
+    ["healthy", healthyCount],
+    ["unhealthy", unhealthyCount],
+    ["flapping", summary.flappingCount],
+  ] as const;
+
+  return counts.map(([transition, count]) => {
+    const spanId = spanIdFor(serviceId, `health_transition_count:${transition}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.health.transition_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `health_history.${transition}`,
+        "service.operation.outcome": transition,
+        "service.operation.count": count,
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -609,6 +647,7 @@ export function buildServiceTelemetryPreview(
   service: DiscoveredService,
   lifecycle: ServiceLifecycleState,
   health: ServiceHealthResult,
+  healthHistory: ServiceHealthHistoryState,
 ): ServiceTelemetryPreview {
   const serviceId = service.manifest.id;
   const common = {
@@ -635,6 +674,7 @@ export function buildServiceTelemetryPreview(
   const healthCheckSpanId = spanIdFor(serviceId, "health_check");
   const runtimeLaunchesSpanId = spanIdFor(serviceId, "runtime_launches");
   const runtimeOperationSignals = runtimeOperationCountSignals(serviceId, traceId, correlationId, common, lifecycle);
+  const healthTransitionSignals = healthTransitionCountSignals(serviceId, traceId, correlationId, common, healthHistory);
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -708,6 +748,7 @@ export function buildServiceTelemetryPreview(
       },
       ...startTraceSignals,
       ...runtimeOperationSignals,
+      ...healthTransitionSignals,
     ],
   };
 }
