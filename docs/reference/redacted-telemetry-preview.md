@@ -14,6 +14,8 @@ The runtime also includes a bounded in-memory `apiRequests` preview for recent o
 
 `/api/telemetry` reports an `apiRequestBuffer` object next to the request entries. It contains `capacity`, `retainedCount`, `droppedCount`, `routeTemplateOnly: true`, and `rawMaterialReturned: false`. This lets Service Admin show whether recent API request telemetry has rolled over without exposing discarded request URLs, query strings, headers, or bodies.
 
+`/api/telemetry` also reports an `apiRequestSummary` object built from the same sanitized request entries. It contains retained/dropped/total observed counts, mutating request count, route-group counts, status-class counts, and outcome counts. These aggregates are safe for compact Service Admin cards or tables because they use route groups, status classes, and operation outcomes only; they never include raw URL paths, query strings, route parameters, headers, bodies, endpoint values, or discarded request material.
+
 Every core API response also includes safe correlation headers:
 
 ```text
@@ -34,6 +36,7 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - operation phase, outcome, and duration/count metadata
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
+- safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, and outcome counts
 - trace id, span id, and Service Lasso correlation id
 
 The API must not return raw secret values, environment values, provider credentials, cookies, authorization headers, private keys, recovery material, raw URL paths or query strings, raw request/response bodies, full file contents, or raw service config values.
