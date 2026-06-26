@@ -3,6 +3,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { summarizeServiceHealthRegression, type ServiceHealthHistoryState } from "../health/history.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import type { ServiceLifecycleState, ServiceStartTraceAttempt, ServiceStartTraceEvent } from "../lifecycle/types.js";
+import type { ServiceUpdateState, ServiceUpdateStateKind } from "../updates/state.js";
 
 export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-preview.v1";
 export const TELEMETRY_CORRELATION_ID_HEADER = "x-service-lasso-correlation-id";
@@ -595,6 +596,45 @@ function networkEndpointCountSignals(
   });
 }
 
+const updateStatePhaseByKind: Record<ServiceUpdateStateKind, string> = {
+  installed: "installed",
+  available: "available",
+  downloadedCandidate: "downloaded_candidate",
+  installDeferred: "install_deferred",
+  failed: "failed",
+};
+
+function updateStateCountSignals(
+  serviceId: string,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+  updateState?: ServiceUpdateState | null,
+): TelemetrySignalPreview[] {
+  const activeState = updateState?.state ?? "installed";
+  const states = Object.keys(updateStatePhaseByKind) as ServiceUpdateStateKind[];
+
+  return states.map((state) => {
+    const phase = updateStatePhaseByKind[state];
+    const spanId = spanIdFor(serviceId, `update_state_count:${phase}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.update.state_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `update.${phase}`,
+        "service.operation.outcome": phase,
+        "service.operation.count": activeState === state ? 1 : 0,
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -801,6 +841,7 @@ export function buildServiceTelemetryPreview(
   health: ServiceHealthResult,
   healthHistory: ServiceHealthHistoryState,
   knownServiceIds: ReadonlySet<string> = new Set([service.manifest.id]),
+  updateState?: ServiceUpdateState | null,
 ): ServiceTelemetryPreview {
   const serviceId = service.manifest.id;
   const common = {
@@ -838,6 +879,7 @@ export function buildServiceTelemetryPreview(
   );
   const artifactReadinessSignals = artifactReadinessCountSignals(service, lifecycle, traceId, correlationId, common);
   const networkEndpointSignals = networkEndpointCountSignals(service, traceId, correlationId, common);
+  const updateStateSignals = updateStateCountSignals(serviceId, traceId, correlationId, common, updateState);
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -915,6 +957,7 @@ export function buildServiceTelemetryPreview(
       ...dependencyReadinessSignals,
       ...artifactReadinessSignals,
       ...networkEndpointSignals,
+      ...updateStateSignals,
     ],
   };
 }

@@ -1548,12 +1548,13 @@ async function routeRequest(
       const lifecycle = getLifecycleState(serviceId);
       const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
       const healthHistory = await readServiceHealthHistory(service);
+      const updateState = await readServiceUpdateState(service);
       const knownServiceIds = new Set(runtimeModel.discovered.map((candidate) => candidate.manifest.id));
       writeJson(
         response,
         200,
         createServiceTelemetryPreviewResponse(
-          buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds),
+          buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState),
         ),
       );
       return;
@@ -1949,7 +1950,8 @@ async function routeRequest(
         const lifecycle = getLifecycleState(service.manifest.id);
         const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
         const healthHistory = await readServiceHealthHistory(service);
-        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds);
+        const updateState = await readServiceUpdateState(service);
+        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
       }),
     );
     writeJson(
@@ -1974,7 +1976,8 @@ async function routeRequest(
         const lifecycle = getLifecycleState(service.manifest.id);
         const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
         const healthHistory = await readServiceHealthHistory(service);
-        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds);
+        const updateState = await readServiceUpdateState(service);
+        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
       }),
     );
     const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
