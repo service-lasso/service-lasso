@@ -67,6 +67,7 @@ import {
   buildRuntimeTelemetryPreview,
   buildServiceTelemetryPreview,
   classifyTelemetryRoute,
+  sendRuntimeTelemetryExport,
   sendRuntimeTelemetryMockExport,
   TELEMETRY_CORRELATION_ID_HEADER,
   TELEMETRY_TRACE_ID_HEADER,
@@ -1985,6 +1986,27 @@ async function routeRequest(
       droppedCount: getApiRequestTelemetryDroppedCount(),
     });
     writeJson(response, 200, { exportTest: await sendRuntimeTelemetryMockExport(telemetry) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/telemetry/export") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const knownServiceIds = new Set(runtimeModel.discovered.map((service) => service.manifest.id));
+    const services = await Promise.all(
+      runtimeModel.discovered.map(async (service) => {
+        const lifecycle = getLifecycleState(service.manifest.id);
+        const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+        const healthHistory = await readServiceHealthHistory(service);
+        const updateState = await readServiceUpdateState(service);
+        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
+      }),
+    );
+    const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
+      capacity: API_TELEMETRY_BUFFER_LIMIT,
+      droppedCount: getApiRequestTelemetryDroppedCount(),
+    });
+    writeJson(response, 200, { export: await sendRuntimeTelemetryExport(telemetry) });
     return;
   }
 

@@ -11,9 +11,10 @@ export const TELEMETRY_TRACE_ID_HEADER = "x-service-lasso-trace-id";
 export const TELEMETRY_TRACEPARENT_HEADER = "traceparent";
 
 export type TelemetryExporterStatus = "disabled" | "configured";
-export type TelemetryExportMode = "disabled" | "dry_run";
+export type TelemetryExportMode = "disabled" | "dry_run" | "export_configured";
 export type TelemetryExportTestMode = "disabled" | "mock_collector";
 export type TelemetryExportTestStatus = "not_sent" | "sent" | "failed" | "blocked";
+export type TelemetryExportActionMode = "disabled" | "export";
 export type TelemetrySignalKind = "span" | "metric";
 export type ApiRequestOutcome = "success" | "client_error" | "server_error" | "redirect" | "informational";
 
@@ -71,6 +72,22 @@ export interface TelemetryExportTestResult {
   bodyValueReturned: false;
   localCollectorOnly: true;
   collectorStatusCode: number | null;
+  reason: string;
+}
+
+export interface TelemetryExportActionResult {
+  mode: TelemetryExportActionMode;
+  status: TelemetryExportTestStatus;
+  protocol: "otlp-http";
+  contentType: "application/json";
+  signalCount: number;
+  serviceCount: number;
+  endpointConfigured: boolean;
+  endpointValueReturned: false;
+  headersConfigured: boolean;
+  headersValueReturned: false;
+  bodyValueReturned: false;
+  exporterStatusCode: number | null;
   reason: string;
 }
 
@@ -801,6 +818,9 @@ export function classifyTelemetryRoute(pathname: string): {
   }
 
   if (parts[1] === "telemetry") {
+    if (parts[2] === "export") {
+      return { routeGroup: "telemetry", routeTemplate: "/api/telemetry/export", mutating: true };
+    }
     if (parts[2] === "export-test") {
       return { routeGroup: "telemetry", routeTemplate: "/api/telemetry/export-test", mutating: true };
     }
@@ -1036,6 +1056,9 @@ function readExportModeFromEnv(
   if (exporter.status === "configured" && requestedMode === "dry-run") {
     return "dry_run";
   }
+  if (exporter.status === "configured" && requestedMode === "export") {
+    return "export_configured";
+  }
 
   return "disabled";
 }
@@ -1065,6 +1088,38 @@ function isLoopbackEndpoint(endpoint: string): boolean {
   }
 }
 
+function isHttpEndpoint(endpoint: string): boolean {
+  try {
+    const parsed = new URL(endpoint);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function parseOtlpHeadersFromEnv(env: NodeJS.ProcessEnv): Record<string, string> | null {
+  const rawHeaders = String(env.OTEL_EXPORTER_OTLP_HEADERS ?? "").trim();
+  if (rawHeaders.length === 0) {
+    return {};
+  }
+
+  const headers: Record<string, string> = {};
+  for (const entry of rawHeaders.split(",")) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) {
+      return null;
+    }
+    const name = entry.slice(0, separator).trim().toLowerCase();
+    const value = entry.slice(separator + 1).trim();
+    if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name) || name === "content-type") {
+      return null;
+    }
+    headers[name] = value;
+  }
+
+  return headers;
+}
+
 export function buildTelemetryExportPayload(telemetry: RuntimeTelemetryPreview): TelemetryExportPayload {
   return {
     resource: telemetry.resource,
@@ -1073,6 +1128,85 @@ export function buildTelemetryExportPayload(telemetry: RuntimeTelemetryPreview):
       ...telemetry.apiRequests.map((request) => request.signal),
     ],
   };
+}
+
+export async function sendRuntimeTelemetryExport(
+  telemetry: RuntimeTelemetryPreview,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TelemetryExportActionResult> {
+  const requestedMode = String(env.SERVICE_LASSO_OTEL_EXPORT_MODE ?? "").trim().toLowerCase();
+  const mode: TelemetryExportActionMode =
+    telemetry.exporter.status === "configured" && requestedMode === "export" ? "export" : "disabled";
+  const endpoint = String(env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "").trim();
+  const configuredHeaders = parseOtlpHeadersFromEnv(env);
+  const baseResult = {
+    mode,
+    protocol: "otlp-http" as const,
+    contentType: "application/json" as const,
+    signalCount: telemetry.exportPreview.signalCount,
+    serviceCount: telemetry.exportPreview.serviceCount,
+    endpointConfigured: telemetry.exporter.endpointConfigured,
+    endpointValueReturned: false as const,
+    headersConfigured: configuredHeaders !== null && Object.keys(configuredHeaders).length > 0,
+    headersValueReturned: false as const,
+    bodyValueReturned: false as const,
+  };
+
+  if (mode !== "export") {
+    return {
+      ...baseResult,
+      status: "not_sent",
+      exporterStatusCode: null,
+      reason:
+        "Telemetry export is disabled; set SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=export to send the sanitized envelope.",
+    };
+  }
+
+  if (configuredHeaders === null) {
+    return {
+      ...baseResult,
+      status: "blocked",
+      exporterStatusCode: null,
+      reason: "OTLP export headers are configured with an unsupported header shape.",
+    };
+  }
+
+  if (!isHttpEndpoint(endpoint)) {
+    return {
+      ...baseResult,
+      status: "blocked",
+      exporterStatusCode: null,
+      reason: "OTLP export requires an HTTP(S) endpoint.",
+    };
+  }
+
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        ...configuredHeaders,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(buildTelemetryExportPayload(telemetry)),
+    });
+
+    return {
+      ...baseResult,
+      status: response.ok ? "sent" : "failed",
+      exporterStatusCode: response.status,
+      reason: response.ok
+        ? "Sanitized telemetry was sent to the configured OTLP HTTP endpoint."
+        : "The configured OTLP HTTP endpoint returned a non-success response.",
+    };
+  } catch (error) {
+    return {
+      ...baseResult,
+      status: "failed",
+      exporterStatusCode: null,
+      reason: `OTLP export failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 export async function sendRuntimeTelemetryMockExport(
@@ -1182,6 +1316,8 @@ function buildTelemetryExportEnvelopePreview(
     reason:
       mode === "dry_run"
         ? "Dry-run OTLP export envelope is ready for local verification; the runtime does not send telemetry from this preview API."
+        : mode === "export_configured"
+          ? "Explicit OTLP export is configured; this preview API still does not send telemetry."
         : "OTLP export remains disabled; set SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=dry-run to preview an export envelope.",
   };
 }
