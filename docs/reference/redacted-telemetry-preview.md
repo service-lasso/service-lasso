@@ -8,7 +8,7 @@ GET /api/services/{serviceId}/telemetry
 POST /api/telemetry/export-test
 ```
 
-The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, artifact-readiness count metrics, network endpoint exposure count metrics, update-state count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
+The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, health-history transition count metrics, dependency-readiness count metrics, artifact-readiness count metrics, network endpoint exposure count metrics, update-state count metrics, setup step state count metrics, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
 
 The runtime also includes a bounded in-memory `apiRequests` preview for recent operator/API request outcomes. These entries use route templates and status classes only, such as `/api/services/{serviceId}/health` and `2xx`; they do not include raw URL paths, query strings, headers, request bodies, or response bodies.
 
@@ -50,6 +50,7 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - safe artifact-readiness count metadata for manifest release source presence, current-platform asset presence, installed artifact presence, and checksum verification presence
 - safe network endpoint exposure count metadata for declared, local, external, and health endpoints
 - safe update-state count metadata for installed, available, downloaded candidate, install deferred, and failed service update states
+- safe setup step state count metadata for declared, succeeded, failed, timed out, and skipped setup steps
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
 - safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, and outcome counts
@@ -74,6 +75,8 @@ Network endpoint exposure count signals use the `service_lasso.service.network.e
 
 Update-state count signals use the `service_lasso.service.update.state_count` name. They expose one metric each for installed, available, downloaded candidate, install deferred, and failed states using persisted update state only. These metrics do not include release URLs, source repos, update tags, asset names, asset URLs, archive/extract paths, deferred reasons, failure reasons, hook stdout/stderr, environment values, credentials, or secret/config material.
 
+Setup step state count signals use the `service_lasso.service.setup.step_state_count` name. They expose one metric each for declared, succeeded, failed, timeout, and skipped setup step counts using manifest setup declarations and persisted setup state only. These metrics do not include setup step IDs, descriptions, command lines, args, env values, dependency IDs, run IDs, run messages, exit signals, log paths, stdout/stderr paths, stdout/stderr contents, credentials, or secret/config material.
+
 Exporter endpoint values, OTLP headers, and payload bodies are never returned. `/api/telemetry` only reports whether `SERVICE_LASSO_OTEL_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT` make export configured.
 
 ## Export Readiness Envelope
@@ -96,7 +99,7 @@ Exporter endpoint values, OTLP headers, and payload bodies are never returned. `
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is configured to a loopback HTTP(S) endpoint.
 - `SERVICE_LASSO_OTEL_EXPORT_MODE=mock-collector`.
 
-The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime duration/count, health-history transition count, dependency-readiness count, artifact-readiness count, network endpoint exposure count, update-state count, start-trace, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, release URLs, asset paths, deferred/failure reasons, or operator-supplied OTLP headers.
+The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime duration/count, health-history transition count, dependency-readiness count, artifact-readiness count, network endpoint exposure count, update-state count, setup step state count, start-trace, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, release URLs, asset paths, deferred/failure reasons, setup commands, setup log paths, setup messages, or operator-supplied OTLP headers.
 
 The API response reports only safe proof fields: mode, status, protocol, signal count, service count, collector status code, local-only enforcement, and redaction booleans. It never returns the endpoint value, headers, or exported payload body.
 

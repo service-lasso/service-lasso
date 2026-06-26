@@ -635,6 +635,51 @@ function updateStateCountSignals(
   });
 }
 
+const setupStatePhases = ["declared", "succeeded", "failed", "timeout", "skipped"] as const;
+
+function setupStepStateCountSignals(
+  service: DiscoveredService,
+  lifecycle: ServiceLifecycleState,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+): TelemetrySignalPreview[] {
+  const declaredStepIds = Object.keys(service.manifest.setup?.steps ?? {});
+  const statusCounts = {
+    declared: declaredStepIds.length,
+    succeeded: 0,
+    failed: 0,
+    timeout: 0,
+    skipped: 0,
+  };
+
+  for (const stepId of declaredStepIds) {
+    const status = lifecycle.setup.steps[stepId]?.status;
+    if (status === "succeeded" || status === "failed" || status === "timeout" || status === "skipped") {
+      statusCounts[status] += 1;
+    }
+  }
+
+  return setupStatePhases.map((phase) => {
+    const spanId = spanIdFor(service.manifest.id, `setup_step_state_count:${phase}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.setup.step_state_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `setup.${phase}`,
+        "service.operation.outcome": phase,
+        "service.operation.count": statusCounts[phase],
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -880,6 +925,7 @@ export function buildServiceTelemetryPreview(
   const artifactReadinessSignals = artifactReadinessCountSignals(service, lifecycle, traceId, correlationId, common);
   const networkEndpointSignals = networkEndpointCountSignals(service, traceId, correlationId, common);
   const updateStateSignals = updateStateCountSignals(serviceId, traceId, correlationId, common, updateState);
+  const setupStateSignals = setupStepStateCountSignals(service, lifecycle, traceId, correlationId, common);
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -958,6 +1004,7 @@ export function buildServiceTelemetryPreview(
       ...artifactReadinessSignals,
       ...networkEndpointSignals,
       ...updateStateSignals,
+      ...setupStateSignals,
     ],
   };
 }
