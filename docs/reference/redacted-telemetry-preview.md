@@ -82,6 +82,14 @@ Setup step state count signals use the `service_lasso.service.setup.step_state_c
 
 Exporter endpoint values, OTLP headers, and payload bodies are never returned. `/api/telemetry` only reports whether `SERVICE_LASSO_OTEL_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT` make export configured.
 
+`/api/telemetry` also reports a `continuousExport` object. It is safe scheduler status for the background exporter:
+
+- `status` is `disabled` by default.
+- `status` becomes `configured` only when continuous export is explicitly configured but the current server context is not running the scheduler.
+- `status` becomes `running` when the API server has started the background exporter.
+- `intervalMs`, `inFlight`, `lastAttemptAt`, `lastStatus`, and `exporterStatusCode` expose scheduler posture without endpoint, header, or payload values.
+- `endpointValueReturned`, `headersValueReturned`, and `bodyValueReturned` are always `false`.
+
 ## Export Readiness Envelope
 
 `/api/telemetry` includes an `exportPreview` object. It is safe status evidence, not a network exporter:
@@ -119,6 +127,19 @@ The action sends the same sanitized OTLP-shaped JSON envelope described by `expo
 
 The action blocks unsupported endpoint schemes and unsupported header shapes before sending. It never returns endpoint values, OTLP header values, exported payload bodies, raw URL paths, query strings, request/response bodies, env values, config file contents, release URLs, asset paths, setup commands, setup log paths, credentials, or secret/config material.
 
+## Continuous OTLP Export
+
+The API server can run a disabled-by-default background exporter that periodically sends the same sanitized telemetry envelope used by `POST /api/telemetry/export`.
+
+Continuous export only starts when all of the following are true:
+
+- `SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT=1` or `true`
+- `SERVICE_LASSO_OTEL_ENABLED` is enabled
+- `OTEL_EXPORTER_OTLP_ENDPOINT` is configured to an HTTP(S) endpoint
+- `SERVICE_LASSO_OTEL_EXPORT_MODE=export`
+
+The interval defaults to 60 seconds and may be configured with `SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS`; values below 5000 ms are clamped to 5000 ms. The scheduler suppresses overlapping exports and stops with the API server. It records only safe status metadata in `/api/telemetry`: interval, in-flight state, last attempt timestamp, last result status, and exporter status code. It never returns endpoint values, OTLP header values, exported payload bodies, raw URLs, query strings, request/response bodies, env values, config file contents, credentials, or secret/config material.
+
 ## Scope
 
-This is a preview/status contract plus explicit operator-triggered export actions. Normal telemetry export remains disabled by default; the runtime does not run a background exporter or scheduler yet. Follow-up work can add continuous collector export once Service Admin and Secrets Broker use the same allowlisted trace/correlation model.
+This is a preview/status contract plus explicit operator-triggered and disabled-by-default background export actions for core runtime telemetry. Follow-up work can widen the same allowlisted trace/correlation model into Secrets Broker telemetry emission and any remaining Service Admin operator surfacing.
