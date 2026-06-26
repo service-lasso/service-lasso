@@ -1547,10 +1547,11 @@ async function routeRequest(
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "telemetry") {
       const lifecycle = getLifecycleState(serviceId);
       const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+      const healthHistory = await readServiceHealthHistory(service);
       writeJson(
         response,
         200,
-        createServiceTelemetryPreviewResponse(buildServiceTelemetryPreview(service, lifecycle, health)),
+        createServiceTelemetryPreviewResponse(buildServiceTelemetryPreview(service, lifecycle, health, healthHistory)),
       );
       return;
     }
@@ -1943,7 +1944,8 @@ async function routeRequest(
       runtimeModel.discovered.map(async (service) => {
         const lifecycle = getLifecycleState(service.manifest.id);
         const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-        return buildServiceTelemetryPreview(service, lifecycle, health);
+        const healthHistory = await readServiceHealthHistory(service);
+        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory);
       }),
     );
     writeJson(
@@ -1966,7 +1968,8 @@ async function routeRequest(
       runtimeModel.discovered.map(async (service) => {
         const lifecycle = getLifecycleState(service.manifest.id);
         const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-        return buildServiceTelemetryPreview(service, lifecycle, health);
+        const healthHistory = await readServiceHealthHistory(service);
+        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory);
       }),
     );
     const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {

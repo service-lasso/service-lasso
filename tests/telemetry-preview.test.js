@@ -182,7 +182,7 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
       status: "not_sent",
       protocol: "otlp-http",
       contentType: "application/json",
-      signalCount: 8,
+      signalCount: 12,
       serviceCount: 1,
       endpointConfigured: true,
       endpointValueReturned: false,
@@ -209,7 +209,7 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
     });
     assert.equal(result.body.telemetry.services.length, 1);
     assert.equal(result.body.telemetry.services[0].serviceId, "telemetry-consumer");
-    assert.equal(result.body.telemetry.services[0].signals.length, 8);
+    assert.equal(result.body.telemetry.services[0].signals.length, 12);
     const runtimeOperationSignals = result.body.telemetry.services[0].signals.filter(
       (signal) => signal.name === "service_lasso.service.runtime.operation_count",
     );
@@ -226,6 +226,22 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
     assert.deepEqual(
       runtimeOperationSignals.map((signal) => signal.attributes["service.operation.count"]),
       [0, 0, 0, 0, 0],
+    );
+    const healthTransitionSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.health.transition_count",
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "health_history.total",
+        "health_history.healthy",
+        "health_history.unhealthy",
+        "health_history.flapping",
+      ],
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0, 0],
     );
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
@@ -256,6 +272,57 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
     } else {
       process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
     }
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports health transition counts without transition detail", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-health-history-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-health-history", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const health = await getJson(apiServer.url + "/api/services/telemetry-health-history/health");
+    assert.equal(health.status, 200);
+    assert.equal(health.body.history.transitions.length, 1);
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-health-history",
+    );
+    assert.ok(serviceTelemetry);
+    const healthTransitionSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.health.transition_count",
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "health_history.total",
+        "health_history.healthy",
+        "health_history.unhealthy",
+        "health_history.flapping",
+      ],
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [1, 0, 1, 0],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("transitions"), false);
+    assert.equal(serialized.includes("observed"), false);
+    assert.equal(serialized.includes("detail"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -299,7 +366,7 @@ test("POST /api/telemetry/export-test sends only sanitized metadata to a local m
       status: "sent",
       protocol: "otlp-http",
       contentType: "application/json",
-      signalCount: 8,
+      signalCount: 12,
       serviceCount: 1,
       endpointConfigured: true,
       endpointValueReturned: false,
@@ -319,7 +386,7 @@ test("POST /api/telemetry/export-test sends only sanitized metadata to a local m
       serviceNamespace: "service-lasso",
       serviceInstanceId: "local-runtime",
     });
-    assert.equal(payload.signals.length, 8);
+    assert.equal(payload.signals.length, 12);
     assert.equal(payload.signals[0].attributes["service.id"], "telemetry-export");
     assertNoSecretMaterial(body, { sentinels });
     assertNoSecretMaterial(payload, { sentinels });
@@ -438,7 +505,7 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
     assert.equal(result.body.telemetry.apiRequests[2].signal.correlationId, healthCorrelationId);
     assert.equal(result.body.telemetry.apiRequests[2].signal.traceId, healthTraceId);
     assert.equal(result.body.telemetry.apiRequests[2].signal.traceparent, healthTraceparent);
-    assert.equal(result.body.telemetry.exportPreview.signalCount, 11);
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 15);
     assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
       capacity: 50,
       retainedCount: 3,
@@ -494,7 +561,7 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
     assert.equal(result.body.telemetry.exporter.status, "disabled");
     assert.equal(result.body.telemetry.exportPreview.mode, "disabled");
     assert.equal(result.body.telemetry.exportPreview.status, "not_sent");
-    assert.equal(result.body.telemetry.exportPreview.signalCount, 8);
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 12);
     assert.equal(result.body.telemetry.exportPreview.endpointValueReturned, false);
     assert.equal(result.body.telemetry.exportPreview.headersValueReturned, false);
     assert.equal(result.body.telemetry.exportPreview.bodyValueReturned, false);
@@ -612,7 +679,7 @@ test("GET /api/telemetry reports start-trace phases without trace messages or me
       runtimeOperationSignals.map((signal) => signal.attributes["service.operation.count"]),
       [1, 0, 0, 0, 0],
     );
-    assert.equal(result.body.telemetry.exportPreview.signalCount, 18);
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 22);
     assertAllowlistedSignals(result.body.telemetry);
 
     const serialized = JSON.stringify(result.body);
@@ -666,7 +733,7 @@ test("GET /api/telemetry reports bounded API request buffer metadata without raw
       result.body.telemetry.apiRequests.every((request) => request.routeTemplate === "/api/health"),
       true,
     );
-    assert.equal(result.body.telemetry.exportPreview.signalCount, 58);
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 62);
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {
