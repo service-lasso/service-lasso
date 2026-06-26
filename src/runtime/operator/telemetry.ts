@@ -370,6 +370,41 @@ function startTraceEventDuration(attempt: ServiceStartTraceAttempt, event: Servi
   return durationBetween(event.startedAt, event.finishedAt);
 }
 
+function runtimeOperationCountSignals(
+  serviceId: string,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+  lifecycle: ServiceLifecycleState,
+): TelemetrySignalPreview[] {
+  const counts = [
+    ["launch", lifecycle.runtime.metrics.launchCount],
+    ["stop", lifecycle.runtime.metrics.stopCount],
+    ["exit", lifecycle.runtime.metrics.exitCount],
+    ["crash", lifecycle.runtime.metrics.crashCount],
+    ["restart", lifecycle.runtime.metrics.restartCount],
+  ] as const;
+
+  return counts.map(([operation, count]) => {
+    const spanId = spanIdFor(serviceId, `runtime_operation_count:${operation}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.runtime.operation_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `runtime_metrics.${operation}`,
+        "service.operation.outcome": operation,
+        "service.operation.count": count,
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -599,6 +634,7 @@ export function buildServiceTelemetryPreview(
   const lifecycleSpanId = spanIdFor(serviceId, "lifecycle");
   const healthCheckSpanId = spanIdFor(serviceId, "health_check");
   const runtimeLaunchesSpanId = spanIdFor(serviceId, "runtime_launches");
+  const runtimeOperationSignals = runtimeOperationCountSignals(serviceId, traceId, correlationId, common, lifecycle);
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -671,6 +707,7 @@ export function buildServiceTelemetryPreview(
         }),
       },
       ...startTraceSignals,
+      ...runtimeOperationSignals,
     ],
   };
 }

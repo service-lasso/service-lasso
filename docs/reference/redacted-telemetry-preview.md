@@ -8,7 +8,7 @@ GET /api/services/{serviceId}/telemetry
 POST /api/telemetry/export-test
 ```
 
-The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime metric signals, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
+The preview is metadata-only. It gives Service Admin and operators a stable contract for exporter status, trace/correlation identifiers, lifecycle spans, health-check spans, runtime duration and operation-count metric signals, start-trace phase signals, and a redacted OTLP export-readiness envelope before live OTLP export is enabled by default.
 
 The runtime also includes a bounded in-memory `apiRequests` preview for recent operator/API request outcomes. These entries use route templates and status classes only, such as `/api/services/{serviceId}/health` and `2xx`; they do not include raw URL paths, query strings, headers, request bodies, or response bodies.
 
@@ -44,6 +44,7 @@ Telemetry attributes use an allowlist and value-level redaction. The API may ret
 - runtime provider id/provider service id
 - health status, readiness, and blocking reason
 - operation phase, outcome, and duration/count metadata
+- safe runtime operation count metadata for launches, stops, exits, crashes, and restarts
 - safe API request metadata: HTTP method, route template, route group, mutating flag, response status code/status class, and duration
 - safe API request buffer metadata: capacity, retained count, dropped count, and route-template/raw-material booleans
 - safe API request summary metadata: retained/dropped/observed counts, mutating count, route-group counts, status-class counts, and outcome counts
@@ -55,6 +56,8 @@ The API must not return raw secret values, environment values, provider credenti
 Allowed string attributes are still checked for sensitive-looking content before they are returned or sent to the local mock collector. Bearer tokens, GitHub-style tokens, AWS access keys, private-key blocks, basic-auth URLs, sensitive key/value pairs, and Service Lasso secret regression sentinels are replaced with `[REDACTED]`. This prevents an otherwise allowed field such as service version, artifact metadata, health detail, or provider metadata from carrying secret-shaped values through the preview.
 
 Start-trace phase signals use the `service_lasso.service.start_trace_event` name and keep the contract intentionally narrow. They are derived from the latest managed start or restart trace for a service and expose only action/status/phase/order/duration fields. Trace messages, trace event metadata values, raw file paths, environment values, credentials, and secret/config material are not returned by the telemetry preview.
+
+Runtime operation count signals use the `service_lasso.service.runtime.operation_count` name. They expose one metric each for launch, stop, exit, crash, and restart counts using the existing lifecycle runtime counters. These metrics do not include process command lines, pids, log paths, exit messages, raw paths, environment values, credentials, or secret/config material.
 
 Exporter endpoint values, OTLP headers, and payload bodies are never returned. `/api/telemetry` only reports whether `SERVICE_LASSO_OTEL_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT` make export configured.
 
@@ -78,7 +81,7 @@ Exporter endpoint values, OTLP headers, and payload bodies are never returned. `
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is configured to a loopback HTTP(S) endpoint.
 - `SERVICE_LASSO_OTEL_EXPORT_MODE=mock-collector`.
 
-The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime, start-trace, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, or operator-supplied OTLP headers.
+The action sends a sanitized OTLP-shaped JSON envelope made from the same allowlisted lifecycle, health, runtime duration/count, start-trace, and API request metadata returned by the preview. It does not send raw paths, query strings, headers, request/response bodies, env values, config file contents, endpoint values, or operator-supplied OTLP headers.
 
 The API response reports only safe proof fields: mode, status, protocol, signal count, service count, collector status code, local-only enforcement, and redaction booleans. It never returns the endpoint value, headers, or exported payload body.
 
