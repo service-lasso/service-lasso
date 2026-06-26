@@ -73,7 +73,13 @@ import {
   TELEMETRY_TRACE_ID_HEADER,
   TELEMETRY_TRACEPARENT_HEADER,
   type ApiRequestTelemetryPreview,
+  type RuntimeTelemetryPreview,
+  type TelemetryContinuousExportRuntimeState,
 } from "../runtime/operator/telemetry.js";
+import {
+  createRuntimeTelemetryExportScheduler,
+  type RuntimeTelemetryExportScheduler,
+} from "../runtime/operator/telemetry-scheduler.js";
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
@@ -193,6 +199,13 @@ export interface ApiServerOptions {
   updateScheduler?: boolean;
   updateSchedulerIntervalMs?: number;
   workflowRunFacadeState?: WorkflowRunFacadeState;
+  telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
+  apiRequestTelemetryState?: ApiRequestTelemetryState;
+}
+
+interface ApiRequestTelemetryState {
+  requests: ApiRequestTelemetryPreview[];
+  droppedCount: number;
 }
 
 interface ApiRouteConfig extends RuntimeConfig {
@@ -209,6 +222,7 @@ export interface RunningApiServer {
   url: string;
   monitor: RuntimeServiceMonitor | null;
   updateScheduler: RuntimeUpdateScheduler | null;
+  telemetryExportScheduler: RuntimeTelemetryExportScheduler | null;
   stop: () => Promise<void>;
 }
 
@@ -1060,6 +1074,31 @@ function isMutatingHttpMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
 }
 
+async function buildRuntimeTelemetrySnapshot(
+  config: Pick<ApiRouteConfig, "servicesRoot">,
+  apiRequestTelemetry: ApiRequestTelemetryPreview[],
+  getApiRequestTelemetryDroppedCount: () => number,
+  continuousExportState?: TelemetryContinuousExportRuntimeState | null,
+): Promise<RuntimeTelemetryPreview> {
+  const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+  const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+  const knownServiceIds = new Set(runtimeModel.discovered.map((service) => service.manifest.id));
+  const services = await Promise.all(
+    runtimeModel.discovered.map(async (service) => {
+      const lifecycle = getLifecycleState(service.manifest.id);
+      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+      const healthHistory = await readServiceHealthHistory(service);
+      const updateState = await readServiceUpdateState(service);
+      return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
+    }),
+  );
+
+  return buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
+    capacity: API_TELEMETRY_BUFFER_LIMIT,
+    droppedCount: getApiRequestTelemetryDroppedCount(),
+  }, process.env, continuousExportState);
+}
+
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1067,6 +1106,7 @@ async function routeRequest(
   workflowRunFacadeState: WorkflowRunFacadeState,
   apiRequestTelemetry: ApiRequestTelemetryPreview[],
   getApiRequestTelemetryDroppedCount: () => number,
+  getTelemetryContinuousExportState: () => TelemetryContinuousExportRuntimeState | null,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
@@ -1943,69 +1983,39 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/telemetry") {
-    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
-    const knownServiceIds = new Set(runtimeModel.discovered.map((service) => service.manifest.id));
-    const services = await Promise.all(
-      runtimeModel.discovered.map(async (service) => {
-        const lifecycle = getLifecycleState(service.manifest.id);
-        const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-        const healthHistory = await readServiceHealthHistory(service);
-        const updateState = await readServiceUpdateState(service);
-        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
-      }),
-    );
     writeJson(
       response,
       200,
       createRuntimeTelemetryPreviewResponse(
-        buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
-          capacity: API_TELEMETRY_BUFFER_LIMIT,
-          droppedCount: getApiRequestTelemetryDroppedCount(),
-        }),
+        await buildRuntimeTelemetrySnapshot(
+          config,
+          apiRequestTelemetry,
+          getApiRequestTelemetryDroppedCount,
+          getTelemetryContinuousExportState(),
+        ),
       ),
     );
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/api/telemetry/export-test") {
-    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
-    const knownServiceIds = new Set(runtimeModel.discovered.map((service) => service.manifest.id));
-    const services = await Promise.all(
-      runtimeModel.discovered.map(async (service) => {
-        const lifecycle = getLifecycleState(service.manifest.id);
-        const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-        const healthHistory = await readServiceHealthHistory(service);
-        const updateState = await readServiceUpdateState(service);
-        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
-      }),
+    const telemetry = await buildRuntimeTelemetrySnapshot(
+      config,
+      apiRequestTelemetry,
+      getApiRequestTelemetryDroppedCount,
+      getTelemetryContinuousExportState(),
     );
-    const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
-      capacity: API_TELEMETRY_BUFFER_LIMIT,
-      droppedCount: getApiRequestTelemetryDroppedCount(),
-    });
     writeJson(response, 200, { exportTest: await sendRuntimeTelemetryMockExport(telemetry) });
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/api/telemetry/export") {
-    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
-    const knownServiceIds = new Set(runtimeModel.discovered.map((service) => service.manifest.id));
-    const services = await Promise.all(
-      runtimeModel.discovered.map(async (service) => {
-        const lifecycle = getLifecycleState(service.manifest.id);
-        const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-        const healthHistory = await readServiceHealthHistory(service);
-        const updateState = await readServiceUpdateState(service);
-        return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
-      }),
+    const telemetry = await buildRuntimeTelemetrySnapshot(
+      config,
+      apiRequestTelemetry,
+      getApiRequestTelemetryDroppedCount,
+      getTelemetryContinuousExportState(),
     );
-    const telemetry = buildRuntimeTelemetryPreview(services, apiRequestTelemetry, {
-      capacity: API_TELEMETRY_BUFFER_LIMIT,
-      droppedCount: getApiRequestTelemetryDroppedCount(),
-    });
     writeJson(response, 200, { export: await sendRuntimeTelemetryExport(telemetry) });
     return;
   }
@@ -2045,8 +2055,9 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     },
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
-  const apiRequestTelemetry: ApiRequestTelemetryPreview[] = [];
-  let apiRequestTelemetryDroppedCount = 0;
+  const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
+  const apiRequestTelemetry = apiRequestTelemetryState.requests;
+  const getTelemetryContinuousExportState = () => options.telemetryExportScheduler?.getStatus() ?? null;
 
   return createServer((request, response) => {
     const startedAt = performance.now();
@@ -2070,7 +2081,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       if (apiRequestTelemetry.length > API_TELEMETRY_BUFFER_LIMIT) {
         const overflowCount = apiRequestTelemetry.length - API_TELEMETRY_BUFFER_LIMIT;
         apiRequestTelemetry.splice(0, overflowCount);
-        apiRequestTelemetryDroppedCount += overflowCount;
+        apiRequestTelemetryState.droppedCount += overflowCount;
       }
     });
 
@@ -2080,7 +2091,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       routeConfig,
       workflowRunFacadeState,
       apiRequestTelemetry,
-      () => apiRequestTelemetryDroppedCount,
+      () => apiRequestTelemetryState.droppedCount,
+      getTelemetryContinuousExportState,
     ).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
@@ -2120,11 +2132,24 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         intervalMs: options.updateSchedulerIntervalMs,
       })
     : null;
+  const apiRequestTelemetryState: ApiRequestTelemetryState = { requests: [], droppedCount: 0 };
+  let telemetryExportScheduler: RuntimeTelemetryExportScheduler | null = null;
+  telemetryExportScheduler = createRuntimeTelemetryExportScheduler({
+    collectTelemetry: (status) =>
+      buildRuntimeTelemetrySnapshot(
+        config,
+        apiRequestTelemetryState.requests,
+        () => apiRequestTelemetryState.droppedCount,
+        status,
+      ),
+  });
   const server = createApiServer({
     ...config,
     autostart: options.autostart,
     monitor: options.monitor,
     updateScheduler: options.updateScheduler,
+    telemetryExportScheduler,
+    apiRequestTelemetryState,
     workflowRunFacadeState: options.workflowRunFacadeState,
   });
   const port = requestedPort;
@@ -2133,6 +2158,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   await once(server, "listening");
   monitor?.start();
   updateScheduler?.start();
+  telemetryExportScheduler.start();
 
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -2158,10 +2184,12 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     url: instance.apiUrl,
     monitor,
     updateScheduler,
+    telemetryExportScheduler,
     stop: async () => {
       clearInterval(leaseHeartbeat);
       await monitor?.stop();
       await updateScheduler?.stop();
+      await telemetryExportScheduler?.stop();
       await stopAllManagedProcesses();
       await markRuntimeInstanceStopped(config);
       server.close();

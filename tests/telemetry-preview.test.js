@@ -69,6 +69,17 @@ async function startMockCollector() {
   };
 }
 
+async function waitFor(predicate, timeoutMs = 2000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(predicate(), true);
+}
+
 async function writeUpdateState(serviceRoot, state) {
   const stateRoot = path.join(serviceRoot, ".state");
   await mkdir(stateRoot, { recursive: true });
@@ -232,6 +243,21 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
       ],
       reason:
         "Dry-run OTLP export envelope is ready for local verification; the runtime does not send telemetry from this preview API.",
+    });
+    assert.deepEqual(result.body.telemetry.continuousExport, {
+      status: "disabled",
+      intervalMs: null,
+      inFlight: false,
+      lastAttemptAt: null,
+      lastStatus: null,
+      exporterStatusCode: null,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersConfigured: true,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      reason:
+        "Continuous OTLP export is disabled until SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT, SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=export are configured.",
     });
     assert.equal(result.body.telemetry.services.length, 1);
     assert.equal(result.body.telemetry.services[0].serviceId, "telemetry-consumer");
@@ -1125,6 +1151,87 @@ test("POST /api/telemetry/export blocks unsupported endpoint and header configur
   }
 });
 
+test("startApiServer runs continuous sanitized OTLP export only when explicitly enabled", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-continuous-export-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-continuous-export", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+  const collector = await startMockCollector();
+
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  const previousContinuous = process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT;
+  const previousInterval = process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url + "?token=" + rawSecretSentinel;
+  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel;
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "export";
+  process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT = "1";
+  process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS = "5000";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await waitFor(() => collector.requests.length > 0);
+    const payload = JSON.parse(collector.requests[0].body);
+    assert.equal(payload.resource.serviceName, "service-lasso-core");
+    assert.equal(payload.signals.length > 0, true);
+    assertNoSecretMaterial(payload, { sentinels });
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.continuousExport.status, "running");
+    assert.equal(result.body.telemetry.continuousExport.intervalMs, 5000);
+    assert.equal(result.body.telemetry.continuousExport.lastStatus, "sent");
+    assert.equal(result.body.telemetry.continuousExport.exporterStatusCode, 202);
+    assert.equal(result.body.telemetry.continuousExport.endpointConfigured, true);
+    assert.equal(result.body.telemetry.continuousExport.endpointValueReturned, false);
+    assert.equal(result.body.telemetry.continuousExport.headersConfigured, true);
+    assert.equal(result.body.telemetry.continuousExport.headersValueReturned, false);
+    assert.equal(result.body.telemetry.continuousExport.bodyValueReturned, false);
+    assertNoSecretMaterial(result.body, { sentinels });
+    assert.equal(JSON.stringify(result.body).includes(collector.url), false);
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    if (previousContinuous === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT = previousContinuous;
+    }
+    if (previousInterval === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS = previousInterval;
+    }
+    await apiServer.stop();
+    await collector.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/telemetry redacts sensitive-looking values even on allowlisted attributes", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-attribute-redaction-");
   await writeManifest(servicesRoot, "telemetry-redaction", {
@@ -1291,6 +1398,21 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
       rawMaterialReturned: false,
     });
     assert.match(result.body.telemetry.exportPreview.reason, /OTLP export remains disabled/i);
+    assert.deepEqual(result.body.telemetry.continuousExport, {
+      status: "disabled",
+      intervalMs: null,
+      inFlight: false,
+      lastAttemptAt: null,
+      lastStatus: null,
+      exporterStatusCode: null,
+      endpointConfigured: false,
+      endpointValueReturned: false,
+      headersConfigured: false,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      reason:
+        "Continuous OTLP export is disabled until SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT, SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=export are configured.",
+    });
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
 

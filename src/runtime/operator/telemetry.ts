@@ -15,6 +15,7 @@ export type TelemetryExportMode = "disabled" | "dry_run" | "export_configured";
 export type TelemetryExportTestMode = "disabled" | "mock_collector";
 export type TelemetryExportTestStatus = "not_sent" | "sent" | "failed" | "blocked";
 export type TelemetryExportActionMode = "disabled" | "export";
+export type TelemetryContinuousExportStatus = "disabled" | "configured" | "running";
 export type TelemetrySignalKind = "span" | "metric";
 export type ApiRequestOutcome = "success" | "client_error" | "server_error" | "redirect" | "informational";
 
@@ -88,6 +89,29 @@ export interface TelemetryExportActionResult {
   headersValueReturned: false;
   bodyValueReturned: false;
   exporterStatusCode: number | null;
+  reason: string;
+}
+
+export interface TelemetryContinuousExportRuntimeState {
+  running: boolean;
+  intervalMs: number;
+  inFlight: boolean;
+  lastAttemptAt: string | null;
+  lastResult: TelemetryExportActionResult | null;
+}
+
+export interface TelemetryContinuousExportPreview {
+  status: TelemetryContinuousExportStatus;
+  intervalMs: number | null;
+  inFlight: boolean;
+  lastAttemptAt: string | null;
+  lastStatus: TelemetryExportTestStatus | null;
+  exporterStatusCode: number | null;
+  endpointConfigured: boolean;
+  endpointValueReturned: false;
+  headersConfigured: boolean;
+  headersValueReturned: false;
+  bodyValueReturned: false;
   reason: string;
 }
 
@@ -166,6 +190,7 @@ export interface RuntimeTelemetryPreview {
   traceContext: TelemetryTraceContextPreview;
   redaction: TelemetryAttributePolicy;
   exportPreview: TelemetryExportEnvelopePreview;
+  continuousExport: TelemetryContinuousExportPreview;
   apiRequestBuffer: ApiRequestTelemetryBufferPreview;
   apiRequestSummary: ApiRequestTelemetrySummaryPreview;
   apiRequests: ApiRequestTelemetryPreview[];
@@ -1076,6 +1101,27 @@ function readExportTestModeFromEnv(
   return "disabled";
 }
 
+export function isTelemetryContinuousExportEnabled(
+  env: NodeJS.ProcessEnv,
+  exporter: TelemetryExporterPreview = readExporterPreviewFromEnv(env),
+): boolean {
+  const continuousExportEnabled =
+    env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT === "1" ||
+    String(env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT ?? "").toLowerCase() === "true";
+  const requestedMode = String(env.SERVICE_LASSO_OTEL_EXPORT_MODE ?? "").trim().toLowerCase();
+
+  return continuousExportEnabled && exporter.status === "configured" && requestedMode === "export";
+}
+
+export function readTelemetryContinuousExportIntervalMs(env: NodeJS.ProcessEnv): number {
+  const parsed = Number(env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS);
+  if (!Number.isFinite(parsed)) {
+    return 60000;
+  }
+
+  return Math.max(5000, Math.trunc(parsed));
+}
+
 function isLoopbackEndpoint(endpoint: string): boolean {
   try {
     const parsed = new URL(endpoint);
@@ -1120,6 +1166,10 @@ function parseOtlpHeadersFromEnv(env: NodeJS.ProcessEnv): Record<string, string>
   return headers;
 }
 
+function telemetryHeadersConfigured(env: NodeJS.ProcessEnv): boolean {
+  return String(env.OTEL_EXPORTER_OTLP_HEADERS ?? "").trim().length > 0;
+}
+
 export function buildTelemetryExportPayload(telemetry: RuntimeTelemetryPreview): TelemetryExportPayload {
   return {
     resource: telemetry.resource,
@@ -1127,6 +1177,36 @@ export function buildTelemetryExportPayload(telemetry: RuntimeTelemetryPreview):
       ...telemetry.services.flatMap((service) => service.signals),
       ...telemetry.apiRequests.map((request) => request.signal),
     ],
+  };
+}
+
+function buildTelemetryContinuousExportPreview(
+  env: NodeJS.ProcessEnv,
+  exporter: TelemetryExporterPreview,
+  runtimeState?: TelemetryContinuousExportRuntimeState | null,
+): TelemetryContinuousExportPreview {
+  const enabled = isTelemetryContinuousExportEnabled(env, exporter);
+  const status: TelemetryContinuousExportStatus = runtimeState?.running ? "running" : enabled ? "configured" : "disabled";
+  const intervalMs = enabled ? runtimeState?.intervalMs ?? readTelemetryContinuousExportIntervalMs(env) : null;
+
+  return {
+    status,
+    intervalMs,
+    inFlight: runtimeState?.inFlight ?? false,
+    lastAttemptAt: runtimeState?.lastAttemptAt ?? null,
+    lastStatus: runtimeState?.lastResult?.status ?? null,
+    exporterStatusCode: runtimeState?.lastResult?.exporterStatusCode ?? null,
+    endpointConfigured: exporter.endpointConfigured,
+    endpointValueReturned: false,
+    headersConfigured: telemetryHeadersConfigured(env),
+    headersValueReturned: false,
+    bodyValueReturned: false,
+    reason:
+      status === "running"
+        ? "Continuous OTLP export is running with sanitized envelopes only; endpoint, headers, and payload bodies are not returned."
+        : status === "configured"
+          ? "Continuous OTLP export is configured but not running in this server context."
+          : "Continuous OTLP export is disabled until SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT, SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=export are configured.",
   };
 }
 
@@ -1389,6 +1469,7 @@ export function buildRuntimeTelemetryPreview(
   apiRequests: ApiRequestTelemetryPreview[] = [],
   apiRequestBuffer?: Partial<Pick<ApiRequestTelemetryBufferPreview, "capacity" | "droppedCount">>,
   env: NodeJS.ProcessEnv = process.env,
+  continuousExportState?: TelemetryContinuousExportRuntimeState | null,
 ): RuntimeTelemetryPreview {
   const exporter = readExporterPreviewFromEnv(env);
   const droppedCount = apiRequestBuffer?.droppedCount ?? 0;
@@ -1423,6 +1504,7 @@ export function buildRuntimeTelemetryPreview(
       telemetryAttributePolicy,
       env,
     ),
+    continuousExport: buildTelemetryContinuousExportPreview(env, exporter, continuousExportState),
     apiRequestBuffer: {
       capacity: apiRequestBuffer?.capacity ?? apiRequests.length,
       retainedCount: apiRequests.length,
