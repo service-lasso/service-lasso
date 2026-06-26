@@ -105,6 +105,23 @@ export interface ApiRequestTelemetryBufferPreview {
   rawMaterialReturned: false;
 }
 
+export interface ApiRequestTelemetryCountPreview {
+  key: string;
+  count: number;
+}
+
+export interface ApiRequestTelemetrySummaryPreview {
+  retainedCount: number;
+  droppedCount: number;
+  totalObservedCount: number;
+  mutatingCount: number;
+  routeGroups: ApiRequestTelemetryCountPreview[];
+  statusClasses: ApiRequestTelemetryCountPreview[];
+  outcomes: ApiRequestTelemetryCountPreview[];
+  routeTemplateOnly: true;
+  rawMaterialReturned: false;
+}
+
 export interface RuntimeTelemetryPreview {
   contractVersion: typeof TELEMETRY_PREVIEW_CONTRACT_VERSION;
   exporter: TelemetryExporterPreview;
@@ -112,6 +129,7 @@ export interface RuntimeTelemetryPreview {
   redaction: TelemetryAttributePolicy;
   exportPreview: TelemetryExportEnvelopePreview;
   apiRequestBuffer: ApiRequestTelemetryBufferPreview;
+  apiRequestSummary: ApiRequestTelemetrySummaryPreview;
   apiRequests: ApiRequestTelemetryPreview[];
   services: ServiceTelemetryPreview[];
 }
@@ -739,6 +757,48 @@ function buildTelemetryExportEnvelopePreview(
   };
 }
 
+function incrementCount(counts: Map<string, number>, key: string): void {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+function toSortedCounts(counts: Map<string, number>): ApiRequestTelemetryCountPreview[] {
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+}
+
+function buildApiRequestTelemetrySummaryPreview(
+  apiRequests: ApiRequestTelemetryPreview[],
+  droppedCount: number,
+): ApiRequestTelemetrySummaryPreview {
+  const routeGroups = new Map<string, number>();
+  const statusClasses = new Map<string, number>();
+  const outcomes = new Map<string, number>();
+  let mutatingCount = 0;
+
+  for (const request of apiRequests) {
+    const attributes = request.signal.attributes;
+    incrementCount(routeGroups, request.routeGroup);
+    incrementCount(statusClasses, String(attributes["http.response.status_class"] ?? "unknown"));
+    incrementCount(outcomes, String(attributes["service.operation.outcome"] ?? "unknown"));
+    if (attributes["api.mutating"] === true) {
+      mutatingCount += 1;
+    }
+  }
+
+  return {
+    retainedCount: apiRequests.length,
+    droppedCount,
+    totalObservedCount: apiRequests.length + droppedCount,
+    mutatingCount,
+    routeGroups: toSortedCounts(routeGroups),
+    statusClasses: toSortedCounts(statusClasses),
+    outcomes: toSortedCounts(outcomes),
+    routeTemplateOnly: true,
+    rawMaterialReturned: false,
+  };
+}
+
 export function buildRuntimeTelemetryPreview(
   services: ServiceTelemetryPreview[],
   apiRequests: ApiRequestTelemetryPreview[] = [],
@@ -746,6 +806,7 @@ export function buildRuntimeTelemetryPreview(
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeTelemetryPreview {
   const exporter = readExporterPreviewFromEnv(env);
+  const droppedCount = apiRequestBuffer?.droppedCount ?? 0;
   const resource: TelemetryResourcePreview = {
     serviceName: "service-lasso-core",
     serviceNamespace: "service-lasso",
@@ -767,10 +828,11 @@ export function buildRuntimeTelemetryPreview(
     apiRequestBuffer: {
       capacity: apiRequestBuffer?.capacity ?? apiRequests.length,
       retainedCount: apiRequests.length,
-      droppedCount: apiRequestBuffer?.droppedCount ?? 0,
+      droppedCount,
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     },
+    apiRequestSummary: buildApiRequestTelemetrySummaryPreview(apiRequests, droppedCount),
     apiRequests,
     services,
   };

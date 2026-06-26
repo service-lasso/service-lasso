@@ -142,6 +142,17 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
+    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
+      retainedCount: 0,
+      droppedCount: 0,
+      totalObservedCount: 0,
+      mutatingCount: 0,
+      routeGroups: [],
+      statusClasses: [],
+      outcomes: [],
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
     assert.deepEqual(result.body.telemetry.exportPreview, {
       mode: "dry_run",
       status: "not_sent",
@@ -387,6 +398,26 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
+    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
+      retainedCount: 3,
+      droppedCount: 0,
+      totalObservedCount: 3,
+      mutatingCount: 0,
+      routeGroups: [
+        { key: "health", count: 2 },
+        { key: "services", count: 1 },
+      ],
+      statusClasses: [
+        { key: "2xx", count: 2 },
+        { key: "4xx", count: 1 },
+      ],
+      outcomes: [
+        { key: "success", count: 2 },
+        { key: "client_error", count: 1 },
+      ],
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
     assertAllowlistedSignals(result.body.telemetry);
     assertNoSecretMaterial(result.body, { sentinels });
   } finally {
@@ -423,6 +454,17 @@ test("GET /api/telemetry keeps export envelope disabled until explicit dry-run c
       capacity: 50,
       retainedCount: 0,
       droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
+      retainedCount: 0,
+      droppedCount: 0,
+      totalObservedCount: 0,
+      mutatingCount: 0,
+      routeGroups: [],
+      statusClasses: [],
+      outcomes: [],
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
@@ -483,6 +525,17 @@ test("GET /api/telemetry reports bounded API request buffer metadata without raw
       capacity: 50,
       retainedCount: 50,
       droppedCount: 5,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
+      retainedCount: 50,
+      droppedCount: 5,
+      totalObservedCount: 55,
+      mutatingCount: 0,
+      routeGroups: [{ key: "health", count: 50 }],
+      statusClasses: [{ key: "2xx", count: 50 }],
+      outcomes: [{ key: "success", count: 50 }],
       routeTemplateOnly: true,
       rawMaterialReturned: false,
     });
