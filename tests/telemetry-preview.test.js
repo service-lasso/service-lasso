@@ -69,6 +69,36 @@ async function startMockCollector() {
   };
 }
 
+async function startMockBrokerTelemetry(payload) {
+  const server = createServer((request, response) => {
+    if (request.url !== "/v1/telemetry") {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify(payload));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    port: address.port,
+    stop: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}
+
 async function waitFor(predicate, timeoutMs = 2000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -397,6 +427,103 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
       process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
     }
     await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/services/@secretsbroker/telemetry bridges broker metadata-only signals", async () => {
+  const broker = await startMockBrokerTelemetry({
+    signals: [
+      {
+        kind: "metric",
+        name: "secretsbroker.lockout.active",
+        traceId: "d789f733966031da58c194f5305109e6",
+        spanId: "22cdc9a0c7c81192",
+        correlationId: "sl-0f6b44a6927780a9",
+        attributes: {
+          "broker.lockout.active_count": 7,
+          ref: "secret://workspace/" + rawSecretSentinel,
+          authorization: "Bearer " + rawSecretSentinel,
+          requestBody: rawSecretSentinel,
+        },
+      },
+      {
+        kind: "metric",
+        name: "secretsbroker.api.request.duration_bucket",
+        traceId: "8700b0949e07647258219615ef9b3d44",
+        spanId: "18b217b95e407c44",
+        traceparent: "00-badbadbadbadbadbadbadbadbadbadba-18b217b95e407c44-01",
+        correlationId: "sl-1f4f0d9b105d5059",
+        attributes: {
+          "broker.api.duration_bucket": "lt_50ms",
+          "broker.api.method": "GET",
+          "broker.api.mutating": false,
+          "broker.api.route": "/v1/secrets/{ref}",
+          "broker.api.route_group": "secrets",
+          "broker.api.status_class": "2xx",
+          "broker.operation.count": 3,
+          "broker.operation.outcome": "ready",
+          query: "?token=" + rawSecretSentinel,
+        },
+      },
+    ],
+  });
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-broker-bridge-");
+  await writeManifest(servicesRoot, "@secretsbroker", {
+    id: "@secretsbroker",
+    name: "Secrets Broker",
+    description: "Local broker telemetry bridge fixture.",
+    version: "2026.6.27-test",
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    ports: {
+      service: broker.port,
+    },
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const serviceResult = await getJson(apiServer.url + "/api/services/%40secretsbroker/telemetry");
+
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.telemetry.serviceId, "@secretsbroker");
+    const signalNames = serviceResult.body.telemetry.signals.map((signal) => signal.name);
+    assert.equal(signalNames.includes("secretsbroker.lockout.active"), true);
+    assert.equal(signalNames.includes("secretsbroker.api.request.duration_bucket"), true);
+
+    const lockoutSignal = serviceResult.body.telemetry.signals.find(
+      (signal) => signal.name === "secretsbroker.lockout.active",
+    );
+    assert.equal(lockoutSignal.attributes["broker.lockout.active_count"], 7);
+    assert.equal(lockoutSignal.traceparent, `00-${lockoutSignal.traceId}-${lockoutSignal.spanId}-01`);
+
+    const durationSignal = serviceResult.body.telemetry.signals.find(
+      (signal) => signal.name === "secretsbroker.api.request.duration_bucket",
+    );
+    assert.equal(durationSignal.attributes["broker.api.route"], "/v1/secrets/{ref}");
+    assert.equal(durationSignal.attributes["broker.operation.count"], 3);
+    assert.equal(durationSignal.traceparent, `00-${durationSignal.traceId}-${durationSignal.spanId}-01`);
+    assert.equal(Object.keys(lockoutSignal.attributes).includes("authorization"), false);
+    assert.equal(Object.keys(lockoutSignal.attributes).includes("requestBody"), false);
+    assert.equal(Object.keys(durationSignal.attributes).includes("query"), false);
+    assertNoSecretMaterial(serviceResult.body, { sentinels });
+
+    const runtimeResult = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+    assert.equal(runtimeResult.status, 200);
+    const runtimeBrokerTelemetry = runtimeResult.body.telemetry.services.find(
+      (service) => service.serviceId === "@secretsbroker",
+    );
+    assert.ok(runtimeBrokerTelemetry);
+    assert.equal(
+      runtimeBrokerTelemetry.signals.some((signal) => signal.name === "secretsbroker.lockout.active"),
+      true,
+    );
+    assertNoSecretMaterial(runtimeResult.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await broker.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

@@ -28,6 +28,7 @@ import {
   createDashboardSummaryResponse,
 } from "./routes/dashboard.js";
 import { createOperatorNotificationsResponse } from "./routes/operator-notifications.js";
+import type { DiscoveredService } from "../contracts/service.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
@@ -67,6 +68,7 @@ import {
   buildRuntimeTelemetryPreview,
   buildServiceTelemetryPreview,
   classifyTelemetryRoute,
+  normalizeExternalServiceTelemetrySignals,
   sendRuntimeTelemetryExport,
   sendRuntimeTelemetryMockExport,
   TELEMETRY_CORRELATION_ID_HEADER,
@@ -74,6 +76,7 @@ import {
   TELEMETRY_TRACEPARENT_HEADER,
   type ApiRequestTelemetryPreview,
   type RuntimeTelemetryPreview,
+  type ServiceTelemetryPreview,
   type TelemetryContinuousExportRuntimeState,
 } from "../runtime/operator/telemetry.js";
 import {
@@ -1069,9 +1072,67 @@ async function routeWorkflowFacadeRequest(
 }
 
 const API_TELEMETRY_BUFFER_LIMIT = 50;
+const BROKER_TELEMETRY_TIMEOUT_MS = 800;
 
 function isMutatingHttpMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function servicePortValue(service: DiscoveredService, lifecycle: ReturnType<typeof getLifecycleState>): number | null {
+  const runtimePort = lifecycle.runtime.ports.service;
+  if (Number.isInteger(runtimePort) && runtimePort > 0) {
+    return runtimePort;
+  }
+  const manifestPort = service.manifest.ports?.service;
+  if (typeof manifestPort === "number" && Number.isInteger(manifestPort) && manifestPort > 0) {
+    return manifestPort;
+  }
+  return null;
+}
+
+async function readLocalSecretsBrokerTelemetrySignals(
+  service: DiscoveredService,
+  lifecycle: ReturnType<typeof getLifecycleState>,
+): Promise<ServiceTelemetryPreview["signals"]> {
+  if (service.manifest.id !== "@secretsbroker") {
+    return [];
+  }
+
+  const port = servicePortValue(service, lifecycle);
+  if (port === null) {
+    return [];
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BROKER_TELEMETRY_TIMEOUT_MS);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/telemetry`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return [];
+    }
+    const payload = (await response.json()) as { signals?: unknown[] };
+    return normalizeExternalServiceTelemetrySignals(service.manifest.id, Array.isArray(payload.signals) ? payload.signals : []);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildServiceTelemetrySnapshot(
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string>,
+  knownServiceIds: ReadonlySet<string>,
+): Promise<ServiceTelemetryPreview> {
+  const lifecycle = getLifecycleState(service.manifest.id);
+  const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+  const healthHistory = await readServiceHealthHistory(service);
+  const updateState = await readServiceUpdateState(service);
+  const telemetry = buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
+  const externalSignals = await readLocalSecretsBrokerTelemetrySignals(service, lifecycle);
+  return externalSignals.length > 0 ? { ...telemetry, signals: [...telemetry.signals, ...externalSignals] } : telemetry;
 }
 
 async function buildRuntimeTelemetrySnapshot(
@@ -1085,11 +1146,7 @@ async function buildRuntimeTelemetrySnapshot(
   const knownServiceIds = new Set(runtimeModel.discovered.map((service) => service.manifest.id));
   const services = await Promise.all(
     runtimeModel.discovered.map(async (service) => {
-      const lifecycle = getLifecycleState(service.manifest.id);
-      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-      const healthHistory = await readServiceHealthHistory(service);
-      const updateState = await readServiceUpdateState(service);
-      return buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState);
+      return buildServiceTelemetrySnapshot(service, sharedGlobalEnv, knownServiceIds);
     }),
   );
 
@@ -1586,16 +1643,12 @@ async function routeRequest(
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "telemetry") {
-      const lifecycle = getLifecycleState(serviceId);
-      const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-      const healthHistory = await readServiceHealthHistory(service);
-      const updateState = await readServiceUpdateState(service);
       const knownServiceIds = new Set(runtimeModel.discovered.map((candidate) => candidate.manifest.id));
       writeJson(
         response,
         200,
         createServiceTelemetryPreviewResponse(
-          buildServiceTelemetryPreview(service, lifecycle, health, healthHistory, knownServiceIds, updateState),
+          await buildServiceTelemetrySnapshot(service, sharedGlobalEnv, knownServiceIds),
         ),
       );
       return;
