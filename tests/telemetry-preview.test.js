@@ -67,6 +67,7 @@ function assertAllowlistedSignals(telemetry) {
     for (const signal of service.signals) {
       assert.match(signal.traceId, /^[a-f0-9]{32}$/);
       assert.match(signal.spanId, /^[a-f0-9]{16}$/);
+      assert.equal(signal.traceparent, `00-${signal.traceId}-${signal.spanId}-01`);
       assert.match(signal.correlationId, /^sl-[a-f0-9]{16}$/);
       assert.ok(signal.kind === "span" || signal.kind === "metric");
       for (const key of Object.keys(signal.attributes)) {
@@ -81,6 +82,7 @@ function assertAllowlistedSignals(telemetry) {
     assert.equal(request.routeTemplate.includes(rawSecretSentinel), false);
     assert.match(request.signal.traceId, /^[a-f0-9]{32}$/);
     assert.match(request.signal.spanId, /^[a-f0-9]{16}$/);
+    assert.equal(request.signal.traceparent, `00-${request.signal.traceId}-${request.signal.spanId}-01`);
     assert.match(request.signal.correlationId, /^sl-[a-f0-9]{16}$/);
     assert.equal(request.signal.kind, "span");
     for (const key of Object.keys(request.signal.attributes)) {
@@ -130,6 +132,19 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
       serviceNamespace: "service-lasso",
       serviceInstanceId: "local-runtime",
     });
+    assert.deepEqual(result.body.telemetry.traceContext, {
+      propagation: "w3c-trace-context",
+      responseHeaders: {
+        correlationId: "x-service-lasso-correlation-id",
+        traceId: "x-service-lasso-trace-id",
+        traceparent: "traceparent",
+      },
+      traceparentSampled: true,
+      incomingHeadersAccepted: false,
+      incomingHeadersReturned: false,
+      rawHeadersReturned: false,
+      routeTemplateOnly: true,
+    });
     assert.equal(result.body.telemetry.exporter.status, "configured");
     assert.equal(result.body.telemetry.exporter.endpointConfigured, true);
     assert.equal(result.body.telemetry.exporter.endpointValueReturned, false);
@@ -174,6 +189,7 @@ test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metad
         "signals.name",
         "signals.traceId",
         "signals.spanId",
+        "signals.traceparent",
         "signals.correlationId",
         "signals.attributes",
         "apiRequests.routeGroup",
@@ -360,8 +376,10 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
     assert.equal(missingService.status, 404);
     const missingServiceCorrelationId = missingService.headers.get("x-service-lasso-correlation-id");
     const missingServiceTraceId = missingService.headers.get("x-service-lasso-trace-id");
+    const missingServiceTraceparent = missingService.headers.get("traceparent");
     assert.match(missingServiceCorrelationId, /^sl-[a-f0-9]{16}$/);
     assert.match(missingServiceTraceId, /^[a-f0-9]{32}$/);
+    assert.match(missingServiceTraceparent, /^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
 
     const health = await getJson(apiServer.url + "/api/health?token=" + rawSecretSentinel);
     assert.equal(health.status, 200);
@@ -369,8 +387,10 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
     assert.equal(healthResponse.status, 200);
     const healthCorrelationId = healthResponse.headers.get("x-service-lasso-correlation-id");
     const healthTraceId = healthResponse.headers.get("x-service-lasso-trace-id");
+    const healthTraceparent = healthResponse.headers.get("traceparent");
     assert.match(healthCorrelationId, /^sl-[a-f0-9]{16}$/);
     assert.match(healthTraceId, /^[a-f0-9]{32}$/);
+    assert.match(healthTraceparent, /^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
 
     const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
 
@@ -388,8 +408,10 @@ test("GET /api/telemetry reports safe API request outcome telemetry without raw 
     assert.equal(result.body.telemetry.apiRequests[1].signal.attributes["service.operation.outcome"], "success");
     assert.equal(result.body.telemetry.apiRequests[0].signal.correlationId, missingServiceCorrelationId);
     assert.equal(result.body.telemetry.apiRequests[0].signal.traceId, missingServiceTraceId);
+    assert.equal(result.body.telemetry.apiRequests[0].signal.traceparent, missingServiceTraceparent);
     assert.equal(result.body.telemetry.apiRequests[2].signal.correlationId, healthCorrelationId);
     assert.equal(result.body.telemetry.apiRequests[2].signal.traceId, healthTraceId);
+    assert.equal(result.body.telemetry.apiRequests[2].signal.traceparent, healthTraceparent);
     assert.equal(result.body.telemetry.exportPreview.signalCount, 6);
     assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
       capacity: 50,
