@@ -479,6 +479,57 @@ function dependencyReadinessCountSignals(
   });
 }
 
+function hasCurrentPlatformArtifact(service: DiscoveredService): boolean {
+  const platforms = service.manifest.artifact?.platforms;
+  if (!platforms) {
+    return false;
+  }
+
+  return Boolean(platforms[process.platform] ?? platforms.default);
+}
+
+function artifactReadinessCountSignals(
+  service: DiscoveredService,
+  lifecycle: ServiceLifecycleState,
+  traceId: string,
+  correlationId: string,
+  common: Record<string, string | number | boolean | null>,
+): TelemetrySignalPreview[] {
+  const installedArtifact = lifecycle.installArtifacts.artifact;
+  const installedArtifactPresent = Boolean(
+    installedArtifact?.sourceType ??
+      installedArtifact?.tag ??
+      installedArtifact?.assetName ??
+      installedArtifact?.assetUrl ??
+      installedArtifact?.checksum,
+  );
+  const counts = [
+    ["manifest_source", service.manifest.artifact?.source.type === "github-release" ? 1 : 0],
+    ["platform_asset", hasCurrentPlatformArtifact(service) ? 1 : 0],
+    ["installed", installedArtifactPresent ? 1 : 0],
+    ["checksum_verified", installedArtifact?.checksum ? 1 : 0],
+  ] as const;
+
+  return counts.map(([status, count]) => {
+    const spanId = spanIdFor(service.manifest.id, `artifact_readiness_count:${status}`);
+
+    return {
+      kind: "metric",
+      name: "service_lasso.service.artifact.readiness_count",
+      traceId,
+      spanId,
+      traceparent: traceparentFor(traceId, spanId),
+      correlationId,
+      attributes: allowlistedAttributes({
+        ...common,
+        "service.operation.phase": `artifact.${status}`,
+        "service.operation.outcome": status,
+        "service.operation.count": count,
+      }),
+    };
+  });
+}
+
 function statusClass(statusCode: number): string {
   if (statusCode >= 100 && statusCode < 600) {
     return `${Math.trunc(statusCode / 100)}xx`;
@@ -720,6 +771,7 @@ export function buildServiceTelemetryPreview(
     service.manifest.depend_on ?? [],
     knownServiceIds,
   );
+  const artifactReadinessSignals = artifactReadinessCountSignals(service, lifecycle, traceId, correlationId, common);
   const startTrace = latestStartTraceAttempt(lifecycle);
   const startTraceSignals: TelemetrySignalPreview[] =
     startTrace?.events.map((event) => {
@@ -795,6 +847,7 @@ export function buildServiceTelemetryPreview(
       ...runtimeOperationSignals,
       ...healthTransitionSignals,
       ...dependencyReadinessSignals,
+      ...artifactReadinessSignals,
     ],
   };
 }
