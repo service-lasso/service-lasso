@@ -8,7 +8,10 @@ import {
   BROKER_CREDENTIAL_ENV,
   BROKER_CREDENTIAL_EXPIRES_AT_ENV,
   BROKER_IDENTITY_ID_ENV,
+  BROKER_TRANSPORT_BINDING_KIND_ENV,
+  BROKER_TRANSPORT_BINDING_SUBJECT_ENV,
   mintScopedBrokerIdentity,
+  resolveLauncherTransportBinding,
   resetScopedBrokerIdentities,
 } from "../dist/runtime/broker/identity.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
@@ -124,6 +127,49 @@ test("scoped broker credentials allow only the launched service writeback scope"
     "expired",
   );
   assert.equal(JSON.stringify(credential.metadata).includes(credential.token), false);
+});
+
+test("scoped broker credentials can carry transport binding metadata", () => {
+  resetScopedBrokerIdentities();
+  const issuedAt = new Date("2026-05-08T06:00:00.000Z");
+  const credential = mintScopedBrokerIdentity(fixtureService(), {
+    now: issuedAt,
+    ttlMs: 1_000,
+    transportBinding: {
+      kind: "windows-sid",
+      subject: "S-1-5-21-1000",
+    },
+  });
+  assert.ok(credential);
+
+  assert.deepEqual(credential.metadata.transportBinding, {
+    kind: "windows-sid",
+    subject: "S-1-5-21-1000",
+  });
+  assert.equal(credential.env[BROKER_TRANSPORT_BINDING_KIND_ENV], "windows-sid");
+  assert.equal(credential.env[BROKER_TRANSPORT_BINDING_SUBJECT_ENV], "S-1-5-21-1000");
+  assert.equal(JSON.stringify(credential.metadata).includes(credential.token), false);
+});
+
+test("launcher transport binding prefers explicit policy environment", () => {
+  assert.deepEqual(
+    resolveLauncherTransportBinding({
+      [BROKER_TRANSPORT_BINDING_KIND_ENV]: "windows-sid",
+      [BROKER_TRANSPORT_BINDING_SUBJECT_ENV]: "S-1-5-21-2000",
+    }),
+    {
+      kind: "windows-sid",
+      subject: "S-1-5-21-2000",
+    },
+  );
+  assert.deepEqual(
+    resolveLauncherTransportBinding({
+      [BROKER_TRANSPORT_BINDING_KIND_ENV]: "windows-sid",
+    }),
+    process.platform === "win32"
+      ? null
+      : { kind: "unix-uid", subject: String(process.getuid()) },
+  );
 });
 
 test("runtime injects scoped broker credential without persisting or logging raw authority", async () => {

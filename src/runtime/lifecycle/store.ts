@@ -13,6 +13,9 @@ function cloneBrokerIdentity(identity: ServiceLifecycleState["runtime"]["brokerI
     issuedAt: identity.issuedAt,
     expiresAt: identity.expiresAt,
     revokedAt: identity.revokedAt,
+    transportBinding: identity.transportBinding
+      ? { ...identity.transportBinding }
+      : null,
     scope: {
       namespaces: [...identity.scope.namespaces],
       operations: [...identity.scope.operations],

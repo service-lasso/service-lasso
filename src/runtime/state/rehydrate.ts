@@ -11,6 +11,7 @@ import type {
   ServiceStartTracePhase,
   SetupStepStatus,
 } from "../lifecycle/types.js";
+import type { BrokerTransportBinding } from "../broker/identity.js";
 import type { ProviderKind } from "../providers/types.js";
 import type { ServiceBrokerWritebackOperation } from "../../contracts/service.js";
 import { readStoredState } from "./readState.js";
@@ -100,6 +101,26 @@ function isWritebackOperation(value: unknown): value is ServiceBrokerWritebackOp
   return value === "create" || value === "update" || value === "rotate" || value === "delete";
 }
 
+function parseBrokerTransportBinding(value: unknown): BrokerTransportBinding | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as { kind?: unknown; subject?: unknown };
+  if (
+    (record.kind !== "unix-uid" && record.kind !== "windows-sid") ||
+    typeof record.subject !== "string" ||
+    record.subject.trim() === ""
+  ) {
+    return null;
+  }
+
+  return {
+    kind: record.kind,
+    subject: record.subject.trim(),
+  };
+}
+
 function parseBrokerIdentity(value: unknown): ServiceLifecycleState["runtime"]["brokerIdentity"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -131,6 +152,7 @@ function parseBrokerIdentity(value: unknown): ServiceLifecycleState["runtime"]["
     issuedAt: record.issuedAt,
     expiresAt: record.expiresAt,
     revokedAt: typeof record.revokedAt === "string" ? record.revokedAt : null,
+    transportBinding: parseBrokerTransportBinding(record.transportBinding),
     scope: {
       namespaces: record.scope.namespaces.filter((entry): entry is string => typeof entry === "string"),
       operations: record.scope.operations.filter(isWritebackOperation),
