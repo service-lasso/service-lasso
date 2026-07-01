@@ -63,6 +63,40 @@ Invoke-RestMethod -Method Post http://127.0.0.1:18080/api/runtime/actions/stopAl
 
 Then stop the Service Lasso process with `Ctrl+C`.
 
+## Canonical Demo Lifecycle
+
+The local canonical demo uses the checked-in services root and a dedicated workspace by default:
+
+```text
+services/
+workspace/demo-instance/
+```
+
+Use these commands when operating or checking the demo:
+
+| Command | Meaning |
+| --- | --- |
+| `npm run demo:start -- --port=17883` | Build and start the demo runtime on the canonical runtime port. |
+| `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, workspace root, lifecycle state path, and demo log path. |
+| `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint and Service Admin URL. Exits non-zero when either surface is not reachable. |
+| `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
+| `npm run demo:smoke` | Run an isolated end-to-end smoke test against the bounded demo fixture. |
+
+Canonical LAN checks used by the unattended worker are:
+
+| URL | Purpose |
+| --- | --- |
+| `http://192.168.1.53:17883/api/health` | Service Lasso runtime health |
+| `http://192.168.1.53:17700/` | Service Admin UI |
+
+Status and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, and `--json` for automation. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+
+On npm/PowerShell combinations that do not pass script flags after the first separator, add a second separator before the script flags:
+
+```powershell
+npm run demo:verify-canonical -- -- --runtime-url=http://192.168.1.53:17883 --admin-url=http://192.168.1.53:17700/ --json
+```
+
 ## Baseline Services
 
 The checked-in baseline proves that a clean clone can acquire and run real service artifacts.
