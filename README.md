@@ -76,7 +76,7 @@ Use these commands when operating or checking the demo:
 
 | Command | Meaning |
 | --- | --- |
-| `npm run demo:start -- --port=17883` | Build and start the demo runtime on the canonical runtime port. |
+| `npm run demo:start -- --port=17883` | Build, ensure the demo runtime is available on the canonical runtime port, and exit cleanly when the canonical endpoints are already healthy. |
 | `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, workspace root, lifecycle state path, and demo log path. |
 | `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint and Service Admin URL. Exits non-zero when either surface is not reachable. |
 | `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
@@ -89,7 +89,7 @@ Canonical LAN checks used by the unattended worker are:
 | `http://192.168.1.53:17883/api/health` | Service Lasso runtime health |
 | `http://192.168.1.53:17700/` | Service Admin UI |
 
-Status and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, and `--json` for automation. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+Start, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
 
 On npm/PowerShell combinations that do not pass script flags after the first separator, add a second separator before the script flags:
 

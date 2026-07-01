@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { access, readFile, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
@@ -135,6 +135,15 @@ async function readOptionalJson(filePath) {
   }
 }
 
+function getDemoLifecyclePaths(workspaceRoot) {
+  const lifecycleRoot = path.join(workspaceRoot, ".service-lasso");
+
+  return {
+    lifecycleRoot,
+    lifecycleStatePath: path.join(lifecycleRoot, "demo-lifecycle.json"),
+  };
+}
+
 function classifyDemoStatus(runtimeProbe, serviceAdminProbe) {
   const runtimeHealthy =
     runtimeProbe.ok
@@ -162,8 +171,7 @@ export async function getDemoStatus(options = {}) {
   const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const lifecycleRoot = path.join(workspaceRoot, ".service-lasso");
-  const lifecycleStatePath = path.join(lifecycleRoot, "demo-lifecycle.json");
+  const { lifecycleRoot, lifecycleStatePath } = getDemoLifecyclePaths(workspaceRoot);
   const recoveryLockPath = path.join(defaultDemoLogRoot, "demo-watchdog.lock.json");
   const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
   const [runtimeProbe, serviceAdminProbe, lifecycleState, recoveryLock] = await Promise.all([
@@ -205,6 +213,33 @@ export async function getDemoStatus(options = {}) {
     lifecycleState,
     recoveryLock,
   };
+}
+
+export async function writeDemoLifecycleState(status, updates = {}) {
+  const lifecycleStatePath = status.paths.lifecycleStatePath;
+  const nextState = {
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    phase: updates.phase ?? (status.ok ? "healthy" : "blocked"),
+    classification: updates.classification ?? status.classification,
+    owner: {
+      pid: process.pid,
+      command: path.basename(process.argv[1] ?? "node"),
+      workspaceRoot: status.paths.workspaceRoot,
+      servicesRoot: status.paths.servicesRoot,
+      runtimeUrl: status.endpoints.runtime.url,
+      serviceAdminUrl: status.endpoints.serviceAdmin.url,
+    },
+    endpoints: status.endpoints,
+    paths: status.paths,
+    previousState: status.lifecycleState ?? null,
+    ...updates,
+  };
+
+  await mkdir(path.dirname(lifecycleStatePath), { recursive: true });
+  await writeFile(lifecycleStatePath, `${JSON.stringify(nextState, null, 2)}\n`, "utf8");
+
+  return nextState;
 }
 
 export function printDemoStatus(status) {

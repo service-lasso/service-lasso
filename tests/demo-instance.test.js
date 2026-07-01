@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -107,6 +107,50 @@ test("demo status reports canonical endpoint and lifecycle paths as JSON", async
     assert.equal(status.paths.workspaceRoot, workspaceRoot);
     assert.match(status.paths.lifecycleStatePath, /[\\/]\.service-lasso[\\/]demo-lifecycle\.json$/);
     assert.match(status.paths.demoLogRoot, /[\\/]\.demo-logs$/);
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo start exits cleanly and persists lifecycle state when canonical endpoints are already healthy", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-start-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-start.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    const status = JSON.parse(result.stdout);
+    const persisted = JSON.parse(await readFile(status.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(status.ok, true);
+    assert.equal(status.classification, "healthy");
+    assert.equal(status.lifecycleState.phase, "already_healthy");
+    assert.equal(persisted.phase, "already_healthy");
+    assert.equal(persisted.classification, "healthy");
+    assert.equal(persisted.owner.workspaceRoot, workspaceRoot);
+    assert.equal(persisted.owner.runtimeUrl, runtime.url);
+    assert.equal(persisted.owner.serviceAdminUrl, `${admin.url}/`);
   } finally {
     await admin.close();
     await runtime.close();
