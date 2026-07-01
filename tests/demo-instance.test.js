@@ -158,6 +158,90 @@ test("demo start exits cleanly and persists lifecycle state when canonical endpo
   }
 });
 
+test("demo gate exits cleanly and persists lifecycle state when canonical endpoints are already healthy", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-gate-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-gate.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    const persisted = JSON.parse(await readFile(report.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(report.ok, true);
+    assert.equal(report.classification, "healthy");
+    assert.equal(report.gate.phase, "gate_healthy");
+    assert.equal(report.gate.runtimeListener.ok, true);
+    assert.equal(persisted.phase, "gate_healthy");
+    assert.equal(persisted.classification, "healthy");
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo gate reports a runtime port owner conflict when the listener is not Service Lasso health", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-gate-conflict-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "not-service-lasso" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-gate.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 1);
+    const report = JSON.parse(result.stdout);
+    const persisted = JSON.parse(await readFile(report.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(report.ok, false);
+    assert.equal(report.classification, "runtime_port_owner_conflict");
+    assert.equal(report.gate.sourceClassification, "runtime_down");
+    assert.equal(report.gate.runtimeListener.ok, true);
+    assert.equal(persisted.phase, "gate_blocked");
+    assert.equal(persisted.classification, "runtime_port_owner_conflict");
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("demo watchdog exits cleanly through core lifecycle state when canonical endpoints are already healthy", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-watchdog-"));
   const runtime = await startFixtureServer((request, response) => {

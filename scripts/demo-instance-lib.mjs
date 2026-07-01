@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
@@ -32,6 +33,7 @@ export function resolveDemoOptions(args = process.argv.slice(2)) {
     port,
     runtimeUrl: parseOption(args, "runtime-url") ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
     serviceAdminUrl: parseOption(args, "admin-url") ?? process.env.SERVICE_LASSO_ADMIN_URL ?? "http://127.0.0.1:17700/",
+    demoLogRoot: path.resolve(parseOption(args, "demo-log-root") ?? defaultDemoLogRoot),
     timeoutMs: Number(parseOption(args, "timeout-ms") ?? process.env.SERVICE_LASSO_DEMO_TIMEOUT_MS ?? 5_000),
     json: args.includes("--json") || parseNpmConfig("json") === "true",
     preserve: args.includes("--preserve"),
@@ -164,15 +166,131 @@ function classifyDemoStatus(runtimeProbe, serviceAdminProbe) {
   return runtimeHealthy ? "service_admin_down" : "runtime_down";
 }
 
+async function probeTcpListener(targetUrl, timeoutMs) {
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch (error) {
+    return {
+      ok: false,
+      host: null,
+      port: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const port = Number(parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80));
+  const host = parsedUrl.hostname;
+
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      resolve({ ok: false, host, port, error: "connect timeout" });
+    }, timeoutMs);
+
+    socket.once("connect", () => {
+      clearTimeout(timeout);
+      socket.end();
+      resolve({ ok: true, host, port, error: null });
+    });
+
+    socket.once("error", (error) => {
+      clearTimeout(timeout);
+      resolve({
+        ok: false,
+        host,
+        port,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+}
+
+function readLockUpdatedAt(recoveryLock) {
+  if (!recoveryLock || typeof recoveryLock !== "object") {
+    return null;
+  }
+
+  for (const key of ["updatedAt", "startedAt", "createdAt", "checkedAt"]) {
+    const value = recoveryLock[key];
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const timestamp = Date.parse(value);
+    if (Number.isFinite(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+function hasWrongWorkspaceOwner(status) {
+  const ownerWorkspaceRoot = status.lifecycleState?.owner?.workspaceRoot;
+  return typeof ownerWorkspaceRoot === "string" && path.resolve(ownerWorkspaceRoot) !== status.paths.workspaceRoot;
+}
+
+function classifyDemoGate(status, runtimeListener, staleRecoveryLockMs) {
+  if (status.ok) {
+    return "healthy";
+  }
+
+  if (hasWrongWorkspaceOwner(status)) {
+    return "wrong_workspace_owner";
+  }
+
+  if (status.recoveryLock) {
+    const lockUpdatedAt = readLockUpdatedAt(status.recoveryLock);
+    if (lockUpdatedAt && Date.now() - lockUpdatedAt > staleRecoveryLockMs) {
+      return "stale_recovery_lock";
+    }
+
+    return "recovery_in_progress";
+  }
+
+  if (!status.endpoints.runtime.ok && runtimeListener.ok) {
+    return "runtime_port_owner_conflict";
+  }
+
+  return status.classification;
+}
+
+function getGateNextSafeAction(classification) {
+  switch (classification) {
+    case "healthy":
+      return "Continue with issue selection or validation.";
+    case "wrong_workspace_owner":
+      return "Inspect lifecycle state owner and reconcile the demo workspace before starting a new runtime.";
+    case "stale_recovery_lock":
+      return "Inspect the recovery lock and demo logs, then remove or refresh stale recovery state only after confirming no recovery process is active.";
+    case "recovery_in_progress":
+      return "Wait for the active recovery owner to finish, or inspect the recovery lock if it is not progressing.";
+    case "runtime_port_owner_conflict":
+      return "Inspect the process listening on the runtime port before recycling the canonical demo.";
+    case "service_admin_down":
+      return "Recover or restart Service Admin, then run demo:gate again.";
+    case "runtime_down":
+      return "Start or recycle the canonical runtime, then run demo:gate again.";
+    case "canonical_endpoints_down":
+      return "Recover the canonical runtime and Service Admin endpoints, then run demo:gate again.";
+    default:
+      return "Inspect the reported endpoint and lifecycle evidence before manual recovery.";
+  }
+}
+
 export async function getDemoStatus(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
   const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
+  const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
   const timeoutMs = options.timeoutMs ?? 5_000;
   const { lifecycleRoot, lifecycleStatePath } = getDemoLifecyclePaths(workspaceRoot);
-  const recoveryLockPath = path.join(defaultDemoLogRoot, "demo-watchdog.lock.json");
+  const recoveryLockPath = path.join(demoLogRoot, "demo-watchdog.lock.json");
   const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
   const [runtimeProbe, serviceAdminProbe, lifecycleState, recoveryLock] = await Promise.all([
     fetchStatus(runtimeHealthUrl, timeoutMs, true),
@@ -207,11 +325,56 @@ export async function getDemoStatus(options = {}) {
       workspaceRoot,
       lifecycleRoot,
       lifecycleStatePath,
-      demoLogRoot: defaultDemoLogRoot,
+      demoLogRoot,
       recoveryLockPath,
     },
     lifecycleState,
     recoveryLock,
+  };
+}
+
+export async function getDemoGateReport(options = {}) {
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const status = await getDemoStatus(options);
+  const runtimeListener = await probeTcpListener(status.endpoints.runtime.url, timeoutMs);
+  const classification = classifyDemoGate(status, runtimeListener, options.staleRecoveryLockMs ?? 10 * 60 * 1_000);
+  const ok = classification === "healthy";
+  const gate = {
+    ok,
+    classification,
+    sourceClassification: status.classification,
+    checkedAt: new Date().toISOString(),
+    phase: ok ? "gate_healthy" : "gate_blocked",
+    runtimeListener,
+    nextSafeAction: getGateNextSafeAction(classification),
+  };
+  const lifecycleState = await writeDemoLifecycleState(status, {
+    phase: gate.phase,
+    classification,
+    gate,
+  });
+
+  return {
+    ...status,
+    ok,
+    classification,
+    gate,
+    lifecycleState,
+  };
+}
+
+function summarizePreviousLifecycleState(lifecycleState) {
+  if (!lifecycleState || typeof lifecycleState !== "object") {
+    return null;
+  }
+
+  return {
+    schemaVersion: lifecycleState.schemaVersion ?? null,
+    updatedAt: lifecycleState.updatedAt ?? null,
+    phase: lifecycleState.phase ?? null,
+    classification: lifecycleState.classification ?? null,
+    owner: lifecycleState.owner ?? null,
+    gate: lifecycleState.gate ?? null,
   };
 }
 
@@ -232,7 +395,7 @@ export async function writeDemoLifecycleState(status, updates = {}) {
     },
     endpoints: status.endpoints,
     paths: status.paths,
-    previousState: status.lifecycleState ?? null,
+    previousState: summarizePreviousLifecycleState(status.lifecycleState),
     ...updates,
   };
 
@@ -251,6 +414,19 @@ export function printDemoStatus(status) {
   console.log(`- workspaceRoot: ${status.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${status.paths.lifecycleStatePath}`);
   console.log(`- demoLogs: ${status.paths.demoLogRoot}`);
+}
+
+export function printDemoGateReport(report) {
+  console.log(`[service-lasso demo] gate ${report.classification}`);
+  console.log(`- ok: ${report.ok ? "yes" : "no"}`);
+  console.log(`- runtime: ${report.endpoints.runtime.healthUrl} -> ${report.endpoints.runtime.status ?? report.endpoints.runtime.error}`);
+  console.log(`- runtimeListener: ${report.gate.runtimeListener.host}:${report.gate.runtimeListener.port} -> ${report.gate.runtimeListener.ok ? "open" : report.gate.runtimeListener.error}`);
+  console.log(`- serviceAdmin: ${report.endpoints.serviceAdmin.url} -> ${report.endpoints.serviceAdmin.status ?? report.endpoints.serviceAdmin.error}`);
+  console.log(`- servicesRoot: ${report.paths.servicesRoot}`);
+  console.log(`- workspaceRoot: ${report.paths.workspaceRoot}`);
+  console.log(`- lifecycleState: ${report.paths.lifecycleStatePath}`);
+  console.log(`- recoveryLock: ${report.paths.recoveryLockPath}`);
+  console.log(`- nextSafeAction: ${report.gate.nextSafeAction}`);
 }
 
 export async function startDemoRuntime(options = {}) {
