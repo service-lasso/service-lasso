@@ -158,6 +158,86 @@ test("demo start exits cleanly and persists lifecycle state when canonical endpo
   }
 });
 
+test("demo watchdog exits cleanly through core lifecycle state when canonical endpoints are already healthy", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-watchdog-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-watchdog.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    const status = JSON.parse(result.stdout);
+    const persisted = JSON.parse(await readFile(status.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(status.ok, true);
+    assert.equal(status.classification, "healthy");
+    assert.equal(status.lifecycleState.phase, "watchdog_healthy");
+    assert.equal(persisted.phase, "watchdog_healthy");
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo recycle exits cleanly through core lifecycle state when canonical endpoints are already healthy", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-recycle-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-recycle.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 0, result.stderr);
+    const status = JSON.parse(result.stdout);
+    const persisted = JSON.parse(await readFile(status.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(status.ok, true);
+    assert.equal(status.classification, "healthy");
+    assert.equal(status.lifecycleState.phase, "recycle_verified_existing");
+    assert.equal(persisted.phase, "recycle_verified_existing");
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("demo verify canonical exits non-zero when a canonical endpoint is down", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-verify-"));
   const runtime = await startFixtureServer((request, response) => {
