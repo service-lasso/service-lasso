@@ -6,6 +6,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
+export const defaultDemoLogRoot = path.join(repoRoot, ".demo-logs");
 export const demoServiceIds = ["echo-service", "@node", "node-sample-service"];
 
 function parseFlag(args, name) {
@@ -14,11 +15,25 @@ function parseFlag(args, name) {
   return match ? match.slice(prefix.length) : undefined;
 }
 
+function parseNpmConfig(name) {
+  return process.env[`npm_config_${name.replaceAll("-", "_")}`];
+}
+
+function parseOption(args, name) {
+  return parseFlag(args, name) ?? parseNpmConfig(name);
+}
+
 export function resolveDemoOptions(args = process.argv.slice(2)) {
+  const port = Number(parseOption(args, "port") ?? process.env.SERVICE_LASSO_PORT ?? 18080);
+
   return {
-    servicesRoot: path.resolve(parseFlag(args, "services-root") ?? defaultDemoServicesRoot),
-    workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? defaultDemoWorkspaceRoot),
-    port: Number(parseFlag(args, "port") ?? process.env.SERVICE_LASSO_PORT ?? 18080),
+    servicesRoot: path.resolve(parseOption(args, "services-root") ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(parseOption(args, "workspace-root") ?? defaultDemoWorkspaceRoot),
+    port,
+    runtimeUrl: parseOption(args, "runtime-url") ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
+    serviceAdminUrl: parseOption(args, "admin-url") ?? process.env.SERVICE_LASSO_ADMIN_URL ?? "http://127.0.0.1:17700/",
+    timeoutMs: Number(parseOption(args, "timeout-ms") ?? process.env.SERVICE_LASSO_DEMO_TIMEOUT_MS ?? 5_000),
+    json: args.includes("--json") || parseNpmConfig("json") === "true",
     preserve: args.includes("--preserve"),
   };
 }
@@ -73,6 +88,134 @@ export async function resetDemoInstance(options = {}) {
 
 async function importDistModule(relativePath) {
   return import(pathToFileURL(path.join(repoRoot, "dist", relativePath)).href);
+}
+
+function joinUrl(baseUrl, pathname) {
+  return new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).href;
+}
+
+async function fetchStatus(url, timeoutMs, parseJson = false) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const text = await response.text();
+    let body = text;
+
+    if (parseJson && text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readOptionalJson(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function classifyDemoStatus(runtimeProbe, serviceAdminProbe) {
+  const runtimeHealthy =
+    runtimeProbe.ok
+    && runtimeProbe.status === 200
+    && typeof runtimeProbe.body === "object"
+    && runtimeProbe.body !== null
+    && runtimeProbe.body.status === "ok";
+  const serviceAdminHealthy = serviceAdminProbe.ok && serviceAdminProbe.status === 200;
+
+  if (runtimeHealthy && serviceAdminHealthy) {
+    return "healthy";
+  }
+
+  if (!runtimeHealthy && !serviceAdminHealthy) {
+    return "canonical_endpoints_down";
+  }
+
+  return runtimeHealthy ? "service_admin_down" : "runtime_down";
+}
+
+export async function getDemoStatus(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
+  const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const lifecycleRoot = path.join(workspaceRoot, ".service-lasso");
+  const lifecycleStatePath = path.join(lifecycleRoot, "demo-lifecycle.json");
+  const recoveryLockPath = path.join(defaultDemoLogRoot, "demo-watchdog.lock.json");
+  const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
+  const [runtimeProbe, serviceAdminProbe, lifecycleState, recoveryLock] = await Promise.all([
+    fetchStatus(runtimeHealthUrl, timeoutMs, true),
+    fetchStatus(serviceAdminUrl, timeoutMs),
+    readOptionalJson(lifecycleStatePath),
+    readOptionalJson(recoveryLockPath),
+  ]);
+  const classification = classifyDemoStatus(runtimeProbe, serviceAdminProbe);
+
+  return {
+    ok: classification === "healthy",
+    classification,
+    checkedAt: new Date().toISOString(),
+    endpoints: {
+      runtime: {
+        url: runtimeUrl,
+        healthUrl: runtimeHealthUrl,
+        ok: runtimeProbe.ok,
+        status: runtimeProbe.status,
+        health: typeof runtimeProbe.body === "object" && runtimeProbe.body !== null ? runtimeProbe.body.status : null,
+        error: runtimeProbe.error ?? null,
+      },
+      serviceAdmin: {
+        url: serviceAdminUrl,
+        ok: serviceAdminProbe.ok,
+        status: serviceAdminProbe.status,
+        error: serviceAdminProbe.error ?? null,
+      },
+    },
+    paths: {
+      servicesRoot,
+      workspaceRoot,
+      lifecycleRoot,
+      lifecycleStatePath,
+      demoLogRoot: defaultDemoLogRoot,
+      recoveryLockPath,
+    },
+    lifecycleState,
+    recoveryLock,
+  };
+}
+
+export function printDemoStatus(status) {
+  console.log(`[service-lasso demo] status ${status.classification}`);
+  console.log(`- ok: ${status.ok ? "yes" : "no"}`);
+  console.log(`- runtime: ${status.endpoints.runtime.healthUrl} -> ${status.endpoints.runtime.status ?? status.endpoints.runtime.error}`);
+  console.log(`- serviceAdmin: ${status.endpoints.serviceAdmin.url} -> ${status.endpoints.serviceAdmin.status ?? status.endpoints.serviceAdmin.error}`);
+  console.log(`- servicesRoot: ${status.paths.servicesRoot}`);
+  console.log(`- workspaceRoot: ${status.paths.workspaceRoot}`);
+  console.log(`- lifecycleState: ${status.paths.lifecycleStatePath}`);
+  console.log(`- demoLogs: ${status.paths.demoLogRoot}`);
 }
 
 export async function startDemoRuntime(options = {}) {
