@@ -23,6 +23,8 @@ export interface ServiceRuntimeLogArchive {
   stderrPath: string;
 }
 
+export type ServiceLogType = "default" | "stdout" | "stderr";
+
 export interface ServiceLogsPayload extends ServiceRuntimeLogPaths {
   serviceId: string;
   entries: ServiceLogEntry[];
@@ -34,14 +36,14 @@ export interface ServiceLogsPayload extends ServiceRuntimeLogPaths {
 
 export interface ServiceLogInfoPayload {
   serviceId: string;
-  type: "default";
+  type: ServiceLogType;
   path: string;
-  availableTypes: ["default"];
+  availableTypes: ServiceLogType[];
 }
 
 export interface ServiceLogChunkPayload {
   serviceId: string;
-  type: "default";
+  type: ServiceLogType;
   path: string;
   totalLines: number;
   start: number;
@@ -191,6 +193,12 @@ function buildSyntheticEntries(serviceId: string, lifecycle: ServiceLifecycleSta
   }));
 }
 
+function getRuntimeLogPathByType(paths: ServiceRuntimeLogPaths, type: ServiceLogType): string {
+  if (type === "stdout") return paths.stdoutPath;
+  if (type === "stderr") return paths.stderrPath;
+  return paths.logPath;
+}
+
 async function readRuntimeLogEntries(logPath: string): Promise<ServiceLogEntry[]> {
   try {
     const content = await readFile(logPath, "utf8");
@@ -248,24 +256,26 @@ export async function buildServiceLogs(
   };
 }
 
-export function buildServiceLogInfo(service: DiscoveredService): ServiceLogInfoPayload {
+export function buildServiceLogInfo(service: DiscoveredService, type: ServiceLogType = "default"): ServiceLogInfoPayload {
   const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
 
   return {
     serviceId: service.manifest.id,
-    type: "default",
-    path: runtimeLogPaths.logPath,
-    availableTypes: ["default"],
+    type,
+    path: getRuntimeLogPathByType(runtimeLogPaths, type),
+    availableTypes: ["default", "stdout", "stderr"],
   };
 }
 
 export async function readServiceLogChunk(
   service: DiscoveredService,
+  type: ServiceLogType = "default",
   before?: number,
   limit = 100,
 ): Promise<ServiceLogChunkPayload> {
   const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot);
-  const lines = await readRuntimeLogLines(runtimeLogPaths.logPath);
+  const logPath = getRuntimeLogPathByType(runtimeLogPaths, type);
+  const lines = await readRuntimeLogLines(logPath);
   const totalLines = lines.length;
   const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
   const end = typeof before === "number" ? Math.max(0, Math.min(totalLines, before)) : totalLines;
@@ -274,8 +284,8 @@ export async function readServiceLogChunk(
 
   return {
     serviceId: service.manifest.id,
-    type: "default",
-    path: runtimeLogPaths.logPath,
+    type,
+    path: logPath,
     totalLines,
     start,
     end,

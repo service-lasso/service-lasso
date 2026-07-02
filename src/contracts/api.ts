@@ -334,14 +334,14 @@ export interface ServiceMetricsResponse {
 
 export interface ServiceLogInfoResponse {
   serviceId: string;
-  type: "default";
+  type: "default" | "stdout" | "stderr";
   path: string;
-  availableTypes: ["default"];
+  availableTypes: Array<"default" | "stdout" | "stderr">;
 }
 
 export interface ServiceLogChunkResponse {
   serviceId: string;
-  type: "default";
+  type: "default" | "stdout" | "stderr";
   path: string;
   totalLines: number;
   start: number;

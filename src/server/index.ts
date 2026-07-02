@@ -37,6 +37,7 @@ import {
   buildServiceLogs,
   getServiceRuntimeLogPaths,
   readServiceLogChunk,
+  type ServiceLogType,
 } from "../runtime/operator/logs.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
@@ -78,6 +79,12 @@ export interface ApiServerOptions {
   monitorIntervalMs?: number;
   updateScheduler?: boolean;
   updateSchedulerIntervalMs?: number;
+}
+
+function parseServiceLogType(value: string | null): ServiceLogType {
+  if (value === null || value === "default") return "default";
+  if (value === "stdout" || value === "stderr") return value;
+  throw new ApiError("invalid_request", 400, "Unsupported runtime log type.");
 }
 
 export interface RunningApiServer {
@@ -575,14 +582,10 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/services/log-info") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = url.searchParams.get("type") ?? "default";
+    const type = parseServiceLogType(url.searchParams.get("type"));
 
     if (!serviceId) {
       throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
-    }
-
-    if (type !== "default") {
-      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
     }
 
     const service = runtimeModel.registry.getById(serviceId);
@@ -591,23 +594,19 @@ async function routeRequest(
       return;
     }
 
-    writeJson(response, 200, createServiceLogInfoResponse(buildServiceLogInfo(service)));
+    writeJson(response, 200, createServiceLogInfoResponse(buildServiceLogInfo(service, type)));
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/logs/read") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = url.searchParams.get("type") ?? "default";
+    const type = parseServiceLogType(url.searchParams.get("type"));
     const beforeParam = url.searchParams.get("before");
     const limitParam = url.searchParams.get("limit");
 
     if (!serviceId) {
       throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
-    }
-
-    if (type !== "default") {
-      throw new ApiError("invalid_request", 400, "Only the default runtime log type is currently supported.");
     }
 
     const service = runtimeModel.registry.getById(serviceId);
@@ -619,7 +618,7 @@ async function routeRequest(
     const before = beforeParam === null ? undefined : Number(beforeParam);
     const limit = limitParam === null ? undefined : Number(limitParam);
 
-    writeJson(response, 200, createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit)));
+    writeJson(response, 200, createServiceLogChunkResponse(await readServiceLogChunk(service, type, before, limit)));
     return;
   }
 
