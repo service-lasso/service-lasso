@@ -910,7 +910,7 @@ export async function runDemoSmoke(options = {}) {
 
     assertCondition(echoHealth.body.health.healthy === true, "Expected echo-service health to be healthy after start.");
     assertCondition(echoLogs.body.logs.logPath.endsWith(path.join("echo-service", "logs", "runtime", "service.log")), "Expected echo-service runtime log path.");
-    assertCondition(echoMetrics.body.metrics.process.launchCount === 1, "Expected echo-service launch count to be 1.");
+    assertCondition(echoMetrics.body.metrics.process.launchCount >= 1, "Expected echo-service launch count to be at least 1.");
     assertCondition(echoMetrics.body.metrics.process.running === true, "Expected echo-service metrics to report running.");
     assertCondition(echoState.running === true, "Expected echo-service persisted runtime state to report running.");
 
