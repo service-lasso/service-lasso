@@ -36,6 +36,7 @@ SFTP export is a transport/destination
 | --- | --- |
 | Backup action contract | Service Lasso core / service manifest |
 | Restore action contract | Service Lasso core / service manifest |
+| Archive creation/extraction | `@archive` / `lasso-archive` provider using 7-Zip where available |
 | Action execution, inputs, history and permissions | Service Lasso core |
 | Scheduled backup workflow | Service Lasso action + Dagu generated workflow |
 | File browsing and selected file export UI | `lasso-files` / Service Admin surface |
@@ -44,6 +45,23 @@ SFTP export is a transport/destination
 | Backup artifact format and verification | Service Lasso core contract, service-specific implementation |
 
 Dagu may schedule and run generated workflow tasks, but each task should call the Service Lasso action API. Dagu does not own backup semantics.
+
+## Archive provider
+
+Service Lasso already has an `@archive` utility provider backed by `lasso-archive`, which packages 7-Zip.
+
+Backup and file export should use this provider where an archive operation is needed. Individual services should not each vendor their own archive implementation unless they need a service-specific backup format such as a database dump.
+
+Default archive guidance:
+
+- use `@archive` for generic workspace/folder/file archiving
+- prefer `.7z` artifacts for Service Lasso-created archive backups/exports
+- use service-native formats first when required for correctness, such as database dump formats
+- allow the backup/export action to combine service-native dump output into a final `.7z` artifact
+- record the archive tool/provider version in backup metadata where practical
+- use `@archive` extraction for restore validation/extraction where practical
+
+`@archive` should be treated as a provider dependency for archive-backed backup/export actions. If a service requires archive-backed backup, the action should fail clearly when the archive provider is unavailable rather than silently falling back to inconsistent host tools.
 
 ## Backup model
 
@@ -59,13 +77,15 @@ A backup should record:
 - included roots
 - excluded roots
 - artifact path or external destination reference
+- artifact format, such as `.7z`
+- archive provider/tool version when known
 - size when known
 - checksum when known
 - service state before backup
 - whether the service was stopped, paused or left running
 - verification result
 
-A backup may be service-specific. For example, a database service may use a dump command, while a file-based service may archive selected workspace folders.
+A backup may be service-specific. For example, a database service may use a dump command, while a file-based service may archive selected workspace folders through `@archive`.
 
 ## Restore model
 
@@ -78,6 +98,7 @@ Restore should normally:
 - require confirmation
 - validate the selected backup first
 - require the service to be stopped, unless the service explicitly supports hot restore
+- use `@archive` extraction for `.7z` artifacts where practical
 - record exactly what was restored
 - preserve or rotate existing state where practical
 - emit audit/history events
@@ -95,7 +116,8 @@ File export should support:
 - selected files
 - selected folders
 - include/exclude filters
-- optional archive output
+- optional archive output through `@archive`
+- optional `.7z` output
 - optional checksum
 - local download/output target
 - external destination target, including SFTP
@@ -113,6 +135,8 @@ It can be used for:
 - copying logs or diagnostics bundles out of a service workspace
 
 SFTP export should not define backup contents. It only receives an artifact or selected file set produced by another action/export step.
+
+If the export is folder or multi-file based, the export flow should normally create a `.7z` artifact through `@archive` first, then send that artifact to SFTP.
 
 Required SFTP destination inputs:
 
@@ -135,8 +159,10 @@ Suggested action ids:
 | Action id | Purpose |
 | --- | --- |
 | `backup` | Create a restorable service backup. |
+| `backup-files` | Create an archive artifact from selected workspace files/folders, normally through `@archive`. |
 | `verify-backup` | Verify a backup artifact before it is considered usable. |
 | `restore` | Restore from a selected backup artifact. |
+| `extract-backup` | Extract a backup artifact for validation or restore, normally through `@archive`. |
 | `export-files` | Export selected service files/folders. |
 | `export-backup-sftp` | Send an existing backup artifact to SFTP. |
 | `export-files-sftp` | Send a selected file export to SFTP. |
@@ -238,6 +264,7 @@ Rules:
 - SFTP credentials must come from broker refs or stored payload refs
 - action history must redact sensitive values
 - backup metadata should record that secrets were excluded or intentionally included, without exposing secret values
+- 7-Zip password/encryption options must not be used as a substitute for Service Lasso permission, broker and audit controls
 
 ## Audit and permissions
 
@@ -252,6 +279,7 @@ Minimum audit fields:
 - source scope
 - destination type
 - artifact id/path/reference
+- archive format/provider when applicable
 - result
 - timestamp
 - confirmation state where applicable
@@ -277,6 +305,8 @@ Service Admin and Files surfaces should make the difference clear:
 
 The UI should not label arbitrary file export as backup unless it uses the backup action and records backup metadata.
 
+For archive-backed operations, the UI should show the archive format and provider where useful, for example `.7z via @archive`.
+
 ## Related docs
 
 - `docs/reference/scheduled-service-actions.md`
@@ -286,6 +316,8 @@ The UI should not label arbitrary file export as backup unless it uses the backu
 ## Follow-up implementation areas
 
 - Backup artifact registry/history.
+- Archive-backed backup/export actions using `@archive`.
+- Restore validation and extraction through `@archive`.
 - Files export action API.
 - SFTP destination adapter.
 - Restore validation and confirmation flow.
