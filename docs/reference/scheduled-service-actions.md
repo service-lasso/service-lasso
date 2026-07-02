@@ -228,6 +228,8 @@ Service Lasso records both the individual action result and the parent workflow 
 
 Backup is just an action, usually schedule-enabled.
 
+For the broader item 5 contract covering backup, restore, selected file export and SFTP export, see `docs/reference/backup-file-export-sftp.md`.
+
 Restore is also an action, usually manual/gated. Restore actions normally receive selected file inputs from the Files surface or backup history.
 
 ```json
