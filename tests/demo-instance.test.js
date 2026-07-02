@@ -5,16 +5,25 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { getDemoGateReport } from "../scripts/demo-instance-lib.mjs";
 
-async function startFixtureServer(handler) {
+async function startFixtureServer(handler, options = {}) {
   const server = http.createServer(handler);
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => server.listen(options.port ?? 0, "127.0.0.1", resolve));
   const address = server.address();
 
   return {
     url: `http://127.0.0.1:${address.port}`,
     close: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
   };
+}
+
+async function getFreePort() {
+  const server = http.createServer((request, response) => response.end());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return address.port;
 }
 
 async function runNodeScript(script, args = []) {
@@ -238,6 +247,102 @@ test("demo gate reports a runtime port owner conflict when the listener is not S
   } finally {
     await admin.close();
     await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo gate attempts runtime recovery and reports recovered when endpoints become healthy", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-gate-recovered-"));
+  const runtimePort = await getFreePort();
+  let runtime = null;
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const report = await getDemoGateReport({
+      runtimeUrl: `http://127.0.0.1:${runtimePort}`,
+      serviceAdminUrl: `${admin.url}/`,
+      workspaceRoot,
+      timeoutMs: 250,
+      recoveryTimeoutMs: 2_000,
+      startDetachedRuntime: async () => {
+        runtime = await startFixtureServer((request, response) => {
+          if (request.url === "/api/health") {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify({ status: "ok" }));
+            return;
+          }
+
+          response.writeHead(404);
+          response.end();
+        }, { port: runtimePort });
+
+        return {
+          pid: 12345,
+          command: "fixture-runtime",
+          logPath: path.join(workspaceRoot, "fixture-runtime.log"),
+          servicesRoot: path.resolve("services"),
+          workspaceRoot,
+          port: runtimePort,
+        };
+      },
+    });
+    const persisted = JSON.parse(await readFile(report.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(report.ok, true);
+    assert.equal(report.classification, "recovered");
+    assert.equal(report.gate.phase, "gate_recovered");
+    assert.equal(report.gate.recovery.attempted, true);
+    assert.equal(report.gate.recovery.startedRuntime.pid, 12345);
+    assert.equal(report.gate.sourceClassification, "runtime_down");
+    assert.equal(persisted.phase, "gate_recovered");
+    assert.equal(persisted.classification, "recovered");
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+    await admin.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo gate reports service startup failure when recovery does not make endpoints healthy", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-gate-failed-recovery-"));
+  const runtimePort = await getFreePort();
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const report = await getDemoGateReport({
+      runtimeUrl: `http://127.0.0.1:${runtimePort}`,
+      serviceAdminUrl: `${admin.url}/`,
+      workspaceRoot,
+      timeoutMs: 100,
+      recoveryTimeoutMs: 250,
+      recoveryPollIntervalMs: 50,
+      startDetachedRuntime: async () => ({
+        pid: 12345,
+        command: "fixture-runtime",
+        logPath: path.join(workspaceRoot, "fixture-runtime.log"),
+        servicesRoot: path.resolve("services"),
+        workspaceRoot,
+        port: runtimePort,
+      }),
+    });
+    const persisted = JSON.parse(await readFile(report.paths.lifecycleStatePath, "utf8"));
+
+    assert.equal(report.ok, false);
+    assert.equal(report.classification, "service_startup_failure");
+    assert.equal(report.gate.recovery.attempted, true);
+    assert.match(report.gate.recovery.error, /Condition not met/);
+    assert.equal(persisted.phase, "gate_blocked");
+    assert.equal(persisted.classification, "service_startup_failure");
+  } finally {
+    await admin.close();
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });

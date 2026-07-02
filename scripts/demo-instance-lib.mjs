@@ -1,6 +1,8 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -262,6 +264,8 @@ function getGateNextSafeAction(classification) {
   switch (classification) {
     case "healthy":
       return "Continue with issue selection or validation.";
+    case "recovered":
+      return "Continue with issue selection or validation; the gate recovered the canonical runtime.";
     case "wrong_workspace_owner":
       return "Inspect lifecycle state owner and reconcile the demo workspace before starting a new runtime.";
     case "stale_recovery_lock":
@@ -276,8 +280,58 @@ function getGateNextSafeAction(classification) {
       return "Start or recycle the canonical runtime, then run demo:gate again.";
     case "canonical_endpoints_down":
       return "Recover the canonical runtime and Service Admin endpoints, then run demo:gate again.";
+    case "service_startup_failure":
+      return "Inspect the detached runtime log and lifecycle state before retrying demo recovery.";
     default:
       return "Inspect the reported endpoint and lifecycle evidence before manual recovery.";
+  }
+}
+
+function isRecoverableGateClassification(classification) {
+  return classification === "runtime_down" || classification === "canonical_endpoints_down";
+}
+
+function createLogTimestamp(date = new Date()) {
+  return date.toISOString().replaceAll(":", "").replaceAll(".", "-");
+}
+
+export async function startDetachedDemoRuntime(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const runtimeEntry = path.join(repoRoot, "dist", "index.js");
+  const logPath = path.join(demoLogRoot, `demo-runtime-${createLogTimestamp()}.log`);
+
+  await mkdir(demoLogRoot, { recursive: true });
+
+  const outputFd = openSync(logPath, "a");
+  try {
+    const child = spawn(process.execPath, ["--enable-source-maps", runtimeEntry], {
+      cwd: repoRoot,
+      detached: true,
+      env: {
+        ...process.env,
+        SERVICE_LASSO_PORT: String(port),
+        SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
+        SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
+      },
+      stdio: ["ignore", outputFd, outputFd],
+      windowsHide: true,
+    });
+
+    child.unref();
+
+    return {
+      pid: child.pid ?? null,
+      command: `${process.execPath} --enable-source-maps ${runtimeEntry}`,
+      logPath,
+      servicesRoot,
+      workspaceRoot,
+      port,
+    };
+  } finally {
+    closeSync(outputFd);
   }
 }
 
@@ -338,26 +392,83 @@ export async function getDemoGateReport(options = {}) {
   const status = await getDemoStatus(options);
   const runtimeListener = await probeTcpListener(status.endpoints.runtime.url, timeoutMs);
   const classification = classifyDemoGate(status, runtimeListener, options.staleRecoveryLockMs ?? 10 * 60 * 1_000);
-  const ok = classification === "healthy";
+  const shouldRecover = options.recover !== false && isRecoverableGateClassification(classification);
+  const recovery = {
+    attempted: false,
+    startedRuntime: null,
+    error: null,
+  };
+
+  if (shouldRecover) {
+    recovery.attempted = true;
+
+    try {
+      const startRuntime = options.startDetachedRuntime ?? startDetachedDemoRuntime;
+      recovery.startedRuntime = await startRuntime(options);
+      const recoveredStatus = await waitFor(async () => {
+        const nextStatus = await getDemoStatus(options);
+        return nextStatus.ok ? nextStatus : null;
+      }, options.recoveryTimeoutMs ?? Math.max(timeoutMs, 5_000), options.recoveryPollIntervalMs ?? 250);
+      const recoveredListener = await probeTcpListener(recoveredStatus.endpoints.runtime.url, timeoutMs);
+      const gate = {
+        ok: true,
+        classification: "recovered",
+        sourceClassification: status.classification,
+        checkedAt: new Date().toISOString(),
+        phase: "gate_recovered",
+        runtimeListener: recoveredListener,
+        recovery,
+        nextSafeAction: getGateNextSafeAction("recovered"),
+      };
+      const lifecycleState = await writeDemoLifecycleState(recoveredStatus, {
+        phase: gate.phase,
+        classification: "recovered",
+        gate,
+      });
+
+      return {
+        ...recoveredStatus,
+        ok: true,
+        classification: "recovered",
+        gate,
+        lifecycleState,
+      };
+    } catch (error) {
+      recovery.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const finalStatus = recovery.attempted ? await getDemoStatus(options) : status;
+  const finalRuntimeListener = recovery.attempted
+    ? await probeTcpListener(finalStatus.endpoints.runtime.url, timeoutMs)
+    : runtimeListener;
+  const finalGateClassification = recovery.attempted
+    ? classifyDemoGate(finalStatus, finalRuntimeListener, options.staleRecoveryLockMs ?? 10 * 60 * 1_000)
+    : classification;
+  const finalClassification = recovery.attempted && isRecoverableGateClassification(finalGateClassification)
+    ? "service_startup_failure"
+    : finalGateClassification;
+  const ok = finalClassification === "healthy";
   const gate = {
     ok,
-    classification,
+    classification: finalClassification,
     sourceClassification: status.classification,
     checkedAt: new Date().toISOString(),
     phase: ok ? "gate_healthy" : "gate_blocked",
-    runtimeListener,
-    nextSafeAction: getGateNextSafeAction(classification),
+    runtimeListener: finalRuntimeListener,
+    recovery,
+    nextSafeAction: getGateNextSafeAction(finalClassification),
   };
-  const lifecycleState = await writeDemoLifecycleState(status, {
+  const lifecycleState = await writeDemoLifecycleState(finalStatus, {
     phase: gate.phase,
-    classification,
+    classification: finalClassification,
     gate,
   });
 
   return {
-    ...status,
+    ...finalStatus,
     ok,
-    classification,
+    classification: finalClassification,
     gate,
     lifecycleState,
   };
@@ -426,6 +537,9 @@ export function printDemoGateReport(report) {
   console.log(`- workspaceRoot: ${report.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${report.paths.lifecycleStatePath}`);
   console.log(`- recoveryLock: ${report.paths.recoveryLockPath}`);
+  if (report.gate.recovery?.attempted) {
+    console.log(`- recoveryRuntimeLog: ${report.gate.recovery.startedRuntime?.logPath ?? report.gate.recovery.error}`);
+  }
   console.log(`- nextSafeAction: ${report.gate.nextSafeAction}`);
 }
 

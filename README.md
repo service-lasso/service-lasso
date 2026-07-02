@@ -77,7 +77,7 @@ Use these commands when operating or checking the demo:
 | Command | Meaning |
 | --- | --- |
 | `npm run demo:start -- --port=17883` | Build, ensure the demo runtime is available on the canonical runtime port, and exit cleanly when the canonical endpoints are already healthy. |
-| `npm run demo:gate -- --port=17883` | Return one worker-safe gate result with endpoint health, listener state, lifecycle ownership, recovery lock path, and next safe action. |
+| `npm run demo:gate -- --port=17883` | Return one worker-safe gate result with endpoint health, listener state, lifecycle ownership, recovery lock path, recovery attempt evidence, and next safe action. |
 | `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, workspace root, lifecycle state path, and demo log path. |
 | `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint and Service Admin URL. Exits non-zero when either surface is not reachable. |
 | `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
@@ -90,7 +90,7 @@ Canonical LAN checks used by the unattended worker are:
 | `http://192.168.1.53:17883/api/health` | Service Lasso runtime health |
 | `http://192.168.1.53:17700/` | Service Admin UI |
 
-Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state and exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, or `service_admin_down` when the worker should stop and hand off a blocker. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state. When runtime health is down and there is no wrong-owner, stale-lock, active-recovery, or listener-conflict blocker, the gate starts one detached Service Lasso runtime process, records the runtime log path under `.demo-logs/`, waits for the canonical endpoints, and returns `recovered` if they become healthy. It exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, `service_admin_down`, or `service_startup_failure` when the worker should stop and hand off a blocker. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
 
 On npm/PowerShell combinations that do not pass script flags after the first separator, add a second separator before the script flags:
 
