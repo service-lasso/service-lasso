@@ -26,6 +26,34 @@ async function getFreePort() {
   return address.port;
 }
 
+function dashboardSummaryBody(overrides = {}) {
+  return {
+    summary: {
+      runtime: {
+        status: "healthy",
+        lastReloadedAt: "2026-07-02T00:00:00.000Z",
+        warningCount: 0,
+      },
+      servicesTotal: 8,
+      servicesRunning: 3,
+      servicesStopped: 5,
+      servicesDegraded: 0,
+      networkExposureCount: 0,
+      installedCount: 6,
+      favorites: [],
+      others: [],
+      warnings: [],
+      problemServices: [],
+      ...overrides,
+    },
+  };
+}
+
+function writeDashboardSummary(response, overrides = {}) {
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(JSON.stringify(dashboardSummaryBody(overrides)));
+}
+
 async function runNodeScript(script, args = []) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.resolve("scripts", script), ...args], {
@@ -113,6 +141,11 @@ test("demo status reports canonical endpoint and lifecycle paths as JSON", async
     response.end();
   });
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -131,6 +164,9 @@ test("demo status reports canonical endpoint and lifecycle paths as JSON", async
     assert.equal(status.ok, true);
     assert.equal(status.classification, "healthy");
     assert.equal(status.endpoints.runtime.healthUrl, `${runtime.url}/api/health`);
+    assert.equal(status.endpoints.serviceAdmin.dashboardUrl, `${admin.url}/api/dashboard`);
+    assert.equal(status.endpoints.serviceAdmin.dashboardOk, true);
+    assert.equal(status.endpoints.serviceAdmin.dashboardSummary.servicesTotal, 8);
     assert.equal(status.paths.workspaceRoot, workspaceRoot);
     assert.match(status.paths.lifecycleStatePath, /[\\/]\.service-lasso[\\/]demo-lifecycle\.json$/);
     assert.match(status.paths.demoLogRoot, /[\\/]\.demo-logs$/);
@@ -154,6 +190,11 @@ test("demo start exits cleanly and persists lifecycle state when canonical endpo
     response.end();
   });
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -198,6 +239,11 @@ test("demo gate exits cleanly and persists lifecycle state when canonical endpoi
     response.end();
   });
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -240,6 +286,11 @@ test("demo gate reports a runtime port owner conflict when the listener is not S
     response.end();
   });
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -274,6 +325,11 @@ test("demo gate attempts runtime recovery and reports recovered when endpoints b
   const runtimePort = await getFreePort();
   let runtime = null;
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -330,6 +386,11 @@ test("demo gate reports service startup failure when recovery does not make endp
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-gate-failed-recovery-"));
   const runtimePort = await getFreePort();
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -378,6 +439,11 @@ test("demo watchdog exits cleanly through core lifecycle state when canonical en
     response.end();
   });
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -418,6 +484,11 @@ test("demo recycle exits cleanly through core lifecycle state when canonical end
     response.end();
   });
   const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -438,6 +509,48 @@ test("demo recycle exits cleanly through core lifecycle state when canonical end
     assert.equal(status.classification, "healthy");
     assert.equal(status.lifecycleState.phase, "recycle_verified_existing");
     assert.equal(persisted.phase, "recycle_verified_existing");
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo verify canonical exits non-zero when Service Admin returns HTML for the dashboard API", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-verify-admin-html-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-verify-canonical.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 1);
+    const status = JSON.parse(result.stdout);
+
+    assert.equal(status.ok, false);
+    assert.equal(status.classification, "service_admin_api_non_json");
+    assert.equal(status.endpoints.runtime.status, 200);
+    assert.equal(status.endpoints.serviceAdmin.status, 200);
+    assert.equal(status.endpoints.serviceAdmin.dashboardStatus, 200);
+    assert.equal(status.endpoints.serviceAdmin.dashboardOk, false);
+    assert.match(status.endpoints.serviceAdmin.dashboardError, /runtime JSON/);
   } finally {
     await admin.close();
     await runtime.close();

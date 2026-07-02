@@ -163,12 +163,14 @@ async function fetchStatus(url, timeoutMs, parseJson = false) {
     return {
       ok: response.ok,
       status: response.status,
+      contentType: response.headers.get("content-type"),
       body,
     };
   } catch (error) {
     return {
       ok: false,
       status: null,
+      contentType: null,
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
@@ -193,24 +195,53 @@ function getDemoLifecyclePaths(workspaceRoot) {
   };
 }
 
-function classifyDemoStatus(runtimeProbe, serviceAdminProbe) {
+function isDashboardSummaryResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && typeof body.summary === "object"
+    && body.summary !== null
+    && typeof body.summary.runtime === "object"
+    && body.summary.runtime !== null
+    && typeof body.summary.servicesTotal === "number"
+  );
+}
+
+function classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe) {
   const runtimeHealthy =
     runtimeProbe.ok
     && runtimeProbe.status === 200
     && typeof runtimeProbe.body === "object"
     && runtimeProbe.body !== null
     && runtimeProbe.body.status === "ok";
-  const serviceAdminHealthy = serviceAdminProbe.ok && serviceAdminProbe.status === 200;
+  const serviceAdminRootReachable = serviceAdminProbe.ok && serviceAdminProbe.status === 200;
+  const serviceAdminDashboardHealthy =
+    serviceAdminDashboardProbe.ok
+    && serviceAdminDashboardProbe.status === 200
+    && isDashboardSummaryResponse(serviceAdminDashboardProbe.body);
+  const serviceAdminHealthy = serviceAdminRootReachable && serviceAdminDashboardHealthy;
 
   if (runtimeHealthy && serviceAdminHealthy) {
     return "healthy";
   }
 
-  if (!runtimeHealthy && !serviceAdminHealthy) {
+  if (!runtimeHealthy && !serviceAdminRootReachable) {
     return "canonical_endpoints_down";
   }
 
-  return runtimeHealthy ? "service_admin_down" : "runtime_down";
+  if (!runtimeHealthy) {
+    return "runtime_down";
+  }
+
+  if (!serviceAdminRootReachable) {
+    return "service_admin_down";
+  }
+
+  if (serviceAdminDashboardProbe.status === 200 && !isDashboardSummaryResponse(serviceAdminDashboardProbe.body)) {
+    return "service_admin_api_non_json";
+  }
+
+  return "service_admin_api_down";
 }
 
 async function probeTcpListener(targetUrl, timeoutMs) {
@@ -321,6 +352,10 @@ function getGateNextSafeAction(classification) {
       return "Inspect the process listening on the runtime port before recycling the canonical demo.";
     case "service_admin_down":
       return "Recover or restart Service Admin, then run demo:gate again.";
+    case "service_admin_api_down":
+      return "Recover the Service Admin same-origin runtime API proxy, then run demo:gate again.";
+    case "service_admin_api_non_json":
+      return "Fix the Service Admin same-origin runtime API proxy so /api/dashboard returns runtime JSON, then run demo:gate again.";
     case "runtime_down":
       return "Start or recycle the canonical runtime, then run demo:gate again.";
     case "canonical_endpoints_down":
@@ -401,13 +436,15 @@ export async function getDemoStatus(options = {}) {
   const { lifecycleRoot, lifecycleStatePath } = getDemoLifecyclePaths(workspaceRoot);
   const recoveryLockPath = path.join(demoLogRoot, "demo-watchdog.lock.json");
   const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
-  const [runtimeProbe, serviceAdminProbe, lifecycleState, recoveryLock] = await Promise.all([
+  const serviceAdminDashboardUrl = joinUrl(serviceAdminUrl, "/api/dashboard");
+  const [runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe, lifecycleState, recoveryLock] = await Promise.all([
     fetchStatus(runtimeHealthUrl, timeoutMs, true),
     fetchStatus(serviceAdminUrl, timeoutMs),
+    fetchStatus(serviceAdminDashboardUrl, timeoutMs, true),
     readOptionalJson(lifecycleStatePath),
     readOptionalJson(recoveryLockPath),
   ]);
-  const classification = classifyDemoStatus(runtimeProbe, serviceAdminProbe);
+  const classification = classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe);
 
   return {
     ok: classification === "healthy",
@@ -426,7 +463,28 @@ export async function getDemoStatus(options = {}) {
         url: serviceAdminUrl,
         ok: serviceAdminProbe.ok,
         status: serviceAdminProbe.status,
+        contentType: serviceAdminProbe.contentType,
+        dashboardUrl: serviceAdminDashboardUrl,
+        dashboardOk:
+          serviceAdminDashboardProbe.ok
+          && serviceAdminDashboardProbe.status === 200
+          && isDashboardSummaryResponse(serviceAdminDashboardProbe.body),
+        dashboardStatus: serviceAdminDashboardProbe.status,
+        dashboardContentType: serviceAdminDashboardProbe.contentType,
+        dashboardSummary: isDashboardSummaryResponse(serviceAdminDashboardProbe.body)
+          ? {
+            runtimeStatus: serviceAdminDashboardProbe.body.summary.runtime.status,
+            servicesTotal: serviceAdminDashboardProbe.body.summary.servicesTotal,
+            servicesRunning: serviceAdminDashboardProbe.body.summary.servicesRunning,
+            servicesStopped: serviceAdminDashboardProbe.body.summary.servicesStopped,
+            servicesDegraded: serviceAdminDashboardProbe.body.summary.servicesDegraded,
+          }
+          : null,
         error: serviceAdminProbe.error ?? null,
+        dashboardError: serviceAdminDashboardProbe.error
+          ?? (serviceAdminDashboardProbe.status === 200 && !isDashboardSummaryResponse(serviceAdminDashboardProbe.body)
+            ? "Expected Service Admin /api/dashboard to return runtime JSON."
+            : null),
       },
     },
     paths: {
@@ -576,6 +634,7 @@ export function printDemoStatus(status) {
   console.log(`- ok: ${status.ok ? "yes" : "no"}`);
   console.log(`- runtime: ${status.endpoints.runtime.healthUrl} -> ${status.endpoints.runtime.status ?? status.endpoints.runtime.error}`);
   console.log(`- serviceAdmin: ${status.endpoints.serviceAdmin.url} -> ${status.endpoints.serviceAdmin.status ?? status.endpoints.serviceAdmin.error}`);
+  console.log(`- serviceAdminDashboard: ${status.endpoints.serviceAdmin.dashboardUrl} -> ${status.endpoints.serviceAdmin.dashboardStatus ?? status.endpoints.serviceAdmin.dashboardError}`);
   console.log(`- servicesRoot: ${status.paths.servicesRoot}`);
   console.log(`- workspaceRoot: ${status.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${status.paths.lifecycleStatePath}`);
@@ -588,6 +647,7 @@ export function printDemoGateReport(report) {
   console.log(`- runtime: ${report.endpoints.runtime.healthUrl} -> ${report.endpoints.runtime.status ?? report.endpoints.runtime.error}`);
   console.log(`- runtimeListener: ${report.gate.runtimeListener.host}:${report.gate.runtimeListener.port} -> ${report.gate.runtimeListener.ok ? "open" : report.gate.runtimeListener.error}`);
   console.log(`- serviceAdmin: ${report.endpoints.serviceAdmin.url} -> ${report.endpoints.serviceAdmin.status ?? report.endpoints.serviceAdmin.error}`);
+  console.log(`- serviceAdminDashboard: ${report.endpoints.serviceAdmin.dashboardUrl} -> ${report.endpoints.serviceAdmin.dashboardStatus ?? report.endpoints.serviceAdmin.dashboardError}`);
   console.log(`- servicesRoot: ${report.paths.servicesRoot}`);
   console.log(`- workspaceRoot: ${report.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${report.paths.lifecycleStatePath}`);
