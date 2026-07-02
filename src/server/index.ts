@@ -12,6 +12,7 @@ import { createServiceVariablesResponse } from "./routes/variables.js";
 import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
 import { createServiceMetaResponse, createServicesMetaResponse } from "./routes/service-meta.js";
+import { createServiceConfigDocumentResponse, saveServiceConfigDocument } from "./routes/service-config.js";
 import {
   createDashboardServiceDetailResponse,
   createDashboardServicesResponse,
@@ -631,6 +632,16 @@ async function routeRequest(
 
     if (!service) {
       notFound(response);
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "config") {
+      writeJson(response, 200, await createServiceConfigDocumentResponse(service));
+      return;
+    }
+
+    if (request.method === "PUT" && pathParts.length === 4 && pathParts[3] === "config") {
+      writeJson(response, 200, await saveServiceConfigDocument(service, await readJsonBody(request)));
       return;
     }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
@@ -23,6 +23,20 @@ async function getJson(url) {
 
 async function postJson(url) {
   const response = await fetch(url, { method: "POST" });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function putJson(url, body) {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -183,6 +197,107 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
   } finally {
     await apiServer.stop();
     resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("service config document API loads and saves runtime-backed service.json with backup history", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-config-document-");
+  const serviceRoot = await writeManifest(servicesRoot, "node-sample-service", {
+    id: "node-sample-service",
+    name: "Node Sample Service",
+    description: "Config document fixture.",
+    enabled: true,
+    executable: process.execPath,
+    args: ["runtime/server.mjs"],
+    healthcheck: {
+      type: "process",
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const initial = await getJson(`${apiServer.url}/api/services/node-sample-service/config`);
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.serviceId, "node-sample-service");
+    assert.equal(initial.body.fileName, "server.json");
+    assert.equal(initial.body.path, path.join(serviceRoot, "service.json"));
+    assert.equal(initial.body.backupCount, 0);
+    assert.equal(initial.body.safety.rawSecretValuesLoaded, false);
+    assert.match(initial.body.content, /Node Sample Service/);
+
+    const nextContent = JSON.stringify(
+      {
+        id: "node-sample-service",
+        name: "Node Sample Service",
+        description: "Edited through the config document API.",
+        enabled: true,
+        executable: process.execPath,
+        args: ["runtime/server.mjs"],
+        healthcheck: {
+          type: "process",
+        },
+      },
+      null,
+      2,
+    );
+    const save = await putJson(`${apiServer.url}/api/services/node-sample-service/config`, {
+      content: nextContent,
+      actor: "service-admin-web",
+      reason: "prove config editor save path",
+    });
+
+    assert.equal(save.status, 200);
+    assert.equal(save.body.serviceId, "node-sample-service");
+    assert.equal(save.body.validationStatus, "valid");
+    assert.equal(save.body.backup.actor, "service-admin-web");
+    assert.equal(save.body.backup.reason, "prove config editor save path");
+    assert.match(save.body.backup.content, /Config document fixture/);
+
+    const savedManifest = await readFile(path.join(serviceRoot, "service.json"), "utf8");
+    assert.match(savedManifest, /Edited through the config document API/);
+
+    const reloaded = await getJson(`${apiServer.url}/api/services/node-sample-service/config`);
+    assert.equal(reloaded.status, 200);
+    assert.equal(reloaded.body.backupCount, 1);
+    assert.equal(reloaded.body.revisions.length, 1);
+    assert.equal(reloaded.body.revisions[0].id, save.body.backup.id);
+    assert.match(reloaded.body.content, /Edited through the config document API/);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("service config document API rejects invalid or wrong-service JSON saves", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-config-document-invalid-");
+  await writeManifest(servicesRoot, "node-sample-service", {
+    id: "node-sample-service",
+    name: "Node Sample Service",
+    description: "Config document fixture.",
+    enabled: true,
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const invalidJson = await putJson(`${apiServer.url}/api/services/node-sample-service/config`, {
+      content: "",
+      actor: "service-admin-web",
+      reason: "invalid save",
+    });
+    assert.equal(invalidJson.status, 400);
+    assert.equal(invalidJson.body.error, "invalid_json");
+
+    const wrongService = await putJson(`${apiServer.url}/api/services/node-sample-service/config`, {
+      content: JSON.stringify({ id: "other-service", name: "Other service" }),
+      actor: "service-admin-web",
+      reason: "wrong service",
+    });
+    assert.equal(wrongService.status, 400);
+    assert.equal(wrongService.body.error, "invalid_json");
+    assert.match(wrongService.body.message, /must remain "node-sample-service"/);
+  } finally {
+    await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
