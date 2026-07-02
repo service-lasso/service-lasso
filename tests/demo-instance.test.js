@@ -54,6 +54,40 @@ function writeDashboardSummary(response, overrides = {}) {
   response.end(JSON.stringify(dashboardSummaryBody(overrides)));
 }
 
+function serviceListBody(overrides = {}) {
+  const defaults = [
+    { id: "@java", lifecycle: { installed: true, configured: true, running: false }, health: { healthy: true } },
+    { id: "@localcert", lifecycle: { installed: true, configured: true, running: false }, health: { healthy: true } },
+    { id: "@nginx", lifecycle: { installed: true, configured: true, running: true }, health: { healthy: true } },
+    { id: "@traefik", lifecycle: { installed: true, configured: true, running: true }, health: { healthy: true } },
+    { id: "@node", lifecycle: { installed: true, configured: true, running: false }, health: { healthy: true } },
+    { id: "echo-service", lifecycle: { installed: true, configured: true, running: true }, health: { healthy: true } },
+    { id: "@serviceadmin", lifecycle: { installed: false, configured: false, running: false }, health: { healthy: false } },
+    { id: "node-sample-service", lifecycle: { installed: false, configured: false, running: false }, health: { healthy: false } },
+  ];
+  const overridesById = new Map(Object.entries(overrides));
+
+  return {
+    services: defaults.map((service) => ({
+      ...service,
+      ...(overridesById.get(service.id) ?? {}),
+      lifecycle: {
+        ...service.lifecycle,
+        ...(overridesById.get(service.id)?.lifecycle ?? {}),
+      },
+      health: {
+        ...service.health,
+        ...(overridesById.get(service.id)?.health ?? {}),
+      },
+    })),
+  };
+}
+
+function writeServiceList(response, overrides = {}) {
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(JSON.stringify(serviceListBody(overrides)));
+}
+
 async function runNodeScript(script, args = []) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.resolve("scripts", script), ...args], {
@@ -146,6 +180,11 @@ test("demo status reports canonical endpoint and lifecycle paths as JSON", async
       return;
     }
 
+    if (request.url === "/api/services") {
+      writeServiceList(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -167,6 +206,10 @@ test("demo status reports canonical endpoint and lifecycle paths as JSON", async
     assert.equal(status.endpoints.serviceAdmin.dashboardUrl, `${admin.url}/api/dashboard`);
     assert.equal(status.endpoints.serviceAdmin.dashboardOk, true);
     assert.equal(status.endpoints.serviceAdmin.dashboardSummary.servicesTotal, 8);
+    assert.equal(status.endpoints.serviceAdmin.servicesUrl, `${admin.url}/api/services`);
+    assert.equal(status.endpoints.serviceAdmin.servicesOk, true);
+    assert.equal(status.endpoints.serviceAdmin.serviceState.ok, true);
+    assert.equal(status.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
     assert.equal(status.paths.workspaceRoot, workspaceRoot);
     assert.match(status.paths.lifecycleStatePath, /[\\/]\.service-lasso[\\/]demo-lifecycle\.json$/);
     assert.match(status.paths.demoLogRoot, /[\\/]\.demo-logs$/);
@@ -192,6 +235,11 @@ test("demo start exits cleanly and persists lifecycle state when canonical endpo
   const admin = await startFixtureServer((request, response) => {
     if (request.url === "/api/dashboard") {
       writeDashboardSummary(response);
+      return;
+    }
+
+    if (request.url === "/api/services") {
+      writeServiceList(response);
       return;
     }
 
@@ -244,6 +292,11 @@ test("demo gate exits cleanly and persists lifecycle state when canonical endpoi
       return;
     }
 
+    if (request.url === "/api/services") {
+      writeServiceList(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -291,6 +344,11 @@ test("demo gate reports a runtime port owner conflict when the listener is not S
       return;
     }
 
+    if (request.url === "/api/services") {
+      writeServiceList(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -327,6 +385,11 @@ test("demo gate attempts runtime recovery and reports recovered when endpoints b
   const admin = await startFixtureServer((request, response) => {
     if (request.url === "/api/dashboard") {
       writeDashboardSummary(response);
+      return;
+    }
+
+    if (request.url === "/api/services") {
+      writeServiceList(response);
       return;
     }
 
@@ -391,6 +454,11 @@ test("demo gate reports service startup failure when recovery does not make endp
       return;
     }
 
+    if (request.url === "/api/services") {
+      writeServiceList(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -444,6 +512,11 @@ test("demo watchdog exits cleanly through core lifecycle state when canonical en
       return;
     }
 
+    if (request.url === "/api/services") {
+      writeServiceList(response);
+      return;
+    }
+
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Service Admin</title>");
   });
@@ -486,6 +559,11 @@ test("demo recycle exits cleanly through core lifecycle state when canonical end
   const admin = await startFixtureServer((request, response) => {
     if (request.url === "/api/dashboard") {
       writeDashboardSummary(response);
+      return;
+    }
+
+    if (request.url === "/api/services") {
+      writeServiceList(response);
       return;
     }
 
@@ -551,6 +629,66 @@ test("demo verify canonical exits non-zero when Service Admin returns HTML for t
     assert.equal(status.endpoints.serviceAdmin.dashboardStatus, 200);
     assert.equal(status.endpoints.serviceAdmin.dashboardOk, false);
     assert.match(status.endpoints.serviceAdmin.dashboardError, /runtime JSON/);
+  } finally {
+    await admin.close();
+    await runtime.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("demo verify canonical exits non-zero when canonical service state does not match source Admin mode", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-verify-service-state-"));
+  const runtime = await startFixtureServer((request, response) => {
+    if (request.url === "/api/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+  const admin = await startFixtureServer((request, response) => {
+    if (request.url === "/api/dashboard") {
+      writeDashboardSummary(response);
+      return;
+    }
+
+    if (request.url === "/api/services") {
+      writeServiceList(response, {
+        "@serviceadmin": {
+          lifecycle: { installed: true, configured: true, running: true },
+          health: { healthy: true },
+        },
+      });
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<!doctype html><title>Service Admin</title>");
+  });
+
+  try {
+    const result = await runNodeScript("demo-verify-canonical.mjs", [
+      `--runtime-url=${runtime.url}`,
+      `--admin-url=${admin.url}/`,
+      `--workspace-root=${workspaceRoot}`,
+      "--json",
+    ]);
+
+    assert.equal(result.code, 1);
+    const status = JSON.parse(result.stdout);
+
+    assert.equal(status.ok, false);
+    assert.equal(status.classification, "canonical_service_state_mismatch");
+    assert.equal(status.endpoints.serviceAdmin.serviceState.ok, false);
+    assert.equal(status.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
+    assert.deepEqual(
+      status.endpoints.serviceAdmin.serviceState.mismatches
+        .filter((mismatch) => mismatch.id === "@serviceadmin")
+        .map((mismatch) => mismatch.field),
+      ["installed", "configured", "running", "healthy"],
+    );
   } finally {
     await admin.close();
     await runtime.close();

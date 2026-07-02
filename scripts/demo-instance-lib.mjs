@@ -207,7 +207,87 @@ function isDashboardSummaryResponse(body) {
   );
 }
 
-function classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe) {
+function isServiceListResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && Array.isArray(body.services)
+  );
+}
+
+function toServiceState(service) {
+  return {
+    id: service.id,
+    installed: service.lifecycle?.installed === true,
+    configured: service.lifecycle?.configured === true,
+    running: service.lifecycle?.running === true,
+    healthy: service.health?.healthy === true,
+    expectedMode: null,
+  };
+}
+
+function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
+  if (!isServiceListResponse(serviceAdminServicesProbe.body)) {
+    return null;
+  }
+
+  const expected = [
+    { id: "@java", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
+    { id: "@localcert", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
+    { id: "@nginx", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
+    { id: "@traefik", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
+    { id: "@node", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
+    { id: "echo-service", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
+    {
+      id: "@serviceadmin",
+      installed: false,
+      configured: false,
+      running: false,
+      healthy: false,
+      expectedMode: "source_admin_owns_17700",
+    },
+    {
+      id: "node-sample-service",
+      installed: false,
+      configured: false,
+      running: false,
+      healthy: false,
+      expectedMode: "manifest_only_sample",
+    },
+  ];
+  const actualById = new Map(serviceAdminServicesProbe.body.services.map((service) => [service.id, toServiceState(service)]));
+  const actual = expected
+    .map(({ id, expectedMode }) => {
+      const state = actualById.get(id);
+      return state ? { ...state, expectedMode } : { id, expectedMode, missing: true };
+    });
+  const mismatches = expected.flatMap((expectedService) => {
+    const actualService = actualById.get(expectedService.id);
+    if (!actualService) {
+      return [{ id: expectedService.id, reason: "missing" }];
+    }
+
+    return ["installed", "configured", "running", "healthy"]
+      .filter((key) => actualService[key] !== expectedService[key])
+      .map((key) => ({
+        id: expectedService.id,
+        field: key,
+        expected: expectedService[key],
+        actual: actualService[key],
+      }));
+  });
+
+  return {
+    ok: mismatches.length === 0,
+    mode: "source_admin_on_17700",
+    acceptedWarningReason: "Source Service Admin owns port 17700; the managed @serviceadmin manifest is intentionally present but not installed or started.",
+    expected,
+    actual,
+    mismatches,
+  };
+}
+
+function classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe, serviceAdminServicesProbe) {
   const runtimeHealthy =
     runtimeProbe.ok
     && runtimeProbe.status === 200
@@ -221,8 +301,21 @@ function classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboa
     && isDashboardSummaryResponse(serviceAdminDashboardProbe.body);
   const serviceAdminHealthy = serviceAdminRootReachable && serviceAdminDashboardHealthy;
 
+  if (runtimeHealthy && serviceAdminHealthy && serviceAdminServicesProbe.ok && serviceAdminServicesProbe.status === 200) {
+    const serviceState = createExpectedServiceStateCheck(serviceAdminServicesProbe);
+    if (!serviceState) {
+      return "service_admin_services_api_non_json";
+    }
+
+    return serviceState.ok ? "healthy" : "canonical_service_state_mismatch";
+  }
+
+  if (runtimeHealthy && serviceAdminHealthy && serviceAdminServicesProbe.status === 200) {
+    return "service_admin_services_api_non_json";
+  }
+
   if (runtimeHealthy && serviceAdminHealthy) {
-    return "healthy";
+    return "service_admin_services_api_down";
   }
 
   if (!runtimeHealthy && !serviceAdminRootReachable) {
@@ -356,6 +449,12 @@ function getGateNextSafeAction(classification) {
       return "Recover the Service Admin same-origin runtime API proxy, then run demo:gate again.";
     case "service_admin_api_non_json":
       return "Fix the Service Admin same-origin runtime API proxy so /api/dashboard returns runtime JSON, then run demo:gate again.";
+    case "service_admin_services_api_down":
+      return "Recover the Service Admin same-origin /api/services proxy, then run demo:gate again.";
+    case "service_admin_services_api_non_json":
+      return "Fix the Service Admin same-origin runtime API proxy so /api/services returns service JSON, then run demo:gate again.";
+    case "canonical_service_state_mismatch":
+      return "Recycle the canonical demo or update the expected source-Admin service-state contract before treating the demo as healthy.";
     case "runtime_down":
       return "Start or recycle the canonical runtime, then run demo:gate again.";
     case "canonical_endpoints_down":
@@ -437,14 +536,29 @@ export async function getDemoStatus(options = {}) {
   const recoveryLockPath = path.join(demoLogRoot, "demo-watchdog.lock.json");
   const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
   const serviceAdminDashboardUrl = joinUrl(serviceAdminUrl, "/api/dashboard");
-  const [runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe, lifecycleState, recoveryLock] = await Promise.all([
+  const serviceAdminServicesUrl = joinUrl(serviceAdminUrl, "/api/services");
+  const [
+    runtimeProbe,
+    serviceAdminProbe,
+    serviceAdminDashboardProbe,
+    serviceAdminServicesProbe,
+    lifecycleState,
+    recoveryLock,
+  ] = await Promise.all([
     fetchStatus(runtimeHealthUrl, timeoutMs, true),
     fetchStatus(serviceAdminUrl, timeoutMs),
     fetchStatus(serviceAdminDashboardUrl, timeoutMs, true),
+    fetchStatus(serviceAdminServicesUrl, timeoutMs, true),
     readOptionalJson(lifecycleStatePath),
     readOptionalJson(recoveryLockPath),
   ]);
-  const classification = classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe);
+  const serviceState = createExpectedServiceStateCheck(serviceAdminServicesProbe);
+  const classification = classifyDemoStatus(
+    runtimeProbe,
+    serviceAdminProbe,
+    serviceAdminDashboardProbe,
+    serviceAdminServicesProbe,
+  );
 
   return {
     ok: classification === "healthy",
@@ -484,6 +598,18 @@ export async function getDemoStatus(options = {}) {
         dashboardError: serviceAdminDashboardProbe.error
           ?? (serviceAdminDashboardProbe.status === 200 && !isDashboardSummaryResponse(serviceAdminDashboardProbe.body)
             ? "Expected Service Admin /api/dashboard to return runtime JSON."
+            : null),
+        servicesUrl: serviceAdminServicesUrl,
+        servicesOk:
+          serviceAdminServicesProbe.ok
+          && serviceAdminServicesProbe.status === 200
+          && isServiceListResponse(serviceAdminServicesProbe.body),
+        servicesStatus: serviceAdminServicesProbe.status,
+        servicesContentType: serviceAdminServicesProbe.contentType,
+        serviceState,
+        servicesError: serviceAdminServicesProbe.error
+          ?? (serviceAdminServicesProbe.status === 200 && !isServiceListResponse(serviceAdminServicesProbe.body)
+            ? "Expected Service Admin /api/services to return service JSON."
             : null),
       },
     },
@@ -635,6 +761,11 @@ export function printDemoStatus(status) {
   console.log(`- runtime: ${status.endpoints.runtime.healthUrl} -> ${status.endpoints.runtime.status ?? status.endpoints.runtime.error}`);
   console.log(`- serviceAdmin: ${status.endpoints.serviceAdmin.url} -> ${status.endpoints.serviceAdmin.status ?? status.endpoints.serviceAdmin.error}`);
   console.log(`- serviceAdminDashboard: ${status.endpoints.serviceAdmin.dashboardUrl} -> ${status.endpoints.serviceAdmin.dashboardStatus ?? status.endpoints.serviceAdmin.dashboardError}`);
+  console.log(`- serviceAdminServices: ${status.endpoints.serviceAdmin.servicesUrl} -> ${status.endpoints.serviceAdmin.servicesStatus ?? status.endpoints.serviceAdmin.servicesError}`);
+  if (status.endpoints.serviceAdmin.serviceState?.acceptedWarningReason) {
+    console.log(`- serviceStateMode: ${status.endpoints.serviceAdmin.serviceState.mode}`);
+    console.log(`- acceptedWarningReason: ${status.endpoints.serviceAdmin.serviceState.acceptedWarningReason}`);
+  }
   console.log(`- servicesRoot: ${status.paths.servicesRoot}`);
   console.log(`- workspaceRoot: ${status.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${status.paths.lifecycleStatePath}`);
@@ -648,6 +779,11 @@ export function printDemoGateReport(report) {
   console.log(`- runtimeListener: ${report.gate.runtimeListener.host}:${report.gate.runtimeListener.port} -> ${report.gate.runtimeListener.ok ? "open" : report.gate.runtimeListener.error}`);
   console.log(`- serviceAdmin: ${report.endpoints.serviceAdmin.url} -> ${report.endpoints.serviceAdmin.status ?? report.endpoints.serviceAdmin.error}`);
   console.log(`- serviceAdminDashboard: ${report.endpoints.serviceAdmin.dashboardUrl} -> ${report.endpoints.serviceAdmin.dashboardStatus ?? report.endpoints.serviceAdmin.dashboardError}`);
+  console.log(`- serviceAdminServices: ${report.endpoints.serviceAdmin.servicesUrl} -> ${report.endpoints.serviceAdmin.servicesStatus ?? report.endpoints.serviceAdmin.servicesError}`);
+  if (report.endpoints.serviceAdmin.serviceState?.acceptedWarningReason) {
+    console.log(`- serviceStateMode: ${report.endpoints.serviceAdmin.serviceState.mode}`);
+    console.log(`- acceptedWarningReason: ${report.endpoints.serviceAdmin.serviceState.acceptedWarningReason}`);
+  }
   console.log(`- servicesRoot: ${report.paths.servicesRoot}`);
   console.log(`- workspaceRoot: ${report.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${report.paths.lifecycleStatePath}`);
