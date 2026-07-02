@@ -124,6 +124,25 @@ File export should support:
 
 The Files surface should only expose service files through registered file sources. It should not allow arbitrary host filesystem browsing by default.
 
+## Files UI archive flow
+
+The Files UI may expose an “Archive folder” or “Archive selection” action for any allowed service workspace folder.
+
+That UI action should not run 7-Zip directly in the browser or inside `lasso-files`. It should call the Service Lasso action/export API with the selected file source, folder path and archive options. Service Lasso then runs the archive operation through the normal action system and delegates the archive work to `@archive`.
+
+Expected flow:
+
+1. Operator selects a folder or file set in the Files UI.
+2. Operator chooses “Archive folder” or “Archive selection”.
+3. Files UI submits an archive/export action request to Service Lasso.
+4. Service Lasso validates the source is inside an allowed service file source.
+5. Service Lasso resolves the `@archive` provider.
+6. `@archive` creates the `.7z` artifact.
+7. Service Lasso records artifact metadata, checksum where practical, action history and audit.
+8. UI shows the produced archive as downloadable, restorable/exportable when applicable, or available for SFTP export.
+
+The archive action may be exposed as a file export action, a backup step, or a helper action used by backup/export workflows. The UI should label the result accurately: an arbitrary archived folder is a file export artifact, not necessarily a restorable service backup.
+
 ## SFTP export model
 
 SFTP export is a destination adapter.
@@ -164,6 +183,7 @@ Suggested action ids:
 | `restore` | Restore from a selected backup artifact. |
 | `extract-backup` | Extract a backup artifact for validation or restore, normally through `@archive`. |
 | `export-files` | Export selected service files/folders. |
+| `archive-selection` | Archive a selected file/folder set through `@archive` for download or delivery. |
 | `export-backup-sftp` | Send an existing backup artifact to SFTP. |
 | `export-files-sftp` | Send a selected file export to SFTP. |
 
@@ -234,6 +254,22 @@ Example input payload shape:
 }
 ```
 
+For a Files UI archive action, the source input should identify the registered file source and selected path rather than a raw host path.
+
+Example source shape:
+
+```json
+{
+  "source": {
+    "type": "file-selection",
+    "sourceId": "service-workspace",
+    "serviceId": "example-service",
+    "paths": ["runtime/data"],
+    "archiveFormat": "7z"
+  }
+}
+```
+
 ## Service workspace boundaries
 
 Backup and export must respect service workspace boundaries.
@@ -290,6 +326,7 @@ Permission guidance:
 | --- | --- |
 | Backup | service operator |
 | Download/export selected files | service file read/export permission |
+| Archive selected folder | service file read/export permission |
 | Export to SFTP | service file export + destination permission |
 | Restore | elevated/destructive action permission |
 | Include secrets in export | explicit secrets/export permission |
@@ -301,6 +338,7 @@ Service Admin and Files surfaces should make the difference clear:
 - “Create backup” means produce a restorable artifact.
 - “Restore backup” means mutate service state from a backup.
 - “Export files” means copy selected files or folders.
+- “Archive folder” means create an archive artifact from a selected folder using Service Lasso and `@archive`.
 - “Export via SFTP” means choose SFTP as the delivery destination.
 
 The UI should not label arbitrary file export as backup unless it uses the backup action and records backup metadata.
@@ -317,6 +355,7 @@ For archive-backed operations, the UI should show the archive format and provide
 
 - Backup artifact registry/history.
 - Archive-backed backup/export actions using `@archive`.
+- Files UI “Archive folder” / “Archive selection” action.
 - Restore validation and extraction through `@archive`.
 - Files export action API.
 - SFTP destination adapter.
