@@ -58,6 +58,43 @@ export interface ServiceDetailResponse {
   service: ServiceSummary;
 }
 
+export interface ServiceConfigRevisionResponse {
+  id: string;
+  createdAt: string;
+  actor: string;
+  reason: string | null;
+  path: string;
+  previousHash: string;
+  currentHash: string;
+  validationStatus: "valid";
+  content: string;
+}
+
+export interface ServiceConfigDocumentResponse {
+  serviceId: string;
+  fileName: "server.json";
+  path: string;
+  content: string;
+  hash: string;
+  updatedAt: string;
+  backupCount: number;
+  revisions: ServiceConfigRevisionResponse[];
+  safety: {
+    rawSecretValuesLoaded: false;
+    omittedSensitiveFields: string[];
+  };
+}
+
+export interface ServiceConfigSaveResponse {
+  serviceId: string;
+  fileName: "server.json";
+  path: string;
+  hash: string;
+  savedAt: string;
+  backup: ServiceConfigRevisionResponse;
+  validationStatus: "valid";
+}
+
 export interface ServiceMetaResponse {
   serviceId: string;
   meta: {
