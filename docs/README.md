@@ -27,7 +27,9 @@ Use this short list as the public documentation map:
 - [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
-- [Healthcheck Reference](reference/healthcheck-reference.md): detailed healthcheck types, readiness defaults, TCP/UDP semantics, output-derived variables, and regression expectations.
+- [Healthcheck Reference](reference/healthcheck-reference.md): canonical `healthchecks[]` contract, readiness defaults, TCP/UDP semantics, output-derived variables, and result shape.
+- [Healthchecks Examples](reference/healthchecks-examples.md): concrete manifest examples for HTTP, TCP, UDP, variable, and optional diagnostic checks.
+- [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md): worker-facing implementation handoff for schema, runtime, APIs, migration, and tests.
 - [Release Manifest Verification](reference/release-manifest-verification.md): read-only checks for service release manifests, platform assets, release labels, and checksums.
 - [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
 - [Template Upgrade Compatibility](reference/template-upgrade-compatibility.md): read-only checker for app/template inventories against current core provider expectations.
@@ -45,6 +47,8 @@ Current canonical files:
 
 - [service.json Reference](reference/service-json-reference.md)
 - [Healthcheck Reference](reference/healthcheck-reference.md)
+- [Healthchecks Examples](reference/healthchecks-examples.md)
+- [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md)
 - [One-shot Jobs](reference/one-shot-jobs.md)
 
 ## Repo boundary rule
