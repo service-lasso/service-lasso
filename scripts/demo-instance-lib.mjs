@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
@@ -10,7 +10,8 @@ export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
 export const defaultDemoLogRoot = path.join(repoRoot, ".demo-logs");
-export const demoServiceIds = ["echo-service", "@node", "node-sample-service"];
+export const defaultBaselineServiceIds = ["@java", "@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"];
+export const demoServiceIds = [...defaultBaselineServiceIds, "node-sample-service"];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -51,6 +52,49 @@ async function pathExists(targetPath) {
   }
 }
 
+function isSamePath(left, right) {
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+export async function ensureDemoServiceManifests(servicesRoot, options = {}) {
+  const targetServicesRoot = path.resolve(servicesRoot ?? defaultDemoServicesRoot);
+
+  if (isSamePath(targetServicesRoot, defaultDemoServicesRoot)) {
+    return;
+  }
+
+  await mkdir(targetServicesRoot, { recursive: true });
+
+  for (const serviceId of demoServiceIds) {
+    const sourceRoot = path.join(defaultDemoServicesRoot, serviceId);
+    const targetRoot = path.join(targetServicesRoot, serviceId);
+
+    if (!(await pathExists(sourceRoot))) {
+      throw new Error(`Demo service seed source is missing: ${sourceRoot}`);
+    }
+
+    if (options.replace === true) {
+      await rm(targetRoot, { recursive: true, force: true });
+    } else if (await pathExists(path.join(targetRoot, "service.json"))) {
+      continue;
+    }
+
+    await cp(sourceRoot, targetRoot, {
+      recursive: true,
+      force: true,
+      filter: (source) => {
+        const relativePath = path.relative(sourceRoot, source);
+        if (!relativePath) {
+          return true;
+        }
+
+        const firstSegment = relativePath.split(path.sep)[0];
+        return firstSegment !== ".state" && firstSegment !== "logs" && firstSegment !== "temp";
+      },
+    });
+  }
+}
+
 async function removeManifestDeclaredFiles(serviceRoot) {
   const manifestPath = path.join(serviceRoot, "service.json");
   if (!(await pathExists(manifestPath))) {
@@ -77,6 +121,7 @@ export async function resetDemoInstance(options = {}) {
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
 
   await rm(workspaceRoot, { recursive: true, force: true });
+  await ensureDemoServiceManifests(servicesRoot, { replace: true });
 
   await Promise.all(
     demoServiceIds.map(async (serviceId) => {
@@ -300,14 +345,24 @@ export async function startDetachedDemoRuntime(options = {}) {
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
-  const runtimeEntry = path.join(repoRoot, "dist", "index.js");
+  const runtimeEntry = path.join(repoRoot, "scripts", "demo-start.mjs");
   const logPath = path.join(demoLogRoot, `demo-runtime-${createLogTimestamp()}.log`);
 
   await mkdir(demoLogRoot, { recursive: true });
 
+  await ensureDemoServiceManifests(servicesRoot);
+
   const outputFd = openSync(logPath, "a");
   try {
-    const child = spawn(process.execPath, ["--enable-source-maps", runtimeEntry], {
+    const child = spawn(process.execPath, [
+      "--enable-source-maps",
+      runtimeEntry,
+      "--preserve",
+      `--port=${port}`,
+      `--services-root=${servicesRoot}`,
+      `--workspace-root=${workspaceRoot}`,
+      `--admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
+    ], {
       cwd: repoRoot,
       detached: true,
       env: {
@@ -324,7 +379,7 @@ export async function startDetachedDemoRuntime(options = {}) {
 
     return {
       pid: child.pid ?? null,
-      command: `${process.execPath} --enable-source-maps ${runtimeEntry}`,
+      command: `${process.execPath} --enable-source-maps ${runtimeEntry} --preserve --port=${port}`,
       logPath,
       servicesRoot,
       workspaceRoot,
@@ -545,16 +600,32 @@ export function printDemoGateReport(report) {
 
 export async function startDemoRuntime(options = {}) {
   const { startRuntimeApp } = await importDistModule(path.join("runtime", "app.js"));
+  const { bootstrapBaselineServices } = await importDistModule(path.join("runtime", "cli", "bootstrap.js"));
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
+  const serviceAdminProbe = await fetchStatus(serviceAdminUrl, Math.min(options.timeoutMs ?? 5_000, 1_000));
+  const baselineServiceIds = serviceAdminProbe.ok
+    ? defaultBaselineServiceIds.filter((serviceId) => serviceId !== "@serviceadmin")
+    : defaultBaselineServiceIds;
 
-  return startRuntimeApp({
+  await ensureDemoServiceManifests(servicesRoot);
+  const bootstrap = await bootstrapBaselineServices({
+    servicesRoot,
+    workspaceRoot,
+    version: process.env.npm_package_version ?? "0.1.0",
+    serviceIds: baselineServiceIds,
+  });
+  const runtime = await startRuntimeApp({
     servicesRoot,
     workspaceRoot,
     port,
     version: process.env.npm_package_version ?? "0.1.0",
   });
+  runtime.bootstrap = bootstrap;
+
+  return runtime;
 }
 
 async function getJson(url, method = "GET") {
@@ -612,6 +683,12 @@ export async function runDemoSmoke(options = {}) {
       services.body.services.some((service) => service.id === "node-sample-service"),
       "Expected node-sample-service in demo services list.",
     );
+    for (const serviceId of defaultBaselineServiceIds) {
+      assertCondition(
+        services.body.services.some((service) => service.id === serviceId),
+        `Expected ${serviceId} in demo services list.`,
+      );
+    }
 
     for (const action of ["install", "config", "start"]) {
       const result = await getJson(`${runtime.apiServer.url}/api/services/echo-service/${action}`, "POST");
@@ -714,7 +791,8 @@ export async function runDemoSmoke(options = {}) {
       summary: {
         health: health.body.status,
         runtimeServices: runtimeSummary.body.runtime.totalServices,
-        demoServicesExercised: ["echo-service", "@node", "node-sample-service"],
+        defaultBaselineServices: defaultBaselineServiceIds,
+        demoServicesExercised: [...new Set([...defaultBaselineServiceIds, "node-sample-service"])],
       },
     };
   } finally {

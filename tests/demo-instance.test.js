@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { getDemoGateReport } from "../scripts/demo-instance-lib.mjs";
+import { defaultBaselineServiceIds, getDemoGateReport, resetDemoInstance } from "../scripts/demo-instance-lib.mjs";
 
 async function startFixtureServer(handler, options = {}) {
   const server = http.createServer(handler);
@@ -79,7 +79,25 @@ test("demo smoke script validates the bounded demo instance end to end", async (
 
   assert.equal(result.code, 0, `Expected demo smoke to pass.\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   assert.match(result.stdout, /\[service-lasso demo] smoke passed/);
-  assert.match(result.stdout, /echo-service, @node, node-sample-service/);
+  assert.match(result.stdout, /@java, @localcert, @nginx, @traefik, @node, echo-service, @serviceadmin, node-sample-service/);
+});
+
+test("demo reset seeds documented baseline manifests into a dedicated services root", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-seed-"));
+  const servicesRoot = path.join(tempRoot, "canonical-services-root");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await resetDemoInstance({ servicesRoot, workspaceRoot });
+
+    for (const serviceId of [...defaultBaselineServiceIds, "node-sample-service"]) {
+      const manifest = JSON.parse(await readFile(path.join(servicesRoot, serviceId, "service.json"), "utf8"));
+      assert.equal(manifest.id, serviceId);
+    }
+    assert.match(await readFile(path.join(servicesRoot, "node-sample-service", "runtime", "server.mjs"), "utf8"), /node-sample-service/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("demo status reports canonical endpoint and lifecycle paths as JSON", async () => {
