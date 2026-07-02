@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://service-lasso.dev/schemas/service-actions-workflow.schema.json",
+  "title": "Service Lasso scheduled action workflow registry",
+  "type": "object",
+  "description": "Schema fragment for scheduled service actions and managed workflow registry entries consumed by lasso-dagu.",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9@_.-]+$"
+    },
+    "runPolicy": {
+      "type": "string",
+      "enum": ["normal", "on-success", "on-failure", "always"],
+      "default": "normal"
+    },
+    "condition": {
+      "type": "string",
+      "enum": [
+        "was-running-before-workflow",
+        "was-stopped-before-workflow",
+        "previous-step-succeeded",
+        "previous-step-failed"
+      ]
+    },
+    "concurrencyPolicy": {
+      "type": "string",
+      "enum": ["allow", "skip-if-running", "queue", "fail-if-running"],
+      "default": "skip-if-running"
+    },
+    "failurePolicy": {
+      "type": "string",
+      "enum": ["fail", "continue", "notify", "retry"],
+      "default": "fail"
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "cron"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "cron": { "type": "string", "minLength": 1 },
+        "timezone": { "type": "string", "minLength": 1 },
+        "concurrency": { "$ref": "#/$defs/concurrencyPolicy" },
+        "onFailure": { "$ref": "#/$defs/failurePolicy" },
+        "params": { "$ref": "#/$defs/params" }
+      }
+    },
+    "serviceLassoActionStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "actionId"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "service-lasso-action" },
+        "serviceId": { "$ref": "#/$defs/id" },
+        "actionId": { "$ref": "#/$defs/id" },
+        "run": { "$ref": "#/$defs/runPolicy" },
+        "condition": { "$ref": "#/$defs/condition" },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "onFailure": { "$ref": "#/$defs/failurePolicy" },
+        "params": { "$ref": "#/$defs/params" }
+      }
+    },
+    "waitStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "wait" },
+        "for": {
+          "type": "string",
+          "enum": ["delay", "service-state", "health", "file", "port"]
+        },
+        "seconds": { "type": "integer", "minimum": 1 },
+        "serviceId": { "$ref": "#/$defs/id" },
+        "state": {
+          "type": "string",
+          "enum": ["any", "running", "stopped", "healthy"]
+        },
+        "run": { "$ref": "#/$defs/runPolicy" },
+        "condition": { "$ref": "#/$defs/condition" },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "onFailure": { "$ref": "#/$defs/failurePolicy" }
+      }
+    },
+    "workflowStep": {
+      "oneOf": [
+        { "$ref": "#/$defs/serviceLassoActionStep" },
+        { "$ref": "#/$defs/waitStep" }
+      ]
+    },
+    "actionDefinition": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "description": { "type": "string" },
+        "label": { "type": "string" },
+        "mode": {
+          "type": "string",
+          "enum": ["built-in", "command", "workflow", "handler"]
+        },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "requiredServiceState": {
+          "type": "string",
+          "enum": ["any", "running", "stopped", "healthy"],
+          "default": "any"
+        },
+        "manualOnly": { "type": "boolean", "default": false },
+        "requiresConfirmation": { "type": "boolean", "default": false },
+        "concurrency": { "$ref": "#/$defs/concurrencyPolicy" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/workflowStep" }
+        },
+        "schedules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schedule" }
+        }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/actionDefinition" }
+    },
+    "managedWorkflowRegistryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "managedBy", "serviceId", "actionId", "scheduleId", "cron", "steps"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "managedBy": { "const": "service-lasso" },
+        "serviceId": { "$ref": "#/$defs/id" },
+        "actionId": { "$ref": "#/$defs/id" },
+        "scheduleId": { "$ref": "#/$defs/id" },
+        "cron": { "type": "string", "minLength": 1 },
+        "timezone": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "checksum": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/workflowStep" },
+          "minItems": 1
+        }
+      }
+    },
+    "managedWorkflowRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["managedBy", "workflows"],
+      "properties": {
+        "managedBy": { "const": "service-lasso" },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "version": { "type": "string" },
+        "workflows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/managedWorkflowRegistryEntry" }
+        }
+      }
+    }
+  },
+  "properties": {
+    "actions": { "$ref": "#/$defs/actions" },
+    "managedWorkflowRegistry": { "$ref": "#/$defs/managedWorkflowRegistry" }
+  },
+  "additionalProperties": true
+}
