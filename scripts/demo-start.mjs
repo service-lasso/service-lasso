@@ -1,6 +1,7 @@
+import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
 import { resolveDemoOptions, startDemoRuntime } from "./demo-instance-lib.mjs";
 
-const options = resolveDemoOptions();
+const options = await prepareCanonicalDemoOptions(resolveDemoOptions());
 const runtime = await startDemoRuntime(options);
 
 console.log("[service-lasso demo] runtime started");
