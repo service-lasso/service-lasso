@@ -1,6 +1,7 @@
+import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
 import { resolveDemoOptions, runDemoSmoke } from "./demo-instance-lib.mjs";
 
-const options = resolveDemoOptions();
+const options = await prepareCanonicalDemoOptions(resolveDemoOptions(), { replace: true });
 const result = await runDemoSmoke(options);
 
 console.log("[service-lasso demo] smoke passed");
