@@ -4,11 +4,10 @@ import { resolveDemoOptions, startDemoRuntime } from "./demo-instance-lib.mjs";
 const options = await prepareCanonicalDemoOptions(resolveDemoOptions());
 const runtime = await startDemoRuntime(options);
 
-console.log("[service-lasso demo] runtime started");
-console.log(`- api: ${runtime.apiServer.url}`);
-console.log(`- servicesRoot: ${runtime.serviceRoot.servicesRoot}`);
-console.log(`- workspaceRoot: ${runtime.serviceRoot.workspaceRoot}`);
-console.log("- stop: Ctrl+C");
+console.log("[service-lasso demo] ready");
+console.log("- Service Admin: http://127.0.0.1:17700/");
+console.log(`- Runtime API: ${runtime.apiServer.url}`);
+console.log("- Stop: Ctrl+C");
 
 const shutdown = async () => {
   await runtime.apiServer.stop();
