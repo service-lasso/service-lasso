@@ -29,34 +29,31 @@ Relevant repos:
 
 ## Quick Start
 
-Clone the repo, install dependencies, build the runtime, then start the verified baseline service set:
+Start the local demo with one command:
 
 ```powershell
 git clone https://github.com/service-lasso/service-lasso.git
 cd service-lasso
 npm ci
-npm run build
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18090 --json
+npm run demo
 ```
 
-The command starts the Service Lasso API at:
+Open Service Admin:
 
 ```text
-http://127.0.0.1:18090
+http://127.0.0.1:17700/
 ```
 
-The example uses API port `18090` because the checked-in baseline also starts `@nginx` on port `18080`.
+The demo command builds the runtime, prepares the canonical demo service root, starts the demo API on port `17883`, and starts the baseline service set. Operators should not need to pass service roots, workspace roots, or ports for the normal local demo.
 
-### How to test the local baseline
-
-After startup, open or query these local URLs:
+### Local demo URLs
 
 | URL | Purpose |
 | --- | --- |
 | `http://127.0.0.1:17700/` | Service Admin UI |
-| `http://127.0.0.1:18090/api/health` | Service Lasso API health |
-| `http://127.0.0.1:18090/api/runtime` | runtime boundary, service root, workspace root, and version |
-| `http://127.0.0.1:18090/api/services` | discovered services and lifecycle state |
+| `http://127.0.0.1:17883/api/health` | Service Lasso API health |
+| `http://127.0.0.1:17883/api/runtime` | runtime boundary, service root, workspace root, and version |
+| `http://127.0.0.1:17883/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:4010/` | Echo Service UI/API |
 | `http://127.0.0.1:4010/health` | Echo Service health endpoint |
 | `http://127.0.0.1:18080/` | NGINX baseline web page |
@@ -65,12 +62,10 @@ After startup, open or query these local URLs:
 | `http://127.0.0.1:19081/ping` | Traefik health/ping endpoint |
 | `http://127.0.0.1:19081/dashboard/` | Traefik dashboard |
 
-If you choose a different `--port`, only the Service Lasso API URLs change. The managed service URLs above come from the checked-in `services/*/service.json` manifests unless their ports are reassigned.
-
 Stop managed services before closing the runtime:
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:18090/api/runtime/actions/stopAll
+Invoke-RestMethod -Method Post http://127.0.0.1:17883/api/runtime/actions/stopAll
 ```
 
 Then stop the Service Lasso process with `Ctrl+C`.
