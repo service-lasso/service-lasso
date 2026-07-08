@@ -1,6 +1,10 @@
 import type {
   ServiceHookFailurePolicy,
   ServiceHookStep,
+  ServiceActionConcurrencyPolicy,
+  ServiceActionFailurePolicy,
+  ServiceActionMode,
+  ServiceActionRequiredState,
   ServiceManifest,
   ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
@@ -17,6 +21,10 @@ const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-s
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
 const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
+const actionModes = new Set(["built-in", "command", "workflow", "handler"]);
+const actionRequiredStates = new Set(["any", "running", "stopped"]);
+const actionConcurrencyPolicies = new Set(["skip-if-running", "allow-parallel"]);
+const actionFailurePolicies = new Set(["record", "retry", "disable-schedule"]);
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -343,6 +351,196 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
   return { steps };
 }
 
+function readStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an array of non-empty strings.`);
+  }
+
+  return value.map((entry) => entry.trim());
+}
+
+function readJsonObject(value: unknown, field: string, manifestPath: string): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function expectOptionalEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: Set<string>,
+  allowedLabel: string,
+  manifestPath: string,
+): T | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || !allowed.has(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be one of ${allowedLabel}.`);
+  }
+
+  return value as T;
+}
+
+function validateCronExpression(value: unknown, field: string, manifestPath: string): string {
+  const cron = expectNonEmptyString(value, field, manifestPath);
+  const parts = cron.split(/\s+/);
+
+  if (parts.length !== 5 && parts.length !== 6) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}" to be a 5- or 6-field cron expression.`,
+    );
+  }
+
+  if (parts.some((part) => part.length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to contain populated cron fields.`);
+  }
+
+  return cron;
+}
+
+function readActionSchedules(
+  value: unknown,
+  actionField: string,
+  manifestPath: string,
+): NonNullable<ServiceManifest["actions"]>[string]["schedules"] {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}.schedules" to be an object.`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([scheduleId, candidate]) => {
+      const normalizedScheduleId = scheduleId.trim();
+      const scheduleField = `${actionField}.schedules.${normalizedScheduleId}`;
+
+      if (normalizedScheduleId.length === 0) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: action schedule ids must be non-empty.`);
+      }
+
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "${scheduleField}" to be an object.`);
+      }
+
+      const schedule = candidate as Record<string, unknown>;
+      if (schedule.action !== undefined || schedule.actionId !== undefined) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: "${scheduleField}" must not declare action references; schedules stay attached under their action.`,
+        );
+      }
+
+      return [
+        normalizedScheduleId,
+        {
+          label: typeof schedule.label === "string" ? schedule.label.trim() : undefined,
+          enabled: expectOptionalBoolean(schedule.enabled, `${scheduleField}.enabled`, manifestPath),
+          cron: validateCronExpression(schedule.cron, `${scheduleField}.cron`, manifestPath),
+          timezone: typeof schedule.timezone === "string" ? schedule.timezone.trim() : undefined,
+          concurrencyPolicy: expectOptionalEnum<ServiceActionConcurrencyPolicy>(
+            schedule.concurrencyPolicy,
+            `${scheduleField}.concurrencyPolicy`,
+            actionConcurrencyPolicies,
+            '"skip-if-running" or "allow-parallel"',
+            manifestPath,
+          ),
+          failurePolicy: expectOptionalEnum<ServiceActionFailurePolicy>(
+            schedule.failurePolicy,
+            `${scheduleField}.failurePolicy`,
+            actionFailurePolicies,
+            '"record", "retry", or "disable-schedule"',
+            manifestPath,
+          ),
+          parameters: readJsonObject(schedule.parameters, `${scheduleField}.parameters`, manifestPath),
+        },
+      ];
+    }),
+  );
+}
+
+function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest["actions"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "actions" to be an object.`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([actionId, candidate]) => {
+      const normalizedActionId = actionId.trim();
+      const actionField = `actions.${normalizedActionId}`;
+
+      if (normalizedActionId.length === 0) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: action ids must be non-empty.`);
+      }
+
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}" to be an object.`);
+      }
+
+      const action = candidate as Record<string, unknown>;
+      const commandline = readStringMap(action.commandline, `${actionField}.commandline`, manifestPath);
+      const command = typeof action.command === "string" ? action.command.trim() : undefined;
+      if (action.command !== undefined && (!command || command.length === 0)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}.command" to be a non-empty string.`);
+      }
+
+      if (action.mode === "command" && command === undefined && commandline === undefined) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: command-backed action "${normalizedActionId}" requires "command" or "commandline".`,
+        );
+      }
+
+      return [
+        normalizedActionId,
+        {
+          label: typeof action.label === "string" ? action.label.trim() : undefined,
+          description: typeof action.description === "string" ? action.description.trim() : undefined,
+          mode: expectOptionalEnum<ServiceActionMode>(
+            action.mode,
+            `${actionField}.mode`,
+            actionModes,
+            '"built-in", "command", "workflow", or "handler"',
+            manifestPath,
+          ),
+          command,
+          commandline,
+          args: readStringArray(action.args, `${actionField}.args`, manifestPath),
+          cwd: typeof action.cwd === "string" ? action.cwd.trim() : undefined,
+          env: readStringMap(action.env, `${actionField}.env`, manifestPath),
+          timeoutSeconds: expectOptionalWholeNumber(action.timeoutSeconds, `${actionField}.timeoutSeconds`, manifestPath, 1),
+          requiredState: expectOptionalEnum<ServiceActionRequiredState>(
+            action.requiredState,
+            `${actionField}.requiredState`,
+            actionRequiredStates,
+            '"any", "running", or "stopped"',
+            manifestPath,
+          ),
+          requiresConfirmation: expectOptionalBoolean(action.requiresConfirmation, `${actionField}.requiresConfirmation`, manifestPath),
+          manualOnly: expectOptionalBoolean(action.manualOnly, `${actionField}.manualOnly`, manifestPath),
+          permissions: readStringArray(action.permissions, `${actionField}.permissions`, manifestPath),
+          schedules: readActionSchedules(action.schedules, actionField, manifestPath),
+        },
+      ];
+    }),
+  );
+}
+
 function expectTimeOfDay(value: unknown, field: string, manifestPath: string): string {
   const candidate = expectNonEmptyString(value, field, manifestPath);
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(candidate)) {
@@ -602,6 +800,12 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
 
   const record = input as Record<string, unknown>;
 
+  if (record.schedules !== undefined) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: top-level "schedules" are not supported; define schedules under "actions.<actionId>.schedules".`,
+    );
+  }
+
   const dependOn = record.depend_on;
   if (
     dependOn !== undefined &&
@@ -753,6 +957,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const restartPolicy = readRestartPolicy(record.restartPolicy, manifestPath);
   const doctor = readDoctorPolicy(record.doctor, manifestPath);
   const hooks = readLifecycleHooks(record.hooks, manifestPath);
+  const actions = readActionPolicy(record.actions, manifestPath);
   const setup = readSetupPolicy(record.setup, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
 
@@ -790,6 +995,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     restartPolicy,
     doctor,
     hooks,
+    actions,
     setup,
     updates,
     artifact,
