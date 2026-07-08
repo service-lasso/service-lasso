@@ -29,11 +29,13 @@ function parseOption(args, name) {
 
 export function resolveDemoOptions(args = process.argv.slice(2)) {
   const port = Number(parseOption(args, "port") ?? process.env.SERVICE_LASSO_PORT ?? 18080);
+  const host = parseOption(args, "host") ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
 
   return {
     servicesRoot: path.resolve(parseOption(args, "services-root") ?? defaultDemoServicesRoot),
     workspaceRoot: path.resolve(parseOption(args, "workspace-root") ?? defaultDemoWorkspaceRoot),
     port,
+    host,
     runtimeUrl: parseOption(args, "runtime-url") ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
     serviceAdminUrl: parseOption(args, "admin-url") ?? process.env.SERVICE_LASSO_ADMIN_URL ?? "http://127.0.0.1:17700/",
     demoLogRoot: path.resolve(parseOption(args, "demo-log-root") ?? defaultDemoLogRoot),
@@ -493,6 +495,7 @@ export async function startDetachedDemoRuntime(options = {}) {
       runtimeEntry,
       "--preserve",
       `--port=${port}`,
+      `--host=${options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1"}`,
       `--services-root=${servicesRoot}`,
       `--workspace-root=${workspaceRoot}`,
       `--admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
@@ -502,6 +505,7 @@ export async function startDetachedDemoRuntime(options = {}) {
       env: {
         ...process.env,
         SERVICE_LASSO_PORT: String(port),
+        SERVICE_LASSO_HOST: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
         SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
         SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
       },
@@ -800,6 +804,7 @@ export async function startDemoRuntime(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
   const serviceAdminProbe = await fetchStatus(serviceAdminUrl, Math.min(options.timeoutMs ?? 5_000, 1_000));
   const baselineServiceIds = serviceAdminProbe.ok
@@ -817,6 +822,7 @@ export async function startDemoRuntime(options = {}) {
     servicesRoot,
     workspaceRoot,
     port,
+    host,
     version: process.env.npm_package_version ?? "0.1.0",
   });
   runtime.bootstrap = bootstrap;

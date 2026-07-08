@@ -21,6 +21,7 @@ export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<R
     servicesRoot: serviceRoot.servicesRoot,
     workspaceRoot: serviceRoot.workspaceRoot,
     port: options.port,
+    host: options.host,
     version: serviceRoot.version,
   });
 

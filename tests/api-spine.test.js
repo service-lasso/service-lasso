@@ -73,6 +73,21 @@ test("GET /api/health returns core API health", async () => {
   }
 });
 
+test("startApiServer supports explicit host binding", async () => {
+  const apiServer = await startApiServer({ port: 0, host: "0.0.0.0", version: "test-version" });
+
+  try {
+    assert.equal(apiServer.url, `http://0.0.0.0:${apiServer.port}`);
+
+    const result = await getJson(`http://127.0.0.1:${apiServer.port}/api/health`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, "ok");
+  } finally {
+    await apiServer.stop();
+  }
+});
+
 test("GET /api/services returns discovered services from the tracked services root", async () => {
   const servicesRoot = path.resolve("services");
   await clearPersistedFixtureState(servicesRoot);

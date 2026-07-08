@@ -71,6 +71,7 @@ import type {
 
 export interface ApiServerOptions {
   port?: number;
+  host?: string;
   version?: string;
   servicesRoot?: string;
   workspaceRoot?: string;
@@ -904,8 +905,9 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     : null;
   const server = createApiServer(config);
   const port = options.port ?? 18080;
+  const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
 
-  server.listen(port, "127.0.0.1");
+  server.listen(port, host);
   await once(server, "listening");
   monitor?.start();
   updateScheduler?.start();
@@ -920,7 +922,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   return {
     server,
     port: resolvedPort,
-    url: `http://127.0.0.1:${resolvedPort}`,
+    url: `http://${host}:${resolvedPort}`,
     monitor,
     updateScheduler,
     stop: async () => {
