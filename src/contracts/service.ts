@@ -68,6 +68,42 @@ export interface ServiceLifecycleHooks {
 
 export type ServiceSetupRerunPolicy = "manual" | "ifMissing" | "always";
 
+export type ServiceActionMode = "built-in" | "command" | "workflow" | "handler";
+export type ServiceActionRequiredState = "any" | "running" | "stopped";
+export type ServiceActionConcurrencyPolicy = "skip-if-running" | "allow-parallel";
+export type ServiceActionFailurePolicy = "record" | "retry" | "disable-schedule";
+
+export interface ServiceActionSchedule {
+  label?: string;
+  enabled?: boolean;
+  cron: string;
+  timezone?: string;
+  concurrencyPolicy?: ServiceActionConcurrencyPolicy;
+  failurePolicy?: ServiceActionFailurePolicy;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ServiceActionDefinition {
+  label?: string;
+  description?: string;
+  mode?: ServiceActionMode;
+  command?: string;
+  commandline?: Record<string, string>;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  timeoutSeconds?: number;
+  requiredState?: ServiceActionRequiredState;
+  requiresConfirmation?: boolean;
+  manualOnly?: boolean;
+  permissions?: string[];
+  schedules?: Record<string, ServiceActionSchedule>;
+}
+
+export interface ServiceActionPolicy {
+  [actionId: string]: ServiceActionDefinition;
+}
+
 export interface ServiceSetupStep {
   description?: string;
   depend_on?: string[];
@@ -150,6 +186,7 @@ export interface ServiceManifest {
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;
   hooks?: ServiceLifecycleHooks;
+  actions?: ServiceActionPolicy;
   setup?: ServiceSetupPolicy;
   updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;

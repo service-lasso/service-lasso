@@ -189,18 +189,24 @@ Numeric service location classification value.
 
 ## `actions`
 
-`actions` is where the service defines or overrides named lifecycle actions.
+`actions` is where the service defines or overrides named lifecycle and operator actions.
 
 Current intended rule:
 - actions correspond to known Service Lasso lifecycle/action names
 - service config can override how a named action behaves for that service
 - if a service does not override a supported action, Lasso default behavior applies
+- scheduled operations stay attached to the action they trigger
 
 Current sample actions:
 - `install`
 - `config`
 - `start`
 - `stop`
+- `backup`
+- `restart`
+- `validate`
+- `export`
+- `update-check`
 
 ### Current action examples
 
@@ -221,6 +227,62 @@ Current sample actions:
 }
 ```
 
+### Scheduled actions
+
+A scheduled operation is still a service action. Cron is only one trigger attached to that action.
+
+Backup, restart, validate, export, update-check, and similar operations should be modeled as actions. If an action needs automation, declare one or more schedules under `actions.<actionId>.schedules`.
+
+Do not create a separate top-level cron or schedules list that points back at an action. Service Lasso keeps the action definition, service context, cwd/env resolution, permissions, logs, and audit under the service action.
+
+```json
+"actions": {
+  "backup": {
+    "label": "Backup",
+    "description": "Create a verified service backup.",
+    "mode": "workflow",
+    "requiredState": "running",
+    "requiresConfirmation": true,
+    "manualOnly": false,
+    "timeoutSeconds": 900,
+    "schedules": {
+      "nightly": {
+        "label": "Nightly backup",
+        "enabled": true,
+        "cron": "15 2 * * *",
+        "timezone": "Australia/Sydney",
+        "concurrencyPolicy": "skip-if-running",
+        "failurePolicy": "record",
+        "parameters": {
+          "retainDays": 7
+        }
+      }
+    }
+  }
+}
+```
+
+Action fields currently validated by discovery:
+- `label` and `description`
+- `mode`: `built-in`, `command`, `workflow`, or `handler`
+- `command`, `commandline`, and `args` for command-backed actions
+- `cwd` and `env`, resolved in the service context
+- `timeoutSeconds`
+- `requiredState`: `any`, `running`, or `stopped`
+- `requiresConfirmation` and `manualOnly`
+- `permissions`
+- `schedules`
+
+Schedule fields currently validated by discovery:
+- schedule id from the `schedules` map key
+- `label`
+- `enabled`
+- `cron`: 5- or 6-field cron expression
+- `timezone`, omitted to inherit the app timezone
+- `concurrencyPolicy`: `skip-if-running` or `allow-parallel`
+- `failurePolicy`: `record`, `retry`, or `disable-schedule`
+- `parameters`
+
 ### Current action semantics direction
 - `install`
   - prepare/install payload and required local setup
@@ -231,7 +293,7 @@ Current sample actions:
 - `stop`
   - stop the service gracefully
 
-Additional action names may exist later, but this first-pass template should stay small and lifecycle-focused.
+Finite lifecycle actions continue to use their existing bounded runtime behavior. Scheduled actions add contract metadata for later workflow/scheduler consumers; they do not turn cron into a separate service-level action list.
 
 ## `execconfig`
 
