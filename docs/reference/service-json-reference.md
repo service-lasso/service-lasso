@@ -245,6 +245,12 @@ Do not create a separate top-level cron or schedules list that points back at an
     "requiresConfirmation": true,
     "manualOnly": false,
     "timeoutSeconds": 900,
+    "steps": [
+      { "id": "stop", "type": "service-lasso-action", "actionId": "stop" },
+      { "id": "backup", "type": "service-lasso-action", "actionId": "backup" },
+      { "id": "verify", "type": "service-lasso-action", "actionId": "verify-backup" },
+      { "id": "start", "type": "service-lasso-action", "actionId": "start", "run": "always", "condition": "was-running-before-workflow" }
+    ],
     "schedules": {
       "nightly": {
         "label": "Nightly backup",
@@ -271,7 +277,16 @@ Action fields currently validated by discovery:
 - `requiredState`: `any`, `running`, or `stopped`
 - `requiresConfirmation` and `manualOnly`
 - `permissions`
+- `steps` for workflow-backed actions
 - `schedules`
+
+Workflow step fields currently validated by discovery:
+- `id`
+- `type`: currently `service-lasso-action`
+- `actionId`: action invoked for this workflow step
+- `run`: `on-success` or `always`
+- `condition`
+- `parameters`
 
 Schedule fields currently validated by discovery:
 - schedule id from the `schedules` map key
@@ -294,6 +309,8 @@ Schedule fields currently validated by discovery:
   - stop the service gracefully
 
 Finite lifecycle actions continue to use their existing bounded runtime behavior. Scheduled actions add contract metadata for later workflow/scheduler consumers; they do not turn cron into a separate service-level action list.
+
+The runtime publishes scheduled action workflows through `GET /api/workflows/registry`. The registry is generated from validated service manifests, hides disabled services and disabled schedules, and includes stable workflow ids, service/action/schedule metadata, tags, workflow steps, and per-entry checksums for Dagu drift detection.
 
 ## `execconfig`
 

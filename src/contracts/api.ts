@@ -129,6 +129,49 @@ export interface RuntimeSummaryResponse {
   };
 }
 
+export interface ManagedWorkflowRegistryStep {
+  id: string;
+  type: "service-lasso-action";
+  actionId: string;
+  endpoint: string;
+  run?: "always" | "on-success";
+  condition?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ManagedWorkflowRegistryEntry {
+  id: string;
+  managedBy: "service-lasso";
+  registryVersion: number;
+  serviceId: string;
+  serviceName: string;
+  serviceVersion?: string;
+  actionId: string;
+  actionLabel?: string;
+  scheduleId: string;
+  scheduleLabel?: string;
+  cron: string;
+  timezone?: string;
+  enabled: true;
+  tags: string[];
+  checksum: string;
+  concurrencyPolicy?: "skip-if-running" | "allow-parallel";
+  failurePolicy?: "record" | "retry" | "disable-schedule";
+  parameters?: Record<string, unknown>;
+  steps: ManagedWorkflowRegistryStep[];
+  source: {
+    manifestPath: string;
+    serviceRoot: string;
+  };
+}
+
+export interface ManagedWorkflowRegistryResponse {
+  managedBy: "service-lasso";
+  registryVersion: number;
+  generatedAt: string;
+  workflows: ManagedWorkflowRegistryEntry[];
+}
+
 export interface DashboardLinkResponse {
   label: string;
   url: string;

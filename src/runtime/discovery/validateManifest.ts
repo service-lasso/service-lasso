@@ -5,6 +5,7 @@ import type {
   ServiceActionFailurePolicy,
   ServiceActionMode,
   ServiceActionRequiredState,
+  ServiceActionWorkflowStep,
   ServiceManifest,
   ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
@@ -471,6 +472,51 @@ function readActionSchedules(
   );
 }
 
+function readActionWorkflowSteps(
+  value: unknown,
+  actionField: string,
+  manifestPath: string,
+): ServiceActionWorkflowStep[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}.steps" to be an array.`);
+  }
+
+  return value.map((candidate, index) => {
+    const stepField = `${actionField}.steps[${index}]`;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${stepField}" to be an object.`);
+    }
+
+    const step = candidate as Record<string, unknown>;
+    const type = step.type;
+    if (type !== undefined && type !== "service-lasso-action") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${stepField}.type" to be "service-lasso-action" when present.`,
+      );
+    }
+
+    const run = step.run;
+    if (run !== undefined && run !== "always" && run !== "on-success") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${stepField}.run" to be "always" or "on-success" when present.`,
+      );
+    }
+
+    return {
+      id: expectNonEmptyString(step.id, `${stepField}.id`, manifestPath),
+      type: "service-lasso-action",
+      actionId: expectNonEmptyString(step.actionId, `${stepField}.actionId`, manifestPath),
+      run: run as ServiceActionWorkflowStep["run"],
+      condition: typeof step.condition === "string" ? step.condition.trim() : undefined,
+      parameters: readJsonObject(step.parameters, `${stepField}.parameters`, manifestPath),
+    };
+  });
+}
+
 function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest["actions"] | undefined {
   if (value === undefined) {
     return undefined;
@@ -534,6 +580,7 @@ function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest
           requiresConfirmation: expectOptionalBoolean(action.requiresConfirmation, `${actionField}.requiresConfirmation`, manifestPath),
           manualOnly: expectOptionalBoolean(action.manualOnly, `${actionField}.manualOnly`, manifestPath),
           permissions: readStringArray(action.permissions, `${actionField}.permissions`, manifestPath),
+          steps: readActionWorkflowSteps(action.steps, actionField, manifestPath),
           schedules: readActionSchedules(action.schedules, actionField, manifestPath),
         },
       ];

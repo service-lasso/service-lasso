@@ -4,6 +4,7 @@ import { createHealthResponse } from "./routes/health.js";
 import { createServicesResponse } from "./routes/services.js";
 import { createDependenciesResponse } from "./routes/dependencies.js";
 import { createRuntimeSummaryResponse } from "./routes/runtime.js";
+import { createManagedWorkflowRegistryResponse } from "./routes/workflows.js";
 import { createServiceHealthResponse } from "./routes/service-health.js";
 import { createServiceLogsResponse } from "./routes/logs.js";
 import { createServiceLogChunkResponse, createServiceLogInfoResponse } from "./routes/log-reader.js";
@@ -59,6 +60,7 @@ import {
   installServiceUpdateCandidate,
   listServiceUpdateStates,
 } from "../runtime/updates/actions.js";
+import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { ApiError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
@@ -487,6 +489,12 @@ async function routeRequest(
       action: "list",
       services: await listServiceUpdateStates(runtimeModel.registry.list()),
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/workflows/registry") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, createManagedWorkflowRegistryResponse(buildManagedWorkflowRegistry(runtimeModel.discovered)));
     return;
   }
 
