@@ -183,7 +183,54 @@ function buildRunMetadata(request: ServiceActionRunRequest): ServiceActionRunMet
   };
 }
 
+function assertScheduledActionAllowed(
+  service: DiscoveredService,
+  actionId: string,
+  action: ServiceActionDefinition,
+  request: ServiceActionRunRequest,
+): void {
+  const source = request.source ?? "manual";
+  if (source !== "dagu" && source !== "scheduler") {
+    return;
+  }
+
+  if (!request.workflowId || !request.scheduleId) {
+    throw new ApiError(
+      "scheduled_metadata_required",
+      400,
+      `Action runs from source "${source}" require "workflowId" and "scheduleId".`,
+    );
+  }
+
+  if (!action.schedules || Object.keys(action.schedules).length === 0) {
+    throw new ApiError(
+      "scheduled_action_not_configured",
+      409,
+      `Action "${actionId}" for service "${service.manifest.id}" does not declare schedules.`,
+    );
+  }
+
+  const schedule = action.schedules[request.scheduleId];
+  if (!schedule) {
+    throw new ApiError(
+      "unknown_action_schedule",
+      404,
+      `Unknown schedule "${request.scheduleId}" for action "${actionId}" on service "${service.manifest.id}".`,
+    );
+  }
+
+  if (schedule.enabled === false) {
+    throw new ApiError(
+      "disabled_action_schedule",
+      409,
+      `Schedule "${request.scheduleId}" for action "${actionId}" on service "${service.manifest.id}" is disabled.`,
+    );
+  }
+}
+
 function assertActionAllowed(service: DiscoveredService, actionId: string, action: ServiceActionDefinition, request: ServiceActionRunRequest): void {
+  assertScheduledActionAllowed(service, actionId, action, request);
+
   if (action.manualOnly && request.source !== "manual") {
     throw new ApiError("manual_only_action", 409, `Action "${actionId}" for service "${service.manifest.id}" can only be run manually.`);
   }

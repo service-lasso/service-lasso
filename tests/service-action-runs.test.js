@@ -68,10 +68,25 @@ test("service action run API executes command actions and exposes persisted hist
         mode: "command",
         command: process.execPath,
         args: ["runtime/action-writer.mjs"],
+        schedules: {
+          nightly: {
+            cron: "15 2 * * *",
+            timezone: "Australia/Sydney",
+          },
+          disabled: {
+            enabled: false,
+            cron: "0 3 * * *",
+          },
+        },
         env: {
           ACTION_VALUE: "configured-${SERVICE_ID}",
         },
         timeoutSeconds: 5,
+      },
+      unscheduled: {
+        mode: "command",
+        command: process.execPath,
+        args: ["-e", "process.exit(0)"],
       },
       dangerous: {
         mode: "command",
@@ -84,6 +99,11 @@ test("service action run API executes command actions and exposes persisted hist
         command: process.execPath,
         args: ["-e", "process.exit(0)"],
         manualOnly: true,
+        schedules: {
+          nightly: {
+            cron: "15 2 * * *",
+          },
+        },
       },
       workflow: {
         mode: "workflow",
@@ -139,12 +159,54 @@ test("service action run API executes command actions and exposes persisted hist
     assert.equal(allHistory.status, 200);
     assert.equal(allHistory.body.runs.length, 1);
 
+    const scheduledWithoutWorkflow = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
+      source: "dagu",
+      scheduleId: "nightly",
+    });
+    assert.equal(scheduledWithoutWorkflow.status, 400);
+    assert.equal(scheduledWithoutWorkflow.body.error, "scheduled_metadata_required");
+    assert.match(scheduledWithoutWorkflow.body.message, /workflowId/);
+    assert.match(scheduledWithoutWorkflow.body.message, /scheduleId/);
+
+    const scheduledWithoutSchedule = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
+      source: "scheduler",
+      workflowId: "minecraft.backup.nightly",
+    });
+    assert.equal(scheduledWithoutSchedule.status, 400);
+    assert.equal(scheduledWithoutSchedule.body.error, "scheduled_metadata_required");
+
+    const unknownSchedule = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
+      source: "dagu",
+      workflowId: "minecraft.backup.nightly",
+      scheduleId: "unknown",
+    });
+    assert.equal(unknownSchedule.status, 404);
+    assert.equal(unknownSchedule.body.error, "unknown_action_schedule");
+
+    const disabledSchedule = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
+      source: "scheduler",
+      workflowId: "minecraft.backup.disabled",
+      scheduleId: "disabled",
+    });
+    assert.equal(disabledSchedule.status, 409);
+    assert.equal(disabledSchedule.body.error, "disabled_action_schedule");
+
+    const unscheduledAction = await postJson(`${apiServer.url}/api/services/action-service/actions/unscheduled/runs`, {
+      source: "dagu",
+      workflowId: "minecraft.unscheduled.nightly",
+      scheduleId: "nightly",
+    });
+    assert.equal(unscheduledAction.status, 409);
+    assert.equal(unscheduledAction.body.error, "scheduled_action_not_configured");
+
     const missingConfirmation = await postJson(`${apiServer.url}/api/services/action-service/actions/dangerous/runs`);
     assert.equal(missingConfirmation.status, 409);
     assert.equal(missingConfirmation.body.error, "confirmation_required");
 
     const manualFromDagu = await postJson(`${apiServer.url}/api/services/action-service/actions/manual/runs`, {
       source: "dagu",
+      workflowId: "minecraft.manual.nightly",
+      scheduleId: "nightly",
     });
     assert.equal(manualFromDagu.status, 409);
     assert.equal(manualFromDagu.body.error, "manual_only_action");
