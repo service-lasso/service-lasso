@@ -50,6 +50,7 @@ import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
+import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
@@ -64,6 +65,8 @@ import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
   RuntimeOrchestrationResponse,
+  ServiceActionRunResponse,
+  ServiceActionRunsResponse,
   ServiceDetailResponse,
   ServicesMetaResponse,
   ServiceSummary,
@@ -722,6 +725,38 @@ async function routeRequest(
         steps: listSetupStepIds(service),
         setup: getLifecycleState(serviceId).setup,
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "actions") {
+      const payload: ServiceActionRunsResponse = {
+        serviceId,
+        runs: await listServiceActionRuns(service),
+      };
+      writeJson(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 6 && pathParts[3] === "actions" && pathParts[5] === "runs") {
+      const actionId = decodeURIComponent(pathParts[4] ?? "");
+      const payload: ServiceActionRunsResponse = {
+        serviceId,
+        actionId,
+        runs: await listServiceActionRuns(service, actionId),
+      };
+      writeJson(response, 200, payload);
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "actions" && pathParts[5] === "runs") {
+      const actionId = decodeURIComponent(pathParts[4] ?? "");
+      const payload: ServiceActionRunResponse = await runServiceAction(
+        service,
+        runtimeModel.registry,
+        actionId,
+        parseServiceActionRunRequest(await readJsonBody(request)),
+      );
+      writeJson(response, 200, payload);
       return;
     }
 

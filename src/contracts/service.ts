@@ -72,6 +72,23 @@ export type ServiceActionMode = "built-in" | "command" | "workflow" | "handler";
 export type ServiceActionRequiredState = "any" | "running" | "stopped";
 export type ServiceActionConcurrencyPolicy = "skip-if-running" | "allow-parallel";
 export type ServiceActionFailurePolicy = "record" | "retry" | "disable-schedule";
+export type ServiceActionPayloadJsonType = "string" | "number" | "integer" | "boolean" | "object" | "array" | "null";
+
+export interface ServiceActionPayloadSchema {
+  type?: ServiceActionPayloadJsonType | ServiceActionPayloadJsonType[];
+  required?: string[];
+  properties?: Record<string, ServiceActionPayloadSchema>;
+  additionalProperties?: boolean;
+}
+
+export interface ServiceActionPayloadPolicy {
+  inline?: boolean;
+  references?: boolean;
+  allowMixed?: boolean;
+  required?: boolean;
+  schema?: ServiceActionPayloadSchema;
+  recordInlineFields?: string[];
+}
 
 export interface ServiceActionSchedule {
   label?: string;
@@ -97,6 +114,7 @@ export interface ServiceActionDefinition {
   requiresConfirmation?: boolean;
   manualOnly?: boolean;
   permissions?: string[];
+  payload?: ServiceActionPayloadPolicy;
   schedules?: Record<string, ServiceActionSchedule>;
 }
 

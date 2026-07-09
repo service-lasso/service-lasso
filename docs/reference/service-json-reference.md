@@ -271,7 +271,15 @@ Action fields currently validated by discovery:
 - `requiredState`: `any`, `running`, or `stopped`
 - `requiresConfirmation` and `manualOnly`
 - `permissions`
+- `payload`: opt-in inline/reference action payload policy
 - `schedules`
+
+Action payloads are documented in `docs/reference/service-action-inputs.md`.
+An action can allow inline request payloads, stored payload references, or both.
+The runtime resolves references from `.state/action-payloads/<payloadRef>.json`,
+checks the resolved payload against the action schema, exposes it to the action
+process as `SERVICE_LASSO_ACTION_PAYLOAD`, and stores only the payload reference
+id plus whitelisted inline fields in action history.
 
 Schedule fields currently validated by discovery:
 - schedule id from the `schedules` map key
