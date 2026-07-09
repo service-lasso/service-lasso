@@ -100,6 +100,15 @@ export interface ServiceActionSchedule {
   parameters?: Record<string, unknown>;
 }
 
+export interface ServiceActionWorkflowStep {
+  id: string;
+  type?: "service-lasso-action";
+  actionId: string;
+  run?: "always" | "on-success";
+  condition?: string;
+  parameters?: Record<string, unknown>;
+}
+
 export interface ServiceActionDefinition {
   label?: string;
   description?: string;
@@ -114,6 +123,7 @@ export interface ServiceActionDefinition {
   requiresConfirmation?: boolean;
   manualOnly?: boolean;
   permissions?: string[];
+  steps?: ServiceActionWorkflowStep[];
   payload?: ServiceActionPayloadPolicy;
   schedules?: Record<string, ServiceActionSchedule>;
 }
