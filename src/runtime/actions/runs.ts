@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { DiscoveredService, ServiceActionDefinition } from "../../contracts/service.js";
+import type { DiscoveredService, ServiceActionDefinition, ServiceActionPayloadSchema } from "../../contracts/service.js";
 import { ApiError, LifecycleStateError } from "../../server/errors.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { getLifecycleState } from "../lifecycle/store.js";
@@ -24,6 +24,13 @@ export interface ServiceActionRunMetadata {
   parentActionId: string | null;
   actor: string | null;
   params: Record<string, unknown>;
+  payload: ServiceActionRunPayloadMetadata;
+}
+
+export interface ServiceActionRunPayloadMetadata {
+  source: "none" | "inline" | "reference" | "mixed";
+  referenceId: string | null;
+  inline: Record<string, unknown>;
 }
 
 export interface ServiceActionRunState {
@@ -54,6 +61,8 @@ export interface ServiceActionRunRequest {
   parentActionId?: string;
   actor?: string;
   params?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  payloadRef?: string;
   confirm?: boolean;
 }
 
@@ -74,6 +83,10 @@ function getActionRunLogPaths(serviceRoot: string, actionId: string, runId: stri
 
 function getActionRunsStatePath(service: DiscoveredService): string {
   return path.join(getServiceStatePaths(service.serviceRoot).stateRoot, "action-runs.json");
+}
+
+function getActionPayloadReferencePath(service: DiscoveredService, payloadRef: string): string {
+  return path.join(getServiceStatePaths(service.serviceRoot).stateRoot, "action-payloads", `${payloadRef}.json`);
 }
 
 async function closeWriteStream(stream: WriteStream): Promise<void> {
@@ -155,6 +168,10 @@ export function parseServiceActionRunRequest(input: unknown): ServiceActionRunRe
     throw new ApiError("invalid_body", 400, "\"params\" must be a JSON object when present.");
   }
 
+  if (input.payload !== undefined && !isRecord(input.payload)) {
+    throw new ApiError("invalid_body", 400, "\"payload\" must be a JSON object when present.");
+  }
+
   if (input.confirm !== undefined && typeof input.confirm !== "boolean") {
     throw new ApiError("invalid_body", 400, "\"confirm\" must be a boolean when present.");
   }
@@ -167,11 +184,16 @@ export function parseServiceActionRunRequest(input: unknown): ServiceActionRunRe
     parentActionId: expectOptionalString(input, "parentActionId") ?? undefined,
     actor: expectOptionalString(input, "actor") ?? undefined,
     params: (input.params as Record<string, unknown> | undefined) ?? {},
+    payload: input.payload as Record<string, unknown> | undefined,
+    payloadRef: expectOptionalString(input, "payloadRef") ?? undefined,
     confirm: input.confirm,
   };
 }
 
-function buildRunMetadata(request: ServiceActionRunRequest): ServiceActionRunMetadata {
+function buildRunMetadata(
+  request: ServiceActionRunRequest,
+  payload: ServiceActionRunPayloadMetadata,
+): ServiceActionRunMetadata {
   return {
     source: request.source ?? "manual",
     workflowId: request.workflowId ?? null,
@@ -180,6 +202,7 @@ function buildRunMetadata(request: ServiceActionRunRequest): ServiceActionRunMet
     parentActionId: request.parentActionId ?? null,
     actor: request.actor ?? null,
     params: request.params ?? {},
+    payload,
   };
 }
 
@@ -250,6 +273,145 @@ function assertActionAllowed(service: DiscoveredService, actionId: string, actio
   if (action.requiredState === "stopped" && lifecycle.running) {
     throw new LifecycleStateError(`Cannot run action "${actionId}" for service "${service.manifest.id}" unless the service is stopped.`);
   }
+}
+
+function getJsonType(value: unknown): "string" | "number" | "integer" | "boolean" | "object" | "array" | "null" {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "number" && Number.isInteger(value)) return "integer";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "string") return "string";
+  return "object";
+}
+
+function matchesSchemaType(value: unknown, expected: ServiceActionPayloadSchema["type"]): boolean {
+  if (!expected) {
+    return true;
+  }
+
+  const allowed = Array.isArray(expected) ? expected : [expected];
+  const actual = getJsonType(value);
+  return allowed.some((type) => type === actual || (type === "number" && actual === "integer"));
+}
+
+function validatePayloadSchema(value: unknown, schema: ServiceActionPayloadSchema | undefined, field = "payload"): void {
+  if (!schema) {
+    return;
+  }
+
+  if (!matchesSchemaType(value, schema.type)) {
+    const allowed = Array.isArray(schema.type) ? schema.type.join(", ") : schema.type;
+    throw new ApiError("invalid_action_payload", 400, `"${field}" must match payload schema type ${allowed}.`);
+  }
+
+  const hasObjectRules = !!schema.properties || !!schema.required || schema.additionalProperties === false;
+  if (!hasObjectRules) {
+    return;
+  }
+
+  if (!isRecord(value)) {
+    throw new ApiError("invalid_action_payload", 400, `"${field}" must be an object.`);
+  }
+
+  for (const required of schema.required ?? []) {
+    if (value[required] === undefined) {
+      throw new ApiError("invalid_action_payload", 400, `"${field}.${required}" is required by the action payload schema.`);
+    }
+  }
+
+  for (const [property, propertySchema] of Object.entries(schema.properties ?? {})) {
+    if (value[property] !== undefined) {
+      validatePayloadSchema(value[property], propertySchema, `${field}.${property}`);
+    }
+  }
+
+  if (schema.additionalProperties === false) {
+    const allowedProperties = new Set(Object.keys(schema.properties ?? {}));
+    const extra = Object.keys(value).find((property) => !allowedProperties.has(property));
+    if (extra) {
+      throw new ApiError("invalid_action_payload", 400, `"${field}.${extra}" is not allowed by the action payload schema.`);
+    }
+  }
+}
+
+function pickInlinePayloadMetadata(
+  inlinePayload: Record<string, unknown> | undefined,
+  fields: string[] | undefined,
+): Record<string, unknown> {
+  if (!inlinePayload || !fields || fields.length === 0) {
+    return {};
+  }
+
+  return Object.fromEntries(fields.filter((field) => inlinePayload[field] !== undefined).map((field) => [field, inlinePayload[field]]));
+}
+
+async function readStoredActionPayload(service: DiscoveredService, payloadRef: string): Promise<Record<string, unknown>> {
+  if (!/^[A-Za-z0-9_.-]+$/.test(payloadRef)) {
+    throw new ApiError("invalid_action_payload_ref", 400, "\"payloadRef\" may only contain letters, numbers, dot, dash, and underscore.");
+  }
+
+  try {
+    const parsed = JSON.parse(await readFile(getActionPayloadReferencePath(service, payloadRef), "utf8")) as unknown;
+    if (!isRecord(parsed)) {
+      throw new ApiError("invalid_action_payload_ref", 400, `Stored action payload "${payloadRef}" must contain a JSON object.`);
+    }
+    return parsed;
+  } catch (error: unknown) {
+    if (isRecord(error) && error.code === "ENOENT") {
+      throw new ApiError("unknown_action_payload_ref", 404, `Stored action payload "${payloadRef}" was not found.`);
+    }
+    throw error;
+  }
+}
+
+async function resolveActionPayload(
+  service: DiscoveredService,
+  actionId: string,
+  action: ServiceActionDefinition,
+  request: ServiceActionRunRequest,
+): Promise<{ value: Record<string, unknown>; metadata: ServiceActionRunPayloadMetadata }> {
+  const inlinePayload = request.payload;
+  const payloadRef = request.payloadRef;
+  const hasInline = inlinePayload !== undefined;
+  const hasReference = payloadRef !== undefined;
+  const policy = action.payload;
+
+  if (!hasInline && !hasReference) {
+    if (policy?.required) {
+      throw new ApiError("action_payload_required", 400, `Action "${actionId}" requires a payload.`);
+    }
+    return { value: {}, metadata: { source: "none", referenceId: null, inline: {} } };
+  }
+
+  if (!policy) {
+    throw new ApiError("action_payload_not_allowed", 400, `Action "${actionId}" does not accept payloads.`);
+  }
+
+  if (hasInline && policy.inline !== true) {
+    throw new ApiError("inline_action_payload_not_allowed", 400, `Action "${actionId}" does not accept inline payload values.`);
+  }
+
+  if (hasReference && policy.references !== true) {
+    throw new ApiError("referenced_action_payload_not_allowed", 400, `Action "${actionId}" does not accept stored payload references.`);
+  }
+
+  if (hasInline && hasReference && policy.allowMixed !== true) {
+    throw new ApiError("mixed_action_payload_not_allowed", 400, `Action "${actionId}" does not allow mixed inline and referenced payload values.`);
+  }
+
+  const referencePayload = payloadRef ? await readStoredActionPayload(service, payloadRef) : {};
+  const resolvedPayload = { ...referencePayload, ...(inlinePayload ?? {}) };
+  validatePayloadSchema(resolvedPayload, policy.schema);
+
+  return {
+    value: resolvedPayload,
+    metadata: {
+      source: hasInline && hasReference ? "mixed" : hasInline ? "inline" : "reference",
+      referenceId: payloadRef ?? null,
+      inline: pickInlinePayloadMetadata(inlinePayload, policy.recordInlineFields),
+    },
+  };
 }
 
 function buildActionService(
@@ -362,6 +524,7 @@ function buildProcessEnvironment(
   executionPlan: ProviderExecutionPlan,
   action: ServiceActionDefinition,
   metadata: ServiceActionRunMetadata,
+  payloadValue: Record<string, unknown>,
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
 ): NodeJS.ProcessEnv {
@@ -385,6 +548,10 @@ function buildProcessEnvironment(
     SERVICE_LASSO_STEP_ID: metadata.stepId ?? "",
     SERVICE_LASSO_PARENT_ACTION_ID: metadata.parentActionId ?? "",
     SERVICE_LASSO_ACTION_PARAMS: JSON.stringify(metadata.params),
+    SERVICE_LASSO_ACTION_PAYLOAD: JSON.stringify(payloadValue),
+    SERVICE_LASSO_ACTION_PAYLOAD_REF: metadata.payload.referenceId ?? "",
+    SERVICE_LASSO_ACTION_PAYLOAD_SOURCE: metadata.payload.source,
+    SERVICE_LASSO_ACTION_INLINE_METADATA: JSON.stringify(metadata.payload.inline),
   };
 }
 
@@ -428,13 +595,14 @@ export async function runServiceAction(
   }
 
   assertActionAllowed(service, actionId, action, request);
+  const payload = await resolveActionPayload(service, actionId, action, request);
 
   const runKey = `${service.manifest.id}:${actionId}`;
   if (action.schedules && Object.values(action.schedules).some((schedule) => schedule.concurrencyPolicy === "skip-if-running") && activeRuns.has(runKey)) {
     throw new ApiError("action_already_running", 409, `Action "${actionId}" for service "${service.manifest.id}" is already running.`);
   }
 
-  const metadata = buildRunMetadata(request);
+  const metadata = buildRunMetadata(request, payload.metadata);
   const lifecycle = getLifecycleState(service.manifest.id);
   const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
@@ -454,7 +622,7 @@ export async function runServiceAction(
     const stderr = createWriteStream(logs.stderrPath, { flags: "w" });
     const child = spawn(executable, args, {
       cwd: resolveWorkingDirectory(service, action, executionPlan, executable, sharedGlobalEnv, resolvedPorts),
-      env: buildProcessEnvironment(service, actionId, executionPlan, action, metadata, sharedGlobalEnv, resolvedPorts),
+      env: buildProcessEnvironment(service, actionId, executionPlan, action, metadata, payload.value, sharedGlobalEnv, resolvedPorts),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
