@@ -113,35 +113,52 @@ async function runNodeScript(script, args = []) {
 
 test("demo smoke script validates the bounded demo instance end to end", async () => {
   const demoScript = path.resolve("scripts", "demo-smoke.mjs");
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-smoke-"));
+  const servicesRoot = path.join(tempRoot, "services");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const demoLogRoot = path.join(tempRoot, "logs");
 
-  const result = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [demoScript], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SERVICE_LASSO_PORT: "0",
-      },
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          demoScript,
+          `--services-root=${servicesRoot}`,
+          `--workspace-root=${workspaceRoot}`,
+          `--demo-log-root=${demoLogRoot}`,
+        ],
+        {
+          cwd: process.cwd(),
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            SERVICE_LASSO_PORT: "0",
+          },
+        },
+      );
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.once("error", reject);
+      child.once("close", (code) => resolve({ code, stdout, stderr }));
     });
 
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.once("error", reject);
-    child.once("close", (code) => resolve({ code, stdout, stderr }));
-  });
-
-  assert.equal(result.code, 0, `Expected demo smoke to pass.\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
-  assert.match(result.stdout, /\[service-lasso demo] smoke passed/);
-  assert.match(result.stdout, /@java, @localcert, @nginx, @traefik, @node, echo-service, @serviceadmin, node-sample-service/);
+    assert.equal(result.code, 0, `Expected demo smoke to pass.\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+    assert.match(result.stdout, /\[service-lasso demo] smoke passed/);
+    assert.match(result.stdout, /@java, @localcert, @nginx, @traefik, @node, echo-service, @serviceadmin, node-sample-service/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("demo reset seeds documented baseline manifests into a dedicated services root", async () => {
