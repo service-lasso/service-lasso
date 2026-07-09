@@ -4,6 +4,7 @@ import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
 import type { ServiceUpdateState } from "../runtime/updates/state.js";
 import type { ServiceRecoveryHistoryState } from "../runtime/recovery/history.js";
+import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -330,6 +331,20 @@ export interface RuntimeOrchestrationResponse {
   results: LifecycleActionResponse[];
   stopped?: LifecycleActionResponse[];
   skipped: RuntimeOrchestrationSkippedService[];
+}
+
+export interface ServiceActionRunResponse {
+  ok: boolean;
+  serviceId: string;
+  actionId: string;
+  run: ServiceActionRunState;
+  message: string;
+}
+
+export interface ServiceActionRunsResponse {
+  serviceId: string;
+  actionId?: string;
+  runs: ServiceActionRunState[];
 }
 
 export interface ServiceLogEntryResponse {

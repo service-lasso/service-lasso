@@ -4,6 +4,8 @@ import type {
   ServiceActionConcurrencyPolicy,
   ServiceActionFailurePolicy,
   ServiceActionMode,
+  ServiceActionPayloadJsonType,
+  ServiceActionPayloadSchema,
   ServiceActionRequiredState,
   ServiceActionWorkflowStep,
   ServiceManifest,
@@ -26,6 +28,7 @@ const actionModes = new Set(["built-in", "command", "workflow", "handler"]);
 const actionRequiredStates = new Set(["any", "running", "stopped"]);
 const actionConcurrencyPolicies = new Set(["skip-if-running", "allow-parallel"]);
 const actionFailurePolicies = new Set(["record", "retry", "disable-schedule"]);
+const actionPayloadJsonTypes = new Set(["string", "number", "integer", "boolean", "object", "array", "null"]);
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -376,6 +379,91 @@ function readJsonObject(value: unknown, field: string, manifestPath: string): Re
   return value as Record<string, unknown>;
 }
 
+function readActionPayloadSchema(
+  value: unknown,
+  field: string,
+  manifestPath: string,
+): ServiceActionPayloadSchema | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawType = record.type;
+  let type: ServiceActionPayloadJsonType | ServiceActionPayloadJsonType[] | undefined;
+
+  if (rawType !== undefined) {
+    const values = Array.isArray(rawType) ? rawType : [rawType];
+    if (values.some((entry) => typeof entry !== "string" || !actionPayloadJsonTypes.has(entry))) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${field}.type" to use JSON schema primitive type names.`,
+      );
+    }
+    type = Array.isArray(rawType)
+      ? values.map((entry) => entry as ServiceActionPayloadJsonType)
+      : (rawType as ServiceActionPayloadJsonType);
+  }
+
+  const required = readStringArray(record.required, `${field}.required`, manifestPath);
+  const rawProperties = record.properties;
+  let properties: Record<string, ServiceActionPayloadSchema> | undefined;
+
+  if (rawProperties !== undefined) {
+    if (!rawProperties || typeof rawProperties !== "object" || Array.isArray(rawProperties)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.properties" to be an object.`);
+    }
+
+    properties = Object.fromEntries(
+      Object.entries(rawProperties as Record<string, unknown>).map(([propertyName, propertySchema]) => {
+        const normalizedProperty = propertyName.trim();
+        const parsedSchema = readActionPayloadSchema(propertySchema, `${field}.properties.${normalizedProperty}`, manifestPath);
+        if (!parsedSchema) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "${field}.properties.${normalizedProperty}" to be an object.`,
+          );
+        }
+        return [normalizedProperty, parsedSchema];
+      }),
+    );
+  }
+
+  return {
+    type,
+    required,
+    properties,
+    additionalProperties: expectOptionalBoolean(record.additionalProperties, `${field}.additionalProperties`, manifestPath),
+  };
+}
+
+function readActionPayloadPolicy(
+  value: unknown,
+  actionField: string,
+  manifestPath: string,
+): NonNullable<ServiceManifest["actions"]>[string]["payload"] {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const field = `${actionField}.payload`;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    inline: expectOptionalBoolean(record.inline, `${field}.inline`, manifestPath),
+    references: expectOptionalBoolean(record.references, `${field}.references`, manifestPath),
+    allowMixed: expectOptionalBoolean(record.allowMixed, `${field}.allowMixed`, manifestPath),
+    required: expectOptionalBoolean(record.required, `${field}.required`, manifestPath),
+    schema: readActionPayloadSchema(record.schema, `${field}.schema`, manifestPath),
+    recordInlineFields: readStringArray(record.recordInlineFields, `${field}.recordInlineFields`, manifestPath),
+  };
+}
+
 function expectOptionalEnum<T extends string>(
   value: unknown,
   field: string,
@@ -581,6 +669,7 @@ function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest
           manualOnly: expectOptionalBoolean(action.manualOnly, `${actionField}.manualOnly`, manifestPath),
           permissions: readStringArray(action.permissions, `${actionField}.permissions`, manifestPath),
           steps: readActionWorkflowSteps(action.steps, actionField, manifestPath),
+          payload: readActionPayloadPolicy(action.payload, actionField, manifestPath),
           schedules: readActionSchedules(action.schedules, actionField, manifestPath),
         },
       ];

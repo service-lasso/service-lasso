@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://service-lasso.dev/schemas/service-action-inputs.schema.json",
+  "title": "Service Lasso service action payload policy",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "inline": {
+      "type": "boolean",
+      "description": "Allows POST action run bodies to include an inline payload object."
+    },
+    "references": {
+      "type": "boolean",
+      "description": "Allows POST action run bodies to include a stored payloadRef id."
+    },
+    "allowMixed": {
+      "type": "boolean",
+      "description": "Allows payload and payloadRef in the same run request."
+    },
+    "required": {
+      "type": "boolean",
+      "description": "Requires each run request to include payload or payloadRef."
+    },
+    "schema": {
+      "$ref": "#/$defs/payloadSchema"
+    },
+    "recordInlineFields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "jsonType": {
+      "enum": ["string", "number", "integer", "boolean", "object", "array", "null"]
+    },
+    "payloadSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/jsonType"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/jsonType"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          ]
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/payloadSchema"
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
