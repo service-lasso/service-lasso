@@ -130,6 +130,53 @@ export interface RuntimeSummaryResponse {
   };
 }
 
+export type AuditEventOutcome = "success" | "failure";
+
+export interface AuditEvent {
+  id: string;
+  timestamp: string;
+  source: string;
+  action: string;
+  actor: string;
+  subject?: string;
+  serviceId?: string;
+  method?: string;
+  routeTemplate?: string;
+  outcome: AuditEventOutcome;
+  statusCode: number;
+  summary: string;
+  reason: string | null;
+  correlationId: string;
+  relatedRevisionId: string | null;
+  chainId: string;
+  sequence: number;
+  previousHash: string | null;
+  eventHash: string;
+  chainStatus: "valid";
+}
+
+export interface AuditQuery {
+  serviceId?: string;
+  actor?: string;
+  action?: string;
+  outcome?: AuditEventOutcome;
+  source?: string;
+  since?: string;
+  until?: string;
+  query?: string;
+  limit?: string;
+  cursor?: string;
+}
+
+export interface AuditResponse {
+  events: AuditEvent[];
+  pagination: {
+    limit: number;
+    nextCursor: string | null;
+    total: number;
+  };
+}
+
 export interface ManagedWorkflowRegistryStep {
   id: string;
   type: "service-lasso-action";

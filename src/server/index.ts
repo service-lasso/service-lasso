@@ -44,6 +44,7 @@ import { buildDashboardService, buildDashboardSummary } from "../runtime/operato
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
@@ -69,6 +70,7 @@ import type {
   RuntimeOrchestrationResponse,
   ServiceActionRunResponse,
   ServiceActionRunsResponse,
+  AuditQuery,
   ServiceDetailResponse,
   ServicesMetaResponse,
   ServiceSummary,
@@ -213,6 +215,40 @@ function parseUpdateInstallBody(input: unknown): { force?: boolean } {
   return {
     force: typeof candidate.force === "boolean" ? candidate.force : undefined,
   };
+}
+
+function parseAuditQuery(searchParams: URLSearchParams): AuditQuery {
+  const query: AuditQuery = {};
+
+  for (const key of ["serviceId", "actor", "action", "source", "since", "until", "query", "limit", "cursor"] as const) {
+    const value = searchParams.get(key);
+    if (value !== null && value.trim()) {
+      query[key] = value.trim();
+    }
+  }
+
+  const outcome = searchParams.get("outcome");
+  if (outcome === "success" || outcome === "failure") {
+    query.outcome = outcome;
+  }
+
+  return query;
+}
+
+function getApiErrorStatusCode(error: unknown): number {
+  if (error && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number") {
+    return error.statusCode;
+  }
+
+  return 500;
+}
+
+function getAuditFailureReason(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+
+  return "Request failed.";
 }
 
 async function loadRuntimeModel(servicesRoot: string) {
@@ -513,6 +549,20 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/audit") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(
+      response,
+      200,
+      await readAuditEvents({
+        workspaceRoot: config.workspaceRoot,
+        serviceRoots: runtimeModel.registry.list().map((service) => service.serviceRoot),
+        query: parseAuditQuery(url.searchParams),
+      }),
+    );
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/setup") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, {
@@ -652,23 +702,92 @@ async function routeRequest(
     }
 
     if (request.method === "PUT" && pathParts.length === 4 && pathParts[3] === "config") {
-      writeJson(response, 200, await saveServiceConfigDocument(service, await readJsonBody(request)));
+      try {
+        const result = await saveServiceConfigDocument(service, await readJsonBody(request));
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.config.save",
+          actor: result.backup.actor,
+          subject: "server.json",
+          serviceId,
+          method: "PUT",
+          routeTemplate: "/api/services/:serviceId/config",
+          outcome: "success",
+          statusCode: 200,
+          summary: "Saved service config document.",
+          relatedRevisionId: result.backup.id,
+        });
+        writeJson(response, 200, result);
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.config.save",
+          actor: "unknown",
+          subject: "server.json",
+          serviceId,
+          method: "PUT",
+          routeTemplate: "/api/services/:serviceId/config",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to save service config document.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
     if (request.method === "PATCH" && pathParts.length === 4 && pathParts[3] === "meta") {
-      const patch = parseServiceMetaPatch(await readJsonBody(request));
-      const persisted = await writeServiceMeta(service.serviceRoot, patch);
+      try {
+        const patch = parseServiceMetaPatch(await readJsonBody(request));
+        const persisted = await writeServiceMeta(service.serviceRoot, patch);
 
-      writeJson(
-        response,
-        200,
-        createServiceMetaResponse(serviceId, {
-          id: serviceId,
-          favorite: persisted.favorite,
-          dependencyGraphPosition: persisted.dependencyGraphPosition,
-        }),
-      );
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.meta.update",
+          actor: "unknown",
+          subject: "service-meta",
+          serviceId,
+          method: "PATCH",
+          routeTemplate: "/api/services/:serviceId/meta",
+          outcome: "success",
+          statusCode: 200,
+          summary: [
+            patch.favorite !== undefined ? "favorite" : null,
+            "dependencyGraphPosition" in patch ? "dependencyGraphPosition" : null,
+          ]
+            .filter(Boolean)
+            .join(", "),
+        });
+        writeJson(
+          response,
+          200,
+          createServiceMetaResponse(serviceId, {
+            id: serviceId,
+            favorite: persisted.favorite,
+            dependencyGraphPosition: persisted.dependencyGraphPosition,
+          }),
+        );
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.meta.update",
+          actor: "unknown",
+          subject: "service-meta",
+          serviceId,
+          method: "PATCH",
+          routeTemplate: "/api/services/:serviceId/meta",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to update service metadata.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
@@ -809,7 +928,39 @@ async function routeRequest(
 
     if (request.method === "POST" && pathParts.length === 4) {
       const action = pathParts[3];
-      writeJson(response, 200, await executeLifecycleAction(action, service, runtimeModel.registry));
+      try {
+        const result = await executeLifecycleAction(action, service, runtimeModel.registry);
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: `service.lifecycle.${action}`,
+          actor: "unknown",
+          subject: "service-lifecycle",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/:action",
+          outcome: result.ok ? "success" : "failure",
+          statusCode: 200,
+          summary: result.message,
+        });
+        writeJson(response, 200, result);
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: `service.lifecycle.${action}`,
+          actor: "unknown",
+          subject: "service-lifecycle",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/:action",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to run service lifecycle action.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
   }
@@ -849,7 +1000,37 @@ async function routeRequest(
     }
 
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    writeJson(response, 200, await executeRuntimeOrchestrationAction(action, runtimeModel));
+    try {
+      const result = await executeRuntimeOrchestrationAction(action, runtimeModel);
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: `runtime.${action}`,
+        actor: "unknown",
+        subject: "runtime",
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/:action",
+        outcome: result.ok ? "success" : "failure",
+        statusCode: 200,
+        summary: `Runtime action ${action} completed for ${result.results.length} service result(s).`,
+      });
+      writeJson(response, 200, result);
+    } catch (error) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: `runtime.${action}`,
+        actor: "unknown",
+        subject: "runtime",
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/:action",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        summary: `Runtime action ${action} failed.`,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
