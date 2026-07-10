@@ -647,7 +647,7 @@ async function routeRequest(
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "config") {
-      writeJson(response, 200, await createServiceConfigDocumentResponse(service));
+      writeJson(response, 200, await createServiceConfigDocumentResponse(service, config.workspaceRoot));
       return;
     }
 
