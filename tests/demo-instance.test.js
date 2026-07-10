@@ -653,7 +653,7 @@ test("demo verify canonical exits non-zero when Service Admin returns HTML for t
   }
 });
 
-test("demo verify canonical exits non-zero when canonical service state does not match source Admin mode", async () => {
+test("demo verify canonical accepts managed Service Admin ownership of port 17700", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-verify-service-state-"));
   const runtime = await startFixtureServer((request, response) => {
     if (request.url === "/api/health") {
@@ -693,19 +693,15 @@ test("demo verify canonical exits non-zero when canonical service state does not
       "--json",
     ]);
 
-    assert.equal(result.code, 1);
+    assert.equal(result.code, 0);
     const status = JSON.parse(result.stdout);
 
-    assert.equal(status.ok, false);
-    assert.equal(status.classification, "canonical_service_state_mismatch");
-    assert.equal(status.endpoints.serviceAdmin.serviceState.ok, false);
-    assert.equal(status.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
-    assert.deepEqual(
-      status.endpoints.serviceAdmin.serviceState.mismatches
-        .filter((mismatch) => mismatch.id === "@serviceadmin")
-        .map((mismatch) => mismatch.field),
-      ["installed", "configured", "running", "healthy"],
-    );
+    assert.equal(status.ok, true);
+    assert.equal(status.classification, "healthy");
+    assert.equal(status.endpoints.serviceAdmin.serviceState.ok, true);
+    assert.equal(status.endpoints.serviceAdmin.serviceState.mode, "managed_serviceadmin_on_17700");
+    assert.equal(status.endpoints.serviceAdmin.serviceState.acceptedWarningReason, null);
+    assert.deepEqual(status.endpoints.serviceAdmin.serviceState.mismatches, []);
   } finally {
     await admin.close();
     await runtime.close();
