@@ -233,6 +233,30 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
     return null;
   }
 
+  const actualById = new Map(serviceAdminServicesProbe.body.services.map((service) => [service.id, toServiceState(service)]));
+  const actualServiceAdmin = actualById.get("@serviceadmin");
+  const managedServiceAdmin =
+    actualServiceAdmin?.installed === true
+    && actualServiceAdmin?.configured === true
+    && actualServiceAdmin?.running === true
+    && actualServiceAdmin?.healthy === true;
+  const serviceAdminExpected = managedServiceAdmin
+    ? {
+        id: "@serviceadmin",
+        installed: true,
+        configured: true,
+        running: true,
+        healthy: true,
+        expectedMode: "managed_serviceadmin_owns_17700",
+      }
+    : {
+        id: "@serviceadmin",
+        installed: false,
+        configured: false,
+        running: false,
+        healthy: false,
+        expectedMode: "source_admin_owns_17700",
+      };
   const expected = [
     { id: "@java", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
     { id: "@localcert", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
@@ -240,14 +264,7 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
     { id: "@traefik", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
     { id: "@node", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
     { id: "echo-service", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
-    {
-      id: "@serviceadmin",
-      installed: false,
-      configured: false,
-      running: false,
-      healthy: false,
-      expectedMode: "source_admin_owns_17700",
-    },
+    serviceAdminExpected,
     {
       id: "node-sample-service",
       installed: false,
@@ -257,7 +274,6 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
       expectedMode: "manifest_only_sample",
     },
   ];
-  const actualById = new Map(serviceAdminServicesProbe.body.services.map((service) => [service.id, toServiceState(service)]));
   const actual = expected
     .map(({ id, expectedMode }) => {
       const state = actualById.get(id);
@@ -281,8 +297,10 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
 
   return {
     ok: mismatches.length === 0,
-    mode: "source_admin_on_17700",
-    acceptedWarningReason: "Source Service Admin owns port 17700; the managed @serviceadmin manifest is intentionally present but not installed or started.",
+    mode: managedServiceAdmin ? "managed_serviceadmin_on_17700" : "source_admin_on_17700",
+    acceptedWarningReason: managedServiceAdmin
+      ? null
+      : "Source Service Admin owns port 17700; the managed @serviceadmin manifest is intentionally present but not installed or started.",
     expected,
     actual,
     mismatches,
