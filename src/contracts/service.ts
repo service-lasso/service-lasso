@@ -195,6 +195,55 @@ export interface ServiceArchiveArtifact {
 
 export type ServiceRole = "service" | "provider";
 
+export type ServiceBrokerBucketKind = "service" | "app" | "shared" | "global";
+
+export interface ServiceBrokerBucket {
+  namespace: string;
+  kind?: ServiceBrokerBucketKind;
+  description?: string;
+}
+
+export interface ServiceBrokerImport {
+  namespace: string;
+  ref: string;
+  as?: string;
+  required?: boolean;
+}
+
+export type ServiceBrokerWritebackOperation = "create" | "update" | "rotate" | "delete";
+
+export interface ServiceBrokerWritebackCapture {
+  ref: string;
+  source: string;
+  operation?: ServiceBrokerWritebackOperation;
+  required?: boolean;
+}
+
+export interface ServiceBrokerExport {
+  namespace: string;
+  ref: string;
+  source: string;
+  required?: boolean;
+}
+
+export interface ServiceBrokerWritebackPolicy {
+  allowedNamespaces?: string[];
+  allowedOperations?: ServiceBrokerWritebackOperation[];
+  allowedRefs?: string[];
+  allowOverwrite?: boolean;
+  auditReason?: string;
+  generatedSecrets?: ServiceBrokerWritebackCapture[];
+}
+
+export interface ServiceBrokerPolicy {
+  enabled?: boolean;
+  namespace?: string;
+  buckets?: ServiceBrokerBucket[];
+  imports?: ServiceBrokerImport[];
+  exports?: ServiceBrokerExport[];
+  writeback?: ServiceBrokerWritebackPolicy;
+}
+
 export interface ServiceManifest {
   id: string;
   name: string;
@@ -207,6 +256,7 @@ export interface ServiceManifest {
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
+  broker?: ServiceBrokerPolicy;
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceEndpoint[];

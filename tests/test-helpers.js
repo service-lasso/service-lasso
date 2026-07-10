@@ -76,6 +76,7 @@ export async function writeExecutableFixtureService(
     config = undefined,
     setup = undefined,
     role = undefined,
+    broker = undefined,
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -186,6 +187,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         : {}),
     },
     globalenv,
+    broker,
     autostart,
     monitoring,
     restartPolicy,

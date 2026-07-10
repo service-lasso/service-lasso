@@ -4,7 +4,7 @@ import { startManagedProcess, stopManagedProcess } from "../execution/supervisor
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
-import { collectRuntimeGlobalEnv } from "../operator/variables.js";
+import { collectRuntimeGlobalEnv, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
@@ -16,6 +16,10 @@ import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "./types.js";
+
+export interface StartServiceOptions {
+  variableResolution?: ServiceVariableResolutionOptions;
+}
 
 function calculateRunDurationMs(startedAt: string | null, finishedAt: string): number | null {
   if (!startedAt) {
@@ -203,6 +207,7 @@ export async function configService(
 export async function startService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
+  options: StartServiceOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
@@ -268,6 +273,7 @@ export async function startService(
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
+    variableResolution: options.variableResolution,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;

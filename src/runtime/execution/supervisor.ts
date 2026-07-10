@@ -4,7 +4,7 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { resolveExecutionArgs } from "./commandline.js";
-import { buildServiceVariables } from "../operator/variables.js";
+import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { archiveRuntimeLogs, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 
@@ -40,6 +40,7 @@ interface StartProcessOptions {
   executionPlan: ProviderExecutionPlan;
   sharedGlobalEnv?: Record<string, string>;
   resolvedPorts?: Record<string, number>;
+  variableResolution?: ServiceVariableResolutionOptions;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
@@ -163,9 +164,13 @@ function buildProcessEnvironment(
   executionPlan: ProviderExecutionPlan,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
+  variableResolution: ServiceVariableResolutionOptions = {},
 ): NodeJS.ProcessEnv {
   const serviceVariables = Object.fromEntries(
-    buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
+    buildServiceVariables(service, sharedGlobalEnv, resolvedPorts, variableResolution).variables.map((entry) => [
+      entry.key,
+      entry.value,
+    ]),
   );
 
   return {
@@ -180,7 +185,7 @@ export function hasManagedProcess(serviceId: string): boolean {
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
-  const { service, executionPlan, sharedGlobalEnv, resolvedPorts, onExit } = options;
+  const { service, executionPlan, sharedGlobalEnv, resolvedPorts, variableResolution, onExit } = options;
   const serviceId = service.manifest.id;
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
@@ -201,7 +206,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const child = spawn(executable, args, {
     cwd: workingDirectory,
-    env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts),
+    env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts, variableResolution),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
