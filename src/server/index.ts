@@ -877,41 +877,203 @@ async function routeRequest(
 
     if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "actions" && pathParts[5] === "runs") {
       const actionId = decodeURIComponent(pathParts[4] ?? "");
-      const payload: ServiceActionRunResponse = await runServiceAction(
-        service,
-        runtimeModel.registry,
-        actionId,
-        parseServiceActionRunRequest(await readJsonBody(request)),
-      );
-      writeJson(response, 200, payload);
+      try {
+        const payload: ServiceActionRunResponse = await runServiceAction(
+          service,
+          runtimeModel.registry,
+          actionId,
+          parseServiceActionRunRequest(await readJsonBody(request)),
+        );
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.action.run",
+          actor: "unknown",
+          subject: actionId,
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/actions/:actionId/runs",
+          outcome: payload.ok ? "success" : "failure",
+          statusCode: 200,
+          summary: `Service action ${actionId} completed from ${payload.run.metadata.source}.`,
+          relatedRevisionId: payload.run.runId,
+        });
+        writeJson(response, 200, payload);
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.action.run",
+          actor: "unknown",
+          subject: actionId,
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/actions/:actionId/runs",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: `Failed to run service action ${actionId}.`,
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
     if (request.method === "POST" && pathParts.length >= 5 && pathParts[3] === "setup" && pathParts[4] === "run") {
       const stepId = pathParts.length === 6 ? decodeURIComponent(pathParts[5] ?? "") : undefined;
-      const result = await runServiceSetup(service, runtimeModel.registry, { stepId, includeManual: stepId !== undefined });
-      await writeServiceState(service, result.state);
-      writeJson(response, 200, result);
+      try {
+        const result = await runServiceSetup(service, runtimeModel.registry, { stepId, includeManual: stepId !== undefined });
+        await writeServiceState(service, result.state);
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.setup.run",
+          actor: "unknown",
+          subject: stepId ?? "all",
+          serviceId,
+          method: "POST",
+          routeTemplate: stepId ? "/api/services/:serviceId/setup/run/:stepId" : "/api/services/:serviceId/setup/run",
+          outcome: result.ok ? "success" : "failure",
+          statusCode: 200,
+          summary: `Setup run completed for ${result.runs.length} step(s), ${result.skipped.length} skipped.`,
+          relatedRevisionId: result.runs[0]?.runId ?? null,
+        });
+        writeJson(response, 200, result);
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.setup.run",
+          actor: "unknown",
+          subject: stepId ?? "all",
+          serviceId,
+          method: "POST",
+          routeTemplate: stepId ? "/api/services/:serviceId/setup/run/:stepId" : "/api/services/:serviceId/setup/run",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to run service setup.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "recovery" && pathParts[4] === "doctor") {
-      writeJson(response, 200, {
-        serviceId,
-        doctor: await runAndRecordDoctorPreflight(service),
-        recovery: await readServiceRecoveryHistory(service),
-      });
+      try {
+        const doctor = await runAndRecordDoctorPreflight(service);
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.recovery.doctor",
+          actor: "unknown",
+          subject: "doctor",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/recovery/doctor",
+          outcome: doctor.ok ? "success" : "failure",
+          statusCode: 200,
+          summary: `Recovery doctor completed with ${doctor.steps.length} step(s).`,
+        });
+        writeJson(response, 200, {
+          serviceId,
+          doctor,
+          recovery: await readServiceRecoveryHistory(service),
+        });
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.recovery.doctor",
+          actor: "unknown",
+          subject: "doctor",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/recovery/doctor",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to run recovery doctor.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "download") {
-      writeJson(response, 200, await downloadServiceUpdateCandidate(service));
+      try {
+        const result = await downloadServiceUpdateCandidate(service);
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.update.download",
+          actor: "unknown",
+          subject: "update-candidate",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/update/download",
+          outcome: "success",
+          statusCode: 200,
+          summary: `Downloaded update candidate with status ${result.result.status}.`,
+          relatedRevisionId: result.update.available?.tag ?? null,
+        });
+        writeJson(response, 200, result);
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.update.download",
+          actor: "unknown",
+          subject: "update-candidate",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/update/download",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to download update candidate.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "install") {
-      const body = parseUpdateInstallBody(await readJsonBody(request));
-      writeJson(response, 200, await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry }));
+      try {
+        const body = parseUpdateInstallBody(await readJsonBody(request));
+        const result = await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry });
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.update.install",
+          actor: "unknown",
+          subject: "update-candidate",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/update/install",
+          outcome: "success",
+          statusCode: 200,
+          summary: `Installed update candidate with force=${result.forced}.`,
+          relatedRevisionId: result.state.installArtifacts.artifact?.tag ?? null,
+        });
+        writeJson(response, 200, result);
+      } catch (error) {
+        await appendAuditEvent({
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.update.install",
+          actor: "unknown",
+          subject: "update-candidate",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/update/install",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          summary: "Failed to install update candidate.",
+          reason: getAuditFailureReason(error),
+        });
+        throw error;
+      }
       return;
     }
 
