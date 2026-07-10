@@ -1,0 +1,265 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import path from "node:path";
+import { readFile, rm } from "node:fs/promises";
+import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
+import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
+import { installService, configService, startService, stopService } from "../dist/runtime/lifecycle/actions.js";
+import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { buildServiceVariables, resolveServiceText } from "../dist/runtime/operator/variables.js";
+import { compileServiceStartupBrokerPlan } from "../dist/runtime/broker/launch-resolution.js";
+import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+
+async function waitFor(predicate, timeoutMs = 1_500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
+}
+
+async function prepareRegistry(servicesRoot) {
+  const discovered = await discoverServices(servicesRoot);
+  const registry = createServiceRegistry(discovered);
+  return { discovered, registry };
+}
+
+test("startup broker plan includes generated writeback metadata without raw values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-broker-generated-plan-");
+  const rawSeed = "raw-session-seed-must-not-leak";
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "generated-broker-secret", {
+      env: {
+        SESSION_SEED: rawSeed,
+      },
+      broker: {
+        enabled: true,
+        namespace: "services/generated-broker-secret",
+        buckets: [
+          { namespace: "services/generated-broker-secret", kind: "service" },
+        ],
+        accessPolicy: {
+          serviceId: "generated-broker-secret",
+          workspace: "test",
+          grants: [
+            {
+              namespace: "services/generated-broker-secret",
+              scope: "service",
+              refs: ["sample.SESSION_SECRET"],
+              operations: ["create"],
+              purpose: "create generated session secret metadata",
+            },
+          ],
+        },
+        writeback: {
+          allowedNamespaces: ["services/generated-broker-secret"],
+          allowedOperations: ["create"],
+          allowedRefs: ["sample.SESSION_SECRET"],
+          allowOverwrite: false,
+          auditReason: "test generated secret provisioning",
+          generatedSecrets: [
+            {
+              ref: "sample.SESSION_SECRET",
+              source: "${SESSION_SEED}",
+              operation: "create",
+              required: true,
+            },
+          ],
+        },
+        exports: [
+          {
+            namespace: "services/generated-broker-secret",
+            ref: "sample.SESSION_SECRET",
+            source: "${SESSION_SEED}",
+            required: true,
+          },
+        ],
+      },
+    });
+    const { registry } = await prepareRegistry(servicesRoot);
+    const service = registry.getById("generated-broker-secret");
+    assert.ok(service);
+
+    const plan = compileServiceStartupBrokerPlan(service);
+    assert.deepEqual(plan.buckets, [
+      { namespace: "services/generated-broker-secret", kind: "service" },
+    ]);
+    assert.deepEqual(plan.writeback.allowedNamespaces, ["services/generated-broker-secret"]);
+    assert.deepEqual(plan.writeback.allowedOperations, ["create"]);
+    assert.deepEqual(plan.writeback.allowedRefs, ["sample.SESSION_SECRET"]);
+    assert.equal(plan.writeback.allowOverwrite, false);
+    assert.equal(plan.writeback.auditReason, "test generated secret provisioning");
+    assert.deepEqual(plan.writeback.generatedSecrets, [
+      {
+        namespace: "services/generated-broker-secret",
+        ref: "sample.SESSION_SECRET",
+        operation: "create",
+        required: true,
+        sourceRefs: ["SESSION_SEED"],
+        valuePolicy: {
+          kind: "session-secret",
+          bytes: 32,
+          encoding: "base64url",
+          minEntropyBits: 256,
+        },
+        overwrite: "deny",
+        auditReason: "test generated secret provisioning",
+      },
+    ]);
+    assert.equal(JSON.stringify(plan).includes(rawSeed), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("ordinary service consumes Secrets Broker imports through resolved env without logging raw values", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-broker-env-e2e-");
+  const rawSecret = "ordinary-service-db-password";
+
+  try {
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "ordinary-broker-env-consumer", {
+      readyFileAfterMs: 10,
+      captureEnvKeys: ["DB_PASSWORD", "API_TOKEN", "BROKER_BACKED_URL"],
+      stdoutLines: ["ordinary broker env consumer started"],
+      stderrLines: ["ordinary broker env consumer diagnostics are scrubbed"],
+      env: {
+        DB_PASSWORD: "${database.PASSWORD}",
+        API_TOKEN: "${services.API_TOKEN}",
+        BROKER_BACKED_URL: "postgres://service:${database.PASSWORD}@localhost/app",
+      },
+      broker: {
+        enabled: true,
+        namespace: "services/ordinary-broker-env-consumer",
+        buckets: [
+          { namespace: "services/ordinary-broker-env-consumer", kind: "service" },
+          { namespace: "shared/database", kind: "shared" },
+        ],
+        imports: [
+          { namespace: "shared/database", ref: "database.PASSWORD", as: "DB_PASSWORD", required: true },
+          { namespace: "services/ordinary-broker-env-consumer", ref: "services.API_TOKEN", as: "API_TOKEN", required: true },
+        ],
+      },
+    });
+    const { registry } = await prepareRegistry(servicesRoot);
+    const service = registry.getById("ordinary-broker-env-consumer");
+    assert.ok(service);
+
+    await installService(service, registry);
+    await configService(service, registry);
+    const started = await startService(service, registry, {
+      variableResolution: {
+        brokerValues: {
+          "database.PASSWORD": rawSecret,
+          "services.API_TOKEN": "ordinary-service-api-token",
+        },
+      },
+    });
+
+    try {
+      const snapshotPath = path.join(serviceRoot, "runtime", "env.json");
+      await waitFor(async () => {
+        try {
+          await readFile(snapshotPath, "utf8");
+          return true;
+        } catch {
+          return false;
+        }
+      });
+
+      const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+      assert.equal(snapshot.DB_PASSWORD, rawSecret);
+      assert.equal(snapshot.API_TOKEN, "ordinary-service-api-token");
+      assert.equal(snapshot.BROKER_BACKED_URL, `postgres://service:${rawSecret}@localhost/app`);
+    } finally {
+      await stopService(service);
+    }
+
+    const stdout = await readFile(started.state.runtime.logs.stdoutPath, "utf8");
+    const stderr = await readFile(started.state.runtime.logs.stderrPath, "utf8");
+    const combined = await readFile(started.state.runtime.logs.logPath, "utf8");
+    assert.equal(stdout.includes(rawSecret), false);
+    assert.equal(stderr.includes(rawSecret), false);
+    assert.equal(combined.includes(rawSecret), false);
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI-style broker resolution fixture reports missing denied and source-auth refs without leaking values", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-broker-cli-fixture-");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "ordinary-broker-cli-consumer", {
+      env: {
+        CLI_TOKEN: "${cli.TOKEN}",
+        LOCAL_ONLY: "local-value",
+        MISSING_REF: "${cli.MISSING}",
+        DENIED_REF: "${cli.DENIED}",
+        SOURCE_REF: "${source.NEEDS_AUTH}",
+      },
+      broker: {
+        enabled: true,
+        namespace: "services/ordinary-broker-cli-consumer",
+        imports: [
+          { namespace: "services/ordinary-broker-cli-consumer", ref: "cli.TOKEN", as: "CLI_TOKEN", required: true },
+          { namespace: "services/ordinary-broker-cli-consumer", ref: "cli.MISSING", as: "MISSING_REF" },
+          { namespace: "services/ordinary-broker-cli-consumer", ref: "cli.DENIED", as: "DENIED_REF" },
+          { namespace: "external/source", ref: "source.NEEDS_AUTH", as: "SOURCE_REF" },
+        ],
+      },
+    });
+    const { registry } = await prepareRegistry(servicesRoot);
+    const service = registry.getById("ordinary-broker-cli-consumer");
+    assert.ok(service);
+
+    const diagnostics = [];
+    const resolved = resolveServiceText(
+      "secretsbroker-resolve cli.TOKEN -> ${cli.TOKEN}; local=${LOCAL_ONLY}; denied=${cli.DENIED}; source=${source.NEEDS_AUTH}",
+      service,
+      {},
+      {},
+      {
+        brokerValues: {
+          "cli.TOKEN": "cli-token-value",
+          "cli.DENIED": "must-not-leak-denied",
+          "source.NEEDS_AUTH": "must-not-leak-source",
+        },
+        deniedBrokerRefs: ["cli.DENIED"],
+        sourceAuthRequiredBrokerRefs: ["source.NEEDS_AUTH"],
+        diagnostics,
+      },
+    );
+
+    assert.equal(resolved, "secretsbroker-resolve cli.TOKEN -> cli-token-value; local=local-value; denied=${cli.DENIED}; source=${source.NEEDS_AUTH}");
+    assert.equal(resolved.includes("must-not-leak-denied"), false);
+    assert.equal(resolved.includes("must-not-leak-source"), false);
+    assert.deepEqual(diagnostics, [
+      { selector: "cli.DENIED", kind: "broker", reason: "denied-broker" },
+      { selector: "source.NEEDS_AUTH", kind: "broker", reason: "source-auth-required" },
+    ]);
+
+    const payload = buildServiceVariables(service, {}, {}, {
+      brokerValues: { "cli.TOKEN": "cli-token-value", "cli.DENIED": "must-not-leak-denied" },
+      deniedBrokerRefs: ["cli.DENIED"],
+      sourceAuthRequiredBrokerRefs: ["source.NEEDS_AUTH"],
+    });
+    const serialized = JSON.stringify(payload);
+    assert.equal(serialized.includes("must-not-leak-denied"), false);
+    assert.equal(serialized.includes("must-not-leak-source"), false);
+    assert.deepEqual(payload.diagnostics.map((entry) => entry.reason), [
+      "missing-broker",
+      "denied-broker",
+      "source-auth-required",
+    ]);
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});

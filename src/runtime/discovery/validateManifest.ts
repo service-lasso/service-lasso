@@ -162,6 +162,18 @@ function readStringMap(value: unknown, field: string, manifestPath: string): Rec
   return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
 }
 
+function readBrokerPolicy(value: unknown, manifestPath: string): ServiceManifest["broker"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "broker" to be an object.`);
+  }
+
+  return value as ServiceManifest["broker"];
+}
+
 function readHookSteps(value: unknown, field: string, manifestPath: string): ServiceHookStep[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -1096,6 +1108,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const actions = readActionPolicy(record.actions, manifestPath);
   const setup = readSetupPolicy(record.setup, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
+  const broker = readBrokerPolicy(record.broker, manifestPath);
 
   return {
     id: expectNonEmptyString(record.id, "id", manifestPath),
@@ -1111,6 +1124,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     globalenv: rawGlobalEnv
       ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
       : undefined,
+    broker,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,
