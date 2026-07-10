@@ -6,15 +6,21 @@ import { getServiceStatePaths } from "../../runtime/state/paths.js";
 import { ApiError } from "../errors.js";
 import type { ServiceConfigDocumentResponse, ServiceConfigSaveResponse } from "../../contracts/api.js";
 
-interface ServiceConfigRevisionFile {
+interface ServiceConfigRevisionMetadata {
   id: string;
   createdAt: string;
   actor: string;
   reason: string | null;
   path: string;
+  serviceId?: string;
+  relativeConfigPath?: string;
   previousHash: string;
   currentHash: string;
   validationStatus: "valid";
+  runtimeVersion?: string | null;
+}
+
+interface ServiceConfigRevisionFile extends ServiceConfigRevisionMetadata {
   content: string;
 }
 
@@ -24,14 +30,17 @@ interface ServiceConfigSaveBody {
   reason: string | null;
 }
 
-const serviceConfigBackupDirName = "service-config";
+const serviceConfigBackupDirName = "config";
+const legacyServiceConfigBackupDirName = "service-config";
+const legacyWorkspaceConfigBackupDirName = "service-config-backups";
 
 function hashContent(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-function toRevisionId(createdAt: string): string {
-  return createdAt.replaceAll(/[^0-9A-Za-z]+/g, "-").replaceAll(/^-|-$/g, "");
+function toRevisionId(createdAt: string, previousHash: string): string {
+  const timestamp = createdAt.replaceAll(/[^0-9A-Za-z]+/g, "-").replaceAll(/^-|-$/g, "");
+  return `${timestamp}-${previousHash.slice(0, 12)}`;
 }
 
 function parseServiceConfigSaveBody(input: unknown): ServiceConfigSaveBody {
@@ -86,10 +95,39 @@ async function getConfigBackupDir(service: DiscoveredService): Promise<string> {
   return backupDir;
 }
 
-async function readRevisions(service: DiscoveredService): Promise<ServiceConfigRevisionFile[]> {
+function getLegacyServiceConfigBackupDir(service: DiscoveredService): string {
+  const paths = getServiceStatePaths(service.serviceRoot);
+  return path.join(paths.backups, legacyServiceConfigBackupDirName);
+}
+
+function getLegacyWorkspaceConfigBackupDir(workspaceRoot: string, service: DiscoveredService): string {
+  return path.join(workspaceRoot, legacyWorkspaceConfigBackupDirName, service.manifest.id);
+}
+
+async function readPortableRevisions(service: DiscoveredService): Promise<ServiceConfigRevisionFile[]> {
   const backupDir = await getConfigBackupDir(service);
   const entries = await readdir(backupDir, { withFileTypes: true }).catch(() => []);
-  const revisions = await Promise.all(
+  const metadataEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".metadata.json"));
+
+  return Promise.all(
+    metadataEntries.map(async (entry) => {
+      const metadataPath = path.join(backupDir, entry.name);
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as ServiceConfigRevisionMetadata;
+      const contentFileName = entry.name.replace(/\.metadata\.json$/u, ".server.json");
+      const content = await readFile(path.join(backupDir, contentFileName), "utf8");
+
+      return {
+        ...metadata,
+        content,
+      };
+    }),
+  );
+}
+
+async function readLegacyRevisionFiles(backupDir: string): Promise<ServiceConfigRevisionFile[]> {
+  const entries = await readdir(backupDir, { withFileTypes: true }).catch(() => []);
+
+  return Promise.all(
     entries
       .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
       .map(async (entry) => {
@@ -98,16 +136,32 @@ async function readRevisions(service: DiscoveredService): Promise<ServiceConfigR
         return parsed;
       }),
   );
+}
 
-  return revisions.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+async function readRevisions(service: DiscoveredService, workspaceRoot: string): Promise<ServiceConfigRevisionFile[]> {
+  const revisions = [
+    ...(await readPortableRevisions(service)),
+    ...(await readLegacyRevisionFiles(getLegacyServiceConfigBackupDir(service))),
+    ...(await readLegacyRevisionFiles(getLegacyWorkspaceConfigBackupDir(workspaceRoot, service))),
+  ];
+  const uniqueRevisions = new Map<string, ServiceConfigRevisionFile>();
+
+  for (const revision of revisions) {
+    if (!uniqueRevisions.has(revision.id)) {
+      uniqueRevisions.set(revision.id, revision);
+    }
+  }
+
+  return [...uniqueRevisions.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export async function createServiceConfigDocumentResponse(
   service: DiscoveredService,
+  workspaceRoot: string,
 ): Promise<ServiceConfigDocumentResponse> {
   const content = await readFile(service.manifestPath, "utf8");
   const manifestStats = await stat(service.manifestPath);
-  const revisions = await readRevisions(service);
+  const revisions = await readRevisions(service, workspaceRoot);
 
   return {
     serviceId: service.manifest.id,
@@ -137,19 +191,27 @@ export async function saveServiceConfigDocument(
   const nextHash = hashContent(body.content);
   const createdAt = new Date().toISOString();
   const backupDir = await getConfigBackupDir(service);
-  const backup: ServiceConfigRevisionFile = {
-    id: toRevisionId(createdAt),
+  const revisionId = toRevisionId(createdAt, previousHash);
+  const metadata: ServiceConfigRevisionMetadata = {
+    id: revisionId,
     createdAt,
     actor: body.actor,
     reason: body.reason,
-    path: service.manifestPath,
+    path: path.relative(service.serviceRoot, service.manifestPath).split(path.sep).join("/"),
+    serviceId: service.manifest.id,
+    relativeConfigPath: path.relative(service.serviceRoot, service.manifestPath).split(path.sep).join("/"),
     previousHash,
     currentHash: nextHash,
     validationStatus: "valid",
+    runtimeVersion: null,
+  };
+  const backup: ServiceConfigRevisionFile = {
+    ...metadata,
     content: previousContent,
   };
 
-  await writeFile(path.join(backupDir, `${backup.id}.json`), JSON.stringify(backup, null, 2));
+  await writeFile(path.join(backupDir, `${revisionId}.server.json`), previousContent);
+  await writeFile(path.join(backupDir, `${revisionId}.metadata.json`), JSON.stringify(metadata, null, 2));
   await writeFile(service.manifestPath, body.content.endsWith("\n") ? body.content : `${body.content}\n`);
 
   return {
