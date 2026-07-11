@@ -921,6 +921,17 @@ export interface ServiceLogSourceResponse {
   archiveId?: string;
   path: string;
   available: boolean;
+  id?: string;
+  label?: string;
+  origin?: "builtin" | "declared" | "discovered";
+  type?: "stream" | "file" | "glob";
+  relativePath?: string;
+  pattern?: string;
+  format?: "text" | "json" | "ndjson";
+  status?: "available" | "missing" | "unavailable";
+  lastSeenAt?: string | null;
+  sizeBytes?: number | null;
+  tail?: boolean;
 }
 
 export interface RuntimeLogShippingPreviewResponse {

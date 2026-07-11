@@ -6,6 +6,18 @@ export interface ServiceEndpoint {
   kind?: string;
 }
 
+export type ServiceLogSourceType = "file" | "glob";
+export type ServiceLogSourceFormat = "text" | "json" | "ndjson";
+
+export interface ServiceLogSourceDeclaration {
+  id: string;
+  label: string;
+  type: ServiceLogSourceType;
+  path?: string;
+  pattern?: string;
+  format?: ServiceLogSourceFormat;
+}
+
 export interface ServicePortDeclaration {
   [name: string]: number;
 }
@@ -229,6 +241,7 @@ export interface ServiceManifest {
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceEndpoint[];
+  logSources?: ServiceLogSourceDeclaration[];
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { access, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
 
@@ -102,6 +102,17 @@ export interface ServiceLogSourceInfo {
   archiveId?: string;
   path: string;
   available: boolean;
+  id?: string;
+  label?: string;
+  origin?: "builtin" | "declared" | "discovered";
+  type?: "stream" | "file" | "glob";
+  relativePath?: string;
+  pattern?: string;
+  format?: "text" | "json" | "ndjson";
+  status?: "available" | "missing" | "unavailable";
+  lastSeenAt?: string | null;
+  sizeBytes?: number | null;
+  tail?: boolean;
 }
 
 export const SERVICE_RUNTIME_LOG_ARCHIVE_RETENTION = 3;
@@ -307,6 +318,49 @@ async function runtimeLogAvailable(logPath: string): Promise<boolean> {
   return pathExists(logPath);
 }
 
+function getLogSourceStatePath(serviceRoot: string): string {
+  return path.join(serviceRoot, ".state", "log-sources.json");
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replace(/\\/g, "/");
+}
+
+function resolveServiceOwnedPath(serviceRoot: string, relativePath: string): string | null {
+  const normalized = normalizeRelativePath(relativePath);
+  if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized) || normalized.split("/").some((segment) => segment === "..")) {
+    return null;
+  }
+
+  const root = path.resolve(serviceRoot);
+  const resolved = path.resolve(root, normalized);
+  return resolved === root || resolved.startsWith(root + path.sep) ? resolved : null;
+}
+
+async function readFileSourceStatus(targetPath: string): Promise<{
+  available: boolean;
+  status: ServiceLogSourceInfo["status"];
+  lastSeenAt: string | null;
+  sizeBytes: number | null;
+}> {
+  try {
+    const stats = await stat(targetPath);
+    return {
+      available: stats.isFile(),
+      status: stats.isFile() ? "available" : "unavailable",
+      lastSeenAt: stats.mtime.toISOString(),
+      sizeBytes: stats.isFile() ? stats.size : null,
+    };
+  } catch {
+    return {
+      available: false,
+      status: "missing",
+      lastSeenAt: null,
+      sizeBytes: null,
+    };
+  }
+}
+
 function sanitizePositiveInteger(value: number | undefined, fallback: number, max: number): number {
   if (value === undefined || !Number.isFinite(value)) {
     return fallback;
@@ -378,22 +432,155 @@ async function buildCurrentSourceInfo(
   type: ServiceLogReadType,
 ): Promise<ServiceLogSourceInfo> {
   const logPath = getLogPathForType(paths, type);
+  const available = await runtimeLogAvailable(logPath);
+  const id = type === "default" ? "combined" : type;
 
   return {
     kind: "current",
     stream: getStreamForType(type),
     runId: paths.runId,
     path: logPath,
-    available: await runtimeLogAvailable(logPath),
+    available,
+    id,
+    label: type === "default" ? "Combined runtime log" : type,
+    origin: "builtin",
+    type: "stream",
+    status: available ? "available" : "missing",
+    tail: true,
   };
 }
 
 async function buildLogSources(
+  service: DiscoveredService,
   paths: ServiceRuntimeLogPaths,
 ): Promise<ServiceLogSourceInfo[]> {
-  return Promise.all(
+  const builtin = await Promise.all(
     (["default", "stdout", "stderr"] as const).map((type) =>
       buildCurrentSourceInfo(paths, type),
+    ),
+  );
+  const declared = await buildDeclaredLogSources(service, paths.runId);
+  const discovered = await buildDiscoveredLogSources(service, paths.runId, new Set(declared.map((source) => source.relativePath)));
+  const sources = [...builtin, ...declared, ...discovered];
+
+  await persistLogSourceInventory(service.serviceRoot, service.manifest.id, sources);
+
+  return sources;
+}
+
+async function buildDeclaredLogSources(service: DiscoveredService, runId: string): Promise<ServiceLogSourceInfo[]> {
+  return Promise.all(
+    (service.manifest.logSources ?? []).map(async (declaration) => {
+      const relativePath = declaration.path ? normalizeRelativePath(declaration.path) : undefined;
+      const pattern = declaration.pattern ? normalizeRelativePath(declaration.pattern) : undefined;
+      const resolvedPath = relativePath ? resolveServiceOwnedPath(service.serviceRoot, relativePath) : null;
+      const status = resolvedPath ? await readFileSourceStatus(resolvedPath) : null;
+
+      return {
+        kind: "current" as const,
+        stream: "combined" as const,
+        runId,
+        path: resolvedPath ?? path.join(service.serviceRoot, relativePath ?? pattern ?? declaration.id),
+        available: status?.available ?? false,
+        id: declaration.id,
+        label: declaration.label,
+        origin: "declared" as const,
+        type: declaration.type,
+        relativePath,
+        pattern,
+        format: declaration.format ?? "text",
+        status: declaration.type === "glob" ? "unavailable" : status?.status ?? "unavailable",
+        lastSeenAt: status?.lastSeenAt ?? null,
+        sizeBytes: status?.sizeBytes ?? null,
+        tail: declaration.type === "file" && (status?.available ?? false),
+      };
+    }),
+  );
+}
+
+async function buildDiscoveredLogSources(
+  service: DiscoveredService,
+  runId: string,
+  declaredRelativePaths: Set<string | undefined>,
+): Promise<ServiceLogSourceInfo[]> {
+  const searchRoots = ["logs", path.join("var", "log")];
+  const candidates = (
+    await Promise.all(
+      searchRoots.map(async (relativeRoot) => {
+        const root = resolveServiceOwnedPath(service.serviceRoot, relativeRoot);
+        if (!root) return [];
+        try {
+          const entries = await readdir(root, { withFileTypes: true });
+          return entries
+            .filter((entry) => entry.isFile() && /\.(?:log|out|err|txt|jsonl?|ndjson)$/i.test(entry.name))
+            .map((entry) => normalizeRelativePath(path.join(relativeRoot, entry.name)));
+        } catch {
+          return [];
+        }
+      }),
+    )
+  ).flat();
+
+  return Promise.all(
+    [...new Set(candidates)]
+      .filter((relativePath) => !declaredRelativePaths.has(relativePath) && !relativePath.startsWith("logs/runtime/"))
+      .map(async (relativePath) => {
+        const resolvedPath = resolveServiceOwnedPath(service.serviceRoot, relativePath);
+        const status = resolvedPath
+          ? await readFileSourceStatus(resolvedPath)
+          : { available: false, status: "unavailable" as const, lastSeenAt: null, sizeBytes: null };
+
+        return {
+          kind: "current" as const,
+          stream: "combined" as const,
+          runId,
+          path: resolvedPath ?? path.join(service.serviceRoot, relativePath),
+          available: status.available,
+          id: `discovered:${relativePath}`,
+          label: path.basename(relativePath),
+          origin: "discovered" as const,
+          type: "file" as const,
+          relativePath,
+          format: "text" as const,
+          status: status.status,
+          lastSeenAt: status.lastSeenAt,
+          sizeBytes: status.sizeBytes,
+          tail: status.available,
+        };
+      }),
+  );
+}
+
+async function persistLogSourceInventory(
+  serviceRoot: string,
+  serviceId: string,
+  sources: ServiceLogSourceInfo[],
+): Promise<void> {
+  const statePath = getLogSourceStatePath(serviceRoot);
+  await mkdir(path.dirname(statePath), { recursive: true });
+  await writeFile(
+    statePath,
+    JSON.stringify(
+      {
+        serviceId,
+        updatedAt: new Date().toISOString(),
+        sources: sources.map((source) => ({
+          id: source.id,
+          label: source.label,
+          origin: source.origin,
+          type: source.type,
+          relativePath: source.relativePath,
+          pattern: source.pattern,
+          format: source.format,
+          status: source.status,
+          available: source.available,
+          lastSeenAt: source.lastSeenAt ?? null,
+          sizeBytes: source.sizeBytes ?? null,
+          tail: source.tail === true,
+        })),
+      },
+      null,
+      2,
     ),
   );
 }
@@ -431,7 +618,7 @@ export async function buildServiceLogInfo(
     path: source.path,
     available: source.available,
     availableTypes: ["default", "stdout", "stderr"],
-    sources: await buildLogSources({ ...runtimeLogPaths, runId }),
+    sources: await buildLogSources(service, { ...runtimeLogPaths, runId }),
   };
 }
 
