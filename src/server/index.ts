@@ -141,6 +141,15 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+function getAuditActor(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return "unknown";
+  }
+
+  const actor = (input as Record<string, unknown>).actor;
+  return typeof actor === "string" && actor.trim().length > 0 ? actor.trim() : "unknown";
+}
+
 function parseServiceMetaPatch(
   input: unknown,
 ): { favorite?: boolean; dependencyGraphPosition?: { x: number; y: number } | null } {
@@ -899,18 +908,20 @@ async function routeRequest(
 
     if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "actions" && pathParts[5] === "runs") {
       const actionId = decodeURIComponent(pathParts[4] ?? "");
+      const requestBody = await readJsonBody(request);
+      const auditActor = getAuditActor(requestBody);
       try {
         const payload: ServiceActionRunResponse = await runServiceAction(
           service,
           runtimeModel.registry,
           actionId,
-          parseServiceActionRunRequest(await readJsonBody(request)),
+          parseServiceActionRunRequest(requestBody),
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.action.run",
-          actor: "unknown",
+          actor: auditActor,
           subject: actionId,
           serviceId,
           method: "POST",
@@ -926,7 +937,7 @@ async function routeRequest(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.action.run",
-          actor: "unknown",
+          actor: auditActor,
           subject: actionId,
           serviceId,
           method: "POST",

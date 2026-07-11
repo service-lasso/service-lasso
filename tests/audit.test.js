@@ -167,6 +167,12 @@ test("audit API returns durable safe service and runtime mutation events after r
         args: ["runtime/audit-writer.mjs"],
         timeoutSeconds: 5,
       },
+      "dangerous-audit-proof": {
+        mode: "command",
+        command: process.execPath,
+        args: ["-e", "process.exit(0)"],
+        requiresConfirmation: true,
+      },
     },
   });
   await writeAuditScript(serviceRoot);
@@ -193,6 +199,16 @@ test("audit API returns durable safe service and runtime mutation events after r
       source: "manual",
     });
     assert.equal(action.status, 200);
+    const missingConfirmation = await postJson(`${apiServer.url}/api/services/audit-service/actions/dangerous-audit-proof/runs`, {
+      actor: "operator-ui",
+    });
+    assert.equal(missingConfirmation.status, 409);
+    assert.equal(missingConfirmation.body.error, "confirmation_required");
+    const confirmedAction = await postJson(`${apiServer.url}/api/services/audit-service/actions/dangerous-audit-proof/runs`, {
+      actor: "operator-ui",
+      confirm: true,
+    });
+    assert.equal(confirmedAction.status, 200);
 
     const currentConfig = await getJson(`${apiServer.url}/api/services/audit-service/config`);
     assert.equal(currentConfig.status, 200);
@@ -214,10 +230,12 @@ test("audit API returns durable safe service and runtime mutation events after r
 
     const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=10`);
     assert.equal(audit.status, 200);
-    assert.equal(audit.body.pagination.total, 7);
+    assert.equal(audit.body.pagination.total, 9);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
+        "service.action.run",
+        "service.action.run",
         "service.action.run",
         "service.config.save",
         "service.lifecycle.config",
@@ -245,10 +263,21 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(recoveryEvent.subject, "doctor");
     assert.equal(recoveryEvent.outcome, "success");
 
-    const actionEvent = audit.body.events.find((event) => event.action === "service.action.run");
+    const actionEvent = audit.body.events.find(
+      (event) => event.action === "service.action.run" && event.subject === "write-audit-proof",
+    );
     assert.equal(actionEvent.subject, "write-audit-proof");
     assert.equal(actionEvent.outcome, "success");
     assert.equal(actionEvent.relatedRevisionId, action.body.run.runId);
+
+    const confirmationEvents = audit.body.events.filter((event) => event.subject === "dangerous-audit-proof");
+    assert.equal(confirmationEvents.length, 2);
+    assert.deepEqual(confirmationEvents.map((event) => event.actor), ["operator-ui", "operator-ui"]);
+    assert.deepEqual(confirmationEvents.map((event) => event.outcome).sort(), ["failure", "success"]);
+    const confirmationFailure = confirmationEvents.find((event) => event.outcome === "failure");
+    assert.match(confirmationFailure.reason, /requires explicit confirmation/u);
+    const confirmationSuccess = confirmationEvents.find((event) => event.outcome === "success");
+    assert.equal(confirmationSuccess.relatedRevisionId, confirmedAction.body.run.runId);
 
     const runtimeAudit = await getJson(`${apiServer.url}/api/audit?action=runtime.stopAll`);
     assert.equal(runtimeAudit.status, 200);
