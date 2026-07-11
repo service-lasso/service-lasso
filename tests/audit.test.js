@@ -173,6 +173,16 @@ test("audit API returns durable safe service and runtime mutation events after r
         args: ["-e", "process.exit(0)"],
         requiresConfirmation: true,
       },
+      "scheduled-audit-proof": {
+        mode: "command",
+        command: process.execPath,
+        args: ["runtime/audit-writer.mjs"],
+        schedules: {
+          nightly: {
+            cron: "15 2 * * *",
+          },
+        },
+      },
     },
   });
   await writeAuditScript(serviceRoot);
@@ -209,6 +219,18 @@ test("audit API returns durable safe service and runtime mutation events after r
       confirm: true,
     });
     assert.equal(confirmedAction.status, 200);
+    const scheduledAction = await postJson(`${apiServer.url}/api/services/audit-service/actions/scheduled-audit-proof/runs`, {
+      source: "dagu",
+      workflowId: "audit.workflow.nightly",
+      scheduleId: "nightly",
+      stepId: "run-audit-proof",
+      parentActionId: "audit-parent",
+      actor: "workflow-engine",
+      params: {
+        unsafe: "WORKFLOW_SECRET_PARAM",
+      },
+    });
+    assert.equal(scheduledAction.status, 200);
 
     const currentConfig = await getJson(`${apiServer.url}/api/services/audit-service/config`);
     assert.equal(currentConfig.status, 200);
@@ -230,10 +252,11 @@ test("audit API returns durable safe service and runtime mutation events after r
 
     const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=10`);
     assert.equal(audit.status, 200);
-    assert.equal(audit.body.pagination.total, 9);
+    assert.equal(audit.body.pagination.total, 10);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
+        "service.action.run",
         "service.action.run",
         "service.action.run",
         "service.action.run",
@@ -279,6 +302,12 @@ test("audit API returns durable safe service and runtime mutation events after r
     const confirmationSuccess = confirmationEvents.find((event) => event.outcome === "success");
     assert.equal(confirmationSuccess.relatedRevisionId, confirmedAction.body.run.runId);
 
+    const scheduledEvent = audit.body.events.find((event) => event.subject === "scheduled-audit-proof");
+    assert.equal(scheduledEvent.actor, "workflow-engine");
+    assert.equal(scheduledEvent.outcome, "success");
+    assert.equal(scheduledEvent.relatedRevisionId, scheduledAction.body.run.runId);
+    assert.match(scheduledEvent.summary, /dagu/u);
+
     const runtimeAudit = await getJson(`${apiServer.url}/api/audit?action=runtime.stopAll`);
     assert.equal(runtimeAudit.status, 200);
     assert.equal(runtimeAudit.body.events.length, 1);
@@ -290,11 +319,15 @@ test("audit API returns durable safe service and runtime mutation events after r
     const setupOutputSearch = await getJson(`${apiServer.url}/api/audit?query=AUDIT_SECRET_OUTPUT`);
     assert.equal(setupOutputSearch.status, 200);
     assert.equal(setupOutputSearch.body.pagination.total, 0);
+    const workflowParamSearch = await getJson(`${apiServer.url}/api/audit?query=WORKFLOW_SECRET_PARAM`);
+    assert.equal(workflowParamSearch.status, 200);
+    assert.equal(workflowParamSearch.body.pagination.total, 0);
 
     const serviceAuditFile = path.join(serviceRoot, ".state", "audit", "events.jsonl");
     const runtimeAuditFile = path.join(workspaceRoot, ".service-lasso", "audit", "runtime", `${new Date().toISOString().slice(0, 10)}.jsonl`);
     assert.doesNotMatch(await readFile(serviceAuditFile, "utf8"), /SUPER_SECRET_VALUE/u);
     assert.doesNotMatch(await readFile(serviceAuditFile, "utf8"), /AUDIT_SECRET_OUTPUT/u);
+    assert.doesNotMatch(await readFile(serviceAuditFile, "utf8"), /WORKFLOW_SECRET_PARAM/u);
     assert.doesNotMatch(await readFile(runtimeAuditFile, "utf8"), /SUPER_SECRET_VALUE/u);
   } finally {
     await apiServer.stop().catch(() => undefined);
