@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { createServer } from "node:http";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 async function getJson(url) {
   const response = await fetch(url);
@@ -67,6 +68,70 @@ async function writeAuditScript(serviceRoot) {
     ].join("\n"),
     "utf8",
   );
+}
+
+async function startAuditReleaseServer() {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/repos/service-lasso/audit-update-fixture/releases/latest") {
+      const baseUrl = `http://127.0.0.1:${server.address().port}`;
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({
+        tag_name: "2026.4.24-new",
+        name: "2026.4.24-new",
+        html_url: `${baseUrl}/releases/2026.4.24-new`,
+        published_at: "2026-04-24T00:00:00Z",
+        assets: [
+          {
+            name: "audit-update-fixture.zip",
+            browser_download_url: `${baseUrl}/downloads/audit-update-fixture.zip`,
+          },
+        ],
+      }));
+      return;
+    }
+
+    response.statusCode = 404;
+    response.end();
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+    stop: async () => {
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
+
+function createAuditUpdateManifest(releaseServer) {
+  return {
+    id: "audit-update-service",
+    name: "Audit Update Service",
+    description: "Release-backed fixture for audit update checks.",
+    version: "2026.4.20-old",
+    artifact: {
+      kind: "archive",
+      source: {
+        type: "github-release",
+        repo: "service-lasso/audit-update-fixture",
+        tag: "2026.4.20-old",
+        api_base_url: releaseServer.baseUrl,
+      },
+      platforms: {
+        default: {
+          assetName: "audit-update-fixture.zip",
+          archiveType: "zip",
+          command: "node",
+          args: ["runtime/audit-update-fixture.mjs"],
+        },
+      },
+    },
+    updates: {
+      mode: "notify",
+      track: "latest",
+    },
+  };
 }
 
 test("audit API returns durable safe service and runtime mutation events after restart", async () => {
@@ -204,6 +269,37 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.doesNotMatch(await readFile(runtimeAuditFile, "utf8"), /SUPER_SECRET_VALUE/u);
   } finally {
     await apiServer.stop().catch(() => undefined);
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("audit API records update checks that mutate durable update state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-update-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const releaseServer = await startAuditReleaseServer();
+  await writeManifest(servicesRoot, "audit-update-service", createAuditUpdateManifest(releaseServer));
+  let apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const check = await postJson(`${apiServer.url}/api/updates/check`, { serviceId: "audit-update-service" });
+    assert.equal(check.status, 200);
+    assert.equal(check.body.services[0].result.status, "update_available");
+
+    await apiServer.stop();
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+    const audit = await getJson(`${apiServer.url}/api/audit?action=service.update.check`);
+    assert.equal(audit.status, 200);
+    assert.equal(audit.body.pagination.total, 1);
+    assert.equal(audit.body.events[0].serviceId, "audit-update-service");
+    assert.equal(audit.body.events[0].outcome, "success");
+    assert.equal(audit.body.events[0].relatedRevisionId, "2026.4.24-new");
+    assert.match(audit.body.events[0].summary, /update_available/u);
+  } finally {
+    await apiServer.stop().catch(() => undefined);
+    await releaseServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }

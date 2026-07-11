@@ -581,7 +581,29 @@ async function routeRequest(
   if (request.method === "POST" && url.pathname === "/api/updates/check") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const body = parseUpdateCheckBody(await readJsonBody(request));
-    writeJson(response, 200, await checkServiceUpdatesForCli(runtimeModel.registry.list(), body.serviceId));
+    const result = await checkServiceUpdatesForCli(runtimeModel.registry.list(), body.serviceId);
+    await Promise.all(result.services.map(async (checked) => {
+      const service = runtimeModel.registry.getById(checked.serviceId);
+      if (!service) {
+        return;
+      }
+
+      await appendAuditEvent({
+        serviceRoot: service.serviceRoot,
+        source: "runtime-api",
+        action: "service.update.check",
+        actor: "unknown",
+        subject: "update-check",
+        serviceId: checked.serviceId,
+        method: "POST",
+        routeTemplate: "/api/updates/check",
+        outcome: checked.result.status === "check_failed" || checked.result.status === "unavailable" ? "failure" : "success",
+        statusCode: 200,
+        summary: `Update check returned ${checked.result.status}; recommended action ${checked.recommendedAction}.`,
+        relatedRevisionId: checked.result.available?.tag ?? null,
+      });
+    }));
+    writeJson(response, 200, result);
     return;
   }
 
