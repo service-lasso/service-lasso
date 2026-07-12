@@ -26,7 +26,7 @@ Out of scope:
 - `BR-002` — Every `main`-only commit and changed file is inventoried and classified as valid product work, promotion-only history, duplicate/superseded work, or conflict requiring an explicit resolution.
 - `BR-003` — All valid `main`-only behavior is reconciled onto the recovery branch without replacing newer `develop` behavior or losing mandatory Broker, Service Admin integration, or Core functionality.
 - `BR-004` — Build, unit/integration tests, and the canonical demo/baseline verification pass on the reconciled branch, with any environment-only limitation recorded explicitly.
-- `BR-005` — Repository instructions and protection guidance unambiguously reject normal feature/fix/docs/chore work based on or targeting `main`; `main` accepts only explicit `develop` promotion or an authorised hotfix that is immediately reconciled back.
+- `BR-005` — Repository instructions and protection guidance unambiguously reject normal feature/fix/docs/chore work based on or targeting `main`; development agents must not inspect, fetch, compare, orient from, plan from, branch from, merge from, or target `main`. Only an explicitly authorised release-promotion, urgent-hotfix, or branch-reconciliation role may access `main`, and any hotfix is immediately reconciled back.
 - `BR-006` — Issue and backlog states reflect reality: implemented-on-`main` work remains blocked/in review until it is present and verified on `develop`; partial work is not represented as complete.
 - `BR-007` — Recovery uses no force push, branch rewrite, direct protected-branch commit, or unreviewed promotion.
 
