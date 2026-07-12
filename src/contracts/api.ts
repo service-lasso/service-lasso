@@ -9,6 +9,7 @@ import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
 import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportTestResult } from "../runtime/operator/telemetry.js";
 import type { ServiceCatalogProvenance } from "./service.js";
+import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -93,6 +94,96 @@ export interface GlobalEnvResponse {
 
 export interface ServicesResponse {
   services: ServiceSummary[];
+}
+
+export type AuditEventOutcome = "success" | "failure";
+
+export interface AuditEvent {
+  id: string;
+  timestamp: string;
+  source: string;
+  action: string;
+  actor: string;
+  subject?: string;
+  serviceId?: string;
+  method?: string;
+  routeTemplate?: string;
+  outcome: AuditEventOutcome;
+  statusCode: number;
+  summary: string;
+  reason: string | null;
+  correlationId: string;
+  relatedRevisionId: string | null;
+  chainId: string;
+  sequence: number;
+  previousHash: string | null;
+  eventHash: string;
+  chainStatus: "valid";
+}
+
+export interface AuditQuery {
+  serviceId?: string;
+  actor?: string;
+  action?: string;
+  outcome?: AuditEventOutcome;
+  source?: string;
+  since?: string;
+  until?: string;
+  query?: string;
+  limit?: string;
+  cursor?: string;
+}
+
+export interface AuditResponse {
+  events: AuditEvent[];
+  pagination: {
+    limit: number;
+    nextCursor: string | null;
+    total: number;
+  };
+}
+
+export interface ManagedWorkflowRegistryStep {
+  id: string;
+  type: "service-lasso-action";
+  actionId: string;
+  endpoint: string;
+  run?: "always" | "on-success";
+  condition?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ManagedWorkflowRegistryEntry {
+  id: string;
+  managedBy: "service-lasso";
+  registryVersion: number;
+  serviceId: string;
+  serviceName: string;
+  serviceVersion?: string;
+  actionId: string;
+  actionLabel?: string;
+  scheduleId: string;
+  scheduleLabel?: string;
+  cron: string;
+  timezone?: string;
+  enabled: true;
+  tags: string[];
+  checksum: string;
+  concurrencyPolicy?: "skip-if-running" | "allow-parallel";
+  failurePolicy?: "record" | "retry" | "disable-schedule";
+  parameters?: Record<string, unknown>;
+  steps: ManagedWorkflowRegistryStep[];
+  source: {
+    manifestPath: string;
+    serviceRoot: string;
+  };
+}
+
+export interface ManagedWorkflowRegistryResponse {
+  managedBy: "service-lasso";
+  registryVersion: number;
+  generatedAt: string;
+  workflows: ManagedWorkflowRegistryEntry[];
 }
 
 export interface ServiceDetailResponse {
@@ -720,6 +811,20 @@ export interface LifecycleActionResponse {
   healthHistory?: ServiceHealthHistoryState;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
+}
+
+export interface ServiceActionRunResponse {
+  ok: boolean;
+  serviceId: string;
+  actionId: string;
+  run: ServiceActionRunState;
+  message: string;
+}
+
+export interface ServiceActionRunsResponse {
+  serviceId: string;
+  actionId?: string;
+  runs: ServiceActionRunState[];
 }
 
 export interface ServiceHealthResponse {

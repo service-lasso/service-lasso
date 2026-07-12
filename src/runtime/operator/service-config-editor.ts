@@ -7,6 +7,8 @@ import type {
   ServiceConfigSaveResponse,
 } from "../../contracts/api.js";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { getServiceStatePaths } from "../state/paths.js";
+import { ApiError } from "../../server/errors.js";
 
 type ServiceConfigSaveInput = {
   content: string;
@@ -14,7 +16,8 @@ type ServiceConfigSaveInput = {
   reason?: string | null;
 };
 
-const BACKUP_ROOT_NAME = "service-config-backups";
+const PORTABLE_BACKUP_ROOT_NAME = "config";
+const LEGACY_WORKSPACE_BACKUP_ROOT_NAME = "service-config-backups";
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -28,24 +31,32 @@ function safeRevisionTimestamp(date = new Date()): string {
   return date.toISOString().replace(/[:.]/g, "-");
 }
 
-function backupRoot(workspaceRoot: string, serviceId: string): string {
-  return path.join(workspaceRoot, BACKUP_ROOT_NAME, safeServiceId(serviceId));
+function portableBackupRoot(service: DiscoveredService): string {
+  return path.join(getServiceStatePaths(service.serviceRoot).backups, PORTABLE_BACKUP_ROOT_NAME);
+}
+
+function legacyWorkspaceBackupRoot(workspaceRoot: string, serviceId: string): string {
+  return path.join(workspaceRoot, LEGACY_WORKSPACE_BACKUP_ROOT_NAME, safeServiceId(serviceId));
 }
 
 function metadataPathForRevision(contentPath: string): string {
   return `${contentPath}.metadata.json`;
 }
 
-function normalizeJsonContent(content: string): string {
+function normalizeJsonContent(content: string, serviceId: string): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error("server.json content must be valid JSON before save.");
+    throw new ApiError("invalid_json", 400, "server.json content must be valid JSON before save.");
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("server.json content must be a JSON object.");
+    throw new ApiError("invalid_json", 400, "server.json content must be a JSON object.");
+  }
+
+  if ((parsed as Record<string, unknown>).id !== serviceId) {
+    throw new ApiError("invalid_json", 400, `server.json id must remain "${serviceId}".`);
   }
 
   return `${JSON.stringify(parsed, null, 2)}\n`;
@@ -75,27 +86,45 @@ async function readRevision(contentPath: string): Promise<ServiceConfigRevisionR
   }
 }
 
+async function readLegacyRevision(filePath: string): Promise<ServiceConfigRevisionResponse | null> {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8")) as ServiceConfigRevisionResponse;
+  } catch {
+    return null;
+  }
+}
+
 export async function listServiceConfigRevisions(
   service: DiscoveredService,
   workspaceRoot: string,
 ): Promise<ServiceConfigRevisionResponse[]> {
-  const root = backupRoot(workspaceRoot, service.manifest.id);
-  let entries: string[] = [];
-  try {
-    entries = await readdir(root);
-  } catch {
-    return [];
+  const roots = [
+    portableBackupRoot(service),
+    legacyWorkspaceBackupRoot(workspaceRoot, service.manifest.id),
+  ];
+  const revisions = (
+    await Promise.all(
+      roots.map(async (root) => {
+        const entries = await readdir(root).catch(() => [] as string[]);
+        const paired = entries
+            .filter((entry) => entry.endsWith(".server.json"))
+            .map((entry) => readRevision(path.join(root, entry)));
+        const legacy = entries
+          .filter((entry) => entry.endsWith(".json") && !entry.endsWith(".server.json") && !entry.endsWith(".metadata.json"))
+          .map((entry) => readLegacyRevision(path.join(root, entry)));
+        return Promise.all([...paired, ...legacy]);
+      }),
+    )
+  ).flat();
+  const unique = new Map<string, ServiceConfigRevisionResponse>();
+
+  for (const revision of revisions) {
+    if (revision && !unique.has(revision.id)) {
+      unique.set(revision.id, revision);
+    }
   }
 
-  const revisions = await Promise.all(
-    entries
-      .filter((entry) => entry.endsWith(".server.json"))
-      .map((entry) => readRevision(path.join(root, entry))),
-  );
-
-  return revisions
-    .filter((revision): revision is ServiceConfigRevisionResponse => revision !== null)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return [...unique.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export async function readServiceConfigDocument(
@@ -132,18 +161,19 @@ export async function saveServiceConfigDocument(
   input: ServiceConfigSaveInput,
 ): Promise<ServiceConfigSaveResponse> {
   const previousContent = await readFile(service.manifestPath, "utf8");
-  const normalizedContent = normalizeJsonContent(input.content);
+  const normalizedContent = normalizeJsonContent(input.content, service.manifest.id);
   const previousHash = sha256(previousContent);
   const currentHash = sha256(normalizedContent);
   const savedAt = new Date();
   const revisionId = `${safeRevisionTimestamp(savedAt)}-${previousHash.slice(0, 12)}`;
-  const revisionPath = path.join(backupRoot(workspaceRoot, service.manifest.id), `${revisionId}.server.json`);
+  const revisionPath = path.join(portableBackupRoot(service), `${revisionId}.server.json`);
+  const relativeConfigPath = path.relative(service.serviceRoot, service.manifestPath).split(path.sep).join("/");
   const revision: ServiceConfigRevisionResponse = {
     id: revisionId,
     createdAt: savedAt.toISOString(),
     actor: input.actor?.trim() || "service-admin",
     reason: input.reason?.trim() || null,
-    path: revisionPath,
+    path: relativeConfigPath,
     previousHash,
     currentHash,
     validationStatus: "valid",

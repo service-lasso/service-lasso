@@ -78,6 +78,7 @@ export async function writeExecutableFixtureService(
     install = undefined,
     config = undefined,
     setup = undefined,
+    actions = undefined,
     role = undefined,
     enabled = undefined,
     broker = undefined,
@@ -193,6 +194,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         : {}),
     },
     globalenv,
+    broker,
     autostart,
     monitoring,
     restartPolicy,
@@ -204,7 +206,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     install,
     config,
     setup,
-    broker,
+    actions,
     healthcheck: healthcheck === null ? undefined : healthcheck,
   });
 

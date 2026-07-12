@@ -4,6 +4,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 
 ## Current Active Spec
 - `SPEC-002-core-standalone-runtime.md`
+- `SPEC-003-main-develop-reconciliation.md`
 
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
@@ -133,10 +134,16 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-342` | `done` | Classify disabled TypeRefinery WebSocket examples for migration | `SPEC-002`, `AC-4Y`, `AC-4Z`, `AC-6` | GitHub issue: `#342`. `wsecho` and `messageservice-client` are deprecated/superseded and are not active Service Catalog entries. Use `service-lasso/lasso-echoservice` for echo/lifecycle harness coverage and `service-lasso/lasso-totaljs-messageservice` plus `service-lasso/lasso-totaljs-flow` for maintained messaging/flow examples. Decision recorded in `docs/development/deprecated-service-decisions.md`; no migration repo is required. |
 
 | `ISS-570` | `in_progress` | Pin Service Admin baseline to current release for demo freshness | `SPEC-002`, `AC-4Y`, `AC-4Z` | GitHub issue: `#570`. The local demo proved the core `@serviceadmin` manifest was still pinned to `2026.5.15-c66d8ce` while the current Service Admin release is `2026.6.4-de50799`; update the release pin and verify canonical LAN demo URLs serve the current artifact. |
+| `ISS-737` | `blocked` | Complete and validate the runtime log-source registry | `SPEC-002`, `SPEC-003`, `BR-006` | GitHub issue: `#737`. Partial work exists on an issue branch based on `develop`; completion is blocked on `#850`, after which the branch must update from recovered `develop` and rerun canonical validation. It must not use `main`. |
+| `ISS-784` | `in_review` | Add the generic service action run API | `SPEC-003`, `BR-003`, `BR-004`, `BR-006` | GitHub issue: `#784`. Implementation was incorrectly merged only to `main`; it is reconciled and locally verified on the `#850` recovery branch, with develop PR/CI still required. |
+| `ISS-799` | `in_review` | Add generic action payloads | `SPEC-003`, `BR-003`, `BR-004`, `BR-006` | GitHub issue: `#799`. Implementation was incorrectly merged only to `main`; payload policy, validation, execution, safe history, docs, and schema are reconciled on the `#850` recovery branch, with develop PR/CI still required. |
+| `ISS-843` | `in_review` | Isolate demo smoke roots | `SPEC-003`, `BR-003`, `BR-004`, `BR-006` | GitHub issue: `#843`. The fix landed only on `main`; it is reconciled into the recovery branch and remains in review until develop CI passes. |
+| `ISS-850` | `in_progress` | Recover main-only development into develop and restore branch policy | `SPEC-003`, `BR-001` through `BR-007` | GitHub issue: `#850`. Inventory and reconcile valid main-only Broker, Service Admin integration, Core, demo, docs, and test work on an issue-scoped branch created from `develop`; repair workflow contradictions and validate before any affected issue is called complete. |
 
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
 | --- | --- | --- | --- | --- | --- |
+| `TASK-850` | `in_progress` | `ISS-850` | Reconcile main-only work into develop and enforce correct branch direction | `SPEC-003`, `BR-001` through `BR-007` | Complete commit/file classification, conflict-resolved recovery PR into `develop`, mandatory Broker/Admin/Core verification, corrected tracking states, and branch-policy guard evidence. |
 | `TASK-001` | `done` | `ISS-001` | Mark project intent as provisional and normalize `SPEC-001` to bootstrap setup | `SPEC-001`, `AC-1` | Bootstrap spec no longer invented unvalidated product scope |
 | `TASK-002` | `done` | `ISS-002` | Create `INIT-TODO.md` and strict Git workflow artifacts | `SPEC-001`, `AC-2` | Required workflow files exist |
 | `TASK-003` | `done` | `ISS-003` | Run GitHub preflight and adopt one canonical board target | `SPEC-001`, `AC-3` | Canonical board/preflight state recorded |

@@ -1,6 +1,8 @@
 import type {
   DiscoveredService,
+  ServiceBrokerBucket,
   ServiceBrokerImport,
+  ServiceBrokerWritebackOperation,
 } from "../../contracts/service.js";
 import {
   compileCachedServiceSelectorPlan,
@@ -36,12 +38,47 @@ export interface ServiceStartupBrokerPlan {
   serviceId: string;
   selectorPlan: ServiceSelectorPlan;
   brokerRefs: string[];
+  buckets: Array<{
+    namespace: string;
+    kind: ServiceBrokerBucket["kind"] | null;
+  }>;
   imports: Array<{
     namespace: string;
     ref: string;
     as: string | null;
     required: boolean;
   }>;
+  writeback: {
+    allowedNamespaces: string[];
+    allowedOperations: ServiceBrokerWritebackOperation[];
+    allowedRefs: string[];
+    allowOverwrite: boolean;
+    auditReason: string | null;
+    generatedSecrets: ServiceStartupBrokerGeneratedSecretPlan[];
+  };
+}
+
+export type ServiceStartupBrokerGeneratedSecretKind =
+  | "password"
+  | "api-token"
+  | "session-secret"
+  | "token"
+  | "secret";
+
+export interface ServiceStartupBrokerGeneratedSecretPlan {
+  namespace: string | null;
+  ref: string;
+  operation: ServiceBrokerWritebackOperation;
+  required: boolean;
+  sourceRefs: string[];
+  valuePolicy: {
+    kind: ServiceStartupBrokerGeneratedSecretKind;
+    bytes: number;
+    encoding: "base64url";
+    minEntropyBits: number;
+  };
+  overwrite: "allow" | "deny";
+  auditReason: string | null;
 }
 
 export interface ServiceStartupBrokerFailure {
@@ -68,8 +105,40 @@ function normalizeImport(entry: ServiceBrokerImport) {
   };
 }
 
+function normalizeBucket(entry: ServiceBrokerBucket) {
+  return {
+    namespace: entry.namespace,
+    kind: entry.kind ?? null,
+  };
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function inferGeneratedSecretKind(
+  ref: string,
+  source: string,
+): ServiceStartupBrokerGeneratedSecretKind {
+  const subject = `${ref} ${source}`.toLowerCase();
+  if (subject.includes("password") || /\bpass\b/.test(subject)) return "password";
+  if (subject.includes("session")) return "session-secret";
+  if (subject.includes("api") && subject.includes("token")) return "api-token";
+  if (subject.includes("token")) return "token";
+  return "secret";
+}
+
+function generatedSecretPolicy(
+  ref: string,
+  source: string,
+): ServiceStartupBrokerGeneratedSecretPlan["valuePolicy"] {
+  const bytes = 32;
+  return {
+    kind: inferGeneratedSecretKind(ref, source),
+    bytes,
+    encoding: "base64url",
+    minEntropyBits: bytes * 8,
+  };
 }
 
 function setToArray(values: Set<string>): string[] | undefined {
@@ -135,14 +204,43 @@ export function mergeServiceVariableResolutionOptions(
 export function compileServiceStartupBrokerPlan(
   service: DiscoveredService,
 ): ServiceStartupBrokerPlan {
+  const broker = service.manifest.broker;
   const imports = (service.manifest.broker?.imports ?? []).map(normalizeImport);
   const importTemplates = imports.map((entry) => `\${${entry.ref}}`);
+  const exportsByRef = new Map((broker?.exports ?? []).map((entry) => [entry.ref, entry]));
+  const writeback = broker?.writeback;
+  const generatedSecrets: ServiceStartupBrokerGeneratedSecretPlan[] = (writeback?.generatedSecrets ?? []).map((entry) => {
+    const exportEntry = exportsByRef.get(entry.ref);
+    const sourcePlan = compileCachedServiceSelectorPlan(
+      `service:${service.manifestPath}:${service.manifest.id}:startup-broker:writeback:${entry.ref}`,
+      [entry.source],
+    );
+    return {
+      namespace: exportEntry?.namespace ?? null,
+      ref: entry.ref,
+      operation: entry.operation ?? "create",
+      required: entry.required === true || exportEntry?.required === true,
+      sourceRefs: unique(sourcePlan.selectors.map((selector) => selector.selector)),
+      valuePolicy: generatedSecretPolicy(entry.ref, entry.source),
+      overwrite: writeback?.allowOverwrite === true ? "allow" : "deny",
+      auditReason: writeback?.auditReason ?? null,
+    };
+  });
   const selectorPlan = compileCachedServiceSelectorPlan(
     `service:${service.manifestPath}:${service.manifest.id}:startup-broker`,
     {
       env: JSON.stringify(service.manifest.env ?? {}),
       imports: JSON.stringify(imports),
       importTemplates: importTemplates.join("\n"),
+      generatedSecrets: JSON.stringify(
+        generatedSecrets.map((entry) => ({
+          namespace: entry.namespace,
+          ref: entry.ref,
+          operation: entry.operation,
+          required: entry.required,
+          sourceRefs: entry.sourceRefs,
+        })),
+      ),
     },
   );
 
@@ -153,7 +251,16 @@ export function compileServiceStartupBrokerPlan(
       ...selectorPlan.brokerRefs,
       ...imports.map((entry) => entry.ref),
     ]),
+    buckets: (broker?.buckets ?? []).map(normalizeBucket),
     imports,
+    writeback: {
+      allowedNamespaces: [...(writeback?.allowedNamespaces ?? [])],
+      allowedOperations: [...(writeback?.allowedOperations ?? ["create", "update", "rotate", "delete"])],
+      allowedRefs: [...(writeback?.allowedRefs ?? [])],
+      allowOverwrite: writeback?.allowOverwrite === true,
+      auditReason: writeback?.auditReason ?? null,
+      generatedSecrets,
+    },
   };
 }
 

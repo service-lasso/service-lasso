@@ -29,12 +29,15 @@ This repo is therefore the place where the real core behavior must live and cont
 - This repo is private and should preserve clear auditability for decisions and changes.
 - Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.
 - Branch-protection verification is still partially degraded on the current GitHub hosting tier and must remain documented honestly.
+- `develop` is the sole development source of truth and default branch. Normal agent work must never use `main` as its baseline or pull-request target.
+- `main` is promotion/release only, except for an authorised urgent hotfix that must be reconciled into `develop` immediately.
 - `.governance/` remains the canonical governance source of truth for this repo.
 
 ## Risks
 - Staying in analysis/doc mode too long would create false progress without a running core.
 - Starting too broadly could mix manifest redesign, runtime implementation, provider integration, and release plumbing into one hard-to-verify change.
 - Service-specific setup-step jobs can still fail if runtime artifacts, platform commandlines, or provider dependencies are not validated in the owning service repo.
+- Divergence between `develop` and `main` can create false completion claims and lost integration work unless branch direction is enforced mechanically and in repository instructions.
 
 ## Assumptions
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.

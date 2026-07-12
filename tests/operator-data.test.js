@@ -199,7 +199,7 @@ test("service config editor routes read, validate, save, and retain backups", as
     });
     const invalidBody = await invalidResponse.json();
     assert.equal(invalidResponse.status, 400);
-    assert.equal(invalidBody.error, "invalid_body");
+    assert.equal(invalidBody.error, "invalid_json");
 
     const nextContent = JSON.stringify(
       {
@@ -330,19 +330,19 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
 test("live log info and chunk routes expose runtime-owned log files for admin consumers", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-log-reader-");
-  await writeExecutableFixtureService(servicesRoot, "reader-service", {
+  await writeExecutableFixtureService(servicesRoot, "@reader-service", {
     stdoutLines: ["reader stdout"],
     stderrLines: ["reader stderr"],
   });
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
-    await postJson(`${apiServer.url}/api/services/reader-service/install`);
-    await postJson(`${apiServer.url}/api/services/reader-service/config`);
-    await postJson(`${apiServer.url}/api/services/reader-service/start`);
+    await postJson(`${apiServer.url}/api/services/%40reader-service/install`);
+    await postJson(`${apiServer.url}/api/services/%40reader-service/config`);
+    await postJson(`${apiServer.url}/api/services/%40reader-service/start`);
 
     await waitFor(async () => {
-      const response = await fetch(`${apiServer.url}/api/services/reader-service/logs`);
+      const response = await fetch(`${apiServer.url}/api/services/%40reader-service/logs`);
       const body = await response.json();
       if (body.logs.entries.some((entry) => entry.message === "reader stdout")) {
         return body;
@@ -350,7 +350,7 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
       return null;
     });
 
-    const infoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=reader-service&type=default`);
+    const infoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=%40reader-service&type=default`);
     const infoBody = await infoResponse.json();
     const stdoutInfoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=reader-service&type=stdout`);
     const stdoutInfoBody = await stdoutInfoResponse.json();
@@ -372,7 +372,7 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     const searchBody = await searchResponse.json();
 
     assert.equal(infoResponse.status, 200);
-    assert.equal(infoBody.serviceId, "reader-service");
+    assert.equal(infoBody.serviceId, "@reader-service");
     assert.equal(infoBody.type, "default");
     assert.equal(infoBody.available, true);
     assert.deepEqual(infoBody.availableTypes, ["default", "stdout", "stderr"]);
@@ -386,11 +386,11 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(stdoutInfoBody.path.endsWith(path.join("reader-service", "logs", "runtime", "stdout.log")), true);
 
     assert.equal(chunkResponse.status, 200);
-    assert.equal(chunkBody.serviceId, "reader-service");
+    assert.equal(chunkBody.serviceId, "@reader-service");
     assert.equal(chunkBody.type, "default");
     assert.equal(typeof chunkBody.totalLines, "number");
     assert.equal(chunkBody.lines.length > 0, true);
-    assert.equal(chunkBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
+    assert.equal(chunkBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "service.log")), true);
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stderr\"")));
     assert.equal(chunkBody.cursor, String(chunkBody.end));
@@ -422,7 +422,7 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(nextCursorBody.lines.length, 1);
 
     assert.equal(searchResponse.status, 200);
-    assert.equal(searchBody.serviceId, "reader-service");
+    assert.equal(searchBody.serviceId, "@reader-service");
     assert.equal(searchBody.query, "reader stdout");
     assert.equal(searchBody.includeArchives, false);
     assert.equal(searchBody.matches.length, 1);
@@ -438,7 +438,7 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(stdoutSearchBody.matches.length, 1);
     assert.equal(stdoutSearchBody.matches[0].stream, "stdout");
 
-    await unlink(path.join(servicesRoot, "reader-service", "logs", "runtime", "stderr.log"));
+    await unlink(path.join(servicesRoot, "@reader-service", "logs", "runtime", "stderr.log"));
     const missingStderrResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=stderr&limit=50`);
     const missingStderrBody = await missingStderrResponse.json();
     assert.equal(missingStderrResponse.status, 200);
@@ -446,7 +446,21 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(missingStderrBody.available, false);
     assert.deepEqual(missingStderrBody.lines, []);
 
-    await postJson(`${apiServer.url}/api/services/reader-service/stop`);
+    assert.equal(stdoutInfoResponse.status, 200);
+    assert.equal(stdoutInfoBody.type, "stdout");
+    assert.equal(stdoutInfoBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "stdout.log")), true);
+
+    assert.equal(stdoutChunkResponse.status, 200);
+    assert.equal(stdoutChunkBody.type, "stdout");
+    assert.equal(stdoutChunkBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "stdout.log")), true);
+    assert.ok(stdoutChunkBody.lines.some((line) => line.includes("reader stdout")));
+
+    assert.equal(stderrChunkResponse.status, 200);
+    assert.equal(stderrChunkBody.type, "stderr");
+    assert.equal(stderrChunkBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "stderr.log")), true);
+    assert.ok(stderrChunkBody.lines.some((line) => line.includes("reader stderr")));
+
+    await postJson(`${apiServer.url}/api/services/%40reader-service/stop`);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

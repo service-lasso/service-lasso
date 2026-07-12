@@ -7,6 +7,7 @@ import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.j
 import { installService, configService, startService, stopService } from "../dist/runtime/lifecycle/actions.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { buildServiceVariables, resolveServiceText } from "../dist/runtime/operator/variables.js";
+import { compileServiceStartupBrokerPlan } from "../dist/runtime/broker/launch-resolution.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 async function waitFor(predicate, timeoutMs = 1_500) {
@@ -25,6 +26,72 @@ async function prepareRegistry(servicesRoot) {
   const registry = createServiceRegistry(discovered);
   return { discovered, registry };
 }
+
+test("startup broker plan includes generated writeback metadata without raw values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-broker-generated-plan-");
+  const rawSeed = "raw-session-seed-must-not-leak";
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "generated-broker-secret", {
+      env: { SESSION_SEED: rawSeed },
+      broker: {
+        enabled: true,
+        namespace: "services/generated-broker-secret",
+        buckets: [{ namespace: "services/generated-broker-secret", kind: "service" }],
+        accessPolicy: {
+          serviceId: "generated-broker-secret",
+          workspace: "test",
+          grants: [{
+            namespace: "services/generated-broker-secret",
+            scope: "service",
+            refs: ["sample.SESSION_SECRET"],
+            operations: ["create"],
+            purpose: "create generated session secret metadata",
+          }],
+        },
+        writeback: {
+          allowedNamespaces: ["services/generated-broker-secret"],
+          allowedOperations: ["create"],
+          allowedRefs: ["sample.SESSION_SECRET"],
+          allowOverwrite: false,
+          auditReason: "test generated secret provisioning",
+          generatedSecrets: [{
+            ref: "sample.SESSION_SECRET",
+            source: "${SESSION_SEED}",
+            operation: "create",
+            required: true,
+          }],
+        },
+        exports: [{
+          namespace: "services/generated-broker-secret",
+          ref: "sample.SESSION_SECRET",
+          source: "${SESSION_SEED}",
+          required: true,
+        }],
+      },
+    });
+    const { registry } = await prepareRegistry(servicesRoot);
+    const service = registry.getById("generated-broker-secret");
+    assert.ok(service);
+
+    const plan = compileServiceStartupBrokerPlan(service);
+    assert.deepEqual(plan.buckets, [{ namespace: "services/generated-broker-secret", kind: "service" }]);
+    assert.deepEqual(plan.writeback.allowedOperations, ["create"]);
+    assert.deepEqual(plan.writeback.generatedSecrets, [{
+      namespace: "services/generated-broker-secret",
+      ref: "sample.SESSION_SECRET",
+      operation: "create",
+      required: true,
+      sourceRefs: ["SESSION_SEED"],
+      valuePolicy: { kind: "session-secret", bytes: 32, encoding: "base64url", minEntropyBits: 256 },
+      overwrite: "deny",
+      auditReason: "test generated secret provisioning",
+    }]);
+    assert.equal(JSON.stringify(plan).includes(rawSeed), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
 
 test("ordinary service consumes Secrets Broker imports through resolved env without logging raw values", async () => {
   resetLifecycleState();

@@ -555,6 +555,9 @@ test("managed process stop escalates after timeout and clears supervisor state",
     assert.equal(handle.pid > 0, true);
     assert.equal(hasManagedProcess("stubborn-service"), true);
 
+    // Let the fixture install its signal handlers before exercising escalation.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     const stopped = await stopManagedProcess("stubborn-service", 100);
 
     assert.ok(stopped);

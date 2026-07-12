@@ -1,14 +1,17 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { access, readFile, rm } from "node:fs/promises";
-import net from "node:net";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
+import net, { createConnection } from "node:net";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
+export const defaultDemoLogRoot = path.join(repoRoot, ".demo-logs");
 export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const defaultBaselineServiceIds = [...demoRequiredServiceIds];
 export const demoServiceIds = [...demoRequiredServiceIds, "node-sample-service"];
 export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
 export const demoFixedPortChecks = [
@@ -30,10 +33,19 @@ function parseOption(args, name, envName) {
 }
 
 export function resolveDemoOptions(args = process.argv.slice(2)) {
+  const port = Number(parseOption(args, "port", "SERVICE_LASSO_PORT") ?? 18080);
+  const host = parseOption(args, "host", "SERVICE_LASSO_HOST") ?? "127.0.0.1";
+
   return {
     servicesRoot: path.resolve(parseOption(args, "services-root", "SERVICE_LASSO_SERVICES_ROOT") ?? defaultDemoServicesRoot),
     workspaceRoot: path.resolve(parseOption(args, "workspace-root", "SERVICE_LASSO_WORKSPACE_ROOT") ?? defaultDemoWorkspaceRoot),
-    port: Number(parseOption(args, "port", "SERVICE_LASSO_PORT") ?? 18080),
+    port,
+    host,
+    runtimeUrl: parseOption(args, "runtime-url", "SERVICE_LASSO_RUNTIME_URL") ?? `http://127.0.0.1:${port}`,
+    serviceAdminUrl: parseOption(args, "admin-url", "SERVICE_LASSO_ADMIN_URL") ?? "http://127.0.0.1:17700/",
+    demoLogRoot: path.resolve(parseOption(args, "demo-log-root", "SERVICE_LASSO_DEMO_LOG_ROOT") ?? defaultDemoLogRoot),
+    timeoutMs: Number(parseOption(args, "timeout-ms", "SERVICE_LASSO_DEMO_TIMEOUT_MS") ?? 5_000),
+    json: args.includes("--json") || process.env.npm_config_json === "true",
     preserve: args.includes("--preserve"),
     foreground: args.includes("--foreground"),
   };
@@ -45,6 +57,46 @@ async function pathExists(targetPath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+function isSamePath(left, right) {
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+export async function ensureDemoServiceManifests(servicesRoot, options = {}) {
+  const targetServicesRoot = path.resolve(servicesRoot ?? defaultDemoServicesRoot);
+
+  if (isSamePath(targetServicesRoot, defaultDemoServicesRoot)) {
+    return;
+  }
+
+  await mkdir(targetServicesRoot, { recursive: true });
+
+  for (const serviceId of demoServiceIds) {
+    const sourceRoot = path.join(defaultDemoServicesRoot, serviceId);
+    const targetRoot = path.join(targetServicesRoot, serviceId);
+
+    if (!(await pathExists(sourceRoot))) {
+      throw new Error(`Demo service seed source is missing: ${sourceRoot}`);
+    }
+
+    if (options.replace === true) {
+      await rm(targetRoot, { recursive: true, force: true });
+    } else if (await pathExists(path.join(targetRoot, "service.json"))) {
+      continue;
+    }
+
+    await cp(sourceRoot, targetRoot, {
+      recursive: true,
+      force: true,
+      filter: (source) => {
+        const relativePath = path.relative(sourceRoot, source);
+        if (!relativePath) return true;
+        const firstSegment = relativePath.split(path.sep)[0];
+        return firstSegment !== ".state" && firstSegment !== "logs" && firstSegment !== "temp";
+      },
+    });
   }
 }
 
@@ -412,6 +464,7 @@ export async function resetDemoInstance(options = {}) {
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
 
   await rm(workspaceRoot, { recursive: true, force: true });
+  await ensureDemoServiceManifests(servicesRoot, { replace: true });
 
   await Promise.all(
     demoServiceIds.map(async (serviceId) => {
@@ -429,18 +482,713 @@ async function importDistModule(relativePath) {
   return import(pathToFileURL(path.join(repoRoot, "dist", relativePath)).href);
 }
 
-export async function startDemoRuntime(options = {}) {
-  const { startRuntimeApp } = await importDistModule(path.join("runtime", "app.js"));
+function joinUrl(baseUrl, pathname) {
+  return new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).href;
+}
+
+async function fetchStatus(url, timeoutMs, parseJson = false) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const text = await response.text();
+    let body = text;
+
+    if (parseJson && text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      body,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      contentType: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readOptionalJson(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function getDemoLifecyclePaths(workspaceRoot) {
+  const lifecycleRoot = path.join(workspaceRoot, ".service-lasso");
+
+  return {
+    lifecycleRoot,
+    lifecycleStatePath: path.join(lifecycleRoot, "demo-lifecycle.json"),
+  };
+}
+
+function isDashboardSummaryResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && typeof body.summary === "object"
+    && body.summary !== null
+    && typeof body.summary.runtime === "object"
+    && body.summary.runtime !== null
+    && typeof body.summary.servicesTotal === "number"
+  );
+}
+
+function isServiceListResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && Array.isArray(body.services)
+  );
+}
+
+function toServiceState(service) {
+  return {
+    id: service.id,
+    installed: service.lifecycle?.installed === true,
+    configured: service.lifecycle?.configured === true,
+    running: service.lifecycle?.running === true,
+    healthy: service.health?.healthy === true,
+    expectedMode: null,
+  };
+}
+
+function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
+  if (!isServiceListResponse(serviceAdminServicesProbe.body)) {
+    return null;
+  }
+
+  const actualById = new Map(serviceAdminServicesProbe.body.services.map((service) => [service.id, toServiceState(service)]));
+  const actualServiceAdmin = actualById.get("@serviceadmin");
+  const managedServiceAdmin =
+    actualServiceAdmin?.installed === true
+    && actualServiceAdmin?.configured === true
+    && actualServiceAdmin?.running === true
+    && actualServiceAdmin?.healthy === true;
+  const serviceAdminExpected = managedServiceAdmin
+    ? {
+        id: "@serviceadmin",
+        installed: true,
+        configured: true,
+        running: true,
+        healthy: true,
+        expectedMode: "managed_serviceadmin_owns_17700",
+      }
+    : {
+        id: "@serviceadmin",
+        installed: false,
+        configured: false,
+        running: false,
+        healthy: false,
+        expectedMode: "source_admin_owns_17700",
+      };
+  const expected = [
+    { id: "@java", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
+    { id: "@localcert", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
+    { id: "@nginx", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
+    { id: "@traefik", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
+    { id: "@node", installed: true, configured: true, running: false, healthy: true, expectedMode: "provider_ready" },
+    { id: "echo-service", installed: true, configured: true, running: true, healthy: true, expectedMode: "managed_running" },
+    serviceAdminExpected,
+    {
+      id: "node-sample-service",
+      installed: false,
+      configured: false,
+      running: false,
+      healthy: false,
+      expectedMode: "manifest_only_sample",
+    },
+  ];
+  const actual = expected
+    .map(({ id, expectedMode }) => {
+      const state = actualById.get(id);
+      return state ? { ...state, expectedMode } : { id, expectedMode, missing: true };
+    });
+  const mismatches = expected.flatMap((expectedService) => {
+    const actualService = actualById.get(expectedService.id);
+    if (!actualService) {
+      return [{ id: expectedService.id, reason: "missing" }];
+    }
+
+    return ["installed", "configured", "running", "healthy"]
+      .filter((key) => actualService[key] !== expectedService[key])
+      .map((key) => ({
+        id: expectedService.id,
+        field: key,
+        expected: expectedService[key],
+        actual: actualService[key],
+      }));
+  });
+
+  return {
+    ok: mismatches.length === 0,
+    mode: managedServiceAdmin ? "managed_serviceadmin_on_17700" : "source_admin_on_17700",
+    acceptedWarningReason: managedServiceAdmin
+      ? null
+      : "Source Service Admin owns port 17700; the managed @serviceadmin manifest is intentionally present but not installed or started.",
+    expected,
+    actual,
+    mismatches,
+  };
+}
+
+function classifyDemoStatus(runtimeProbe, serviceAdminProbe, serviceAdminDashboardProbe, serviceAdminServicesProbe) {
+  const runtimeHealthy =
+    runtimeProbe.ok
+    && runtimeProbe.status === 200
+    && typeof runtimeProbe.body === "object"
+    && runtimeProbe.body !== null
+    && runtimeProbe.body.status === "ok";
+  const serviceAdminRootReachable = serviceAdminProbe.ok && serviceAdminProbe.status === 200;
+  const serviceAdminDashboardHealthy =
+    serviceAdminDashboardProbe.ok
+    && serviceAdminDashboardProbe.status === 200
+    && isDashboardSummaryResponse(serviceAdminDashboardProbe.body);
+  const serviceAdminHealthy = serviceAdminRootReachable && serviceAdminDashboardHealthy;
+
+  if (runtimeHealthy && serviceAdminHealthy && serviceAdminServicesProbe.ok && serviceAdminServicesProbe.status === 200) {
+    const serviceState = createExpectedServiceStateCheck(serviceAdminServicesProbe);
+    if (!serviceState) {
+      return "service_admin_services_api_non_json";
+    }
+
+    return serviceState.ok ? "healthy" : "canonical_service_state_mismatch";
+  }
+
+  if (runtimeHealthy && serviceAdminHealthy && serviceAdminServicesProbe.status === 200) {
+    return "service_admin_services_api_non_json";
+  }
+
+  if (runtimeHealthy && serviceAdminHealthy) {
+    return "service_admin_services_api_down";
+  }
+
+  if (!runtimeHealthy && !serviceAdminRootReachable) {
+    return "canonical_endpoints_down";
+  }
+
+  if (!runtimeHealthy) {
+    return "runtime_down";
+  }
+
+  if (!serviceAdminRootReachable) {
+    return "service_admin_down";
+  }
+
+  if (serviceAdminDashboardProbe.status === 200 && !isDashboardSummaryResponse(serviceAdminDashboardProbe.body)) {
+    return "service_admin_api_non_json";
+  }
+
+  return "service_admin_api_down";
+}
+
+async function probeTcpListener(targetUrl, timeoutMs) {
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch (error) {
+    return {
+      ok: false,
+      host: null,
+      port: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const port = Number(parsedUrl.port || (parsedUrl.protocol === "https:" ? 443 : 80));
+  const host = parsedUrl.hostname;
+
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      resolve({ ok: false, host, port, error: "connect timeout" });
+    }, timeoutMs);
+
+    socket.once("connect", () => {
+      clearTimeout(timeout);
+      socket.end();
+      resolve({ ok: true, host, port, error: null });
+    });
+
+    socket.once("error", (error) => {
+      clearTimeout(timeout);
+      resolve({
+        ok: false,
+        host,
+        port,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+}
+
+function readLockUpdatedAt(recoveryLock) {
+  if (!recoveryLock || typeof recoveryLock !== "object") {
+    return null;
+  }
+
+  for (const key of ["updatedAt", "startedAt", "createdAt", "checkedAt"]) {
+    const value = recoveryLock[key];
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const timestamp = Date.parse(value);
+    if (Number.isFinite(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+function hasWrongWorkspaceOwner(status) {
+  const ownerWorkspaceRoot = status.lifecycleState?.owner?.workspaceRoot;
+  return typeof ownerWorkspaceRoot === "string" && path.resolve(ownerWorkspaceRoot) !== status.paths.workspaceRoot;
+}
+
+function classifyDemoGate(status, runtimeListener, staleRecoveryLockMs) {
+  if (status.ok) {
+    return "healthy";
+  }
+
+  if (hasWrongWorkspaceOwner(status)) {
+    return "wrong_workspace_owner";
+  }
+
+  if (status.recoveryLock) {
+    const lockUpdatedAt = readLockUpdatedAt(status.recoveryLock);
+    if (lockUpdatedAt && Date.now() - lockUpdatedAt > staleRecoveryLockMs) {
+      return "stale_recovery_lock";
+    }
+
+    return "recovery_in_progress";
+  }
+
+  if (!status.endpoints.runtime.ok && runtimeListener.ok) {
+    return "runtime_port_owner_conflict";
+  }
+
+  return status.classification;
+}
+
+function getGateNextSafeAction(classification) {
+  switch (classification) {
+    case "healthy":
+      return "Continue with issue selection or validation.";
+    case "recovered":
+      return "Continue with issue selection or validation; the gate recovered the canonical runtime.";
+    case "wrong_workspace_owner":
+      return "Inspect lifecycle state owner and reconcile the demo workspace before starting a new runtime.";
+    case "stale_recovery_lock":
+      return "Inspect the recovery lock and demo logs, then remove or refresh stale recovery state only after confirming no recovery process is active.";
+    case "recovery_in_progress":
+      return "Wait for the active recovery owner to finish, or inspect the recovery lock if it is not progressing.";
+    case "runtime_port_owner_conflict":
+      return "Inspect the process listening on the runtime port before recycling the canonical demo.";
+    case "service_admin_down":
+      return "Recover or restart Service Admin, then run demo:gate again.";
+    case "service_admin_api_down":
+      return "Recover the Service Admin same-origin runtime API proxy, then run demo:gate again.";
+    case "service_admin_api_non_json":
+      return "Fix the Service Admin same-origin runtime API proxy so /api/dashboard returns runtime JSON, then run demo:gate again.";
+    case "service_admin_services_api_down":
+      return "Recover the Service Admin same-origin /api/services proxy, then run demo:gate again.";
+    case "service_admin_services_api_non_json":
+      return "Fix the Service Admin same-origin runtime API proxy so /api/services returns service JSON, then run demo:gate again.";
+    case "canonical_service_state_mismatch":
+      return "Recycle the canonical demo or update the expected source-Admin service-state contract before treating the demo as healthy.";
+    case "runtime_down":
+      return "Start or recycle the canonical runtime, then run demo:gate again.";
+    case "canonical_endpoints_down":
+      return "Recover the canonical runtime and Service Admin endpoints, then run demo:gate again.";
+    case "service_startup_failure":
+      return "Inspect the detached runtime log and lifecycle state before retrying demo recovery.";
+    default:
+      return "Inspect the reported endpoint and lifecycle evidence before manual recovery.";
+  }
+}
+
+function isRecoverableGateClassification(classification) {
+  return classification === "runtime_down" || classification === "canonical_endpoints_down";
+}
+
+function createLogTimestamp(date = new Date()) {
+  return date.toISOString().replaceAll(":", "").replaceAll(".", "-");
+}
+
+export async function startDetachedDemoRuntime(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const runtimeEntry = path.join(repoRoot, "scripts", "demo-start.mjs");
+  const logPath = path.join(demoLogRoot, `demo-runtime-${createLogTimestamp()}.log`);
+
+  await mkdir(demoLogRoot, { recursive: true });
+
+  await ensureDemoServiceManifests(servicesRoot);
+
+  const outputFd = openSync(logPath, "a");
+  try {
+    const child = spawn(process.execPath, [
+      "--enable-source-maps",
+      runtimeEntry,
+      "--preserve",
+      `--port=${port}`,
+      `--host=${options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1"}`,
+      `--services-root=${servicesRoot}`,
+      `--workspace-root=${workspaceRoot}`,
+      `--admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
+    ], {
+      cwd: repoRoot,
+      detached: true,
+      env: {
+        ...process.env,
+        SERVICE_LASSO_PORT: String(port),
+        SERVICE_LASSO_HOST: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
+        SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
+        SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
+      },
+      stdio: ["ignore", outputFd, outputFd],
+      windowsHide: true,
+    });
+
+    child.unref();
+
+    return {
+      pid: child.pid ?? null,
+      command: `${process.execPath} --enable-source-maps ${runtimeEntry} --preserve --port=${port}`,
+      logPath,
+      servicesRoot,
+      workspaceRoot,
+      port,
+    };
+  } finally {
+    closeSync(outputFd);
+  }
+}
+
+export async function getDemoStatus(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
+  const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
+  const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const { lifecycleRoot, lifecycleStatePath } = getDemoLifecyclePaths(workspaceRoot);
+  const recoveryLockPath = path.join(demoLogRoot, "demo-watchdog.lock.json");
+  const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
+  const serviceAdminDashboardUrl = joinUrl(serviceAdminUrl, "/api/dashboard");
+  const serviceAdminServicesUrl = joinUrl(serviceAdminUrl, "/api/services");
+  const [
+    runtimeProbe,
+    serviceAdminProbe,
+    serviceAdminDashboardProbe,
+    serviceAdminServicesProbe,
+    lifecycleState,
+    recoveryLock,
+  ] = await Promise.all([
+    fetchStatus(runtimeHealthUrl, timeoutMs, true),
+    fetchStatus(serviceAdminUrl, timeoutMs),
+    fetchStatus(serviceAdminDashboardUrl, timeoutMs, true),
+    fetchStatus(serviceAdminServicesUrl, timeoutMs, true),
+    readOptionalJson(lifecycleStatePath),
+    readOptionalJson(recoveryLockPath),
+  ]);
+  const serviceState = createExpectedServiceStateCheck(serviceAdminServicesProbe);
+  const classification = classifyDemoStatus(
+    runtimeProbe,
+    serviceAdminProbe,
+    serviceAdminDashboardProbe,
+    serviceAdminServicesProbe,
+  );
 
-  return startRuntimeApp({
+  return {
+    ok: classification === "healthy",
+    classification,
+    checkedAt: new Date().toISOString(),
+    endpoints: {
+      runtime: {
+        url: runtimeUrl,
+        healthUrl: runtimeHealthUrl,
+        ok: runtimeProbe.ok,
+        status: runtimeProbe.status,
+        health: typeof runtimeProbe.body === "object" && runtimeProbe.body !== null ? runtimeProbe.body.status : null,
+        error: runtimeProbe.error ?? null,
+      },
+      serviceAdmin: {
+        url: serviceAdminUrl,
+        ok: serviceAdminProbe.ok,
+        status: serviceAdminProbe.status,
+        contentType: serviceAdminProbe.contentType,
+        dashboardUrl: serviceAdminDashboardUrl,
+        dashboardOk:
+          serviceAdminDashboardProbe.ok
+          && serviceAdminDashboardProbe.status === 200
+          && isDashboardSummaryResponse(serviceAdminDashboardProbe.body),
+        dashboardStatus: serviceAdminDashboardProbe.status,
+        dashboardContentType: serviceAdminDashboardProbe.contentType,
+        dashboardSummary: isDashboardSummaryResponse(serviceAdminDashboardProbe.body)
+          ? {
+            runtimeStatus: serviceAdminDashboardProbe.body.summary.runtime.status,
+            servicesTotal: serviceAdminDashboardProbe.body.summary.servicesTotal,
+            servicesRunning: serviceAdminDashboardProbe.body.summary.servicesRunning,
+            servicesStopped: serviceAdminDashboardProbe.body.summary.servicesStopped,
+            servicesDegraded: serviceAdminDashboardProbe.body.summary.servicesDegraded,
+          }
+          : null,
+        error: serviceAdminProbe.error ?? null,
+        dashboardError: serviceAdminDashboardProbe.error
+          ?? (serviceAdminDashboardProbe.status === 200 && !isDashboardSummaryResponse(serviceAdminDashboardProbe.body)
+            ? "Expected Service Admin /api/dashboard to return runtime JSON."
+            : null),
+        servicesUrl: serviceAdminServicesUrl,
+        servicesOk:
+          serviceAdminServicesProbe.ok
+          && serviceAdminServicesProbe.status === 200
+          && isServiceListResponse(serviceAdminServicesProbe.body),
+        servicesStatus: serviceAdminServicesProbe.status,
+        servicesContentType: serviceAdminServicesProbe.contentType,
+        serviceState,
+        servicesError: serviceAdminServicesProbe.error
+          ?? (serviceAdminServicesProbe.status === 200 && !isServiceListResponse(serviceAdminServicesProbe.body)
+            ? "Expected Service Admin /api/services to return service JSON."
+            : null),
+      },
+    },
+    paths: {
+      servicesRoot,
+      workspaceRoot,
+      lifecycleRoot,
+      lifecycleStatePath,
+      demoLogRoot,
+      recoveryLockPath,
+    },
+    lifecycleState,
+    recoveryLock,
+  };
+}
+
+export async function getDemoGateReport(options = {}) {
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const status = await getDemoStatus(options);
+  const runtimeListener = await probeTcpListener(status.endpoints.runtime.url, timeoutMs);
+  const classification = classifyDemoGate(status, runtimeListener, options.staleRecoveryLockMs ?? 10 * 60 * 1_000);
+  const shouldRecover = options.recover !== false && isRecoverableGateClassification(classification);
+  const recovery = {
+    attempted: false,
+    startedRuntime: null,
+    error: null,
+  };
+
+  if (shouldRecover) {
+    recovery.attempted = true;
+
+    try {
+      const startRuntime = options.startDetachedRuntime ?? startDetachedDemoRuntime;
+      recovery.startedRuntime = await startRuntime(options);
+      const recoveredStatus = await waitFor(async () => {
+        const nextStatus = await getDemoStatus(options);
+        return nextStatus.ok ? nextStatus : null;
+      }, options.recoveryTimeoutMs ?? Math.max(timeoutMs, 5_000), options.recoveryPollIntervalMs ?? 250);
+      const recoveredListener = await probeTcpListener(recoveredStatus.endpoints.runtime.url, timeoutMs);
+      const gate = {
+        ok: true,
+        classification: "recovered",
+        sourceClassification: status.classification,
+        checkedAt: new Date().toISOString(),
+        phase: "gate_recovered",
+        runtimeListener: recoveredListener,
+        recovery,
+        nextSafeAction: getGateNextSafeAction("recovered"),
+      };
+      const lifecycleState = await writeDemoLifecycleState(recoveredStatus, {
+        phase: gate.phase,
+        classification: "recovered",
+        gate,
+      });
+
+      return {
+        ...recoveredStatus,
+        ok: true,
+        classification: "recovered",
+        gate,
+        lifecycleState,
+      };
+    } catch (error) {
+      recovery.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const finalStatus = recovery.attempted ? await getDemoStatus(options) : status;
+  const finalRuntimeListener = recovery.attempted
+    ? await probeTcpListener(finalStatus.endpoints.runtime.url, timeoutMs)
+    : runtimeListener;
+  const finalGateClassification = recovery.attempted
+    ? classifyDemoGate(finalStatus, finalRuntimeListener, options.staleRecoveryLockMs ?? 10 * 60 * 1_000)
+    : classification;
+  const finalClassification = recovery.attempted && isRecoverableGateClassification(finalGateClassification)
+    ? "service_startup_failure"
+    : finalGateClassification;
+  const ok = finalClassification === "healthy";
+  const gate = {
+    ok,
+    classification: finalClassification,
+    sourceClassification: status.classification,
+    checkedAt: new Date().toISOString(),
+    phase: ok ? "gate_healthy" : "gate_blocked",
+    runtimeListener: finalRuntimeListener,
+    recovery,
+    nextSafeAction: getGateNextSafeAction(finalClassification),
+  };
+  const lifecycleState = await writeDemoLifecycleState(finalStatus, {
+    phase: gate.phase,
+    classification: finalClassification,
+    gate,
+  });
+
+  return {
+    ...finalStatus,
+    ok,
+    classification: finalClassification,
+    gate,
+    lifecycleState,
+  };
+}
+
+function summarizePreviousLifecycleState(lifecycleState) {
+  if (!lifecycleState || typeof lifecycleState !== "object") {
+    return null;
+  }
+
+  return {
+    schemaVersion: lifecycleState.schemaVersion ?? null,
+    updatedAt: lifecycleState.updatedAt ?? null,
+    phase: lifecycleState.phase ?? null,
+    classification: lifecycleState.classification ?? null,
+    owner: lifecycleState.owner ?? null,
+    gate: lifecycleState.gate ?? null,
+  };
+}
+
+export async function writeDemoLifecycleState(status, updates = {}) {
+  const lifecycleStatePath = status.paths.lifecycleStatePath;
+  const nextState = {
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    phase: updates.phase ?? (status.ok ? "healthy" : "blocked"),
+    classification: updates.classification ?? status.classification,
+    owner: {
+      pid: process.pid,
+      command: path.basename(process.argv[1] ?? "node"),
+      workspaceRoot: status.paths.workspaceRoot,
+      servicesRoot: status.paths.servicesRoot,
+      runtimeUrl: status.endpoints.runtime.url,
+      serviceAdminUrl: status.endpoints.serviceAdmin.url,
+    },
+    endpoints: status.endpoints,
+    paths: status.paths,
+    previousState: summarizePreviousLifecycleState(status.lifecycleState),
+    ...updates,
+  };
+
+  await mkdir(path.dirname(lifecycleStatePath), { recursive: true });
+  await writeFile(lifecycleStatePath, `${JSON.stringify(nextState, null, 2)}\n`, "utf8");
+
+  return nextState;
+}
+
+export function printDemoStatus(status) {
+  console.log(`[service-lasso demo] status ${status.classification}`);
+  console.log(`- ok: ${status.ok ? "yes" : "no"}`);
+  console.log(`- runtime: ${status.endpoints.runtime.healthUrl} -> ${status.endpoints.runtime.status ?? status.endpoints.runtime.error}`);
+  console.log(`- serviceAdmin: ${status.endpoints.serviceAdmin.url} -> ${status.endpoints.serviceAdmin.status ?? status.endpoints.serviceAdmin.error}`);
+  console.log(`- serviceAdminDashboard: ${status.endpoints.serviceAdmin.dashboardUrl} -> ${status.endpoints.serviceAdmin.dashboardStatus ?? status.endpoints.serviceAdmin.dashboardError}`);
+  console.log(`- serviceAdminServices: ${status.endpoints.serviceAdmin.servicesUrl} -> ${status.endpoints.serviceAdmin.servicesStatus ?? status.endpoints.serviceAdmin.servicesError}`);
+  if (status.endpoints.serviceAdmin.serviceState?.acceptedWarningReason) {
+    console.log(`- serviceStateMode: ${status.endpoints.serviceAdmin.serviceState.mode}`);
+    console.log(`- acceptedWarningReason: ${status.endpoints.serviceAdmin.serviceState.acceptedWarningReason}`);
+  }
+  console.log(`- servicesRoot: ${status.paths.servicesRoot}`);
+  console.log(`- workspaceRoot: ${status.paths.workspaceRoot}`);
+  console.log(`- lifecycleState: ${status.paths.lifecycleStatePath}`);
+  console.log(`- demoLogs: ${status.paths.demoLogRoot}`);
+}
+
+export function printDemoGateReport(report) {
+  console.log(`[service-lasso demo] gate ${report.classification}`);
+  console.log(`- ok: ${report.ok ? "yes" : "no"}`);
+  console.log(`- runtime: ${report.endpoints.runtime.healthUrl} -> ${report.endpoints.runtime.status ?? report.endpoints.runtime.error}`);
+  console.log(`- runtimeListener: ${report.gate.runtimeListener.host}:${report.gate.runtimeListener.port} -> ${report.gate.runtimeListener.ok ? "open" : report.gate.runtimeListener.error}`);
+  console.log(`- serviceAdmin: ${report.endpoints.serviceAdmin.url} -> ${report.endpoints.serviceAdmin.status ?? report.endpoints.serviceAdmin.error}`);
+  console.log(`- serviceAdminDashboard: ${report.endpoints.serviceAdmin.dashboardUrl} -> ${report.endpoints.serviceAdmin.dashboardStatus ?? report.endpoints.serviceAdmin.dashboardError}`);
+  console.log(`- serviceAdminServices: ${report.endpoints.serviceAdmin.servicesUrl} -> ${report.endpoints.serviceAdmin.servicesStatus ?? report.endpoints.serviceAdmin.servicesError}`);
+  if (report.endpoints.serviceAdmin.serviceState?.acceptedWarningReason) {
+    console.log(`- serviceStateMode: ${report.endpoints.serviceAdmin.serviceState.mode}`);
+    console.log(`- acceptedWarningReason: ${report.endpoints.serviceAdmin.serviceState.acceptedWarningReason}`);
+  }
+  console.log(`- servicesRoot: ${report.paths.servicesRoot}`);
+  console.log(`- workspaceRoot: ${report.paths.workspaceRoot}`);
+  console.log(`- lifecycleState: ${report.paths.lifecycleStatePath}`);
+  console.log(`- recoveryLock: ${report.paths.recoveryLockPath}`);
+  if (report.gate.recovery?.attempted) {
+    console.log(`- recoveryRuntimeLog: ${report.gate.recovery.startedRuntime?.logPath ?? report.gate.recovery.error}`);
+  }
+  console.log(`- nextSafeAction: ${report.gate.nextSafeAction}`);
+}
+
+export async function startDemoRuntime(options = {}) {
+  const { startRuntimeApp } = await importDistModule(path.join("runtime", "app.js"));
+  const { bootstrapBaselineServices } = await importDistModule(path.join("runtime", "cli", "bootstrap.js"));
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
+  const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
+  await ensureDemoServiceManifests(servicesRoot);
+  let bootstrap = null;
+  if (options.skipBootstrap !== true) {
+    const serviceAdminProbe = await fetchStatus(serviceAdminUrl, Math.min(options.timeoutMs ?? 5_000, 1_000));
+    const baselineServiceIds = serviceAdminProbe.ok
+      ? defaultBaselineServiceIds.filter((serviceId) => serviceId !== "@serviceadmin")
+      : defaultBaselineServiceIds;
+    bootstrap = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: process.env.npm_package_version ?? "0.1.0",
+      serviceIds: baselineServiceIds,
+    });
+  }
+  const runtime = await startRuntimeApp({
     servicesRoot,
     workspaceRoot,
     port,
+    host,
     version: process.env.npm_package_version ?? "0.1.0",
   });
+  runtime.bootstrap = bootstrap;
+
+  return runtime;
 }
 
 async function getJson(url, method = "GET", timeoutMs = 30_000) {
@@ -547,7 +1295,7 @@ export async function runDemoRecycle(options = {}) {
   await assertDemoPortsAvailable({ port, workspaceRoot });
   await resetDemoInstance({ servicesRoot, workspaceRoot });
 
-  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port });
+  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, skipBootstrap: true });
   let servicesStopped = false;
   let runtimeKeptAlive = false;
 
@@ -666,7 +1414,7 @@ export async function runDemoSmoke(options = {}) {
 
   await resetDemoInstance({ servicesRoot, workspaceRoot });
 
-  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port });
+  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, skipBootstrap: true });
 
   try {
     const health = await getJson(`${runtime.apiServer.url}/api/health`);
@@ -686,6 +1434,12 @@ export async function runDemoSmoke(options = {}) {
       services.body.services.some((service) => service.id === "node-sample-service"),
       "Expected node-sample-service in demo services list.",
     );
+    for (const serviceId of defaultBaselineServiceIds) {
+      assertCondition(
+        services.body.services.some((service) => service.id === serviceId),
+        `Expected ${serviceId} in demo services list.`,
+      );
+    }
 
     for (const action of ["install", "config", "start"]) {
       const result = await getJson(`${runtime.apiServer.url}/api/services/echo-service/${action}`, "POST");
@@ -711,7 +1465,7 @@ export async function runDemoSmoke(options = {}) {
 
     assertCondition(echoHealth.body.health.healthy === true, "Expected echo-service health to be healthy after start.");
     assertCondition(echoLogs.body.logs.logPath.endsWith(path.join("echo-service", "logs", "runtime", "service.log")), "Expected echo-service runtime log path.");
-    assertCondition(echoMetrics.body.metrics.process.launchCount === 1, "Expected echo-service launch count to be 1.");
+    assertCondition(echoMetrics.body.metrics.process.launchCount >= 1, "Expected echo-service launch count to be at least 1.");
     assertCondition(echoMetrics.body.metrics.process.running === true, "Expected echo-service metrics to report running.");
     assertCondition(echoState.running === true, "Expected echo-service persisted runtime state to report running.");
 
@@ -788,7 +1542,13 @@ export async function runDemoSmoke(options = {}) {
       summary: {
         health: health.body.status,
         runtimeServices: runtimeSummary.body.runtime.totalServices,
-        demoServicesExercised: ["echo-service", "@node", "node-sample-service"],
+        defaultBaselineServices: defaultBaselineServiceIds,
+        demoServicesExercised: [
+          "echo-service",
+          "@node",
+          "node-sample-service",
+          ...defaultBaselineServiceIds.filter((serviceId) => serviceId !== "echo-service" && serviceId !== "@node"),
+        ],
       },
     };
   } finally {

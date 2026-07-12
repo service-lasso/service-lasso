@@ -213,13 +213,14 @@ Numeric service location classification value.
 
 ## `actions`
 
-`actions` is where the service defines or overrides named lifecycle actions.
+`actions` is where the service defines or overrides named lifecycle and operator actions.
 
 Current intended rule:
 
 - actions correspond to known Service Lasso lifecycle/action names
 - service config can override how a named action behaves for that service
 - if a service does not override a supported action, Lasso default behavior applies
+- scheduled operations stay attached to the action they trigger
 
 Current sample actions:
 
@@ -227,6 +228,11 @@ Current sample actions:
 - `config`
 - `start`
 - `stop`
+- `backup`
+- `restart`
+- `validate`
+- `export`
+- `update-check`
 
 ### Current action examples
 
@@ -247,6 +253,85 @@ Current sample actions:
 }
 ```
 
+### Scheduled actions
+
+A scheduled operation is still a service action. Cron is only one trigger attached to that action.
+
+Backup, restart, validate, export, update-check, and similar operations should be modeled as actions. If an action needs automation, declare one or more schedules under `actions.<actionId>.schedules`.
+
+Do not create a separate top-level cron or schedules list that points back at an action. Service Lasso keeps the action definition, service context, cwd/env resolution, permissions, logs, and audit under the service action.
+
+```json
+"actions": {
+  "backup": {
+    "label": "Backup",
+    "description": "Create a verified service backup.",
+    "mode": "workflow",
+    "requiredState": "running",
+    "requiresConfirmation": true,
+    "manualOnly": false,
+    "timeoutSeconds": 900,
+    "steps": [
+      { "id": "stop", "type": "service-lasso-action", "actionId": "stop" },
+      { "id": "backup", "type": "service-lasso-action", "actionId": "backup" },
+      { "id": "verify", "type": "service-lasso-action", "actionId": "verify-backup" },
+      { "id": "start", "type": "service-lasso-action", "actionId": "start", "run": "always", "condition": "was-running-before-workflow" }
+    ],
+    "schedules": {
+      "nightly": {
+        "label": "Nightly backup",
+        "enabled": true,
+        "cron": "15 2 * * *",
+        "timezone": "Australia/Sydney",
+        "concurrencyPolicy": "skip-if-running",
+        "failurePolicy": "record",
+        "parameters": {
+          "retainDays": 7
+        }
+      }
+    }
+  }
+}
+```
+
+Action fields currently validated by discovery:
+- `label` and `description`
+- `mode`: `built-in`, `command`, `workflow`, or `handler`
+- `command`, `commandline`, and `args` for command-backed actions
+- `cwd` and `env`, resolved in the service context
+- `timeoutSeconds`
+- `requiredState`: `any`, `running`, or `stopped`
+- `requiresConfirmation` and `manualOnly`
+- `permissions`
+- `steps` for workflow-backed actions
+- `payload`: opt-in inline/reference action payload policy
+- `schedules`
+
+Workflow step fields currently validated by discovery:
+- `id`
+- `type`: currently `service-lasso-action`
+- `actionId`: action invoked for this workflow step
+- `run`: `on-success` or `always`
+- `condition`
+- `parameters`
+
+Action payloads are documented in `docs/reference/service-action-inputs.md`.
+An action can allow inline request payloads, stored payload references, or both.
+The runtime resolves references from `.state/action-payloads/<payloadRef>.json`,
+checks the resolved payload against the action schema, exposes it to the action
+process as `SERVICE_LASSO_ACTION_PAYLOAD`, and stores only the payload reference
+id plus whitelisted inline fields in action history.
+
+Schedule fields currently validated by discovery:
+- schedule id from the `schedules` map key
+- `label`
+- `enabled`
+- `cron`: 5- or 6-field cron expression
+- `timezone`, omitted to inherit the app timezone
+- `concurrencyPolicy`: `skip-if-running` or `allow-parallel`
+- `failurePolicy`: `record`, `retry`, or `disable-schedule`
+- `parameters`
+
 ### Current action semantics direction
 
 - `install`
@@ -258,7 +343,9 @@ Current sample actions:
 - `stop`
   - stop the service gracefully
 
-Additional action names may exist later, but this first-pass template should stay small and lifecycle-focused.
+Finite lifecycle actions continue to use their existing bounded runtime behavior. Scheduled actions add contract metadata for later workflow/scheduler consumers; they do not turn cron into a separate service-level action list.
+
+The runtime publishes scheduled action workflows through `GET /api/workflows/registry`. The registry is generated from validated service manifests, hides disabled services and disabled schedules, and includes stable workflow ids, service/action/schedule metadata, tags, workflow steps, and per-entry checksums for Dagu drift detection.
 
 ## `execconfig`
 
