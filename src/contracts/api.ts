@@ -155,11 +155,14 @@ export interface AuditEvent {
   chainStatus: "valid";
 }
 
+export type AuditChainStatus = "verified" | "broken" | "unavailable" | "mixed";
+
 export interface AuditQuery {
   serviceId?: string;
   actor?: string;
   action?: string;
   outcome?: AuditEventOutcome;
+  subjectType?: string;
   source?: string;
   since?: string;
   until?: string;
@@ -170,6 +173,10 @@ export interface AuditQuery {
 
 export interface AuditResponse {
   events: AuditEvent[];
+  nextCursor: string | null;
+  source: "runtime-audit";
+  chainStatus: AuditChainStatus;
+  rawMaterialReturned: false;
   pagination: {
     limit: number;
     nextCursor: string | null;

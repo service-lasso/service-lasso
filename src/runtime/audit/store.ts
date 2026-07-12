@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import type { AuditEvent, AuditEventOutcome, AuditQuery, AuditResponse } from "../../contracts/api.js";
+import type { AuditChainStatus, AuditEvent, AuditEventOutcome, AuditQuery, AuditResponse } from "../../contracts/api.js";
 
 export interface AppendAuditEventInput {
   workspaceRoot?: string;
@@ -154,6 +154,7 @@ function matchesQuery(event: AuditEvent, query: AuditQuery): boolean {
   if (query.actor && event.actor !== query.actor) return false;
   if (query.action && event.action !== query.action) return false;
   if (query.outcome && event.outcome !== query.outcome) return false;
+  if (query.subjectType && (event as AuditEvent & { subjectType?: string }).subjectType !== query.subjectType) return false;
   if (query.source && event.source !== query.source) return false;
   if (query.since && event.timestamp < query.since) return false;
   if (query.until && event.timestamp > query.until) return false;
@@ -182,6 +183,47 @@ function matchesQuery(event: AuditEvent, query: AuditQuery): boolean {
   return true;
 }
 
+function getEventChainStatus(events: AuditEvent[]): AuditChainStatus {
+  if (events.length === 0) return "unavailable";
+
+  const statuses = new Set<Exclude<AuditChainStatus, "mixed">>();
+  const chains = new Map<string, AuditEvent[]>();
+
+  for (const event of events) {
+    const chain = chains.get(event.chainId) ?? [];
+    chain.push(event);
+    chains.set(event.chainId, chain);
+  }
+
+  for (const chain of chains.values()) {
+    const ordered = [...chain].sort((left, right) => left.sequence - right.sequence);
+    let previousHash: string | null = null;
+    let chainStatus: Exclude<AuditChainStatus, "mixed"> = "verified";
+
+    for (const event of ordered) {
+      if (!event.eventHash || event.previousHash !== previousHash) {
+        chainStatus = "broken";
+        break;
+      }
+
+      const expectedHash = stableHash({
+        ...event,
+        eventHash: "",
+      });
+      if (event.eventHash !== expectedHash) {
+        chainStatus = "broken";
+        break;
+      }
+
+      previousHash = event.eventHash;
+    }
+
+    statuses.add(chainStatus);
+  }
+
+  return statuses.size === 1 ? [...statuses][0] : "mixed";
+}
+
 export async function readAuditEvents(input: ReadAuditEventsInput): Promise<AuditResponse> {
   const query = input.query ?? {};
   const limit = normalizeLimit(query.limit);
@@ -207,12 +249,20 @@ export async function readAuditEvents(input: ReadAuditEventsInput): Promise<Audi
   )
     .flat()
     .filter((event) => matchesQuery(event, query))
-    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    .sort((left, right) =>
+      right.timestamp.localeCompare(left.timestamp) ||
+      right.sequence - left.sequence ||
+      right.id.localeCompare(left.id),
+    );
   const page = events.slice(cursor, cursor + limit);
   const nextCursor = cursor + page.length < events.length ? String(cursor + page.length) : null;
 
   return {
     events: page,
+    nextCursor,
+    source: "runtime-audit",
+    chainStatus: getEventChainStatus(events),
+    rawMaterialReturned: false,
     pagination: {
       limit,
       nextCursor,

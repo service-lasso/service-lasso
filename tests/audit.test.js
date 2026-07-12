@@ -192,6 +192,10 @@ test("audit API returns durable safe service and runtime mutation events after r
     const initial = await getJson(`${apiServer.url}/api/audit`);
     assert.equal(initial.status, 200);
     assert.deepEqual(initial.body.events, []);
+    assert.equal(initial.body.source, "runtime-audit");
+    assert.equal(initial.body.chainStatus, "unavailable");
+    assert.equal(initial.body.rawMaterialReturned, false);
+    assert.equal(initial.body.nextCursor, null);
 
     const install = await postJson(`${apiServer.url}/api/services/audit-service/install`);
     assert.equal(install.status, 200);
@@ -252,6 +256,10 @@ test("audit API returns durable safe service and runtime mutation events after r
 
     const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=10`);
     assert.equal(audit.status, 200);
+    assert.equal(audit.body.source, "runtime-audit");
+    assert.equal(audit.body.chainStatus, "verified");
+    assert.equal(audit.body.rawMaterialReturned, false);
+    assert.equal(audit.body.nextCursor, null);
     assert.equal(audit.body.pagination.total, 10);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
@@ -312,6 +320,23 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(runtimeAudit.status, 200);
     assert.equal(runtimeAudit.body.events.length, 1);
     assert.equal(runtimeAudit.body.events[0].chainId, "runtime");
+    assert.equal(runtimeAudit.body.chainStatus, "verified");
+
+    const serviceScopedAudit = await getJson(`${apiServer.url}/api/services/audit-service/audit?limit=4`);
+    assert.equal(serviceScopedAudit.status, 200);
+    assert.equal(serviceScopedAudit.body.source, "runtime-audit");
+    assert.equal(serviceScopedAudit.body.chainStatus, "verified");
+    assert.equal(serviceScopedAudit.body.rawMaterialReturned, false);
+    assert.equal(serviceScopedAudit.body.events.length, 4);
+    assert.equal(serviceScopedAudit.body.pagination.total, 10);
+    assert.equal(serviceScopedAudit.body.nextCursor, "4");
+    assert.deepEqual([...new Set(serviceScopedAudit.body.events.map((event) => event.serviceId))], ["audit-service"]);
+
+    const nextServiceAuditPage = await getJson(`${apiServer.url}/api/services/audit-service/audit?limit=4&cursor=${serviceScopedAudit.body.nextCursor}`);
+    assert.equal(nextServiceAuditPage.status, 200);
+    assert.equal(nextServiceAuditPage.body.events.length, 4);
+    assert.equal(nextServiceAuditPage.body.pagination.total, 10);
+    assert.equal(nextServiceAuditPage.body.nextCursor, "8");
 
     const secretSearch = await getJson(`${apiServer.url}/api/audit?query=SUPER_SECRET_VALUE`);
     assert.equal(secretSearch.status, 200);
