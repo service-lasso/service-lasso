@@ -25,6 +25,8 @@ export interface ServiceRuntimeLogArchive {
   stderrPath: string;
 }
 
+export type ServiceLogType = "default" | "stdout" | "stderr";
+
 export interface ServiceLogsPayload extends ServiceRuntimeLogPaths {
   serviceId: string;
   entries: ServiceLogEntry[];
@@ -263,6 +265,12 @@ function buildSyntheticEntries(serviceId: string, lifecycle: ServiceLifecycleSta
     level: "info" as const,
     message: `${serviceId}:${action}`,
   }));
+}
+
+function getRuntimeLogPathByType(paths: ServiceRuntimeLogPaths, type: ServiceLogType): string {
+  if (type === "stdout") return paths.stdoutPath;
+  if (type === "stderr") return paths.stderrPath;
+  return paths.logPath;
 }
 
 async function readRuntimeLogEntries(logPath: string): Promise<ServiceLogEntry[]> {

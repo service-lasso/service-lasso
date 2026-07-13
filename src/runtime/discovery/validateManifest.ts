@@ -5,6 +5,13 @@ import type {
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
   ServiceHookStep,
+  ServiceActionConcurrencyPolicy,
+  ServiceActionFailurePolicy,
+  ServiceActionMode,
+  ServiceActionPayloadJsonType,
+  ServiceActionPayloadSchema,
+  ServiceActionRequiredState,
+  ServiceActionWorkflowStep,
   ServiceManifest,
   ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
@@ -21,6 +28,11 @@ const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-s
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
 const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
+const actionModes = new Set(["built-in", "command", "workflow", "handler"]);
+const actionRequiredStates = new Set(["any", "running", "stopped"]);
+const actionConcurrencyPolicies = new Set(["skip-if-running", "allow-parallel"]);
+const actionFailurePolicies = new Set(["record", "retry", "disable-schedule"]);
+const actionPayloadJsonTypes = new Set(["string", "number", "integer", "boolean", "object", "array", "null"]);
 const brokerAccessOperations = new Set(["resolve", "create", "update", "rotate", "delete"]);
 const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "global"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
@@ -379,6 +391,328 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
   );
 
   return { steps };
+}
+
+function readStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an array of non-empty strings.`);
+  }
+
+  return value.map((entry) => entry.trim());
+}
+
+function readJsonObject(value: unknown, field: string, manifestPath: string): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readActionPayloadSchema(
+  value: unknown,
+  field: string,
+  manifestPath: string,
+): ServiceActionPayloadSchema | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawType = record.type;
+  let type: ServiceActionPayloadJsonType | ServiceActionPayloadJsonType[] | undefined;
+
+  if (rawType !== undefined) {
+    const values = Array.isArray(rawType) ? rawType : [rawType];
+    if (values.some((entry) => typeof entry !== "string" || !actionPayloadJsonTypes.has(entry))) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${field}.type" to use JSON schema primitive type names.`,
+      );
+    }
+    type = Array.isArray(rawType)
+      ? values.map((entry) => entry as ServiceActionPayloadJsonType)
+      : (rawType as ServiceActionPayloadJsonType);
+  }
+
+  const required = readStringArray(record.required, `${field}.required`, manifestPath);
+  const rawProperties = record.properties;
+  let properties: Record<string, ServiceActionPayloadSchema> | undefined;
+
+  if (rawProperties !== undefined) {
+    if (!rawProperties || typeof rawProperties !== "object" || Array.isArray(rawProperties)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.properties" to be an object.`);
+    }
+
+    properties = Object.fromEntries(
+      Object.entries(rawProperties as Record<string, unknown>).map(([propertyName, propertySchema]) => {
+        const normalizedProperty = propertyName.trim();
+        const parsedSchema = readActionPayloadSchema(propertySchema, `${field}.properties.${normalizedProperty}`, manifestPath);
+        if (!parsedSchema) {
+          throw new Error(
+            `Invalid service manifest at ${manifestPath}: expected "${field}.properties.${normalizedProperty}" to be an object.`,
+          );
+        }
+        return [normalizedProperty, parsedSchema];
+      }),
+    );
+  }
+
+  return {
+    type,
+    required,
+    properties,
+    additionalProperties: expectOptionalBoolean(record.additionalProperties, `${field}.additionalProperties`, manifestPath),
+  };
+}
+
+function readActionPayloadPolicy(
+  value: unknown,
+  actionField: string,
+  manifestPath: string,
+): NonNullable<ServiceManifest["actions"]>[string]["payload"] {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const field = `${actionField}.payload`;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    inline: expectOptionalBoolean(record.inline, `${field}.inline`, manifestPath),
+    references: expectOptionalBoolean(record.references, `${field}.references`, manifestPath),
+    allowMixed: expectOptionalBoolean(record.allowMixed, `${field}.allowMixed`, manifestPath),
+    required: expectOptionalBoolean(record.required, `${field}.required`, manifestPath),
+    schema: readActionPayloadSchema(record.schema, `${field}.schema`, manifestPath),
+    recordInlineFields: readStringArray(record.recordInlineFields, `${field}.recordInlineFields`, manifestPath),
+  };
+}
+
+function expectOptionalEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: Set<string>,
+  allowedLabel: string,
+  manifestPath: string,
+): T | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || !allowed.has(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be one of ${allowedLabel}.`);
+  }
+
+  return value as T;
+}
+
+function validateCronExpression(value: unknown, field: string, manifestPath: string): string {
+  const cron = expectNonEmptyString(value, field, manifestPath);
+  const parts = cron.split(/\s+/);
+
+  if (parts.length !== 5 && parts.length !== 6) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}" to be a 5- or 6-field cron expression.`,
+    );
+  }
+
+  if (parts.some((part) => part.length === 0)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to contain populated cron fields.`);
+  }
+
+  return cron;
+}
+
+function readActionSchedules(
+  value: unknown,
+  actionField: string,
+  manifestPath: string,
+): NonNullable<ServiceManifest["actions"]>[string]["schedules"] {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}.schedules" to be an object.`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([scheduleId, candidate]) => {
+      const normalizedScheduleId = scheduleId.trim();
+      const scheduleField = `${actionField}.schedules.${normalizedScheduleId}`;
+
+      if (normalizedScheduleId.length === 0) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: action schedule ids must be non-empty.`);
+      }
+
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "${scheduleField}" to be an object.`);
+      }
+
+      const schedule = candidate as Record<string, unknown>;
+      if (schedule.action !== undefined || schedule.actionId !== undefined) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: "${scheduleField}" must not declare action references; schedules stay attached under their action.`,
+        );
+      }
+
+      return [
+        normalizedScheduleId,
+        {
+          label: typeof schedule.label === "string" ? schedule.label.trim() : undefined,
+          enabled: expectOptionalBoolean(schedule.enabled, `${scheduleField}.enabled`, manifestPath),
+          cron: validateCronExpression(schedule.cron, `${scheduleField}.cron`, manifestPath),
+          timezone: typeof schedule.timezone === "string" ? schedule.timezone.trim() : undefined,
+          concurrencyPolicy: expectOptionalEnum<ServiceActionConcurrencyPolicy>(
+            schedule.concurrencyPolicy,
+            `${scheduleField}.concurrencyPolicy`,
+            actionConcurrencyPolicies,
+            '"skip-if-running" or "allow-parallel"',
+            manifestPath,
+          ),
+          failurePolicy: expectOptionalEnum<ServiceActionFailurePolicy>(
+            schedule.failurePolicy,
+            `${scheduleField}.failurePolicy`,
+            actionFailurePolicies,
+            '"record", "retry", or "disable-schedule"',
+            manifestPath,
+          ),
+          parameters: readJsonObject(schedule.parameters, `${scheduleField}.parameters`, manifestPath),
+        },
+      ];
+    }),
+  );
+}
+
+function readActionWorkflowSteps(
+  value: unknown,
+  actionField: string,
+  manifestPath: string,
+): ServiceActionWorkflowStep[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}.steps" to be an array.`);
+  }
+
+  return value.map((candidate, index) => {
+    const stepField = `${actionField}.steps[${index}]`;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${stepField}" to be an object.`);
+    }
+
+    const step = candidate as Record<string, unknown>;
+    const type = step.type;
+    if (type !== undefined && type !== "service-lasso-action") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${stepField}.type" to be "service-lasso-action" when present.`,
+      );
+    }
+
+    const run = step.run;
+    if (run !== undefined && run !== "always" && run !== "on-success") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${stepField}.run" to be "always" or "on-success" when present.`,
+      );
+    }
+
+    return {
+      id: expectNonEmptyString(step.id, `${stepField}.id`, manifestPath),
+      type: "service-lasso-action",
+      actionId: expectNonEmptyString(step.actionId, `${stepField}.actionId`, manifestPath),
+      run: run as ServiceActionWorkflowStep["run"],
+      condition: typeof step.condition === "string" ? step.condition.trim() : undefined,
+      parameters: readJsonObject(step.parameters, `${stepField}.parameters`, manifestPath),
+    };
+  });
+}
+
+function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest["actions"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "actions" to be an object.`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([actionId, candidate]) => {
+      const normalizedActionId = actionId.trim();
+      const actionField = `actions.${normalizedActionId}`;
+
+      if (normalizedActionId.length === 0) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: action ids must be non-empty.`);
+      }
+
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}" to be an object.`);
+      }
+
+      const action = candidate as Record<string, unknown>;
+      const commandline = readStringMap(action.commandline, `${actionField}.commandline`, manifestPath);
+      const command = typeof action.command === "string" ? action.command.trim() : undefined;
+      if (action.command !== undefined && (!command || command.length === 0)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected "${actionField}.command" to be a non-empty string.`);
+      }
+
+      if (action.mode === "command" && command === undefined && commandline === undefined) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: command-backed action "${normalizedActionId}" requires "command" or "commandline".`,
+        );
+      }
+
+      return [
+        normalizedActionId,
+        {
+          label: typeof action.label === "string" ? action.label.trim() : undefined,
+          description: typeof action.description === "string" ? action.description.trim() : undefined,
+          mode: expectOptionalEnum<ServiceActionMode>(
+            action.mode,
+            `${actionField}.mode`,
+            actionModes,
+            '"built-in", "command", "workflow", or "handler"',
+            manifestPath,
+          ),
+          command,
+          commandline,
+          args: readStringArray(action.args, `${actionField}.args`, manifestPath),
+          cwd: typeof action.cwd === "string" ? action.cwd.trim() : undefined,
+          env: readStringMap(action.env, `${actionField}.env`, manifestPath),
+          timeoutSeconds: expectOptionalWholeNumber(action.timeoutSeconds, `${actionField}.timeoutSeconds`, manifestPath, 1),
+          requiredState: expectOptionalEnum<ServiceActionRequiredState>(
+            action.requiredState,
+            `${actionField}.requiredState`,
+            actionRequiredStates,
+            '"any", "running", or "stopped"',
+            manifestPath,
+          ),
+          requiresConfirmation: expectOptionalBoolean(action.requiresConfirmation, `${actionField}.requiresConfirmation`, manifestPath),
+          manualOnly: expectOptionalBoolean(action.manualOnly, `${actionField}.manualOnly`, manifestPath),
+          permissions: readStringArray(action.permissions, `${actionField}.permissions`, manifestPath),
+          steps: readActionWorkflowSteps(action.steps, actionField, manifestPath),
+          payload: readActionPayloadPolicy(action.payload, actionField, manifestPath),
+          schedules: readActionSchedules(action.schedules, actionField, manifestPath),
+        },
+      ];
+    }),
+  );
 }
 
 function expectTimeOfDay(value: unknown, field: string, manifestPath: string): string {
@@ -1003,6 +1337,12 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const record = input as Record<string, unknown>;
   const serviceId = expectNonEmptyString(record.id, "id", manifestPath);
 
+  if (record.schedules !== undefined) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: top-level "schedules" are not supported; define schedules under "actions.<actionId>.schedules".`,
+    );
+  }
+
   const dependOn = record.depend_on;
   if (
     dependOn !== undefined &&
@@ -1160,9 +1500,9 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const restartPolicy = readRestartPolicy(record.restartPolicy, manifestPath);
   const doctor = readDoctorPolicy(record.doctor, manifestPath);
   const hooks = readLifecycleHooks(record.hooks, manifestPath);
+  const actions = readActionPolicy(record.actions, manifestPath);
   const setup = readSetupPolicy(record.setup, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
-
   return {
     id: serviceId,
     name: expectNonEmptyString(record.name, "name", manifestPath),
@@ -1196,6 +1536,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     restartPolicy,
     doctor,
     hooks,
+    actions,
     setup,
     updates,
     artifact,

@@ -1,18 +1,46 @@
 import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
-import { resolveDemoOptions, startDemoRuntime } from "./demo-instance-lib.mjs";
+import {
+  getDemoStatus,
+  printDemoStatus,
+  resolveDemoOptions,
+  startDemoRuntime,
+  writeDemoLifecycleState,
+} from "./demo-instance-lib.mjs";
 
 const options = await prepareCanonicalDemoOptions(resolveDemoOptions());
-const runtime = await startDemoRuntime(options);
+const status = await getDemoStatus(options);
 
-console.log("[service-lasso demo] ready");
-console.log("- Service Admin: http://127.0.0.1:17700/");
-console.log(`- Runtime API: ${runtime.apiServer.url}`);
-console.log("- Stop: Ctrl+C");
+if (status.ok) {
+  const lifecycleState = await writeDemoLifecycleState(status, { phase: "already_healthy" });
+  if (options.json) {
+    console.log(JSON.stringify({ ...status, lifecycleState }, null, 2));
+  } else {
+    console.log("[service-lasso demo] runtime already healthy");
+    printDemoStatus({ ...status, lifecycleState });
+    console.log(`- lifecyclePhase: ${lifecycleState.phase}`);
+  }
+} else {
+  const runtime = await startDemoRuntime(options);
+  const startedStatus = await getDemoStatus({
+    ...options,
+    runtimeUrl: runtime.apiServer.url,
+  });
+  const lifecycleState = await writeDemoLifecycleState(startedStatus, {
+    phase: "started",
+  });
 
-const shutdown = async () => {
-  await runtime.apiServer.stop();
-  process.exit(0);
-};
+  console.log("[service-lasso demo] runtime started");
+  console.log(`- api: ${runtime.apiServer.url}`);
+  console.log(`- servicesRoot: ${runtime.serviceRoot.servicesRoot}`);
+  console.log(`- workspaceRoot: ${runtime.serviceRoot.workspaceRoot}`);
+  console.log(`- lifecycleState: ${lifecycleState.paths.lifecycleStatePath}`);
+  console.log("- stop: Ctrl+C");
 
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
+  const shutdown = async () => {
+    await runtime.apiServer.stop();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
+}

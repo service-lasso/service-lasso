@@ -1,101 +1,65 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://service-lasso.dev/schemas/service-action-inputs.schema.json",
-  "title": "Service Lasso service action inputs",
+  "title": "Service Lasso service action payload policy",
   "type": "object",
-  "description": "Schema fragment for Service Lasso action input declarations, inline action inputs, input references, and action-run payloads.",
+  "additionalProperties": false,
+  "properties": {
+    "inline": {
+      "type": "boolean",
+      "description": "Allows POST action run bodies to include an inline payload object."
+    },
+    "references": {
+      "type": "boolean",
+      "description": "Allows POST action run bodies to include a stored payloadRef id."
+    },
+    "allowMixed": {
+      "type": "boolean",
+      "description": "Allows payload and payloadRef in the same run request."
+    },
+    "required": {
+      "type": "boolean",
+      "description": "Requires each run request to include payload or payloadRef."
+    },
+    "schema": {
+      "$ref": "#/$defs/payloadSchema"
+    },
+    "recordInlineFields": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  },
   "$defs": {
-    "id": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9@_.:-]+$"
+    "jsonType": {
+      "enum": ["string", "number", "integer", "boolean", "object", "array", "null"]
     },
-    "inputMode": {
-      "type": "string",
-      "enum": ["none", "inline", "reference", "inline-or-reference"],
-      "default": "none"
-    },
-    "inlineInputs": {
-      "type": "object",
-      "additionalProperties": true
-    },
-    "inputRef": {
+    "payloadSchema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "id"],
       "properties": {
         "type": {
-          "type": "string",
-          "enum": ["service-lasso-action-input", "backup-artifact", "workspace-selection"]
+          "oneOf": [
+            { "$ref": "#/$defs/jsonType" },
+            {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonType" },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          ]
         },
-        "id": { "$ref": "#/$defs/id" },
-        "serviceId": { "$ref": "#/$defs/id" },
-        "actionId": { "$ref": "#/$defs/id" },
-        "checksum": { "type": "string" }
-      }
-    },
-    "actionInputDeclaration": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "mode": { "$ref": "#/$defs/inputMode" },
-        "required": { "type": "boolean", "default": false },
-        "preferReference": { "type": "boolean", "default": false },
-        "allowInline": {
+        "required": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
         },
-        "allowReferenceTypes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["service-lasso-action-input", "backup-artifact", "workspace-selection"]
-          },
-          "uniqueItems": true
-        },
-        "schema": {
+        "properties": {
           "type": "object",
-          "description": "Optional JSON Schema for validating inline inputs."
-        }
-      }
-    },
-    "actionRunPayload": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "source": {
-          "type": "string",
-          "enum": ["ui", "api", "dagu", "scheduler", "cli"]
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
         },
-        "workflowId": { "$ref": "#/$defs/id" },
-        "scheduleId": { "$ref": "#/$defs/id" },
-        "stepId": { "$ref": "#/$defs/id" },
-        "parentActionId": { "$ref": "#/$defs/id" },
-        "reason": { "type": "string" },
-        "inputs": { "$ref": "#/$defs/inlineInputs" },
-        "inputRef": { "$ref": "#/$defs/inputRef" }
-      }
-    },
-    "actionInputRecord": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "serviceId", "actionId", "inputs"],
-      "properties": {
-        "id": { "$ref": "#/$defs/id" },
-        "serviceId": { "$ref": "#/$defs/id" },
-        "actionId": { "$ref": "#/$defs/id" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "createdBy": { "type": "string" },
-        "reason": { "type": "string" },
-        "inputs": { "$ref": "#/$defs/inlineInputs" },
-        "checksum": { "type": "string" }
+        "additionalProperties": { "type": "boolean" }
       }
     }
-  },
-  "properties": {
-    "input": { "$ref": "#/$defs/actionInputDeclaration" },
-    "actionRunPayload": { "$ref": "#/$defs/actionRunPayload" },
-    "actionInputRecord": { "$ref": "#/$defs/actionInputRecord" }
-  },
-  "additionalProperties": true
+  }
 }

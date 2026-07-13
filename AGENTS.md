@@ -25,6 +25,12 @@ Read before making governed changes or bootstrap claims:
 - Release verification stays inside `Development`
 - Default bootstrap commit policy: `allowed` unless a run artifact states otherwise
 
+## Non-Negotiable Branch Boundary
+- Development agents use `develop` and their issue-scoped branch only.
+- Development agents must not inspect, fetch, compare, orient from, plan from, branch from, merge from, or target `main`.
+- `main` access belongs only to an explicitly authorised release-promotion, urgent-hotfix, or branch-reconciliation role. That exception does not turn `main` into development input.
+- If normal development instructions, automation, or backlog context point at `main`, stop and correct the workflow before touching product code.
+
 ## Pre-Code Gate
 Before product-code implementation:
 - keep `.governance/project/PROJECT_INTENT.md` current

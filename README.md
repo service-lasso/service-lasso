@@ -70,6 +70,45 @@ Invoke-RestMethod -Method Post http://127.0.0.1:17883/api/runtime/actions/stopAl
 
 Then stop the Service Lasso process with `Ctrl+C`.
 
+## Canonical Demo Lifecycle
+
+The local canonical demo uses the checked-in services root and a dedicated workspace by default:
+
+```text
+services/
+workspace/demo-instance/
+```
+
+Use these commands when operating or checking the demo:
+
+| Command | Meaning |
+| --- | --- |
+| `npm run demo:start -- --port=17883` | Build, ensure the demo runtime is available on the canonical runtime port, and exit cleanly when the canonical endpoints are already healthy. |
+| `npm run demo:gate -- --port=17883` | Return one worker-safe gate result with endpoint health, listener state, lifecycle ownership, recovery lock path, recovery attempt evidence, and next safe action. |
+| `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, Service Admin same-origin runtime API probes, workspace root, lifecycle state path, and demo log path. |
+| `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint, Service Admin URL, Service Admin same-origin `/api/dashboard` and `/api/services` JSON responses, and the expected canonical service state. Exits non-zero when either surface is not reachable, an Admin API path returns the HTML shell instead of runtime JSON, or the service state does not match the canonical contract. |
+| `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
+| `npm run demo:smoke` | Run an isolated end-to-end smoke test against the bounded demo fixture. |
+
+Canonical LAN checks used by the unattended worker are:
+
+| URL | Purpose |
+| --- | --- |
+| `http://192.168.1.53:17883/api/health` | Service Lasso runtime health |
+| `http://192.168.1.53:17700/` | Service Admin UI |
+| `http://192.168.1.53:17700/api/dashboard` | Service Admin same-origin runtime API probe |
+| `http://192.168.1.53:17700/api/services` | Service Admin same-origin service-state probe |
+
+Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state. When runtime health is down and there is no wrong-owner, stale-lock, active-recovery, or listener-conflict blocker, the gate starts one detached Service Lasso runtime process, records the runtime log path under `.demo-logs/`, waits for the canonical endpoints, and returns `recovered` if they become healthy. It exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, `service_admin_down`, `service_admin_api_non_json`, `service_admin_api_down`, `service_admin_services_api_non_json`, `service_admin_services_api_down`, `canonical_service_state_mismatch`, or `service_startup_failure` when the worker should stop and hand off a blocker. `service_admin_api_non_json` means Service Admin was reachable but `/api/dashboard` returned non-JSON content, usually the HTML shell, so the visible UI is not actually connected to the runtime API. `canonical_service_state_mismatch` means the Admin API is reachable but the service list does not match the accepted canonical demo contract. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+
+The current canonical demo accepts the source Service Admin dev server as the visible Admin surface on port `17700`. In that mode the runtime should discover eight manifests, run `@nginx`, `@traefik`, and `echo-service`, keep provider-only services `@java`, `@localcert`, and `@node` installed/configured but not daemonized, and leave `@serviceadmin` intentionally unmanaged because the source Admin server owns `17700`. `node-sample-service` remains a manifest-only sample. `demo:verify-canonical` treats the resulting runtime warning as expected only when that service-state contract matches.
+
+On npm/PowerShell combinations that do not pass script flags after the first separator, add a second separator before the script flags:
+
+```powershell
+npm run demo:verify-canonical -- -- --runtime-url=http://192.168.1.53:17883 --admin-url=http://192.168.1.53:17700/ --json
+```
+
 ## Baseline Services
 
 The checked-in baseline proves that a clean clone can acquire and run real service artifacts.
