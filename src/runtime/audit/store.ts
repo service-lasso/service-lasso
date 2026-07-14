@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import type { AuditEvent, AuditEventOutcome, AuditQuery, AuditResponse } from "../../contracts/api.js";
+import type { AuditEvent, AuditEventOutcome, AuditQuery, AuditResponse, AuditSafeMetadataValue } from "../../contracts/api.js";
+import { assertSafeAuditMetadata } from "./events.js";
 
 export interface AppendAuditEventInput {
   workspaceRoot?: string;
@@ -19,6 +20,7 @@ export interface AppendAuditEventInput {
   reason?: string | null;
   correlationId?: string | null;
   relatedRevisionId?: string | null;
+  metadata?: Record<string, AuditSafeMetadataValue>;
 }
 
 export interface ReadAuditEventsInput {
@@ -97,6 +99,10 @@ async function appendAuditLine(filePath: string, event: AuditEvent): Promise<voi
 }
 
 export async function appendAuditEvent(input: AppendAuditEventInput): Promise<AuditEvent> {
+  if (input.metadata) {
+    assertSafeAuditMetadata(input.metadata);
+  }
+
   const timestamp = new Date().toISOString();
   const chainId = input.serviceId ? `service:${input.serviceId}` : "runtime";
   const event: AuditEvent = {
@@ -115,6 +121,7 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     reason: input.reason ?? null,
     correlationId: input.correlationId ?? randomUUID(),
     relatedRevisionId: input.relatedRevisionId ?? null,
+    metadata: input.metadata,
     chainId,
     sequence: 0,
     previousHash: null,

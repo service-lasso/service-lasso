@@ -114,12 +114,21 @@ export interface AuditEvent {
   reason: string | null;
   correlationId: string;
   relatedRevisionId: string | null;
+  metadata?: Record<string, AuditSafeMetadataValue>;
   chainId: string;
   sequence: number;
   previousHash: string | null;
   eventHash: string;
   chainStatus: "valid";
 }
+
+export type AuditSafeMetadataValue =
+  | string
+  | number
+  | boolean
+  | null
+  | AuditSafeMetadataValue[]
+  | { [key: string]: AuditSafeMetadataValue };
 
 export interface AuditQuery {
   serviceId?: string;
