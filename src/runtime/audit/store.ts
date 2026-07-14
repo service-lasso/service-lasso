@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import type { AuditEvent, AuditEventOutcome, AuditQuery, AuditResponse } from "../../contracts/api.js";
 
 export interface AppendAuditEventInput {
@@ -42,8 +42,12 @@ function getRuntimeAuditDir(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".service-lasso", "audit", "runtime");
 }
 
-function getServiceAuditPath(serviceRoot: string): string {
-  return path.join(serviceRoot, ".state", "audit", "events.jsonl");
+function getServiceAuditDir(serviceRoot: string): string {
+  return path.join(serviceRoot, ".state", "audit");
+}
+
+function getServiceAuditPath(serviceRoot: string, timestamp: string): string {
+  return path.join(getServiceAuditDir(serviceRoot), `${auditDateSegment(timestamp)}.jsonl`);
 }
 
 function stableHash(input: unknown): string {
@@ -75,8 +79,21 @@ async function readAuditFile(filePath: string): Promise<AuditEvent[]> {
   return parseJsonl(content);
 }
 
-async function appendAuditLine(filePath: string, event: AuditEvent): Promise<void> {
-  const existing = await readAuditFile(filePath);
+async function listAuditFiles(auditDir: string): Promise<string[]> {
+  const entries = await readdir(auditDir, { withFileTypes: true }).catch(() => []);
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+    .map((entry) => path.join(auditDir, entry.name))
+    .sort();
+}
+
+async function readAuditDir(auditDir: string): Promise<AuditEvent[]> {
+  const files = await listAuditFiles(auditDir);
+  return (await Promise.all(files.map(async (filePath) => readAuditFile(filePath)))).flat();
+}
+
+async function appendAuditLine(filePath: string, auditDir: string, event: AuditEvent): Promise<void> {
+  const existing = await readAuditDir(auditDir);
   const previous = existing.at(-1);
   const sequence = previous ? previous.sequence + 1 : 1;
   const previousHash = previous?.eventHash ?? null;
@@ -93,7 +110,7 @@ async function appendAuditLine(filePath: string, event: AuditEvent): Promise<voi
   };
 
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${existing.map((entry) => JSON.stringify(entry)).join("\n")}${existing.length > 0 ? "\n" : ""}${JSON.stringify(nextEvent)}\n`);
+  await appendFile(filePath, `${JSON.stringify(nextEvent)}\n`, "utf8");
 }
 
 export async function appendAuditEvent(input: AppendAuditEventInput): Promise<AuditEvent> {
@@ -121,19 +138,25 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     eventHash: "",
     chainStatus: "valid",
   };
-  const filePath =
+  const target =
     input.serviceRoot && input.serviceId
-      ? getServiceAuditPath(input.serviceRoot)
+      ? {
+          auditDir: getServiceAuditDir(input.serviceRoot),
+          filePath: getServiceAuditPath(input.serviceRoot, timestamp),
+        }
       : input.workspaceRoot
-        ? getRuntimeAuditPath(input.workspaceRoot, timestamp)
+        ? {
+            auditDir: getRuntimeAuditDir(input.workspaceRoot),
+            filePath: getRuntimeAuditPath(input.workspaceRoot, timestamp),
+          }
         : null;
 
-  if (!filePath) {
+  if (!target) {
     return event;
   }
 
-  await appendAuditLine(filePath, event);
-  const [persisted] = (await readAuditFile(filePath)).slice(-1);
+  await appendAuditLine(target.filePath, target.auditDir, event);
+  const [persisted] = (await readAuditFile(target.filePath)).slice(-1);
   return persisted ?? event;
 }
 
@@ -190,16 +213,11 @@ export async function readAuditEvents(input: ReadAuditEventsInput): Promise<Audi
 
   if (input.workspaceRoot) {
     const runtimeAuditDir = getRuntimeAuditDir(input.workspaceRoot);
-    const entries = await readdir(runtimeAuditDir, { withFileTypes: true }).catch(() => []);
-    files.push(
-      ...entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-        .map((entry) => path.join(runtimeAuditDir, entry.name)),
-    );
+    files.push(...await listAuditFiles(runtimeAuditDir));
   }
 
   for (const serviceRoot of input.serviceRoots ?? []) {
-    files.push(getServiceAuditPath(serviceRoot));
+    files.push(...await listAuditFiles(getServiceAuditDir(serviceRoot)));
   }
 
   const events = (
