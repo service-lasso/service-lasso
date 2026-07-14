@@ -42,10 +42,13 @@ async function commandOutput(command, args) {
   });
 }
 
-const endpointsFor = (apiUrl = `http://127.0.0.1:${options.port}`) => ({
+const recycleRuntimeUrl = () => options.runtimeUrl ?? `http://127.0.0.1:${options.port}`;
+const recycleServiceAdminUrl = () => (options.serviceAdminUrl ?? "http://127.0.0.1:17700/").replace(/\/$/, "");
+
+const endpointsFor = (apiUrl = recycleRuntimeUrl()) => ({
   runtimeApiHealth: `${apiUrl}/api/health`,
-  serviceAdminRoot: "http://127.0.0.1:17700/",
-  serviceAdminHealth: "http://127.0.0.1:17700/health",
+  serviceAdminRoot: `${recycleServiceAdminUrl()}/`,
+  serviceAdminHealth: `${recycleServiceAdminUrl()}/health`,
   secretsBrokerHealth: "http://127.0.0.1:17890/health",
   echoHealth: "http://127.0.0.1:4011/health",
   runtimeServices: `${apiUrl}/api/services`,
@@ -147,6 +150,8 @@ async function waitForCanonicalPostRecycle({ timeoutMs = 300_000, intervalMs = 5
 
   const verifierOptions = resolveCanonicalVerifierOptions([
     `--port=${options.port}`,
+    `--runtime-url=${recycleRuntimeUrl()}`,
+    `--service-admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
     `--services-root=${options.servicesRoot}`,
     `--workspace-root=${options.workspaceRoot}`,
   ]);
@@ -372,14 +377,7 @@ async function runDetachedRecycle() {
 
   const stdout = await open(path.join(logsRoot, "demo-recycle.out.log"), "a");
   const stderr = await open(path.join(logsRoot, "demo-recycle.err.log"), "a");
-  const args = [
-    path.resolve("scripts", "demo-recycle.mjs"),
-    "--foreground",
-    "--preserve",
-    `--services-root=${options.servicesRoot}`,
-    `--workspace-root=${options.workspaceRoot}`,
-    `--port=${options.port}`,
-  ];
+  const args = buildDetachedRecycleArgs(options);
 
   const child = spawn(process.execPath, args, {
     cwd: process.cwd(),
@@ -389,6 +387,9 @@ async function runDetachedRecycle() {
     env: {
       ...process.env,
       SERVICE_LASSO_PORT: String(options.port),
+      SERVICE_LASSO_HOST: options.host,
+      SERVICE_LASSO_RUNTIME_URL: recycleRuntimeUrl(),
+      SERVICE_LASSO_ADMIN_URL: options.serviceAdminUrl ?? "http://127.0.0.1:17700/",
     },
   });
 
@@ -400,7 +401,7 @@ async function runDetachedRecycle() {
   const childExited = () => shouldStopWaitingForDetachedChild(childExit, isProcessAlive(child.pid));
 
   try {
-    const apiUrl = `http://127.0.0.1:${options.port}`;
+    const apiUrl = recycleRuntimeUrl();
     const endpoints = await waitForLiveDemo();
     const instance = await assertLiveRuntimeOwnedByChild(apiUrl, child.pid, {
       childExited,
@@ -417,7 +418,7 @@ async function runDetachedRecycle() {
     await waitForCanonicalPostRecycle();
     console.log("[service-lasso demo] recycle passed");
     console.log(`- api: ${apiUrl}`);
-    console.log("- serviceAdmin: http://127.0.0.1:17700");
+    console.log(`- serviceAdmin: ${recycleServiceAdminUrl()}`);
     console.log(`- servicesRoot: ${options.servicesRoot}`);
     console.log(`- workspaceRoot: ${options.workspaceRoot}`);
     console.log(`- git: ${git.branch}@${git.commit}`);
@@ -443,6 +444,20 @@ async function runDetachedRecycle() {
     await stdout.close();
     await stderr.close();
   }
+}
+
+export function buildDetachedRecycleArgs(recycleOptions = options) {
+  return [
+    path.resolve("scripts", "demo-recycle.mjs"),
+    "--foreground",
+    "--preserve",
+    `--host=${recycleOptions.host}`,
+    `--runtime-url=${recycleOptions.runtimeUrl ?? `http://127.0.0.1:${recycleOptions.port}`}`,
+    `--admin-url=${recycleOptions.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
+    `--services-root=${recycleOptions.servicesRoot}`,
+    `--workspace-root=${recycleOptions.workspaceRoot}`,
+    `--port=${recycleOptions.port}`,
+  ];
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -96,6 +96,34 @@ test("runtime API binds to all interfaces by default while reporting a local URL
   }
 });
 
+test("runtime app host option overrides SERVICE_LASSO_HOST", async () => {
+  const previousHost = process.env.SERVICE_LASSO_HOST;
+  process.env.SERVICE_LASSO_HOST = "0.0.0.0";
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-runtime-host-"));
+  const app = await startRuntimeApp({
+    port: 0,
+    host: "127.0.0.1",
+    servicesRoot: path.resolve("services"),
+    workspaceRoot: tempDir,
+    version: "host-option-test",
+  });
+
+  try {
+    const address = app.apiServer.server.address();
+
+    assert.ok(address && typeof address !== "string");
+    assert.equal(address.address, "127.0.0.1");
+  } finally {
+    await app.apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousHost === undefined) {
+      delete process.env.SERVICE_LASSO_HOST;
+    } else {
+      process.env.SERVICE_LASSO_HOST = previousHost;
+    }
+  }
+});
+
 test("GET /api/services returns discovered services from the tracked services root", async () => {
   const servicesRoot = path.resolve("services");
   await clearPersistedFixtureState(servicesRoot);

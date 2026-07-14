@@ -12,6 +12,7 @@ import {
   assertDemoRecycleOwnership,
   demoProviderServiceIds,
   demoRequiredServiceIds,
+  resolveDemoOptions,
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import {
@@ -24,11 +25,13 @@ import {
 } from "../scripts/demo-watchdog.mjs";
 import {
   shouldAcquireDetachedRecycleLock,
+  buildDetachedRecycleArgs,
   shouldStopWaitingForDetachedChild,
   waitForLiveServices,
 } from "../scripts/demo-recycle.mjs";
 import {
   hasJsonPath,
+  buildCanonicalDeployRecycleArgs,
   parseEndpointExpectations,
   resolveCanonicalDeployOptions,
   runCanonicalDeploy,
@@ -216,6 +219,48 @@ test("canonical deploy accepts npm-forwarded positional deploy args", () => {
       statusExpectations: [{ path: "/api/log-shipping", expectedStatus: 200 }],
       jsonExpectations: [{ path: "/api/telemetry", jsonPath: "telemetry.apiRequests" }],
     },
+  );
+});
+
+test("canonical deploy and recycle propagate LAN runtime URLs to child scripts", () => {
+  const deployOptions = resolveCanonicalDeployOptions([
+    "--ref=HEAD",
+    "--host=0.0.0.0",
+    "--runtime-url=http://192.168.1.53:17883",
+    "--service-admin-url=http://192.168.1.53:17700/",
+    "--services-root=C:/tmp/service-lasso/services",
+    "--workspace-root=C:/tmp/service-lasso/workspace",
+  ]);
+
+  assert.deepEqual(
+    buildCanonicalDeployRecycleArgs(deployOptions).filter((arg) =>
+      arg.startsWith("--host=") || arg.startsWith("--runtime-url=") || arg.startsWith("--admin-url=")
+    ),
+    [
+      "--host=0.0.0.0",
+      "--runtime-url=http://192.168.1.53:17883",
+      "--admin-url=http://192.168.1.53:17700/",
+    ],
+  );
+
+  const recycleOptions = resolveDemoOptions([
+    "--port=17883",
+    "--host=0.0.0.0",
+    "--runtime-url=http://192.168.1.53:17883",
+    "--admin-url=http://192.168.1.53:17700/",
+    "--services-root=C:/tmp/service-lasso/services",
+    "--workspace-root=C:/tmp/service-lasso/workspace",
+  ]);
+
+  assert.deepEqual(
+    buildDetachedRecycleArgs(recycleOptions).filter((arg) =>
+      arg.startsWith("--host=") || arg.startsWith("--runtime-url=") || arg.startsWith("--admin-url=")
+    ),
+    [
+      "--host=0.0.0.0",
+      "--runtime-url=http://192.168.1.53:17883",
+      "--admin-url=http://192.168.1.53:17700/",
+    ],
   );
 });
 
