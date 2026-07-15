@@ -478,6 +478,22 @@ export async function resetDemoInstance(options = {}) {
   );
 }
 
+export async function applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl) {
+  if (!runtimeUrl) {
+    return null;
+  }
+
+  const manifestPath = path.join(path.resolve(servicesRoot), "@serviceadmin", "service.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.env = {
+    ...(manifest.env ?? {}),
+    SERVICE_LASSO_API_BASE_URL: runtimeUrl,
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: runtimeUrl,
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifestPath;
+}
+
 async function importDistModule(relativePath) {
   return import(pathToFileURL(path.join(repoRoot, "dist", relativePath)).href);
 }
@@ -1299,6 +1315,7 @@ export async function runDemoRecycle(options = {}) {
 
   await assertDemoPortsAvailable({ port, workspaceRoot });
   await resetDemoInstance({ servicesRoot, workspaceRoot });
+  await applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl);
 
   const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, host, serviceAdminUrl, skipBootstrap: true });
   let servicesStopped = false;
