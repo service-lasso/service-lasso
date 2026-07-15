@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { timingSafeEqual } from "node:crypto";
-import { cp } from "node:fs/promises";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { cp, readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -417,15 +417,23 @@ function parseAuditQuery(searchParams: URLSearchParams): AuditQuery {
   return query;
 }
 
-function parseServiceMetaPatch(
-  input: unknown,
-): { favorite?: boolean; dependencyGraphPosition?: { x: number; y: number } | null } {
+function parseServiceMetaPatch(input: unknown): {
+  patch: { favorite?: boolean; dependencyGraphPosition?: { x: number; y: number } | null };
+  actor?: string;
+  reason?: string | null;
+} {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new ApiError("invalid_body", 400, "Service meta patch must be a JSON object.");
   }
 
   const candidate = input as Record<string, unknown>;
   const patch: { favorite?: boolean; dependencyGraphPosition?: { x: number; y: number } | null } = {};
+  if (candidate.actor !== undefined && candidate.actor !== null && typeof candidate.actor !== "string") {
+    throw new ApiError("invalid_body", 400, '"actor" must be a string when present.');
+  }
+  if (candidate.reason !== undefined && candidate.reason !== null && typeof candidate.reason !== "string") {
+    throw new ApiError("invalid_body", 400, '"reason" must be a string or null when present.');
+  }
 
   if ("favorite" in candidate) {
     if (typeof candidate.favorite !== "boolean") {
@@ -460,7 +468,11 @@ function parseServiceMetaPatch(
     throw new ApiError("invalid_body", 400, "Service meta patch must include \"favorite\" and/or \"dependencyGraphPosition\".");
   }
 
-  return patch;
+  return {
+    patch,
+    actor: typeof candidate.actor === "string" ? candidate.actor : undefined,
+    reason: typeof candidate.reason === "string" ? candidate.reason : candidate.reason === null ? null : undefined,
+  };
 }
 
 function parseUpdateCheckBody(input: unknown): { serviceId?: string } {
@@ -523,6 +535,18 @@ function parseServiceConfigSaveBody(input: unknown): { content: string; actor?: 
     actor: typeof candidate.actor === "string" ? candidate.actor : undefined,
     reason: typeof candidate.reason === "string" ? candidate.reason : null,
   };
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function hashFileContent(filePath: string): Promise<string | null> {
+  try {
+    return sha256(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function parseWorkflowCatalogValidateBody(input: unknown): WorkflowCatalogEntry[] {
@@ -1714,27 +1738,41 @@ async function routeRequest(
     }
 
     if (request.method === "PATCH" && pathParts.length === 4 && pathParts[3] === "meta") {
+      let auditActor = "unknown";
+      let auditReason: string | null = null;
       try {
-        const patch = parseServiceMetaPatch(await readJsonBody(request));
+        const { patch, actor, reason } = parseServiceMetaPatch(await readJsonBody(request));
+        auditActor = actor?.trim() || "unknown";
+        auditReason = reason?.trim() || null;
         const persisted = await writeServiceMeta(service.serviceRoot, patch);
+        const changedFields = [
+          patch.favorite !== undefined ? "favorite" : null,
+          "dependencyGraphPosition" in patch ? "dependencyGraphPosition" : null,
+        ].filter((field): field is string => Boolean(field));
 
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.meta.update",
-          actor: "unknown",
+          actor: auditActor,
           subject: "service-meta",
           serviceId,
           method: "PATCH",
           routeTemplate: "/api/services/:serviceId/meta",
           outcome: "success",
           statusCode: 200,
-          summary: [
-            patch.favorite !== undefined ? "favorite" : null,
-            "dependencyGraphPosition" in patch ? "dependencyGraphPosition" : null,
-          ]
-            .filter(Boolean)
-            .join(", "),
+          summary: changedFields.join(", "),
+          reason: auditReason,
+          metadata: {
+            changedFields,
+            favorite: persisted.favorite,
+            dependencyGraphPosition: persisted.dependencyGraphPosition
+              ? {
+                  x: persisted.dependencyGraphPosition.x,
+                  y: persisted.dependencyGraphPosition.y,
+                }
+              : null,
+          },
         });
         writeJson(
           response,
@@ -1750,7 +1788,7 @@ async function routeRequest(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.meta.update",
-          actor: "unknown",
+          actor: auditActor,
           subject: "service-meta",
           serviceId,
           method: "PATCH",
@@ -1759,6 +1797,9 @@ async function routeRequest(
           statusCode: getApiErrorStatusCode(error),
           summary: "Failed to update service metadata.",
           reason: getAuditFailureReason(error),
+          metadata: {
+            validationStatus: "invalid",
+          },
         });
         throw error;
       }
@@ -1828,8 +1869,12 @@ async function routeRequest(
     }
 
     if (request.method === "PUT" && pathParts.length === 4 && pathParts[3] === "config") {
-      const body = parseServiceConfigSaveBody(await readJsonBody(request));
+      let requestBody: unknown;
+      let body: { content: string; actor?: string; reason?: string | null } | undefined;
+      const relativeConfigPath = path.relative(service.serviceRoot, service.manifestPath).split(path.sep).join("/");
       try {
+        requestBody = await readJsonBody(request);
+        body = parseServiceConfigSaveBody(requestBody);
         const result = await saveServiceConfigDocument(service, config.workspaceRoot, body);
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
@@ -1843,15 +1888,28 @@ async function routeRequest(
           outcome: "success",
           statusCode: 200,
           summary: "Saved service config document.",
+          reason: result.backup.reason,
           relatedRevisionId: result.backup.id,
+          metadata: {
+            configPath: result.backup.path,
+            previousHash: result.backup.previousHash,
+            currentHash: result.backup.currentHash,
+            validationStatus: result.backup.validationStatus,
+          },
         });
         writeJson(response, 200, result);
       } catch (error) {
+        const requestRecord =
+          requestBody && typeof requestBody === "object" && !Array.isArray(requestBody)
+            ? (requestBody as Record<string, unknown>)
+            : {};
+        const requestedContent = body?.content ?? requestRecord.content;
+        const requestedReason = body?.reason ?? (typeof requestRecord.reason === "string" ? requestRecord.reason : null);
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.config.save",
-          actor: body.actor ?? "unknown",
+          actor: body?.actor ?? getAuditActor(requestBody),
           subject: "server.json",
           serviceId,
           method: "PUT",
@@ -1860,6 +1918,13 @@ async function routeRequest(
           statusCode: getApiErrorStatusCode(error),
           summary: "Failed to save service config document.",
           reason: getAuditFailureReason(error),
+          metadata: {
+            configPath: relativeConfigPath,
+            previousHash: await hashFileContent(service.manifestPath),
+            currentHash: typeof requestedContent === "string" ? sha256(requestedContent) : null,
+            validationStatus: "invalid",
+            requestedReason: typeof requestedReason === "string" && requestedReason.trim() ? requestedReason.trim() : null,
+          },
         });
         throw error;
       }

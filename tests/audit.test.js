@@ -197,7 +197,12 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(install.status, 200);
     const config = await postJson(`${apiServer.url}/api/services/audit-service/config`);
     assert.equal(config.status, 200);
-    const meta = await patchJson(`${apiServer.url}/api/services/audit-service/meta`, { favorite: true });
+    const meta = await patchJson(`${apiServer.url}/api/services/audit-service/meta`, {
+      actor: "operator-ui",
+      reason: "pin favorite and graph position",
+      favorite: true,
+      dependencyGraphPosition: { x: 12, y: 34 },
+    });
     assert.equal(meta.status, 200);
     const runtime = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`);
     assert.equal(runtime.status, 200);
@@ -246,13 +251,19 @@ test("audit API returns durable safe service and runtime mutation events after r
       content: JSON.stringify(editedConfig, null, 2),
     });
     assert.equal(save.status, 200);
+    const invalidSave = await putJson(`${apiServer.url}/api/services/audit-service/config`, {
+      actor: "operator-ui",
+      reason: "bad config should still audit safely",
+      content: '{"id":"audit-service","env":{"SECRET_TOKEN":"SUPER_SECRET_VALUE"',
+    });
+    assert.equal(invalidSave.status, 400);
 
     await apiServer.stop();
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
-    const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=10`);
+    const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=20`);
     assert.equal(audit.status, 200);
-    assert.equal(audit.body.pagination.total, 10);
+    assert.equal(audit.body.pagination.total, 11);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
@@ -260,6 +271,7 @@ test("audit API returns durable safe service and runtime mutation events after r
         "service.action.run",
         "service.action.run",
         "service.action.run",
+        "service.config.save",
         "service.config.save",
         "service.lifecycle.config",
         "service.lifecycle.install",
@@ -269,13 +281,35 @@ test("audit API returns durable safe service and runtime mutation events after r
       ],
     );
 
-    const configEvent = audit.body.events.find((event) => event.action === "service.config.save");
+    const metaEvent = audit.body.events.find((event) => event.action === "service.meta.update");
+    assert.equal(metaEvent.actor, "operator-ui");
+    assert.equal(metaEvent.reason, "pin favorite and graph position");
+    assert.deepEqual(metaEvent.metadata.changedFields, ["favorite", "dependencyGraphPosition"]);
+    assert.equal(metaEvent.metadata.favorite, true);
+    assert.deepEqual(metaEvent.metadata.dependencyGraphPosition, { x: 12, y: 34 });
+
+    const configEvent = audit.body.events.find((event) => event.action === "service.config.save" && event.outcome === "success");
     assert.equal(configEvent.actor, "operator-ui");
+    assert.equal(configEvent.reason, "metadata-only audit coverage");
     assert.equal(configEvent.relatedRevisionId, save.body.backup.id);
     assert.equal(configEvent.outcome, "success");
     assert.equal(configEvent.chainId, "service:audit-service");
     assert.ok(configEvent.eventHash);
     assert.equal(configEvent.chainStatus, "valid");
+    assert.equal(configEvent.metadata.configPath, "service.json");
+    assert.equal(configEvent.metadata.previousHash, save.body.backup.previousHash);
+    assert.equal(configEvent.metadata.currentHash, save.body.backup.currentHash);
+    assert.equal(configEvent.metadata.validationStatus, "valid");
+
+    const configFailure = audit.body.events.find((event) => event.action === "service.config.save" && event.outcome === "failure");
+    assert.equal(configFailure.actor, "operator-ui");
+    assert.match(configFailure.reason, /valid JSON object string/u);
+    assert.equal(configFailure.relatedRevisionId, null);
+    assert.equal(configFailure.metadata.configPath, "service.json");
+    assert.equal(configFailure.metadata.validationStatus, "invalid");
+    assert.equal(configFailure.metadata.requestedReason, "bad config should still audit safely");
+    assert.equal(typeof configFailure.metadata.previousHash, "string");
+    assert.equal(typeof configFailure.metadata.currentHash, "string");
 
     const setupEvent = audit.body.events.find((event) => event.action === "service.setup.run");
     assert.equal(setupEvent.subject, "write-audit-proof");
@@ -322,6 +356,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     const workflowParamSearch = await getJson(`${apiServer.url}/api/audit?query=WORKFLOW_SECRET_PARAM`);
     assert.equal(workflowParamSearch.status, 200);
     assert.equal(workflowParamSearch.body.pagination.total, 0);
+    assert.equal(JSON.stringify(audit.body).includes("SUPER_SECRET_VALUE"), false);
 
     const serviceAuditFile = path.join(serviceRoot, ".state", "audit", "events.jsonl");
     const runtimeAuditFile = path.join(workspaceRoot, ".service-lasso", "audit", "runtime", `${new Date().toISOString().slice(0, 10)}.jsonl`);

@@ -423,16 +423,23 @@ function unmanagedOwners(portOwners, options) {
   );
 }
 
+export function buildCanonicalDeployRecycleArgs(options) {
+  return [
+    path.join(repoRoot, "scripts", "demo-recycle.mjs"),
+    `--port=${options.runtimePort}`,
+    `--host=${options.host}`,
+    `--runtime-url=${options.runtimeUrl}`,
+    `--admin-url=${options.serviceAdminUrl}`,
+    `--services-root=${options.servicesRoot}`,
+    `--workspace-root=${options.workspaceRoot}`,
+  ];
+}
+
 async function runRecycle(options, logPath) {
   const stdout = await open(logPath, "a");
   const stderr = await open(logPath, "a");
   const command = process.execPath;
-  const args = [
-    path.join(repoRoot, "scripts", "demo-recycle.mjs"),
-    `--port=${options.runtimePort}`,
-    `--services-root=${options.servicesRoot}`,
-    `--workspace-root=${options.workspaceRoot}`,
-  ];
+  const args = buildCanonicalDeployRecycleArgs(options);
 
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -442,6 +449,9 @@ async function runRecycle(options, logPath) {
       env: {
         ...process.env,
         SERVICE_LASSO_PORT: String(options.runtimePort),
+        SERVICE_LASSO_HOST: options.host,
+        SERVICE_LASSO_RUNTIME_URL: options.runtimeUrl,
+        SERVICE_LASSO_ADMIN_URL: options.serviceAdminUrl,
       },
     });
     let settled = false;

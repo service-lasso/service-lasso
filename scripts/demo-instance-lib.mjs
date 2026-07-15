@@ -478,6 +478,22 @@ export async function resetDemoInstance(options = {}) {
   );
 }
 
+export async function applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl) {
+  if (!runtimeUrl) {
+    return null;
+  }
+
+  const manifestPath = path.join(path.resolve(servicesRoot), "@serviceadmin", "service.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.env = {
+    ...(manifest.env ?? {}),
+    SERVICE_LASSO_API_BASE_URL: runtimeUrl,
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: runtimeUrl,
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifestPath;
+}
+
 async function importDistModule(relativePath) {
   return import(pathToFileURL(path.join(repoRoot, "dist", relativePath)).href);
 }
@@ -855,6 +871,7 @@ export async function startDetachedDemoRuntime(options = {}) {
       "--preserve",
       `--port=${port}`,
       `--host=${options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1"}`,
+      `--runtime-url=${options.runtimeUrl ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`}`,
       `--services-root=${servicesRoot}`,
       `--workspace-root=${workspaceRoot}`,
       `--admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
@@ -865,6 +882,7 @@ export async function startDetachedDemoRuntime(options = {}) {
         ...process.env,
         SERVICE_LASSO_PORT: String(port),
         SERVICE_LASSO_HOST: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
+        SERVICE_LASSO_RUNTIME_URL: options.runtimeUrl ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
         SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
         SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
       },
@@ -1287,6 +1305,9 @@ export async function runDemoRecycle(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
+  const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
+  const serviceAdminUrl = (options.serviceAdminUrl ?? "http://127.0.0.1:17700").replace(/\/$/, "");
   const preserve = options.preserve === true;
   const keepAlive = options.keepAlive === true;
   await assertDemoRecycleOwnership({ servicesRoot, workspaceRoot, port });
@@ -1294,13 +1315,14 @@ export async function runDemoRecycle(options = {}) {
 
   await assertDemoPortsAvailable({ port, workspaceRoot });
   await resetDemoInstance({ servicesRoot, workspaceRoot });
+  await applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl);
 
-  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, skipBootstrap: true });
+  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, host, serviceAdminUrl, skipBootstrap: true });
   let servicesStopped = false;
   let runtimeKeptAlive = false;
 
   try {
-    const apiUrl = runtime.apiServer.url;
+    const apiUrl = runtimeUrl;
     const apiHealth = await getJson(`${apiUrl}/api/health`);
     assertCondition(apiHealth.status === 200 && apiHealth.body.status === "ok", "Expected runtime API health to report ok.");
 
@@ -1339,7 +1361,6 @@ export async function runDemoRecycle(options = {}) {
       serviceStates.push(await waitForServiceState(apiUrl, serviceId, expected));
     }
 
-    const serviceAdminUrl = "http://127.0.0.1:17700";
     const secretsBrokerHealthUrl = "http://127.0.0.1:17890/health";
     const nginxHealthUrl = "http://127.0.0.1:18080/health";
     const traefikHealthUrl = "http://127.0.0.1:19081/ping";

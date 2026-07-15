@@ -1,6 +1,6 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { demoServiceIds, repoRoot } from "./demo-instance-lib.mjs";
 
 export const demoSourceServicesRoot = path.join(repoRoot, "services");
@@ -108,6 +108,22 @@ export async function seedCanonicalDemoServicesRoot(servicesRoot, options = {}) 
   return targetServicesRoot;
 }
 
+export async function applyCanonicalServiceAdminRuntimeUrl(servicesRoot, runtimeUrl) {
+  if (!runtimeUrl) {
+    return null;
+  }
+
+  const manifestPath = path.join(path.resolve(servicesRoot), "@serviceadmin", "service.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.env = {
+    ...(manifest.env ?? {}),
+    SERVICE_LASSO_API_BASE_URL: runtimeUrl,
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: runtimeUrl,
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifestPath;
+}
+
 export async function prepareCanonicalDemoOptions(options, seedOptions = {}) {
   const requestedServicesRoot = path.resolve(options.servicesRoot ?? demoSourceServicesRoot);
   const servicesRoot = sameResolvedPath(requestedServicesRoot, demoSourceServicesRoot)
@@ -115,6 +131,7 @@ export async function prepareCanonicalDemoOptions(options, seedOptions = {}) {
     : requestedServicesRoot;
 
   await seedCanonicalDemoServicesRoot(servicesRoot, seedOptions);
+  await applyCanonicalServiceAdminRuntimeUrl(servicesRoot, options.runtimeUrl);
 
   return {
     ...options,
