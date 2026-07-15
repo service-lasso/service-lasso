@@ -37,6 +37,9 @@ import {
   runCanonicalDeploy,
 } from "../scripts/demo-deploy-canonical.mjs";
 import {
+  applyCanonicalServiceAdminRuntimeUrl,
+} from "../scripts/demo-canonical-root.mjs";
+import {
   buildReachabilityTargets,
   canonicalRuntimePort,
   canonicalServiceAdminPort,
@@ -262,6 +265,36 @@ test("canonical deploy and recycle propagate LAN runtime URLs to child scripts",
       "--admin-url=http://192.168.1.53:17700/",
     ],
   );
+});
+
+test("canonical service admin seed uses the canonical runtime URL for its API proxy", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-serviceadmin-seed-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const serviceAdminRoot = path.join(servicesRoot, "@serviceadmin");
+  const manifestPath = path.join(serviceAdminRoot, "service.json");
+  const runtimeUrl = "http://192.168.1.53:17883";
+
+  try {
+    await mkdir(serviceAdminRoot, { recursive: true });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        id: "@serviceadmin",
+        env: {
+          SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
+          SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",
+        },
+      })}\n`,
+    );
+
+    await applyCanonicalServiceAdminRuntimeUrl(servicesRoot, runtimeUrl);
+
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    assert.equal(manifest.env.SERVICE_LASSO_API_BASE_URL, runtimeUrl);
+    assert.equal(manifest.env.SERVICE_LASSO_RUNTIME_API_BASE_URL, runtimeUrl);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("canonical deploy fails closed and writes summary for unmanaged canonical port owner", async () => {
