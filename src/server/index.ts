@@ -122,7 +122,9 @@ import {
   readOperatorActionQueue,
   upsertOperatorActionItem,
   type OperatorActionInput,
+  type OperatorActionItem,
   type OperatorActionMutationInput,
+  type OperatorActionQueueState,
 } from "../runtime/operator/action-queue.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
@@ -391,12 +393,79 @@ function getAuditActor(input: unknown): string {
   return typeof actor === "string" && actor.trim().length > 0 ? actor.trim() : "unknown";
 }
 
+function redactAuditText(value: string): string {
+  return value
+    .replace(/([\w.-]*(?:password|passwd|secret|token|key|credential)[\w.-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+    .replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
+    .replace(/(gh[pousr]_[A-Za-z0-9_]+)/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function safeAuditText(value: unknown, fallback: string | null = null): string | null {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const redacted = redactAuditText(value).slice(0, 240);
+  return redacted || fallback;
+}
+
 function getApiErrorStatusCode(error: unknown): number {
   return toApiErrorBody(error).statusCode;
 }
 
 function getAuditFailureReason(error: unknown): string {
-  return toApiErrorBody(error).message;
+  return redactAuditText(toApiErrorBody(error).message);
+}
+
+function getOperatorActionAuditItem(queue: OperatorActionQueueState, itemId?: string | null): OperatorActionItem | null {
+  if (itemId) {
+    return queue.items.find((item) => item.id === itemId) ?? null;
+  }
+  return queue.items[0] ?? null;
+}
+
+async function appendOperatorActionQueueAuditEvent(input: {
+  workspaceRoot: string;
+  action: "operator.action.record" | "operator.action.acknowledge" | "operator.action.defer" | "operator.action.reopen";
+  routeTemplate: string;
+  outcome: "success" | "failure";
+  statusCode: number;
+  item?: OperatorActionItem | null;
+  itemId?: string | null;
+  actor?: string | null;
+  reason?: string | null;
+  mutation?: string | null;
+}): Promise<void> {
+  const item = input.item ?? null;
+  const subject = item?.id ?? safeAuditText(input.itemId);
+  const metadata: Record<string, string | null> = {
+    itemId: subject,
+    queueStatus: item?.status ?? null,
+    severity: item?.severity ?? null,
+    sourceKind: item?.source.kind ?? null,
+    serviceId: item?.source.serviceId ?? null,
+    reference: item?.source.reference ?? null,
+    mutation: input.mutation ?? null,
+  };
+
+  await appendAuditEvent({
+    workspaceRoot: input.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(input.actor, "unknown") ?? "unknown",
+    subject: subject ?? undefined,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `Operator action queue ${input.action.replace("operator.action.", "")} completed.`
+        : `Operator action queue ${input.action.replace("operator.action.", "")} failed.`,
+    reason: safeAuditText(input.reason),
+    metadata,
+  });
 }
 
 function parseAuditQuery(searchParams: URLSearchParams): AuditQuery {
@@ -1455,9 +1524,30 @@ async function routeRequest(
   }
 
   if (request.method === "POST" && url.pathname === "/api/operator/actions/record") {
-    writeJson(response, 200, {
-      queue: await upsertOperatorActionItem(config.workspaceRoot, parseOperatorActionRecordBody(await readJsonBody(request))),
-    });
+    try {
+      const queue = await upsertOperatorActionItem(config.workspaceRoot, parseOperatorActionRecordBody(await readJsonBody(request)));
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.action.record",
+        routeTemplate: "/api/operator/actions/record",
+        outcome: "success",
+        statusCode: 200,
+        item: getOperatorActionAuditItem(queue),
+      });
+      writeJson(response, 200, {
+        queue,
+      });
+    } catch (error) {
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.action.record",
+        routeTemplate: "/api/operator/actions/record",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
@@ -1466,11 +1556,55 @@ async function routeRequest(
     const actionId = decodeURIComponent(pathParts[3] ?? "");
     const mutation = pathParts[4];
     if (!actionId || (mutation !== "acknowledge" && mutation !== "defer" && mutation !== "reopen")) {
-      throw new ApiError("invalid_action", 400, "Unknown operator action mutation route.");
+      const error = new ApiError("invalid_action", 400, "Unknown operator action mutation route.");
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.action.reopen",
+        routeTemplate: "/api/operator/actions/:id/:mutation",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        itemId: actionId,
+        mutation: safeAuditText(mutation),
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
     }
-    writeJson(response, 200, {
-      queue: await mutateOperatorActionItem(config.workspaceRoot, actionId, mutation, parseOperatorActionMutationBody(await readJsonBody(request))),
-    });
+    const auditAction =
+      mutation === "acknowledge"
+        ? "operator.action.acknowledge"
+        : mutation === "defer"
+          ? "operator.action.defer"
+          : "operator.action.reopen";
+    try {
+      const body = parseOperatorActionMutationBody(await readJsonBody(request));
+      const queue = await mutateOperatorActionItem(config.workspaceRoot, actionId, mutation, body);
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: auditAction,
+        routeTemplate: "/api/operator/actions/:id/:mutation",
+        outcome: "success",
+        statusCode: 200,
+        item: getOperatorActionAuditItem(queue, actionId),
+        actor: body.actor,
+        reason: body.reason,
+        mutation,
+      });
+      writeJson(response, 200, {
+        queue,
+      });
+    } catch (error) {
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: auditAction,
+        routeTemplate: "/api/operator/actions/:id/:mutation",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        itemId: actionId,
+        mutation,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
