@@ -119,6 +119,15 @@ test("operator command confirmations issue and confirm with the same trusted cha
     assert.deepEqual(events.map((event) => event.event), ["issued", "confirmed"]);
     assert.equal(events.every((event) => event.actorId === "telegram:42"), true);
     assert.equal(JSON.stringify({ issued, confirmed, events }).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
+
+    const runtimeAuditResponse = await fetch(apiServer.url + "/api/audit?source=runtime-api&limit=20");
+    const runtimeAudit = await runtimeAuditResponse.json();
+    assert.equal(runtimeAuditResponse.status, 200);
+    const runtimeActions = runtimeAudit.events.map((event) => event.action);
+    assert.ok(runtimeActions.includes("operator.confirmation.issue"));
+    assert.ok(runtimeActions.includes("operator.confirmation.confirm"));
+    assert.equal(runtimeAudit.events.find((event) => event.action === "operator.confirmation.issue").subject, issued.body.confirmation.id);
+    assert.equal(JSON.stringify(runtimeAudit).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
   });
 });
 
@@ -187,6 +196,19 @@ test("operator command confirmations execute a confirmed mutation once", async (
     const events = auditLog.trim().split("\n").map((line) => JSON.parse(line));
     assert.deepEqual(events.map((event) => event.event), ["issued", "confirmed", "executed"]);
     assert.equal(JSON.stringify({ executed, events }).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
+
+    const runtimeAuditResponse = await fetch(apiServer.url + "/api/audit?source=runtime-api&limit=20");
+    const runtimeAudit = await runtimeAuditResponse.json();
+    assert.equal(runtimeAuditResponse.status, 200);
+    const runtimeActions = runtimeAudit.events.map((event) => event.action);
+    assert.ok(runtimeActions.includes("operator.confirmation.issue"));
+    assert.ok(runtimeActions.includes("operator.confirmation.confirm"));
+    assert.ok(runtimeActions.includes("operator.confirmation.execute"));
+    assert.equal(
+      runtimeAudit.events.some((event) => event.action === "operator.confirmation.execute" && event.outcome === "success"),
+      true,
+    );
+    assert.equal(JSON.stringify(runtimeAudit).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
   });
 });
 
@@ -361,6 +383,15 @@ test("operator command confirmations deny actor mismatch and capability drift", 
     const events = auditLog.trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(events.some((event) => event.event === "denied" && event.errorCode === "actor_mismatch"), true);
     assert.equal(events.some((event) => event.event === "denied" && event.errorCode === "capability_drift"), true);
+
+    const runtimeAuditResponse = await fetch(apiServer.url + "/api/audit?source=runtime-api&limit=20");
+    const runtimeAudit = await runtimeAuditResponse.json();
+    assert.equal(runtimeAuditResponse.status, 200);
+    const deniedRuntimeEvents = runtimeAudit.events.filter((event) => event.action === "operator.confirmation.confirm" && event.outcome === "failure");
+    assert.equal(deniedRuntimeEvents.length, 2);
+    assert.equal(deniedRuntimeEvents.some((event) => event.reason === "actor_mismatch"), true);
+    assert.equal(deniedRuntimeEvents.some((event) => event.reason === "capability_drift"), true);
+    assert.equal(JSON.stringify(runtimeAudit).includes("SERVICE_LASSO_TEST_BRIDGE_TOKEN"), false);
   });
 });
 
@@ -387,5 +418,12 @@ test("operator command confirmations reject unsafe plans before audit persistenc
       readFile(path.join(workspaceRoot, ".state", "operator-command-confirmation-audit.jsonl"), "utf8"),
       /ENOENT/,
     );
+
+    const runtimeAuditResponse = await fetch(apiServer.url + "/api/audit?source=runtime-api&limit=20");
+    const runtimeAudit = await runtimeAuditResponse.json();
+    assert.equal(runtimeAuditResponse.status, 200);
+    assert.equal(runtimeAudit.events[0].action, "operator.confirmation.issue");
+    assert.equal(runtimeAudit.events[0].outcome, "failure");
+    assert.equal(JSON.stringify(runtimeAudit).includes("SERVICE_LASSO_FAKE_SECRET_SENTINEL_CONFIRMATION_DO_NOT_USE"), false);
   });
 });

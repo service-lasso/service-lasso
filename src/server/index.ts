@@ -187,6 +187,7 @@ import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
+  OperatorCommandConfirmationAuditEvent,
   OperatorCommandConfirmationExecuteRequest,
   OperatorCommandConfirmationConfirmRequest,
   OperatorCommandConfirmationIssueRequest,
@@ -465,6 +466,78 @@ async function appendOperatorActionQueueAuditEvent(input: {
         : `Operator action queue ${input.action.replace("operator.action.", "")} failed.`,
     reason: safeAuditText(input.reason),
     metadata,
+  });
+}
+
+function getConfirmationRequestActor(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return "unknown";
+  }
+
+  const actor = (input as Record<string, unknown>).actor;
+  if (!actor || typeof actor !== "object" || Array.isArray(actor)) {
+    return "unknown";
+  }
+
+  const actorRecord = actor as Record<string, unknown>;
+  if (typeof actorRecord.actorId === "string" && actorRecord.actorId.trim()) {
+    return actorRecord.actorId.trim();
+  }
+  if (typeof actorRecord.source === "string" && typeof actorRecord.senderId === "string") {
+    return `${actorRecord.source}:${actorRecord.senderId}`;
+  }
+  if (typeof actorRecord.senderDisplay === "string" && actorRecord.senderDisplay.trim()) {
+    return actorRecord.senderDisplay.trim();
+  }
+  return "unknown";
+}
+
+async function appendOperatorCommandConfirmationRuntimeAuditEvent(input: {
+  workspaceRoot: string;
+  action: "operator.confirmation.issue" | "operator.confirmation.confirm" | "operator.confirmation.execute";
+  routeTemplate: string;
+  outcome: "success" | "failure";
+  statusCode: number;
+  audit?: OperatorCommandConfirmationAuditEvent | null;
+  confirmationId?: string | null;
+  actor?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const audit = input.audit ?? null;
+  const confirmationId = safeAuditText(audit?.confirmationId ?? input.confirmationId);
+  const serviceId = safeAuditText(audit?.targetServiceId);
+  const confirmationEvent = safeAuditText(audit?.event);
+  const command = safeAuditText(audit?.command);
+  const resultStatus = safeAuditText(audit?.resultStatus);
+  const reason = safeAuditText(audit?.errorCode ?? input.reason);
+
+  await appendAuditEvent({
+    workspaceRoot: input.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(audit?.actorId ?? input.actor, "unknown") ?? "unknown",
+    subject: confirmationId ?? undefined,
+    serviceId: serviceId ?? undefined,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `${input.action.replace("operator.confirmation.", "Operator confirmation ")} completed.`
+        : `${input.action.replace("operator.confirmation.", "Operator confirmation ")} failed.`,
+    reason,
+    metadata: {
+      confirmationId,
+      confirmationEvent,
+      resultStatus,
+      command,
+      planId: safeAuditText(audit?.planId),
+      channel: safeAuditText(audit?.channel),
+      chatId: safeAuditText(audit?.chatId),
+      senderId: safeAuditText(audit?.senderId),
+      sourceMessageId: safeAuditText(audit?.sourceMessageId),
+    },
   });
 }
 
@@ -1453,15 +1526,34 @@ async function routeRequest(
 
   if (request.method === "POST" && url.pathname === "/api/operator/confirmations") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    writeJson(
-      response,
-      201,
-      await issueOperatorCommandConfirmation(await readJsonBody(request) as OperatorCommandConfirmationIssueRequest, {
+    const requestBody = await readJsonBody(request) as OperatorCommandConfirmationIssueRequest;
+    try {
+      const confirmationResponse = await issueOperatorCommandConfirmation(requestBody, {
         workspaceRoot: config.workspaceRoot,
         registry: runtimeModel.registry,
         trustedChatBridge: isTrustedChatBridgeRequest(request),
-      }),
-    );
+      });
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.issue",
+        routeTemplate: "/api/operator/confirmations",
+        outcome: "success",
+        statusCode: 201,
+        audit: confirmationResponse.audit,
+      });
+      writeJson(response, 201, confirmationResponse);
+    } catch (error) {
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.issue",
+        routeTemplate: "/api/operator/confirmations",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        actor: getConfirmationRequestActor(requestBody),
+        reason: toApiErrorBody(error).error,
+      });
+      throw error;
+    }
     return;
   }
 
@@ -1478,28 +1570,75 @@ async function routeRequest(
       trustedChatBridge: isTrustedChatBridgeRequest(request),
     };
     if (pathParts[4] === "confirm") {
-      const confirmationResponse = await confirmOperatorCommandConfirmation(
-        confirmationId,
-        await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest,
-        confirmationModel,
-      );
-      writeJson(response, 200, confirmationResponse);
+      const requestBody = await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest;
+      try {
+        const confirmationResponse = await confirmOperatorCommandConfirmation(
+          confirmationId,
+          requestBody,
+          confirmationModel,
+        );
+        await appendOperatorCommandConfirmationRuntimeAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          action: "operator.confirmation.confirm",
+          routeTemplate: "/api/operator/confirmations/:id/confirm",
+          outcome: "success",
+          statusCode: 200,
+          audit: confirmationResponse.audit,
+        });
+        writeJson(response, 200, confirmationResponse);
+      } catch (error) {
+        await appendOperatorCommandConfirmationRuntimeAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          action: "operator.confirmation.confirm",
+          routeTemplate: "/api/operator/confirmations/:id/confirm",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          confirmationId,
+          actor: getConfirmationRequestActor(requestBody),
+          reason: toApiErrorBody(error).error,
+        });
+        throw error;
+      }
       return;
     }
 
-    const executionResponse = await executeOperatorCommandConfirmation(
-      confirmationId,
-      await readJsonBody(request) as OperatorCommandConfirmationExecuteRequest,
-      confirmationModel,
-      async (record) => {
-        const service = runtimeModel.registry.getById(record.targetServiceId);
-        if (!service) {
-          throw new ApiError("service_not_found", 404, `Unknown service id: ${record.targetServiceId}.`);
-        }
-        return await executeLifecycleAction(record.command, service, runtimeModel.registry, config.workspaceRoot);
-      },
-    );
-    writeJson(response, executionResponse.action.ok ? 200 : 409, executionResponse);
+    const requestBody = await readJsonBody(request) as OperatorCommandConfirmationExecuteRequest;
+    try {
+      const executionResponse = await executeOperatorCommandConfirmation(
+        confirmationId,
+        requestBody,
+        confirmationModel,
+        async (record) => {
+          const service = runtimeModel.registry.getById(record.targetServiceId);
+          if (!service) {
+            throw new ApiError("service_not_found", 404, `Unknown service id: ${record.targetServiceId}.`);
+          }
+          return await executeLifecycleAction(record.command, service, runtimeModel.registry, config.workspaceRoot);
+        },
+      );
+      const statusCode = executionResponse.action.ok ? 200 : 409;
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.execute",
+        routeTemplate: "/api/operator/confirmations/:id/execute",
+        outcome: executionResponse.action.ok ? "success" : "failure",
+        statusCode,
+        audit: executionResponse.audit,
+      });
+      writeJson(response, statusCode, executionResponse);
+    } catch (error) {
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.execute",
+        routeTemplate: "/api/operator/confirmations/:id/execute",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        confirmationId,
+        actor: getConfirmationRequestActor(requestBody),
+        reason: toApiErrorBody(error).error,
+      });
+      throw error;
+    }
     return;
   }
 
