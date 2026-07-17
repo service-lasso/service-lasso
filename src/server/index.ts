@@ -178,6 +178,7 @@ import {
   listWorkflowFacadeDefinitions,
   retryWorkflowFacadeRun,
   startWorkflowFacadeRun,
+  type WorkflowFacadeAuditEvent,
   type WorkflowFacadeErrorCode,
   type WorkflowFacadeRun,
   type WorkflowRunFacadeState,
@@ -537,6 +538,52 @@ async function appendOperatorCommandConfirmationRuntimeAuditEvent(input: {
       chatId: safeAuditText(audit?.chatId),
       senderId: safeAuditText(audit?.senderId),
       sourceMessageId: safeAuditText(audit?.sourceMessageId),
+    },
+  });
+}
+
+async function appendWorkflowFacadeRuntimeAuditEvent(input: {
+  config: ApiRouteConfig;
+  action: WorkflowFacadeAuditEvent["action"];
+  routeTemplate: string;
+  statusCode: number;
+  context: PlatformRequestContext;
+  outcome: "success" | "failure";
+  auditEvent?: WorkflowFacadeAuditEvent | null;
+  workspaceId: string;
+  workflowId?: string | null;
+  facadeRunId?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const auditEvent = input.auditEvent ?? null;
+  const facadeRunId = safeAuditText(auditEvent?.facadeRunId ?? input.facadeRunId);
+  const workflowId = safeAuditText(auditEvent?.workflowId ?? input.workflowId);
+  const workspaceId = safeAuditText(auditEvent?.workspaceId ?? input.workspaceId);
+  const reason = safeAuditText(auditEvent?.reason ?? input.reason);
+
+  await appendAuditEvent({
+    workspaceRoot: input.config.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(auditEvent?.actorUserId ?? input.context.userId, "unknown") ?? "unknown",
+    subject: facadeRunId ?? workflowId ?? undefined,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `Workflow ${input.action.replace("workflow.run.", "run ")} accepted.`
+        : `Workflow ${input.action.replace("workflow.run.", "run ")} failed.`,
+    reason,
+    correlationId: safeAuditText(auditEvent?.id),
+    relatedRevisionId: safeAuditText(auditEvent?.engineRunId),
+    metadata: {
+      workspaceId,
+      workflowId,
+      facadeRunId,
+      engineRunId: safeAuditText(auditEvent?.engineRunId),
+      facadeOutcome: safeAuditText(auditEvent?.outcome),
     },
   });
 }
@@ -1192,6 +1239,7 @@ async function routeWorkflowFacadeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
+  config: ApiRouteConfig,
   state: WorkflowRunFacadeState,
 ): Promise<boolean> {
   if (!url.pathname.startsWith("/api/platform/workspaces/")) return false;
@@ -1226,8 +1274,32 @@ async function routeWorkflowFacadeRequest(
     if (request.method === "POST" && pathParts.length === 7 && workflowId && pathParts[6] === "runs") {
       const input = await parseStartWorkflowRunInput(request);
       const result = startWorkflowFacadeRun(context, { workspaceId, workflowId, input }, state);
-      if (!result.ok) throwWorkflowFacadeError(result);
+      if (!result.ok) {
+        await appendWorkflowFacadeRuntimeAuditEvent({
+          config,
+          action: "workflow.run.start",
+          routeTemplate: "/api/platform/workspaces/:workspaceId/workflows/:workflowId/runs",
+          statusCode: workflowFacadeStatusCode(result.error.code),
+          context,
+          outcome: "failure",
+          workspaceId,
+          workflowId,
+          reason: result.error.code,
+        });
+        throwWorkflowFacadeError(result);
+      }
       upsertWorkflowRun(state, result.value);
+      await appendWorkflowFacadeRuntimeAuditEvent({
+        config,
+        action: "workflow.run.start",
+        routeTemplate: "/api/platform/workspaces/:workspaceId/workflows/:workflowId/runs",
+        statusCode: 200,
+        context,
+        outcome: "success",
+        auditEvent: result.auditEvent,
+        workspaceId,
+        workflowId,
+      });
       writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
       return true;
     }
@@ -1246,16 +1318,64 @@ async function routeWorkflowFacadeRequest(
 
     if (request.method === "POST" && pathParts.length === 7 && runId && action === "cancel") {
       const result = cancelWorkflowFacadeRun(context, workspaceId, runId, state);
-      if (!result.ok) throwWorkflowFacadeError(result);
+      if (!result.ok) {
+        await appendWorkflowFacadeRuntimeAuditEvent({
+          config,
+          action: "workflow.run.cancel",
+          routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/cancel",
+          statusCode: workflowFacadeStatusCode(result.error.code),
+          context,
+          outcome: "failure",
+          workspaceId,
+          facadeRunId: runId,
+          reason: result.error.code,
+        });
+        throwWorkflowFacadeError(result);
+      }
       upsertWorkflowRun(state, result.value);
+      await appendWorkflowFacadeRuntimeAuditEvent({
+        config,
+        action: "workflow.run.cancel",
+        routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/cancel",
+        statusCode: 200,
+        context,
+        outcome: "success",
+        auditEvent: result.auditEvent,
+        workspaceId,
+        facadeRunId: runId,
+      });
       writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
       return true;
     }
 
     if (request.method === "POST" && pathParts.length === 7 && runId && action === "retry") {
       const result = retryWorkflowFacadeRun(context, workspaceId, runId, state);
-      if (!result.ok) throwWorkflowFacadeError(result);
+      if (!result.ok) {
+        await appendWorkflowFacadeRuntimeAuditEvent({
+          config,
+          action: "workflow.run.retry",
+          routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/retry",
+          statusCode: workflowFacadeStatusCode(result.error.code),
+          context,
+          outcome: "failure",
+          workspaceId,
+          facadeRunId: runId,
+          reason: result.error.code,
+        });
+        throwWorkflowFacadeError(result);
+      }
       upsertWorkflowRun(state, result.value);
+      await appendWorkflowFacadeRuntimeAuditEvent({
+        config,
+        action: "workflow.run.retry",
+        routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/retry",
+        statusCode: 200,
+        context,
+        outcome: "success",
+        auditEvent: result.auditEvent,
+        workspaceId,
+        facadeRunId: runId,
+      });
       writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
       return true;
     }
@@ -1398,7 +1518,7 @@ async function routeRequest(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
-  if (await routeWorkflowFacadeRequest(request, response, url, workflowRunFacadeState)) {
+  if (await routeWorkflowFacadeRequest(request, response, url, config, workflowRunFacadeState)) {
     return;
   }
 

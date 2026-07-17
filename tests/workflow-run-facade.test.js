@@ -217,7 +217,15 @@ test("workflow run facade is exposed through runtime HTTP routes", async () => {
     assert.equal(retried.body.run.status, "retrying");
     assert.equal(retried.body.auditEvent.action, "workflow.run.retry");
 
-    const serialized = JSON.stringify([list.body, workflow.body, started.body, fetchedRun.body, logs.body, artifacts.body, cancelled.body, retried.body]);
+    const audit = await getJson(`${apiServer.url}/api/audit?source=runtime-api&limit=20`);
+    assert.equal(audit.status, 200);
+    const auditActions = audit.body.events.map((event) => event.action);
+    assert.ok(auditActions.includes("workflow.run.start"));
+    assert.ok(auditActions.includes("workflow.run.cancel"));
+    assert.ok(auditActions.includes("workflow.run.retry"));
+    assert.equal(audit.body.events.find((event) => event.action === "workflow.run.start").subject, started.body.run.facadeRunId);
+
+    const serialized = JSON.stringify([list.body, workflow.body, started.body, fetchedRun.body, logs.body, artifacts.body, cancelled.body, retried.body, audit.body]);
     assert.equal(serialized.includes("raw-workflow-secret"), false);
     assert.equal(serialized.includes("access-token-value"), false);
     assert.equal(serialized.includes("refresh-token-value"), false);
@@ -257,6 +265,12 @@ test("workflow runtime HTTP routes fail closed for policy and request errors", a
     assert.equal(connectionNotReady.status, 403);
     assert.equal(connectionNotReady.body.error, "connection-not-ready");
     errorBodies.push(connectionNotReady.body);
+
+    const audit = await getJson(`${apiServer.url}/api/audit?source=runtime-api&action=workflow.run.start&outcome=failure&limit=20`);
+    assert.equal(audit.status, 200);
+    assert.equal(audit.body.events.length, 2);
+    assert.equal(audit.body.events.every((event) => event.reason === "missing-entitlement" || event.reason === "connection-not-ready"), true);
+    errorBodies.push(audit.body);
   } finally {
     await apiServer.stop();
   }
