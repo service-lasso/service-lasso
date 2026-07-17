@@ -171,11 +171,11 @@ test("workflow run facade docs cover endpoints status policy and no-secret rende
 });
 
 test("workflow run facade is exposed through runtime HTTP routes", async () => {
-  const { servicesRoot } = await makeTempServicesRoot("service-lasso-workflow-api-");
+  const { servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-workflow-api-");
   const state = clone(exampleWorkflowRunFacadeState);
   state.runs[0].status = "failed";
   state.runs[0].engine.status = "error";
-  const apiServer = await startApiServer({ port: 0, servicesRoot, workflowRunFacadeState: state });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot, workflowRunFacadeState: state });
   const workspaceId = "wks_local_demo";
   const workflowId = encodeURIComponent("official.core.maintenance/backup-check");
 
@@ -236,10 +236,10 @@ test("workflow run facade is exposed through runtime HTTP routes", async () => {
 });
 
 test("workflow runtime HTTP routes fail closed for policy and request errors", async () => {
-  const { servicesRoot } = await makeTempServicesRoot("service-lasso-workflow-api-denied-");
+  const { servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-workflow-api-denied-");
   const connectionState = clone(exampleWorkflowRunFacadeState);
   connectionState.providerConnections[0].status = "needs-auth";
-  const apiServer = await startApiServer({ port: 0, servicesRoot, workflowRunFacadeState: connectionState });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot, workflowRunFacadeState: connectionState });
   const workspaceId = "wks_local_demo";
   const workflowId = encodeURIComponent("official.core.maintenance/backup-check");
   const errorBodies = [];
@@ -277,7 +277,7 @@ test("workflow runtime HTTP routes fail closed for policy and request errors", a
 
   const secretState = clone(exampleWorkflowRunFacadeState);
   secretState.workflows[0].secretDependencies[0].status = "missing";
-  const secretApiServer = await startApiServer({ port: 0, servicesRoot, workflowRunFacadeState: secretState });
+  const secretApiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot, workflowRunFacadeState: secretState });
 
   try {
     const missingSecret = await postJson(`${secretApiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`);

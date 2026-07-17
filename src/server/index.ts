@@ -161,6 +161,8 @@ import {
   activateWorkflowRepoSources,
   readWorkflowRepoSyncState,
   rollbackWorkflowRepoActivation,
+  type WorkflowRepoActivationResult,
+  type WorkflowRepoSyncState,
   type WorkflowRepoSource,
 } from "../platform/workflowSyncController.js";
 import {
@@ -584,6 +586,70 @@ async function appendWorkflowFacadeRuntimeAuditEvent(input: {
       facadeRunId,
       engineRunId: safeAuditText(auditEvent?.engineRunId),
       facadeOutcome: safeAuditText(auditEvent?.outcome),
+    },
+  });
+}
+
+async function appendWorkflowRepoRuntimeAuditEvent(input: {
+  config: ApiRouteConfig;
+  action: "workflow.repo.sync" | "workflow.repo.activate" | "workflow.repo.rollback";
+  routeTemplate: string;
+  outcome: "success" | "failure";
+  statusCode: number;
+  actor?: string | null;
+  result?: WorkflowRepoActivationResult | WorkflowRepoSyncState | null;
+  sources?: WorkflowRepoSource[] | null;
+  reason?: string | null;
+}): Promise<void> {
+  const result = input.result ?? null;
+  const state = result && "state" in result ? result.state : result;
+  const active = result && "active" in result ? result.active : state?.active;
+  const diagnostics = result && "diagnostics" in result ? result.diagnostics : state?.failed?.diagnostics ?? [];
+  const sourceIds = (input.sources ?? [])
+    .map((source) => safeAuditText(source.id))
+    .filter((value): value is string => value !== null);
+  const sourceRefs = (input.sources ?? [])
+    .map((source) => safeAuditText(source.ref))
+    .filter((value): value is string => value !== null);
+  const sourceKinds = (input.sources ?? [])
+    .map((source) => safeAuditText(source.source))
+    .filter((value): value is string => value !== null);
+  const activationId = safeAuditText(active?.activationId ?? state?.failed?.activationId);
+  const activeRevision = safeAuditText(active?.revision);
+  const reason = safeAuditText(input.reason ?? state?.failed?.reason);
+
+  await appendAuditEvent({
+    workspaceRoot: input.config.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(input.actor, "unknown") ?? "unknown",
+    subject: activationId ?? activeRevision ?? input.action,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `Workflow repo ${input.action.replace("workflow.repo.", "")} completed.`
+        : `Workflow repo ${input.action.replace("workflow.repo.", "")} failed.`,
+    reason,
+    relatedRevisionId: activeRevision,
+    metadata: {
+      activationId,
+      activeRevision,
+      previousGoodRevision: safeAuditText(state?.previousGood?.revision),
+      sourceCount: input.sources?.length ?? (result && "synced" in result ? result.synced.length : 0),
+      sourceIds,
+      sourceRefs,
+      sourceKinds,
+      packageCount: active?.packages.length ?? 0,
+      diagnostics: diagnostics.map((diagnostic) => ({
+        code: safeAuditText(diagnostic.code),
+        field: safeAuditText(diagnostic.field),
+        packageId: safeAuditText(diagnostic.packageId),
+        severity: safeAuditText(diagnostic.severity),
+      })),
+      historyCount: state?.history.length ?? 0,
     },
   });
 }
@@ -1926,24 +1992,79 @@ async function routeRequest(
     request.method === "POST" &&
     (url.pathname === "/api/platform/workflow-repos/sync" || url.pathname === "/api/platform/workflow-repos/activate")
   ) {
-    const sources = parseWorkflowRepoSourcesBody(await readJsonBody(request));
-    const result = await activateWorkflowRepoSources(sources, {
-      workspaceRoot: workflowRepoWorkspaceRoot(config),
-      statePath: workflowRepoStatePath(config),
-      fetcher: async ({ source, destination }) => {
-        await cp(resolveLocalWorkflowRepo(source.repo), destination, { recursive: true, force: true });
-        return { revision: source.ref, packageRoot: source.path ?? "." };
-      },
-    });
-    writeJson(response, result.ok ? 200 : 400, result);
+    const action = url.pathname.endsWith("/sync") ? "workflow.repo.sync" : "workflow.repo.activate";
+    const routeTemplate = url.pathname.endsWith("/sync")
+      ? "/api/platform/workflow-repos/sync"
+      : "/api/platform/workflow-repos/activate";
+    const actor = firstHeader(request.headers["x-service-lasso-user-id"]);
+    let sources: WorkflowRepoSource[] = [];
+    try {
+      sources = parseWorkflowRepoSourcesBody(await readJsonBody(request));
+      const result = await activateWorkflowRepoSources(sources, {
+        workspaceRoot: workflowRepoWorkspaceRoot(config),
+        statePath: workflowRepoStatePath(config),
+        fetcher: async ({ source, destination }) => {
+          await cp(resolveLocalWorkflowRepo(source.repo), destination, { recursive: true, force: true });
+          return { revision: source.ref, packageRoot: source.path ?? "." };
+        },
+      });
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action,
+        routeTemplate,
+        outcome: result.ok ? "success" : "failure",
+        statusCode: result.ok ? 200 : 400,
+        actor,
+        result,
+        sources,
+        reason: result.ok ? null : result.state.failed?.reason ?? result.diagnostics[0]?.code ?? null,
+      });
+      writeJson(response, result.ok ? 200 : 400, result);
+    } catch (error) {
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action,
+        routeTemplate,
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        actor,
+        sources,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/api/platform/workflow-repos/rollback") {
-    writeJson(response, 200, await rollbackWorkflowRepoActivation({
-      workspaceRoot: workflowRepoWorkspaceRoot(config),
-      statePath: workflowRepoStatePath(config),
-    }));
+    const actor = firstHeader(request.headers["x-service-lasso-user-id"]);
+    try {
+      const result = await rollbackWorkflowRepoActivation({
+        workspaceRoot: workflowRepoWorkspaceRoot(config),
+        statePath: workflowRepoStatePath(config),
+      });
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action: "workflow.repo.rollback",
+        routeTemplate: "/api/platform/workflow-repos/rollback",
+        outcome: "success",
+        statusCode: 200,
+        actor,
+        result,
+      });
+      writeJson(response, 200, result);
+    } catch (error) {
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action: "workflow.repo.rollback",
+        routeTemplate: "/api/platform/workflow-repos/rollback",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        actor,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
