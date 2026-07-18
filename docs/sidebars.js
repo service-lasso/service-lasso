@@ -123,6 +123,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/audit",
+          label: "Audit",
+        },
+        {
+          type: "doc",
           id: "reference/traefik-local-route-generation",
           label: "Traefik Local Route Generation",
         },
