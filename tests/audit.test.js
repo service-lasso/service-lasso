@@ -401,3 +401,42 @@ test("audit API records update checks that mutate durable update state", async (
     resetLifecycleState();
   }
 });
+
+test("audit API records update download and install failures without unsafe request material", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-update-failure-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const releaseServer = await startAuditReleaseServer();
+  await writeManifest(servicesRoot, "audit-update-service", createAuditUpdateManifest(releaseServer));
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const check = await postJson(`${apiServer.url}/api/updates/check`, { serviceId: "audit-update-service" });
+    assert.equal(check.status, 200);
+    assert.equal(check.body.services[0].result.status, "update_available");
+
+    const download = await postJson(`${apiServer.url}/api/services/audit-update-service/update/download`);
+    assert.equal(download.status, 500);
+
+    const install = await postJson(`${apiServer.url}/api/services/audit-update-service/update/install`, {
+      force: "raw-update-secret",
+    });
+    assert.equal(install.status, 400);
+
+    const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-update-service&limit=10`);
+    assert.equal(audit.status, 200);
+    const downloadAudit = audit.body.events.find((event) => event.action === "service.update.download");
+    const installAudit = audit.body.events.find((event) => event.action === "service.update.install");
+    assert.equal(downloadAudit.outcome, "failure");
+    assert.equal(downloadAudit.routeTemplate, "/api/services/:serviceId/update/download");
+    assert.equal(installAudit.outcome, "failure");
+    assert.equal(installAudit.statusCode, 400);
+    assert.equal(installAudit.routeTemplate, "/api/services/:serviceId/update/install");
+    assert.equal(JSON.stringify(audit.body).includes("raw-update-secret"), false);
+  } finally {
+    await apiServer.stop().catch(() => undefined);
+    await releaseServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});

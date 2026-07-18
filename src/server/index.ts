@@ -122,7 +122,9 @@ import {
   readOperatorActionQueue,
   upsertOperatorActionItem,
   type OperatorActionInput,
+  type OperatorActionItem,
   type OperatorActionMutationInput,
+  type OperatorActionQueueState,
 } from "../runtime/operator/action-queue.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
@@ -159,6 +161,8 @@ import {
   activateWorkflowRepoSources,
   readWorkflowRepoSyncState,
   rollbackWorkflowRepoActivation,
+  type WorkflowRepoActivationResult,
+  type WorkflowRepoSyncState,
   type WorkflowRepoSource,
 } from "../platform/workflowSyncController.js";
 import {
@@ -176,6 +180,7 @@ import {
   listWorkflowFacadeDefinitions,
   retryWorkflowFacadeRun,
   startWorkflowFacadeRun,
+  type WorkflowFacadeAuditEvent,
   type WorkflowFacadeErrorCode,
   type WorkflowFacadeRun,
   type WorkflowRunFacadeState,
@@ -185,6 +190,7 @@ import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
+  OperatorCommandConfirmationAuditEvent,
   OperatorCommandConfirmationExecuteRequest,
   OperatorCommandConfirmationConfirmRequest,
   OperatorCommandConfirmationIssueRequest,
@@ -391,12 +397,261 @@ function getAuditActor(input: unknown): string {
   return typeof actor === "string" && actor.trim().length > 0 ? actor.trim() : "unknown";
 }
 
+function redactAuditText(value: string): string {
+  return value
+    .replace(/([\w.-]*(?:password|passwd|secret|token|key|credential)[\w.-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+    .replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
+    .replace(/(gh[pousr]_[A-Za-z0-9_]+)/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function safeAuditText(value: unknown, fallback: string | null = null): string | null {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const redacted = redactAuditText(value).slice(0, 240);
+  return redacted || fallback;
+}
+
 function getApiErrorStatusCode(error: unknown): number {
   return toApiErrorBody(error).statusCode;
 }
 
 function getAuditFailureReason(error: unknown): string {
-  return toApiErrorBody(error).message;
+  return redactAuditText(toApiErrorBody(error).message);
+}
+
+function getOperatorActionAuditItem(queue: OperatorActionQueueState, itemId?: string | null): OperatorActionItem | null {
+  if (itemId) {
+    return queue.items.find((item) => item.id === itemId) ?? null;
+  }
+  return queue.items[0] ?? null;
+}
+
+async function appendOperatorActionQueueAuditEvent(input: {
+  workspaceRoot: string;
+  action: "operator.action.record" | "operator.action.acknowledge" | "operator.action.defer" | "operator.action.reopen";
+  routeTemplate: string;
+  outcome: "success" | "failure";
+  statusCode: number;
+  item?: OperatorActionItem | null;
+  itemId?: string | null;
+  actor?: string | null;
+  reason?: string | null;
+  mutation?: string | null;
+}): Promise<void> {
+  const item = input.item ?? null;
+  const subject = item?.id ?? safeAuditText(input.itemId);
+  const metadata: Record<string, string | null> = {
+    itemId: subject,
+    queueStatus: item?.status ?? null,
+    severity: item?.severity ?? null,
+    sourceKind: item?.source.kind ?? null,
+    serviceId: item?.source.serviceId ?? null,
+    reference: item?.source.reference ?? null,
+    mutation: input.mutation ?? null,
+  };
+
+  await appendAuditEvent({
+    workspaceRoot: input.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(input.actor, "unknown") ?? "unknown",
+    subject: subject ?? undefined,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `Operator action queue ${input.action.replace("operator.action.", "")} completed.`
+        : `Operator action queue ${input.action.replace("operator.action.", "")} failed.`,
+    reason: safeAuditText(input.reason),
+    metadata,
+  });
+}
+
+function getConfirmationRequestActor(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return "unknown";
+  }
+
+  const actor = (input as Record<string, unknown>).actor;
+  if (!actor || typeof actor !== "object" || Array.isArray(actor)) {
+    return "unknown";
+  }
+
+  const actorRecord = actor as Record<string, unknown>;
+  if (typeof actorRecord.actorId === "string" && actorRecord.actorId.trim()) {
+    return actorRecord.actorId.trim();
+  }
+  if (typeof actorRecord.source === "string" && typeof actorRecord.senderId === "string") {
+    return `${actorRecord.source}:${actorRecord.senderId}`;
+  }
+  if (typeof actorRecord.senderDisplay === "string" && actorRecord.senderDisplay.trim()) {
+    return actorRecord.senderDisplay.trim();
+  }
+  return "unknown";
+}
+
+async function appendOperatorCommandConfirmationRuntimeAuditEvent(input: {
+  workspaceRoot: string;
+  action: "operator.confirmation.issue" | "operator.confirmation.confirm" | "operator.confirmation.execute";
+  routeTemplate: string;
+  outcome: "success" | "failure";
+  statusCode: number;
+  audit?: OperatorCommandConfirmationAuditEvent | null;
+  confirmationId?: string | null;
+  actor?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const audit = input.audit ?? null;
+  const confirmationId = safeAuditText(audit?.confirmationId ?? input.confirmationId);
+  const serviceId = safeAuditText(audit?.targetServiceId);
+  const confirmationEvent = safeAuditText(audit?.event);
+  const command = safeAuditText(audit?.command);
+  const resultStatus = safeAuditText(audit?.resultStatus);
+  const reason = safeAuditText(audit?.errorCode ?? input.reason);
+
+  await appendAuditEvent({
+    workspaceRoot: input.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(audit?.actorId ?? input.actor, "unknown") ?? "unknown",
+    subject: confirmationId ?? undefined,
+    serviceId: serviceId ?? undefined,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `${input.action.replace("operator.confirmation.", "Operator confirmation ")} completed.`
+        : `${input.action.replace("operator.confirmation.", "Operator confirmation ")} failed.`,
+    reason,
+    metadata: {
+      confirmationId,
+      confirmationEvent,
+      resultStatus,
+      command,
+      planId: safeAuditText(audit?.planId),
+      channel: safeAuditText(audit?.channel),
+      chatId: safeAuditText(audit?.chatId),
+      senderId: safeAuditText(audit?.senderId),
+      sourceMessageId: safeAuditText(audit?.sourceMessageId),
+    },
+  });
+}
+
+async function appendWorkflowFacadeRuntimeAuditEvent(input: {
+  config: ApiRouteConfig;
+  action: WorkflowFacadeAuditEvent["action"];
+  routeTemplate: string;
+  statusCode: number;
+  context: PlatformRequestContext;
+  outcome: "success" | "failure";
+  auditEvent?: WorkflowFacadeAuditEvent | null;
+  workspaceId: string;
+  workflowId?: string | null;
+  facadeRunId?: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const auditEvent = input.auditEvent ?? null;
+  const facadeRunId = safeAuditText(auditEvent?.facadeRunId ?? input.facadeRunId);
+  const workflowId = safeAuditText(auditEvent?.workflowId ?? input.workflowId);
+  const workspaceId = safeAuditText(auditEvent?.workspaceId ?? input.workspaceId);
+  const reason = safeAuditText(auditEvent?.reason ?? input.reason);
+
+  await appendAuditEvent({
+    workspaceRoot: input.config.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(auditEvent?.actorUserId ?? input.context.userId, "unknown") ?? "unknown",
+    subject: facadeRunId ?? workflowId ?? undefined,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `Workflow ${input.action.replace("workflow.run.", "run ")} accepted.`
+        : `Workflow ${input.action.replace("workflow.run.", "run ")} failed.`,
+    reason,
+    correlationId: safeAuditText(auditEvent?.id),
+    relatedRevisionId: safeAuditText(auditEvent?.engineRunId),
+    metadata: {
+      workspaceId,
+      workflowId,
+      facadeRunId,
+      engineRunId: safeAuditText(auditEvent?.engineRunId),
+      facadeOutcome: safeAuditText(auditEvent?.outcome),
+    },
+  });
+}
+
+async function appendWorkflowRepoRuntimeAuditEvent(input: {
+  config: ApiRouteConfig;
+  action: "workflow.repo.sync" | "workflow.repo.activate" | "workflow.repo.rollback";
+  routeTemplate: string;
+  outcome: "success" | "failure";
+  statusCode: number;
+  actor?: string | null;
+  result?: WorkflowRepoActivationResult | WorkflowRepoSyncState | null;
+  sources?: WorkflowRepoSource[] | null;
+  reason?: string | null;
+}): Promise<void> {
+  const result = input.result ?? null;
+  const state = result && "state" in result ? result.state : result;
+  const active = result && "active" in result ? result.active : state?.active;
+  const diagnostics = result && "diagnostics" in result ? result.diagnostics : state?.failed?.diagnostics ?? [];
+  const sourceIds = (input.sources ?? [])
+    .map((source) => safeAuditText(source.id))
+    .filter((value): value is string => value !== null);
+  const sourceRefs = (input.sources ?? [])
+    .map((source) => safeAuditText(source.ref))
+    .filter((value): value is string => value !== null);
+  const sourceKinds = (input.sources ?? [])
+    .map((source) => safeAuditText(source.source))
+    .filter((value): value is string => value !== null);
+  const activationId = safeAuditText(active?.activationId ?? state?.failed?.activationId);
+  const activeRevision = safeAuditText(active?.revision);
+  const reason = safeAuditText(input.reason ?? state?.failed?.reason);
+
+  await appendAuditEvent({
+    workspaceRoot: input.config.workspaceRoot,
+    source: "runtime-api",
+    action: input.action,
+    actor: safeAuditText(input.actor, "unknown") ?? "unknown",
+    subject: activationId ?? activeRevision ?? input.action,
+    method: "POST",
+    routeTemplate: input.routeTemplate,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    summary:
+      input.outcome === "success"
+        ? `Workflow repo ${input.action.replace("workflow.repo.", "")} completed.`
+        : `Workflow repo ${input.action.replace("workflow.repo.", "")} failed.`,
+    reason,
+    relatedRevisionId: activeRevision,
+    metadata: {
+      activationId,
+      activeRevision,
+      previousGoodRevision: safeAuditText(state?.previousGood?.revision),
+      sourceCount: input.sources?.length ?? (result && "synced" in result ? result.synced.length : 0),
+      sourceIds,
+      sourceRefs,
+      sourceKinds,
+      packageCount: active?.packages.length ?? 0,
+      diagnostics: diagnostics.map((diagnostic) => ({
+        code: safeAuditText(diagnostic.code),
+        field: safeAuditText(diagnostic.field),
+        packageId: safeAuditText(diagnostic.packageId),
+        severity: safeAuditText(diagnostic.severity),
+      })),
+      historyCount: state?.history.length ?? 0,
+    },
+  });
 }
 
 function parseAuditQuery(searchParams: URLSearchParams): AuditQuery {
@@ -1050,6 +1305,7 @@ async function routeWorkflowFacadeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
+  config: ApiRouteConfig,
   state: WorkflowRunFacadeState,
 ): Promise<boolean> {
   if (!url.pathname.startsWith("/api/platform/workspaces/")) return false;
@@ -1084,8 +1340,32 @@ async function routeWorkflowFacadeRequest(
     if (request.method === "POST" && pathParts.length === 7 && workflowId && pathParts[6] === "runs") {
       const input = await parseStartWorkflowRunInput(request);
       const result = startWorkflowFacadeRun(context, { workspaceId, workflowId, input }, state);
-      if (!result.ok) throwWorkflowFacadeError(result);
+      if (!result.ok) {
+        await appendWorkflowFacadeRuntimeAuditEvent({
+          config,
+          action: "workflow.run.start",
+          routeTemplate: "/api/platform/workspaces/:workspaceId/workflows/:workflowId/runs",
+          statusCode: workflowFacadeStatusCode(result.error.code),
+          context,
+          outcome: "failure",
+          workspaceId,
+          workflowId,
+          reason: result.error.code,
+        });
+        throwWorkflowFacadeError(result);
+      }
       upsertWorkflowRun(state, result.value);
+      await appendWorkflowFacadeRuntimeAuditEvent({
+        config,
+        action: "workflow.run.start",
+        routeTemplate: "/api/platform/workspaces/:workspaceId/workflows/:workflowId/runs",
+        statusCode: 200,
+        context,
+        outcome: "success",
+        auditEvent: result.auditEvent,
+        workspaceId,
+        workflowId,
+      });
       writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
       return true;
     }
@@ -1104,16 +1384,64 @@ async function routeWorkflowFacadeRequest(
 
     if (request.method === "POST" && pathParts.length === 7 && runId && action === "cancel") {
       const result = cancelWorkflowFacadeRun(context, workspaceId, runId, state);
-      if (!result.ok) throwWorkflowFacadeError(result);
+      if (!result.ok) {
+        await appendWorkflowFacadeRuntimeAuditEvent({
+          config,
+          action: "workflow.run.cancel",
+          routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/cancel",
+          statusCode: workflowFacadeStatusCode(result.error.code),
+          context,
+          outcome: "failure",
+          workspaceId,
+          facadeRunId: runId,
+          reason: result.error.code,
+        });
+        throwWorkflowFacadeError(result);
+      }
       upsertWorkflowRun(state, result.value);
+      await appendWorkflowFacadeRuntimeAuditEvent({
+        config,
+        action: "workflow.run.cancel",
+        routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/cancel",
+        statusCode: 200,
+        context,
+        outcome: "success",
+        auditEvent: result.auditEvent,
+        workspaceId,
+        facadeRunId: runId,
+      });
       writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
       return true;
     }
 
     if (request.method === "POST" && pathParts.length === 7 && runId && action === "retry") {
       const result = retryWorkflowFacadeRun(context, workspaceId, runId, state);
-      if (!result.ok) throwWorkflowFacadeError(result);
+      if (!result.ok) {
+        await appendWorkflowFacadeRuntimeAuditEvent({
+          config,
+          action: "workflow.run.retry",
+          routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/retry",
+          statusCode: workflowFacadeStatusCode(result.error.code),
+          context,
+          outcome: "failure",
+          workspaceId,
+          facadeRunId: runId,
+          reason: result.error.code,
+        });
+        throwWorkflowFacadeError(result);
+      }
       upsertWorkflowRun(state, result.value);
+      await appendWorkflowFacadeRuntimeAuditEvent({
+        config,
+        action: "workflow.run.retry",
+        routeTemplate: "/api/platform/workspaces/:workspaceId/workflow-runs/:runId/retry",
+        statusCode: 200,
+        context,
+        outcome: "success",
+        auditEvent: result.auditEvent,
+        workspaceId,
+        facadeRunId: runId,
+      });
       writeJson(response, 200, { run: result.value, auditEvent: result.auditEvent });
       return true;
     }
@@ -1256,7 +1584,7 @@ async function routeRequest(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
-  if (await routeWorkflowFacadeRequest(request, response, url, workflowRunFacadeState)) {
+  if (await routeWorkflowFacadeRequest(request, response, url, config, workflowRunFacadeState)) {
     return;
   }
 
@@ -1384,15 +1712,34 @@ async function routeRequest(
 
   if (request.method === "POST" && url.pathname === "/api/operator/confirmations") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    writeJson(
-      response,
-      201,
-      await issueOperatorCommandConfirmation(await readJsonBody(request) as OperatorCommandConfirmationIssueRequest, {
+    const requestBody = await readJsonBody(request) as OperatorCommandConfirmationIssueRequest;
+    try {
+      const confirmationResponse = await issueOperatorCommandConfirmation(requestBody, {
         workspaceRoot: config.workspaceRoot,
         registry: runtimeModel.registry,
         trustedChatBridge: isTrustedChatBridgeRequest(request),
-      }),
-    );
+      });
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.issue",
+        routeTemplate: "/api/operator/confirmations",
+        outcome: "success",
+        statusCode: 201,
+        audit: confirmationResponse.audit,
+      });
+      writeJson(response, 201, confirmationResponse);
+    } catch (error) {
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.issue",
+        routeTemplate: "/api/operator/confirmations",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        actor: getConfirmationRequestActor(requestBody),
+        reason: toApiErrorBody(error).error,
+      });
+      throw error;
+    }
     return;
   }
 
@@ -1409,28 +1756,75 @@ async function routeRequest(
       trustedChatBridge: isTrustedChatBridgeRequest(request),
     };
     if (pathParts[4] === "confirm") {
-      const confirmationResponse = await confirmOperatorCommandConfirmation(
-        confirmationId,
-        await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest,
-        confirmationModel,
-      );
-      writeJson(response, 200, confirmationResponse);
+      const requestBody = await readJsonBody(request) as OperatorCommandConfirmationConfirmRequest;
+      try {
+        const confirmationResponse = await confirmOperatorCommandConfirmation(
+          confirmationId,
+          requestBody,
+          confirmationModel,
+        );
+        await appendOperatorCommandConfirmationRuntimeAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          action: "operator.confirmation.confirm",
+          routeTemplate: "/api/operator/confirmations/:id/confirm",
+          outcome: "success",
+          statusCode: 200,
+          audit: confirmationResponse.audit,
+        });
+        writeJson(response, 200, confirmationResponse);
+      } catch (error) {
+        await appendOperatorCommandConfirmationRuntimeAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          action: "operator.confirmation.confirm",
+          routeTemplate: "/api/operator/confirmations/:id/confirm",
+          outcome: "failure",
+          statusCode: getApiErrorStatusCode(error),
+          confirmationId,
+          actor: getConfirmationRequestActor(requestBody),
+          reason: toApiErrorBody(error).error,
+        });
+        throw error;
+      }
       return;
     }
 
-    const executionResponse = await executeOperatorCommandConfirmation(
-      confirmationId,
-      await readJsonBody(request) as OperatorCommandConfirmationExecuteRequest,
-      confirmationModel,
-      async (record) => {
-        const service = runtimeModel.registry.getById(record.targetServiceId);
-        if (!service) {
-          throw new ApiError("service_not_found", 404, `Unknown service id: ${record.targetServiceId}.`);
-        }
-        return await executeLifecycleAction(record.command, service, runtimeModel.registry, config.workspaceRoot);
-      },
-    );
-    writeJson(response, executionResponse.action.ok ? 200 : 409, executionResponse);
+    const requestBody = await readJsonBody(request) as OperatorCommandConfirmationExecuteRequest;
+    try {
+      const executionResponse = await executeOperatorCommandConfirmation(
+        confirmationId,
+        requestBody,
+        confirmationModel,
+        async (record) => {
+          const service = runtimeModel.registry.getById(record.targetServiceId);
+          if (!service) {
+            throw new ApiError("service_not_found", 404, `Unknown service id: ${record.targetServiceId}.`);
+          }
+          return await executeLifecycleAction(record.command, service, runtimeModel.registry, config.workspaceRoot);
+        },
+      );
+      const statusCode = executionResponse.action.ok ? 200 : 409;
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.execute",
+        routeTemplate: "/api/operator/confirmations/:id/execute",
+        outcome: executionResponse.action.ok ? "success" : "failure",
+        statusCode,
+        audit: executionResponse.audit,
+      });
+      writeJson(response, statusCode, executionResponse);
+    } catch (error) {
+      await appendOperatorCommandConfirmationRuntimeAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.confirmation.execute",
+        routeTemplate: "/api/operator/confirmations/:id/execute",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        confirmationId,
+        actor: getConfirmationRequestActor(requestBody),
+        reason: toApiErrorBody(error).error,
+      });
+      throw error;
+    }
     return;
   }
 
@@ -1455,9 +1849,30 @@ async function routeRequest(
   }
 
   if (request.method === "POST" && url.pathname === "/api/operator/actions/record") {
-    writeJson(response, 200, {
-      queue: await upsertOperatorActionItem(config.workspaceRoot, parseOperatorActionRecordBody(await readJsonBody(request))),
-    });
+    try {
+      const queue = await upsertOperatorActionItem(config.workspaceRoot, parseOperatorActionRecordBody(await readJsonBody(request)));
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.action.record",
+        routeTemplate: "/api/operator/actions/record",
+        outcome: "success",
+        statusCode: 200,
+        item: getOperatorActionAuditItem(queue),
+      });
+      writeJson(response, 200, {
+        queue,
+      });
+    } catch (error) {
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.action.record",
+        routeTemplate: "/api/operator/actions/record",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
@@ -1466,11 +1881,55 @@ async function routeRequest(
     const actionId = decodeURIComponent(pathParts[3] ?? "");
     const mutation = pathParts[4];
     if (!actionId || (mutation !== "acknowledge" && mutation !== "defer" && mutation !== "reopen")) {
-      throw new ApiError("invalid_action", 400, "Unknown operator action mutation route.");
+      const error = new ApiError("invalid_action", 400, "Unknown operator action mutation route.");
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: "operator.action.reopen",
+        routeTemplate: "/api/operator/actions/:id/:mutation",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        itemId: actionId,
+        mutation: safeAuditText(mutation),
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
     }
-    writeJson(response, 200, {
-      queue: await mutateOperatorActionItem(config.workspaceRoot, actionId, mutation, parseOperatorActionMutationBody(await readJsonBody(request))),
-    });
+    const auditAction =
+      mutation === "acknowledge"
+        ? "operator.action.acknowledge"
+        : mutation === "defer"
+          ? "operator.action.defer"
+          : "operator.action.reopen";
+    try {
+      const body = parseOperatorActionMutationBody(await readJsonBody(request));
+      const queue = await mutateOperatorActionItem(config.workspaceRoot, actionId, mutation, body);
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: auditAction,
+        routeTemplate: "/api/operator/actions/:id/:mutation",
+        outcome: "success",
+        statusCode: 200,
+        item: getOperatorActionAuditItem(queue, actionId),
+        actor: body.actor,
+        reason: body.reason,
+        mutation,
+      });
+      writeJson(response, 200, {
+        queue,
+      });
+    } catch (error) {
+      await appendOperatorActionQueueAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        action: auditAction,
+        routeTemplate: "/api/operator/actions/:id/:mutation",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        itemId: actionId,
+        mutation,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
@@ -1533,24 +1992,79 @@ async function routeRequest(
     request.method === "POST" &&
     (url.pathname === "/api/platform/workflow-repos/sync" || url.pathname === "/api/platform/workflow-repos/activate")
   ) {
-    const sources = parseWorkflowRepoSourcesBody(await readJsonBody(request));
-    const result = await activateWorkflowRepoSources(sources, {
-      workspaceRoot: workflowRepoWorkspaceRoot(config),
-      statePath: workflowRepoStatePath(config),
-      fetcher: async ({ source, destination }) => {
-        await cp(resolveLocalWorkflowRepo(source.repo), destination, { recursive: true, force: true });
-        return { revision: source.ref, packageRoot: source.path ?? "." };
-      },
-    });
-    writeJson(response, result.ok ? 200 : 400, result);
+    const action = url.pathname.endsWith("/sync") ? "workflow.repo.sync" : "workflow.repo.activate";
+    const routeTemplate = url.pathname.endsWith("/sync")
+      ? "/api/platform/workflow-repos/sync"
+      : "/api/platform/workflow-repos/activate";
+    const actor = firstHeader(request.headers["x-service-lasso-user-id"]);
+    let sources: WorkflowRepoSource[] = [];
+    try {
+      sources = parseWorkflowRepoSourcesBody(await readJsonBody(request));
+      const result = await activateWorkflowRepoSources(sources, {
+        workspaceRoot: workflowRepoWorkspaceRoot(config),
+        statePath: workflowRepoStatePath(config),
+        fetcher: async ({ source, destination }) => {
+          await cp(resolveLocalWorkflowRepo(source.repo), destination, { recursive: true, force: true });
+          return { revision: source.ref, packageRoot: source.path ?? "." };
+        },
+      });
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action,
+        routeTemplate,
+        outcome: result.ok ? "success" : "failure",
+        statusCode: result.ok ? 200 : 400,
+        actor,
+        result,
+        sources,
+        reason: result.ok ? null : result.state.failed?.reason ?? result.diagnostics[0]?.code ?? null,
+      });
+      writeJson(response, result.ok ? 200 : 400, result);
+    } catch (error) {
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action,
+        routeTemplate,
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        actor,
+        sources,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/api/platform/workflow-repos/rollback") {
-    writeJson(response, 200, await rollbackWorkflowRepoActivation({
-      workspaceRoot: workflowRepoWorkspaceRoot(config),
-      statePath: workflowRepoStatePath(config),
-    }));
+    const actor = firstHeader(request.headers["x-service-lasso-user-id"]);
+    try {
+      const result = await rollbackWorkflowRepoActivation({
+        workspaceRoot: workflowRepoWorkspaceRoot(config),
+        statePath: workflowRepoStatePath(config),
+      });
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action: "workflow.repo.rollback",
+        routeTemplate: "/api/platform/workflow-repos/rollback",
+        outcome: "success",
+        statusCode: 200,
+        actor,
+        result,
+      });
+      writeJson(response, 200, result);
+    } catch (error) {
+      await appendWorkflowRepoRuntimeAuditEvent({
+        config,
+        action: "workflow.repo.rollback",
+        routeTemplate: "/api/platform/workflow-repos/rollback",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        actor,
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 

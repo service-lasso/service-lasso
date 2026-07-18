@@ -129,6 +129,20 @@ test("workflow platform API exposes repo state activate sync and rollback over H
     assert.equal(rollback.status, 200);
     assert.equal(rollback.body.active.revision, firstActivation.body.active.revision);
     assert.equal(rollback.body.history.at(-1).result, "rolled-back");
+
+    const audit = await readJson(await fetch(`${apiServer.url}/api/audit?source=runtime-api&limit=20`));
+    assert.equal(audit.status, 200);
+    const auditActions = audit.body.events.map((event) => event.action);
+    assert.ok(auditActions.includes("workflow.repo.activate"));
+    assert.ok(auditActions.includes("workflow.repo.sync"));
+    assert.ok(auditActions.includes("workflow.repo.rollback"));
+    const activationAudit = audit.body.events.find((event) => event.action === "workflow.repo.activate");
+    assert.equal(activationAudit.outcome, "success");
+    assert.deepEqual(activationAudit.metadata.sourceIds, [first.id]);
+    assert.deepEqual(activationAudit.metadata.sourceRefs, [first.repository.ref]);
+    assert.equal(activationAudit.metadata.packageCount, 1);
+    assert.equal(JSON.stringify(audit.body).includes(firstRoot), false);
+    assert.equal(JSON.stringify(audit.body).includes(secondRoot), false);
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
@@ -185,6 +199,25 @@ test("workflow platform API rejects unsafe repo activation inputs before promoti
     }));
     assert.equal(missingDaguDefinition.status, 400);
     assert.equal(missingDaguDefinition.body.diagnostics.some((diagnostic) => /Dagu workflow definition/.test(diagnostic.message)), true);
+
+    const secretBearingRepoUrl = `${pathToFileURL(officialRoot).href}?token=raw-workflow-secret`;
+    const secretBearingActivation = await readJson(await fetch(`${apiServer.url}/api/platform/workflow-repos/activate`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-service-lasso-user-id": "token=raw-workflow-secret",
+      },
+      body: JSON.stringify({ sources: [{ ...sourceFor(officialRoot, official), repo: secretBearingRepoUrl }] }),
+    }));
+    assert.equal(secretBearingActivation.status, 400);
+
+    const audit = await readJson(await fetch(`${apiServer.url}/api/audit?source=runtime-api&action=workflow.repo.activate&outcome=failure&limit=20`));
+    assert.equal(audit.status, 200);
+    assert.ok(audit.body.events.length >= 4);
+    const serializedAudit = JSON.stringify(audit.body);
+    assert.equal(serializedAudit.includes("raw-workflow-secret"), false);
+    assert.equal(serializedAudit.includes(secretBearingRepoUrl), false);
+    assert.ok(audit.body.events.some((event) => event.actor === "token=[redacted]"));
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

@@ -197,6 +197,21 @@ test("operator action queue is available through API and CLI", async () => {
     assert.equal(acknowledgedAgain.body.queue.acknowledgementHistory.length, 2);
     assert.equal(acknowledgedAgain.body.queue.acknowledgementHistory[0].previousStatus, "acknowledged");
 
+    const deferred = await postJson(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/defer", {
+      actor: "operator@example.com",
+      reason: "Delay until token=ghp_auditSecret is checked.",
+      deferredUntil: "2026-05-22T18:10:00.000Z",
+    });
+    assert.equal(deferred.status, 200);
+    assert.equal(deferred.body.queue.items[0].status, "deferred");
+
+    const reopened = await postJson(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/reopen", {
+      actor: "operator@example.com",
+      reason: "Resume after credential=hunter2 review.",
+    });
+    assert.equal(reopened.status, 200);
+    assert.equal(reopened.body.queue.items[0].status, "open");
+
     response = await fetch(apiServer.url + "/api/operator/actions/" + encodeURIComponent(actionId) + "/acknowledgements");
     payload = await response.json();
     assert.equal(response.status, 200);
@@ -204,6 +219,17 @@ test("operator action queue is available through API and CLI", async () => {
     assert.equal(payload.acknowledgements.length, 2);
     assert.equal(payload.acknowledgements[1].previousStatus, "open");
     assert.doesNotMatch(JSON.stringify(payload), /ghp_apiSecret/);
+
+    response = await fetch(apiServer.url + "/api/audit?source=runtime-api&limit=20");
+    payload = await response.json();
+    assert.equal(response.status, 200);
+    const auditActions = payload.events.map((event) => event.action);
+    assert.ok(auditActions.includes("operator.action.record"));
+    assert.ok(auditActions.includes("operator.action.acknowledge"));
+    assert.ok(auditActions.includes("operator.action.defer"));
+    assert.ok(auditActions.includes("operator.action.reopen"));
+    assert.equal(payload.events.find((event) => event.action === "operator.action.record").subject, actionId);
+    assert.doesNotMatch(JSON.stringify(payload), /ghp_apiSecret|ghp_auditSecret|hunter2/);
 
     const cliListOut = await runCli([
       "operator",
@@ -216,7 +242,7 @@ test("operator action queue is available through API and CLI", async () => {
       "--json",
     ]);
     const cliList = JSON.parse(cliListOut);
-    assert.equal(cliList.queue.items[0].status, "acknowledged");
+    assert.equal(cliList.queue.items[0].status, "open");
 
     const cliReopenOut = await runCli([
       "operator",
