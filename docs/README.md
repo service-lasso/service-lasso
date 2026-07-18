@@ -32,6 +32,7 @@ Use this short list as the public documentation map:
 - [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md): worker-facing implementation handoff for schema, runtime, APIs, migration, and tests.
 - [Release Manifest Verification](reference/release-manifest-verification.md): read-only checks for service release manifests, platform assets, release labels, and checksums.
 - [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
+- [Audit](reference/audit.md): durable metadata-only event history, storage layout, sensitive-data rules, and tamper-evidence meaning.
 - [Template Upgrade Compatibility](reference/template-upgrade-compatibility.md): read-only checker for app/template inventories against current core provider expectations.
 - [Reference Apps](reference-apps.md): choose the right host/template repo and understand the release output options.
 
