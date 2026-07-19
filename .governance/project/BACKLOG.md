@@ -5,10 +5,12 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Current Active Spec
 - `SPEC-002-core-standalone-runtime.md`
 - `SPEC-003-main-develop-reconciliation.md`
+- `SPEC-004-isolated-wsl-runner-pool.md`
 
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-873` | `in_review` | Add isolated WSL self-hosted runner pool installer | `SPEC-004`, `WSL-RUNNER-001` through `WSL-RUNNER-005` | GitHub issue: `#873`; pull request: `#874`. Validation: 451 repository tests, focused contract, PowerShell parse, and three-member non-mutating plan passed. |
 | `ISS-001` | `done` | Normalize provisional project intent and the first governed spec | `SPEC-001`, `AC-1` | Bootstrap intent/spec normalization completed and preserved as governance traceability. |
 | `ISS-002` | `done` | Install strict Git workflow bootstrap artifacts | `SPEC-001`, `AC-2` | Required bootstrap workflow artifacts were installed during bootstrap. |
 | `ISS-003` | `done` | Record GitHub preflight outcomes and normalize the canonical board | `SPEC-001`, `AC-3` | Canonical board/preflight state was recorded during bootstrap. |
