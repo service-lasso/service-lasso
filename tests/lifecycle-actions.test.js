@@ -552,12 +552,17 @@ test("managed process stop escalates after timeout and clears supervisor state",
     ignoreSignals: true,
     stdoutLines: ["signal-handlers-ready"],
   });
+  let exitFinalized = false;
 
   try {
     const [service] = await discoverServices(servicesRoot);
     const handle = await startManagedProcess({
       service,
       executionPlan: createDirectExecutionPlan(service.manifest),
+      onExit: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        exitFinalized = true;
+      },
     });
 
     assert.equal(handle.pid > 0, true);
@@ -576,6 +581,7 @@ test("managed process stop escalates after timeout and clears supervisor state",
 
     assert.ok(stopped);
     assert.equal(hasManagedProcess("stubborn-service"), false);
+    assert.equal(exitFinalized, true);
     if (process.platform !== "win32") {
       assert.equal(stopped.signal, "SIGKILL");
     }

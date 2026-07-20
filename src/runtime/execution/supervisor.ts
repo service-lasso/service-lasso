@@ -378,9 +378,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   managedProcesses.set(serviceId, record);
   attachRuntimeLogCapture(record);
-  managedProcessFinalizers.set(serviceId, record.finalizePromise);
-
-  void exitPromise.then(async ({ exitCode, signal }) => {
+  const logFinalizePromise = record.finalizePromise;
+  const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
     const current = managedProcesses.get(serviceId);
     if (current?.child === child) {
       managedProcesses.delete(serviceId);
@@ -409,12 +408,18 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       });
     }
   });
+  record.finalizePromise = Promise.all([
+    logFinalizePromise,
+    lifecycleFinalizePromise,
+  ]).then(() => undefined);
+  managedProcessFinalizers.set(serviceId, record.finalizePromise);
 
-  void record.finalizePromise.finally(() => {
+  const clearFinalizer = () => {
     if (managedProcessFinalizers.get(serviceId) === record.finalizePromise) {
       managedProcessFinalizers.delete(serviceId);
     }
-  });
+  };
+  void record.finalizePromise.then(clearFinalizer, clearFinalizer);
 
   return {
     pid: child.pid ?? 0,
