@@ -133,6 +133,7 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import { reconcilePortReservationLedger, reservePorts, type PortReservationInput } from "../runtime/ports/reservations.js";
+import { recordProcessOwnership, transitionProcessOwnership } from "../runtime/process/registry.js";
 import { explainPortConflict } from "../runtime/ports/conflicts.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
@@ -148,6 +149,7 @@ import {
   markRuntimeInstanceStopped,
   refreshRuntimeInstanceLease,
   registerRuntimeInstance,
+  resolveRuntimeInstanceId,
 } from "../runtime/instance/registry.js";
 import {
   exampleWorkflowPackageCatalog,
@@ -3174,18 +3176,22 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost;
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const bootModel = await loadRuntimeModel(config.servicesRoot);
-  await rehydrateDiscoveredServices(bootModel.discovered);
+  const runtimeInstanceId = resolveRuntimeInstanceId(config);
+  await rehydrateDiscoveredServices(bootModel.discovered, {
+    workspaceRoot: config.workspaceRoot,
+    runtimeInstanceId,
+  });
   const requestedPort = options.port ?? 18080;
   const activeReservations = [...toServicePortReservations(bootModel)];
   if (requestedPort !== 0) {
     activeReservations.push(toApiPortReservation(requestedPort, bindHost));
     await reservePorts(config.workspaceRoot, [toApiPortReservation(requestedPort, bindHost)]);
   }
-  await reconcilePortReservationLedger(
+  let apiAllocationRevision = (await reconcilePortReservationLedger(
     config.workspaceRoot,
     activeReservations,
     "not present in rehydrated runtime state",
-  );
+  )).updatedAt;
   if (options.autostart) {
     await executeRuntimeOrchestrationAction("autostart", bootModel, config.workspaceRoot);
   }
@@ -3223,8 +3229,34 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   });
   const port = requestedPort;
 
-  server.listen(port, bindHost);
-  await once(server, "listening");
+  await recordProcessOwnership(config.workspaceRoot, {
+    ownerType: "runtime",
+    ownerId: runtimeInstanceId,
+    runtimeInstanceId,
+    pid: process.pid,
+    ownerRoot: config.servicesRoot,
+    allocationRevision: apiAllocationRevision,
+    ports: requestedPort === 0 ? {} : { api: requestedPort },
+    endpoints: requestedPort === 0
+      ? []
+      : [{ name: "api", url: "http://" + publicHost + ":" + requestedPort }],
+    lifecycleState: "launching",
+    source: "runtime",
+  });
+  try {
+    server.listen(port, bindHost);
+    await once(server, "listening");
+  } catch (error) {
+    await transitionProcessOwnership(
+      config.workspaceRoot,
+      "runtime",
+      runtimeInstanceId,
+      "stopped",
+      "not_running",
+      process.pid,
+    );
+    throw error;
+  }
   monitor?.start();
   updateScheduler?.start();
   telemetryExportScheduler.start();
@@ -3244,7 +3276,41 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   }, DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS);
   leaseHeartbeat.unref?.();
   if (requestedPort === 0) {
-    await reservePorts(config.workspaceRoot, [toApiPortReservation(resolvedPort, bindHost)]);
+    apiAllocationRevision = (await reservePorts(
+      config.workspaceRoot,
+      [toApiPortReservation(resolvedPort, bindHost)],
+    )).updatedAt;
+  }
+  try {
+    await recordProcessOwnership(config.workspaceRoot, {
+      ownerType: "runtime",
+      ownerId: instance.instanceId,
+      runtimeInstanceId: instance.instanceId,
+      pid: process.pid,
+      ownerRoot: config.servicesRoot,
+      allocationRevision: apiAllocationRevision,
+      ports: { api: resolvedPort },
+      endpoints: [{ name: "api", url: instance.apiUrl }],
+      lifecycleState: "running",
+      source: "runtime",
+    });
+  } catch (error) {
+    clearInterval(leaseHeartbeat);
+    await monitor?.stop();
+    await updateScheduler?.stop();
+    await telemetryExportScheduler.stop();
+    await markRuntimeInstanceStopped(config);
+    server.close();
+    await once(server, "close");
+    await transitionProcessOwnership(
+      config.workspaceRoot,
+      "runtime",
+      instance.instanceId,
+      "stopped",
+      "not_running",
+      process.pid,
+    );
+    throw error;
   }
 
   return {
@@ -3256,6 +3322,14 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     telemetryExportScheduler,
     stop: async () => {
       clearInterval(leaseHeartbeat);
+      await transitionProcessOwnership(
+        config.workspaceRoot,
+        "runtime",
+        instance.instanceId,
+        "stopping",
+        "owned",
+        process.pid,
+      );
       await monitor?.stop();
       await updateScheduler?.stop();
       await telemetryExportScheduler?.stop();
@@ -3263,6 +3337,14 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       await markRuntimeInstanceStopped(config);
       server.close();
       await once(server, "close");
+      await transitionProcessOwnership(
+        config.workspaceRoot,
+        "runtime",
+        instance.instanceId,
+        "stopped",
+        "not_running",
+        process.pid,
+      );
     },
   };
 }

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
-import { startApiServer } from "../dist/server/index.js";
+import { startApiServer as startRuntimeApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import {
   getRuntimeInstanceStatePath,
@@ -18,6 +18,13 @@ import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtur
 
 const servicesRoot = path.resolve("services");
 const execFileAsync = promisify(execFile);
+
+async function startApiServer(options) {
+  return await startRuntimeApiServer({
+    ...options,
+    workspaceRoot: options.workspaceRoot ?? path.join(path.dirname(options.servicesRoot), "workspace"),
+  });
+}
 
 async function waitFor(readinessCheck, timeoutMs = 1_000) {
   const deadline = Date.now() + timeoutMs;

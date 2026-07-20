@@ -109,7 +109,7 @@ function resolveBaselineOrder(registry: ServiceRegistry, requestedServiceIds: re
 export async function bootstrapBaselineServices(options: BootstrapBaselineOptions = {}): Promise<BootstrapBaselineResult> {
   const runtimeConfig = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
-  await rehydrateDiscoveredServices(discovered);
+  await rehydrateDiscoveredServices(discovered, { workspaceRoot: runtimeConfig.workspaceRoot });
   const registry = createServiceRegistry(discovered);
   const requestedServiceIds = [...(options.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)];
   const serviceOrder = resolveBaselineOrder(registry, requestedServiceIds);

@@ -14,8 +14,17 @@ import type {
 import type { BrokerTransportBinding } from "../broker/identity.js";
 import type { ProviderKind } from "../providers/types.js";
 import type { ServiceBrokerWritebackOperation } from "../../contracts/service.js";
+import path from "node:path";
+import { buildServiceNetwork } from "../operator/network.js";
+import { migrateLegacyProcessOwnership } from "../process/registry.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
+import { writeServiceState } from "./writeState.js";
+
+export interface RehydrateProcessOwnershipOptions {
+  workspaceRoot?: string;
+  runtimeInstanceId?: string | null;
+}
 
 interface StoredInstallState {
   installed?: boolean;
@@ -484,7 +493,10 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
   };
 }
 
-export async function rehydrateLifecycleState(service: DiscoveredService): Promise<ServiceLifecycleState | null> {
+export async function rehydrateLifecycleState(
+  service: DiscoveredService,
+  options: RehydrateProcessOwnershipOptions = {},
+): Promise<ServiceLifecycleState | null> {
   const snapshot = await readStoredState(service.serviceRoot);
   const state = parseLifecycleState(service, snapshot);
 
@@ -503,11 +515,52 @@ export async function rehydrateLifecycleState(service: DiscoveredService): Promi
         : state;
 
     setLifecycleState(serviceId, nextState);
+
+    const legacyRuntime = snapshot.runtime as StoredRuntimeState | null;
+    if (
+      options.workspaceRoot &&
+      legacyRuntime?.running === true &&
+      typeof legacyRuntime.pid === "number" &&
+      Number.isInteger(legacyRuntime.pid) &&
+      legacyRuntime.pid > 0 &&
+      typeof legacyRuntime.startedAt === "string" &&
+      typeof legacyRuntime.command === "string" &&
+      legacyRuntime.command.trim()
+    ) {
+      const manifestExecutable = service.manifest.executable
+        ? path.isAbsolute(service.manifest.executable)
+          ? service.manifest.executable
+          : path.resolve(service.serviceRoot, service.manifest.executable)
+        : null;
+      const installedExecutable = state.installArtifacts.artifact?.command && state.installArtifacts.artifact.extractedPath
+        ? path.resolve(state.installArtifacts.artifact.extractedPath, state.installArtifacts.artifact.command)
+        : null;
+      const network = buildServiceNetwork(service, {}, state.runtime.ports);
+      const migration = await migrateLegacyProcessOwnership(options.workspaceRoot, {
+        ownerId: serviceId,
+        serviceId,
+        runtimeInstanceId: options.runtimeInstanceId,
+        pid: legacyRuntime.pid,
+        startedAt: legacyRuntime.startedAt,
+        command: legacyRuntime.command,
+        expectedExecutablePath: manifestExecutable ?? installedExecutable,
+        ownerRoot: service.serviceRoot,
+        ports: state.runtime.ports,
+        endpoints: network.endpoints.map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
+      });
+
+      if (migration.status === "not_running" || migration.status === "identity_mismatch") {
+        await writeServiceState(service, nextState);
+      }
+    }
   }
 
   return state;
 }
 
-export async function rehydrateDiscoveredServices(services: DiscoveredService[]): Promise<void> {
-  await Promise.all(services.map((service) => rehydrateLifecycleState(service)));
+export async function rehydrateDiscoveredServices(
+  services: DiscoveredService[],
+  options: RehydrateProcessOwnershipOptions = {},
+): Promise<void> {
+  await Promise.all(services.map((service) => rehydrateLifecycleState(service, options)));
 }

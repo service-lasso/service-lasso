@@ -41,3 +41,9 @@ The host-level registry is stored at:
 Set SERVICE_LASSO_INSTANCE_REGISTRY_PATH to place the registry somewhere else, which is useful for isolated tests and temporary multi-instance runs.
 
 The registry does not include secrets or environment values.
+
+This registry is a discovery and lease mechanism, not termination authority.
+Before signalling a runtime or service PID, lifecycle code must verify the
+durable operating-system identity in the
+[process ownership registry](process-ownership-registry.md). PID equality or an
+unexpired instance lease alone does not prove process ownership.

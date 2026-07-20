@@ -138,6 +138,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/process-ownership-registry",
+          label: "Process Ownership Registry",
+        },
+        {
+          type: "doc",
           id: "reference/baseline-dependency-diagnostics",
           label: "Baseline Dependency Diagnostics",
         },
