@@ -5,7 +5,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
+import { buildServiceNetwork } from "../operator/network.js";
 import { archiveRuntimeLogs, buildServiceRuntimeLogRunId, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
+import {
+  recordProcessOwnership,
+  reconcileRegisteredProcess,
+  transitionProcessOwnership,
+} from "../process/registry.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 
 export interface ManagedProcessHandle {
@@ -31,6 +37,7 @@ interface ManagedProcessRecord {
   };
   stdoutBuffer: string;
   stderrBuffer: string;
+  workspaceRoot: string | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
 }
@@ -42,6 +49,9 @@ interface StartProcessOptions {
   resolvedPorts?: Record<string, number>;
   secureEnv?: Record<string, string>;
   variableResolution?: ServiceVariableResolutionOptions;
+  workspaceRoot?: string;
+  runtimeInstanceId?: string | null;
+  allocationRevision?: string | null;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
@@ -240,7 +250,18 @@ export function hasManagedProcess(serviceId: string): boolean {
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
-  const { service, executionPlan, sharedGlobalEnv, resolvedPorts, secureEnv, variableResolution, onExit } = options;
+  const {
+    service,
+    executionPlan,
+    sharedGlobalEnv,
+    resolvedPorts,
+    secureEnv,
+    variableResolution,
+    workspaceRoot,
+    runtimeInstanceId,
+    allocationRevision,
+    onExit,
+  } = options;
   const serviceId = service.manifest.id;
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
@@ -250,6 +271,15 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   if (managedProcesses.has(serviceId)) {
     throw new Error(`Service "${serviceId}" already has a managed process.`);
+  }
+  if (workspaceRoot) {
+    const persistedStatus = await reconcileRegisteredProcess(workspaceRoot, "service", serviceId);
+    if (persistedStatus === "owned") {
+      throw new Error(`Service "${serviceId}" already has a verified process in the workspace ownership registry.`);
+    }
+    if (persistedStatus === "unknown_owner") {
+      throw new Error(`Service "${serviceId}" has an unverifiable persisted process owner; refusing to launch a replacement.`);
+    }
   }
 
   const executable = resolveExecutable(service, executionPlan);
@@ -291,6 +321,44 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     throw error;
   }
 
+  if (workspaceRoot) {
+    try {
+      const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
+      await recordProcessOwnership(workspaceRoot, {
+        ownerType: "service",
+        ownerId: serviceId,
+        serviceId,
+        runtimeInstanceId,
+        pid: child.pid ?? 0,
+        ownerRoot: service.serviceRoot,
+        allocationRevision,
+        ports: resolvedPorts,
+        endpoints: network.endpoints.map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
+        lifecycleState: "launching",
+        source: "spawn",
+      });
+    } catch (error) {
+      try {
+        child.kill();
+      } catch {
+        // The child may have exited before ownership evidence was persisted.
+      }
+      const exited = await Promise.race([
+        exitPromise.then(() => true),
+        new Promise<boolean>((resolve) => {
+          const timeout = setTimeout(() => resolve(false), 250);
+          timeout.unref?.();
+        }),
+      ]);
+      if (!exited) {
+        await forceKillManagedProcessTree(child);
+        await exitPromise;
+      }
+      await closeRuntimeLogStreams(logStreams);
+      throw error;
+    }
+  }
+
   const record: ManagedProcessRecord = {
     child,
     service,
@@ -303,6 +371,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     logStreams,
     stdoutBuffer: "",
     stderrBuffer: "",
+    workspaceRoot: workspaceRoot ?? null,
     exitPromise,
     finalizePromise: Promise.resolve(),
   };
@@ -319,6 +388,17 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
     record.exitCode = exitCode;
     record.exitSignal = signal;
+
+    if (record.workspaceRoot) {
+      await transitionProcessOwnership(
+        record.workspaceRoot,
+        "service",
+        serviceId,
+        "stopped",
+        "not_running",
+        child.pid,
+      );
+    }
 
     if (onExit) {
       await onExit({
@@ -355,6 +435,10 @@ export async function stopManagedProcess(
 
   record.stopping = true;
 
+  if (record.workspaceRoot) {
+    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+  }
+
   if (!record.child.killed) {
     record.child.kill();
   }
@@ -376,6 +460,16 @@ export async function stopManagedProcess(
   const finalizer = managedProcessFinalizers.get(serviceId);
   if (finalizer) {
     await finalizer;
+  }
+  if (record.workspaceRoot) {
+    await transitionProcessOwnership(
+      record.workspaceRoot,
+      "service",
+      serviceId,
+      "stopped",
+      "not_running",
+      record.child.pid,
+    );
   }
 
   return result;

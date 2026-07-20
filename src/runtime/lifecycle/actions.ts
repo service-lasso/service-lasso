@@ -26,6 +26,7 @@ import {
 } from "../operator/variables.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { reservePorts, type PortReservationInput } from "../ports/reservations.js";
+import { transitionProcessOwnership } from "../process/registry.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import { assertDoctorPreflightAllowsRestart } from "../recovery/doctor.js";
@@ -182,6 +183,7 @@ export interface ServiceLifecycleActionOptions {
   variableResolution?: ServiceVariableResolutionOptions;
   brokerLookup?: BrokerLaunchLookup;
   workspaceRoot?: string;
+  runtimeInstanceId?: string | null;
 }
 
 function isUsablePort(value: unknown): value is number {
@@ -206,15 +208,16 @@ async function reserveServicePorts(
   workspaceRoot: string | undefined,
   service: DiscoveredService,
   ports: Record<string, number>,
-): Promise<void> {
+): Promise<string | null> {
   if (!workspaceRoot) {
-    return;
+    return null;
   }
 
   const reservations = toServicePortReservations(service, ports);
   if (reservations.length > 0) {
-    await reservePorts(workspaceRoot, reservations);
+    return (await reservePorts(workspaceRoot, reservations)).updatedAt;
   }
+  return null;
 }
 
 function applyState(
@@ -686,7 +689,7 @@ export async function startService(
       : registry
         ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
         : {};
-  await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
+  const allocationRevision = await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   recordStartTraceEvent(
     serviceId,
     trace,
@@ -740,6 +743,9 @@ export async function startService(
       resolvedPorts,
       secureEnv: scopedBrokerIdentity?.env,
       variableResolution,
+      workspaceRoot: options.workspaceRoot,
+      runtimeInstanceId: options.runtimeInstanceId,
+      allocationRevision,
       onExit: async ({ exitCode, wasStopping }) => {
         if (wasStopping) {
           return;
@@ -841,6 +847,10 @@ export async function startService(
     );
     finishStartTrace(serviceId, trace, "failed", readiness.message);
     return { ...result, state: getLifecycleState(serviceId) };
+  }
+
+  if (options.workspaceRoot) {
+    await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
   const result = applyState(serviceId, "start", (state) => ({
@@ -953,7 +963,7 @@ export async function restartService(
       : registry
         ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
         : {};
-  await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
+  const allocationRevision = await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const variableResolution = await resolveLaunchVariableResolution(
     service,
     options,
@@ -965,6 +975,9 @@ export async function restartService(
     resolvedPorts,
     secureEnv: scopedBrokerIdentity?.env,
     variableResolution,
+    workspaceRoot: options.workspaceRoot,
+    runtimeInstanceId: options.runtimeInstanceId,
+    allocationRevision,
     onExit: async ({ exitCode, wasStopping }) => {
       if (wasStopping) {
         return;
@@ -1039,6 +1052,10 @@ export async function restartService(
       },
     ]);
     return failedResult;
+  }
+
+  if (options.workspaceRoot) {
+    await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
   const result = applyState(serviceId, "restart", (state) => ({

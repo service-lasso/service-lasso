@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
-import { startApiServer } from "../dist/server/index.js";
+import { startApiServer as startRuntimeApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import {
   installService,
@@ -30,6 +30,13 @@ async function postJson(url) {
     status: response.status,
     body: await response.json(),
   };
+}
+
+async function startApiServer(options) {
+  return await startRuntimeApiServer({
+    ...options,
+    workspaceRoot: options.workspaceRoot ?? path.join(path.dirname(options.servicesRoot), "workspace"),
+  });
 }
 
 async function waitFor(predicate, timeoutMs = 1_000) {
@@ -543,6 +550,7 @@ test("managed process stop escalates after timeout and clears supervisor state",
   );
   await writeExecutableFixtureService(servicesRoot, "stubborn-service", {
     ignoreSignals: true,
+    stdoutLines: ["signal-handlers-ready"],
   });
 
   try {
@@ -555,8 +563,14 @@ test("managed process stop escalates after timeout and clears supervisor state",
     assert.equal(handle.pid > 0, true);
     assert.equal(hasManagedProcess("stubborn-service"), true);
 
-    // Let the fixture install its signal handlers before exercising escalation.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait for output emitted after the fixture installs its signal handlers.
+    await waitFor(async () => {
+      try {
+        return (await readFile(handle.logs.stdoutPath, "utf8")).includes("signal-handlers-ready");
+      } catch {
+        return false;
+      }
+    });
 
     const stopped = await stopManagedProcess("stubborn-service", 100);
 
