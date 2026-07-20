@@ -282,7 +282,7 @@ async function inspectWindowsProcess(
     "CommandLine = $process.CommandLine",
     "}",
     "$result | ConvertTo-Json -Compress",
-  ].join("; ");
+  ].join("\n");
 
   try {
     const result = await runCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]);

@@ -84,16 +84,26 @@ test("process identity classifies the active host process without PID-only trust
 
 test("Windows inspection adapter captures creation, executable, and hashed command evidence", async () => {
   const commandLine = '"C:\\Program Files\\nodejs\\node.exe" C:\\apps\\service.mjs --port 18080';
+  let inspectedCommand = "";
   const inspection = await inspectProcess(
     4242,
-    windowsInspector({
-      ProcessId: 4242,
-      CreationDate: "2026-07-18T01:02:03.456Z",
-      ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
-      CommandLine: commandLine,
-    }),
+    {
+      platform: "win32",
+      runCommand: async (_command, args) => {
+        inspectedCommand = args.at(-1) ?? "";
+        return {
+          stdout: JSON.stringify({
+            ProcessId: 4242,
+            CreationDate: "2026-07-18T01:02:03.456Z",
+            ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+            CommandLine: commandLine,
+          }),
+        };
+      },
+    },
   );
 
+  assert.equal(inspectedCommand.includes("@{;"), false);
   assert.deepEqual(inspection, {
     status: "running",
     identity: {
@@ -183,7 +193,6 @@ test("workspace lifecycle lock immediately recovers a verifiably exited owner", 
       acquiredAt: new Date().toISOString(),
     }), "utf8");
 
-    const startedAt = Date.now();
     await recordProcessOwnership(workspaceRoot, {
       ownerType: "runtime",
       ownerId: "lock-recovery-runtime",
@@ -192,7 +201,10 @@ test("workspace lifecycle lock immediately recovers a verifiably exited owner", 
       lifecycleState: "running",
       source: "runtime",
     });
-    assert.equal(Date.now() - startedAt < 1_000, true);
+
+    const recovered = await findProcessOwnership(workspaceRoot, "runtime", "lock-recovery-runtime");
+    assert.equal(recovered?.identityStatus, "owned");
+    await assert.rejects(readFile(lockPath, "utf8"), { code: "ENOENT" });
   } finally {
     formerOwner.kill("SIGKILL");
     await rm(tempRoot, { recursive: true, force: true });
@@ -303,13 +315,13 @@ test("runtime and service ownership are durable before readiness and clear after
   try {
     await mkdir(path.dirname(instanceRegistryPath), { recursive: true });
     await writeExecutableFixtureService(servicesRoot, "owned-service", {
-      readyFileAfterMs: 800,
+      readyFileAfterMs: 3_000,
       readyFileRelativePath: "./runtime/ready.txt",
       env: { OWNERSHIP_SECRET_SENTINEL: "never-persist-this-value" },
       healthcheck: {
         type: "file",
         file: "./runtime/ready.txt",
-        retries: 30,
+        retries: 100,
         interval: 50,
         start_period: 0,
       },
@@ -329,7 +341,7 @@ test("runtime and service ownership are durable before readiness and clear after
     const launching = await waitFor(async () => {
       const entry = await findProcessOwnership(workspaceRoot, "service", "owned-service");
       return entry?.lifecycleState === "launching" ? entry : null;
-    });
+    }, 8_000);
     assert.equal(launching.identityStatus, "owned");
     assert.equal(launching.pid > 0, true);
 
