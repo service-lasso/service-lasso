@@ -7,6 +7,14 @@
   "enabled": true,
   "executable": "node",
   "args": ["--version"],
+  "healthchecks": [
+    {
+      "id": "node-version",
+      "type": "process",
+      "retries": 3,
+      "interval": 1000
+    }
+  ],
   "env": {
     "NODE_ENV": "development"
   },
