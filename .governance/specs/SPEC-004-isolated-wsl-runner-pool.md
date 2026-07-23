@@ -88,8 +88,18 @@ declared installer behavior, the PowerShell parser proves script syntax, and
 a distribution. A live runner may be provisioned separately after merge with
 an operator-supplied SecureString password.
 
+## Organisation runner groups
+
+The installer must keep repository scope as its default and may register new
+runners into an organisation-scoped runner group with selected-repository
+access. Repository grants must be additive, public repositories require an
+explicit opt-in, and existing repository-scoped runners must not be silently
+converted.
+
 ## Change Notes
 
 - 2026-07-20: Issue `#873` created for the first isolated Service Lasso WSL
   runner-pool installer. One distribution per runner was selected to make
   storage ownership, failure isolation, and disposal explicit.
+- 2026-07-23: Issue `#885` added selected-repository organisation runner-group
+  provisioning while preserving repository scope as the default.

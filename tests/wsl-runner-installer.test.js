@@ -30,7 +30,7 @@ test("issue #873 defines an isolated Service Lasso WSL runner pool", () => {
   assert.match(installer, /function Test-WslRunnerConfigured/);
   assert.match(installer, /service-lasso-runner-\{1:D2\}/);
   assert.match(installer, /a supplied GitHub runner registration token can only be used once/);
-  assert.match(installer, /Get-GhRunnerRegistrationToken -RepoUrl \$RepositoryUrl/);
+  assert.match(installer, /Get-GhRunnerRegistrationToken[\s\S]*?-Scope \$RunnerScope[\s\S]*?-RepoUrl \$RepositoryUrl/);
   assert.match(installer, /Runner\.Worker/);
   assert.match(installer, /docker volume prune --all --force/);
   assert.match(installer, /fstrim \//);
@@ -42,4 +42,26 @@ test("issue #873 defines an isolated Service Lasso WSL runner pool", () => {
   assert.match(docs, /C:\\WSL\\service-lasso-03/);
   assert.match(docs, /wsl --unregister/);
   assert.match(docs, /fstrim/);
+});
+
+test("issue #885 supports selected-repository organisation runner groups", () => {
+  const installer = readRequired(installerRelative);
+  const docs = readRequired(docsRelative);
+  const spec = readRequired(".governance/specs/SPEC-004-isolated-wsl-runner-pool.md");
+
+  assert.match(installer, /\[ValidateSet\("Repository", "Organization"\)\]/);
+  assert.match(installer, /\[string\]\$RunnerScope = "Repository"/);
+  assert.match(installer, /\[string\]\$RunnerGroupName = "service-lasso-wsl"/);
+  assert.match(installer, /\[string\[\]\]\$RunnerGroupRepositories = @\(\)/);
+  assert.match(installer, /\[switch\]\$AllowPublicRepositories/);
+  assert.match(installer, /orgs\/\$OrganizationName\/actions\/runner-groups/);
+  assert.match(installer, /visibility=selected/);
+  assert.match(installer, /repositories\/\$\(\$repository\.id\)/);
+  assert.match(installer, /orgs\/\$OrganizationName\/actions\/runners\/registration-token/);
+  assert.match(installer, /--runnergroup/);
+  assert.doesNotMatch(installer, /\$\{repo_url\}/);
+  assert.match(installer, /does not silently convert an existing repository-scoped registration/i);
+  assert.match(docs, /organisation runner group/i);
+  assert.match(docs, /selected repositories/i);
+  assert.match(spec, /organisation-scoped runner group/i);
 });

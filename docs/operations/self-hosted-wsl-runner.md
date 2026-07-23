@@ -5,6 +5,9 @@ GitHub Actions runner. Every member has its own bounded VHDX, Docker daemon,
 Linux account, workspace, cleanup timer, registration, and Windows autostart
 task.
 
+Repository scope remains the default. Organisation scope can place new runners
+in a runner group limited to selected repositories.
+
 The installer does not alter workflow `runs-on` selectors. Provision and verify
 capacity before selecting the new labels in a separate reviewed change.
 
@@ -99,6 +102,30 @@ Unregister-ScheduledTask -TaskName "WSL Runner Autostart - service-lasso-03" -Co
 
 `wsl --unregister` permanently deletes that distribution and its VHDX. Never
 run it against a general-purpose distro.
+
+## Create an organisation runner group
+
+GitHub CLI needs organisation runner administration permission (`gh auth
+refresh --hostname github.com --scopes admin:org` when needed). This creates or
+reuses `service-lasso-wsl` and grants selected repositories additive access:
+
+```powershell
+$password = Read-Host "Linux runner password" -AsSecureString
+.\scripts\github-actions-runner\install-wsl-runner.ps1 `
+  -LinuxPassword $password `
+  -DistroName service-lasso-org-02 `
+  -InstallLocation C:\WSL\service-lasso-org-02 `
+  -LinuxUser service-lasso-org-02 `
+  -RunnerName "$($env:COMPUTERNAME.ToLowerInvariant())-service-lasso-org-02" `
+  -RunnerScope Organization `
+  -Organization service-lasso `
+  -RunnerGroupName service-lasso-wsl `
+  -RunnerGroupRepositories service-lasso/another-trusted-repository
+```
+
+Service Lasso is always included. Public repositories require the explicit
+`-AllowPublicRepositories` switch. Existing configured runners are not silently
+converted to organisation scope.
 
 ## Reclaim Windows VHDX space
 
