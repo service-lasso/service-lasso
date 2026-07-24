@@ -11,8 +11,8 @@
   "env": {
     "SERVICE_HOST": "0.0.0.0",
     "SERVICE_PORT": "${UI_PORT}",
-    "SERVICE_LASSO_API_BASE_URL": "http://127.0.0.1:17883",
-    "SERVICE_LASSO_RUNTIME_API_BASE_URL": "http://127.0.0.1:17883"
+    "SERVICE_LASSO_API_BASE_URL": "http://192.168.1.53:17883",
+    "SERVICE_LASSO_RUNTIME_API_BASE_URL": "http://192.168.1.53:17883"
   },
   "urls": [
     {
@@ -26,7 +26,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-serviceadmin",
-      "tag": "2026.7.9-97b4660"
+      "tag": "2026.7.24-db583d4"
     },
     "platforms": {
       "win32": {
@@ -49,7 +49,10 @@
       }
     }
   },
-  "healthcheck": {
-    "type": "process"
-  }
+  "healthchecks": [
+    {
+      "id": "process-ready",
+      "type": "process"
+    }
+  ]
 }
