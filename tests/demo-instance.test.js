@@ -411,27 +411,30 @@ function textResponse(status, body) {
   };
 }
 
-function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good" }) {
+function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good", sourceServiceAdmin = false }) {
   const services = canonicalFixtureServices.map((service) => {
     const tag = service.id === "@serviceadmin" ? serviceAdminTag : service.tag;
     const providerRole = service.role === "provider";
+    const sourceAdminService = sourceServiceAdmin && service.id === "@serviceadmin";
     return {
       id: service.id,
       serviceRoot: path.join(servicesRoot, service.id),
       lifecycle: {
-        installed: true,
-        configured: true,
-        running: !providerRole,
-        installArtifacts: {
-          artifact: {
-            repo: service.repo,
-            tag,
-            assetName: service.assetName,
+        installed: !sourceAdminService,
+        configured: !sourceAdminService,
+        running: sourceAdminService ? false : !providerRole,
+        installArtifacts: sourceAdminService
+          ? null
+          : {
+            artifact: {
+              repo: service.repo,
+              tag,
+              assetName: service.assetName,
+            },
           },
-        },
         runtime: { ports: service.ports },
       },
-      health: { healthy: true },
+      health: { healthy: !sourceAdminService },
       catalogProvenance: {
         repo: service.repo,
         releaseTag: tag,
@@ -449,6 +452,17 @@ function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6
     }
     if (parsed.pathname === "/dashboard/") {
       return textResponse(200, "<html>Traefik dashboard</html>");
+    }
+    if (parsed.pathname === "/api/dashboard") {
+      return jsonResponse(200, {
+        summary: {
+          runtime: { status: "ok" },
+          servicesTotal: services.length,
+          servicesRunning: services.filter((service) => service.lifecycle.running).length,
+          installedCount: services.filter((service) => service.lifecycle.installed).length,
+          warnings: [],
+        },
+      });
     }
     if (parsed.pathname === "/ping") {
       return textResponse(200, "OK");
@@ -702,6 +716,33 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
     assert.equal(result.ok, true);
     assert.equal(result.failures.length, 0);
     assert.equal(result.summary.services.length, canonicalFixtureServices.length);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier accepts source Admin owning the canonical Service Admin port", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true }) },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.failures.length, 0);
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin source Admin owns canonical port" && entry.ok));
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin advertised ui reachable through source Admin" && entry.ok));
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
