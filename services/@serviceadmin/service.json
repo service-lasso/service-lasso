@@ -4,7 +4,9 @@
   "description": "Core operator/admin UI service backed by the canonical lasso-serviceadmin release artifact.",
   "version": "0.1.0",
   "enabled": true,
-  "depend_on": ["@node"],
+  "depend_on": [
+    "@node"
+  ],
   "ports": {
     "ui": 17700
   },
@@ -33,20 +35,30 @@
         "assetName": "@serviceadmin-win32.zip",
         "archiveType": "zip",
         "command": "node",
-        "args": ["runtime/server.js"]
+        "args": [
+          "runtime/server.js"
+        ]
       },
       "linux": {
         "assetName": "@serviceadmin-linux.tar.gz",
         "archiveType": "tar.gz",
         "command": "node",
-        "args": ["runtime/server.js"]
+        "args": [
+          "runtime/server.js"
+        ]
       },
       "darwin": {
         "assetName": "@serviceadmin-darwin.tar.gz",
         "archiveType": "tar.gz",
         "command": "node",
-        "args": ["runtime/server.js"]
+        "args": [
+          "runtime/server.js"
+        ]
       }
+    },
+    "checksum": {
+      "algorithm": "sha256",
+      "assetName": "SHA256SUMS.txt"
     }
   },
   "healthchecks": [

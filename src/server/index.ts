@@ -1149,11 +1149,12 @@ async function buildLifecycleActionResponse(
   registry: RuntimeModel["registry"],
   result: Awaited<ReturnType<typeof installService>>,
 ): Promise<LifecycleActionResponse> {
-  const persisted = await writeServiceState(service, result.state);
+  const latestState = getLifecycleState(service.manifest.id);
+  const persisted = await writeServiceState(service, latestState);
   const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const health = await evaluateServiceHealth(
     service.manifest,
-    result.state,
+    latestState,
     service.serviceRoot,
     service,
     sharedGlobalEnv,

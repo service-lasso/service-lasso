@@ -2,6 +2,7 @@ import { getServiceStatePaths } from "../state/paths.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import path from "node:path";
+import { buildEndpointVariables } from "./endpoints.js";
 
 export interface ServiceVariableEntry {
   key: string;
@@ -150,6 +151,14 @@ function isBrokerSelector(selector: string): boolean {
 
 function createSelectorRef(selector: string): ServiceSelectorRef {
   const normalizedSelector = normalizeVariableSelector(selector);
+  if (/^endpoint\.[A-Za-z][A-Za-z0-9_:-]*\.[A-Za-z][A-Za-z0-9_-]*$/.test(normalizedSelector)) {
+    return {
+      selector: normalizedSelector,
+      kind: "local",
+      key: normalizedSelector,
+    };
+  }
+
   if (isBrokerSelector(normalizedSelector)) {
     const dotIndex = normalizedSelector.indexOf(".");
     return {
@@ -459,6 +468,10 @@ export function buildServiceVariables(
         ]
       : []),
     ...buildPortVariables(resolvedPorts),
+    ...buildEndpointVariables(service, resolvedPorts).map((entry) => ({
+      ...entry,
+      scope: "derived" as const,
+    })),
   ];
 
   const manifestDiagnostics: ServiceSelectorDiagnostic[] = [];

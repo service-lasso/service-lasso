@@ -360,7 +360,7 @@ export async function buildMcpRoutesPayload(context: ServiceLassoMcpContext, ser
         endpoints: network.endpoints.map((endpoint) => ({
           label: endpoint.label,
           kind: endpoint.kind,
-          url: sanitizeUrl(endpoint.url),
+          url: endpoint.url ? sanitizeUrl(endpoint.url) : null,
         })),
       };
     }),

@@ -92,8 +92,8 @@ function buildEndpoints(
 ): ServiceDependencyDiagnosticEndpoint[] {
   return buildServiceNetwork(service, sharedGlobalEnv, ports).endpoints.map((endpoint) => ({
     label: endpoint.label,
-    url: sanitizeEndpointUrl(endpoint.url),
-    port: endpointPort(endpoint.url),
+    url: sanitizeEndpointUrl(endpoint.url ?? ""),
+    port: endpointPort(endpoint.url ?? ""),
   }));
 }
 

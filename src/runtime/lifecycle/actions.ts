@@ -2,6 +2,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import path from "node:path";
 import { LifecycleStateError } from "../../server/errors.js";
 import {
+  hasManagedProcess,
   startManagedProcess,
   stopManagedProcess,
 } from "../execution/supervisor.js";
@@ -24,6 +25,7 @@ import {
   collectRuntimeGlobalEnv,
   type ServiceVariableResolutionOptions,
 } from "../operator/variables.js";
+import { resolveServiceEndpoints } from "../operator/endpoints.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { reservePorts, type PortReservationInput } from "../ports/reservations.js";
 import { transitionProcessOwnership } from "../process/registry.js";
@@ -194,7 +196,7 @@ function toServicePortReservations(service: DiscoveredService, ports: Record<str
   return Object.entries(ports)
     .filter(([, port]) => isUsablePort(port))
     .map(([portName, port]) => {
-      const desiredPort = service.manifest.ports?.[portName];
+      const desiredPort = resolveServiceEndpoints(service, ports).find((endpoint) => endpoint.id === portName)?.portDefault;
       return {
         kind: desiredPort === port && desiredPort !== 0 ? "service-fixed" : "service-negotiated",
         ownerId: service.manifest.id,
@@ -553,6 +555,7 @@ export async function configService(
       runtime: {
         ...state.runtime,
         ports: resolvedPorts,
+        endpoints: resolveServiceEndpoints(service, resolvedPorts),
       },
     },
     message: "Config completed.",
@@ -796,6 +799,7 @@ export async function startService(
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
       ports: resolvedPorts,
+      endpoints: resolveServiceEndpoints(service, resolvedPorts),
       logs: {
         runId: handle.logs.runId,
         logPath: handle.logs.logPath,
@@ -853,20 +857,21 @@ export async function startService(
     await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
+  const processStillManaged = hasManagedProcess(serviceId);
   const result = applyState(serviceId, "start", (state) => ({
     nextState: {
       ...state,
-      running: true,
+      running: processStillManaged,
       runtime: {
         ...state.runtime,
-        pid: handle.pid,
+        pid: processStillManaged ? handle.pid : null,
         startedAt: handle.startedAt,
-        finishedAt: null,
-        exitCode: null,
+        finishedAt: processStillManaged ? null : state.runtime.finishedAt,
+        exitCode: processStillManaged ? null : state.runtime.exitCode,
         command: handle.command,
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
-        lastTermination: null,
+        lastTermination: processStillManaged ? null : state.runtime.lastTermination,
         brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
       },
     },
@@ -1000,6 +1005,7 @@ export async function restartService(
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
       ports: resolvedPorts,
+      endpoints: resolveServiceEndpoints(service, resolvedPorts),
       logs: {
         runId: handle.logs.runId,
         logPath: handle.logs.logPath,
