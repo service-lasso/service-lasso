@@ -378,6 +378,14 @@ function commandLooksServiceOwned(command, serviceRoot) {
   return typeof command === "string" && command.includes(path.resolve(serviceRoot));
 }
 
+function pathLooksServiceOwned(filePath, serviceRoot) {
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return false;
+  }
+  const relativePath = path.relative(path.resolve(serviceRoot), path.resolve(filePath));
+  return Boolean(relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
 async function stopRuntimeServices(runtimeInstance) {
   const apiUrl = runtimeInstance?.apiUrl ?? (
     Number.isInteger(runtimeInstance?.apiPort)
@@ -409,11 +417,15 @@ export async function stopDemoManagedProcesses(options = {}) {
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const stopped = [];
   const skipped = [];
+  const handledPids = new Set();
   const runtimeInstance = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"));
 
   if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
     stopped.push(await stopRuntimeServices(runtimeInstance));
     stopped.push(await terminateProcessTree(runtimeInstance.pid, "runtime-api"));
+    if (Number.isInteger(runtimeInstance.pid)) {
+      handledPids.add(runtimeInstance.pid);
+    }
   }
 
   for (const serviceId of demoServiceIds) {
@@ -433,6 +445,48 @@ export async function stopDemoManagedProcesses(options = {}) {
     }
 
     stopped.push(await terminateProcessTree(runtimeState.pid, serviceId));
+    handledPids.add(runtimeState.pid);
+  }
+
+  const processRegistry = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "processes.json"));
+  for (const entry of processRegistry?.entries ?? []) {
+    if (
+      entry?.ownerType !== "service" ||
+      entry.lifecycleState !== "running" ||
+      entry.identityStatus !== "owned" ||
+      !Number.isInteger(entry.pid) ||
+      handledPids.has(entry.pid)
+    ) {
+      continue;
+    }
+
+    const serviceId = typeof entry.serviceId === "string" && entry.serviceId
+      ? entry.serviceId
+      : entry.ownerId;
+    if (!demoServiceIds.includes(serviceId)) {
+      continue;
+    }
+
+    const serviceRoot = path.join(servicesRoot, serviceId);
+    if (!sameResolvedPath(entry.ownerRoot, serviceRoot) || !processExists(entry.pid)) {
+      continue;
+    }
+
+    const evidence = await getProcessCommandEvidence(entry.pid);
+    if (
+      !commandLooksServiceOwned(evidence.commandLine, serviceRoot) &&
+      !pathLooksServiceOwned(evidence.executablePath, serviceRoot)
+    ) {
+      skipped.push({
+        serviceId,
+        pid: entry.pid,
+        reason: "process_registry_command_not_owned_by_service_root",
+      });
+      continue;
+    }
+
+    stopped.push(await terminateProcessTree(entry.pid, serviceId));
+    handledPids.add(entry.pid);
   }
 
   return { stopped, skipped };
