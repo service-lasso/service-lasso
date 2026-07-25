@@ -3,6 +3,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { summarizeServiceHealthRegression, type ServiceHealthHistoryState } from "../health/history.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import type { ServiceLifecycleState, ServiceStartTraceAttempt, ServiceStartTraceEvent } from "../lifecycle/types.js";
+import { normalizeServiceEndpoints } from "./endpoints.js";
 import type { ServiceUpdateState, ServiceUpdateStateKind } from "../updates/state.js";
 
 export const TELEMETRY_PREVIEW_CONTRACT_VERSION = "service-lasso.telemetry-preview.v1";
@@ -689,15 +690,18 @@ function networkEndpointCountSignals(
   correlationId: string,
   common: Record<string, string | number | boolean | null>,
 ): TelemetrySignalPreview[] {
-  const endpointUrls = (service.manifest.urls ?? []).map((endpoint) => ({
-    kind: endpoint.kind ?? endpoint.label,
-    url: endpoint.url,
+  const endpointUrls: Array<{ kind: string; exposure?: string; url: string }> = normalizeServiceEndpoints(service.manifest).map((endpoint) => ({
+    kind: endpoint.kind,
+    exposure: endpoint.exposure,
+    url: endpoint.url ?? "",
   }));
   if (service.manifest.healthcheck?.type === "http") {
-    endpointUrls.push({ kind: "health", url: service.manifest.healthcheck.url });
+    endpointUrls.push({ kind: "health", exposure: "local", url: service.manifest.healthcheck.url });
   }
 
-  const localCount = endpointUrls.filter((endpoint) => endpointUrlKind(endpoint.url) === "local").length;
+  const localCount = endpointUrls.filter(
+    (endpoint) => endpoint.exposure === "local" || endpointUrlKind(endpoint.url) === "local",
+  ).length;
   const externalCount = endpointUrls.filter((endpoint) => endpointUrlKind(endpoint.url) === "external").length;
   const healthCount = endpointUrls.filter((endpoint) => endpoint.kind === "health").length;
   const counts = [

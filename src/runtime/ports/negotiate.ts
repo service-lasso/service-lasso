@@ -1,6 +1,7 @@
 import net from "node:net";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
+import { normalizeServiceEndpoints } from "../operator/endpoints.js";
 import { readPortReservationLedger } from "./reservations.js";
 
 const DEFAULT_DYNAMIC_PORT_START = 4000;
@@ -91,7 +92,11 @@ export async function negotiateServicePorts(
   services: DiscoveredService[],
   options: ServicePortNegotiationOptions = {},
 ): Promise<Record<string, number>> {
-  const desiredPorts = service.manifest.ports ?? {};
+  const desiredPorts = Object.fromEntries(
+    normalizeServiceEndpoints(service.manifest)
+      .filter((endpoint) => endpoint.kind === "network")
+      .map((endpoint) => [endpoint.id, endpoint.portDefault ?? 0]),
+  );
   const currentPorts = getLifecycleState(service.manifest.id).runtime.ports;
   const negotiatedPorts: Record<string, number> = {};
   const reservedPorts = await collectReservedPorts(services, service.manifest.id, options);

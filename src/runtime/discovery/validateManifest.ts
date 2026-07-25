@@ -11,6 +11,13 @@ import type {
   ServiceActionPayloadJsonType,
   ServiceActionPayloadSchema,
   ServiceActionRequiredState,
+  ServiceEndpointDirection,
+  ServiceEndpointExposure,
+  ServiceEndpointKind,
+  ServiceEndpointPortStrategy,
+  ServiceEndpointProtocol,
+  ServiceEndpointTransport,
+  ServiceManifestEndpoint,
   ServiceActionWorkflowStep,
   ServiceManifest,
   ServiceSetupRerunPolicy,
@@ -37,8 +44,15 @@ const brokerAccessOperations = new Set(["resolve", "create", "update", "rotate",
 const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "global"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
 const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
+const endpointKinds = new Set(["network", "url", "mount", "device"]);
+const endpointDirections = new Set(["inbound", "outbound"]);
+const endpointTransports = new Set(["tcp", "udp"]);
+const endpointProtocols = new Set(["http", "https", "tcp", "udp"]);
+const endpointExposures = new Set(["local", "lan", "public"]);
+const endpointPortStrategies = new Set(["automatic", "preferred", "fixed"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -415,6 +429,157 @@ function readJsonObject(value: unknown, field: string, manifestPath: string): Re
   }
 
   return value as Record<string, unknown>;
+}
+
+function readEndpointPortDeclaration(
+  value: unknown,
+  field: string,
+  manifestPath: string,
+): ServiceManifestEndpoint["port"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const defaultPort = expectOptionalWholeNumber(record.default, `${field}.default`, manifestPath, 0);
+  if (defaultPort !== undefined && defaultPort > 65535) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.default" to be between 0 and 65535.`);
+  }
+
+  const strategy = expectOptionalEnum<ServiceEndpointPortStrategy>(
+    record.strategy,
+    `${field}.strategy`,
+    endpointPortStrategies,
+    [...endpointPortStrategies].map((entry) => `"${entry}"`).join(", "),
+    manifestPath,
+  );
+  const policy = expectOptionalEnum<ServiceEndpointPortStrategy>(
+    record.policy,
+    `${field}.policy`,
+    endpointPortStrategies,
+    [...endpointPortStrategies].map((entry) => `"${entry}"`).join(", "),
+    manifestPath,
+  );
+
+  let range: { start: number; end: number } | undefined;
+  if (record.range !== undefined) {
+    if (!record.range || typeof record.range !== "object" || Array.isArray(record.range)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.range" to be an object.`);
+    }
+    const rangeRecord = record.range as Record<string, unknown>;
+    const start = expectOptionalWholeNumber(rangeRecord.start, `${field}.range.start`, manifestPath, 1);
+    const end = expectOptionalWholeNumber(rangeRecord.end, `${field}.range.end`, manifestPath, 1);
+    if (start === undefined || end === undefined || end < start || end > 65535) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.range" to define a valid port range.`);
+    }
+    range = { start, end };
+  }
+
+  return {
+    ...(defaultPort !== undefined ? { default: defaultPort } : {}),
+    ...(strategy !== undefined ? { strategy } : {}),
+    ...(policy !== undefined ? { policy } : {}),
+    ...(range !== undefined ? { range } : {}),
+  };
+}
+
+function readManifestEndpoints(value: unknown, manifestPath: string): ServiceManifestEndpoint[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "endpoints" to be an array.`);
+  }
+
+  const seen = new Set<string>();
+  return value.map((entry, index) => {
+    const field = `endpoints[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    for (const unsupported of ["env", "globalenv", "export", "exports"]) {
+      if (record[unsupported] !== undefined) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: endpoint entries must not contain "${unsupported}" blocks.`);
+      }
+    }
+
+    const id = expectNonEmptyString(record.id, `${field}.id`, manifestPath);
+    if (!endpointIdPattern.test(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.id" to be a selector-safe endpoint id.`);
+    }
+    if (seen.has(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate endpoint id "${id}".`);
+    }
+    seen.add(id);
+
+    const kind = expectOptionalEnum<ServiceEndpointKind>(
+      record.kind,
+      `${field}.kind`,
+      endpointKinds,
+      [...endpointKinds].map((entry) => `"${entry}"`).join(", "),
+      manifestPath,
+    );
+    if (!kind) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.kind" to be present.`);
+    }
+
+    const url = record.url === undefined ? undefined : expectNonEmptyString(record.url, `${field}.url`, manifestPath);
+    const target = record.target === undefined ? undefined : expectNonEmptyString(record.target, `${field}.target`, manifestPath);
+
+    if (kind === "network" && record.port === undefined) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.port" for network endpoints.`);
+    }
+    if (kind === "url" && !url && !target) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.url" or "${field}.target" for url endpoints.`);
+    }
+
+    return {
+      id,
+      kind,
+      label: typeof record.label === "string" ? record.label.trim() : undefined,
+      direction: expectOptionalEnum<ServiceEndpointDirection>(
+        record.direction,
+        `${field}.direction`,
+        endpointDirections,
+        [...endpointDirections].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      transport: expectOptionalEnum<ServiceEndpointTransport>(
+        record.transport,
+        `${field}.transport`,
+        endpointTransports,
+        [...endpointTransports].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      protocol: expectOptionalEnum<ServiceEndpointProtocol>(
+        record.protocol,
+        `${field}.protocol`,
+        endpointProtocols,
+        [...endpointProtocols].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      bind: typeof record.bind === "string" ? record.bind.trim() : undefined,
+      port: readEndpointPortDeclaration(record.port, `${field}.port`, manifestPath),
+      target,
+      url,
+      exposure: expectOptionalEnum<ServiceEndpointExposure>(
+        record.exposure,
+        `${field}.exposure`,
+        endpointExposures,
+        [...endpointExposures].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      required: expectOptionalBoolean(record.required, `${field}.required`, manifestPath),
+      primary: expectOptionalBoolean(record.primary, `${field}.primary`, manifestPath),
+    };
+  });
 }
 
 function readActionPayloadSchema(
@@ -1488,6 +1653,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   }
 
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
+  const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
   const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
   const globalenv = rawGlobalEnv
     ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
@@ -1516,6 +1682,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     env,
     globalenv,
     broker,
+    endpoints,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,

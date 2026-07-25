@@ -1109,6 +1109,117 @@ test("loadServiceManifest accepts manifest portmapping declarations", async () =
   }
 });
 
+test("loadServiceManifest accepts canonical endpoint declarations", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "endpoint-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "endpoint-service",
+        name: "Endpoint Service",
+        description: "Service with canonical endpoints.",
+        endpoints: [
+          {
+            id: "web",
+            kind: "network",
+            label: "Web",
+            direction: "inbound",
+            transport: "tcp",
+            protocol: "http",
+            bind: "127.0.0.1",
+            port: {
+              default: 43100,
+              strategy: "preferred",
+            },
+            exposure: "local",
+            primary: true,
+          },
+          {
+            id: "web_url",
+            kind: "url",
+            label: "UI",
+            target: "web",
+            url: "http://127.0.0.1:${endpoint.web.port}/",
+            exposure: "local",
+          },
+        ],
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.endpoints, [
+      {
+        id: "web",
+        kind: "network",
+        label: "Web",
+        direction: "inbound",
+        transport: "tcp",
+        protocol: "http",
+        bind: "127.0.0.1",
+        port: {
+          default: 43100,
+          strategy: "preferred",
+        },
+        target: undefined,
+        url: undefined,
+        exposure: "local",
+        required: undefined,
+        primary: true,
+      },
+      {
+        id: "web_url",
+        kind: "url",
+        label: "UI",
+        direction: undefined,
+        transport: undefined,
+        protocol: undefined,
+        bind: undefined,
+        port: undefined,
+        target: "web",
+        url: "http://127.0.0.1:${endpoint.web.port}/",
+        exposure: "local",
+        required: undefined,
+        primary: undefined,
+      },
+    ]);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects endpoint variable blocks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "bad-endpoint-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "bad-endpoint-service",
+        name: "Bad Endpoint Service",
+        description: "Service with invalid endpoint env.",
+        endpoints: [
+          {
+            id: "web",
+            kind: "network",
+            port: { default: 43100 },
+            env: { WEB_PORT: "${endpoint.web.port}" },
+          },
+        ],
+      }),
+    );
+
+    await assert.rejects(() => loadServiceManifest(manifestPath), /endpoint entries must not contain "env"/i);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts platform commandline maps", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "commandline-service", "service.json");

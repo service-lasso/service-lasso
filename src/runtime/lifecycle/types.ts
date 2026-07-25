@@ -1,5 +1,6 @@
 import type { ProviderKind } from "../providers/types.js";
 import type { ScopedBrokerIdentityMetadata } from "../broker/identity.js";
+import type { ResolvedServiceEndpoint } from "../operator/endpoints.js";
 
 export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart";
 
@@ -117,6 +118,7 @@ export interface ServiceRuntimeState {
   providerServiceId: string | null;
   lastTermination: "stopped" | "exited" | "crashed" | null;
   ports: Record<string, number>;
+  endpoints: ResolvedServiceEndpoint[];
   logs: {
     runId: string | null;
     logPath: string | null;

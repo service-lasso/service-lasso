@@ -321,6 +321,24 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     throw error;
   }
 
+  const record: ManagedProcessRecord = {
+    child,
+    service,
+    startedAt,
+    command,
+    stopping: false,
+    exitCode: null,
+    exitSignal: null,
+    logs: logPaths,
+    logStreams,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    workspaceRoot: workspaceRoot ?? null,
+    exitPromise,
+    finalizePromise: Promise.resolve(),
+  };
+  attachRuntimeLogCapture(record);
+
   if (workspaceRoot) {
     try {
       const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
@@ -333,7 +351,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         ownerRoot: service.serviceRoot,
         allocationRevision,
         ports: resolvedPorts,
-        endpoints: network.endpoints.map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
+        endpoints: network.endpoints
+          .filter((endpoint): endpoint is typeof endpoint & { url: string } => typeof endpoint.url === "string")
+          .map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
         lifecycleState: "launching",
         source: "spawn",
       });
@@ -354,32 +374,15 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         await forceKillManagedProcessTree(child);
         await exitPromise;
       }
-      await closeRuntimeLogStreams(logStreams);
+      await record.finalizePromise;
       throw error;
     }
   }
 
-  const record: ManagedProcessRecord = {
-    child,
-    service,
-    startedAt,
-    command,
-    stopping: false,
-    exitCode: null,
-    exitSignal: null,
-    logs: logPaths,
-    logStreams,
-    stdoutBuffer: "",
-    stderrBuffer: "",
-    workspaceRoot: workspaceRoot ?? null,
-    exitPromise,
-    finalizePromise: Promise.resolve(),
-  };
-
   managedProcesses.set(serviceId, record);
-  attachRuntimeLogCapture(record);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const current = managedProcesses.get(serviceId);
     if (current?.child === child) {
       managedProcesses.delete(serviceId);

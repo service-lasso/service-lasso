@@ -288,6 +288,30 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
     "portmapping": {
       "<PORT_NAME>": "<port-value>"
     },
+    "endpoints": [
+      {
+        "id": "<endpoint-id>",
+        "kind": "<network|url|mount|device>",
+        "label": "<display-label>",
+        "direction": "<inbound|outbound>",
+        "transport": "<tcp|udp>",
+        "protocol": "<http|https|tcp|udp>",
+        "bind": "<host-or-interface>",
+        "port": {
+          "default": "<port-number-or-0>",
+          "strategy": "<automatic|preferred|fixed>",
+          "range": {
+            "start": "<port-start>",
+            "end": "<port-end>"
+          }
+        },
+        "target": "<endpoint-id>",
+        "url": "<url-template-or-value>",
+        "exposure": "<local|lan|public>",
+        "required": "<boolean>",
+        "primary": "<boolean>"
+      }
+    ],
     "urls": {
       "<URL_KEY>": "<url-template-or-value>"
     },

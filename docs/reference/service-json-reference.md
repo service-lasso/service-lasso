@@ -984,21 +984,13 @@ Current broader Service Lasso direction includes:
 
 The sample template keeps this minimal for now.
 
-### Ports and URLs
+### Endpoints, ports, and URLs
 
-More complex services can use additional fields such as:
+`endpoints[]` is the canonical manifest surface for service interfaces and resources. See [Endpoints contract and migration guide](./endpoints-contract.md) for endpoint fields, selector examples, and migration rules.
 
-- `serviceportsecondary`
-- `serviceportconsole`
-- `serviceportdebug`
-- `portmapping`
-- `urls`
+Legacy fields such as `ports`, `portmapping`, `urls`, `serviceportsecondary`, `serviceportconsole`, and `serviceportdebug` remain compatibility inputs while existing manifests are normalized. New authoring should use `endpoints[]` network and URL entries, with variables expressed outside endpoint entries through `env`, `globalenv`, health checks, command lines, or materialized config templates.
 
-These are not all used in the minimal sample, but they remain relevant for more complex services.
-
-Service catalog compatibility reports derive required ports from `ports`.
-The runtime reports these as declared requirements through `GET /api/services`
-so operators can see which named ports a service expects before install/start.
+Service catalog compatibility and runtime APIs normalize legacy port declarations into endpoint-aware runtime state so operators can see the resolved interface model before install/start.
 
 ### Compatibility metadata
 
@@ -1009,7 +1001,7 @@ manifest fields:
   as a cross-platform fallback
 - provider requirements come from `execservice` and setup-step
   `execservice` declarations
-- declared port requirements come from `ports`
+- declared port requirements come from normalized network endpoints, including compatibility `ports`
 - service dependency requirements come from `depend_on`
 
 The report classifies the current host as `compatible`, `unsupported`, or
