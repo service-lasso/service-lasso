@@ -184,87 +184,54 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.deepEqual(byId.get("@traefik")?.depend_on, ["@localcert", "@nginx"]);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.5.9-9511770");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.6.26-bb4449c");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
-  assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{MONGO_PORT\}"/);
+  assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{endpoint\.mongo\.port\}"/);
   assert.match(byId.get("@traefik")?.commandline?.default ?? "", /--serversTransport\.insecureSkipVerify=true/);
-  assert.deepEqual(byId.get("@traefik")?.ports, {
-    web: 19080,
-    websecure: 19443,
-    admin: 19081,
-    https_traefik: 19082,
-    https_nginx: 19090,
-    https_cms: 19100,
-    https_flow: 19110,
-    https_flowtms: 19120,
-    https_api: 19130,
-    https_files: 19140,
-    https_bpmn: 19150,
-    mongo: 19160,
-    typedb: 19170,
-  });
-  assert.deepEqual(byId.get("@traefik")?.portmapping, {
-    HTTP: "${WEB_PORT}",
-    HTTPS: "${WEBSECURE_PORT}",
-    HTTPS_TRAEFIK: "${HTTPS_TRAEFIK_PORT}",
-    HTTPS_NGINX: "${HTTPS_NGINX_PORT}",
-    HTTPS_CMS: "${HTTPS_CMS_PORT}",
-    HTTPS_FLOW: "${HTTPS_FLOW_PORT}",
-    HTTPS_FLOWTMS: "${HTTPS_FLOWTMS_PORT}",
-    HTTPS_API: "${HTTPS_API_PORT}",
-    HTTPS_FILES: "${HTTPS_FILES_PORT}",
-    HTTPS_BPMN: "${HTTPS_BPMN_PORT}",
-    TCP_MOGNO: "${MONGO_PORT}",
-    TCP_TYPEDB: "${TYPEDB_PORT}",
-  });
+  assert.equal(byId.get("@traefik")?.ports, undefined);
+  assert.equal(byId.get("@traefik")?.portmapping, undefined);
+  assert.equal(byId.get("@traefik")?.endpoints?.find((endpoint) => endpoint.id === "web")?.port?.default, 19080);
+  assert.equal(byId.get("@traefik")?.endpoints?.find((endpoint) => endpoint.id === "admin")?.port?.default, 19081);
+  assert.equal(byId.get("@traefik")?.endpoints?.find((endpoint) => endpoint.id === "dashboard")?.url, "http://${endpoint.admin.bind}:${endpoint.admin.port}/dashboard/");
   assert.deepEqual(byId.get("@traefik")?.env, {
-    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
-    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
-    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
-    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
-    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
-    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
-    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
-    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
-    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
-    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
-    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
-    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
-    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
-    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
-    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
-    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
-    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    HTTP: "${endpoint.web.port}",
+    HTTPS: "${endpoint.websecure.port}",
+    HTTPS_TRAEFIK: "${endpoint.https_traefik.port}",
+    HTTPS_NGINX: "${endpoint.https_nginx.port}",
+    HTTPS_CMS: "${endpoint.https_cms.port}",
+    HTTPS_FLOW: "${endpoint.https_flow.port}",
+    HTTPS_FLOWTMS: "${endpoint.https_flowtms.port}",
+    HTTPS_API: "${endpoint.https_api.port}",
+    HTTPS_FILES: "${endpoint.https_files.port}",
+    HTTPS_BPMN: "${endpoint.https_bpmn.port}",
+    TCP_MOGNO: "${endpoint.mongo.port}",
+    TCP_TYPEDB: "${endpoint.typedb.port}",
+    TRAEFIK_HTTP_PORT: "${endpoint.web.port}",
+    TRAEFIK_HTTPS_PORT: "${endpoint.websecure.port}",
+    TRAEFIK_INTERNAL_PORT: "${endpoint.admin.port}",
+    TRAEFIK_HTTPS_TRAEFIK_PORT: "${endpoint.https_traefik.port}",
+    TRAEFIK_HTTPS_NGINX_PORT: "${endpoint.https_nginx.port}",
+    TRAEFIK_HTTPS_CMS_PORT: "${endpoint.https_cms.port}",
+    TRAEFIK_HTTPS_FLOW_PORT: "${endpoint.https_flow.port}",
+    TRAEFIK_HTTPS_FLOWTMS_PORT: "${endpoint.https_flowtms.port}",
+    TRAEFIK_HTTPS_API_PORT: "${endpoint.https_api.port}",
+    TRAEFIK_HTTPS_FILES_PORT: "${endpoint.https_files.port}",
+    TRAEFIK_HTTPS_BPMN_PORT: "${endpoint.https_bpmn.port}",
+    TRAEFIK_MONGO_PORT: "${endpoint.mongo.port}",
+    TRAEFIK_TYPEDB_PORT: "${endpoint.typedb.port}",
+    TRAEFIK_WEB_URL: "${endpoint.web_url.url}",
+    TRAEFIK_WEBSECURE_URL: "${endpoint.websecure_url.url}",
+    TRAEFIK_DASHBOARD_URL: "${endpoint.dashboard.url}",
+    TRAEFIK_PING_URL: "${endpoint.ping.url}",
   });
-  assert.deepEqual(byId.get("@traefik")?.globalenv, {
-    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
-    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
-    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
-    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
-    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
-    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
-    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
-    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
-    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
-    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
-    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
-    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
-    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
-    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
-    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
-    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
-    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
-    TRAEFIK_TRAEFIK_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
-    TRAEFIK_HOST_DOMAIN: "localhost",
-    TRAEFIK_HOST_DOMAIN_URL: "localhost",
-    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
-  });
+  assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_TRAEFIK_URL, "${endpoint.dashboard.url}");
+  assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_HOST_DOMAIN, "localhost");
   assert.deepEqual(byId.get("@traefik")?.healthcheck, {
     type: "http",
-    url: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    url: "${endpoint.ping.url}",
     expected_status: 200,
     retries: 80,
     interval: 250,
@@ -277,8 +244,8 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
     SERVICE_HOST: "0.0.0.0",
     SERVICE_PORT: "${UI_PORT}",
-    SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
-    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",
+    SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
   });
 });
 
