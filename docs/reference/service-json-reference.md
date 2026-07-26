@@ -355,7 +355,9 @@ This is where the service tells Lasso how to run and supervise it.
 
 ### `serviceorder`
 
-Startup ordering hint.
+Startup ordering hint. Lower values start earlier when services are otherwise independent. Hard dependencies from `depend_on` remain stronger than `serviceorder`, and shutdown remains the reverse of the resolved startup order.
+
+The runtime accepts legacy `execconfig.serviceorder` and normalizes it into the service manifest contract. A top-level `serviceorder` value is also accepted and takes precedence when both are present.
 
 Example:
 

@@ -419,6 +419,21 @@ function readStringArray(value: unknown, field: string, manifestPath: string): s
   return value.map((entry) => entry.trim());
 }
 
+function readExecutionConfig(value: unknown, manifestPath: string): ServiceManifest["execconfig"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "execconfig" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const serviceorder = expectOptionalWholeNumber(record.serviceorder, "execconfig.serviceorder", manifestPath, 0);
+
+  return serviceorder === undefined ? {} : { serviceorder };
+}
+
 function readJsonObject(value: unknown, field: string, manifestPath: string): Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
@@ -1516,6 +1531,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"depend_on\" to be an array of non-empty strings.`);
   }
 
+  const rawServiceOrder = expectOptionalWholeNumber(record.serviceorder, "serviceorder", manifestPath, 0);
+  const execconfig = readExecutionConfig(record.execconfig, manifestPath);
+  const serviceorder = rawServiceOrder ?? execconfig?.serviceorder;
+
   const rawHealthcheck = record.healthcheck;
   let healthcheck: ServiceHealthcheck | undefined;
 
@@ -1677,6 +1696,8 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     role: rawRole as ServiceManifest["role"],
     enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
     autostart: typeof record.autostart === "boolean" ? record.autostart : undefined,
+    serviceorder,
+    execconfig,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
     env,
