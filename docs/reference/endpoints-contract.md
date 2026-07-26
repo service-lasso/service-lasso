@@ -8,7 +8,7 @@ This document is the implementation reference for [#811](https://github.com/serv
 
 One endpoint represents one concrete interface, address, binding, device, mount, URL, or resource.
 
-Endpoint entries describe author intent. They do not contain `env`, `globalenv`, `export`, or `exports` blocks. Variables stay in `env`, `globalenv`, broker policy, command lines, health checks, and materialized config templates.
+Endpoint entries describe author intent. They do not contain `env`, `globalenv`, `export`, or `exports` blocks. Variables stay in `env`, `globalenv`, broker policy, command lines, `healthchecks[]`, and materialized config templates.
 
 Use selector form `${endpoint.<id>.<field>}` to read resolved endpoint values. Endpoint ids should prefer lower snake case, for example `web`, `admin_api`, or `https_files`.
 
@@ -143,13 +143,16 @@ Healthcheck:
 
 ```json
 {
-  "healthcheck": {
-    "type": "http",
-    "url": "http://127.0.0.1:${endpoint.web.port}/health",
-    "expected_status": 200,
-    "retries": 80,
-    "interval": 250
-  }
+  "healthchecks": [
+    {
+      "id": "web_health",
+      "type": "http",
+      "url": "http://127.0.0.1:${endpoint.web.port}/health",
+      "expected_status": 200,
+      "retries": 80,
+      "interval": 250
+    }
+  ]
 }
 ```
 
