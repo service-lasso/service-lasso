@@ -128,9 +128,12 @@ export function resolveServiceText(value, ports = {}) {
     const normalized = String(name).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
     replacements.set(`${normalized}_PORT`, String(port));
     if (name === "service") replacements.set("SERVICE_PORT", String(port));
+    replacements.set(`endpoint.${name}.bind`, "127.0.0.1");
+    replacements.set(`endpoint.${name}.host`, "127.0.0.1");
+    replacements.set(`endpoint.${name}.port`, String(port));
   }
 
-  return String(value).replace(/\$\{([A-Z0-9_]+)\}/g, (match, variableName) => replacements.get(variableName) ?? match);
+  return String(value).replace(/\$\{([^}]+)\}/g, (match, variableName) => replacements.get(variableName.trim()) ?? match);
 }
 
 function shouldCheckAdvertisedUrl(serviceId, endpoint) {
@@ -147,11 +150,29 @@ function manifestUrls(manifest) {
   return manifest.urls ? [manifest.urls] : [];
 }
 
+function manifestEndpointPorts(manifest) {
+  return Object.fromEntries(
+    (manifest.endpoints ?? [])
+      .filter((endpoint) => endpoint.kind === "network")
+      .map((endpoint) => [endpoint.id, endpoint.port?.default ?? 0]),
+  );
+}
+
+function manifestUrlEndpoints(manifest) {
+  return (manifest.endpoints ?? [])
+    .filter((endpoint) => endpoint.kind === "url")
+    .map((endpoint) => ({
+      label: endpoint.label ?? endpoint.id,
+      url: endpoint.url,
+      kind: endpoint.exposure ?? "local",
+    }));
+}
+
 export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
   const targets = [];
   const seen = new Set();
 
-  for (const endpoint of manifestUrls(manifest)) {
+  for (const endpoint of [...manifestUrls(manifest), ...manifestUrlEndpoints(manifest)]) {
     if (!endpoint?.url || !shouldCheckAdvertisedUrl(serviceId, endpoint)) {
       continue;
     }
@@ -242,14 +263,15 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
   for (const serviceId of serviceIds) {
     const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
     const platform = manifest.artifact?.platforms?.[process.platform];
+    const expectedPorts = Object.keys(manifest.ports ?? {}).length > 0 ? manifest.ports : manifestEndpointPorts(manifest);
     expected.set(serviceId, {
       id: serviceId,
       providerRole: manifest.role === "provider",
       repo: manifest.artifact?.source?.repo ?? null,
       tag: manifest.artifact?.source?.tag ?? null,
       assetName: platform?.assetName ?? null,
-      ports: manifest.ports ?? {},
-      reachabilityTargets: buildReachabilityTargets(serviceId, manifest, manifest.ports ?? {}),
+      ports: expectedPorts,
+      reachabilityTargets: buildReachabilityTargets(serviceId, manifest, expectedPorts),
       serviceRoot: path.join(servicesRoot, serviceId),
     });
   }

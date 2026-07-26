@@ -68,8 +68,8 @@
       "kind": "local"
     },
     {
-      "label": "service",
-      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "label": "health",
+      "url": "http://127.0.0.1:${HEALTH_PORT}/health",
       "kind": "local"
     }
   ],
