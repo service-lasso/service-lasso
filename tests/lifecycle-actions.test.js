@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer as startRuntimeApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import {
   installService,
   configService,
   startService,
+  stopService,
 } from "../dist/runtime/lifecycle/actions.js";
 import {
   hasManagedProcess,
@@ -587,6 +588,120 @@ test("managed process stop escalates after timeout and clears supervisor state",
     }
   } finally {
     await stopManagedProcess("stubborn-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("stop uses manifest actions.stop.commandline override before managed fallback", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-stop-override-",
+  );
+  const serviceRoot = path.join(servicesRoot, "graceful-stop-service");
+  const runtimeRoot = path.join(serviceRoot, "runtime");
+  await mkdir(runtimeRoot, { recursive: true });
+  await writeFile(
+    path.join(runtimeRoot, "server.mjs"),
+    `
+import { access } from "node:fs/promises";
+import path from "node:path";
+
+const stopFile = path.resolve(process.cwd(), "runtime", "stop-requested.txt");
+const heartbeat = setInterval(async () => {
+  try {
+    await access(stopFile);
+    clearInterval(heartbeat);
+    process.exit(0);
+  } catch {
+  }
+}, 25);
+`.trim(),
+  );
+  await writeFile(
+    path.join(runtimeRoot, "stop.mjs"),
+    `
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+
+await writeFile(path.resolve(process.cwd(), "runtime", "stop-requested.txt"), "stop");
+await writeFile(path.resolve(process.cwd(), "runtime", "override-ran.txt"), "ran");
+`.trim(),
+  );
+  await writeManifest(servicesRoot, "graceful-stop-service", {
+    id: "graceful-stop-service",
+    name: "Graceful Stop Service",
+    description: "Fixture with manifest stop override.",
+    executable: process.execPath,
+    args: ["runtime/server.mjs"],
+    healthcheck: { type: "process" },
+    actions: {
+      stop: {
+        commandline: {
+          default: `${JSON.stringify(process.execPath)} runtime/stop.mjs`,
+        },
+        timeoutSeconds: 2,
+      },
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+
+    await installService(service);
+    await configService(service);
+    const start = await startService(service);
+    assert.equal(start.state.running, true);
+    assert.equal(hasManagedProcess("graceful-stop-service"), true);
+
+    const stop = await stopService(service);
+
+    assert.equal(stop.ok, true);
+    assert.equal(stop.state.running, false);
+    assert.equal(stop.state.runtime.pid, null);
+    assert.match(stop.message, /actions\.stop override/i);
+    assert.equal(await readFile(path.join(runtimeRoot, "override-ran.txt"), "utf8"), "ran");
+    assert.equal(hasManagedProcess("graceful-stop-service"), false);
+  } finally {
+    await stopManagedProcess("graceful-stop-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("stop falls back to managed process stop when manifest override fails", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-stop-override-fallback-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "fallback-stop-service", {
+    actions: {
+      stop: {
+        commandline: {
+          default: `${JSON.stringify(process.execPath)} -e "process.exit(7)"`,
+        },
+        timeoutSeconds: 1,
+      },
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+
+    await installService(service);
+    await configService(service);
+    await startService(service);
+    assert.equal(hasManagedProcess("fallback-stop-service"), true);
+
+    const stop = await stopService(service);
+
+    assert.equal(stop.ok, true);
+    assert.equal(stop.state.running, false);
+    assert.equal(stop.state.runtime.pid, null);
+    assert.match(stop.message, /fallback stop completed/i);
+    assert.equal(hasManagedProcess("fallback-stop-service"), false);
+  } finally {
+    await stopManagedProcess("fallback-stop-service", 100).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
