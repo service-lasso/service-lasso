@@ -205,17 +205,43 @@ async function rebaseManifestPorts(targetServicesRoot) {
   for (const serviceId of baselineServiceIds) {
     const manifestPath = path.join(targetServicesRoot, serviceId, "service.json");
     const manifest = await readJson(manifestPath);
-    if (!manifest.ports || typeof manifest.ports !== "object" || Array.isArray(manifest.ports)) {
-      continue;
+    let changed = false;
+
+    if (manifest.ports && typeof manifest.ports === "object" && !Array.isArray(manifest.ports)) {
+      const rebasedPorts = {};
+      for (const portName of Object.keys(manifest.ports)) {
+        rebasedPorts[portName] = await reserveLoopbackPort();
+      }
+      manifest.ports = rebasedPorts;
+      changed = true;
     }
 
-    const rebasedPorts = {};
-    for (const portName of Object.keys(manifest.ports)) {
-      rebasedPorts[portName] = await reserveLoopbackPort();
+    if (Array.isArray(manifest.endpoints)) {
+      for (const endpoint of manifest.endpoints) {
+        if (endpoint?.kind !== "network" || !endpoint.port || typeof endpoint.port !== "object") {
+          continue;
+        }
+        endpoint.port.default = await reserveLoopbackPort();
+        changed = true;
+      }
     }
-    manifest.ports = rebasedPorts;
-    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    if (changed) {
+      await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    }
   }
+}
+
+function manifestPort(manifest, name) {
+  const legacyPort = manifest.ports?.[name];
+  if (Number.isInteger(legacyPort)) {
+    return legacyPort;
+  }
+  const endpointPort = manifest.endpoints?.find((endpoint) => endpoint.id === name && endpoint.kind === "network")?.port?.default;
+  if (Number.isInteger(endpointPort)) {
+    return endpointPort;
+  }
+  throw new Error(`Manifest ${manifest.id ?? "<unknown>"} does not declare port ${name}.`);
 }
 
 async function readTextIfPresent(filePath) {
@@ -402,8 +428,8 @@ try {
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/health`, "Service Admin health");
   await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerManifest.ports.service}/health`, "Secrets Broker health");
   await waitForHealthyHttp(`http://127.0.0.1:${nginxManifest.ports.http}/health`, "NGINX health");
-  await waitForHealthyHttp(`http://127.0.0.1:${echoManifest.ports.service}/health`, "Echo Service health");
-  await waitForHealthyHttp(`http://127.0.0.1:${traefikManifest.ports.admin}/ping`, "Traefik ping");
+  await waitForHealthyHttp(`http://127.0.0.1:${echoManifest.ports.health}/health`, "Echo Service health");
+  await waitForHealthyHttp(`http://127.0.0.1:${manifestPort(traefikManifest, "admin")}/ping`, "Traefik ping");
 
   const liveAfterStart = await waitForJson(`${apiUrl}/api/services`);
   for (const service of liveAfterStart.services.filter((entry) => baselineServiceIds.includes(entry.id))) {
