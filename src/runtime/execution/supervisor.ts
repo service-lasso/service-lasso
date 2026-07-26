@@ -249,6 +249,19 @@ export function hasManagedProcess(serviceId: string): boolean {
   return managedProcesses.has(serviceId);
 }
 
+export async function beginManagedProcessStop(serviceId: string): Promise<boolean> {
+  const record = managedProcesses.get(serviceId);
+  if (!record) {
+    return false;
+  }
+
+  record.stopping = true;
+  if (record.workspaceRoot) {
+    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+  }
+  return true;
+}
+
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
   const {
     service,
@@ -441,11 +454,7 @@ export async function stopManagedProcess(
     return null;
   }
 
-  record.stopping = true;
-
-  if (record.workspaceRoot) {
-    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
-  }
+  await beginManagedProcessStop(serviceId);
 
   if (!record.child.killed) {
     record.child.kill();
@@ -465,6 +474,49 @@ export async function stopManagedProcess(
   if (timeout) {
     clearTimeout(timeout);
   }
+  const finalizer = managedProcessFinalizers.get(serviceId);
+  if (finalizer) {
+    await finalizer;
+  }
+  if (record.workspaceRoot) {
+    await transitionProcessOwnership(
+      record.workspaceRoot,
+      "service",
+      serviceId,
+      "stopped",
+      "not_running",
+      record.child.pid,
+    );
+  }
+
+  return result;
+}
+
+export async function waitForManagedProcessExit(
+  serviceId: string,
+  timeoutMs = 5_000,
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
+  const record = managedProcesses.get(serviceId);
+  if (!record) {
+    return null;
+  }
+
+  await beginManagedProcessStop(serviceId);
+
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => resolve(null), timeoutMs);
+    timeout.unref?.();
+  });
+
+  const result = await Promise.race([record.exitPromise, timeoutPromise]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+  if (!result) {
+    return null;
+  }
+
   const finalizer = managedProcessFinalizers.get(serviceId);
   if (finalizer) {
     await finalizer;
