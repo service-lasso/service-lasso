@@ -56,6 +56,22 @@ export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
 }
 
+export type ServiceFilesRootMode = "read-only" | "read-write";
+
+export interface ServiceFilesRootDeclaration {
+  id: string;
+  label: string;
+  path: string;
+  mode: ServiceFilesRootMode;
+  hidden?: boolean;
+  protected?: boolean;
+}
+
+export interface ServiceFilesPolicy {
+  enabled?: boolean;
+  roots?: ServiceFilesRootDeclaration[];
+}
+
 export type ServiceHookFailurePolicy = "block" | "warn" | "continue";
 
 export interface ServiceHookStep {
@@ -339,6 +355,7 @@ export interface ServiceManifest {
   hooks?: ServiceLifecycleHooks;
   actions?: ServiceActionPolicy;
   setup?: ServiceSetupPolicy;
+  files?: ServiceFilesPolicy;
   updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;

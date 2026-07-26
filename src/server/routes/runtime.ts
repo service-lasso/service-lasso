@@ -104,6 +104,13 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     pathPrefix: "/api/mcp",
     mutating: false,
   },
+  {
+    id: "service-files",
+    label: "Service Files registry",
+    methods: ["GET"],
+    pathPrefix: "/api/files",
+    mutating: false,
+  },
 ];
 
 function createDefaultFeatureFlags(
@@ -126,6 +133,7 @@ function createDefaultFeatureFlags(
     operatorLogShipping: true,
     operatorLogs: true,
     operatorMcp: true,
+    serviceFiles: true,
     providerConnections: false,
     workflowFacade: false,
     localRouteGeneration: true,
@@ -175,6 +183,7 @@ export function createRuntimeCapabilitiesResponse(input: RuntimeCapabilitiesInpu
             "dependencies",
             "updates",
             "recovery",
+            "service-files",
             "telemetry",
             "log-shipping",
           ],

@@ -42,6 +42,7 @@ This reference tracks each runtime-facing field as:
 | Field | Status | TypeScript contract | Runtime/lifecycle behavior |
 | --- | --- | --- | --- |
 | `actions` | implemented | `ServiceManifest.actions?: ServiceActionPolicy` with action definitions, payload policy, workflow steps, and schedule maps | Validated during manifest discovery, used by service action run APIs, used by lifecycle stop overrides, and published through `GET /api/workflows/registry` for enabled scheduled actions. Closed alignment issue: [#777](https://github.com/service-lasso/service-lasso/issues/777). |
+| `files` | implemented | `ServiceManifest.files?: ServiceFilesPolicy` with service-root-relative workspace roots | Validated during manifest discovery and published through `GET /api/files/workspaces` as the `service-lasso-workspaces` registry for file-manager consumers. |
 | `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 | `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 
@@ -878,6 +879,47 @@ Sample:
 ```
 
 ## Other important manifest aspects
+
+### Files workspace roots
+
+`files` declares service-owned workspace roots that may be exposed to a file-manager consumer such as `lasso-files`.
+This stays separate from Config/Definition editing: `service.json` remains the service definition, while `files.roots[]`
+describes bounded runtime/workspace file surfaces.
+
+```json
+"files": {
+  "enabled": true,
+  "roots": [
+    {
+      "id": "workspace",
+      "label": "Workspace",
+      "path": ".",
+      "mode": "read-write"
+    },
+    {
+      "id": "logs",
+      "label": "Logs",
+      "path": "./logs",
+      "mode": "read-only"
+    },
+    {
+      "id": "state",
+      "label": "Runtime State",
+      "path": "./.state",
+      "mode": "read-only",
+      "protected": true
+    }
+  ]
+}
+```
+
+Runtime rules:
+
+- `files.enabled` must be `true` before roots are published.
+- `files.roots[].path` must be relative to the service root and cannot escape it with traversal or absolute paths.
+- `mode` is `read-only` or `read-write`; protected roots are exposed as non-writable even when a manifest accidentally marks them read-write.
+- Hidden and protected roots are preserved as registry safety metadata.
+- `GET /api/files/workspaces` returns source `service-lasso-workspaces`, service id/name, root id/label, relative path, resolved path, mode, access, and safety metadata for each declared root.
 
 ### Setup lifecycle steps
 

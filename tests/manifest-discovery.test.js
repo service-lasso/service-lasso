@@ -581,6 +581,132 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
   }
 });
 
+test("loadServiceManifest accepts bounded service files workspace roots", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "files-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "files-service",
+        name: "Files Service",
+        description: "Service with bounded workspace file roots.",
+        files: {
+          enabled: true,
+          roots: [
+            {
+              id: "workspace",
+              label: "Workspace",
+              path: ".",
+              mode: "read-write",
+            },
+            {
+              id: "logs",
+              label: "Logs",
+              path: "./logs",
+              mode: "read-only",
+              hidden: true,
+            },
+            {
+              id: "state",
+              label: "Runtime State",
+              path: "./.state",
+              mode: "read-write",
+              protected: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.files, {
+      enabled: true,
+      roots: [
+        {
+          id: "workspace",
+          label: "Workspace",
+          path: ".",
+          mode: "read-write",
+          hidden: undefined,
+          protected: undefined,
+        },
+        {
+          id: "logs",
+          label: "Logs",
+          path: "./logs",
+          mode: "read-only",
+          hidden: true,
+          protected: undefined,
+        },
+        {
+          id: "state",
+          label: "Runtime State",
+          path: "./.state",
+          mode: "read-write",
+          hidden: undefined,
+          protected: true,
+        },
+      ],
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects files roots outside the service root", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "absolute-root-service", {
+      id: "absolute-root-service",
+      name: "Absolute Root Service",
+      description: "Invalid absolute files root.",
+      files: {
+        enabled: true,
+        roots: [
+          {
+            id: "host",
+            label: "Host",
+            path: path.resolve(os.tmpdir()),
+            mode: "read-only",
+          },
+        ],
+      },
+    });
+    await writeManifest(servicesRoot, "traversal-root-service", {
+      id: "traversal-root-service",
+      name: "Traversal Root Service",
+      description: "Invalid traversal files root.",
+      files: {
+        enabled: true,
+        roots: [
+          {
+            id: "escape",
+            label: "Escape",
+            path: "../outside",
+            mode: "read-only",
+          },
+        ],
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "absolute-root-service", "service.json")),
+      /files\.roots\[0\]\.path.*relative to the service root/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "traversal-root-service", "service.json")),
+      /files\.roots\[0\]\.path.*inside the service root/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest rejects malformed broker manifest policy", async () => {
   const servicesRoot = await makeTempServicesRoot();
 

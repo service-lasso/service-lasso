@@ -147,6 +147,77 @@ test("GET /api/services returns discovered services from the tracked services ro
   }
 });
 
+test("GET /api/files/workspaces returns the service-root scoped Files registry", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-files-registry-");
+
+  await writeManifest(servicesRoot, "alpha-service", {
+    id: "alpha-service",
+    name: "Alpha Service",
+    description: "Service with workspace file roots.",
+    files: {
+      enabled: true,
+      roots: [
+        {
+          id: "workspace",
+          label: "Workspace",
+          path: ".",
+          mode: "read-write",
+        },
+        {
+          id: "logs",
+          label: "Logs",
+          path: "./logs",
+          mode: "read-only",
+          hidden: true,
+        },
+        {
+          id: "state",
+          label: "Runtime State",
+          path: "./.state",
+          mode: "read-write",
+          protected: true,
+        },
+      ],
+    },
+  });
+  await writeManifest(servicesRoot, "bravo-service", {
+    id: "bravo-service",
+    name: "Bravo Service",
+    description: "Service without Files enabled.",
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/files/workspaces`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.registry.source, "service-lasso-workspaces");
+    assert.equal(result.body.registry.registryVersion, 1);
+    assert.deepEqual(
+      result.body.registry.workspaces.map((entry) => entry.id),
+      ["alpha-service:logs", "alpha-service:state", "alpha-service:workspace"],
+    );
+
+    const byRootId = new Map(result.body.registry.workspaces.map((entry) => [entry.rootId, entry]));
+    assert.equal(byRootId.get("workspace").serviceId, "alpha-service");
+    assert.equal(byRootId.get("workspace").mode, "read-write");
+    assert.equal(byRootId.get("workspace").access.write, true);
+    assert.equal(byRootId.get("workspace").relativePath, ".");
+    assert.equal(byRootId.get("workspace").resolvedPath, path.join(servicesRoot, "alpha-service"));
+    assert.equal(byRootId.get("workspace").safety.withinServiceRoot, true);
+    assert.equal(byRootId.get("workspace").safety.pathPolicy, "service-root-relative-only");
+
+    assert.equal(byRootId.get("logs").hidden, true);
+    assert.equal(byRootId.get("logs").access.write, false);
+    assert.equal(byRootId.get("state").protected, true);
+    assert.equal(byRootId.get("state").access.write, false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/diagnostics/dependencies reports start blockers and safe next actions", async () => {
   resetLifecycleState();
   const occupiedPortServer = net.createServer();
@@ -626,9 +697,11 @@ test("GET /api/runtime/capabilities returns versioned runtime capability metadat
     assert.equal(result.body.capabilities.api.contractVersion, "service-lasso.runtime-capabilities.v1");
     assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "runtime"));
     assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "operator-mcp" && group.mutating === false));
+    assert.ok(result.body.capabilities.api.endpointGroups.some((group) => group.id === "service-files" && group.pathPrefix === "/api/files" && group.mutating === false));
     assert.equal(result.body.capabilities.features.lifecycleActions, true);
     assert.equal(result.body.capabilities.features.dashboardAdapter, true);
     assert.equal(result.body.capabilities.features.operatorMcp, true);
+    assert.equal(result.body.capabilities.features.serviceFiles, true);
     assert.equal(result.body.capabilities.features.providerConnections, false);
     assert.equal(result.body.capabilities.features.workflowFacade, false);
     assert.equal(result.body.capabilities.features.autostart, false);
