@@ -181,6 +181,10 @@ export interface ServiceSetupPolicy {
   steps?: Record<string, ServiceSetupStep>;
 }
 
+export interface ServiceExecutionConfig {
+  serviceorder?: number;
+}
+
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
 export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
 export type ServiceUpdateWindowDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -318,6 +322,8 @@ export interface ServiceManifest {
   role?: ServiceRole;
   enabled?: boolean;
   autostart?: boolean;
+  serviceorder?: number;
+  execconfig?: ServiceExecutionConfig;
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;

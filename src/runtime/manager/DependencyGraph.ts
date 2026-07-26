@@ -182,7 +182,7 @@ export class DependencyGraph {
       }
 
       visiting.add(currentServiceId);
-      for (const dependencyId of service.manifest.depend_on ?? []) {
+      for (const dependencyId of this.#sortServiceIds(service.manifest.depend_on ?? [])) {
         visit(dependencyId);
         if (!ordered.includes(dependencyId)) {
           ordered.push(dependencyId);
@@ -197,24 +197,78 @@ export class DependencyGraph {
   }
 
   getGlobalStartupOrder(): string[] {
-    const ordered = new Set<string>();
-    const serviceIds = this.#registry
-      .list()
-      .map((service) => service.manifest.id)
-      .sort((left, right) => left.localeCompare(right));
+    const services = this.#registry.list();
+    const serviceIds = services.map((service) => service.manifest.id);
+    const remainingDependencies = new Map<string, Set<string>>();
+    const dependents = new Map<string, Set<string>>();
 
-    for (const serviceId of serviceIds) {
-      for (const dependencyId of this.getStartupOrder(serviceId)) {
-        ordered.add(dependencyId);
+    for (const service of services) {
+      const serviceId = service.manifest.id;
+      const dependencies = new Set<string>();
+
+      for (const dependencyId of service.manifest.depend_on ?? []) {
+        if (!this.#registry.getById(dependencyId)) {
+          throw new Error(`Unknown service id: ${dependencyId}`);
+        }
+
+        dependencies.add(dependencyId);
+        const currentDependents = dependents.get(dependencyId) ?? new Set<string>();
+        currentDependents.add(serviceId);
+        dependents.set(dependencyId, currentDependents);
       }
-      ordered.add(serviceId);
+
+      remainingDependencies.set(serviceId, dependencies);
     }
 
-    return [...ordered];
+    const ordered: string[] = [];
+    const ready = this.#sortServiceIds(serviceIds.filter((serviceId) => (remainingDependencies.get(serviceId)?.size ?? 0) === 0));
+
+    while (ready.length > 0) {
+      const serviceId = ready.shift();
+      if (!serviceId) {
+        continue;
+      }
+
+      ordered.push(serviceId);
+
+      for (const dependentId of this.#sortServiceIds([...(dependents.get(serviceId) ?? [])])) {
+        const dependencies = remainingDependencies.get(dependentId);
+        if (!dependencies) {
+          continue;
+        }
+
+        dependencies.delete(serviceId);
+        if (dependencies.size === 0) {
+          ready.push(dependentId);
+          ready.sort((left, right) => this.#compareServiceIds(left, right));
+        }
+      }
+    }
+
+    if (ordered.length !== serviceIds.length) {
+      throw new Error("Dependency cycle detected while resolving global startup order.");
+    }
+
+    return ordered;
   }
 
   getGlobalShutdownOrder(): string[] {
     return [...this.getGlobalStartupOrder()].reverse();
+  }
+
+  #sortServiceIds(serviceIds: string[]): string[] {
+    return [...serviceIds].sort((left, right) => this.#compareServiceIds(left, right));
+  }
+
+  #compareServiceIds(left: string, right: string): number {
+    const leftOrder = this.#serviceOrder(left);
+    const rightOrder = this.#serviceOrder(right);
+    return leftOrder - rightOrder || left.localeCompare(right);
+  }
+
+  #serviceOrder(serviceId: string): number {
+    const service = this.#registry.getById(serviceId);
+    return service?.manifest.serviceorder ?? service?.manifest.execconfig?.serviceorder ?? Number.MAX_SAFE_INTEGER;
   }
 }
 
