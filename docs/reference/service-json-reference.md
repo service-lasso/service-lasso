@@ -31,6 +31,20 @@ Supported explicit healthcheck types include:
 - `file`
 - `variable`
 
+## Runtime field alignment snapshot
+
+This reference tracks each runtime-facing field as:
+
+- `implemented`: the TypeScript manifest contract, validation, and runtime behavior agree.
+- `compatibility`: the runtime accepts the field to preserve older manifests, but new authoring should prefer the canonical field.
+- `planned`: the reference describes intended behavior that is not implemented end-to-end yet.
+
+| Field | Status | TypeScript contract | Runtime/lifecycle behavior |
+| --- | --- | --- | --- |
+| `actions` | implemented | `ServiceManifest.actions?: ServiceActionPolicy` with action definitions, payload policy, workflow steps, and schedule maps | Validated during manifest discovery, used by service action run APIs, used by lifecycle stop overrides, and published through `GET /api/workflows/registry` for enabled scheduled actions. Closed alignment issue: [#777](https://github.com/service-lasso/service-lasso/issues/777). |
+| `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
+| `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
+
 ## Purpose of `service.json`
 
 `service.json` is the canonical service manifest used by Service Lasso to understand how a service should be discovered, prepared, executed, and monitored.
@@ -215,6 +229,8 @@ Numeric service location classification value.
 
 `actions` is where the service defines or overrides named lifecycle and operator actions.
 
+Alignment status: implemented. See [#777](https://github.com/service-lasso/service-lasso/issues/777).
+
 Current intended rule:
 
 - actions correspond to known Service Lasso lifecycle/action names
@@ -358,6 +374,8 @@ This is where the service tells Lasso how to run and supervise it.
 Startup ordering hint. Lower values start earlier when services are otherwise independent. Hard dependencies from `depend_on` remain stronger than `serviceorder`, and shutdown remains the reverse of the resolved startup order.
 
 The runtime accepts legacy `execconfig.serviceorder` and normalizes it into the service manifest contract. A top-level `serviceorder` value is also accepted and takes precedence when both are present.
+
+Alignment status: implemented for top-level `serviceorder`; `execconfig.serviceorder` is compatibility input. See [#778](https://github.com/service-lasso/service-lasso/issues/778).
 
 Example:
 
