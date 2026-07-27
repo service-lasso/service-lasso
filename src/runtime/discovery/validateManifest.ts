@@ -1663,9 +1663,60 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
         ...readinessOptions,
       };
     } else if (healthRecord.type === "tcp") {
+      if (healthRecord.tcphost !== undefined || healthRecord.tcpport !== undefined) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: "tcphost" and "tcpport" are not supported; use "healthcheck.host" + "healthcheck.port" or "healthcheck.address".`,
+        );
+      }
+
+      const hasAddress = healthRecord.address !== undefined;
+      const hasHost = healthRecord.host !== undefined;
+      const hasPort = healthRecord.port !== undefined;
+      const rawPort = healthRecord.port;
+
+      if (hasAddress && (hasHost || hasPort)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: TCP healthcheck must use either "healthcheck.address" or "healthcheck.host" + "healthcheck.port", not both.`,
+        );
+      }
+
+      if (hasHost !== hasPort) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: TCP healthcheck "host" and "port" must be supplied together.`,
+        );
+      }
+
+      if (
+        hasPort &&
+        typeof rawPort !== "string" &&
+        (typeof rawPort !== "number" ||
+          !Number.isInteger(rawPort) ||
+          rawPort < 1 ||
+          rawPort > 65535)
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "healthcheck.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
+        );
+      }
+
+      if (typeof rawPort === "string" && rawPort.trim().length === 0) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "healthcheck.port".`);
+      }
+
+      const normalizedPort =
+        rawPort === undefined
+          ? undefined
+          : typeof rawPort === "number"
+            ? rawPort
+            : typeof rawPort === "string"
+              ? rawPort.trim()
+              : undefined;
+
       healthcheck = {
         type: "tcp",
-        address: expectNonEmptyString(healthRecord.address, "healthcheck.address", manifestPath),
+        ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, "healthcheck.address", manifestPath) } : {}),
+        ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, "healthcheck.host", manifestPath) } : {}),
+        ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
         ...readinessOptions,
       };
     } else if (healthRecord.type === "file") {

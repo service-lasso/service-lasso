@@ -99,6 +99,11 @@ function portFromAddress(value: string): number | undefined {
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined;
 }
 
+function tcpAddressFromHealthDetail(value: string): string | undefined {
+  const match = value.match(/\b(?:to|timed out:)\s+([^\s]+:\d{1,5})\.?$/i)?.[1];
+  return match?.replace(/\.$/, "");
+}
+
 function sanitizeVariable(value: string): string {
   const match = value.trim().match(/^\$\{([A-Z0-9_]+)\}$/i);
   return match ? match[1] : "<expression>";
@@ -126,7 +131,25 @@ function observedTarget(
   }
 
   if (healthcheck?.type === "tcp") {
-    const address = sanitizeAddress(healthcheck.address);
+    const configuredAddress =
+      healthcheck.address ??
+      (healthcheck.host !== undefined && healthcheck.port !== undefined
+        ? `${healthcheck.host}:${String(healthcheck.port)}`
+        : tcpAddressFromHealthDetail(health.detail));
+
+    if (configuredAddress === undefined) {
+      return {
+        type: health.type,
+      };
+    }
+
+    const address = sanitizeAddress(configuredAddress);
+    if (address === "<invalid-address>") {
+      return {
+        type: health.type,
+      };
+    }
+
     return {
       type: health.type,
       address,

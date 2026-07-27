@@ -847,7 +847,28 @@ Sample:
 }
 ```
 
-This relies on the configured service host/port.
+Bare `type: "tcp"` uses `127.0.0.1` and infers the port only when the service has exactly one unambiguous declared or resolved port.
+
+Use `address` when a single TCP target string is clearer:
+
+```json
+"healthcheck": {
+  "type": "tcp",
+  "address": "127.0.0.1:${HTTP_PORT}"
+}
+```
+
+Use `host` + `port` when the values should be edited independently:
+
+```json
+"healthcheck": {
+  "type": "tcp",
+  "host": "127.0.0.1",
+  "port": "${HTTP_PORT}"
+}
+```
+
+Multiple-port services must declare `address` or `host` + `port`. Legacy alias names such as `tcphost` and `tcpport` are not supported.
 
 ### `file` healthcheck
 

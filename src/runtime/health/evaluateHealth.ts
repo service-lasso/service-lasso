@@ -10,6 +10,20 @@ import type { ServiceHealthResult } from "./types.js";
 import { isProviderRole } from "../roles.js";
 import { resolveServiceText } from "../operator/variables.js";
 
+function inferSingleTcpPort(resolvedPorts: Record<string, number>): number | string {
+  const validPorts = [...new Set(Object.values(resolvedPorts).filter((port) => Number.isInteger(port) && port > 0 && port <= 65535))];
+
+  if (validPorts.length === 1) {
+    return validPorts[0];
+  }
+
+  if (validPorts.length === 0) {
+    return "TCP healthcheck requires an explicit address or host + port because no resolved service port is available.";
+  }
+
+  return "TCP healthcheck requires an explicit address or host + port because multiple service ports are available.";
+}
+
 export async function evaluateServiceHealth(
   manifest: ServiceManifest,
   lifecycle: ServiceLifecycleState,
@@ -44,11 +58,40 @@ export async function evaluateServiceHealth(
   }
 
   if (healthcheck.type === "tcp") {
+    if (healthcheck.address !== undefined) {
+      return checkTcpHealth({
+        ...healthcheck,
+        address: service
+          ? resolveServiceText(healthcheck.address, service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.address,
+      });
+    }
+
+    if (healthcheck.host !== undefined && healthcheck.port !== undefined) {
+      return checkTcpHealth({
+        ...healthcheck,
+        host: service
+          ? resolveServiceText(healthcheck.host, service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.host,
+        port: service
+          ? resolveServiceText(String(healthcheck.port), service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.port,
+      });
+    }
+
+    const inferredPort = inferSingleTcpPort(resolvedPorts);
+    if (typeof inferredPort === "string") {
+      return {
+        type: "tcp",
+        healthy: false,
+        detail: inferredPort,
+      };
+    }
+
     return checkTcpHealth({
       ...healthcheck,
-      address: service
-        ? resolveServiceText(healthcheck.address, service, sharedGlobalEnv, resolvedPorts)
-        : healthcheck.address,
+      host: "127.0.0.1",
+      port: inferredPort,
     });
   }
 

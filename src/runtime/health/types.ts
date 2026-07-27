@@ -16,7 +16,9 @@ export interface HttpHealthcheck extends HealthcheckReadinessOptions {
 
 export interface TcpHealthcheck extends HealthcheckReadinessOptions {
   type: "tcp";
-  address: string;
+  address?: string;
+  host?: string;
+  port?: string | number;
 }
 
 export interface FileHealthcheck extends HealthcheckReadinessOptions {

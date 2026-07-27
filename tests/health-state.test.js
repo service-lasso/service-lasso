@@ -327,6 +327,136 @@ test("GET /api/services/:id/health supports bounded TCP healthchecks", async () 
   }
 });
 
+test("TCP healthchecks resolve host and port selectors", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  const tcpServer = net.createServer((socket) => {
+    socket.end("OK");
+  });
+  tcpServer.listen(0, "127.0.0.1");
+  await once(tcpServer, "listening");
+  const tcpAddress = tcpServer.address();
+  if (!tcpAddress || typeof tcpAddress === "string") {
+    throw new Error("TCP probe server failed to bind.");
+  }
+
+  await writeManifest(servicesRoot, "tcp-selector-service", {
+    id: "tcp-selector-service",
+    name: "TCP Selector Service",
+    description: "Temporary service for TCP selector health proof.",
+    ports: {
+      http: tcpAddress.port,
+    },
+    healthcheck: {
+      type: "tcp",
+      host: "127.0.0.1",
+      port: "${HTTP_PORT}",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/tcp-selector-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "tcp-selector-service");
+    assert.equal(body.health.type, "tcp");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /connected successfully/i);
+  } finally {
+    await apiServer.stop();
+    tcpServer.close();
+    await once(tcpServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("bare TCP healthchecks infer the default single service port", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  const tcpServer = net.createServer((socket) => {
+    socket.end("OK");
+  });
+  tcpServer.listen(0, "127.0.0.1");
+  await once(tcpServer, "listening");
+  const tcpAddress = tcpServer.address();
+  if (!tcpAddress || typeof tcpAddress === "string") {
+    throw new Error("TCP probe server failed to bind.");
+  }
+
+  await writeManifest(servicesRoot, "tcp-default-service", {
+    id: "tcp-default-service",
+    name: "TCP Default Service",
+    description: "Temporary service for default TCP health proof.",
+    ports: {
+      service: tcpAddress.port,
+    },
+    healthcheck: {
+      type: "tcp",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/tcp-default-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "tcp-default-service");
+    assert.equal(body.health.type, "tcp");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /127\.0\.0\.1/i);
+  } finally {
+    await apiServer.stop();
+    tcpServer.close();
+    await once(tcpServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("bare TCP healthchecks report ambiguous multi-port services", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  await writeManifest(servicesRoot, "tcp-ambiguous-service", {
+    id: "tcp-ambiguous-service",
+    name: "TCP Ambiguous Service",
+    description: "Temporary service for ambiguous TCP health proof.",
+    ports: {
+      http: 4012,
+      admin: 4013,
+    },
+    healthcheck: {
+      type: "tcp",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/tcp-ambiguous-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "tcp-ambiguous-service");
+    assert.equal(body.health.type, "tcp");
+    assert.equal(body.health.healthy, false);
+    assert.match(body.health.detail, /multiple service ports/i);
+    assert.match(body.health.detail, /address or host \+ port/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
 test("HTTP healthcheck lifecycle actions stay 200 when the probe is unavailable", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
