@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   ServiceBrokerAccessOperation,
   ServiceBrokerAccessScope,
@@ -17,6 +18,7 @@ import type {
   ServiceEndpointPortStrategy,
   ServiceEndpointProtocol,
   ServiceEndpointTransport,
+  ServiceFilesRootMode,
   ServiceManifestEndpoint,
   ServiceActionWorkflowStep,
   ServiceManifest,
@@ -50,9 +52,11 @@ const endpointTransports = new Set(["tcp", "udp"]);
 const endpointProtocols = new Set(["http", "https", "tcp", "udp"]);
 const endpointExposures = new Set(["local", "lan", "public"]);
 const endpointPortStrategies = new Set(["automatic", "preferred", "fixed"]);
+const filesRootModes = new Set<ServiceFilesRootMode>(["read-only", "read-write"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
+const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -405,6 +409,80 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
   );
 
   return { steps };
+}
+
+function assertServiceRootRelativePath(value: string, field: string, manifestPath: string): string {
+  const declaredPath = value.trim();
+  if (declaredPath.length === 0) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a non-empty service-root-relative path.`);
+  }
+
+  if (path.isAbsolute(declaredPath)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be relative to the service root.`);
+  }
+
+  if (declaredPath.split(/[\\/]+/).includes("..")) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to stay inside the service root.`);
+  }
+
+  return declaredPath;
+}
+
+function readFilesPolicy(value: unknown, manifestPath: string): ServiceManifest["files"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "files" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const enabled = expectOptionalBoolean(record.enabled, "files.enabled", manifestPath);
+  if (record.roots === undefined) {
+    return { enabled };
+  }
+
+  if (!Array.isArray(record.roots)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "files.roots" to be an array.`);
+  }
+
+  const seenRootIds = new Set<string>();
+  const roots = record.roots.map((entry, index) => {
+    const field = `files.roots[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const root = entry as Record<string, unknown>;
+    const id = expectNonEmptyString(root.id, `${field}.id`, manifestPath);
+    if (!filesRootIdPattern.test(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.id" to be a stable root id.`);
+    }
+    if (seenRootIds.has(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate files root id "${id}".`);
+    }
+    seenRootIds.add(id);
+
+    const mode = expectOptionalEnum<ServiceFilesRootMode>(
+      root.mode,
+      `${field}.mode`,
+      filesRootModes,
+      '"read-only" or "read-write"',
+      manifestPath,
+    ) ?? "read-only";
+
+    return {
+      id,
+      label: expectNonEmptyString(root.label, `${field}.label`, manifestPath),
+      path: assertServiceRootRelativePath(expectNonEmptyString(root.path, `${field}.path`, manifestPath), `${field}.path`, manifestPath),
+      mode,
+      hidden: expectOptionalBoolean(root.hidden, `${field}.hidden`, manifestPath),
+      protected: expectOptionalBoolean(root.protected, `${field}.protected`, manifestPath),
+    };
+  });
+
+  return { enabled, roots };
 }
 
 function readStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
@@ -1687,6 +1765,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const hooks = readLifecycleHooks(record.hooks, manifestPath);
   const actions = readActionPolicy(record.actions, manifestPath);
   const setup = readSetupPolicy(record.setup, manifestPath);
+  const files = readFilesPolicy(record.files, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
   return {
     id: serviceId,
@@ -1726,6 +1805,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     hooks,
     actions,
     setup,
+    files,
     updates,
     artifact,
     install,

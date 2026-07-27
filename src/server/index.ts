@@ -23,6 +23,7 @@ import { createServiceNetworkResponse } from "./routes/network.js";
 import { createGlobalEnvResponse } from "./routes/globalenv.js";
 import { createServiceMetaResponse, createServicesMetaResponse } from "./routes/service-meta.js";
 import { createManagedWorkflowRegistryResponse } from "./routes/workflows.js";
+import { createServiceWorkspaceRegistryResponse } from "./routes/files.js";
 import {
   createDashboardServiceDetailResponse,
   createDashboardServicesResponse,
@@ -140,6 +141,7 @@ import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
+import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
@@ -1653,6 +1655,12 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/workflows/registry") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, createManagedWorkflowRegistryResponse(buildManagedWorkflowRegistry(runtimeModel.discovered)));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/files/workspaces") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, createServiceWorkspaceRegistryResponse(buildServiceWorkspaceRegistry(runtimeModel.discovered)));
     return;
   }
 
