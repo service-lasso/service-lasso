@@ -159,8 +159,19 @@ test("install and config materialize bounded on-disk artifacts and persist them 
               "SERVICE_PORT=${SERVICE_PORT}\nSERVICE_ROOT=${SERVICE_ROOT}\n",
           },
         ],
+        templates: [
+          {
+            source: "./templates/templated.env",
+            target: "./runtime/${SERVICE_ID}.templated.env",
+          },
+        ],
       },
     },
+  );
+  await mkdir(path.join(serviceRoot, "templates"), { recursive: true });
+  await writeFile(
+    path.join(serviceRoot, "templates", "templated.env"),
+    "TEMPLATE_SERVICE=${SERVICE_ID}\nTEMPLATE_PORT=${SERVICE_PORT}\n",
   );
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
@@ -174,6 +185,7 @@ test("install and config materialize bounded on-disk artifacts and persist them 
 
     const installPath = path.join(serviceRoot, "runtime", "install.txt");
     const configPath = path.join(serviceRoot, "runtime", "config.env");
+    const templatedConfigPath = path.join(serviceRoot, "runtime", "materialized-service.templated.env");
     const stored = await readStoredState(serviceRoot);
 
     assert.equal(install.status, 200);
@@ -192,16 +204,120 @@ test("install and config materialize bounded on-disk artifacts and persist them 
     assert.equal(config.status, 200);
     assert.deepEqual(config.body.state.configArtifacts.files, [
       "runtime/config.env",
+      "runtime/materialized-service.templated.env",
     ]);
     assert.equal(typeof config.body.state.configArtifacts.updatedAt, "string");
     assert.equal(
       await readFile(configPath, "utf8"),
       `SERVICE_PORT=41234\nSERVICE_ROOT=${serviceRoot}\n`,
     );
+    assert.equal(
+      await readFile(templatedConfigPath, "utf8"),
+      "TEMPLATE_SERVICE=materialized-service\nTEMPLATE_PORT=41234\n",
+    );
     assert.deepEqual(stored.install.files, ["runtime/install.txt"]);
-    assert.deepEqual(stored.config.files, ["runtime/config.env"]);
+    assert.deepEqual(stored.config.files, [
+      "runtime/config.env",
+      "runtime/materialized-service.templated.env",
+    ]);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("config template materialization rejects sources outside the service root", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "unsafe-template-source-service", {
+    config: {
+      templates: [
+        {
+          source: "../outside.env",
+          target: "./runtime/generated.env",
+        },
+      ],
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+
+    await assert.rejects(
+      () => configService(service),
+      /Materialized template source escapes the service root: \.\.\/outside\.env/,
+    );
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("config template materialization rejects missing source files", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "missing-template-service", {
+    config: {
+      templates: [
+        {
+          source: "./templates/missing.env",
+          target: "./runtime/generated.env",
+        },
+      ],
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+
+    await assert.rejects(
+      () => configService(service),
+      /Materialized template source does not exist: templates\/missing\.env/,
+    );
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("config template materialization rejects targets outside the service root", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "unsafe-template-target-service",
+    {
+      config: {
+        templates: [
+          {
+            source: "./templates/config.env",
+            target: "../outside.env",
+          },
+        ],
+      },
+    },
+  );
+  await mkdir(path.join(serviceRoot, "templates"), { recursive: true });
+  await writeFile(path.join(serviceRoot, "templates", "config.env"), "SAFE=${SERVICE_ID}\n");
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+
+    await assert.rejects(
+      () => configService(service),
+      /Materialized file path escapes the service root: \.\.\/outside\.env/,
+    );
+  } finally {
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

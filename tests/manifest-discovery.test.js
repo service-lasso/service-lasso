@@ -1794,6 +1794,12 @@ test("loadServiceManifest accepts bounded install/config file materialization", 
               content: "{\"port\":\"${SERVICE_PORT}\"}",
             },
           ],
+          templates: [
+            {
+              source: "./templates/config.env.template",
+              target: "./runtime/config.env",
+            },
+          ],
         },
       }),
     );
@@ -1813,6 +1819,12 @@ test("loadServiceManifest accepts bounded install/config file materialization", 
         {
           path: "./runtime/config.json",
           content: "{\"port\":\"${SERVICE_PORT}\"}",
+        },
+      ],
+      templates: [
+        {
+          source: "./templates/config.env.template",
+          target: "./runtime/config.env",
         },
       ],
     });
