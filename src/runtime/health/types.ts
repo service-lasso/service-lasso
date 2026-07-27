@@ -13,6 +13,7 @@ export interface HttpHealthcheck extends HealthcheckReadinessOptions {
   type: "http";
   url: string;
   expected_status?: number;
+  cookies?: Record<string, string>;
 }
 
 export interface TcpHealthcheck extends HealthcheckReadinessOptions {

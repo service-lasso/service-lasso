@@ -863,6 +863,20 @@ Sample:
 }
 ```
 
+HTTP healthchecks may include an optional `cookies` string map when a readiness endpoint requires cookie state. Cookie values support the same selector resolution as `url`; omit `cookies` for ordinary stateless health endpoints.
+
+```json
+"healthcheck": {
+  "type": "http",
+  "url": "http://localhost:${SERVICE_PORT}/healthcheck",
+  "expected_status": 200,
+  "cookies": {
+    "healthcheck": "ready",
+    "workspace": "${SERVICE_ID}"
+  }
+}
+```
+
 ### `tcp` healthcheck
 
 Use when:
