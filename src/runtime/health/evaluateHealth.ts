@@ -104,7 +104,15 @@ export async function evaluateServiceHealth(
   }
 
   if (healthcheck.type === "file") {
-    return checkFileHealth(healthcheck, serviceRoot);
+    return checkFileHealth(
+      {
+        ...healthcheck,
+        file: service
+          ? resolveServiceText(healthcheck.file, service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.file,
+      },
+      serviceRoot,
+    );
   }
 
   if (healthcheck.type === "variable") {

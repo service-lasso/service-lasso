@@ -926,9 +926,13 @@ Sample:
 ```json
 "healthcheck": {
   "type": "file",
-  "file": "${SERVICE_HOME}/.state/runtime/ready.txt"
+  "file": "${SERVICE_ROOT}/runtime/ready.txt"
 }
 ```
+
+Selector resolution applies before the filesystem check. Relative paths remain
+resolved against the service root, absolute paths remain supported, and health
+details report the resolved path that was checked.
 
 ### `variable` healthcheck
 

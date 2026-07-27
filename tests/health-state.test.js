@@ -604,6 +604,78 @@ test("GET /api/services/:id/health supports bounded file healthchecks", async ()
   }
 });
 
+test("file healthchecks resolve service selectors before checking paths", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const serviceRoot = await writeManifest(servicesRoot, "file-selector-service", {
+    id: "file-selector-service",
+    name: "File Selector Service",
+    description: "Temporary service for file health selector proof.",
+    healthcheck: {
+      type: "file",
+      file: "${SERVICE_ROOT}/runtime/ready.txt",
+    },
+  });
+  const readyPath = path.join(serviceRoot, "runtime", "ready.txt");
+  await mkdir(path.dirname(readyPath), { recursive: true });
+  await writeFile(readyPath, "ok");
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/file-selector-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "file-selector-service");
+    assert.equal(body.health.type, "file");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /found expected file/i);
+    assert.equal(body.health.detail.includes("${SERVICE_ROOT}"), false);
+    const checkedPath = body.health.detail.replace(/^File healthcheck found expected file: /, "");
+    assert.equal(path.normalize(checkedPath), readyPath);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("file healthchecks support absolute paths", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const absoluteReadyPath = path.join(tempRoot, "external-ready.txt");
+  await writeFile(absoluteReadyPath, "ok");
+
+  await writeManifest(servicesRoot, "file-absolute-service", {
+    id: "file-absolute-service",
+    name: "File Absolute Service",
+    description: "Temporary service for absolute file health proof.",
+    healthcheck: {
+      type: "file",
+      file: absoluteReadyPath,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/file-absolute-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "file-absolute-service");
+    assert.equal(body.health.type, "file");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /found expected file/i);
+    assert.ok(body.health.detail.includes(absoluteReadyPath));
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
 test("file healthcheck lifecycle actions stay 200 when the file is unavailable", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
