@@ -632,6 +632,7 @@ test("loadServiceManifest accepts manifest readiness retry fields", async () => 
         retries: 5,
         interval: 250,
         start_period: 100,
+        timeout: 750,
       },
     });
 
@@ -644,7 +645,32 @@ test("loadServiceManifest accepts manifest readiness retry fields", async () => 
       retries: 5,
       interval: 250,
       start_period: 100,
+      timeout: 750,
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects invalid healthcheck timeout values", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-timeout-service", {
+      id: "bad-timeout-service",
+      name: "Bad Timeout Service",
+      description: "Manifest with invalid readiness timeout.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/health",
+        timeout: 0,
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-timeout-service", "service.json")),
+      /healthcheck\.timeout.*integer greater than or equal to 1/i,
+    );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

@@ -129,11 +129,13 @@ function readHealthcheckReadinessOptions(
     manifestPath,
     0,
   );
+  const timeout = expectOptionalWholeNumber(healthRecord.timeout, "healthcheck.timeout", manifestPath, 1);
 
   return {
     ...(interval !== undefined ? { interval } : {}),
     ...(retries !== undefined ? { retries } : {}),
     ...(startPeriod !== undefined ? { start_period: startPeriod } : {}),
+    ...(timeout !== undefined ? { timeout } : {}),
   };
 }
 
