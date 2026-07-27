@@ -59,6 +59,7 @@ This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](.
     "steps": {
       "generate-cert": {
         "description": "Generate local development certificates.",
+        "cwd": "${SERVICE_ROOT}",
         "commandline": {
           "win32": "mkcert.exe -key-file \"${SERVICE_DATA_PATH}\\mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}\\mkcert.pem\" *.localhost",
           "default": "mkcert -key-file \"${SERVICE_DATA_PATH}/mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}/mkcert.pem\" *.localhost"
@@ -75,6 +76,7 @@ Rules:
 
 - No `execservice` means the setup command runs directly.
 - `execservice` runs the setup step through a provider such as `@node`, `@python`, or `@java`.
+- `cwd` optionally picks the working directory for the setup command. It uses the same variable selectors as `commandline` and `env`, defaults to the service root, and must resolve to an existing directory inside the service root.
 - `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
 - `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
 - `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.

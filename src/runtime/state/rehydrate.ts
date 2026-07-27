@@ -350,6 +350,7 @@ function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
     finishedAt: record.finishedAt,
     durationMs: record.durationMs,
     command: record.command,
+    cwd: typeof record.cwd === "string" ? record.cwd : undefined,
     exitCode: typeof record.exitCode === "number" ? record.exitCode : null,
     signal: typeof record.signal === "string" ? record.signal : null,
     message: record.message,
