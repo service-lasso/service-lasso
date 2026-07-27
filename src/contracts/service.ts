@@ -188,6 +188,7 @@ export interface ServiceSetupStep {
   executable?: string;
   args?: string[];
   commandline?: Record<string, string>;
+  cwd?: string;
   env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;

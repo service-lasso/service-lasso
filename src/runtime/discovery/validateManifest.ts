@@ -434,6 +434,13 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
         );
       }
 
+      const cwd = step.cwd;
+      if (cwd !== undefined && (typeof cwd !== "string" || cwd.trim().length === 0)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.cwd" to be a non-empty string when present.`,
+        );
+      }
+
       const rawRerun = step.rerun;
       if (rawRerun !== undefined && (typeof rawRerun !== "string" || !setupRerunPolicies.has(rawRerun))) {
         throw new Error(
@@ -450,6 +457,7 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
           executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
           args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
           commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
+          cwd: typeof cwd === "string" ? cwd.trim() : undefined,
           env: readEnvMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
           timeoutSeconds: expectOptionalWholeNumber(
             step.timeoutSeconds,

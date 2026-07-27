@@ -52,6 +52,7 @@ async function writeSetupScript(serviceRoot, name = "setup-writer.mjs") {
       "  serviceId: process.env.SERVICE_ID,",
       "  serviceRoot: process.env.SERVICE_ROOT,",
       "  dataPath: process.env.SERVICE_DATA_PATH,",
+      "  cwd: process.cwd(),",
       "  inherited: process.env.INHERITED_GLOBAL ?? null,",
       "  stepValue: process.env.STEP_VALUE ?? null",
       "}, null, 2));",
@@ -104,14 +105,126 @@ test("setup run executes direct steps, captures logs, and persists setup history
     assert.equal(output.serviceId, "setup-service");
     assert.equal(output.serviceRoot, serviceRoot);
     assert.equal(output.dataPath, path.join(serviceRoot, "data"));
+    assert.equal(path.resolve(output.cwd), path.resolve(serviceRoot));
     assert.equal(output.stepValue, "configured-setup-service");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.setup.steps["write-file"].status, "succeeded");
+    assert.equal(path.resolve(stored.setup.steps["write-file"].lastRun.cwd), path.resolve(serviceRoot));
     assert.equal(stored.runtime.lastAction, "setup");
     assert.deepEqual(stored.runtime.actionHistory, ["install", "config", "setup"]);
     assert.match(await readFile(stored.setup.steps["write-file"].lastRun.logs.stdoutPath, "utf8"), /setup writer complete/);
     assert.match(await readFile(stored.setup.steps["write-file"].lastRun.logs.stderrPath, "utf8"), /setup writer stderr/);
+  } finally {
+    await apiServer.stop();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup run resolves explicit cwd selectors and records cwd in history", async () => {
+  await resetSetupTestState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-");
+  const serviceRoot = await writeManifest(servicesRoot, "setup-cwd", {
+    id: "setup-cwd",
+    name: "Setup Cwd",
+    description: "Explicit setup cwd proof.",
+    setup: {
+      steps: {
+        "service-root": {
+          executable: process.execPath,
+          cwd: "${SERVICE_ROOT}",
+          args: ["runtime/setup-writer.mjs"],
+          timeoutSeconds: 5,
+        },
+        "artifact-bin": {
+          executable: process.execPath,
+          cwd: "${SERVICE_ROOT}/runtime/bin",
+          args: ["runtime/setup-writer.mjs"],
+          env: {
+            SETUP_OUTPUT_PATH: "./cwd-output.json",
+          },
+          timeoutSeconds: 5,
+        },
+      },
+    },
+  });
+  await writeSetupScript(serviceRoot);
+  await mkdir(path.join(serviceRoot, "runtime", "bin"), { recursive: true });
+  await writeSetupScript(path.join(serviceRoot, "runtime", "bin"));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/setup-cwd/install`);
+    await postJson(`${apiServer.url}/api/services/setup-cwd/config`);
+
+    const serviceRootRun = await postJson(`${apiServer.url}/api/services/setup-cwd/setup/run/service-root`);
+    assert.equal(serviceRootRun.status, 200);
+    assert.equal(serviceRootRun.body.ok, true);
+    assert.equal(path.resolve(serviceRootRun.body.runs[0].cwd), path.resolve(serviceRoot));
+
+    const artifactBinRun = await postJson(`${apiServer.url}/api/services/setup-cwd/setup/run/artifact-bin`);
+    assert.equal(artifactBinRun.status, 200);
+    assert.equal(artifactBinRun.body.ok, true);
+    assert.equal(path.resolve(artifactBinRun.body.runs[0].cwd), path.resolve(serviceRoot, "runtime", "bin"));
+
+    const output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "bin", "cwd-output.json"), "utf8"));
+    assert.equal(path.resolve(output.cwd), path.resolve(serviceRoot, "runtime", "bin"));
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(path.resolve(stored.setup.steps["service-root"].lastRun.cwd), path.resolve(serviceRoot));
+    assert.equal(path.resolve(stored.setup.steps["artifact-bin"].lastRun.cwd), path.resolve(serviceRoot, "runtime", "bin"));
+  } finally {
+    await apiServer.stop();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup run fails before spawning when cwd is missing or outside the service root", async () => {
+  await resetSetupTestState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-invalid-");
+  const serviceRoot = await writeManifest(servicesRoot, "bad-setup-cwd", {
+    id: "bad-setup-cwd",
+    name: "Bad Setup Cwd",
+    description: "Invalid setup cwd proof.",
+    setup: {
+      steps: {
+        missing: {
+          executable: process.execPath,
+          cwd: "${SERVICE_ROOT}/missing",
+          args: ["-e", "process.exit(99)"],
+          timeoutSeconds: 5,
+          rerun: "always",
+        },
+        escape: {
+          executable: process.execPath,
+          cwd: "../outside",
+          args: ["-e", "process.exit(99)"],
+          timeoutSeconds: 5,
+          rerun: "always",
+        },
+      },
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/bad-setup-cwd/install`);
+    await postJson(`${apiServer.url}/api/services/bad-setup-cwd/config`);
+
+    const missing = await postJson(`${apiServer.url}/api/services/bad-setup-cwd/setup/run/missing`);
+    assert.equal(missing.status, 200);
+    assert.equal(missing.body.ok, false);
+    assert.equal(missing.body.runs[0].exitCode, null);
+    assert.match(missing.body.runs[0].message, /does not exist/);
+    assert.equal(path.resolve(missing.body.runs[0].cwd), path.resolve(serviceRoot, "missing"));
+
+    const escape = await postJson(`${apiServer.url}/api/services/bad-setup-cwd/setup/run/escape`);
+    assert.equal(escape.status, 200);
+    assert.equal(escape.body.ok, false);
+    assert.equal(escape.body.runs[0].exitCode, null);
+    assert.match(escape.body.runs[0].message, /must stay inside the service root/);
   } finally {
     await apiServer.stop();
     await resetSetupTestState();

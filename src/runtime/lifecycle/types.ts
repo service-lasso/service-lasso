@@ -52,6 +52,7 @@ export interface ServiceSetupStepRunState {
   finishedAt: string;
   durationMs: number;
   command: string;
+  cwd?: string;
   exitCode: number | null;
   signal: string | null;
   message: string;
