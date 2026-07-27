@@ -1711,6 +1711,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
                 win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
                 default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
               },
+              cwd: "${SERVICE_ROOT}/jobs",
               env: {
                 SCHEMA_PATH: "${SERVICE_ROOT}/schema",
               },
@@ -1742,6 +1743,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
         win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
         default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
       },
+      cwd: "${SERVICE_ROOT}/jobs",
       env: {
         SCHEMA_PATH: "${SERVICE_ROOT}/schema",
       },
@@ -1755,6 +1757,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
       executable: undefined,
       args: ["jobs/load-sample/basic_upload.py"],
       commandline: undefined,
+      cwd: undefined,
       env: undefined,
       timeoutSeconds: 300,
       rerun: "manual",

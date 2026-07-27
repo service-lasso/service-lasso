@@ -1031,6 +1031,7 @@ Examples:
   "steps": {
     "install-python-deps": {
       "description": "Install service-local Python dependencies.",
+      "cwd": "${SERVICE_ROOT}",
       "commandline": {
         "win32": "pip.exe install --user -r \"${SERVICE_ROOT}\\requirements.txt\"",
         "default": "pip install --user -r \"${SERVICE_ROOT}/requirements.txt\""
@@ -1058,6 +1059,7 @@ Runtime behavior:
 - Direct setup: omit `execservice`; the selected `commandline` is parsed as the executable plus arguments, or `executable` plus `args` can be used.
 - Provider-backed setup: set `execservice` to `@node`, `@python`, or `@java`; `commandline` or `args` becomes the provider executable's argument payload.
 - Platform selection uses `commandline[process.platform]` with `commandline.default` fallback.
+- Optional `cwd` selects the setup command's working directory. It supports Service Lasso variables, relative paths resolve from `SERVICE_ROOT`, absolute paths must still be inside `SERVICE_ROOT`, missing/non-directory values fail before spawn, and setup run history records the resolved cwd.
 - Dependencies in `depend_on` can name services or setup steps using `<serviceId>:<stepId>`.
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
