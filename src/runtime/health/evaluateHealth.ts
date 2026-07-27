@@ -5,6 +5,7 @@ import { checkFileHealth } from "./checkFile.js";
 import { checkHttpHealth } from "./checkHttp.js";
 import { checkProcessHealth } from "./checkProcess.js";
 import { checkTcpHealth } from "./checkTcp.js";
+import { checkUdpHealth } from "./checkUdp.js";
 import { checkVariableHealth } from "./checkVariable.js";
 import type { ServiceHealthResult } from "./types.js";
 import { isProviderRole } from "../roles.js";
@@ -92,6 +93,39 @@ export async function evaluateServiceHealth(
       ...healthcheck,
       host: "127.0.0.1",
       port: inferredPort,
+    });
+  }
+
+  if (healthcheck.type === "udp") {
+    if (healthcheck.address !== undefined) {
+      return checkUdpHealth({
+        ...healthcheck,
+        address: service
+          ? resolveServiceText(healthcheck.address, service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.address,
+        send: service
+          ? resolveServiceText(healthcheck.send, service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.send,
+        expect: service
+          ? resolveServiceText(healthcheck.expect, service, sharedGlobalEnv, resolvedPorts)
+          : healthcheck.expect,
+      });
+    }
+
+    return checkUdpHealth({
+      ...healthcheck,
+      host: service
+        ? resolveServiceText(healthcheck.host ?? "", service, sharedGlobalEnv, resolvedPorts)
+        : healthcheck.host,
+      port: service
+        ? resolveServiceText(String(healthcheck.port), service, sharedGlobalEnv, resolvedPorts)
+        : healthcheck.port,
+      send: service
+        ? resolveServiceText(healthcheck.send, service, sharedGlobalEnv, resolvedPorts)
+        : healthcheck.send,
+      expect: service
+        ? resolveServiceText(healthcheck.expect, service, sharedGlobalEnv, resolvedPorts)
+        : healthcheck.expect,
     });
   }
 

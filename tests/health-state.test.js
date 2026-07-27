@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import dgram from "node:dgram";
 import net from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -450,6 +451,179 @@ test("bare TCP healthchecks report ambiguous multi-port services", async () => {
     assert.equal(body.health.healthy, false);
     assert.match(body.health.detail, /multiple service ports/i);
     assert.match(body.health.detail, /address or host \+ port/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("GET /api/services/:id/health supports UDP send and expect healthchecks", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  const udpServer = dgram.createSocket("udp4");
+  udpServer.on("message", (message, rinfo) => {
+    if (message.toString("utf8") === "ping") {
+      udpServer.send(Buffer.from("pong"), rinfo.port, rinfo.address);
+    }
+  });
+  udpServer.bind(0, "127.0.0.1");
+  await once(udpServer, "listening");
+  const udpAddress = udpServer.address();
+  if (!udpAddress || typeof udpAddress === "string") {
+    throw new Error("UDP probe server failed to bind.");
+  }
+
+  await writeManifest(servicesRoot, "udp-service", {
+    id: "udp-service",
+    name: "UDP Service",
+    description: "Temporary service for UDP health proof.",
+    healthcheck: {
+      type: "udp",
+      address: `127.0.0.1:${udpAddress.port}`,
+      send: "ping",
+      expect: "pong",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/udp-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "udp-service");
+    assert.equal(body.health.type, "udp");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /response matched expected payload/i);
+  } finally {
+    await apiServer.stop();
+    udpServer.close();
+    await once(udpServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("UDP healthchecks resolve host and port selectors", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  const udpServer = dgram.createSocket("udp4");
+  udpServer.on("message", (message, rinfo) => {
+    if (message.toString("utf8") === "ping") {
+      udpServer.send(Buffer.from("pong"), rinfo.port, rinfo.address);
+    }
+  });
+  udpServer.bind(0, "127.0.0.1");
+  await once(udpServer, "listening");
+  const udpAddress = udpServer.address();
+  if (!udpAddress || typeof udpAddress === "string") {
+    throw new Error("UDP probe server failed to bind.");
+  }
+
+  await writeManifest(servicesRoot, "udp-selector-service", {
+    id: "udp-selector-service",
+    name: "UDP Selector Service",
+    description: "Temporary service for UDP selector health proof.",
+    ports: {
+      udp: udpAddress.port,
+    },
+    healthcheck: {
+      type: "udp",
+      host: "127.0.0.1",
+      port: "${UDP_PORT}",
+      send: "ping",
+      expect: "pong",
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/udp-selector-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "udp-selector-service");
+    assert.equal(body.health.type, "udp");
+    assert.equal(body.health.healthy, true);
+    assert.match(body.health.detail, /response matched expected payload/i);
+  } finally {
+    await apiServer.stop();
+    udpServer.close();
+    await once(udpServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("UDP healthchecks report timeout when the expected response is unavailable", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  await writeManifest(servicesRoot, "udp-timeout-service", {
+    id: "udp-timeout-service",
+    name: "UDP Timeout Service",
+    description: "Temporary service for UDP timeout health proof.",
+    healthcheck: {
+      type: "udp",
+      address: "127.0.0.1:65530",
+      send: "ping",
+      expect: "pong",
+      timeout: 50,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/udp-timeout-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "udp-timeout-service");
+    assert.equal(body.health.type, "udp");
+    assert.equal(body.health.healthy, false);
+    assert.match(body.health.detail, /UDP healthcheck timed out/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("UDP healthchecks report invalid resolved ports", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  await writeManifest(servicesRoot, "udp-bad-port-service", {
+    id: "udp-bad-port-service",
+    name: "UDP Bad Port Service",
+    description: "Temporary service for UDP bad port health proof.",
+    healthcheck: {
+      type: "udp",
+      host: "127.0.0.1",
+      port: "${MISSING_UDP_PORT}",
+      send: "ping",
+      expect: "pong",
+      timeout: 50,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/udp-bad-port-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "udp-bad-port-service");
+    assert.equal(body.health.type, "udp");
+    assert.equal(body.health.healthy, false);
+    assert.match(body.health.detail, /UDP healthcheck port is invalid/i);
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

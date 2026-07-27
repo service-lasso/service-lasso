@@ -104,6 +104,11 @@ function tcpAddressFromHealthDetail(value: string): string | undefined {
   return match?.replace(/\.$/, "");
 }
 
+function udpAddressFromHealthDetail(value: string): string | undefined {
+  const match = value.match(/\bfrom\s+([^\s]+:\d{1,5})\.?$/i)?.[1];
+  return match?.replace(/\.$/, "");
+}
+
 function sanitizeVariable(value: string): string {
   const match = value.trim().match(/^\$\{([A-Z0-9_]+)\}$/i);
   return match ? match[1] : "<expression>";
@@ -136,6 +141,33 @@ function observedTarget(
       (healthcheck.host !== undefined && healthcheck.port !== undefined
         ? `${healthcheck.host}:${String(healthcheck.port)}`
         : tcpAddressFromHealthDetail(health.detail));
+
+    if (configuredAddress === undefined) {
+      return {
+        type: health.type,
+      };
+    }
+
+    const address = sanitizeAddress(configuredAddress);
+    if (address === "<invalid-address>") {
+      return {
+        type: health.type,
+      };
+    }
+
+    return {
+      type: health.type,
+      address,
+      port: portFromAddress(address),
+    };
+  }
+
+  if (healthcheck?.type === "udp") {
+    const configuredAddress =
+      healthcheck.address ??
+      (healthcheck.host !== undefined && healthcheck.port !== undefined
+        ? `${healthcheck.host}:${String(healthcheck.port)}`
+        : udpAddressFromHealthDetail(health.detail));
 
     if (configuredAddress === undefined) {
       return {

@@ -2,6 +2,7 @@ export interface HealthcheckReadinessOptions {
   interval?: number;
   retries?: number;
   start_period?: number;
+  timeout?: number;
 }
 
 export interface ProcessHealthcheck extends HealthcheckReadinessOptions {
@@ -21,6 +22,15 @@ export interface TcpHealthcheck extends HealthcheckReadinessOptions {
   port?: string | number;
 }
 
+export interface UdpHealthcheck extends HealthcheckReadinessOptions {
+  type: "udp";
+  address?: string;
+  host?: string;
+  port?: string | number;
+  send: string;
+  expect: string;
+}
+
 export interface FileHealthcheck extends HealthcheckReadinessOptions {
   type: "file";
   file: string;
@@ -35,6 +45,7 @@ export type ServiceHealthcheck =
   | ProcessHealthcheck
   | HttpHealthcheck
   | TcpHealthcheck
+  | UdpHealthcheck
   | FileHealthcheck
   | VariableHealthcheck;
 

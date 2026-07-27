@@ -394,6 +394,104 @@ test("loadServiceManifest rejects legacy tcp healthcheck aliases", async () => {
   }
 });
 
+test("loadServiceManifest accepts UDP send and expect healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "udp-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "udp-service",
+        name: "UDP Service",
+        description: "Service with UDP send and expect health.",
+        healthcheck: {
+          type: "udp",
+          host: "127.0.0.1",
+          port: "${UDP_PORT}",
+          send: "ping",
+          expect: "pong",
+          retries: 30,
+          timeout: 1000,
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "udp",
+      host: "127.0.0.1",
+      port: "${UDP_PORT}",
+      send: "ping",
+      expect: "pong",
+      retries: 30,
+      timeout: 1000,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects UDP healthchecks without explicit target", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "udp-missing-target-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "udp-missing-target-service",
+        name: "UDP Missing Target Service",
+        description: "Service with missing UDP target.",
+        healthcheck: {
+          type: "udp",
+          send: "ping",
+          expect: "pong",
+        },
+      }),
+    );
+
+    await assert.rejects(
+      () => loadServiceManifest(manifestPath),
+      /UDP healthcheck requires "healthcheck\.address" or "healthcheck\.host" \+ "healthcheck\.port"/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects UDP healthchecks without send and expect", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "udp-missing-payload-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "udp-missing-payload-service",
+        name: "UDP Missing Payload Service",
+        description: "Service with missing UDP payload.",
+        healthcheck: {
+          type: "udp",
+          address: "127.0.0.1:4012",
+          send: "ping",
+        },
+      }),
+    );
+
+    await assert.rejects(
+      () => loadServiceManifest(manifestPath),
+      /expected non-empty string for "healthcheck\.expect"/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded file healthchecks", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "file-service", "service.json");
