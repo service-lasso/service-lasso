@@ -5,6 +5,7 @@ import { evaluateServiceHealth } from "./evaluateHealth.js";
 import type { ServiceHealthcheck, ServiceHealthResult } from "./types.js";
 
 const DEFAULT_READINESS_INTERVAL_MS = 1_000;
+const DEFAULT_READINESS_ATTEMPTS = 10;
 
 export interface ReadinessWaitResult {
   enabled: boolean;
@@ -29,14 +30,9 @@ function resolveReadinessOptions(healthcheck?: ServiceHealthcheck): {
     };
   }
 
-  const enabled =
-    healthcheck.retries !== undefined ||
-    healthcheck.interval !== undefined ||
-    healthcheck.start_period !== undefined;
-
   return {
-    enabled,
-    attempts: Math.max(healthcheck.retries ?? 1, 1),
+    enabled: true,
+    attempts: Math.max(healthcheck.retries ?? DEFAULT_READINESS_ATTEMPTS, 1),
     intervalMs: healthcheck.interval ?? DEFAULT_READINESS_INTERVAL_MS,
     startPeriodMs: healthcheck.start_period ?? 0,
   };

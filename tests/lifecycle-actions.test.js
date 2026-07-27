@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import net from "node:net";
+import { createServer } from "node:http";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer as startRuntimeApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
@@ -540,6 +542,104 @@ test("start waits for configured readiness and returns healthy once ready", asyn
     assert.ok(elapsedMs >= 75);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit HTTP healthcheck without readiness options waits with default attempts", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-http-default-readiness-",
+  );
+  const readyAt = Date.now() + 120;
+  const probeServer = createServer((_, response) => {
+    response.statusCode = Date.now() >= readyAt ? 200 : 503;
+    response.end("ok");
+  });
+  probeServer.listen(0, "127.0.0.1");
+  await new Promise((resolve) => probeServer.once("listening", resolve));
+  const probeAddress = probeServer.address();
+  if (!probeAddress || typeof probeAddress === "string") {
+    throw new Error("HTTP probe server failed to bind.");
+  }
+
+  await writeExecutableFixtureService(servicesRoot, "http-default-readiness", {
+    healthcheck: {
+      type: "http",
+      url: `http://127.0.0.1:${probeAddress.port}/health`,
+      expected_status: 200,
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/http-default-readiness/install`);
+    await postJson(`${apiServer.url}/api/services/http-default-readiness/config`);
+
+    const start = await postJson(`${apiServer.url}/api/services/http-default-readiness/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, true);
+    assert.equal(start.body.health.type, "http");
+    assert.equal(start.body.health.healthy, true);
+    assert.match(start.body.message, /of 10/i);
+  } finally {
+    await apiServer.stop();
+    await new Promise((resolve) => probeServer.close(resolve));
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit TCP healthcheck without retries uses default attempts", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-tcp-default-readiness-",
+  );
+  const reservationServer = net.createServer();
+  reservationServer.listen(0, "127.0.0.1");
+  await new Promise((resolve) => reservationServer.once("listening", resolve));
+  const reservedAddress = reservationServer.address();
+  if (!reservedAddress || typeof reservedAddress === "string") {
+    throw new Error("TCP probe reservation failed to bind.");
+  }
+  const probePort = reservedAddress.port;
+  await new Promise((resolve) => reservationServer.close(resolve));
+
+  const delayedProbeServer = net.createServer((socket) => {
+    socket.end("OK");
+  });
+  const openProbe = setTimeout(() => {
+    delayedProbeServer.listen(probePort, "127.0.0.1");
+  }, 80);
+
+  await writeExecutableFixtureService(servicesRoot, "tcp-default-attempts", {
+    healthcheck: {
+      type: "tcp",
+      address: `127.0.0.1:${probePort}`,
+      interval: 20,
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/tcp-default-attempts/install`);
+    await postJson(`${apiServer.url}/api/services/tcp-default-attempts/config`);
+
+    const start = await postJson(`${apiServer.url}/api/services/tcp-default-attempts/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, true);
+    assert.equal(start.body.health.type, "tcp");
+    assert.equal(start.body.health.healthy, true);
+    assert.match(start.body.message, /of 10/i);
+  } finally {
+    clearTimeout(openProbe);
+    await apiServer.stop();
+    if (delayedProbeServer.listening) {
+      await new Promise((resolve) => delayedProbeServer.close(resolve));
+    }
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
