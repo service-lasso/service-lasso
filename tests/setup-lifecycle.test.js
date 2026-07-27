@@ -54,7 +54,9 @@ async function writeSetupScript(serviceRoot, name = "setup-writer.mjs") {
       "  dataPath: process.env.SERVICE_DATA_PATH,",
       "  cwd: process.cwd(),",
       "  inherited: process.env.INHERITED_GLOBAL ?? null,",
-      "  stepValue: process.env.STEP_VALUE ?? null",
+      "  serviceValue: process.env.SERVICE_VALUE ?? null,",
+      "  stepValue: process.env.STEP_VALUE ?? null,",
+      "  hostOnly: process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF ?? null",
       "}, null, 2));",
       "console.log('setup writer complete');",
       "console.error('setup writer stderr');",
@@ -119,6 +121,61 @@ test("setup run executes direct steps, captures logs, and persists setup history
     await apiServer.stop();
     await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup env excludes uncontrolled host variables while preserving controlled inputs", async () => {
+  await resetSetupTestState();
+  const previousHostOnly = process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF;
+  process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF = "host-only-secret";
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-controlled-env-");
+  const serviceRoot = await writeManifest(servicesRoot, "controlled-env-setup", {
+    id: "controlled-env-setup",
+    name: "Controlled Env Setup",
+    description: "Setup environment boundary proof.",
+    env: {
+      SETUP_OUTPUT_PATH: "./runtime/setup-output.json",
+      SERVICE_VALUE: "${GLOBAL_VALUE}-${SERVICE_ID}",
+    },
+    globalenv: {
+      GLOBAL_VALUE: "from-global",
+    },
+    setup: {
+      steps: {
+        "capture-env": {
+          executable: process.execPath,
+          args: ["runtime/setup-writer.mjs"],
+          env: {
+            STEP_VALUE: "step-${SERVICE_VALUE}",
+          },
+          timeoutSeconds: 5,
+        },
+      },
+    },
+  });
+  await writeSetupScript(serviceRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/controlled-env-setup/install`);
+    await postJson(`${apiServer.url}/api/services/controlled-env-setup/config`);
+    const setup = await postJson(`${apiServer.url}/api/services/controlled-env-setup/setup/run/capture-env`);
+
+    assert.equal(setup.status, 200);
+    assert.equal(setup.body.ok, true);
+    const output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "setup-output.json"), "utf8"));
+    assert.equal(output.serviceValue, "from-global-controlled-env-setup");
+    assert.equal(output.stepValue, "step-from-global-controlled-env-setup");
+    assert.equal(output.hostOnly, null);
+  } finally {
+    await apiServer.stop();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (previousHostOnly === undefined) {
+      delete process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF;
+    } else {
+      process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF = previousHostOnly;
+    }
   }
 });
 
