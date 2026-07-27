@@ -1101,6 +1101,7 @@ Runtime behavior:
 - Provider-backed setup: set `execservice` to `@node`, `@python`, or `@java`; `commandline` or `args` becomes the provider executable's argument payload.
 - Platform selection uses `commandline[process.platform]` with `commandline.default` fallback.
 - Optional `cwd` selects the setup command's working directory. It supports Service Lasso variables, relative paths resolve from `SERVICE_ROOT`, absolute paths must still be inside `SERVICE_ROOT`, missing/non-directory values fail before spawn, and setup run history records the resolved cwd.
+- Setup commands do not inherit the full host process environment. Their environment starts from a narrow platform process-launch allowlist, then adds provider env, Service Lasso derived variables, resolved service `env`/`globalenv`/broker values, and setup-step `env`; host-only variables are not visible unless they are part of that explicit allowlist or declared through Service Lasso-controlled inputs.
 - Dependencies in `depend_on` can name services or setup steps using `<serviceId>:<stepId>`.
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.

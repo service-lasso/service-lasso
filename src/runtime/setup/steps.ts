@@ -266,11 +266,25 @@ function buildProcessEnvironment(
   );
 
   return {
-    ...process.env,
+    ...buildSetupHostEnvironmentAllowlist(),
     ...executionPlan.providerEnv,
     ...serviceVariables,
     ...stepEnv,
   };
+}
+
+function buildSetupHostEnvironmentAllowlist(): NodeJS.ProcessEnv {
+  const allowedKeys =
+    process.platform === "win32"
+      ? ["ComSpec", "OS", "Path", "PATHEXT", "SystemRoot", "TEMP", "TMP", "USERPROFILE", "WINDIR"]
+      : ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "TMPDIR"];
+
+  return Object.fromEntries(
+    allowedKeys.flatMap((key) => {
+      const value = process.env[key];
+      return typeof value === "string" ? [[key, value]] : [];
+    }),
+  );
 }
 
 function recordSetupRun(serviceId: string, run: ServiceSetupStepRunState): ServiceLifecycleState {
