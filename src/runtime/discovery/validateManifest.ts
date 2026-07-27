@@ -170,15 +170,52 @@ function readActionMaterialization(
     );
   }
 
-  if (!record.files) {
+  if (
+    record.templates !== undefined &&
+    (!Array.isArray(record.templates) ||
+      record.templates.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== "object" ||
+          Array.isArray(entry) ||
+          typeof (entry as Record<string, unknown>).source !== "string" ||
+          typeof (entry as Record<string, unknown>).target !== "string",
+      ))
+  ) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}.templates" to be an array of { source, target } objects.`,
+    );
+  }
+
+  if (!record.files && !record.templates) {
     return {};
   }
 
   return {
-    files: record.files.map((entry) => ({
-      path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
-      content: (entry as Record<string, string>).content,
-    })),
+    ...(record.files
+      ? {
+          files: record.files.map((entry) => ({
+            path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
+            content: (entry as Record<string, string>).content,
+          })),
+        }
+      : {}),
+    ...(record.templates
+      ? {
+          templates: record.templates.map((entry) => ({
+            source: expectNonEmptyString(
+              (entry as Record<string, string>).source,
+              `${field}.templates.source`,
+              manifestPath,
+            ),
+            target: expectNonEmptyString(
+              (entry as Record<string, string>).target,
+              `${field}.templates.target`,
+              manifestPath,
+            ),
+          })),
+        }
+      : {}),
   };
 }
 

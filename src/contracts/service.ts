@@ -52,8 +52,14 @@ export interface ServiceMaterializedFile {
   content: string;
 }
 
+export interface ServiceMaterializedTemplate {
+  source: string;
+  target: string;
+}
+
 export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
+  templates?: ServiceMaterializedTemplate[];
 }
 
 export type ServiceFilesRootMode = "read-only" | "read-write";

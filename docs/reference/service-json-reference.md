@@ -42,6 +42,7 @@ This reference tracks each runtime-facing field as:
 | Field | Status | TypeScript contract | Runtime/lifecycle behavior |
 | --- | --- | --- | --- |
 | `actions` | implemented | `ServiceManifest.actions?: ServiceActionPolicy` with action definitions, payload policy, workflow steps, and schedule maps | Validated during manifest discovery, used by service action run APIs, used by lifecycle stop overrides, and published through `GET /api/workflows/registry` for enabled scheduled actions. Closed alignment issue: [#777](https://github.com/service-lasso/service-lasso/issues/777). |
+| `install` / `config` | implemented | `ServiceActionMaterialization` with `files[]` and `templates[]` | Lifecycle install/config can materialize inline file content and render service-root-relative template files into bounded generated targets, then persist generated paths in lifecycle artifact state. |
 | `files` | implemented | `ServiceManifest.files?: ServiceFilesPolicy` with service-root-relative workspace roots | Validated during manifest discovery and published through `GET /api/files/workspaces` as the `service-lasso-workspaces` registry for file-manager consumers. |
 | `outputvarregex` | compatibility | `ServiceManifest.outputvarregex?: Record<string, string>` | Validated during manifest discovery as a legacy-compatible stdout/stderr variable extraction contract for services that use `variable` healthchecks. |
 | `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
@@ -362,6 +363,46 @@ Schedule fields currently validated by discovery:
   - stop the service gracefully
 
 Finite lifecycle actions continue to use their existing bounded runtime behavior. Scheduled actions add contract metadata for later workflow/scheduler consumers; they do not turn cron into a separate service-level action list.
+
+### Install/config materialization
+
+`install.files[]` and `config.files[]` materialize inline content:
+
+```json
+{
+  "config": {
+    "files": [
+      {
+        "path": "./runtime/config.env",
+        "content": "SERVICE_PORT=${SERVICE_PORT}\n"
+      }
+    ]
+  }
+}
+```
+
+`install.templates[]` and `config.templates[]` render checked-in template files from the service package into generated output paths:
+
+```json
+{
+  "config": {
+    "templates": [
+      {
+        "source": "./templates/config.env.template",
+        "target": "./runtime/config.env"
+      }
+    ]
+  }
+}
+```
+
+Rules:
+
+- `source` resolves relative to the service root/package and must stay inside that root.
+- `target` supports the same Service Lasso variable resolution used by inline materialized file paths, then must stay inside the service root.
+- Template file content is rendered with Service Lasso variables before it is written.
+- Generated target paths are recorded in lifecycle `installArtifacts.files` or `configArtifacts.files` alongside inline file outputs.
+- Existing `files[]` behavior remains unchanged.
 
 The runtime publishes scheduled action workflows through `GET /api/workflows/registry`. The registry is generated from validated service manifests, hides disabled services and disabled schedules, and includes stable workflow ids, service/action/schedule metadata, tags, workflow steps, and per-entry checksums for Dagu drift detection.
 

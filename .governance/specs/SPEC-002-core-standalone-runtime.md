@@ -106,7 +106,7 @@ Required evidence for this spec:
 - direct proof that configured readiness wait loops can succeed and time out deterministically during bounded start behavior
 - direct proof that bounded manifest-driven `globalenv` values can be merged and injected into dependent service execution/runtime API output
 - direct proof that bounded runtime port negotiation can assign ports, resolve collisions deterministically, and surface resolved network data through the API
-- direct proof that bounded install/config actions can materialize service-scoped files on disk and persist artifact metadata for rerunnable effective config generation
+- direct proof that bounded install/config actions can materialize service-scoped inline files and service-root-relative templates on disk, render Service Lasso variables into generated outputs, reject unsafe source/target paths, and persist artifact metadata for rerunnable effective config generation
 - direct proof that at least one provider-backed service can execute through its provider path and report provider/runtime evidence through the API
 - direct proof that runtime-level `startAll` / `stopAll` orchestration can start and stop eligible services in deterministic order while reporting explicit skip reasons for ineligible services
 - direct proof that supervised processes write real stdout/stderr output into runtime-owned log files, that the logs API exposes recent captured output, and that persisted runtime state records the runtime log paths
