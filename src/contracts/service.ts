@@ -289,6 +289,7 @@ export interface ServiceManifest {
   healthcheck?: ServiceHealthcheck;
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
+  outputvarregex?: Record<string, string>;
   broker?: ServiceBrokerPolicy;
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;

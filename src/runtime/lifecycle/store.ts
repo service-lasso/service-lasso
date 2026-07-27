@@ -89,6 +89,7 @@ function createInitialState(): ServiceLifecycleState {
       providerServiceId: null,
       lastTermination: null,
       ports: {},
+      capturedVariables: {},
       logs: {
         runId: null,
         logPath: null,
@@ -177,6 +178,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       providerServiceId: current.runtime.providerServiceId,
       lastTermination: current.runtime.lastTermination,
       ports: { ...current.runtime.ports },
+      capturedVariables: { ...current.runtime.capturedVariables },
       logs: {
         runId: current.runtime.logs.runId,
         logPath: current.runtime.logs.logPath,
@@ -256,6 +258,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       providerServiceId: nextState.runtime.providerServiceId,
       lastTermination: nextState.runtime.lastTermination,
       ports: { ...nextState.runtime.ports },
+      capturedVariables: { ...nextState.runtime.capturedVariables },
       logs: {
         runId: nextState.runtime.logs.runId,
         logPath: nextState.runtime.logs.logPath,

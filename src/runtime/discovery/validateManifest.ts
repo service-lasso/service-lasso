@@ -1413,6 +1413,17 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"globalenv\" to be a string map.`);
   }
 
+  const rawOutputVarRegex = record.outputvarregex;
+  if (
+    rawOutputVarRegex !== undefined &&
+    (!rawOutputVarRegex ||
+      typeof rawOutputVarRegex !== "object" ||
+      Array.isArray(rawOutputVarRegex) ||
+      Object.values(rawOutputVarRegex).some((entry) => typeof entry !== "string"))
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"outputvarregex\" to be a string map.`);
+  }
+
   const rawPorts = record.ports;
   if (
     rawPorts !== undefined &&
@@ -1492,6 +1503,9 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const globalenv = rawGlobalEnv
     ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
     : undefined;
+  const outputvarregex = rawOutputVarRegex
+    ? Object.fromEntries(Object.entries(rawOutputVarRegex as Record<string, string>).map(([key, value]) => [key.trim(), value]))
+    : undefined;
   validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);
@@ -1515,6 +1529,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     healthcheck,
     env,
     globalenv,
+    outputvarregex,
     broker,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))

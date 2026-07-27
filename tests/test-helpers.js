@@ -82,6 +82,7 @@ export async function writeExecutableFixtureService(
     role = undefined,
     enabled = undefined,
     broker = undefined,
+    outputvarregex = undefined,
     ignoreSignals = false,
   } = options;
 
@@ -194,6 +195,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         : {}),
     },
     globalenv,
+    outputvarregex,
     broker,
     autostart,
     monitoring,

@@ -171,11 +171,11 @@ function buildDashboardLinks(endpoints: DashboardEndpointResponse[]): DashboardS
     }));
 }
 
-function mapVariableScope(scope: "manifest" | "derived" | "global" | "broker"): "global" | "service" {
+function mapVariableScope(scope: "manifest" | "derived" | "global" | "broker" | "runtime"): "global" | "service" {
   return scope === "global" ? "global" : "service";
 }
 
-function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker"): string {
+function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker" | "runtime"): string {
   if (scope === "manifest") {
     return "service.json";
   }
@@ -186,6 +186,10 @@ function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker"):
 
   if (scope === "broker") {
     return "broker.imports";
+  }
+
+  if (scope === "runtime") {
+    return "runtime";
   }
 
   return "runtime";

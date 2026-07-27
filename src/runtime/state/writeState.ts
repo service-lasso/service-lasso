@@ -82,6 +82,7 @@ export async function writeServiceState(
           providerServiceId: lifecycle.runtime.providerServiceId,
           lastTermination: lifecycle.runtime.lastTermination,
           ports: lifecycle.runtime.ports,
+          capturedVariables: lifecycle.runtime.capturedVariables,
           logs: lifecycle.runtime.logs,
           metrics: lifecycle.runtime.metrics,
           brokerIdentity: lifecycle.runtime.brokerIdentity,

@@ -656,6 +656,56 @@ test("GET /api/services/:id/variables returns manifest and derived variables", a
   }
 });
 
+test("runtime-captured output variables satisfy healthchecks and API variable scope", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-outputvarregex-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "captured-variable-service", {
+    stdoutLines: ["Loading and starting Inputs completed. Enabled inputs: 3"],
+    outputvarregex: {
+      FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+    },
+    healthcheck: {
+      type: "variable",
+      variable: "${FILEBEAT_ENABLED_INPUTS}",
+      retries: 10,
+      interval: 25,
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/install`);
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/captured-variable-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.health.type, "variable");
+    assert.equal(start.body.health.healthy, true);
+    assert.match(start.body.health.detail, /resolved FILEBEAT_ENABLED_INPUTS from runtime scope/i);
+
+    const variablesResponse = await fetch(`${apiServer.url}/api/services/captured-variable-service/variables`);
+    const variablesBody = await variablesResponse.json();
+    const captured = variablesBody.variables.variables.find((entry) => entry.key === "FILEBEAT_ENABLED_INPUTS");
+    const persistedRuntime = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
+
+    assert.equal(variablesResponse.status, 200);
+    assert.deepEqual(captured, {
+      key: "FILEBEAT_ENABLED_INPUTS",
+      value: "3",
+      scope: "runtime",
+    });
+    assert.deepEqual(persistedRuntime.capturedVariables, {
+      FILEBEAT_ENABLED_INPUTS: "3",
+    });
+
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/globalenv returns the merged bounded shared env map", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-globalenv-");

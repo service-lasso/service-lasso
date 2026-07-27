@@ -71,6 +71,7 @@ interface StoredRuntimeState {
   providerServiceId?: string | null;
   lastTermination?: "stopped" | "exited" | "crashed" | null;
   ports?: Record<string, number>;
+  capturedVariables?: Record<string, string>;
   logs?: {
     runId?: string | null;
     logPath?: string | null;
@@ -468,6 +469,14 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
           ? Object.fromEntries(
               Object.entries(runtime.ports).filter(
                 ([, value]) => typeof value === "number" && Number.isInteger(value) && value > 0,
+              ),
+            )
+          : {},
+      capturedVariables:
+        runtime?.capturedVariables && typeof runtime.capturedVariables === "object" && !Array.isArray(runtime.capturedVariables)
+          ? Object.fromEntries(
+              Object.entries(runtime.capturedVariables).filter(
+                ([key, value]) => typeof key === "string" && key.trim().length > 0 && typeof value === "string",
               ),
             )
           : {},

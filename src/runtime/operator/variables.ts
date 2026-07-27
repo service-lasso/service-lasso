@@ -6,7 +6,7 @@ import path from "node:path";
 export interface ServiceVariableEntry {
   key: string;
   value: string;
-  scope: "manifest" | "derived" | "global" | "broker";
+  scope: "manifest" | "derived" | "global" | "broker" | "runtime";
 }
 
 export type ServiceSelectorKind = "local" | "broker";
@@ -460,6 +460,13 @@ export function buildServiceVariables(
       : []),
     ...buildPortVariables(resolvedPorts),
   ];
+  const runtimeVariables = Object.entries(
+    getLifecycleState(service.manifest.id).runtime.capturedVariables,
+  ).map(([key, value]) => ({
+    key,
+    value,
+    scope: "runtime" as const,
+  }));
 
   const manifestDiagnostics: ServiceSelectorDiagnostic[] = [];
   const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map(
@@ -546,6 +553,7 @@ export function buildServiceVariables(
       ...brokerImportVariables,
       ...globalVariables,
       ...derivedVariables,
+      ...runtimeVariables,
     ],
     selectorPlan: compileCachedServiceSelectorPlan(
       `service:${service.manifestPath}:${service.manifest.id}:env`,

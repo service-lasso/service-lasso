@@ -19,7 +19,7 @@ import {
   summarizeRequiredStartupBrokerFailures,
 } from "../dist/runtime/broker/launch-resolution.js";
 import { materializeConfigArtifacts } from "../dist/runtime/setup/materialize.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 function fixtureService(overrides = {}) {
   return {
@@ -97,6 +97,34 @@ test("service variable resolution preserves local precedence and legacy globalen
   );
   assert.equal(byKey.FROM_DERIVED, "consumer:4310");
   assert.equal(byKey.FROM_GLOBAL, "C:/tools/legacy");
+});
+
+test("service variables include runtime-captured values for bare and selector resolution", () => {
+  resetLifecycleState();
+  const service = fixtureService();
+  const current = getLifecycleState(service.manifest.id);
+  setLifecycleState(service.manifest.id, {
+    ...current,
+    runtime: {
+      ...current.runtime,
+      capturedVariables: {
+        FILEBEAT_ENABLED_INPUTS: "3",
+        EMPTY_RUNTIME_VALUE: "",
+      },
+    },
+  });
+
+  const payload = buildServiceVariables(service);
+  const byKey = Object.fromEntries(
+    payload.variables.map((entry) => [entry.key, entry]),
+  );
+
+  assert.equal(byKey.FILEBEAT_ENABLED_INPUTS.value, "3");
+  assert.equal(byKey.FILEBEAT_ENABLED_INPUTS.scope, "runtime");
+  assert.equal(resolveServiceVariable(service, "FILEBEAT_ENABLED_INPUTS")?.value, "3");
+  assert.equal(resolveServiceVariable(service, "${FILEBEAT_ENABLED_INPUTS}")?.value, "3");
+  assert.equal(resolveServiceVariable(service, "MISSING_RUNTIME_VALUE"), undefined);
+  assert.equal(resolveServiceVariable(service, "EMPTY_RUNTIME_VALUE")?.value, "");
 });
 
 test("broker imports materialize to service-specific env names", () => {

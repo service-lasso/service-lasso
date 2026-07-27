@@ -6,6 +6,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { buildServiceNetwork } from "../operator/network.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import { archiveRuntimeLogs, buildServiceRuntimeLogRunId, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
 import {
   recordProcessOwnership,
@@ -37,6 +38,7 @@ interface ManagedProcessRecord {
   };
   stdoutBuffer: string;
   stderrBuffer: string;
+  outputVariableRegexes: Array<{ key: string; regex: RegExp }>;
   workspaceRoot: string | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
@@ -62,6 +64,20 @@ interface StartProcessOptions {
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
 const managedProcessFinalizers = new Map<string, Promise<void>>();
+
+function compileOutputVariableRegexes(service: DiscoveredService): ManagedProcessRecord["outputVariableRegexes"] {
+  return Object.entries(service.manifest.outputvarregex ?? {}).flatMap(([key, pattern]) => {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      return [];
+    }
+    try {
+      return [{ key: normalizedKey, regex: new RegExp(pattern) }];
+    } catch {
+      return [];
+    }
+  });
+}
 
 async function prepareRuntimeLogStreams(serviceRoot: string, startedAt: string): Promise<{
   paths: ServiceRuntimeLogPaths;
@@ -128,6 +144,39 @@ function writeCombinedLogEntry(stream: WriteStream, level: "stdout" | "stderr", 
   stream.write(`${JSON.stringify({ level, message })}\n`);
 }
 
+function captureRuntimeOutputVariables(record: ManagedProcessRecord, line: string): void {
+  if (record.outputVariableRegexes.length === 0) {
+    return;
+  }
+
+  const captured = new Map<string, string>();
+  for (const { key, regex } of record.outputVariableRegexes) {
+    regex.lastIndex = 0;
+    const match = regex.exec(line);
+    if (!match) {
+      continue;
+    }
+    captured.set(key, (match[1] ?? match[0] ?? "").trim());
+  }
+
+  if (captured.size === 0) {
+    return;
+  }
+
+  const current = getLifecycleState(record.service.manifest.id);
+  const nextCapturedVariables = {
+    ...current.runtime.capturedVariables,
+    ...Object.fromEntries(captured),
+  };
+  setLifecycleState(record.service.manifest.id, {
+    ...current,
+    runtime: {
+      ...current.runtime,
+      capturedVariables: nextCapturedVariables,
+    },
+  });
+}
+
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
     const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
@@ -139,6 +188,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     for (const line of parts) {
       outputStream.write(`${line}\n`);
       writeCombinedLogEntry(record.logStreams.combined, level, line);
+      captureRuntimeOutputVariables(record, line);
     }
 
     record[bufferKey] = remainder;
@@ -371,6 +421,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     logStreams,
     stdoutBuffer: "",
     stderrBuffer: "",
+    outputVariableRegexes: compileOutputVariableRegexes(service),
     workspaceRoot: workspaceRoot ?? null,
     exitPromise,
     finalizePromise: Promise.resolve(),
