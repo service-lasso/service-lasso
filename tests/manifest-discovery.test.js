@@ -652,6 +652,67 @@ test("loadServiceManifest accepts manifest readiness retry fields", async () => 
   }
 });
 
+test("loadServiceManifest accepts string HTTP healthcheck cookies", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "http-cookie-service", {
+      id: "http-cookie-service",
+      name: "HTTP Cookie Service",
+      description: "Manifest proving HTTP readiness cookie parsing.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/healthcheck",
+        expected_status: 200,
+        cookies: {
+          healthcheck: "ready",
+          workspace: "${SERVICE_ID}",
+        },
+      },
+    });
+
+    const manifest = await loadServiceManifest(path.join(servicesRoot, "http-cookie-service", "service.json"));
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "http",
+      url: "http://127.0.0.1:18080/healthcheck",
+      expected_status: 200,
+      cookies: {
+        healthcheck: "ready",
+        workspace: "${SERVICE_ID}",
+      },
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects non-string HTTP healthcheck cookies", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-cookie-service", {
+      id: "bad-cookie-service",
+      name: "Bad Cookie Service",
+      description: "Manifest with an invalid HTTP readiness cookie.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/healthcheck",
+        cookies: {
+          healthcheck: true,
+        },
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-cookie-service", "service.json")),
+      /healthcheck\.cookies.*string map/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest rejects invalid healthcheck timeout values", async () => {
   const servicesRoot = await makeTempServicesRoot();
 

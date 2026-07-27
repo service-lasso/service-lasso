@@ -283,6 +283,57 @@ test("HTTP healthchecks resolve manifest port selectors", async () => {
   }
 });
 
+test("HTTP healthchecks resolve and send cookie selectors", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  const probeServer = createServer((request, res) => {
+    res.statusCode = request.headers.cookie === "healthcheck=http-cookie-service-ready" ? 200 : 401;
+    res.end("ok");
+  });
+  probeServer.listen(0, "127.0.0.1");
+  await once(probeServer, "listening");
+  const probeAddress = probeServer.address();
+  if (!probeAddress || typeof probeAddress === "string") {
+    throw new Error("Probe server failed to bind.");
+  }
+
+  await writeManifest(servicesRoot, "http-cookie-service", {
+    id: "http-cookie-service",
+    name: "HTTP Cookie Service",
+    description: "Temporary service for HTTP health cookie selector proof.",
+    ports: {
+      admin: probeAddress.port,
+    },
+    healthcheck: {
+      type: "http",
+      url: "http://127.0.0.1:${ADMIN_PORT}/health",
+      expected_status: 200,
+      cookies: {
+        healthcheck: "${SERVICE_ID}-ready",
+      },
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/http-cookie-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "http-cookie-service");
+    assert.equal(body.health.type, "http");
+    assert.equal(body.health.healthy, true);
+  } finally {
+    await apiServer.stop();
+    probeServer.close();
+    await once(probeServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
 test("GET /api/services/:id/health supports bounded TCP healthchecks", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();

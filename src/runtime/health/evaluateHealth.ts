@@ -54,6 +54,14 @@ export async function evaluateServiceHealth(
     return checkHttpHealth({
       ...healthcheck,
       url: service ? resolveServiceText(healthcheck.url, service, sharedGlobalEnv, resolvedPorts) : healthcheck.url,
+      cookies: service
+        ? Object.fromEntries(
+            Object.entries(healthcheck.cookies ?? {}).map(([name, value]) => [
+              name,
+              resolveServiceText(value, service, sharedGlobalEnv, resolvedPorts),
+            ]),
+          )
+        : healthcheck.cookies,
     });
   }
 

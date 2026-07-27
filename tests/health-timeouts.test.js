@@ -36,6 +36,39 @@ test("HTTP healthchecks use configured per-attempt timeout", async () => {
   }
 });
 
+test("HTTP healthchecks send configured cookies", async () => {
+  let observedCookie = "";
+  const probeServer = createServer((request, response) => {
+    observedCookie = request.headers.cookie ?? "";
+    response.statusCode = observedCookie === "healthcheck=ready; workspace=demo%20space" ? 204 : 401;
+    response.end("ok");
+  });
+  probeServer.listen(0, "127.0.0.1");
+  await once(probeServer, "listening");
+  const address = probeServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("HTTP probe server failed to bind.");
+  }
+
+  try {
+    const health = await checkHttpHealth({
+      type: "http",
+      url: `http://127.0.0.1:${address.port}/health`,
+      expected_status: 204,
+      cookies: {
+        healthcheck: "ready",
+        workspace: "demo space",
+      },
+    });
+
+    assert.equal(health.healthy, true);
+    assert.equal(observedCookie, "healthcheck=ready; workspace=demo%20space");
+  } finally {
+    probeServer.close();
+    await once(probeServer, "close");
+  }
+});
+
 test("TCP healthchecks use configured per-attempt timeout", async () => {
   const originalCreateConnection = net.createConnection;
   const createdSockets = [];
