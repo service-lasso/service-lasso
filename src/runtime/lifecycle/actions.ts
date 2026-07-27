@@ -916,6 +916,13 @@ export async function startService(
       brokerRefCount: selectorPlan.brokerRefs.length,
     },
   );
+  updateRuntimeState(serviceId, (state) => ({
+    ...state,
+    runtime: {
+      ...state.runtime,
+      variables: {},
+    },
+  }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
   try {
     handle = await startManagedProcess({
@@ -1152,6 +1159,13 @@ export async function restartService(
     service,
     options,
   );
+  updateRuntimeState(serviceId, (state) => ({
+    ...state,
+    runtime: {
+      ...state.runtime,
+      variables: {},
+    },
+  }));
   const handle = await startManagedProcess({
     service,
     executionPlan,

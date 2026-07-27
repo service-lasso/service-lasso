@@ -473,7 +473,6 @@ export function buildServiceVariables(
       scope: "derived" as const,
     })),
   ];
-
   const manifestDiagnostics: ServiceSelectorDiagnostic[] = [];
   const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map(
     (entry) => entry.ref,

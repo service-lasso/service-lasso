@@ -197,6 +197,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         : {}),
     },
     globalenv,
+    outputvarregex,
     broker,
     outputvarregex,
     autostart,

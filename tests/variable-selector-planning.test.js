@@ -20,7 +20,7 @@ import {
   summarizeRequiredStartupBrokerFailures,
 } from "../dist/runtime/broker/launch-resolution.js";
 import { materializeConfigArtifacts } from "../dist/runtime/setup/materialize.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 function fixtureService(overrides = {}) {
   return {
@@ -98,6 +98,42 @@ test("service variable resolution preserves local precedence and legacy globalen
   );
   assert.equal(byKey.FROM_DERIVED, "consumer:4310");
   assert.equal(byKey.FROM_GLOBAL, "C:/tools/legacy");
+});
+
+test("service variables include runtime-captured values for bare and selector resolution", () => {
+  resetLifecycleState();
+  const service = fixtureService();
+  const current = getLifecycleState(service.manifest.id);
+  setLifecycleState(service.manifest.id, {
+    ...current,
+    runtime: {
+      ...current.runtime,
+      variables: {
+        FILEBEAT_ENABLED_INPUTS: {
+          value: "3",
+          source: "stdout",
+          matchedAt: "2026-07-27T04:00:00.000Z",
+        },
+        EMPTY_RUNTIME_VALUE: {
+          value: "",
+          source: "stderr",
+          matchedAt: "2026-07-27T04:00:01.000Z",
+        },
+      },
+    },
+  });
+
+  const payload = buildServiceVariables(service);
+  const byKey = Object.fromEntries(
+    payload.variables.map((entry) => [entry.key, entry]),
+  );
+
+  assert.equal(byKey.FILEBEAT_ENABLED_INPUTS.value, "3");
+  assert.equal(byKey.FILEBEAT_ENABLED_INPUTS.scope, "runtime");
+  assert.equal(resolveServiceVariable(service, "FILEBEAT_ENABLED_INPUTS")?.value, "3");
+  assert.equal(resolveServiceVariable(service, "${FILEBEAT_ENABLED_INPUTS}")?.value, "3");
+  assert.equal(resolveServiceVariable(service, "MISSING_RUNTIME_VALUE"), undefined);
+  assert.equal(resolveServiceVariable(service, "EMPTY_RUNTIME_VALUE")?.value, "");
 });
 
 test("endpoint selectors resolve from canonical network endpoints", () => {
