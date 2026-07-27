@@ -87,6 +87,7 @@ interface StoredRuntimeState {
     totalRunDurationMs?: number;
     lastRunDurationMs?: number | null;
   };
+  variables?: unknown;
   brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
   startTrace?: unknown;
   lastAction?: LifecycleAction | null;
@@ -291,6 +292,31 @@ function parseStartTraceState(value: unknown): ServiceLifecycleState["runtime"][
   };
 }
 
+function parseRuntimeVariables(value: unknown): ServiceLifecycleState["runtime"]["variables"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return false;
+        }
+        const variable = entry as { value?: unknown; source?: unknown; matchedAt?: unknown };
+        return (
+          typeof variable.value === "string" &&
+          (variable.source === "stdout" || variable.source === "stderr") &&
+          typeof variable.matchedAt === "string"
+        );
+      })
+      .map(([key, entry]) => [
+        key,
+        { ...(entry as ServiceLifecycleState["runtime"]["variables"][string]) },
+      ]),
+  );
+}
+
 function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -490,6 +516,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
         lastRunDurationMs:
           typeof runtime?.metrics?.lastRunDurationMs === "number" ? runtime.metrics.lastRunDurationMs : null,
       },
+      variables: parseRuntimeVariables(runtime?.variables),
       brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
       startTrace: parseStartTraceState(runtime?.startTrace),
     },

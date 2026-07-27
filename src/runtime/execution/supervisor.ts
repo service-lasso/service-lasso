@@ -7,6 +7,8 @@ import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.j
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { buildServiceNetwork } from "../operator/network.js";
 import { archiveRuntimeLogs, buildServiceRuntimeLogRunId, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
+import { writeServiceState } from "../state/writeState.js";
 import {
   recordProcessOwnership,
   reconcileRegisteredProcess,
@@ -37,6 +39,7 @@ interface ManagedProcessRecord {
   };
   stdoutBuffer: string;
   stderrBuffer: string;
+  variableCapturePromise: Promise<void>;
   workspaceRoot: string | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
@@ -128,6 +131,63 @@ function writeCombinedLogEntry(stream: WriteStream, level: "stdout" | "stderr", 
   stream.write(`${JSON.stringify({ level, message })}\n`);
 }
 
+function matchOutputVariable(pattern: string, line: string): string | null {
+  const match = new RegExp(pattern).exec(line);
+  return typeof match?.[1] === "string" ? match[1] : null;
+}
+
+async function persistOutputVariableMatches(
+  record: ManagedProcessRecord,
+  source: "stdout" | "stderr",
+  line: string,
+): Promise<void> {
+  const outputVarRegex = record.service.manifest.outputvarregex;
+  if (!outputVarRegex || Object.keys(outputVarRegex).length === 0) {
+    return;
+  }
+
+  const matches = Object.entries(outputVarRegex)
+    .map(([name, pattern]) => [name, matchOutputVariable(pattern, line)] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1] !== null);
+  if (matches.length === 0) {
+    return;
+  }
+
+  const matchedAt = new Date().toISOString();
+  const current = getLifecycleState(record.service.manifest.id);
+  const state = setLifecycleState(record.service.manifest.id, {
+    ...current,
+    runtime: {
+      ...current.runtime,
+      variables: {
+        ...current.runtime.variables,
+        ...Object.fromEntries(
+          matches.map(([name, value]) => [
+            name,
+            {
+              value,
+              source,
+              matchedAt,
+            },
+          ]),
+        ),
+      },
+    },
+  });
+
+  await writeServiceState(record.service, state);
+}
+
+function captureOutputVariableMatches(
+  record: ManagedProcessRecord,
+  source: "stdout" | "stderr",
+  line: string,
+): void {
+  record.variableCapturePromise = record.variableCapturePromise
+    .then(() => persistOutputVariableMatches(record, source, line))
+    .catch(() => undefined);
+}
+
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
     const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
@@ -139,6 +199,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     for (const line of parts) {
       outputStream.write(`${line}\n`);
       writeCombinedLogEntry(record.logStreams.combined, level, line);
+      captureOutputVariableMatches(record, level, line);
     }
 
     record[bufferKey] = remainder;
@@ -160,6 +221,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   record.finalizePromise = record.exitPromise.then(async () => {
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
+    await record.variableCapturePromise;
     await closeRuntimeLogStreams(record.logStreams);
   });
 }
@@ -346,6 +408,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     logStreams,
     stdoutBuffer: "",
     stderrBuffer: "",
+    variableCapturePromise: Promise.resolve(),
     workspaceRoot: workspaceRoot ?? null,
     exitPromise,
     finalizePromise: Promise.resolve(),

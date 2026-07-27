@@ -105,6 +105,7 @@ function createInitialState(): ServiceLifecycleState {
         totalRunDurationMs: 0,
         lastRunDurationMs: null,
       },
+      variables: {},
       brokerIdentity: null,
       startTrace: {
         current: null,
@@ -194,6 +195,12 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
         totalRunDurationMs: current.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: current.runtime.metrics.lastRunDurationMs,
       },
+      variables: Object.fromEntries(
+        Object.entries(current.runtime.variables).map(([key, variable]) => [
+          key,
+          { ...variable },
+        ]),
+      ),
       brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
       startTrace: cloneStartTrace(current.runtime.startTrace),
     },
@@ -274,6 +281,12 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
         totalRunDurationMs: nextState.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: nextState.runtime.metrics.lastRunDurationMs,
       },
+      variables: Object.fromEntries(
+        Object.entries(nextState.runtime.variables).map(([key, variable]) => [
+          key,
+          { ...variable },
+        ]),
+      ),
       brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
       startTrace: cloneStartTrace(nextState.runtime.startTrace),
     },

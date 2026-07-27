@@ -16,6 +16,7 @@ import {
   stopManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -588,6 +589,74 @@ test("managed process stop escalates after timeout and clears supervisor state",
     }
   } finally {
     await stopManagedProcess("stubborn-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed process captures outputvarregex matches into runtime state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-outputvarregex-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "outputvar-service",
+    {
+      stdoutLines: ["IGNORED", "PORT=4123", "PORT=4124"],
+      stderrLines: ["TOKEN=stderr-value"],
+      outputvarregex: {
+        CAPTURED_PORT: "PORT=(\\d+)",
+        STDERR_TOKEN: "TOKEN=(\\S+)",
+        NO_MATCH: "NO_MATCH=(\\S+)",
+      },
+    },
+  );
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    const handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+    });
+
+    assert.equal(handle.pid > 0, true);
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return (
+        stored.runtime?.variables?.CAPTURED_PORT?.value === "4124" &&
+        stored.runtime?.variables?.STDERR_TOKEN?.value === "stderr-value"
+      );
+    });
+
+    const stored = await readStoredState(serviceRoot);
+    assert.deepEqual(stored.runtime.variables.CAPTURED_PORT, {
+      value: "4124",
+      source: "stdout",
+      matchedAt: stored.runtime.variables.CAPTURED_PORT.matchedAt,
+    });
+    assert.equal(typeof stored.runtime.variables.CAPTURED_PORT.matchedAt, "string");
+    assert.deepEqual(stored.runtime.variables.STDERR_TOKEN, {
+      value: "stderr-value",
+      source: "stderr",
+      matchedAt: stored.runtime.variables.STDERR_TOKEN.matchedAt,
+    });
+    assert.equal(stored.runtime.variables.NO_MATCH, undefined);
+
+    const capturedPort = resolveServiceVariable(service, "CAPTURED_PORT");
+    const stderrToken = resolveServiceVariable(service, "STDERR_TOKEN");
+    assert.deepEqual(capturedPort, {
+      key: "CAPTURED_PORT",
+      value: "4124",
+      scope: "runtime",
+    });
+    assert.deepEqual(stderrToken, {
+      key: "STDERR_TOKEN",
+      value: "stderr-value",
+      scope: "runtime",
+    });
+  } finally {
+    await stopManagedProcess("outputvar-service", 100).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

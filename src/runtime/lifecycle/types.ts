@@ -108,6 +108,12 @@ export interface ServiceRuntimeMetricsState {
   lastRunDurationMs: number | null;
 }
 
+export interface ServiceRuntimeVariableState {
+  value: string;
+  source: "stdout" | "stderr";
+  matchedAt: string;
+}
+
 export interface ServiceRuntimeState {
   pid: number | null;
   startedAt: string | null;
@@ -126,6 +132,7 @@ export interface ServiceRuntimeState {
     stderrPath: string | null;
   };
   metrics: ServiceRuntimeMetricsState;
+  variables: Record<string, ServiceRuntimeVariableState>;
   brokerIdentity: ScopedBrokerIdentityMetadata | null;
   startTrace: ServiceStartTraceState;
 }
