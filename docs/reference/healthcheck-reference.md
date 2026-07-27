@@ -109,7 +109,7 @@ Rules:
 - `url` is required.
 - `expected_status` defaults to `200` when omitted.
 - Selectors such as `${HTTP_PORT}` are resolved before the request.
-- Optional cookie handling may be supported for services whose readiness endpoint requires request state.
+- Optional `cookies` may be supplied as a string map for services whose readiness endpoint requires request state. Cookie values support the same selector resolution as `url`.
 
 Optional cookie form:
 

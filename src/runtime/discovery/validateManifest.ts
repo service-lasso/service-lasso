@@ -1681,11 +1681,13 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     if (healthRecord.type === "process") {
       healthcheck = { type: "process", ...readinessOptions };
     } else if (healthRecord.type === "http") {
+      const cookies = readStringMap(healthRecord.cookies, "healthcheck.cookies", manifestPath);
       healthcheck = {
         type: "http",
         url: expectNonEmptyString(healthRecord.url, "healthcheck.url", manifestPath),
         expected_status:
           typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
+        ...(cookies !== undefined ? { cookies } : {}),
         ...readinessOptions,
       };
     } else if (healthRecord.type === "tcp") {
