@@ -43,6 +43,7 @@ This reference tracks each runtime-facing field as:
 | --- | --- | --- | --- |
 | `actions` | implemented | `ServiceManifest.actions?: ServiceActionPolicy` with action definitions, payload policy, workflow steps, and schedule maps | Validated during manifest discovery, used by service action run APIs, used by lifecycle stop overrides, and published through `GET /api/workflows/registry` for enabled scheduled actions. Closed alignment issue: [#777](https://github.com/service-lasso/service-lasso/issues/777). |
 | `files` | implemented | `ServiceManifest.files?: ServiceFilesPolicy` with service-root-relative workspace roots | Validated during manifest discovery and published through `GET /api/files/workspaces` as the `service-lasso-workspaces` registry for file-manager consumers. |
+| `outputvarregex` | compatibility | `ServiceManifest.outputvarregex?: Record<string, string>` | Validated during manifest discovery as a legacy-compatible stdout/stderr variable extraction contract for services that use `variable` healthchecks. |
 | `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 | `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 
@@ -868,6 +869,7 @@ Sample:
 Use when:
 
 - a specific resolved/exported variable is the readiness signal
+- a legacy-compatible `outputvarregex` declaration derives that variable from process output
 
 Sample:
 
@@ -877,6 +879,31 @@ Sample:
   "variable": "${SERVICE_URL}"
 }
 ```
+
+### `outputvarregex`
+
+`outputvarregex` declares legacy-compatible variables extracted from managed process output. Each map key is the variable name to set. Each value is a JavaScript regular expression string applied to stdout/stderr lines collected by the managed process runtime.
+
+Example:
+
+```json
+"outputvarregex": {
+  "FILEBEAT_ENABLED_INPUTS": ".*Enabled inputs: (\\d+).*"
+},
+"healthcheck": {
+  "type": "variable",
+  "variable": "FILEBEAT_ENABLED_INPUTS",
+  "retries": 180
+}
+```
+
+Runtime contract:
+
+- `outputvarregex` must be an object whose keys are non-empty variable names and whose values are valid regular expression strings.
+- The first capture group becomes the variable value.
+- If a valid regex has no capture group, the full match becomes the variable value.
+- Existing manifests without `outputvarregex` behave unchanged.
+- This stays separate from `env` and `globalenv`; it is for stdout/stderr-derived runtime variables that can feed `variable` healthchecks.
 
 ## Other important manifest aspects
 
