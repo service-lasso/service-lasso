@@ -651,6 +651,8 @@ test("GET /api/services/:id/variables returns manifest and derived variables", a
     assert.equal(response.status, 200);
     assert.equal(body.variables.serviceId, "echo-service");
     assert.ok(body.variables.variables.some((entry) => entry.key === "ECHO_MESSAGE" && entry.scope === "manifest"));
+    assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_ROOT" && entry.scope === "derived"));
+    assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_PATH" && entry.scope === "derived"));
     assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_STATE_ROOT" && entry.scope === "derived"));
   } finally {
     await apiServer.stop();
