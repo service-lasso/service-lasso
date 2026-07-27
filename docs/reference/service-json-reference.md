@@ -826,8 +826,10 @@ When a service declares an explicit `healthcheck`, startup readiness waits by de
 - `retries`: `10`
 - `interval`: `1000` milliseconds
 - `start_period`: `0` milliseconds
+- `timeout`: `2000` milliseconds per network attempt
 
-Existing manifests that set `retries`, `interval`, or `start_period` keep those explicit values.
+Existing manifests that set `retries`, `interval`, `start_period`, or `timeout` keep those explicit values.
+`timeout` is optional and must be an integer number of milliseconds when present. HTTP and TCP healthchecks use it as the per-attempt network wait limit. Process, file, and variable healthchecks accept the shared field for manifest compatibility, but their immediate readiness evaluation does not wait on external network I/O.
 
 ### `process` healthcheck
 
@@ -856,7 +858,8 @@ Sample:
 "healthcheck": {
   "type": "http",
   "url": "http://localhost:${SERVICE_PORT}/health",
-  "expected_status": 200
+  "expected_status": 200,
+  "timeout": 2000
 }
 ```
 
@@ -870,7 +873,8 @@ Sample:
 
 ```json
 "healthcheck": {
-  "type": "tcp"
+  "type": "tcp",
+  "timeout": 2000
 }
 ```
 

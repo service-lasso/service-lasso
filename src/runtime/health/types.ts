@@ -2,6 +2,7 @@ export interface HealthcheckReadinessOptions {
   interval?: number;
   retries?: number;
   start_period?: number;
+  timeout?: number;
 }
 
 export interface ProcessHealthcheck extends HealthcheckReadinessOptions {

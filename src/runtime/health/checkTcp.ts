@@ -1,6 +1,8 @@
 import net from "node:net";
 import type { ServiceHealthResult, TcpHealthcheck } from "./types.js";
 
+const DEFAULT_TCP_HEALTHCHECK_TIMEOUT_MS = 2_000;
+
 export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<ServiceHealthResult> {
   const target =
     healthcheck.address !== undefined
@@ -25,6 +27,7 @@ export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<Servi
 
   return new Promise((resolve) => {
     const socket = net.createConnection({ host: target.host, port: target.port });
+    const timeoutMs = healthcheck.timeout ?? DEFAULT_TCP_HEALTHCHECK_TIMEOUT_MS;
     let settled = false;
 
     const finish = (payload: ServiceHealthResult) => {
@@ -54,12 +57,12 @@ export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<Servi
       });
     });
 
-    socket.setTimeout(2_000, () => {
+    socket.setTimeout(timeoutMs, () => {
       socket.destroy();
       finish({
         type: "tcp",
         healthy: false,
-        detail: `TCP healthcheck timed out: ${target.address}`,
+        detail: `TCP healthcheck timed out after ${timeoutMs}ms: ${target.address}`,
       });
     });
   });
