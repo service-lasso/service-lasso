@@ -762,6 +762,101 @@ test("managed process captures outputvarregex matches into runtime state", async
   }
 });
 
+test("managed process spawn resolves path-list env to strings with secure env precedence", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-path-list-spawn-env-",
+  );
+  const captureEnvFileRelativePath = "./runtime/spawn-env.json";
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "path-list-spawn-env",
+    {
+      captureEnvKeys: [
+        "PATH",
+        "PLUGIN_PATH",
+        "API_TOKEN",
+        "BROKER_ONLY",
+        "SERVICE_PORT",
+      ],
+      captureEnvFileRelativePath,
+      env: {
+        PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"],
+        PLUGIN_PATH: ["${SERVICE_ROOT}/plugins", "${vault.api.token}"],
+        API_TOKEN: "${vault.api.token}",
+      },
+      broker: {
+        imports: [
+          {
+            namespace: "shared/vault",
+            ref: "vault.api.token",
+            as: "BROKER_ONLY",
+            required: true,
+          },
+        ],
+      },
+      ports: {
+        service: 4577,
+      },
+    },
+  );
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    const handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      sharedGlobalEnv: {
+        PYTHON_HOME: "C:/Python311",
+        PYTHON_SCRIPTS_PATH: "C:/Python311/Scripts",
+      },
+      resolvedPorts: { service: 4577 },
+      secureEnv: {
+        API_TOKEN: "secure-api-token",
+        BROKER_ONLY: "secure-broker-token",
+      },
+      variableResolution: {
+        brokerValues: {
+          "vault.api.token": "broker-api-token",
+        },
+      },
+    });
+
+    assert.equal(handle.pid > 0, true);
+    const capturePath = path.join(serviceRoot, captureEnvFileRelativePath);
+    await waitFor(async () => {
+      try {
+        await readFile(capturePath, "utf8");
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    const captured = JSON.parse(await readFile(capturePath, "utf8"));
+    const serviceRootBin = `${serviceRoot}/bin`;
+    assert.equal(
+      captured.PATH,
+      ["C:/Python311", "C:/Python311/Scripts", serviceRootBin].join(path.delimiter),
+    );
+    assert.equal(
+      captured.PLUGIN_PATH,
+      [`${serviceRoot}/plugins`, "broker-api-token"].join(path.delimiter),
+    );
+    assert.equal(captured.API_TOKEN, "secure-api-token");
+    assert.equal(captured.BROKER_ONLY, "secure-broker-token");
+    assert.equal(captured.SERVICE_PORT, "4577");
+    assert.deepEqual(
+      Object.entries(captured).filter(([, value]) => typeof value !== "string"),
+      [],
+    );
+  } finally {
+    await stopManagedProcess("path-list-spawn-env", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("stop uses manifest actions.stop.commandline override before managed fallback", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
