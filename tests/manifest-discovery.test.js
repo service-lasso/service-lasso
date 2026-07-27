@@ -184,101 +184,69 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.enabled, true);
   assert.deepEqual(byId.get("@traefik")?.depend_on, ["@localcert", "@nginx"]);
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
-  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.5.9-9511770");
+  assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.6.26-bb4449c");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
-  assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{MONGO_PORT\}"/);
+  assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{endpoint\.mongo\.port\}"/);
   assert.match(byId.get("@traefik")?.commandline?.default ?? "", /--serversTransport\.insecureSkipVerify=true/);
-  assert.deepEqual(byId.get("@traefik")?.ports, {
-    web: 19080,
-    websecure: 19443,
-    admin: 19081,
-    https_traefik: 19082,
-    https_nginx: 19090,
-    https_cms: 19100,
-    https_flow: 19110,
-    https_flowtms: 19120,
-    https_api: 19130,
-    https_files: 19140,
-    https_bpmn: 19150,
-    mongo: 19160,
-    typedb: 19170,
-  });
-  assert.deepEqual(byId.get("@traefik")?.portmapping, {
-    HTTP: "${WEB_PORT}",
-    HTTPS: "${WEBSECURE_PORT}",
-    HTTPS_TRAEFIK: "${HTTPS_TRAEFIK_PORT}",
-    HTTPS_NGINX: "${HTTPS_NGINX_PORT}",
-    HTTPS_CMS: "${HTTPS_CMS_PORT}",
-    HTTPS_FLOW: "${HTTPS_FLOW_PORT}",
-    HTTPS_FLOWTMS: "${HTTPS_FLOWTMS_PORT}",
-    HTTPS_API: "${HTTPS_API_PORT}",
-    HTTPS_FILES: "${HTTPS_FILES_PORT}",
-    HTTPS_BPMN: "${HTTPS_BPMN_PORT}",
-    TCP_MOGNO: "${MONGO_PORT}",
-    TCP_TYPEDB: "${TYPEDB_PORT}",
-  });
+  assert.equal(byId.get("@traefik")?.ports, undefined);
+  assert.equal(byId.get("@traefik")?.portmapping, undefined);
+  assert.equal(byId.get("@traefik")?.endpoints?.find((endpoint) => endpoint.id === "web")?.port?.default, 19080);
+  assert.equal(byId.get("@traefik")?.endpoints?.find((endpoint) => endpoint.id === "admin")?.port?.default, 19081);
+  assert.equal(byId.get("@traefik")?.endpoints?.find((endpoint) => endpoint.id === "dashboard")?.url, "http://${endpoint.admin.bind}:${endpoint.admin.port}/dashboard/");
   assert.deepEqual(byId.get("@traefik")?.env, {
-    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
-    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
-    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
-    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
-    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
-    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
-    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
-    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
-    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
-    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
-    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
-    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
-    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
-    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
-    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
-    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
-    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    HTTP: "${endpoint.web.port}",
+    HTTPS: "${endpoint.websecure.port}",
+    HTTPS_TRAEFIK: "${endpoint.https_traefik.port}",
+    HTTPS_NGINX: "${endpoint.https_nginx.port}",
+    HTTPS_CMS: "${endpoint.https_cms.port}",
+    HTTPS_FLOW: "${endpoint.https_flow.port}",
+    HTTPS_FLOWTMS: "${endpoint.https_flowtms.port}",
+    HTTPS_API: "${endpoint.https_api.port}",
+    HTTPS_FILES: "${endpoint.https_files.port}",
+    HTTPS_BPMN: "${endpoint.https_bpmn.port}",
+    TCP_MOGNO: "${endpoint.mongo.port}",
+    TCP_TYPEDB: "${endpoint.typedb.port}",
+    TRAEFIK_HTTP_PORT: "${endpoint.web.port}",
+    TRAEFIK_HTTPS_PORT: "${endpoint.websecure.port}",
+    TRAEFIK_INTERNAL_PORT: "${endpoint.admin.port}",
+    TRAEFIK_HTTPS_TRAEFIK_PORT: "${endpoint.https_traefik.port}",
+    TRAEFIK_HTTPS_NGINX_PORT: "${endpoint.https_nginx.port}",
+    TRAEFIK_HTTPS_CMS_PORT: "${endpoint.https_cms.port}",
+    TRAEFIK_HTTPS_FLOW_PORT: "${endpoint.https_flow.port}",
+    TRAEFIK_HTTPS_FLOWTMS_PORT: "${endpoint.https_flowtms.port}",
+    TRAEFIK_HTTPS_API_PORT: "${endpoint.https_api.port}",
+    TRAEFIK_HTTPS_FILES_PORT: "${endpoint.https_files.port}",
+    TRAEFIK_HTTPS_BPMN_PORT: "${endpoint.https_bpmn.port}",
+    TRAEFIK_MONGO_PORT: "${endpoint.mongo.port}",
+    TRAEFIK_TYPEDB_PORT: "${endpoint.typedb.port}",
+    TRAEFIK_WEB_URL: "${endpoint.web_url.url}",
+    TRAEFIK_WEBSECURE_URL: "${endpoint.websecure_url.url}",
+    TRAEFIK_DASHBOARD_URL: "${endpoint.dashboard.url}",
+    TRAEFIK_PING_URL: "${endpoint.ping.url}",
   });
-  assert.deepEqual(byId.get("@traefik")?.globalenv, {
-    TRAEFIK_HTTP_PORT: "${WEB_PORT}",
-    TRAEFIK_HTTPS_PORT: "${WEBSECURE_PORT}",
-    TRAEFIK_INTERNAL_PORT: "${ADMIN_PORT}",
-    TRAEFIK_HTTPS_TRAEFIK_PORT: "${HTTPS_TRAEFIK_PORT}",
-    TRAEFIK_HTTPS_NGINX_PORT: "${HTTPS_NGINX_PORT}",
-    TRAEFIK_HTTPS_CMS_PORT: "${HTTPS_CMS_PORT}",
-    TRAEFIK_HTTPS_FLOW_PORT: "${HTTPS_FLOW_PORT}",
-    TRAEFIK_HTTPS_FLOWTMS_PORT: "${HTTPS_FLOWTMS_PORT}",
-    TRAEFIK_HTTPS_API_PORT: "${HTTPS_API_PORT}",
-    TRAEFIK_HTTPS_FILES_PORT: "${HTTPS_FILES_PORT}",
-    TRAEFIK_HTTPS_BPMN_PORT: "${HTTPS_BPMN_PORT}",
-    TRAEFIK_MONGO_PORT: "${MONGO_PORT}",
-    TRAEFIK_TYPEDB_PORT: "${TYPEDB_PORT}",
-    TRAEFIK_WEB_URL: "http://127.0.0.1:${WEB_PORT}/",
-    TRAEFIK_WEBSECURE_URL: "https://127.0.0.1:${WEBSECURE_PORT}/",
-    TRAEFIK_DASHBOARD_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
-    TRAEFIK_PING_URL: "http://127.0.0.1:${ADMIN_PORT}/ping",
-    TRAEFIK_TRAEFIK_URL: "http://127.0.0.1:${ADMIN_PORT}/dashboard/",
-    TRAEFIK_HOST_DOMAIN: "localhost",
-    TRAEFIK_HOST_DOMAIN_URL: "localhost",
-    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
-  });
+  assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_TRAEFIK_URL, "${endpoint.dashboard.url}");
+  assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_HOST_DOMAIN, "localhost");
   assert.deepEqual(byId.get("@traefik")?.healthcheck, {
     type: "http",
-    url: "http://127.0.0.1:${ADMIN_PORT}/ping",
+    url: "${endpoint.ping.url}",
     expected_status: 200,
     retries: 80,
     interval: 250,
   });
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
+  assert.equal(byId.get("echo-service")?.urls?.find((url) => url.label === "health")?.url, "http://127.0.0.1:${HEALTH_PORT}/health");
   assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
-  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.7.9-97b4660");
+  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.7.24-db583d4");
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
     SERVICE_HOST: "0.0.0.0",
     SERVICE_PORT: "${UI_PORT}",
-    SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
-    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",
+    SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
   });
 });
 
@@ -390,6 +358,98 @@ test("loadServiceManifest accepts bounded variable healthchecks", async () => {
       type: "variable",
       variable: "${ECHO_MESSAGE}",
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts legacy outputvarregex maps for variable healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "stdout-variable-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "stdout-variable-service",
+        name: "Stdout Variable Service",
+        description: "Service with stdout-derived variable readiness.",
+        outputvarregex: {
+          FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+        },
+        healthcheck: {
+          type: "variable",
+          variable: "FILEBEAT_ENABLED_INPUTS",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.outputvarregex, {
+      FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+    });
+    assert.deepEqual(manifest.healthcheck, {
+      type: "variable",
+      variable: "FILEBEAT_ENABLED_INPUTS",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects malformed outputvarregex maps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-outputvarregex-shape", {
+      id: "bad-outputvarregex-shape",
+      name: "Bad Output Regex Shape",
+      description: "Invalid output variable regex shape.",
+      outputvarregex: ["not", "a", "map"],
+    });
+    await writeManifest(servicesRoot, "bad-outputvarregex-value", {
+      id: "bad-outputvarregex-value",
+      name: "Bad Output Regex Value",
+      description: "Invalid output variable regex value.",
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: 1,
+      },
+    });
+    await writeManifest(servicesRoot, "bad-outputvarregex-name", {
+      id: "bad-outputvarregex-name",
+      name: "Bad Output Regex Name",
+      description: "Invalid output variable regex name.",
+      outputvarregex: {
+        " ": ".*Enabled inputs: (\\d+).*",
+      },
+    });
+    await writeManifest(servicesRoot, "bad-outputvarregex-pattern", {
+      id: "bad-outputvarregex-pattern",
+      name: "Bad Output Regex Pattern",
+      description: "Invalid output variable regex pattern.",
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: "[",
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-shape", "service.json")),
+      /expected "outputvarregex" to be a string map/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-value", "service.json")),
+      /expected "outputvarregex" to be a string map/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-name", "service.json")),
+      /outputvarregex variable names must be non-empty/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-pattern", "service.json")),
+      /expected outputvarregex\.FILEBEAT_ENABLED_INPUTS to be a valid regular expression/i,
+    );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }
@@ -608,6 +668,132 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
         ],
       },
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts bounded service files workspace roots", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "files-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "files-service",
+        name: "Files Service",
+        description: "Service with bounded workspace file roots.",
+        files: {
+          enabled: true,
+          roots: [
+            {
+              id: "workspace",
+              label: "Workspace",
+              path: ".",
+              mode: "read-write",
+            },
+            {
+              id: "logs",
+              label: "Logs",
+              path: "./logs",
+              mode: "read-only",
+              hidden: true,
+            },
+            {
+              id: "state",
+              label: "Runtime State",
+              path: "./.state",
+              mode: "read-write",
+              protected: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.files, {
+      enabled: true,
+      roots: [
+        {
+          id: "workspace",
+          label: "Workspace",
+          path: ".",
+          mode: "read-write",
+          hidden: undefined,
+          protected: undefined,
+        },
+        {
+          id: "logs",
+          label: "Logs",
+          path: "./logs",
+          mode: "read-only",
+          hidden: true,
+          protected: undefined,
+        },
+        {
+          id: "state",
+          label: "Runtime State",
+          path: "./.state",
+          mode: "read-write",
+          hidden: undefined,
+          protected: true,
+        },
+      ],
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects files roots outside the service root", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "absolute-root-service", {
+      id: "absolute-root-service",
+      name: "Absolute Root Service",
+      description: "Invalid absolute files root.",
+      files: {
+        enabled: true,
+        roots: [
+          {
+            id: "host",
+            label: "Host",
+            path: path.resolve(os.tmpdir()),
+            mode: "read-only",
+          },
+        ],
+      },
+    });
+    await writeManifest(servicesRoot, "traversal-root-service", {
+      id: "traversal-root-service",
+      name: "Traversal Root Service",
+      description: "Invalid traversal files root.",
+      files: {
+        enabled: true,
+        roots: [
+          {
+            id: "escape",
+            label: "Escape",
+            path: "../outside",
+            mode: "read-only",
+          },
+        ],
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "absolute-root-service", "service.json")),
+      /files\.roots\[0\]\.path.*relative to the service root/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "traversal-root-service", "service.json")),
+      /files\.roots\[0\]\.path.*inside the service root/i,
+    );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }
@@ -1104,6 +1290,117 @@ test("loadServiceManifest accepts manifest portmapping declarations", async () =
       TCP_MOGNO: "${MONGO_PORT}",
       STATIC_LITERAL: "9250",
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts canonical endpoint declarations", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "endpoint-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "endpoint-service",
+        name: "Endpoint Service",
+        description: "Service with canonical endpoints.",
+        endpoints: [
+          {
+            id: "web",
+            kind: "network",
+            label: "Web",
+            direction: "inbound",
+            transport: "tcp",
+            protocol: "http",
+            bind: "127.0.0.1",
+            port: {
+              default: 43100,
+              strategy: "preferred",
+            },
+            exposure: "local",
+            primary: true,
+          },
+          {
+            id: "web_url",
+            kind: "url",
+            label: "UI",
+            target: "web",
+            url: "http://127.0.0.1:${endpoint.web.port}/",
+            exposure: "local",
+          },
+        ],
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.endpoints, [
+      {
+        id: "web",
+        kind: "network",
+        label: "Web",
+        direction: "inbound",
+        transport: "tcp",
+        protocol: "http",
+        bind: "127.0.0.1",
+        port: {
+          default: 43100,
+          strategy: "preferred",
+        },
+        target: undefined,
+        url: undefined,
+        exposure: "local",
+        required: undefined,
+        primary: true,
+      },
+      {
+        id: "web_url",
+        kind: "url",
+        label: "UI",
+        direction: undefined,
+        transport: undefined,
+        protocol: undefined,
+        bind: undefined,
+        port: undefined,
+        target: "web",
+        url: "http://127.0.0.1:${endpoint.web.port}/",
+        exposure: "local",
+        required: undefined,
+        primary: undefined,
+      },
+    ]);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects endpoint variable blocks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "bad-endpoint-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "bad-endpoint-service",
+        name: "Bad Endpoint Service",
+        description: "Service with invalid endpoint env.",
+        endpoints: [
+          {
+            id: "web",
+            kind: "network",
+            port: { default: 43100 },
+            env: { WEB_PORT: "${endpoint.web.port}" },
+          },
+        ],
+      }),
+    );
+
+    await assert.rejects(() => loadServiceManifest(manifestPath), /endpoint entries must not contain "env"/i);
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

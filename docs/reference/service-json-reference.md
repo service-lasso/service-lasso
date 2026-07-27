@@ -31,6 +31,22 @@ Supported explicit healthcheck types include:
 - `file`
 - `variable`
 
+## Runtime field alignment snapshot
+
+This reference tracks each runtime-facing field as:
+
+- `implemented`: the TypeScript manifest contract, validation, and runtime behavior agree.
+- `compatibility`: the runtime accepts the field to preserve older manifests, but new authoring should prefer the canonical field.
+- `planned`: the reference describes intended behavior that is not implemented end-to-end yet.
+
+| Field | Status | TypeScript contract | Runtime/lifecycle behavior |
+| --- | --- | --- | --- |
+| `actions` | implemented | `ServiceManifest.actions?: ServiceActionPolicy` with action definitions, payload policy, workflow steps, and schedule maps | Validated during manifest discovery, used by service action run APIs, used by lifecycle stop overrides, and published through `GET /api/workflows/registry` for enabled scheduled actions. Closed alignment issue: [#777](https://github.com/service-lasso/service-lasso/issues/777). |
+| `files` | implemented | `ServiceManifest.files?: ServiceFilesPolicy` with service-root-relative workspace roots | Validated during manifest discovery and published through `GET /api/files/workspaces` as the `service-lasso-workspaces` registry for file-manager consumers. |
+| `outputvarregex` | compatibility | `ServiceManifest.outputvarregex?: Record<string, string>` | Validated during manifest discovery as a legacy-compatible stdout/stderr variable extraction contract for services that use `variable` healthchecks. |
+| `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
+| `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
+
 ## Purpose of `service.json`
 
 `service.json` is the canonical service manifest used by Service Lasso to understand how a service should be discovered, prepared, executed, and monitored.
@@ -215,6 +231,8 @@ Numeric service location classification value.
 
 `actions` is where the service defines or overrides named lifecycle and operator actions.
 
+Alignment status: implemented. See [#777](https://github.com/service-lasso/service-lasso/issues/777).
+
 Current intended rule:
 
 - actions correspond to known Service Lasso lifecycle/action names
@@ -355,7 +373,11 @@ This is where the service tells Lasso how to run and supervise it.
 
 ### `serviceorder`
 
-Startup ordering hint.
+Startup ordering hint. Lower values start earlier when services are otherwise independent. Hard dependencies from `depend_on` remain stronger than `serviceorder`, and shutdown remains the reverse of the resolved startup order.
+
+The runtime accepts legacy `execconfig.serviceorder` and normalizes it into the service manifest contract. A top-level `serviceorder` value is also accepted and takes precedence when both are present.
+
+Alignment status: implemented for top-level `serviceorder`; `execconfig.serviceorder` is compatibility input. See [#778](https://github.com/service-lasso/service-lasso/issues/778).
 
 Example:
 
@@ -847,6 +869,7 @@ Sample:
 Use when:
 
 - a specific resolved/exported variable is the readiness signal
+- a legacy-compatible `outputvarregex` declaration derives that variable from process output
 
 Sample:
 
@@ -857,7 +880,73 @@ Sample:
 }
 ```
 
+### `outputvarregex`
+
+`outputvarregex` declares legacy-compatible variables extracted from managed process output. Each map key is the variable name to set. Each value is a JavaScript regular expression string applied to stdout/stderr lines collected by the managed process runtime.
+
+Example:
+
+```json
+"outputvarregex": {
+  "FILEBEAT_ENABLED_INPUTS": ".*Enabled inputs: (\\d+).*"
+},
+"healthcheck": {
+  "type": "variable",
+  "variable": "FILEBEAT_ENABLED_INPUTS",
+  "retries": 180
+}
+```
+
+Runtime contract:
+
+- `outputvarregex` must be an object whose keys are non-empty variable names and whose values are valid regular expression strings.
+- The first capture group becomes the variable value.
+- If a valid regex has no capture group, the full match becomes the variable value.
+- Existing manifests without `outputvarregex` behave unchanged.
+- This stays separate from `env` and `globalenv`; it is for stdout/stderr-derived runtime variables that can feed `variable` healthchecks.
+
 ## Other important manifest aspects
+
+### Files workspace roots
+
+`files` declares service-owned workspace roots that may be exposed to a file-manager consumer such as `lasso-files`.
+This stays separate from Config/Definition editing: `service.json` remains the service definition, while `files.roots[]`
+describes bounded runtime/workspace file surfaces.
+
+```json
+"files": {
+  "enabled": true,
+  "roots": [
+    {
+      "id": "workspace",
+      "label": "Workspace",
+      "path": ".",
+      "mode": "read-write"
+    },
+    {
+      "id": "logs",
+      "label": "Logs",
+      "path": "./logs",
+      "mode": "read-only"
+    },
+    {
+      "id": "state",
+      "label": "Runtime State",
+      "path": "./.state",
+      "mode": "read-only",
+      "protected": true
+    }
+  ]
+}
+```
+
+Runtime rules:
+
+- `files.enabled` must be `true` before roots are published.
+- `files.roots[].path` must be relative to the service root and cannot escape it with traversal or absolute paths.
+- `mode` is `read-only` or `read-write`; protected roots are exposed as non-writable even when a manifest accidentally marks them read-write.
+- Hidden and protected roots are preserved as registry safety metadata.
+- `GET /api/files/workspaces` returns source `service-lasso-workspaces`, service id/name, root id/label, relative path, resolved path, mode, access, and safety metadata for each declared root.
 
 ### Setup lifecycle steps
 
@@ -984,21 +1073,13 @@ Current broader Service Lasso direction includes:
 
 The sample template keeps this minimal for now.
 
-### Ports and URLs
+### Endpoints, ports, and URLs
 
-More complex services can use additional fields such as:
+`endpoints[]` is the canonical manifest surface for service interfaces and resources. See [Endpoints contract and migration guide](./endpoints-contract.md) for endpoint fields, selector examples, and migration rules.
 
-- `serviceportsecondary`
-- `serviceportconsole`
-- `serviceportdebug`
-- `portmapping`
-- `urls`
+Legacy fields such as `ports`, `portmapping`, `urls`, `serviceportsecondary`, `serviceportconsole`, and `serviceportdebug` remain compatibility inputs while existing manifests are normalized. New authoring should use `endpoints[]` network and URL entries, with variables expressed outside endpoint entries through `env`, `globalenv`, health checks, command lines, or materialized config templates.
 
-These are not all used in the minimal sample, but they remain relevant for more complex services.
-
-Service catalog compatibility reports derive required ports from `ports`.
-The runtime reports these as declared requirements through `GET /api/services`
-so operators can see which named ports a service expects before install/start.
+Service catalog compatibility and runtime APIs normalize legacy port declarations into endpoint-aware runtime state so operators can see the resolved interface model before install/start.
 
 ### Compatibility metadata
 
@@ -1009,7 +1090,7 @@ manifest fields:
   as a cross-platform fallback
 - provider requirements come from `execservice` and setup-step
   `execservice` declarations
-- declared port requirements come from `ports`
+- declared port requirements come from normalized network endpoints, including compatibility `ports`
 - service dependency requirements come from `depend_on`
 
 The report classifies the current host as `compatible`, `unsupported`, or

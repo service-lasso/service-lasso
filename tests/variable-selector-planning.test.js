@@ -13,6 +13,7 @@ import {
   resolveServiceText,
   resolveServiceVariable,
 } from "../dist/runtime/operator/variables.js";
+import { buildServiceNetwork } from "../dist/runtime/operator/network.js";
 import {
   compileServiceStartupBrokerPlan,
   resolveServiceStartupBrokerResolution,
@@ -107,9 +108,17 @@ test("service variables include runtime-captured values for bare and selector re
     ...current,
     runtime: {
       ...current.runtime,
-      capturedVariables: {
-        FILEBEAT_ENABLED_INPUTS: "3",
-        EMPTY_RUNTIME_VALUE: "",
+      variables: {
+        FILEBEAT_ENABLED_INPUTS: {
+          value: "3",
+          source: "stdout",
+          matchedAt: "2026-07-27T04:00:00.000Z",
+        },
+        EMPTY_RUNTIME_VALUE: {
+          value: "",
+          source: "stderr",
+          matchedAt: "2026-07-27T04:00:01.000Z",
+        },
       },
     },
   });
@@ -125,6 +134,95 @@ test("service variables include runtime-captured values for bare and selector re
   assert.equal(resolveServiceVariable(service, "${FILEBEAT_ENABLED_INPUTS}")?.value, "3");
   assert.equal(resolveServiceVariable(service, "MISSING_RUNTIME_VALUE"), undefined);
   assert.equal(resolveServiceVariable(service, "EMPTY_RUNTIME_VALUE")?.value, "");
+});
+
+test("endpoint selectors resolve from canonical network endpoints", () => {
+  resetLifecycleState();
+  const service = fixtureService({
+    endpoints: [
+      {
+        id: "primary",
+        kind: "url",
+        target: "web",
+      },
+      {
+        id: "web",
+        kind: "network",
+        protocol: "http",
+        bind: "127.0.0.1",
+        port: { default: 4310, strategy: "preferred" },
+      },
+      {
+        id: "ui",
+        kind: "url",
+        target: "web",
+        url: "http://127.0.0.1:${endpoint.web.port}/",
+      },
+    ],
+    env: {
+      WEB_PORT_FROM_ENDPOINT: "${endpoint.web.port}",
+      WEB_URL: "${endpoint.ui.url}",
+      PRIMARY_URL: "${endpoint.primary.url}",
+    },
+  });
+
+  const payload = buildServiceVariables(service, {}, { web: 5310 });
+  const byKey = Object.fromEntries(
+    payload.variables.map((entry) => [entry.key, entry.value]),
+  );
+  const network = buildServiceNetwork(service, {}, { web: 5310 });
+
+  assert.equal(byKey.WEB_PORT_FROM_ENDPOINT, "5310");
+  assert.equal(byKey.WEB_URL, "http://127.0.0.1:5310/");
+  assert.equal(byKey.PRIMARY_URL, "http://127.0.0.1:5310/");
+  assert.equal(byKey["endpoint.web.port"], "5310");
+  assert.equal(
+    resolveServiceText("${endpoint.web.bind}:${endpoint.web.port}", service, {}, { web: 5310 }),
+    "127.0.0.1:5310",
+  );
+  assert.deepEqual(
+    network.endpoints.map((endpoint) => [endpoint.id, endpoint.kind, endpoint.url]),
+    [
+      ["primary", "url", "http://127.0.0.1:5310/"],
+      ["web", "network", "http://127.0.0.1:5310/"],
+      ["ui", "url", "http://127.0.0.1:5310/"],
+    ],
+  );
+});
+
+test("legacy ports portmapping and urls normalize into endpoint-aware network state", () => {
+  resetLifecycleState();
+  const service = fixtureService({
+    ports: {
+      service: 4310,
+      web: 4320,
+    },
+    portmapping: {
+      HTTP: "${WEB_PORT}",
+      ADMIN: 4330,
+    },
+    urls: [
+      { label: "UI", url: "http://127.0.0.1:${SERVICE_PORT}/", kind: "local" },
+      { label: "service", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" },
+    ],
+  });
+
+  const network = buildServiceNetwork(service, {}, { service: 5310, web: 5320, admin: 5330 });
+
+  assert.deepEqual(
+    network.endpoints.map((endpoint) => [endpoint.id, endpoint.kind, endpoint.port ?? null, endpoint.url, endpoint.source]),
+    [
+      ["service", "network", 5310, "tcp://127.0.0.1:5310/", "manifest.ports"],
+      ["web", "network", 5320, "tcp://127.0.0.1:5320/", "manifest.ports"],
+      ["admin", "network", 5330, "tcp://127.0.0.1:5330/", "manifest.portmapping"],
+      ["ui", "url", null, "http://127.0.0.1:5310/", "manifest.urls"],
+      ["service_url", "url", null, "http://127.0.0.1:5310/health", "manifest.urls"],
+    ],
+  );
+  assert.deepEqual(network.portmapping, {
+    HTTP: "5320",
+    ADMIN: "4330",
+  });
 });
 
 test("broker imports materialize to service-specific env names", () => {

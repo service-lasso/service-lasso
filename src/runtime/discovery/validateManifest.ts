@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   ServiceBrokerAccessOperation,
   ServiceBrokerAccessScope,
@@ -11,6 +12,14 @@ import type {
   ServiceActionPayloadJsonType,
   ServiceActionPayloadSchema,
   ServiceActionRequiredState,
+  ServiceEndpointDirection,
+  ServiceEndpointExposure,
+  ServiceEndpointKind,
+  ServiceEndpointPortStrategy,
+  ServiceEndpointProtocol,
+  ServiceEndpointTransport,
+  ServiceFilesRootMode,
+  ServiceManifestEndpoint,
   ServiceActionWorkflowStep,
   ServiceManifest,
   ServiceSetupRerunPolicy,
@@ -37,8 +46,17 @@ const brokerAccessOperations = new Set(["resolve", "create", "update", "rotate",
 const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "global"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
 const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
+const endpointKinds = new Set(["network", "url", "mount", "device"]);
+const endpointDirections = new Set(["inbound", "outbound"]);
+const endpointTransports = new Set(["tcp", "udp"]);
+const endpointProtocols = new Set(["http", "https", "tcp", "udp"]);
+const endpointExposures = new Set(["local", "lan", "public"]);
+const endpointPortStrategies = new Set(["automatic", "preferred", "fixed"]);
+const filesRootModes = new Set<ServiceFilesRootMode>(["read-only", "read-write"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
+const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -170,6 +188,35 @@ function readStringMap(value: unknown, field: string, manifestPath: string): Rec
   }
 
   return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
+}
+
+function readOutputVarRegex(value: unknown, manifestPath: string): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some((entry) => typeof entry !== "string")) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "outputvarregex" to be a string map.`);
+  }
+
+  const variables = new Map<string, string>();
+  for (const [rawName, pattern] of Object.entries(value as Record<string, string>)) {
+    const variableName = rawName.trim();
+    if (variableName.length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: outputvarregex variable names must be non-empty.`);
+    }
+    if (variables.has(variableName)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate outputvarregex variable "${variableName}".`);
+    }
+    try {
+      new RegExp(pattern);
+    } catch {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected outputvarregex.${variableName} to be a valid regular expression.`);
+    }
+    variables.set(variableName, pattern);
+  }
+
+  return Object.fromEntries(variables);
 }
 
 function readNonEmptyStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
@@ -393,6 +440,80 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
   return { steps };
 }
 
+function assertServiceRootRelativePath(value: string, field: string, manifestPath: string): string {
+  const declaredPath = value.trim();
+  if (declaredPath.length === 0) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a non-empty service-root-relative path.`);
+  }
+
+  if (path.isAbsolute(declaredPath)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be relative to the service root.`);
+  }
+
+  if (declaredPath.split(/[\\/]+/).includes("..")) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to stay inside the service root.`);
+  }
+
+  return declaredPath;
+}
+
+function readFilesPolicy(value: unknown, manifestPath: string): ServiceManifest["files"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "files" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const enabled = expectOptionalBoolean(record.enabled, "files.enabled", manifestPath);
+  if (record.roots === undefined) {
+    return { enabled };
+  }
+
+  if (!Array.isArray(record.roots)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "files.roots" to be an array.`);
+  }
+
+  const seenRootIds = new Set<string>();
+  const roots = record.roots.map((entry, index) => {
+    const field = `files.roots[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const root = entry as Record<string, unknown>;
+    const id = expectNonEmptyString(root.id, `${field}.id`, manifestPath);
+    if (!filesRootIdPattern.test(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.id" to be a stable root id.`);
+    }
+    if (seenRootIds.has(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate files root id "${id}".`);
+    }
+    seenRootIds.add(id);
+
+    const mode = expectOptionalEnum<ServiceFilesRootMode>(
+      root.mode,
+      `${field}.mode`,
+      filesRootModes,
+      '"read-only" or "read-write"',
+      manifestPath,
+    ) ?? "read-only";
+
+    return {
+      id,
+      label: expectNonEmptyString(root.label, `${field}.label`, manifestPath),
+      path: assertServiceRootRelativePath(expectNonEmptyString(root.path, `${field}.path`, manifestPath), `${field}.path`, manifestPath),
+      mode,
+      hidden: expectOptionalBoolean(root.hidden, `${field}.hidden`, manifestPath),
+      protected: expectOptionalBoolean(root.protected, `${field}.protected`, manifestPath),
+    };
+  });
+
+  return { enabled, roots };
+}
+
 function readStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -405,6 +526,21 @@ function readStringArray(value: unknown, field: string, manifestPath: string): s
   return value.map((entry) => entry.trim());
 }
 
+function readExecutionConfig(value: unknown, manifestPath: string): ServiceManifest["execconfig"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "execconfig" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const serviceorder = expectOptionalWholeNumber(record.serviceorder, "execconfig.serviceorder", manifestPath, 0);
+
+  return serviceorder === undefined ? {} : { serviceorder };
+}
+
 function readJsonObject(value: unknown, field: string, manifestPath: string): Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
@@ -415,6 +551,157 @@ function readJsonObject(value: unknown, field: string, manifestPath: string): Re
   }
 
   return value as Record<string, unknown>;
+}
+
+function readEndpointPortDeclaration(
+  value: unknown,
+  field: string,
+  manifestPath: string,
+): ServiceManifestEndpoint["port"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const defaultPort = expectOptionalWholeNumber(record.default, `${field}.default`, manifestPath, 0);
+  if (defaultPort !== undefined && defaultPort > 65535) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.default" to be between 0 and 65535.`);
+  }
+
+  const strategy = expectOptionalEnum<ServiceEndpointPortStrategy>(
+    record.strategy,
+    `${field}.strategy`,
+    endpointPortStrategies,
+    [...endpointPortStrategies].map((entry) => `"${entry}"`).join(", "),
+    manifestPath,
+  );
+  const policy = expectOptionalEnum<ServiceEndpointPortStrategy>(
+    record.policy,
+    `${field}.policy`,
+    endpointPortStrategies,
+    [...endpointPortStrategies].map((entry) => `"${entry}"`).join(", "),
+    manifestPath,
+  );
+
+  let range: { start: number; end: number } | undefined;
+  if (record.range !== undefined) {
+    if (!record.range || typeof record.range !== "object" || Array.isArray(record.range)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.range" to be an object.`);
+    }
+    const rangeRecord = record.range as Record<string, unknown>;
+    const start = expectOptionalWholeNumber(rangeRecord.start, `${field}.range.start`, manifestPath, 1);
+    const end = expectOptionalWholeNumber(rangeRecord.end, `${field}.range.end`, manifestPath, 1);
+    if (start === undefined || end === undefined || end < start || end > 65535) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.range" to define a valid port range.`);
+    }
+    range = { start, end };
+  }
+
+  return {
+    ...(defaultPort !== undefined ? { default: defaultPort } : {}),
+    ...(strategy !== undefined ? { strategy } : {}),
+    ...(policy !== undefined ? { policy } : {}),
+    ...(range !== undefined ? { range } : {}),
+  };
+}
+
+function readManifestEndpoints(value: unknown, manifestPath: string): ServiceManifestEndpoint[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "endpoints" to be an array.`);
+  }
+
+  const seen = new Set<string>();
+  return value.map((entry, index) => {
+    const field = `endpoints[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    for (const unsupported of ["env", "globalenv", "export", "exports"]) {
+      if (record[unsupported] !== undefined) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: endpoint entries must not contain "${unsupported}" blocks.`);
+      }
+    }
+
+    const id = expectNonEmptyString(record.id, `${field}.id`, manifestPath);
+    if (!endpointIdPattern.test(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.id" to be a selector-safe endpoint id.`);
+    }
+    if (seen.has(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate endpoint id "${id}".`);
+    }
+    seen.add(id);
+
+    const kind = expectOptionalEnum<ServiceEndpointKind>(
+      record.kind,
+      `${field}.kind`,
+      endpointKinds,
+      [...endpointKinds].map((entry) => `"${entry}"`).join(", "),
+      manifestPath,
+    );
+    if (!kind) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.kind" to be present.`);
+    }
+
+    const url = record.url === undefined ? undefined : expectNonEmptyString(record.url, `${field}.url`, manifestPath);
+    const target = record.target === undefined ? undefined : expectNonEmptyString(record.target, `${field}.target`, manifestPath);
+
+    if (kind === "network" && record.port === undefined) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.port" for network endpoints.`);
+    }
+    if (kind === "url" && !url && !target) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.url" or "${field}.target" for url endpoints.`);
+    }
+
+    return {
+      id,
+      kind,
+      label: typeof record.label === "string" ? record.label.trim() : undefined,
+      direction: expectOptionalEnum<ServiceEndpointDirection>(
+        record.direction,
+        `${field}.direction`,
+        endpointDirections,
+        [...endpointDirections].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      transport: expectOptionalEnum<ServiceEndpointTransport>(
+        record.transport,
+        `${field}.transport`,
+        endpointTransports,
+        [...endpointTransports].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      protocol: expectOptionalEnum<ServiceEndpointProtocol>(
+        record.protocol,
+        `${field}.protocol`,
+        endpointProtocols,
+        [...endpointProtocols].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      bind: typeof record.bind === "string" ? record.bind.trim() : undefined,
+      port: readEndpointPortDeclaration(record.port, `${field}.port`, manifestPath),
+      target,
+      url,
+      exposure: expectOptionalEnum<ServiceEndpointExposure>(
+        record.exposure,
+        `${field}.exposure`,
+        endpointExposures,
+        [...endpointExposures].map((entry) => `"${entry}"`).join(", "),
+        manifestPath,
+      ),
+      required: expectOptionalBoolean(record.required, `${field}.required`, manifestPath),
+      primary: expectOptionalBoolean(record.primary, `${field}.primary`, manifestPath),
+    };
+  });
 }
 
 function readActionPayloadSchema(
@@ -1351,6 +1638,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"depend_on\" to be an array of non-empty strings.`);
   }
 
+  const rawServiceOrder = expectOptionalWholeNumber(record.serviceorder, "serviceorder", manifestPath, 0);
+  const execconfig = readExecutionConfig(record.execconfig, manifestPath);
+  const serviceorder = rawServiceOrder ?? execconfig?.serviceorder;
+
   const rawHealthcheck = record.healthcheck;
   let healthcheck: ServiceHealthcheck | undefined;
 
@@ -1411,17 +1702,6 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       Object.values(rawGlobalEnv).some((value) => typeof value !== "string"))
   ) {
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"globalenv\" to be a string map.`);
-  }
-
-  const rawOutputVarRegex = record.outputvarregex;
-  if (
-    rawOutputVarRegex !== undefined &&
-    (!rawOutputVarRegex ||
-      typeof rawOutputVarRegex !== "object" ||
-      Array.isArray(rawOutputVarRegex) ||
-      Object.values(rawOutputVarRegex).some((entry) => typeof entry !== "string"))
-  ) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"outputvarregex\" to be a string map.`);
   }
 
   const rawPorts = record.ports;
@@ -1499,12 +1779,11 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   }
 
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
+  const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
+  const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
   const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
   const globalenv = rawGlobalEnv
     ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
-    : undefined;
-  const outputvarregex = rawOutputVarRegex
-    ? Object.fromEntries(Object.entries(rawOutputVarRegex as Record<string, string>).map(([key, value]) => [key.trim(), value]))
     : undefined;
   validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
@@ -1516,6 +1795,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const hooks = readLifecycleHooks(record.hooks, manifestPath);
   const actions = readActionPolicy(record.actions, manifestPath);
   const setup = readSetupPolicy(record.setup, manifestPath);
+  const files = readFilesPolicy(record.files, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
   return {
     id: serviceId,
@@ -1525,12 +1805,15 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     role: rawRole as ServiceManifest["role"],
     enabled: typeof record.enabled === "boolean" ? record.enabled : undefined,
     autostart: typeof record.autostart === "boolean" ? record.autostart : undefined,
+    serviceorder,
+    execconfig,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
+    outputvarregex,
     env,
     globalenv,
-    outputvarregex,
     broker,
+    endpoints,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,
@@ -1553,6 +1836,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     hooks,
     actions,
     setup,
+    files,
     updates,
     artifact,
     install,

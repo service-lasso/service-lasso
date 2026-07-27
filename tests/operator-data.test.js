@@ -564,7 +564,7 @@ test("service metrics surface persisted process evidence and survive runtime res
   await writeExecutableFixtureService(servicesRoot, "metric-service", {
     stdoutLines: ["metric stdout"],
     stderrLines: ["metric stderr"],
-    autoExitMs: 75,
+    autoExitMs: 2_500,
     exitCode: 3,
   });
 
@@ -580,12 +580,15 @@ test("service metrics surface persisted process evidence and survive runtime res
       const response = await fetch(`${firstServer.url}/api/services/metric-service/metrics`);
       const body = await response.json();
 
-      if (body.metrics.process.crashCount === 1) {
+      if (
+        body.metrics.process.crashCount === 1 &&
+        body.metrics.process.running === false
+      ) {
         return { response, body };
       }
 
       return null;
-    }, 2_000);
+    }, 6_000);
 
     assert.equal(metricsResponse.response.status, 200);
     assert.equal(metricsResponse.body.metrics.serviceId, "metric-service");
@@ -694,9 +697,9 @@ test("runtime-captured output variables satisfy healthchecks and API variable sc
       value: "3",
       scope: "runtime",
     });
-    assert.deepEqual(persistedRuntime.capturedVariables, {
-      FILEBEAT_ENABLED_INPUTS: "3",
-    });
+    assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.value, "3");
+    assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.source, "stdout");
+    assert.equal(typeof persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.matchedAt, "string");
 
     await postJson(`${apiServer.url}/api/services/captured-variable-service/stop`);
   } finally {

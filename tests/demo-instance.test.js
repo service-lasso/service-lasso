@@ -411,27 +411,30 @@ function textResponse(status, body) {
   };
 }
 
-function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good" }) {
+function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good", sourceServiceAdmin = false }) {
   const services = canonicalFixtureServices.map((service) => {
     const tag = service.id === "@serviceadmin" ? serviceAdminTag : service.tag;
     const providerRole = service.role === "provider";
+    const sourceAdminService = sourceServiceAdmin && service.id === "@serviceadmin";
     return {
       id: service.id,
       serviceRoot: path.join(servicesRoot, service.id),
       lifecycle: {
-        installed: true,
-        configured: true,
-        running: !providerRole,
-        installArtifacts: {
-          artifact: {
-            repo: service.repo,
-            tag,
-            assetName: service.assetName,
+        installed: !sourceAdminService,
+        configured: !sourceAdminService,
+        running: sourceAdminService ? false : !providerRole,
+        installArtifacts: sourceAdminService
+          ? null
+          : {
+            artifact: {
+              repo: service.repo,
+              tag,
+              assetName: service.assetName,
+            },
           },
-        },
         runtime: { ports: service.ports },
       },
-      health: { healthy: true },
+      health: { healthy: !sourceAdminService },
       catalogProvenance: {
         repo: service.repo,
         releaseTag: tag,
@@ -449,6 +452,17 @@ function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6
     }
     if (parsed.pathname === "/dashboard/") {
       return textResponse(200, "<html>Traefik dashboard</html>");
+    }
+    if (parsed.pathname === "/api/dashboard") {
+      return jsonResponse(200, {
+        summary: {
+          runtime: { status: "ok" },
+          servicesTotal: services.length,
+          servicesRunning: services.filter((service) => service.lifecycle.running).length,
+          installedCount: services.filter((service) => service.lifecycle.installed).length,
+          warnings: [],
+        },
+      });
     }
     if (parsed.pathname === "/ping") {
       return textResponse(200, "OK");
@@ -601,6 +615,81 @@ test("demo recycle asks the previous managed runtime to stop services before rep
   }
 });
 
+test("demo recycle stops service processes recorded only in the process registry", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-registry-cleanup-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const serviceRoot = path.join(servicesRoot, "@nginx");
+  const runtimeStateDir = path.join(workspaceRoot, ".service-lasso");
+  const keepAliveScript = path.join(serviceRoot, "keep-alive.mjs");
+  let child = null;
+
+  const processIsAlive = (pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    await mkdir(runtimeStateDir, { recursive: true });
+    await writeFile(keepAliveScript, "setInterval(() => {}, 1000);\n");
+    child = spawn(process.execPath, [keepAliveScript], {
+      cwd: serviceRoot,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+
+    await writeFile(
+      path.join(runtimeStateDir, "processes.json"),
+      `${JSON.stringify({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        entries: [
+          {
+            ownerType: "service",
+            ownerId: "@nginx",
+            serviceId: "@nginx",
+            workspaceId: "test",
+            runtimeInstanceId: null,
+            pid: child.pid,
+            identity: null,
+            ownerRoot: serviceRoot,
+            processGroup: { kind: "none", id: null },
+            allocation: { revision: null, ports: { http: 18080 }, endpoints: [] },
+            lifecycleState: "running",
+            identityStatus: "owned",
+            source: "spawn",
+            recordedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      }, null, 2)}\n`,
+    );
+
+    const result = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
+
+    assert.ok(
+      result.stopped.some((entry) => entry.label === "@nginx" && entry.pid === child.pid && entry.stopped === true),
+      "Expected recycle cleanup to stop the registry-owned service process.",
+    );
+    assert.equal(processIsAlive(child.pid), false);
+  } finally {
+    if (child && processIsAlive(child.pid)) {
+      child.kill("SIGKILL");
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("demo recycle uses the canonical baseline service set", () => {
   assert.deepEqual(demoRequiredServiceIds, [...DEFAULT_BASELINE_SERVICE_IDS]);
   assert.equal(demoProviderServiceIds.has("@archive"), true);
@@ -702,6 +791,33 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
     assert.equal(result.ok, true);
     assert.equal(result.failures.length, 0);
     assert.equal(result.summary.services.length, canonicalFixtureServices.length);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier accepts source Admin owning the canonical Service Admin port", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true }) },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.failures.length, 0);
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin source Admin owns canonical port" && entry.ok));
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin advertised ui reachable through source Admin" && entry.ok));
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

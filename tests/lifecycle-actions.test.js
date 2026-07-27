@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer as startRuntimeApiServer } from "../dist/server/index.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import {
   installService,
   configService,
   startService,
+  stopService,
 } from "../dist/runtime/lifecycle/actions.js";
 import {
   hasManagedProcess,
@@ -15,6 +16,7 @@ import {
   stopManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -587,6 +589,188 @@ test("managed process stop escalates after timeout and clears supervisor state",
     }
   } finally {
     await stopManagedProcess("stubborn-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed process captures outputvarregex matches into runtime state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-outputvarregex-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "outputvar-service",
+    {
+      stdoutLines: ["IGNORED", "PORT=4123", "PORT=4124"],
+      stderrLines: ["TOKEN=stderr-value"],
+      outputvarregex: {
+        CAPTURED_PORT: "PORT=(\\d+)",
+        STDERR_TOKEN: "TOKEN=(\\S+)",
+        NO_MATCH: "NO_MATCH=(\\S+)",
+      },
+    },
+  );
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    const handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+    });
+
+    assert.equal(handle.pid > 0, true);
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return (
+        stored.runtime?.variables?.CAPTURED_PORT?.value === "4124" &&
+        stored.runtime?.variables?.STDERR_TOKEN?.value === "stderr-value"
+      );
+    });
+
+    const stored = await readStoredState(serviceRoot);
+    assert.deepEqual(stored.runtime.variables.CAPTURED_PORT, {
+      value: "4124",
+      source: "stdout",
+      matchedAt: stored.runtime.variables.CAPTURED_PORT.matchedAt,
+    });
+    assert.equal(typeof stored.runtime.variables.CAPTURED_PORT.matchedAt, "string");
+    assert.deepEqual(stored.runtime.variables.STDERR_TOKEN, {
+      value: "stderr-value",
+      source: "stderr",
+      matchedAt: stored.runtime.variables.STDERR_TOKEN.matchedAt,
+    });
+    assert.equal(stored.runtime.variables.NO_MATCH, undefined);
+
+    const capturedPort = resolveServiceVariable(service, "CAPTURED_PORT");
+    const stderrToken = resolveServiceVariable(service, "STDERR_TOKEN");
+    assert.deepEqual(capturedPort, {
+      key: "CAPTURED_PORT",
+      value: "4124",
+      scope: "runtime",
+    });
+    assert.deepEqual(stderrToken, {
+      key: "STDERR_TOKEN",
+      value: "stderr-value",
+      scope: "runtime",
+    });
+  } finally {
+    await stopManagedProcess("outputvar-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("stop uses manifest actions.stop.commandline override before managed fallback", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-stop-override-",
+  );
+  const serviceRoot = path.join(servicesRoot, "graceful-stop-service");
+  const runtimeRoot = path.join(serviceRoot, "runtime");
+  await mkdir(runtimeRoot, { recursive: true });
+  await writeFile(
+    path.join(runtimeRoot, "server.mjs"),
+    `
+import { access } from "node:fs/promises";
+import path from "node:path";
+
+const stopFile = path.resolve(process.cwd(), "runtime", "stop-requested.txt");
+const heartbeat = setInterval(async () => {
+  try {
+    await access(stopFile);
+    clearInterval(heartbeat);
+    process.exit(0);
+  } catch {
+  }
+}, 25);
+`.trim(),
+  );
+  await writeFile(
+    path.join(runtimeRoot, "stop.mjs"),
+    `
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+
+await writeFile(path.resolve(process.cwd(), "runtime", "stop-requested.txt"), "stop");
+await writeFile(path.resolve(process.cwd(), "runtime", "override-ran.txt"), "ran");
+`.trim(),
+  );
+  await writeManifest(servicesRoot, "graceful-stop-service", {
+    id: "graceful-stop-service",
+    name: "Graceful Stop Service",
+    description: "Fixture with manifest stop override.",
+    executable: process.execPath,
+    args: ["runtime/server.mjs"],
+    healthcheck: { type: "process" },
+    actions: {
+      stop: {
+        commandline: {
+          default: `${JSON.stringify(process.execPath)} runtime/stop.mjs`,
+        },
+        timeoutSeconds: 2,
+      },
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+
+    await installService(service);
+    await configService(service);
+    const start = await startService(service);
+    assert.equal(start.state.running, true);
+    assert.equal(hasManagedProcess("graceful-stop-service"), true);
+
+    const stop = await stopService(service);
+
+    assert.equal(stop.ok, true);
+    assert.equal(stop.state.running, false);
+    assert.equal(stop.state.runtime.pid, null);
+    assert.match(stop.message, /actions\.stop override/i);
+    assert.equal(await readFile(path.join(runtimeRoot, "override-ran.txt"), "utf8"), "ran");
+    assert.equal(hasManagedProcess("graceful-stop-service"), false);
+  } finally {
+    await stopManagedProcess("graceful-stop-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("stop falls back to managed process stop when manifest override fails", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-stop-override-fallback-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "fallback-stop-service", {
+    actions: {
+      stop: {
+        commandline: {
+          default: `${JSON.stringify(process.execPath)} -e "process.exit(7)"`,
+        },
+        timeoutSeconds: 1,
+      },
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+
+    await installService(service);
+    await configService(service);
+    await startService(service);
+    assert.equal(hasManagedProcess("fallback-stop-service"), true);
+
+    const stop = await stopService(service);
+
+    assert.equal(stop.ok, true);
+    assert.equal(stop.state.running, false);
+    assert.equal(stop.state.runtime.pid, null);
+    assert.match(stop.message, /fallback stop completed/i);
+    assert.equal(hasManagedProcess("fallback-stop-service"), false);
+  } finally {
+    await stopManagedProcess("fallback-stop-service", 100).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

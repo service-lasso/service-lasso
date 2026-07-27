@@ -66,6 +66,26 @@ function safeBodySnippet(body) {
   return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
 }
 
+function isDashboardSummaryResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && typeof body.summary === "object"
+    && body.summary !== null
+    && typeof body.summary.runtime === "object"
+    && body.summary.runtime !== null
+    && typeof body.summary.servicesTotal === "number"
+  );
+}
+
+function isServiceListResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && Array.isArray(body.services)
+  );
+}
+
 function check(checks, name, ok, code, detail = "") {
   checks.push({ name, ok, code: ok ? null : code, detail });
 }
@@ -108,9 +128,12 @@ export function resolveServiceText(value, ports = {}) {
     const normalized = String(name).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
     replacements.set(`${normalized}_PORT`, String(port));
     if (name === "service") replacements.set("SERVICE_PORT", String(port));
+    replacements.set(`endpoint.${name}.bind`, "127.0.0.1");
+    replacements.set(`endpoint.${name}.host`, "127.0.0.1");
+    replacements.set(`endpoint.${name}.port`, String(port));
   }
 
-  return String(value).replace(/\$\{([A-Z0-9_]+)\}/g, (match, variableName) => replacements.get(variableName) ?? match);
+  return String(value).replace(/\$\{([^}]+)\}/g, (match, variableName) => replacements.get(variableName.trim()) ?? match);
 }
 
 function shouldCheckAdvertisedUrl(serviceId, endpoint) {
@@ -127,11 +150,29 @@ function manifestUrls(manifest) {
   return manifest.urls ? [manifest.urls] : [];
 }
 
+function manifestEndpointPorts(manifest) {
+  return Object.fromEntries(
+    (manifest.endpoints ?? [])
+      .filter((endpoint) => endpoint.kind === "network")
+      .map((endpoint) => [endpoint.id, endpoint.port?.default ?? 0]),
+  );
+}
+
+function manifestUrlEndpoints(manifest) {
+  return (manifest.endpoints ?? [])
+    .filter((endpoint) => endpoint.kind === "url")
+    .map((endpoint) => ({
+      label: endpoint.label ?? endpoint.id,
+      url: endpoint.url,
+      kind: endpoint.exposure ?? "local",
+    }));
+}
+
 export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
   const targets = [];
   const seen = new Set();
 
-  for (const endpoint of manifestUrls(manifest)) {
+  for (const endpoint of [...manifestUrls(manifest), ...manifestUrlEndpoints(manifest)]) {
     if (!endpoint?.url || !shouldCheckAdvertisedUrl(serviceId, endpoint)) {
       continue;
     }
@@ -222,14 +263,15 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
   for (const serviceId of serviceIds) {
     const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
     const platform = manifest.artifact?.platforms?.[process.platform];
+    const expectedPorts = Object.keys(manifest.ports ?? {}).length > 0 ? manifest.ports : manifestEndpointPorts(manifest);
     expected.set(serviceId, {
       id: serviceId,
       providerRole: manifest.role === "provider",
       repo: manifest.artifact?.source?.repo ?? null,
       tag: manifest.artifact?.source?.tag ?? null,
       assetName: platform?.assetName ?? null,
-      ports: manifest.ports ?? {},
-      reachabilityTargets: buildReachabilityTargets(serviceId, manifest, manifest.ports ?? {}),
+      ports: expectedPorts,
+      reachabilityTargets: buildReachabilityTargets(serviceId, manifest, expectedPorts),
       serviceRoot: path.join(servicesRoot, serviceId),
     });
   }
@@ -248,6 +290,15 @@ function serviceSummary(service, expected) {
     installedTag: service.lifecycle?.installArtifacts?.artifact?.tag ?? null,
     expectedTag: expected.tag,
   };
+}
+
+function isSourceServiceAdminState(service) {
+  return (
+    service?.lifecycle?.installed !== true
+    && service?.lifecycle?.configured !== true
+    && service?.lifecycle?.running !== true
+    && service?.health?.healthy !== true
+  );
 }
 
 export async function verifyCanonicalDemo(options = {}, deps = {}) {
@@ -274,8 +325,11 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     "wrong_serviceadmin_port",
   );
 
-  const [serviceAdmin, runtimeHealth, runtimeSummary, runtimeServices] = await Promise.all([
+  const serviceAdminApiBase = normalizeUrlBase(resolved.serviceAdminUrl);
+  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices] = await Promise.all([
     fetchText(resolved.serviceAdminUrl, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${serviceAdminApiBase}/api/dashboard`, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${serviceAdminApiBase}/api/services`, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeHealthUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
@@ -311,6 +365,24 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     "missing_runtime_services",
     runtimeServices.ok ? `HTTP ${runtimeServices.status}` : `${resolved.runtimeServicesUrl}: ${runtimeServices.error ?? `HTTP ${runtimeServices.status}`}`,
   );
+  check(
+    checks,
+    "Service Admin same-origin dashboard reachable",
+    serviceAdminDashboard.ok && isDashboardSummaryResponse(serviceAdminDashboard.body),
+    "service_admin_api_unhealthy",
+    serviceAdminDashboard.ok
+      ? `HTTP ${serviceAdminDashboard.status}`
+      : `${serviceAdminApiBase}/api/dashboard: ${serviceAdminDashboard.error ?? `HTTP ${serviceAdminDashboard.status}`}`,
+  );
+  check(
+    checks,
+    "Service Admin same-origin services reachable",
+    serviceAdminServices.ok && isServiceListResponse(serviceAdminServices.body),
+    "service_admin_api_unhealthy",
+    serviceAdminServices.ok
+      ? `HTTP ${serviceAdminServices.status}`
+      : `${serviceAdminApiBase}/api/services: ${serviceAdminServices.error ?? `HTTP ${serviceAdminServices.status}`}`,
+  );
 
   const runtime = runtimeSummary.body?.runtime;
   if (runtime) {
@@ -331,6 +403,13 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   }
 
   const liveServices = new Map((runtimeServices.body?.services ?? []).map((service) => [service.id, service]));
+  const serviceAdminLive = liveServices.get("@serviceadmin");
+  const sourceServiceAdminMode = serviceAdmin.ok
+    && serviceAdminDashboard.ok
+    && isDashboardSummaryResponse(serviceAdminDashboard.body)
+    && serviceAdminServices.ok
+    && isServiceListResponse(serviceAdminServices.body)
+    && isSourceServiceAdminState(serviceAdminLive);
   const serviceSummaries = [];
 
   for (const [serviceId, expected] of expectedServices.entries()) {
@@ -341,16 +420,25 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     }
 
     serviceSummaries.push(serviceSummary(live, expected));
-    check(checks, `${serviceId} is installed`, live.lifecycle?.installed === true, "unprepared_service", `installed=${live.lifecycle?.installed === true}`);
-    check(checks, `${serviceId} is configured`, live.lifecycle?.configured === true, "unprepared_service", `configured=${live.lifecycle?.configured === true}`);
-    check(
-      checks,
-      expected.providerRole ? `${serviceId} provider daemon is not required` : `${serviceId} is running`,
-      live.lifecycle?.running === !expected.providerRole,
-      "unhealthy_service",
-      `running=${live.lifecycle?.running === true}`,
-    );
-    check(checks, `${serviceId} is healthy`, live.health?.healthy === true, "unhealthy_service", `healthy=${live.health?.healthy === true}`);
+    const sourceServiceAdmin = serviceId === "@serviceadmin" && sourceServiceAdminMode;
+    if (sourceServiceAdmin) {
+      check(checks, `${serviceId} source Admin owns canonical port`, true, null, "same-origin runtime APIs are healthy on 17700");
+      check(checks, `${serviceId} managed artifact intentionally not installed`, live.lifecycle?.installed !== true, "unexpected_managed_serviceadmin", `installed=${live.lifecycle?.installed === true}`);
+      check(checks, `${serviceId} managed artifact intentionally not configured`, live.lifecycle?.configured !== true, "unexpected_managed_serviceadmin", `configured=${live.lifecycle?.configured === true}`);
+      check(checks, `${serviceId} managed artifact intentionally not running`, live.lifecycle?.running !== true, "unexpected_managed_serviceadmin", `running=${live.lifecycle?.running === true}`);
+      check(checks, `${serviceId} managed artifact health intentionally inactive`, live.health?.healthy !== true, "unexpected_managed_serviceadmin", `healthy=${live.health?.healthy === true}`);
+    } else {
+      check(checks, `${serviceId} is installed`, live.lifecycle?.installed === true, "unprepared_service", `installed=${live.lifecycle?.installed === true}`);
+      check(checks, `${serviceId} is configured`, live.lifecycle?.configured === true, "unprepared_service", `configured=${live.lifecycle?.configured === true}`);
+      check(
+        checks,
+        expected.providerRole ? `${serviceId} provider daemon is not required` : `${serviceId} is running`,
+        live.lifecycle?.running === !expected.providerRole,
+        "unhealthy_service",
+        `running=${live.lifecycle?.running === true}`,
+      );
+      check(checks, `${serviceId} is healthy`, live.health?.healthy === true, "unhealthy_service", `healthy=${live.health?.healthy === true}`);
+    }
     checkEqual(
       checks,
       `${serviceId} service root matches canonical services root`,
@@ -360,16 +448,23 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     );
     checkEqual(checks, `${serviceId} catalog repo matches manifest`, live.catalogProvenance?.repo ?? null, expected.repo, "stale_release_pin");
     checkEqual(checks, `${serviceId} catalog release tag matches manifest`, live.catalogProvenance?.releaseTag ?? null, expected.tag, "stale_release_pin");
-    checkEqual(checks, `${serviceId} installed artifact repo matches manifest`, live.lifecycle?.installArtifacts?.artifact?.repo ?? null, expected.repo, "stale_installed_artifact");
-    checkEqual(checks, `${serviceId} installed artifact tag matches manifest`, live.lifecycle?.installArtifacts?.artifact?.tag ?? null, expected.tag, "stale_installed_artifact");
-    if (expected.assetName) {
-      checkEqual(
-        checks,
-        `${serviceId} installed artifact asset matches platform`,
-        live.lifecycle?.installArtifacts?.artifact?.assetName ?? null,
-        expected.assetName,
-        "stale_installed_artifact",
-      );
+    if (!sourceServiceAdmin) {
+      checkEqual(checks, `${serviceId} installed artifact repo matches manifest`, live.lifecycle?.installArtifacts?.artifact?.repo ?? null, expected.repo, "stale_installed_artifact");
+      checkEqual(checks, `${serviceId} installed artifact tag matches manifest`, live.lifecycle?.installArtifacts?.artifact?.tag ?? null, expected.tag, "stale_installed_artifact");
+      if (expected.assetName) {
+        checkEqual(
+          checks,
+          `${serviceId} installed artifact asset matches platform`,
+          live.lifecycle?.installArtifacts?.artifact?.assetName ?? null,
+          expected.assetName,
+          "stale_installed_artifact",
+        );
+      }
+    }
+
+    if (sourceServiceAdmin) {
+      check(checks, `${serviceId} advertised ui reachable through source Admin`, true, null, `${resolved.serviceAdminUrl}: HTTP ${serviceAdmin.status}`);
+      continue;
     }
 
     for (const [portName, port] of Object.entries(expected.ports)) {

@@ -6,8 +6,9 @@ import type { DiscoveredService } from "../../contracts/service.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { buildServiceNetwork } from "../operator/network.js";
-import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import { archiveRuntimeLogs, buildServiceRuntimeLogRunId, getServiceRuntimeLogPaths, type ServiceRuntimeLogPaths } from "../operator/logs.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
+import { writeServiceState } from "../state/writeState.js";
 import {
   recordProcessOwnership,
   reconcileRegisteredProcess,
@@ -38,7 +39,7 @@ interface ManagedProcessRecord {
   };
   stdoutBuffer: string;
   stderrBuffer: string;
-  outputVariableRegexes: Array<{ key: string; regex: RegExp }>;
+  variableCapturePromise: Promise<void>;
   workspaceRoot: string | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
@@ -64,20 +65,6 @@ interface StartProcessOptions {
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
 const managedProcessFinalizers = new Map<string, Promise<void>>();
-
-function compileOutputVariableRegexes(service: DiscoveredService): ManagedProcessRecord["outputVariableRegexes"] {
-  return Object.entries(service.manifest.outputvarregex ?? {}).flatMap(([key, pattern]) => {
-    const normalizedKey = key.trim();
-    if (!normalizedKey) {
-      return [];
-    }
-    try {
-      return [{ key: normalizedKey, regex: new RegExp(pattern) }];
-    } catch {
-      return [];
-    }
-  });
-}
 
 async function prepareRuntimeLogStreams(serviceRoot: string, startedAt: string): Promise<{
   paths: ServiceRuntimeLogPaths;
@@ -144,37 +131,61 @@ function writeCombinedLogEntry(stream: WriteStream, level: "stdout" | "stderr", 
   stream.write(`${JSON.stringify({ level, message })}\n`);
 }
 
-function captureRuntimeOutputVariables(record: ManagedProcessRecord, line: string): void {
-  if (record.outputVariableRegexes.length === 0) {
+function matchOutputVariable(pattern: string, line: string): string | null {
+  const match = new RegExp(pattern).exec(line);
+  return typeof match?.[1] === "string" ? match[1] : null;
+}
+
+async function persistOutputVariableMatches(
+  record: ManagedProcessRecord,
+  source: "stdout" | "stderr",
+  line: string,
+): Promise<void> {
+  const outputVarRegex = record.service.manifest.outputvarregex;
+  if (!outputVarRegex || Object.keys(outputVarRegex).length === 0) {
     return;
   }
 
-  const captured = new Map<string, string>();
-  for (const { key, regex } of record.outputVariableRegexes) {
-    regex.lastIndex = 0;
-    const match = regex.exec(line);
-    if (!match) {
-      continue;
-    }
-    captured.set(key, (match[1] ?? match[0] ?? "").trim());
-  }
-
-  if (captured.size === 0) {
+  const matches = Object.entries(outputVarRegex)
+    .map(([name, pattern]) => [name, matchOutputVariable(pattern, line)] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1] !== null);
+  if (matches.length === 0) {
     return;
   }
 
+  const matchedAt = new Date().toISOString();
   const current = getLifecycleState(record.service.manifest.id);
-  const nextCapturedVariables = {
-    ...current.runtime.capturedVariables,
-    ...Object.fromEntries(captured),
-  };
-  setLifecycleState(record.service.manifest.id, {
+  const state = setLifecycleState(record.service.manifest.id, {
     ...current,
     runtime: {
       ...current.runtime,
-      capturedVariables: nextCapturedVariables,
+      variables: {
+        ...current.runtime.variables,
+        ...Object.fromEntries(
+          matches.map(([name, value]) => [
+            name,
+            {
+              value,
+              source,
+              matchedAt,
+            },
+          ]),
+        ),
+      },
     },
   });
+
+  await writeServiceState(record.service, state);
+}
+
+function captureOutputVariableMatches(
+  record: ManagedProcessRecord,
+  source: "stdout" | "stderr",
+  line: string,
+): void {
+  record.variableCapturePromise = record.variableCapturePromise
+    .then(() => persistOutputVariableMatches(record, source, line))
+    .catch(() => undefined);
 }
 
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
@@ -188,7 +199,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     for (const line of parts) {
       outputStream.write(`${line}\n`);
       writeCombinedLogEntry(record.logStreams.combined, level, line);
-      captureRuntimeOutputVariables(record, line);
+      captureOutputVariableMatches(record, level, line);
     }
 
     record[bufferKey] = remainder;
@@ -210,6 +221,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   record.finalizePromise = record.exitPromise.then(async () => {
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
+    await record.variableCapturePromise;
     await closeRuntimeLogStreams(record.logStreams);
   });
 }
@@ -299,6 +311,19 @@ export function hasManagedProcess(serviceId: string): boolean {
   return managedProcesses.has(serviceId);
 }
 
+export async function beginManagedProcessStop(serviceId: string): Promise<boolean> {
+  const record = managedProcesses.get(serviceId);
+  if (!record) {
+    return false;
+  }
+
+  record.stopping = true;
+  if (record.workspaceRoot) {
+    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+  }
+  return true;
+}
+
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
   const {
     service,
@@ -371,6 +396,25 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     throw error;
   }
 
+  const record: ManagedProcessRecord = {
+    child,
+    service,
+    startedAt,
+    command,
+    stopping: false,
+    exitCode: null,
+    exitSignal: null,
+    logs: logPaths,
+    logStreams,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    variableCapturePromise: Promise.resolve(),
+    workspaceRoot: workspaceRoot ?? null,
+    exitPromise,
+    finalizePromise: Promise.resolve(),
+  };
+  attachRuntimeLogCapture(record);
+
   if (workspaceRoot) {
     try {
       const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
@@ -383,7 +427,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         ownerRoot: service.serviceRoot,
         allocationRevision,
         ports: resolvedPorts,
-        endpoints: network.endpoints.map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
+        endpoints: network.endpoints
+          .filter((endpoint): endpoint is typeof endpoint & { url: string } => typeof endpoint.url === "string")
+          .map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
         lifecycleState: "launching",
         source: "spawn",
       });
@@ -404,33 +450,15 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         await forceKillManagedProcessTree(child);
         await exitPromise;
       }
-      await closeRuntimeLogStreams(logStreams);
+      await record.finalizePromise;
       throw error;
     }
   }
 
-  const record: ManagedProcessRecord = {
-    child,
-    service,
-    startedAt,
-    command,
-    stopping: false,
-    exitCode: null,
-    exitSignal: null,
-    logs: logPaths,
-    logStreams,
-    stdoutBuffer: "",
-    stderrBuffer: "",
-    outputVariableRegexes: compileOutputVariableRegexes(service),
-    workspaceRoot: workspaceRoot ?? null,
-    exitPromise,
-    finalizePromise: Promise.resolve(),
-  };
-
   managedProcesses.set(serviceId, record);
-  attachRuntimeLogCapture(record);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const current = managedProcesses.get(serviceId);
     if (current?.child === child) {
       managedProcesses.delete(serviceId);
@@ -489,11 +517,7 @@ export async function stopManagedProcess(
     return null;
   }
 
-  record.stopping = true;
-
-  if (record.workspaceRoot) {
-    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
-  }
+  await beginManagedProcessStop(serviceId);
 
   if (!record.child.killed) {
     record.child.kill();
@@ -513,6 +537,49 @@ export async function stopManagedProcess(
   if (timeout) {
     clearTimeout(timeout);
   }
+  const finalizer = managedProcessFinalizers.get(serviceId);
+  if (finalizer) {
+    await finalizer;
+  }
+  if (record.workspaceRoot) {
+    await transitionProcessOwnership(
+      record.workspaceRoot,
+      "service",
+      serviceId,
+      "stopped",
+      "not_running",
+      record.child.pid,
+    );
+  }
+
+  return result;
+}
+
+export async function waitForManagedProcessExit(
+  serviceId: string,
+  timeoutMs = 5_000,
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
+  const record = managedProcesses.get(serviceId);
+  if (!record) {
+    return null;
+  }
+
+  await beginManagedProcessStop(serviceId);
+
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => resolve(null), timeoutMs);
+    timeout.unref?.();
+  });
+
+  const result = await Promise.race([record.exitPromise, timeoutPromise]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+  if (!result) {
+    return null;
+  }
+
   const finalizer = managedProcessFinalizers.get(serviceId);
   if (finalizer) {
     await finalizer;

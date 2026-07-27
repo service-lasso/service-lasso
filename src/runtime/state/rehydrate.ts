@@ -15,6 +15,7 @@ import type { BrokerTransportBinding } from "../broker/identity.js";
 import type { ProviderKind } from "../providers/types.js";
 import type { ServiceBrokerWritebackOperation } from "../../contracts/service.js";
 import path from "node:path";
+import { resolveServiceEndpoints } from "../operator/endpoints.js";
 import { buildServiceNetwork } from "../operator/network.js";
 import { migrateLegacyProcessOwnership } from "../process/registry.js";
 import { readStoredState } from "./readState.js";
@@ -71,7 +72,6 @@ interface StoredRuntimeState {
   providerServiceId?: string | null;
   lastTermination?: "stopped" | "exited" | "crashed" | null;
   ports?: Record<string, number>;
-  capturedVariables?: Record<string, string>;
   logs?: {
     runId?: string | null;
     logPath?: string | null;
@@ -87,6 +87,7 @@ interface StoredRuntimeState {
     totalRunDurationMs?: number;
     lastRunDurationMs?: number | null;
   };
+  variables?: unknown;
   brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
   startTrace?: unknown;
   lastAction?: LifecycleAction | null;
@@ -291,6 +292,31 @@ function parseStartTraceState(value: unknown): ServiceLifecycleState["runtime"][
   };
 }
 
+function parseRuntimeVariables(value: unknown): ServiceLifecycleState["runtime"]["variables"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return false;
+        }
+        const variable = entry as { value?: unknown; source?: unknown; matchedAt?: unknown };
+        return (
+          typeof variable.value === "string" &&
+          (variable.source === "stdout" || variable.source === "stderr") &&
+          typeof variable.matchedAt === "string"
+        );
+      })
+      .map(([key, entry]) => [
+        key,
+        { ...(entry as ServiceLifecycleState["runtime"]["variables"][string]) },
+      ]),
+  );
+}
+
 function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -379,6 +405,14 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
   const lastAction = isLifecycleAction(runtime?.lastAction) ? runtime.lastAction : null;
 
   const setupState = parseSetupState(setup);
+  const ports =
+    runtime?.ports && typeof runtime.ports === "object" && !Array.isArray(runtime.ports)
+      ? Object.fromEntries(
+          Object.entries(runtime.ports).filter(
+            ([, value]) => typeof value === "number" && Number.isInteger(value) && value > 0,
+          ),
+        )
+      : {};
 
   if (
     !installed &&
@@ -464,22 +498,8 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
         runtime?.lastTermination === "stopped" || runtime?.lastTermination === "exited" || runtime?.lastTermination === "crashed"
           ? runtime.lastTermination
           : null,
-      ports:
-        runtime?.ports && typeof runtime.ports === "object" && !Array.isArray(runtime.ports)
-          ? Object.fromEntries(
-              Object.entries(runtime.ports).filter(
-                ([, value]) => typeof value === "number" && Number.isInteger(value) && value > 0,
-              ),
-            )
-          : {},
-      capturedVariables:
-        runtime?.capturedVariables && typeof runtime.capturedVariables === "object" && !Array.isArray(runtime.capturedVariables)
-          ? Object.fromEntries(
-              Object.entries(runtime.capturedVariables).filter(
-                ([key, value]) => typeof key === "string" && key.trim().length > 0 && typeof value === "string",
-              ),
-            )
-          : {},
+      ports,
+      endpoints: resolveServiceEndpoints(service, ports),
       logs: {
         runId: typeof runtime?.logs?.runId === "string" ? runtime.logs.runId : null,
         logPath: typeof runtime?.logs?.logPath === "string" ? runtime.logs.logPath : null,
@@ -496,6 +516,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
         lastRunDurationMs:
           typeof runtime?.metrics?.lastRunDurationMs === "number" ? runtime.metrics.lastRunDurationMs : null,
       },
+      variables: parseRuntimeVariables(runtime?.variables),
       brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
       startTrace: parseStartTraceState(runtime?.startTrace),
     },
@@ -555,7 +576,9 @@ export async function rehydrateLifecycleState(
         expectedExecutablePath: manifestExecutable ?? installedExecutable,
         ownerRoot: service.serviceRoot,
         ports: state.runtime.ports,
-        endpoints: network.endpoints.map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
+        endpoints: network.endpoints
+          .filter((endpoint): endpoint is typeof endpoint & { url: string } => typeof endpoint.url === "string")
+          .map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
       });
 
       if (migration.status === "not_running" || migration.status === "identity_mismatch") {

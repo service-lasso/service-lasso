@@ -89,7 +89,7 @@ function createInitialState(): ServiceLifecycleState {
       providerServiceId: null,
       lastTermination: null,
       ports: {},
-      capturedVariables: {},
+      endpoints: [],
       logs: {
         runId: null,
         logPath: null,
@@ -105,6 +105,7 @@ function createInitialState(): ServiceLifecycleState {
         totalRunDurationMs: 0,
         lastRunDurationMs: null,
       },
+      variables: {},
       brokerIdentity: null,
       startTrace: {
         current: null,
@@ -178,7 +179,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       providerServiceId: current.runtime.providerServiceId,
       lastTermination: current.runtime.lastTermination,
       ports: { ...current.runtime.ports },
-      capturedVariables: { ...current.runtime.capturedVariables },
+      endpoints: current.runtime.endpoints.map((endpoint) => ({ ...endpoint })),
       logs: {
         runId: current.runtime.logs.runId,
         logPath: current.runtime.logs.logPath,
@@ -194,6 +195,12 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
         totalRunDurationMs: current.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: current.runtime.metrics.lastRunDurationMs,
       },
+      variables: Object.fromEntries(
+        Object.entries(current.runtime.variables).map(([key, variable]) => [
+          key,
+          { ...variable },
+        ]),
+      ),
       brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
       startTrace: cloneStartTrace(current.runtime.startTrace),
     },
@@ -258,7 +265,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       providerServiceId: nextState.runtime.providerServiceId,
       lastTermination: nextState.runtime.lastTermination,
       ports: { ...nextState.runtime.ports },
-      capturedVariables: { ...nextState.runtime.capturedVariables },
+      endpoints: nextState.runtime.endpoints.map((endpoint) => ({ ...endpoint })),
       logs: {
         runId: nextState.runtime.logs.runId,
         logPath: nextState.runtime.logs.logPath,
@@ -274,6 +281,12 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
         totalRunDurationMs: nextState.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: nextState.runtime.metrics.lastRunDurationMs,
       },
+      variables: Object.fromEntries(
+        Object.entries(nextState.runtime.variables).map(([key, variable]) => [
+          key,
+          { ...variable },
+        ]),
+      ),
       brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
       startTrace: cloneStartTrace(nextState.runtime.startTrace),
     },

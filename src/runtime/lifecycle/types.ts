@@ -1,5 +1,6 @@
 import type { ProviderKind } from "../providers/types.js";
 import type { ScopedBrokerIdentityMetadata } from "../broker/identity.js";
+import type { ResolvedServiceEndpoint } from "../operator/endpoints.js";
 
 export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart";
 
@@ -107,6 +108,12 @@ export interface ServiceRuntimeMetricsState {
   lastRunDurationMs: number | null;
 }
 
+export interface ServiceRuntimeVariableState {
+  value: string;
+  source: "stdout" | "stderr";
+  matchedAt: string;
+}
+
 export interface ServiceRuntimeState {
   pid: number | null;
   startedAt: string | null;
@@ -117,7 +124,7 @@ export interface ServiceRuntimeState {
   providerServiceId: string | null;
   lastTermination: "stopped" | "exited" | "crashed" | null;
   ports: Record<string, number>;
-  capturedVariables: Record<string, string>;
+  endpoints: ResolvedServiceEndpoint[];
   logs: {
     runId: string | null;
     logPath: string | null;
@@ -125,6 +132,7 @@ export interface ServiceRuntimeState {
     stderrPath: string | null;
   };
   metrics: ServiceRuntimeMetricsState;
+  variables: Record<string, ServiceRuntimeVariableState>;
   brokerIdentity: ScopedBrokerIdentityMetadata | null;
   startTrace: ServiceStartTraceState;
 }

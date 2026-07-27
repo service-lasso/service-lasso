@@ -1,6 +1,39 @@
 import type { ServiceHealthcheck } from "../runtime/health/types.js";
 
-export interface ServiceEndpoint {
+export type ServiceEndpointKind = "network" | "url" | "mount" | "device";
+export type ServiceEndpointDirection = "inbound" | "outbound";
+export type ServiceEndpointTransport = "tcp" | "udp";
+export type ServiceEndpointProtocol = "http" | "https" | "tcp" | "udp";
+export type ServiceEndpointExposure = "local" | "lan" | "public";
+export type ServiceEndpointPortStrategy = "automatic" | "preferred" | "fixed";
+
+export interface ServiceEndpointPortDeclaration {
+  default?: number;
+  strategy?: ServiceEndpointPortStrategy;
+  policy?: ServiceEndpointPortStrategy;
+  range?: {
+    start: number;
+    end: number;
+  };
+}
+
+export interface ServiceManifestEndpoint {
+  id: string;
+  kind: ServiceEndpointKind;
+  label?: string;
+  direction?: ServiceEndpointDirection;
+  transport?: ServiceEndpointTransport;
+  protocol?: ServiceEndpointProtocol;
+  bind?: string;
+  port?: ServiceEndpointPortDeclaration;
+  target?: string;
+  url?: string;
+  exposure?: ServiceEndpointExposure;
+  required?: boolean;
+  primary?: boolean;
+}
+
+export interface ServiceUrlEndpoint {
   label: string;
   url: string;
   kind?: string;
@@ -21,6 +54,22 @@ export interface ServiceMaterializedFile {
 
 export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
+}
+
+export type ServiceFilesRootMode = "read-only" | "read-write";
+
+export interface ServiceFilesRootDeclaration {
+  id: string;
+  label: string;
+  path: string;
+  mode: ServiceFilesRootMode;
+  hidden?: boolean;
+  protected?: boolean;
+}
+
+export interface ServiceFilesPolicy {
+  enabled?: boolean;
+  roots?: ServiceFilesRootDeclaration[];
 }
 
 export type ServiceHookFailurePolicy = "block" | "warn" | "continue";
@@ -146,6 +195,10 @@ export interface ServiceSetupStep {
 
 export interface ServiceSetupPolicy {
   steps?: Record<string, ServiceSetupStep>;
+}
+
+export interface ServiceExecutionConfig {
+  serviceorder?: number;
 }
 
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
@@ -285,21 +338,25 @@ export interface ServiceManifest {
   role?: ServiceRole;
   enabled?: boolean;
   autostart?: boolean;
+  serviceorder?: number;
+  execconfig?: ServiceExecutionConfig;
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
+  outputvarregex?: Record<string, string>;
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
-  outputvarregex?: Record<string, string>;
   broker?: ServiceBrokerPolicy;
+  endpoints?: ServiceManifestEndpoint[];
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
-  urls?: ServiceEndpoint[];
+  urls?: ServiceUrlEndpoint[];
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;
   hooks?: ServiceLifecycleHooks;
   actions?: ServiceActionPolicy;
   setup?: ServiceSetupPolicy;
+  files?: ServiceFilesPolicy;
   updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;

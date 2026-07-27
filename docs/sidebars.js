@@ -133,6 +133,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/endpoints-contract",
+          label: "Endpoints Contract",
+        },
+        {
+          type: "doc",
           id: "reference/runtime-instance-registry",
           label: "Runtime Instance Registry",
         },

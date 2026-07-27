@@ -1,10 +1,18 @@
-import type { DiscoveredService } from "../../contracts/service.js";
+import type { DiscoveredService, ServiceActionDefinition } from "../../contracts/service.js";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { LifecycleStateError } from "../../server/errors.js";
 import {
+  beginManagedProcessStop,
+  hasManagedProcess,
   startManagedProcess,
   stopManagedProcess,
+  waitForManagedProcessExit,
 } from "../execution/supervisor.js";
+import {
+  parseCommandlineArgs,
+  selectPlatformCommandline,
+} from "../execution/commandline.js";
 import {
   issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
@@ -20,10 +28,13 @@ import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import {
+  buildServiceVariables,
   compileServiceSelectorPlan,
   collectRuntimeGlobalEnv,
+  resolveServiceText,
   type ServiceVariableResolutionOptions,
 } from "../operator/variables.js";
+import { resolveServiceEndpoints } from "../operator/endpoints.js";
 import { negotiateServicePorts } from "../ports/negotiate.js";
 import { reservePorts, type PortReservationInput } from "../ports/reservations.js";
 import { transitionProcessOwnership } from "../process/registry.js";
@@ -53,6 +64,7 @@ const SECRETSBROKER_SERVICE_ID = "@secretsbroker";
 const LAUNCH_LEASE_COMMAND_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND";
 const LAUNCH_LEASE_ARGS_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON";
 const WORKSPACE_ID_ENV = "SERVICE_LASSO_WORKSPACE_ID";
+const DEFAULT_STOP_ACTION_TIMEOUT_SECONDS = 30;
 const SECRET_LIKE_VALUE_PATTERN =
   /(BEGIN PRIVATE KEY|access_token\s*[:=]\s*[^\s,;}]+|refresh_token\s*[:=]\s*[^\s,;}]+|id_token\s*[:=]\s*[^\s,;}]+|session_cookie\s*[:=]\s*[^\s,;}]+|client_secret\s*[:=]\s*[^\s,;}]+|provider_credential\s*[:=]\s*[^\s,;}]+|raw_secret\s*[:=]\s*[^\s,;}]+|password\s*[:=]\s*[^\s,;}]+|token\s*[:=]\s*[^\s,;}]+|Bearer\s+[A-Za-z0-9._~+/-]{12,})/gi;
 const SECRET_LIKE_KEY_PATTERN = /(secret|token|password|credential|private|cookie|key)/i;
@@ -194,7 +206,7 @@ function toServicePortReservations(service: DiscoveredService, ports: Record<str
   return Object.entries(ports)
     .filter(([, port]) => isUsablePort(port))
     .map(([portName, port]) => {
-      const desiredPort = service.manifest.ports?.[portName];
+      const desiredPort = resolveServiceEndpoints(service, ports).find((endpoint) => endpoint.id === portName)?.portDefault;
       return {
         kind: desiredPort === port && desiredPort !== 0 ? "service-fixed" : "service-negotiated",
         ownerId: service.manifest.id,
@@ -488,6 +500,175 @@ function resolveExecutionPlanForLifecycle(
   );
 }
 
+function getLifecycleStopOverride(service: DiscoveredService): ServiceActionDefinition | null {
+  const action = service.manifest.actions?.stop;
+  if (!action) {
+    return null;
+  }
+
+  if (selectPlatformCommandline(action.commandline) || action.command) {
+    return action;
+  }
+
+  return null;
+}
+
+function resolveStopOverrideCommand(
+  service: DiscoveredService,
+  action: ServiceActionDefinition,
+  resolvedPorts: Record<string, number>,
+): { executable: string; args: string[] } | null {
+  const commandline = selectPlatformCommandline(action.commandline);
+  if (commandline) {
+    const [executable, ...args] = parseCommandlineArgs(resolveServiceText(commandline, service, {}, resolvedPorts));
+    if (!executable) {
+      throw new LifecycleStateError(
+        `Cannot stop service "${service.manifest.id}" because actions.stop.commandline did not resolve to an executable.`,
+      );
+    }
+    return { executable, args };
+  }
+
+  if (!action.command) {
+    return null;
+  }
+
+  return {
+    executable: resolveServiceText(action.command, service, {}, resolvedPorts),
+    args: (action.args ?? []).map((arg) => resolveServiceText(arg, service, {}, resolvedPorts)),
+  };
+}
+
+function resolveStopOverrideCwd(
+  service: DiscoveredService,
+  action: ServiceActionDefinition,
+  resolvedPorts: Record<string, number>,
+): string {
+  if (!action.cwd) {
+    return service.serviceRoot;
+  }
+
+  const cwd = resolveServiceText(action.cwd, service, {}, resolvedPorts);
+  return path.isAbsolute(cwd) ? cwd : path.resolve(service.serviceRoot, cwd);
+}
+
+function buildStopOverrideEnvironment(
+  service: DiscoveredService,
+  action: ServiceActionDefinition,
+  resolvedPorts: Record<string, number>,
+): NodeJS.ProcessEnv {
+  const serviceVariables = Object.fromEntries(
+    buildServiceVariables(service, {}, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
+  );
+  const actionEnv = Object.fromEntries(
+    Object.entries(action.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, {}, resolvedPorts)]),
+  );
+
+  return {
+    ...process.env,
+    ...serviceVariables,
+    ...actionEnv,
+    SERVICE_LASSO_ACTION_ID: "stop",
+    SERVICE_LASSO_TARGET_ACTION_ID: "stop",
+    SERVICE_LASSO_RUN_SOURCE: "lifecycle",
+  };
+}
+
+async function runStopOverrideCommand(
+  service: DiscoveredService,
+  action: ServiceActionDefinition,
+  resolvedPorts: Record<string, number>,
+): Promise<{ ok: boolean; timedOut: boolean; exitCode: number | null; signal: NodeJS.Signals | null }> {
+  const command = resolveStopOverrideCommand(service, action, resolvedPorts);
+  if (!command) {
+    return { ok: false, timedOut: false, exitCode: null, signal: null };
+  }
+
+  const timeoutMs = (action.timeoutSeconds ?? DEFAULT_STOP_ACTION_TIMEOUT_SECONDS) * 1000;
+  await beginManagedProcessStop(service.manifest.id);
+
+  const child = spawn(command.executable, command.args, {
+    cwd: resolveStopOverrideCwd(service, action, resolvedPorts),
+    env: buildStopOverrideEnvironment(service, action, resolvedPorts),
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  let timedOut = false;
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<{ exitCode: null; signal: "SIGKILL" }>((resolve) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+      resolve({ exitCode: null, signal: "SIGKILL" });
+    }, timeoutMs);
+    timeout.unref?.();
+  });
+
+  const exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
+  });
+
+  try {
+    const exit = await Promise.race([exitPromise, timeoutPromise]);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    return {
+      ok: !timedOut && exit.exitCode === 0,
+      timedOut,
+      exitCode: exit.exitCode,
+      signal: exit.signal,
+    };
+  } catch {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    return {
+      ok: false,
+      timedOut: false,
+      exitCode: null,
+      signal: null,
+    };
+  }
+}
+
+async function stopManagedProcessWithOverride(
+  service: DiscoveredService,
+  current: ServiceLifecycleState,
+): Promise<{ exitCode: number | null; message: string }> {
+  const serviceId = service.manifest.id;
+  const override = getLifecycleStopOverride(service);
+  if (!override) {
+    const stopped = await stopManagedProcess(serviceId);
+    return {
+      exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
+      message: "Stop completed.",
+    };
+  }
+
+  const overrideResult = await runStopOverrideCommand(service, override, current.runtime.ports);
+  if (overrideResult.ok) {
+    const settled = await waitForManagedProcessExit(serviceId, 5_000);
+    if (settled || !hasManagedProcess(serviceId)) {
+      return {
+        exitCode: settled?.exitCode ?? overrideResult.exitCode ?? current.runtime.exitCode ?? 0,
+        message: "Stop completed with actions.stop override.",
+      };
+    }
+  }
+
+  const stopped = await stopManagedProcess(serviceId);
+  const reason = overrideResult.timedOut
+    ? "timed out"
+    : `failed with exit code ${overrideResult.exitCode ?? "unknown"}`;
+  return {
+    exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
+    message: `Stop override ${reason}; fallback stop completed.`,
+  };
+}
+
 export async function installService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
@@ -553,6 +734,7 @@ export async function configService(
       runtime: {
         ...state.runtime,
         ports: resolvedPorts,
+        endpoints: resolveServiceEndpoints(service, resolvedPorts),
       },
     },
     message: "Config completed.",
@@ -738,7 +920,7 @@ export async function startService(
     ...state,
     runtime: {
       ...state.runtime,
-      capturedVariables: {},
+      variables: {},
     },
   }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
@@ -803,6 +985,7 @@ export async function startService(
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
       ports: resolvedPorts,
+      endpoints: resolveServiceEndpoints(service, resolvedPorts),
       logs: {
         runId: handle.logs.runId,
         logPath: handle.logs.logPath,
@@ -860,20 +1043,21 @@ export async function startService(
     await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
+  const processStillManaged = hasManagedProcess(serviceId);
   const result = applyState(serviceId, "start", (state) => ({
     nextState: {
       ...state,
-      running: true,
+      running: processStillManaged,
       runtime: {
         ...state.runtime,
-        pid: handle.pid,
+        pid: processStillManaged ? handle.pid : null,
         startedAt: handle.startedAt,
-        finishedAt: null,
-        exitCode: null,
+        finishedAt: processStillManaged ? null : state.runtime.finishedAt,
+        exitCode: processStillManaged ? null : state.runtime.exitCode,
         command: handle.command,
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
-        lastTermination: null,
+        lastTermination: processStillManaged ? null : state.runtime.lastTermination,
         brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
       },
     },
@@ -894,7 +1078,7 @@ export async function stopService(
     );
   }
 
-  const stopped = await stopManagedProcess(serviceId);
+  const stopped = await stopManagedProcessWithOverride(service, current);
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),
@@ -910,13 +1094,13 @@ export async function stopService(
         ...state.runtime,
         pid: null,
         finishedAt,
-        exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+        exitCode: stopped.exitCode,
         lastTermination: "stopped",
         metrics: applyRunCompletionMetrics(state, finishedAt, "stopped"),
         brokerIdentity: revokedIdentity,
       },
     },
-    message: "Stop completed.",
+    message: stopped.message,
   }));
 }
 
@@ -979,7 +1163,7 @@ export async function restartService(
     ...state,
     runtime: {
       ...state.runtime,
-      capturedVariables: {},
+      variables: {},
     },
   }));
   const handle = await startManagedProcess({
@@ -1014,6 +1198,7 @@ export async function restartService(
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
       ports: resolvedPorts,
+      endpoints: resolveServiceEndpoints(service, resolvedPorts),
       logs: {
         runId: handle.logs.runId,
         logPath: handle.logs.logPath,

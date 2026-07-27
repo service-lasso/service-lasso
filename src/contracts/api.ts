@@ -10,6 +10,7 @@ import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping
 import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportTestResult } from "../runtime/operator/telemetry.js";
 import type { ServiceCatalogProvenance } from "./service.js";
 import type { ServiceActionRunState } from "../runtime/actions/runs.js";
+import type { ServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -195,6 +196,10 @@ export interface ManagedWorkflowRegistryResponse {
   workflows: ManagedWorkflowRegistryEntry[];
 }
 
+export interface ServiceWorkspaceRegistryResponse {
+  registry: ServiceWorkspaceRegistry;
+}
+
 export interface ServiceDetailResponse {
   service: ServiceSummary;
 }
@@ -325,6 +330,7 @@ export interface RuntimeFeatureFlags {
   operatorLogShipping: boolean;
   operatorLogs: boolean;
   operatorMcp: boolean;
+  serviceFiles: boolean;
   providerConnections: boolean;
   workflowFacade: boolean;
   localRouteGeneration: boolean;

@@ -120,8 +120,9 @@ function buildDashboardEndpoints(
   resolvedPorts: Record<string, number>,
 ): DashboardEndpointResponse[] {
   return buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts).endpoints.map((endpoint) => {
+    const endpointUrl = endpoint.url ?? "";
     try {
-      const parsed = new URL(endpoint.url);
+      const parsed = new URL(endpointUrl);
       const protocol = parsed.protocol.replace(/:$/, "");
       const safeProtocol =
         protocol === "http" || protocol === "https" || protocol === "tcp" ? protocol : "http";
@@ -137,7 +138,7 @@ function buildDashboardEndpoints(
 
       return {
         label: endpoint.label,
-        url: endpoint.url,
+        url: endpointUrl,
         bind: parsed.hostname,
         port,
         protocol: safeProtocol,
@@ -146,11 +147,11 @@ function buildDashboardEndpoints(
     } catch {
       return {
         label: endpoint.label,
-        url: endpoint.url,
-        bind: "unknown",
-        port: 0,
+        url: endpointUrl,
+        bind: endpoint.bind ?? "unknown",
+        port: endpoint.port ?? 0,
         protocol: "http",
-        exposure: endpoint.kind === "lan" ? "lan" : endpoint.kind === "public" ? "public" : "local",
+        exposure: endpoint.exposure === "lan" ? "lan" : endpoint.exposure === "public" ? "public" : "local",
       };
     }
   });
@@ -189,7 +190,7 @@ function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker" |
   }
 
   if (scope === "runtime") {
-    return "runtime";
+    return "process-output";
   }
 
   return "runtime";
