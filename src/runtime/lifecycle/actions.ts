@@ -33,6 +33,7 @@ import {
   collectRuntimeGlobalEnv,
   resolveServiceEnvValue,
   resolveServiceText,
+  type ServiceSelectorDiagnostic,
   type ServiceVariableResolutionOptions,
 } from "../operator/variables.js";
 import { resolveServiceEndpoints } from "../operator/endpoints.js";
@@ -401,12 +402,31 @@ function failStartTraceAndThrow(
   attempt: ServiceStartTraceAttempt,
   phase: ServiceStartTracePhase,
   message: string,
+  metadata: Record<string, string | number | boolean | null | string[]> = {},
 ): never {
   if (phase !== "terminal_outcome") {
-    recordStartTraceEvent(serviceId, attempt, phase, "blocked", message);
+    recordStartTraceEvent(serviceId, attempt, phase, "blocked", message, metadata);
   }
   finishStartTrace(serviceId, attempt, "blocked", message);
   throw new LifecycleStateError(message);
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
+}
+
+function formatUnresolvedLocalSelectorMessage(
+  serviceId: string,
+  diagnostics: ServiceSelectorDiagnostic[],
+): string {
+  const refs = diagnostics
+    .map((diagnostic) =>
+      diagnostic.key
+        ? `${diagnostic.key}:${diagnostic.selector}`
+        : diagnostic.selector,
+    )
+    .join(", ");
+  return `Cannot start service "${serviceId}" because required local env selectors are unresolved (${refs}).`;
 }
 
 function formatStartupBrokerFailureMessage(
@@ -904,10 +924,41 @@ export async function startService(
     service,
     options,
   );
+  const variablePayload = buildServiceVariables(
+    service,
+    sharedGlobalEnv,
+    resolvedPorts,
+    variableResolution,
+  );
+  const unresolvedLocalDiagnostics = variablePayload.diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.kind === "local" &&
+      diagnostic.reason === "unresolved-local",
+  );
   const selectorPlan = compileServiceSelectorPlan({
     ...(service.manifest.globalenv ?? {}),
     ...(service.manifest.env ?? {}),
   });
+  if (unresolvedLocalDiagnostics.length > 0) {
+    failStartTraceAndThrow(
+      serviceId,
+      trace,
+      "env_merge",
+      formatUnresolvedLocalSelectorMessage(serviceId, unresolvedLocalDiagnostics),
+      {
+        unresolvedSelectors: uniqueStrings(
+          unresolvedLocalDiagnostics.map((diagnostic) => diagnostic.selector),
+        ),
+        unresolvedEnvKeys: uniqueStrings(
+          unresolvedLocalDiagnostics.map((diagnostic) => diagnostic.key),
+        ),
+        unresolvedRawSelectors: uniqueStrings(
+          unresolvedLocalDiagnostics.map((diagnostic) => diagnostic.raw),
+        ),
+        brokerRefCount: selectorPlan.brokerRefs.length,
+      },
+    );
+  }
   recordStartTraceEvent(
     serviceId,
     trace,

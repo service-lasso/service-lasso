@@ -118,3 +118,54 @@ test("service start trace API records failed start without leaking request mater
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("service start trace blocks unresolved local env selectors before spawn", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-start-trace-env-block-");
+  await writeExecutableFixtureService(servicesRoot, "trace-env-blocked", {
+    env: {
+      PATH: ["${PYTHON_HOME}", "${NODE_HOME}"],
+    },
+    healthcheck: { type: "process" },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot: path.join(tempRoot, "workspace") });
+
+  try {
+    assert.equal((await postJson(apiServer.url + "/api/services/trace-env-blocked/install")).status, 200);
+    assert.equal((await postJson(apiServer.url + "/api/services/trace-env-blocked/config")).status, 200);
+    const blocked = await postJson(apiServer.url + "/api/services/trace-env-blocked/start");
+    assert.equal(blocked.status, 409);
+    assert.equal(blocked.body.error, "invalid_lifecycle_state");
+    assert.match(blocked.body.message, /PYTHON_HOME/);
+    assert.match(blocked.body.message, /NODE_HOME/);
+
+    const result = await getJson(apiServer.url + "/api/services/trace-env-blocked/start-trace");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.trace.status, "blocked");
+    assert.deepEqual(
+      result.body.trace.events.map((event) => event.phase),
+      [
+        "dependency_resolution",
+        "port_selection",
+        "artifact_acquisition",
+        "env_merge",
+        "terminal_outcome",
+      ],
+    );
+    const envMerge = result.body.trace.events.find((event) => event.phase === "env_merge");
+    assert.equal(envMerge.status, "blocked");
+    assert.deepEqual(envMerge.metadata.unresolvedEnvKeys, ["PATH"]);
+    assert.deepEqual(envMerge.metadata.unresolvedSelectors, [
+      "NODE_HOME",
+      "PYTHON_HOME",
+    ]);
+    assert.deepEqual(envMerge.metadata.unresolvedRawSelectors, [
+      "${NODE_HOME}",
+      "${PYTHON_HOME}",
+    ]);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});

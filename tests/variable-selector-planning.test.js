@@ -135,6 +135,35 @@ test("service variable resolution joins env arrays with path delimiter", () => {
   assert.equal(payload.selectorPlan.localRefs.includes("PYTHON_HOME"), true);
 });
 
+test("service variable diagnostics identify unresolved manifest env selectors", () => {
+  resetLifecycleState();
+  const service = fixtureService({
+    env: {
+      PATH: ["${PYTHON_HOME}", "${NODE_HOME}", "${SERVICE_ROOT}/bin"],
+      LOG_ROOT: "${SERVICE_ROOT}/logs",
+    },
+  });
+
+  const payload = buildServiceVariables(service);
+
+  assert.deepEqual(payload.diagnostics, [
+    {
+      selector: "PYTHON_HOME",
+      kind: "local",
+      reason: "unresolved-local",
+      key: "PATH",
+      raw: "${PYTHON_HOME}",
+    },
+    {
+      selector: "NODE_HOME",
+      kind: "local",
+      reason: "unresolved-local",
+      key: "PATH",
+      raw: "${NODE_HOME}",
+    },
+  ]);
+});
+
 test("selector planning inspects string array env entries", () => {
   const plan = compileServiceSelectorPlan({
     PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${vault.tool.path}"],
@@ -380,12 +409,26 @@ test("broker selectors require explicit imports and report denied/source auth di
   assert.equal(serializedPayload.includes("denied-secret"), false);
   assert.equal(serializedPayload.includes("auth-secret"), false);
   assert.deepEqual(payload.diagnostics, [
-    { selector: "vault.API_TOKEN", kind: "broker", reason: "denied-broker" },
-    { selector: "database.DENIED", kind: "broker", reason: "denied-broker" },
+    {
+      selector: "vault.API_TOKEN",
+      kind: "broker",
+      reason: "denied-broker",
+      key: "UNDECLARED",
+      raw: "${vault.API_TOKEN}",
+    },
+    {
+      selector: "database.DENIED",
+      kind: "broker",
+      reason: "denied-broker",
+      key: "DENIED",
+      raw: "${database.DENIED}",
+    },
     {
       selector: "database.SOURCE_AUTH",
       kind: "broker",
       reason: "source-auth-required",
+      key: "NEEDS_AUTH",
+      raw: "${database.SOURCE_AUTH}",
     },
     { selector: "database.DENIED", kind: "broker", reason: "denied-broker" },
     {
@@ -685,11 +728,41 @@ test("startup broker resolution classifies required failures without leaking loo
     ],
   );
   assert.deepEqual(payload.diagnostics, [
-    { selector: "vault.LOCKED", kind: "broker", reason: "locked-broker" },
-    { selector: "vault.DENIED", kind: "broker", reason: "denied-broker" },
-    { selector: "vault.AUTH", kind: "broker", reason: "source-auth-required" },
-    { selector: "vault.OFFLINE", kind: "broker", reason: "source-unavailable" },
-    { selector: "vault.DEGRADED", kind: "broker", reason: "degraded-broker" },
+    {
+      selector: "vault.LOCKED",
+      kind: "broker",
+      reason: "locked-broker",
+      key: "LOCKED",
+      raw: "${vault.LOCKED}",
+    },
+    {
+      selector: "vault.DENIED",
+      kind: "broker",
+      reason: "denied-broker",
+      key: "DENIED",
+      raw: "${vault.DENIED}",
+    },
+    {
+      selector: "vault.AUTH",
+      kind: "broker",
+      reason: "source-auth-required",
+      key: "AUTH",
+      raw: "${vault.AUTH}",
+    },
+    {
+      selector: "vault.OFFLINE",
+      kind: "broker",
+      reason: "source-unavailable",
+      key: "OFFLINE",
+      raw: "${vault.OFFLINE}",
+    },
+    {
+      selector: "vault.DEGRADED",
+      kind: "broker",
+      reason: "degraded-broker",
+      key: "DEGRADED",
+      raw: "${vault.DEGRADED}",
+    },
     { selector: "vault.MISSING", kind: "broker", reason: "missing-broker" },
   ]);
   const serialized = JSON.stringify({ resolution, payload });
