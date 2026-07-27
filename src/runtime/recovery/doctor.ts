@@ -2,6 +2,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { DiscoveredService, ServiceDoctorPolicy, ServiceHookFailurePolicy, ServiceHookStep } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
+import { resolveServiceEnvValue } from "../operator/variables.js";
 import { appendServiceRecoveryHistoryEvents } from "./history.js";
 
 export interface DoctorStepResult {
@@ -53,7 +54,12 @@ async function runDoctorStep(
     cwd: resolveStepCwd(service, step),
     env: {
       ...process.env,
-      ...(step.env ?? {}),
+      ...Object.fromEntries(
+        Object.entries(step.env ?? {}).map(([key, value]) => [
+          key,
+          resolveServiceEnvValue(value, service),
+        ]),
+      ),
       SERVICE_ID: service.manifest.id,
       SERVICE_ROOT: service.serviceRoot,
     },

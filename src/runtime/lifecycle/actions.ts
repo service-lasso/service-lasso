@@ -31,6 +31,7 @@ import {
   buildServiceVariables,
   compileServiceSelectorPlan,
   collectRuntimeGlobalEnv,
+  resolveServiceEnvValue,
   resolveServiceText,
   type ServiceVariableResolutionOptions,
 } from "../operator/variables.js";
@@ -561,7 +562,10 @@ function buildStopOverrideEnvironment(
     buildServiceVariables(service, {}, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
   const actionEnv = Object.fromEntries(
-    Object.entries(action.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, {}, resolvedPorts)]),
+    Object.entries(action.env ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceEnvValue(value, service, {}, resolvedPorts),
+    ]),
   );
 
   return {

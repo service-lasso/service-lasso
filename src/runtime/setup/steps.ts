@@ -13,7 +13,7 @@ import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
 import { startService } from "../lifecycle/actions.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
-import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceText } from "../operator/variables.js";
+import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { writeServiceState } from "../state/writeState.js";
 
@@ -223,7 +223,10 @@ function buildProcessEnvironment(
     buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
   const stepEnv = Object.fromEntries(
-    Object.entries(step.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, sharedGlobalEnv, resolvedPorts)]),
+    Object.entries(step.env ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceEnvValue(value, service, sharedGlobalEnv, resolvedPorts),
+    ]),
   );
 
   return {
