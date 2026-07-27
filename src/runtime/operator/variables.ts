@@ -7,7 +7,7 @@ import { buildEndpointVariables } from "./endpoints.js";
 export interface ServiceVariableEntry {
   key: string;
   value: string;
-  scope: "manifest" | "derived" | "global" | "broker";
+  scope: "manifest" | "derived" | "global" | "broker" | "runtime";
 }
 
 export type ServiceSelectorKind = "local" | "broker";
@@ -551,6 +551,13 @@ export function buildServiceVariables(
       }
       return [{ key: entry.as as string, value: brokerValue, scope: "broker" }];
     });
+  const runtimeVariables = Object.entries(
+    getLifecycleState(service.manifest.id).runtime.variables,
+  ).map(([key, variable]) => ({
+    key,
+    value: variable.value,
+    scope: "runtime" as const,
+  }));
 
   return {
     serviceId: service.manifest.id,
@@ -559,6 +566,7 @@ export function buildServiceVariables(
       ...brokerImportVariables,
       ...globalVariables,
       ...derivedVariables,
+      ...runtimeVariables,
     ],
     selectorPlan: compileCachedServiceSelectorPlan(
       `service:${service.manifestPath}:${service.manifest.id}:env`,
