@@ -8,6 +8,7 @@ import {
   compileCachedServiceSelectorPlan,
   compileServiceMaterializationSelectorPlan,
   compileServiceSelectorPlan,
+  collectServiceGlobalEnv,
   getServiceSelectorPlanCacheStats,
   resetServiceSelectorPlanCache,
   resolveServiceText,
@@ -98,6 +99,50 @@ test("service variable resolution preserves local precedence and legacy globalen
   );
   assert.equal(byKey.FROM_DERIVED, "consumer:4310");
   assert.equal(byKey.FROM_GLOBAL, "C:/tools/legacy");
+});
+
+test("service variable resolution joins env arrays with path delimiter", () => {
+  resetLifecycleState();
+  const service = fixtureService({
+    env: {
+      PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"],
+    },
+    globalenv: {
+      TOOL_PATHS: ["${SERVICE_ROOT}/tools", "${PATH}"],
+    },
+  });
+  const sharedGlobalEnv = {
+    PYTHON_HOME: "C:/Python311",
+    PYTHON_SCRIPTS_PATH: "C:/Python311/Scripts",
+  };
+
+  const payload = buildServiceVariables(service, sharedGlobalEnv);
+  const byKey = Object.fromEntries(
+    payload.variables.map((entry) => [entry.key, entry.value]),
+  );
+  const serviceRoot = path.join(process.cwd(), "services", "consumer");
+
+  assert.equal(
+    byKey.PATH,
+    ["C:/Python311", "C:/Python311/Scripts", `${serviceRoot}/bin`].join(path.delimiter),
+  );
+
+  const globalEnv = collectServiceGlobalEnv(service, sharedGlobalEnv);
+  assert.equal(
+    globalEnv.TOOL_PATHS,
+    [`${serviceRoot}/tools`, byKey.PATH].join(path.delimiter),
+  );
+  assert.equal(payload.selectorPlan.localRefs.includes("PYTHON_HOME"), true);
+});
+
+test("selector planning inspects string array env entries", () => {
+  const plan = compileServiceSelectorPlan({
+    PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${vault.tool.path}"],
+    MODE: "demo",
+  });
+
+  assert.deepEqual(plan.localRefs, ["PYTHON_HOME", "PYTHON_SCRIPTS_PATH"]);
+  assert.deepEqual(plan.brokerRefs, ["vault.tool.path"]);
 });
 
 test("service variables include runtime-captured values for bare and selector resolution", () => {

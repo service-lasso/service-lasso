@@ -493,7 +493,12 @@ Example:
 
 ```json
 "env": {
-  "ECHO_MESSAGE": "hello from service-template"
+  "ECHO_MESSAGE": "hello from service-template",
+  "PATH": [
+    "${PYTHON_HOME}",
+    "${PYTHON_SCRIPTS_PATH}",
+    "${SERVICE_ROOT}/bin"
+  ]
 }
 ```
 
@@ -503,6 +508,8 @@ Current direction:
 - avoid depending on uncontrolled host-machine env leakage
 - use `${VAR}` for local/current-service/derived values and legacy `globalenv` compatibility
 - use `${namespace.KEY}` only for explicit Secrets Broker selectors; unresolved or denied broker refs stay unresolved for diagnostics rather than falling back to a bare local name
+- env and `globalenv` values can be strings or arrays of non-empty strings
+- string arrays resolve selectors per entry and join with the host path delimiter before a process is spawned
 
 ### `broker`
 

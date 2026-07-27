@@ -273,6 +273,77 @@ test("loadServiceManifest fails explicitly for malformed manifests", async () =>
   }
 });
 
+test("loadServiceManifest accepts env and globalenv string arrays", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "path-env-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "path-env-service",
+        name: "Path Env Service",
+        description: "Service with path-list environment entries.",
+        env: {
+          PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"],
+          MODE: "demo",
+        },
+        globalenv: {
+          TOOL_PATHS: ["${SERVICE_ROOT}/tools", "${SERVICE_ROOT}/plugins"],
+        },
+        setup: {
+          steps: {
+            prepare: {
+              executable: "node",
+              args: ["prepare.mjs"],
+              env: {
+                SETUP_PATH: ["${SERVICE_ROOT}/setup", "${PATH}"],
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.env?.PATH, ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"]);
+    assert.equal(manifest.env?.MODE, "demo");
+    assert.deepEqual(manifest.globalenv?.TOOL_PATHS, ["${SERVICE_ROOT}/tools", "${SERVICE_ROOT}/plugins"]);
+    assert.deepEqual(manifest.setup?.steps?.prepare.env?.SETUP_PATH, ["${SERVICE_ROOT}/setup", "${PATH}"]);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects invalid env array entries", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "bad-path-env-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "bad-path-env-service",
+        name: "Bad Path Env Service",
+        description: "Service with invalid path-list environment entries.",
+        env: {
+          PATH: ["${SERVICE_ROOT}/bin", ""],
+        },
+      }),
+    );
+
+    await assert.rejects(
+      () => loadServiceManifest(manifestPath),
+      /expected "env" to be a map of strings or non-empty string arrays/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded tcp healthchecks", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "tcp-service", "service.json");

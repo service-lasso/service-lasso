@@ -1,5 +1,5 @@
 import { getServiceStatePaths } from "../state/paths.js";
-import type { DiscoveredService } from "../../contracts/service.js";
+import type { DiscoveredService, ServiceEnvMap, ServiceEnvValue } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import path from "node:path";
 import { buildEndpointVariables } from "./endpoints.js";
@@ -214,7 +214,7 @@ function compileServiceSelectorTemplate(
 }
 
 function fingerprintSelectorValues(
-  values: string[] | Record<string, string>,
+  values: string[] | ServiceEnvMap,
 ): string {
   if (Array.isArray(values)) {
     return JSON.stringify({ kind: "array", values });
@@ -230,7 +230,7 @@ function fingerprintSelectorValues(
 
 export function compileCachedServiceSelectorPlan(
   cacheKey: string,
-  values: string[] | Record<string, string>,
+  values: string[] | ServiceEnvMap,
 ): ServiceSelectorPlan {
   const fingerprint = fingerprintSelectorValues(values);
   const cached = selectorPlanCache.get(cacheKey);
@@ -251,9 +251,11 @@ export function compileCachedServiceSelectorPlan(
 }
 
 export function compileServiceSelectorPlan(
-  values: string[] | Record<string, string>,
+  values: string[] | ServiceEnvMap,
 ): ServiceSelectorPlan {
-  const texts = Array.isArray(values) ? values : Object.values(values);
+  const texts = Array.isArray(values)
+    ? values
+    : Object.values(values).flatMap((value) => (Array.isArray(value) ? value : [value]));
   const selectors = new Map<string, ServiceSelectorRef>();
 
   for (const text of texts) {
@@ -272,6 +274,18 @@ export function compileServiceSelectorPlan(
       .filter((selector) => selector.kind === "broker")
       .map((selector) => selector.selector),
   };
+}
+
+function replaceEnvValueSelectors(
+  value: ServiceEnvValue,
+  variables: ServiceVariableEntry[],
+  options: ServiceTextResolutionOptions = {},
+): string {
+  if (Array.isArray(value)) {
+    return value.map((entry) => replaceVariableSelectors(entry, variables, options)).join(path.delimiter);
+  }
+
+  return replaceVariableSelectors(value, variables, options);
 }
 
 function mergeSelectorPlans(plans: ServiceSelectorPlan[]): ServiceSelectorPlan {
@@ -404,13 +418,12 @@ export function buildServiceVariables(
   const installArtifact = getLifecycleState(service.manifest.id)
     .installArtifacts.artifact;
   const executableHome = installArtifact?.extractedPath ?? service.serviceRoot;
-  const rawManifestVariables = Object.entries(service.manifest.env ?? {}).map(
-    ([key, value]) => ({
-      key,
-      value,
-      scope: "manifest" as const,
-    }),
-  );
+  const rawManifestEnv = service.manifest.env ?? {};
+  const rawManifestVariables = Object.entries(rawManifestEnv).map(([key, value]) => ({
+    key,
+    value: Array.isArray(value) ? value.join(path.delimiter) : value,
+    scope: "manifest" as const,
+  }));
 
   const globalVariables = Object.entries(sharedGlobalEnv).map(
     ([key, value]) => ({
@@ -484,10 +497,11 @@ export function buildServiceVariables(
     allowedBrokerRefs,
     diagnostics: manifestDiagnostics,
   };
-  const manifestVariables = rawManifestVariables.map((entry) => ({
-    ...entry,
-    value: replaceVariableSelectors(
-      entry.value,
+  const manifestVariables = Object.entries(rawManifestEnv).map(([key, value]) => ({
+    key,
+    scope: "manifest" as const,
+    value: replaceEnvValueSelectors(
+      value,
       [...rawManifestVariables, ...globalVariables, ...derivedVariables],
       brokerResolutionOptions,
     ),
@@ -591,7 +605,7 @@ export function collectServiceGlobalEnv(
   return Object.fromEntries(
     Object.entries(configuredGlobalEnv).map(([key, value]) => [
       key,
-      replaceVariableSelectors(value, variables),
+      replaceEnvValueSelectors(value, variables),
     ]),
   );
 }
@@ -676,6 +690,29 @@ export function resolveServiceText(
     (entry) => entry.ref,
   );
   return replaceVariableSelectors(value, variablesPayload.variables, {
+    ...options,
+    allowedBrokerRefs:
+      declaredBrokerRefs.length > 0 ? declaredBrokerRefs : undefined,
+  });
+}
+
+export function resolveServiceEnvValue(
+  value: ServiceEnvValue,
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = {},
+  options: ServiceTextResolutionOptions = {},
+): string {
+  const variablesPayload = buildServiceVariables(
+    service,
+    sharedGlobalEnv,
+    resolvedPorts,
+    options,
+  );
+  const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map(
+    (entry) => entry.ref,
+  );
+  return replaceEnvValueSelectors(value, variablesPayload.variables, {
     ...options,
     allowedBrokerRefs:
       declaredBrokerRefs.length > 0 ? declaredBrokerRefs : undefined,

@@ -7,7 +7,7 @@ import { ApiError, LifecycleStateError } from "../../server/errors.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
-import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceText } from "../operator/variables.js";
+import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
@@ -532,7 +532,10 @@ function buildProcessEnvironment(
     buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
   const actionEnv = Object.fromEntries(
-    Object.entries(action.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, sharedGlobalEnv, resolvedPorts)]),
+    Object.entries(action.env ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceEnvValue(value, service, sharedGlobalEnv, resolvedPorts),
+    ]),
   );
 
   return {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import type { ServiceManifest } from "../../contracts/service.js";
+import type { ServiceEnvMap, ServiceManifest } from "../../contracts/service.js";
 import { discoverServices } from "../discovery/discoverServices.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
 
@@ -114,7 +114,7 @@ function redactValue(value: unknown, parentKey = ""): unknown {
   return value;
 }
 
-function redactEnvMap(value: Record<string, string> | undefined): Record<string, string> | undefined {
+function redactEnvMap(value: ServiceEnvMap | undefined): Record<string, string> | undefined {
   if (!value) {
     return undefined;
   }

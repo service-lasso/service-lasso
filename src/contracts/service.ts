@@ -81,7 +81,7 @@ export interface ServiceHookStep {
   cwd?: string;
   timeoutSeconds?: number;
   failurePolicy?: ServiceHookFailurePolicy;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
 }
 
 export interface ServiceMonitoringPolicy {
@@ -166,7 +166,7 @@ export interface ServiceActionDefinition {
   commandline?: Record<string, string>;
   args?: string[];
   cwd?: string;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
   timeoutSeconds?: number;
   requiredState?: ServiceActionRequiredState;
   requiresConfirmation?: boolean;
@@ -188,7 +188,7 @@ export interface ServiceSetupStep {
   executable?: string;
   args?: string[];
   commandline?: Record<string, string>;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;
 }
@@ -200,6 +200,9 @@ export interface ServiceSetupPolicy {
 export interface ServiceExecutionConfig {
   serviceorder?: number;
 }
+
+export type ServiceEnvValue = string | string[];
+export type ServiceEnvMap = Record<string, ServiceEnvValue>;
 
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
 export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
@@ -343,8 +346,8 @@ export interface ServiceManifest {
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
   outputvarregex?: Record<string, string>;
-  env?: Record<string, string>;
-  globalenv?: Record<string, string>;
+  env?: ServiceEnvMap;
+  globalenv?: ServiceEnvMap;
   broker?: ServiceBrokerPolicy;
   endpoints?: ServiceManifestEndpoint[];
   ports?: ServicePortDeclaration;

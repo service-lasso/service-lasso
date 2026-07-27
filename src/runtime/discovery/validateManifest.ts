@@ -21,6 +21,8 @@ import type {
   ServiceFilesRootMode,
   ServiceManifestEndpoint,
   ServiceActionWorkflowStep,
+  ServiceEnvMap,
+  ServiceEnvValue,
   ServiceManifest,
   ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
@@ -190,6 +192,28 @@ function readStringMap(value: unknown, field: string, manifestPath: string): Rec
   return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
 }
 
+function isServiceEnvValue(value: unknown): value is ServiceEnvValue {
+  if (typeof value === "string") {
+    return true;
+  }
+
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function readEnvMap(value: unknown, field: string, manifestPath: string): ServiceEnvMap | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some((entry) => !isServiceEnvValue(entry))) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}" to be a map of strings or non-empty string arrays.`,
+    );
+  }
+
+  return Object.fromEntries(Object.entries(value as ServiceEnvMap).map(([key, entry]) => [key.trim(), entry]));
+}
+
 function readOutputVarRegex(value: unknown, manifestPath: string): Record<string, string> | undefined {
   if (value === undefined) {
     return undefined;
@@ -275,7 +299,7 @@ function readHookSteps(value: unknown, field: string, manifestPath: string): Ser
       cwd: typeof record.cwd === "string" ? record.cwd.trim() : undefined,
       timeoutSeconds: expectOptionalWholeNumber(record.timeoutSeconds, `${stepField}.timeoutSeconds`, manifestPath, 1),
       failurePolicy: expectOptionalFailurePolicy(record.failurePolicy, `${stepField}.failurePolicy`, manifestPath),
-      env: readStringMap(record.env, `${stepField}.env`, manifestPath),
+      env: readEnvMap(record.env, `${stepField}.env`, manifestPath),
     };
   });
 }
@@ -424,7 +448,7 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
           executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
           args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
           commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
-          env: readStringMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
+          env: readEnvMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
           timeoutSeconds: expectOptionalWholeNumber(
             step.timeoutSeconds,
             `setup.steps.${normalizedStepId}.timeoutSeconds`,
@@ -981,7 +1005,7 @@ function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest
           commandline,
           args: readStringArray(action.args, `${actionField}.args`, manifestPath),
           cwd: typeof action.cwd === "string" ? action.cwd.trim() : undefined,
-          env: readStringMap(action.env, `${actionField}.env`, manifestPath),
+          env: readEnvMap(action.env, `${actionField}.env`, manifestPath),
           timeoutSeconds: expectOptionalWholeNumber(action.timeoutSeconds, `${actionField}.timeoutSeconds`, manifestPath, 1),
           requiredState: expectOptionalEnum<ServiceActionRequiredState>(
             action.requiredState,
@@ -1268,8 +1292,8 @@ function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: strin
 
 function validateBrokerCollisions(
   broker: ServiceManifest["broker"],
-  env: Record<string, string> | undefined,
-  globalenv: Record<string, string> | undefined,
+  env: ServiceEnvMap | undefined,
+  globalenv: ServiceEnvMap | undefined,
   manifestPath: string,
 ): void {
   if (!broker) {
@@ -1736,24 +1760,8 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     }
   }
 
-  const rawEnv = record.env;
-  if (
-    rawEnv !== undefined &&
-    (!rawEnv || typeof rawEnv !== "object" || Array.isArray(rawEnv) || Object.values(rawEnv).some((value) => typeof value !== "string"))
-  ) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"env\" to be a string map.`);
-  }
-
-  const rawGlobalEnv = record.globalenv;
-  if (
-    rawGlobalEnv !== undefined &&
-    (!rawGlobalEnv ||
-      typeof rawGlobalEnv !== "object" ||
-      Array.isArray(rawGlobalEnv) ||
-      Object.values(rawGlobalEnv).some((value) => typeof value !== "string"))
-  ) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"globalenv\" to be a string map.`);
-  }
+  const env = readEnvMap(record.env, "env", manifestPath);
+  const globalenv = readEnvMap(record.globalenv, "globalenv", manifestPath);
 
   const rawPorts = record.ports;
   if (
@@ -1832,10 +1840,6 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
   const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
-  const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
-  const globalenv = rawGlobalEnv
-    ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
-    : undefined;
   validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);

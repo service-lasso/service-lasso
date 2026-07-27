@@ -1,4 +1,4 @@
-import type { DiscoveredService, ServiceBrokerImport } from "../../contracts/service.js";
+import type { DiscoveredService, ServiceBrokerImport, ServiceEnvMap, ServiceEnvValue } from "../../contracts/service.js";
 
 export type SecretReferenceAuditStatus = "present" | "missing" | "malformed";
 export type SecretAccessPolicyAssignmentStatus = "allowed" | "missing" | "not_applicable";
@@ -181,11 +181,16 @@ function isSecretLikeLocalSelector(selector: string): boolean {
 function addSelectorCandidates(
   candidates: CandidateRef[],
   declaredRefs: Set<string>,
-  value: string | undefined,
+  value: ServiceEnvValue | undefined,
   source: SecretReferenceAuditSource,
   location: string,
 ): void {
   if (!value) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => addSelectorCandidates(candidates, declaredRefs, entry, source, `${location}[${index}]`));
     return;
   }
 
@@ -216,7 +221,7 @@ function addSelectorCandidates(
 function addRecordSelectorCandidates(
   candidates: CandidateRef[],
   declaredRefs: Set<string>,
-  values: Record<string, string> | undefined,
+  values: ServiceEnvMap | undefined,
   source: SecretReferenceAuditSource,
   parentPath: string,
 ): void {
