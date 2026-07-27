@@ -58,11 +58,14 @@ export interface ServiceSelectorDiagnostic {
   selector: string;
   kind: ServiceSelectorKind;
   reason: ServiceSelectorDiagnosticReason;
+  key?: string;
+  raw?: string;
 }
 
 export interface ServiceTextResolutionOptions {
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
+  diagnosticKey?: string;
   allowedBrokerRefs?: Set<string> | string[];
   deniedBrokerRefs?: Set<string> | string[];
   lockedBrokerRefs?: Set<string> | string[];
@@ -318,6 +321,23 @@ function hasRef(
   return Array.isArray(refs) ? refs.includes(ref) : refs.has(ref);
 }
 
+function pushSelectorDiagnostic(
+  diagnostics: ServiceSelectorDiagnostic[] | undefined,
+  diagnostic: ServiceSelectorDiagnostic,
+  options: ServiceTextResolutionOptions,
+  raw: string,
+): void {
+  if (!diagnostics) {
+    return;
+  }
+
+  diagnostics.push(
+    options.diagnosticKey
+      ? { ...diagnostic, key: options.diagnosticKey, raw }
+      : diagnostic,
+  );
+}
+
 function replaceVariableSelectors(
   value: string,
   variables: ServiceVariableEntry[],
@@ -336,72 +356,112 @@ function replaceVariableSelectors(
           options.allowedBrokerRefs &&
           !hasRef(options.allowedBrokerRefs, ref.selector)
         ) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "denied-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "denied-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.deniedBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "denied-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "denied-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.lockedBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "locked-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "locked-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.sourceAuthRequiredBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "source-auth-required",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "source-auth-required",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.sourceUnavailableBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "source-unavailable",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "source-unavailable",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.degradedBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "degraded-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "degraded-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         const brokerValue = options.brokerValues?.[ref.selector];
         if (brokerValue !== undefined) {
           return brokerValue;
         }
-        options.diagnostics?.push({
-          selector: ref.selector,
-          kind: "broker",
-          reason: "missing-broker",
-        });
+        pushSelectorDiagnostic(
+          options.diagnostics,
+          {
+            selector: ref.selector,
+            kind: "broker",
+            reason: "missing-broker",
+          },
+          options,
+          raw,
+        );
         return raw;
       }
 
       const entry = variables.find((candidate) => candidate.key === ref.key);
       if (!entry) {
-        options.diagnostics?.push({
-          selector: ref.selector,
-          kind: "local",
-          reason: "unresolved-local",
-        });
+        pushSelectorDiagnostic(
+          options.diagnostics,
+          {
+            selector: ref.selector,
+            kind: "local",
+            reason: "unresolved-local",
+          },
+          options,
+          raw,
+        );
       }
       return entry ? entry.value : raw;
     })
@@ -503,7 +563,7 @@ export function buildServiceVariables(
     value: replaceEnvValueSelectors(
       value,
       [...rawManifestVariables, ...globalVariables, ...derivedVariables],
-      brokerResolutionOptions,
+      { ...brokerResolutionOptions, diagnosticKey: key },
     ),
   }));
 
