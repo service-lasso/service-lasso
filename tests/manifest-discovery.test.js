@@ -303,6 +303,97 @@ test("loadServiceManifest accepts bounded tcp healthchecks", async () => {
   }
 });
 
+test("loadServiceManifest accepts canonical tcp host and port healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "tcp-host-port-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "tcp-host-port-service",
+        name: "TCP Host Port Service",
+        description: "Service with host and port TCP health.",
+        healthcheck: {
+          type: "tcp",
+          host: "127.0.0.1",
+          port: "${HTTP_PORT}",
+          retries: 30,
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "tcp",
+      host: "127.0.0.1",
+      port: "${HTTP_PORT}",
+      retries: 30,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts bare tcp healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "tcp-default-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "tcp-default-service",
+        name: "TCP Default Service",
+        description: "Service with default TCP health.",
+        healthcheck: {
+          type: "tcp",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "tcp",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects legacy tcp healthcheck aliases", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "tcp-alias-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "tcp-alias-service",
+        name: "TCP Alias Service",
+        description: "Service with unsupported TCP health aliases.",
+        healthcheck: {
+          type: "tcp",
+          tcphost: "127.0.0.1",
+          tcpport: "4012",
+        },
+      }),
+    );
+
+    await assert.rejects(
+      () => loadServiceManifest(manifestPath),
+      /tcphost.*tcpport.*healthcheck\.host.*healthcheck\.port.*healthcheck\.address/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded file healthchecks", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "file-service", "service.json");
