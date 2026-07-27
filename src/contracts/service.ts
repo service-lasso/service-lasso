@@ -342,6 +342,7 @@ export interface ServiceManifest {
   execconfig?: ServiceExecutionConfig;
   depend_on?: string[];
   healthcheck?: ServiceHealthcheck;
+  outputvarregex?: Record<string, string>;
   env?: Record<string, string>;
   globalenv?: Record<string, string>;
   broker?: ServiceBrokerPolicy;

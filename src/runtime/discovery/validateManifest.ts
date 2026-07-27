@@ -190,6 +190,35 @@ function readStringMap(value: unknown, field: string, manifestPath: string): Rec
   return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
 }
 
+function readOutputVarRegex(value: unknown, manifestPath: string): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some((entry) => typeof entry !== "string")) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "outputvarregex" to be a string map.`);
+  }
+
+  const variables = new Map<string, string>();
+  for (const [rawName, pattern] of Object.entries(value as Record<string, string>)) {
+    const variableName = rawName.trim();
+    if (variableName.length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: outputvarregex variable names must be non-empty.`);
+    }
+    if (variables.has(variableName)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate outputvarregex variable "${variableName}".`);
+    }
+    try {
+      new RegExp(pattern);
+    } catch {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected outputvarregex.${variableName} to be a valid regular expression.`);
+    }
+    variables.set(variableName, pattern);
+  }
+
+  return Object.fromEntries(variables);
+}
+
 function readNonEmptyStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -1751,6 +1780,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
 
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
+  const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
   const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
   const globalenv = rawGlobalEnv
     ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
@@ -1779,6 +1809,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     execconfig,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
     healthcheck,
+    outputvarregex,
     env,
     globalenv,
     broker,

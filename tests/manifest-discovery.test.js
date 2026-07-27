@@ -363,6 +363,98 @@ test("loadServiceManifest accepts bounded variable healthchecks", async () => {
   }
 });
 
+test("loadServiceManifest accepts legacy outputvarregex maps for variable healthchecks", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "stdout-variable-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "stdout-variable-service",
+        name: "Stdout Variable Service",
+        description: "Service with stdout-derived variable readiness.",
+        outputvarregex: {
+          FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+        },
+        healthcheck: {
+          type: "variable",
+          variable: "FILEBEAT_ENABLED_INPUTS",
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.outputvarregex, {
+      FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+    });
+    assert.deepEqual(manifest.healthcheck, {
+      type: "variable",
+      variable: "FILEBEAT_ENABLED_INPUTS",
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects malformed outputvarregex maps", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-outputvarregex-shape", {
+      id: "bad-outputvarregex-shape",
+      name: "Bad Output Regex Shape",
+      description: "Invalid output variable regex shape.",
+      outputvarregex: ["not", "a", "map"],
+    });
+    await writeManifest(servicesRoot, "bad-outputvarregex-value", {
+      id: "bad-outputvarregex-value",
+      name: "Bad Output Regex Value",
+      description: "Invalid output variable regex value.",
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: 1,
+      },
+    });
+    await writeManifest(servicesRoot, "bad-outputvarregex-name", {
+      id: "bad-outputvarregex-name",
+      name: "Bad Output Regex Name",
+      description: "Invalid output variable regex name.",
+      outputvarregex: {
+        " ": ".*Enabled inputs: (\\d+).*",
+      },
+    });
+    await writeManifest(servicesRoot, "bad-outputvarregex-pattern", {
+      id: "bad-outputvarregex-pattern",
+      name: "Bad Output Regex Pattern",
+      description: "Invalid output variable regex pattern.",
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: "[",
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-shape", "service.json")),
+      /expected "outputvarregex" to be a string map/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-value", "service.json")),
+      /expected "outputvarregex" to be a string map/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-name", "service.json")),
+      /outputvarregex variable names must be non-empty/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-outputvarregex-pattern", "service.json")),
+      /expected outputvarregex\.FILEBEAT_ENABLED_INPUTS to be a valid regular expression/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts manifest readiness retry fields", async () => {
   const servicesRoot = await makeTempServicesRoot();
 
