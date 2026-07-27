@@ -809,6 +809,14 @@ Service Lasso supports these explicit healthcheck types:
 
 `process` is the current template default direction; use one of the explicit types above when a service needs a stronger readiness signal.
 
+When a service declares an explicit `healthcheck`, startup readiness waits by default even if the manifest omits readiness timing fields. Default readiness settings are:
+
+- `retries`: `10`
+- `interval`: `1000` milliseconds
+- `start_period`: `0` milliseconds
+
+Existing manifests that set `retries`, `interval`, or `start_period` keep those explicit values.
+
 ### `process` healthcheck
 
 Use when:
