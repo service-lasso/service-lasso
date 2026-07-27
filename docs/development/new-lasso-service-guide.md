@@ -96,6 +96,8 @@ Provider services should declare:
 - `globalenv` entries that expose installed tool paths through `${SERVICE_ARTIFACT_COMMAND}` and `${SERVICE_ARTIFACT_ROOT}`
 - a cheap version/probe command in platform `args`
 
+Use `SERVICE_ROOT` as the canonical service package root in service-local env, setup, config, commandline, and healthcheck selectors. `SERVICE_PATH` is available as a compatibility alias for authoring examples that use package-path wording. Provider-level names such as `NODE_HOME`, `PYTHON_HOME`, and `PYTHON_SCRIPTS_PATH` must be exported by the provider service through `globalenv`; ordinary services should not assume those names exist unless they depend on the provider that publishes them.
+
 ## Managed Binary Example
 
 ```json

@@ -105,6 +105,7 @@ test("service variable resolution joins env arrays with path delimiter", () => {
   resetLifecycleState();
   const service = fixtureService({
     env: {
+      PACKAGE_PATH: "${SERVICE_PATH}/__packages__",
       PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"],
     },
     globalenv: {
@@ -122,6 +123,9 @@ test("service variable resolution joins env arrays with path delimiter", () => {
   );
   const serviceRoot = path.join(process.cwd(), "services", "consumer");
 
+  assert.equal(byKey.SERVICE_ROOT, serviceRoot);
+  assert.equal(byKey.SERVICE_PATH, serviceRoot);
+  assert.equal(byKey.PACKAGE_PATH, `${serviceRoot}/__packages__`);
   assert.equal(
     byKey.PATH,
     ["C:/Python311", "C:/Python311/Scripts", `${serviceRoot}/bin`].join(path.delimiter),

@@ -505,6 +505,11 @@ export function buildServiceVariables(
       scope: "derived",
     },
     {
+      key: "SERVICE_PATH",
+      value: service.serviceRoot,
+      scope: "derived",
+    },
+    {
       key: "SERVICE_STATE_ROOT",
       value: statePaths.stateRoot,
       scope: "derived",

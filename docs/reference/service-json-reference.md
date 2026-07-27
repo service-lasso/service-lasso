@@ -511,6 +511,18 @@ Current direction:
 - env and `globalenv` values can be strings or arrays of non-empty strings
 - string arrays resolve selectors per entry and join with the host path delimiter before a process is spawned
 
+Canonical derived path variables:
+
+- `SERVICE_ROOT` is the canonical service package root.
+- `SERVICE_PATH` is a compatibility alias for `SERVICE_ROOT`, intended for portable donor-style examples that refer to the service package path.
+- `SERVICE_STATE_ROOT` points at the runtime state root for the service.
+- `SERVICE_DATA_PATH` points at the service-local `data` directory.
+- `SERVICE_EXECUTABLE_HOME` points at the installed artifact extraction root when a release artifact is installed, otherwise the service package root.
+- `SERVICE_ARTIFACT_ROOT` is present only when an installed release artifact has an extracted path.
+- `SERVICE_ARTIFACT_COMMAND` is present only when the installed release artifact declares both an extracted path and command.
+
+Provider-level path variables such as `NODE_HOME`, `PYTHON_HOME`, and `PYTHON_SCRIPTS_PATH` are not derived automatically for every service. Provider services should export the concrete names they support through their own `globalenv` entries, usually from `SERVICE_ARTIFACT_ROOT` or `SERVICE_ARTIFACT_COMMAND`, and consuming services should depend on the provider that supplies them.
+
 ### `broker`
 
 `broker` is the first-class Secrets Broker manifest contract. It lets a service declare the namespaces and refs it consumes, the values it exports, and which generated secrets it may write back.
