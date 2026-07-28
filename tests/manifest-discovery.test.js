@@ -610,6 +610,42 @@ test("loadServiceManifest accepts canonical healthchecks arrays", async () => {
   }
 });
 
+test("loadServiceManifest does not project provider process healthchecks into daemon health", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "@node", {
+      id: "@node",
+      name: "Node Runtime",
+      description: "Provider with a version probe healthcheck.",
+      role: "provider",
+      healthchecks: [
+        {
+          id: "node-version",
+          type: "process",
+          retries: 3,
+          interval: 1000,
+        },
+      ],
+    });
+
+    const manifest = await loadServiceManifest(path.join(servicesRoot, "@node", "service.json"));
+
+    assert.equal(manifest.healthcheck, undefined);
+    assert.deepEqual(manifest.healthchecks, [
+      {
+        id: "node-version",
+        type: "process",
+        retries: 3,
+        interval: 1000,
+        required: true,
+      },
+    ]);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest rejects invalid healthchecks arrays", async () => {
   const servicesRoot = await makeTempServicesRoot();
 

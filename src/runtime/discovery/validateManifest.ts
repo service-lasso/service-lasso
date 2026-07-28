@@ -1934,7 +1934,11 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       healthcheckIds.add(id);
       return healthcheckEntry;
     });
-    healthcheck = healthchecks.find((entry) => entry.required !== false) ?? healthchecks[0];
+    if (record.role === "provider") {
+      healthcheck = healthchecks.find((entry) => entry.required !== false && entry.type !== "process");
+    } else {
+      healthcheck = healthchecks.find((entry) => entry.required !== false) ?? healthchecks[0];
+    }
   }
 
   const env = readEnvMap(record.env, "env", manifestPath);
