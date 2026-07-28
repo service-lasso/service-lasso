@@ -5,6 +5,9 @@
   "version": "v24.15.0",
   "role": "provider",
   "enabled": true,
+  "provides": {
+    "node": "v24.15.0"
+  },
   "executable": "node",
   "args": ["--version"],
   "healthchecks": [

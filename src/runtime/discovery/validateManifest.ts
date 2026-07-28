@@ -1709,6 +1709,9 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"depend_on\" to be an array of non-empty strings.`);
   }
 
+  const requires = readStringMap(record.requires, "requires", manifestPath);
+  const provides = readStringMap(record.provides, "provides", manifestPath);
+
   const rawServiceOrder = expectOptionalWholeNumber(record.serviceorder, "serviceorder", manifestPath, 0);
   const execconfig = readExecutionConfig(record.execconfig, manifestPath);
   const serviceorder = rawServiceOrder ?? execconfig?.serviceorder;
@@ -1912,6 +1915,8 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     serviceorder,
     execconfig,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
+    requires,
+    provides,
     healthcheck,
     outputvarregex,
     env,

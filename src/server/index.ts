@@ -1061,6 +1061,8 @@ async function createServiceSummary(
     version: service.manifest.version,
     dependencies: dependencySummary.dependencies,
     dependents: dependencySummary.dependents,
+    providerCapabilities: service.manifest.provides,
+    providerRequirements: dependencySummary.providerRequirements,
     lifecycle,
     health,
     healthHistory,
