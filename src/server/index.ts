@@ -3182,6 +3182,13 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   });
 }
 
+async function closeApiServer(server: Server): Promise<void> {
+  server.close();
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await once(server, "close");
+}
+
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost;
@@ -3311,8 +3318,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     await updateScheduler?.stop();
     await telemetryExportScheduler.stop();
     await markRuntimeInstanceStopped(config);
-    server.close();
-    await once(server, "close");
+    await closeApiServer(server);
     await transitionProcessOwnership(
       config.workspaceRoot,
       "runtime",
@@ -3346,8 +3352,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       await telemetryExportScheduler?.stop();
       await stopAllManagedProcesses();
       await markRuntimeInstanceStopped(config);
-      server.close();
-      await once(server, "close");
+      await closeApiServer(server);
       await transitionProcessOwnership(
         config.workspaceRoot,
         "runtime",
