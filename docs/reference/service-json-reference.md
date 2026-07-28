@@ -113,9 +113,12 @@ The current sample in this repo is:
       "ECHO_MESSAGE": "hello from service-template"
     },
     "depend_on": [],
-    "healthcheck": {
-      "type": "process"
-    }
+    "healthchecks": [
+      {
+        "id": "process-health",
+        "type": "process"
+      }
+    ]
   }
 }
 ```
@@ -881,9 +884,12 @@ Current rule:
 Example:
 
 ```json
-"healthcheck": {
-  "type": "process"
-}
+"healthchecks": [
+  {
+    "id": "process-health",
+    "type": "process"
+  }
+]
 ```
 
 This is the right default for a simple sample service.
@@ -899,7 +905,7 @@ Service Lasso supports these explicit healthcheck types:
 
 `process` is the current template default direction; use one of the explicit types above when a service needs a stronger readiness signal.
 
-When a service declares an explicit `healthcheck`, startup readiness waits by default even if the manifest omits readiness timing fields. Default readiness settings are:
+When a service declares an explicit `healthchecks[]` item, startup readiness waits by default even if the manifest omits readiness timing fields. Default readiness settings are:
 
 - `retries`: `10`
 - `interval`: `1000` milliseconds
@@ -919,9 +925,12 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "process"
-}
+"healthchecks": [
+  {
+    "id": "process-health",
+    "type": "process"
+  }
+]
 ```
 
 ### `http` healthcheck
@@ -933,26 +942,32 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "http",
-  "url": "http://localhost:${SERVICE_PORT}/health",
-  "expected_status": 200,
-  "timeout": 2000
-}
+"healthchecks": [
+  {
+    "id": "http-health",
+    "type": "http",
+    "url": "http://localhost:${SERVICE_PORT}/health",
+    "expected_status": 200,
+    "timeout": 2000
+  }
+]
 ```
 
 HTTP healthchecks may include an optional `cookies` string map when a readiness endpoint requires cookie state. Cookie values support the same selector resolution as `url`; omit `cookies` for ordinary stateless health endpoints.
 
 ```json
-"healthcheck": {
-  "type": "http",
-  "url": "http://localhost:${SERVICE_PORT}/healthcheck",
-  "expected_status": 200,
-  "cookies": {
-    "healthcheck": "ready",
-    "workspace": "${SERVICE_ID}"
+"healthchecks": [
+  {
+    "id": "http-cookie-health",
+    "type": "http",
+    "url": "http://localhost:${SERVICE_PORT}/healthcheck",
+    "expected_status": 200,
+    "cookies": {
+      "healthcheck": "ready",
+      "workspace": "${SERVICE_ID}"
+    }
   }
-}
+]
 ```
 
 ### `tcp` healthcheck
@@ -964,10 +979,13 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "tcp",
-  "timeout": 2000
-}
+"healthchecks": [
+  {
+    "id": "tcp-health",
+    "type": "tcp",
+    "timeout": 2000
+  }
+]
 ```
 
 Bare `type: "tcp"` uses `127.0.0.1` and infers the port only when the service has exactly one unambiguous declared or resolved port.
@@ -975,20 +993,26 @@ Bare `type: "tcp"` uses `127.0.0.1` and infers the port only when the service ha
 Use `address` when a single TCP target string is clearer:
 
 ```json
-"healthcheck": {
-  "type": "tcp",
-  "address": "127.0.0.1:${HTTP_PORT}"
-}
+"healthchecks": [
+  {
+    "id": "tcp-address-health",
+    "type": "tcp",
+    "address": "127.0.0.1:${HTTP_PORT}"
+  }
+]
 ```
 
 Use `host` + `port` when the values should be edited independently:
 
 ```json
-"healthcheck": {
-  "type": "tcp",
-  "host": "127.0.0.1",
-  "port": "${HTTP_PORT}"
-}
+"healthchecks": [
+  {
+    "id": "tcp-port-health",
+    "type": "tcp",
+    "host": "127.0.0.1",
+    "port": "${HTTP_PORT}"
+  }
+]
 ```
 
 Multiple-port services must declare `address` or `host` + `port`. Legacy alias names such as `tcphost` and `tcpport` are not supported.
@@ -1002,10 +1026,13 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "file",
-  "file": "${SERVICE_ROOT}/runtime/ready.txt"
-}
+"healthchecks": [
+  {
+    "id": "ready-file",
+    "type": "file",
+    "file": "${SERVICE_ROOT}/runtime/ready.txt"
+  }
+]
 ```
 
 Selector resolution applies before the filesystem check. Relative paths remain
@@ -1022,10 +1049,13 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "variable",
-  "variable": "${SERVICE_URL}"
-}
+"healthchecks": [
+  {
+    "id": "service-url-ready",
+    "type": "variable",
+    "variable": "${SERVICE_URL}"
+  }
+]
 ```
 
 ### `outputvarregex`
@@ -1038,11 +1068,14 @@ Example:
 "outputvarregex": {
   "FILEBEAT_ENABLED_INPUTS": ".*Enabled inputs: (\\d+).*"
 },
-"healthcheck": {
-  "type": "variable",
-  "variable": "FILEBEAT_ENABLED_INPUTS",
-  "retries": 180
-}
+"healthchecks": [
+  {
+    "id": "filebeat-inputs-ready",
+    "type": "variable",
+    "variable": "FILEBEAT_ENABLED_INPUTS",
+    "retries": 180
+  }
+]
 ```
 
 Runtime contract:

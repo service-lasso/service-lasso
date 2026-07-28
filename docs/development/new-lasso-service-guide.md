@@ -40,7 +40,7 @@ Choose the closest pattern before writing files.
 | Type | When to use | Manifest shape |
 | --- | --- | --- |
 | Provider | The service supplies a runtime/tool to other services and should not run as a daemon. | `role: "provider"` plus `artifact` and `globalenv` |
-| Managed binary | The service owns and runs its executable. | `artifact`, platform `command`, `ports`, `healthcheck` |
+| Managed binary | The service owns and runs its executable. | `artifact`, platform `command`, `ports`, `healthchecks[]` |
 | Provider-backed app | The service runs through another provider such as `@node`, `@python`, or `@java`. | `execservice`, `executable`, `args`, `depend_on` |
 | App-owned add-on service | Consumers opt in by copying its released manifest. | `enabled: false` when unsafe to start without app config |
 
@@ -86,7 +86,7 @@ Managed services should also declare:
 
 - `ports`
 - `urls`
-- `healthcheck`
+- `healthchecks[]`
 - `env` and `globalenv` where operator or dependent services need resolved values
 - `install.files` or `config.files` when Service Lasso must materialize runtime config
 - `depend_on` when startup requires another service first
@@ -176,11 +176,14 @@ Use the Node helper pattern only when the service already requires Node or can d
       }
     }
   },
-  "healthcheck": {
-    "type": "http",
-    "url": "http://127.0.0.1:${HTTP_PORT}/health",
-    "expected_status": 200
-  }
+  "healthchecks": [
+    {
+      "id": "http-health",
+      "type": "http",
+      "url": "http://127.0.0.1:${HTTP_PORT}/health",
+      "expected_status": 200
+    }
+  ]
 }
 ```
 
@@ -268,7 +271,7 @@ For a managed service, also prove:
 
 1. Service Lasso can install/acquire the archive.
 2. Service Lasso can config/start/stop the service.
-3. The declared healthcheck becomes healthy.
+3. The declared required healthcheck becomes healthy.
 4. Logs/state/network surfaces are visible when the service claims them.
 
 ## Core Integration
