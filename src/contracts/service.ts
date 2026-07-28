@@ -355,6 +355,7 @@ export interface ServiceManifest {
   requires?: ServiceCapabilityMap;
   provides?: ServiceCapabilityMap;
   healthcheck?: ServiceHealthcheck;
+  healthchecks?: ServiceHealthcheck[];
   outputvarregex?: Record<string, string>;
   env?: ServiceEnvMap;
   globalenv?: ServiceEnvMap;

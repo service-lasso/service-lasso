@@ -120,16 +120,17 @@ function expectOptionalFailurePolicy(
 function readHealthcheckReadinessOptions(
   healthRecord: Record<string, unknown>,
   manifestPath: string,
+  fieldPrefix = "healthcheck",
 ): Record<string, number> {
-  const interval = expectOptionalWholeNumber(healthRecord.interval, "healthcheck.interval", manifestPath, 1);
-  const retries = expectOptionalWholeNumber(healthRecord.retries, "healthcheck.retries", manifestPath, 1);
+  const interval = expectOptionalWholeNumber(healthRecord.interval, `${fieldPrefix}.interval`, manifestPath, 1);
+  const retries = expectOptionalWholeNumber(healthRecord.retries, `${fieldPrefix}.retries`, manifestPath, 1);
   const startPeriod = expectOptionalWholeNumber(
     healthRecord.start_period,
-    "healthcheck.start_period",
+    `${fieldPrefix}.start_period`,
     manifestPath,
     0,
   );
-  const timeout = expectOptionalWholeNumber(healthRecord.timeout, "healthcheck.timeout", manifestPath, 1);
+  const timeout = expectOptionalWholeNumber(healthRecord.timeout, `${fieldPrefix}.timeout`, manifestPath, 1);
 
   return {
     ...(interval !== undefined ? { interval } : {}),
@@ -137,6 +138,187 @@ function readHealthcheckReadinessOptions(
     ...(startPeriod !== undefined ? { start_period: startPeriod } : {}),
     ...(timeout !== undefined ? { timeout } : {}),
   };
+}
+
+function readHealthcheckRecord(
+  rawHealthcheck: unknown,
+  manifestPath: string,
+  fieldPrefix = "healthcheck",
+  options: { requireId?: boolean; defaultRequired?: boolean } = {},
+): ServiceHealthcheck {
+  if (!rawHealthcheck || typeof rawHealthcheck !== "object" || Array.isArray(rawHealthcheck)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${fieldPrefix}" to be an object.`);
+  }
+
+  const healthRecord = rawHealthcheck as Record<string, unknown>;
+  const readinessOptions = readHealthcheckReadinessOptions(healthRecord, manifestPath, fieldPrefix);
+  const id =
+    options.requireId || healthRecord.id !== undefined
+      ? expectNonEmptyString(healthRecord.id, `${fieldPrefix}.id`, manifestPath)
+      : undefined;
+  const required =
+    options.defaultRequired || healthRecord.required !== undefined
+      ? (expectOptionalBoolean(healthRecord.required, `${fieldPrefix}.required`, manifestPath) ?? true)
+      : undefined;
+  const sharedFields = {
+    ...(id !== undefined ? { id } : {}),
+    ...(required !== undefined ? { required } : {}),
+    ...readinessOptions,
+  };
+
+  if (healthRecord.type === "process") {
+    return { type: "process", ...sharedFields };
+  }
+
+  if (healthRecord.type === "http") {
+    const cookies = readStringMap(healthRecord.cookies, `${fieldPrefix}.cookies`, manifestPath);
+    return {
+      type: "http",
+      url: expectNonEmptyString(healthRecord.url, `${fieldPrefix}.url`, manifestPath),
+      expected_status:
+        typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
+      ...(cookies !== undefined ? { cookies } : {}),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "tcp") {
+    if (healthRecord.tcphost !== undefined || healthRecord.tcpport !== undefined) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: "tcphost" and "tcpport" are not supported; use "${fieldPrefix}.host" + "${fieldPrefix}.port" or "${fieldPrefix}.address".`,
+      );
+    }
+
+    const hasAddress = healthRecord.address !== undefined;
+    const hasHost = healthRecord.host !== undefined;
+    const hasPort = healthRecord.port !== undefined;
+    const rawPort = healthRecord.port;
+
+    if (hasAddress && (hasHost || hasPort)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: TCP healthcheck must use either "${fieldPrefix}.address" or "${fieldPrefix}.host" + "${fieldPrefix}.port", not both.`,
+      );
+    }
+
+    if (hasHost !== hasPort) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: TCP healthcheck "host" and "port" must be supplied together.`,
+      );
+    }
+
+    if (
+      hasPort &&
+      typeof rawPort !== "string" &&
+      (typeof rawPort !== "number" ||
+        !Number.isInteger(rawPort) ||
+        rawPort < 1 ||
+        rawPort > 65535)
+    ) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${fieldPrefix}.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
+      );
+    }
+
+    if (typeof rawPort === "string" && rawPort.trim().length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "${fieldPrefix}.port".`);
+    }
+
+    const normalizedPort =
+      rawPort === undefined
+        ? undefined
+        : typeof rawPort === "number"
+          ? rawPort
+          : typeof rawPort === "string"
+            ? rawPort.trim()
+            : undefined;
+
+    return {
+      type: "tcp",
+      ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, `${fieldPrefix}.address`, manifestPath) } : {}),
+      ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, `${fieldPrefix}.host`, manifestPath) } : {}),
+      ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "udp") {
+    const hasAddress = healthRecord.address !== undefined;
+    const hasHost = healthRecord.host !== undefined;
+    const hasPort = healthRecord.port !== undefined;
+    const rawPort = healthRecord.port;
+
+    if (hasAddress && (hasHost || hasPort)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: UDP healthcheck must use either "${fieldPrefix}.address" or "${fieldPrefix}.host" + "${fieldPrefix}.port", not both.`,
+      );
+    }
+
+    if (hasHost !== hasPort) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: UDP healthcheck "host" and "port" must be supplied together.`,
+      );
+    }
+
+    if (!hasAddress && !hasHost) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: UDP healthcheck must define either "${fieldPrefix}.address" or "${fieldPrefix}.host" + "${fieldPrefix}.port".`,
+      );
+    }
+
+    if (
+      hasPort &&
+      typeof rawPort !== "string" &&
+      (typeof rawPort !== "number" ||
+        !Number.isInteger(rawPort) ||
+        rawPort < 1 ||
+        rawPort > 65535)
+    ) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${fieldPrefix}.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
+      );
+    }
+
+    if (typeof rawPort === "string" && rawPort.trim().length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "${fieldPrefix}.port".`);
+    }
+
+    const normalizedPort =
+      rawPort === undefined
+        ? undefined
+        : typeof rawPort === "number"
+          ? rawPort
+          : typeof rawPort === "string"
+            ? rawPort.trim()
+            : undefined;
+
+    return {
+      type: "udp",
+      ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, `${fieldPrefix}.address`, manifestPath) } : {}),
+      ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, `${fieldPrefix}.host`, manifestPath) } : {}),
+      ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
+      send: expectNonEmptyString(healthRecord.send, `${fieldPrefix}.send`, manifestPath),
+      expect: expectNonEmptyString(healthRecord.expect, `${fieldPrefix}.expect`, manifestPath),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "file") {
+    return {
+      type: "file",
+      file: expectNonEmptyString(healthRecord.file, `${fieldPrefix}.file`, manifestPath),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "variable") {
+    return {
+      type: "variable",
+      variable: expectNonEmptyString(healthRecord.variable, `${fieldPrefix}.variable`, manifestPath),
+      ...sharedFields,
+    };
+  }
+
+  throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);
 }
 
 function readActionMaterialization(
@@ -1717,99 +1899,41 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const serviceorder = rawServiceOrder ?? execconfig?.serviceorder;
 
   const rawHealthcheck = record.healthcheck;
+  const rawHealthchecks = record.healthchecks;
   let healthcheck: ServiceHealthcheck | undefined;
+  let healthchecks: ServiceHealthcheck[] | undefined;
+
+  if (rawHealthcheck !== undefined && rawHealthchecks !== undefined) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: use either "healthcheck" or "healthchecks", not both.`);
+  }
 
   if (rawHealthcheck !== undefined) {
-    if (!rawHealthcheck || typeof rawHealthcheck !== "object" || Array.isArray(rawHealthcheck)) {
-      throw new Error(`Invalid service manifest at ${manifestPath}: expected \"healthcheck\" to be an object.`);
+    healthcheck = readHealthcheckRecord(rawHealthcheck, manifestPath);
+  }
+
+  if (rawHealthchecks !== undefined) {
+    if (!Array.isArray(rawHealthchecks)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "healthchecks" to be an array.`);
     }
 
-    const healthRecord = rawHealthcheck as Record<string, unknown>;
-    const readinessOptions = readHealthcheckReadinessOptions(healthRecord, manifestPath);
-    if (healthRecord.type === "process") {
-      healthcheck = { type: "process", ...readinessOptions };
-    } else if (healthRecord.type === "http") {
-      const cookies = readStringMap(healthRecord.cookies, "healthcheck.cookies", manifestPath);
-      healthcheck = {
-        type: "http",
-        url: expectNonEmptyString(healthRecord.url, "healthcheck.url", manifestPath),
-        expected_status:
-          typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
-        ...(cookies !== undefined ? { cookies } : {}),
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "tcp") {
-      if (healthRecord.tcphost !== undefined || healthRecord.tcpport !== undefined) {
-        throw new Error(
-          `Invalid service manifest at ${manifestPath}: "tcphost" and "tcpport" are not supported; use "healthcheck.host" + "healthcheck.port" or "healthcheck.address".`,
-        );
-      }
-
-      const hasAddress = healthRecord.address !== undefined;
-      const hasHost = healthRecord.host !== undefined;
-      const hasPort = healthRecord.port !== undefined;
-      const rawPort = healthRecord.port;
-
-      if (hasAddress && (hasHost || hasPort)) {
-        throw new Error(
-          `Invalid service manifest at ${manifestPath}: TCP healthcheck must use either "healthcheck.address" or "healthcheck.host" + "healthcheck.port", not both.`,
-        );
-      }
-
-      if (hasHost !== hasPort) {
-        throw new Error(
-          `Invalid service manifest at ${manifestPath}: TCP healthcheck "host" and "port" must be supplied together.`,
-        );
-      }
-
-      if (
-        hasPort &&
-        typeof rawPort !== "string" &&
-        (typeof rawPort !== "number" ||
-          !Number.isInteger(rawPort) ||
-          rawPort < 1 ||
-          rawPort > 65535)
-      ) {
-        throw new Error(
-          `Invalid service manifest at ${manifestPath}: expected "healthcheck.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
-        );
-      }
-
-      if (typeof rawPort === "string" && rawPort.trim().length === 0) {
-        throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "healthcheck.port".`);
-      }
-
-      const normalizedPort =
-        rawPort === undefined
-          ? undefined
-          : typeof rawPort === "number"
-            ? rawPort
-            : typeof rawPort === "string"
-              ? rawPort.trim()
-              : undefined;
-
-      healthcheck = {
-        type: "tcp",
-        ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, "healthcheck.address", manifestPath) } : {}),
-        ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, "healthcheck.host", manifestPath) } : {}),
-        ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "file") {
-      healthcheck = {
-        type: "file",
-        file: expectNonEmptyString(healthRecord.file, "healthcheck.file", manifestPath),
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "variable") {
-      healthcheck = {
-        type: "variable",
-        variable: expectNonEmptyString(healthRecord.variable, "healthcheck.variable", manifestPath),
-        ...readinessOptions,
-      };
-    } else {
-      throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);
+    if (rawHealthchecks.length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "healthchecks" to contain at least one item.`);
     }
+
+    const healthcheckIds = new Set<string>();
+    healthchecks = rawHealthchecks.map((entry, index) => {
+      const fieldPrefix = `healthchecks[${index}]`;
+      const healthcheckEntry = readHealthcheckRecord(entry, manifestPath, fieldPrefix, {
+        requireId: true,
+        defaultRequired: true,
+      });
+      const id = healthcheckEntry.id as string;
+      if (healthcheckIds.has(id)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: duplicate healthchecks id "${id}".`);
+      }
+      healthcheckIds.add(id);
+      return healthcheckEntry;
+    });
   }
 
   const env = readEnvMap(record.env, "env", manifestPath);
@@ -1918,6 +2042,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     requires,
     provides,
     healthcheck,
+    healthchecks,
     outputvarregex,
     env,
     globalenv,
