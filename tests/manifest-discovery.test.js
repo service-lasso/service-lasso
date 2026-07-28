@@ -465,6 +465,173 @@ test("loadServiceManifest rejects legacy tcp healthcheck aliases", async () => {
   }
 });
 
+test("loadServiceManifest accepts canonical healthchecks arrays", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "canonical-healthchecks-service", {
+      id: "canonical-healthchecks-service",
+      name: "Canonical Healthchecks Service",
+      description: "Service with canonical healthchecks.",
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+      },
+      healthchecks: [
+        {
+          id: "tcp-port-open",
+          type: "tcp",
+          host: "127.0.0.1",
+          port: "${HTTP_PORT}",
+          retries: 30,
+          interval: 250,
+        },
+        {
+          id: "http-ready",
+          type: "http",
+          url: "http://127.0.0.1:${HTTP_PORT}/health",
+          expected_status: 200,
+          required: false,
+        },
+        {
+          id: "udp-ready",
+          type: "udp",
+          address: "127.0.0.1:${UDP_PORT}",
+          send: "ping",
+          expect: "pong",
+          timeout: 1000,
+        },
+        {
+          id: "filebeat-inputs-ready",
+          type: "variable",
+          variable: "FILEBEAT_ENABLED_INPUTS",
+        },
+      ],
+    });
+
+    const manifest = await loadServiceManifest(
+      path.join(servicesRoot, "canonical-healthchecks-service", "service.json"),
+    );
+
+    assert.deepEqual(manifest.healthchecks, [
+      {
+        id: "tcp-port-open",
+        type: "tcp",
+        host: "127.0.0.1",
+        port: "${HTTP_PORT}",
+        retries: 30,
+        interval: 250,
+        required: true,
+      },
+      {
+        id: "http-ready",
+        type: "http",
+        url: "http://127.0.0.1:${HTTP_PORT}/health",
+        expected_status: 200,
+        required: false,
+      },
+      {
+        id: "udp-ready",
+        type: "udp",
+        address: "127.0.0.1:${UDP_PORT}",
+        send: "ping",
+        expect: "pong",
+        timeout: 1000,
+        required: true,
+      },
+      {
+        id: "filebeat-inputs-ready",
+        type: "variable",
+        variable: "FILEBEAT_ENABLED_INPUTS",
+        required: true,
+      },
+    ]);
+    assert.equal(manifest.healthcheck, undefined);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects invalid healthchecks arrays", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "empty-healthchecks-service", {
+      id: "empty-healthchecks-service",
+      name: "Empty Healthchecks Service",
+      description: "Service with empty canonical healthchecks.",
+      healthchecks: [],
+    });
+    await writeManifest(servicesRoot, "missing-healthcheck-id-service", {
+      id: "missing-healthcheck-id-service",
+      name: "Missing Healthcheck ID Service",
+      description: "Service with a missing healthcheck id.",
+      healthchecks: [{ type: "process" }],
+    });
+    await writeManifest(servicesRoot, "duplicate-healthcheck-id-service", {
+      id: "duplicate-healthcheck-id-service",
+      name: "Duplicate Healthcheck ID Service",
+      description: "Service with duplicate healthcheck ids.",
+      healthchecks: [
+        { id: "ready", type: "process" },
+        { id: "ready", type: "file", file: "ready.txt" },
+      ],
+    });
+    await writeManifest(servicesRoot, "unknown-healthcheck-type-service", {
+      id: "unknown-healthcheck-type-service",
+      name: "Unknown Healthcheck Type Service",
+      description: "Service with an unknown healthcheck type.",
+      healthchecks: [{ id: "ready", type: "smtp" }],
+    });
+    await writeManifest(servicesRoot, "tcp-alias-healthchecks-service", {
+      id: "tcp-alias-healthchecks-service",
+      name: "TCP Alias Healthchecks Service",
+      description: "Service with unsupported TCP aliases in healthchecks.",
+      healthchecks: [
+        {
+          id: "tcp-ready",
+          type: "tcp",
+          tcphost: "127.0.0.1",
+          tcpport: "4012",
+        },
+      ],
+    });
+    await writeManifest(servicesRoot, "mixed-healthcheck-fields-service", {
+      id: "mixed-healthcheck-fields-service",
+      name: "Mixed Healthcheck Fields Service",
+      description: "Service with both migration and canonical healthcheck fields.",
+      healthcheck: { type: "process" },
+      healthchecks: [{ id: "ready", type: "process" }],
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "empty-healthchecks-service", "service.json")),
+      /healthchecks.*at least one item/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "missing-healthcheck-id-service", "service.json")),
+      /healthchecks\[0\]\.id/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "duplicate-healthcheck-id-service", "service.json")),
+      /duplicate healthchecks id "ready"/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "unknown-healthcheck-type-service", "service.json")),
+      /unsupported healthcheck type/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "tcp-alias-healthchecks-service", "service.json")),
+      /tcphost.*tcpport.*healthchecks\[0\]\.host.*healthchecks\[0\]\.port.*healthchecks\[0\]\.address/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "mixed-healthcheck-fields-service", "service.json")),
+      /either "healthcheck" or "healthchecks", not both/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded file healthchecks", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "file-service", "service.json");
