@@ -1099,6 +1099,7 @@ Runtime rules:
 ### Setup lifecycle steps
 
 `setup.steps` defines Service Lasso's first-class one-shot job contract. Use setup for named local preparation work that runs after `install` and `config` but is not a daemon process.
+When setup work needs service-owned orchestration, keep the step visible here and move the implementation into a helper such as `scripts/lasso-<service>.mjs` or platform scripts under `scripts/setup/`. See [Setup Helper Conventions](../service-authoring/setup-helper-conventions.md) for the recommended layout, provider/runtime requirements, idempotence rules, readiness polling, exit-code behavior, logging, and sensitive-value handling.
 
 For operator behavior, CLI/API surfaces, dependency ordering, provider-backed execution, rerun policy, and TypeDB init/sample guidance, see [One-shot Jobs](one-shot-jobs.md).
 
