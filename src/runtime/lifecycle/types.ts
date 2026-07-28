@@ -115,6 +115,17 @@ export interface ServiceRuntimeVariableState {
   matchedAt: string;
 }
 
+export type ServiceRuntimeSupervisionRestartReason = "crash" | "unhealthy";
+export type ServiceRuntimeSupervisionRestartResult = "scheduled" | "started" | "failed" | "blocked";
+
+export interface ServiceRuntimeSupervisionState {
+  restartAttempts: number;
+  lastRestartAttemptAt: string | null;
+  lastRestartReason: ServiceRuntimeSupervisionRestartReason | null;
+  lastRestartResult: ServiceRuntimeSupervisionRestartResult | null;
+  nextRestartAt: string | null;
+}
+
 export interface ServiceRuntimeState {
   pid: number | null;
   startedAt: string | null;
@@ -136,6 +147,7 @@ export interface ServiceRuntimeState {
   variables: Record<string, ServiceRuntimeVariableState>;
   brokerIdentity: ScopedBrokerIdentityMetadata | null;
   startTrace: ServiceStartTraceState;
+  supervision: ServiceRuntimeSupervisionState;
 }
 
 export interface ServiceLifecycleState {

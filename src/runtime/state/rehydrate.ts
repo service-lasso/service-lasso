@@ -90,6 +90,7 @@ interface StoredRuntimeState {
   variables?: unknown;
   brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
   startTrace?: unknown;
+  supervision?: unknown;
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
 }
@@ -317,6 +318,39 @@ function parseRuntimeVariables(value: unknown): ServiceLifecycleState["runtime"]
   );
 }
 
+function parseSupervisionState(value: unknown): ServiceLifecycleState["runtime"]["supervision"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      restartAttempts: 0,
+      lastRestartAttemptAt: null,
+      lastRestartReason: null,
+      lastRestartResult: null,
+      nextRestartAt: null,
+    };
+  }
+
+  const record = value as Partial<ServiceLifecycleState["runtime"]["supervision"]>;
+  return {
+    restartAttempts:
+      typeof record.restartAttempts === "number" && Number.isInteger(record.restartAttempts) && record.restartAttempts > 0
+        ? record.restartAttempts
+        : 0,
+    lastRestartAttemptAt: typeof record.lastRestartAttemptAt === "string" ? record.lastRestartAttemptAt : null,
+    lastRestartReason:
+      record.lastRestartReason === "crash" || record.lastRestartReason === "unhealthy"
+        ? record.lastRestartReason
+        : null,
+    lastRestartResult:
+      record.lastRestartResult === "scheduled" ||
+      record.lastRestartResult === "started" ||
+      record.lastRestartResult === "failed" ||
+      record.lastRestartResult === "blocked"
+        ? record.lastRestartResult
+        : null,
+    nextRestartAt: typeof record.nextRestartAt === "string" ? record.nextRestartAt : null,
+  };
+}
+
 function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -520,6 +554,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
       variables: parseRuntimeVariables(runtime?.variables),
       brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
       startTrace: parseStartTraceState(runtime?.startTrace),
+      supervision: parseSupervisionState(runtime?.supervision),
     },
   };
 }

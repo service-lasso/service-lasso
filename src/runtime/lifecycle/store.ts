@@ -2,6 +2,16 @@ import type { ServiceLifecycleState } from "./types.js";
 
 const lifecycleState = new Map<string, ServiceLifecycleState>();
 
+function createInitialSupervisionState(): ServiceLifecycleState["runtime"]["supervision"] {
+  return {
+    restartAttempts: 0,
+    lastRestartAttemptAt: null,
+    lastRestartReason: null,
+    lastRestartResult: null,
+    nextRestartAt: null,
+  };
+}
+
 function cloneBrokerIdentity(identity: ServiceLifecycleState["runtime"]["brokerIdentity"]): ServiceLifecycleState["runtime"]["brokerIdentity"] {
   if (!identity) {
     return null;
@@ -111,6 +121,7 @@ function createInitialState(): ServiceLifecycleState {
         current: null,
         history: [],
       },
+      supervision: createInitialSupervisionState(),
     },
   };
 }
@@ -203,6 +214,9 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       ),
       brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
       startTrace: cloneStartTrace(current.runtime.startTrace),
+      supervision: current.runtime.supervision
+        ? { ...current.runtime.supervision }
+        : createInitialSupervisionState(),
     },
   };
 }
@@ -289,6 +303,9 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       ),
       brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
       startTrace: cloneStartTrace(nextState.runtime.startTrace),
+      supervision: nextState.runtime.supervision
+        ? { ...nextState.runtime.supervision }
+        : createInitialSupervisionState(),
     },
   };
 
