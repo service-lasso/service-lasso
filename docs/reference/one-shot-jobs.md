@@ -11,6 +11,11 @@ Use one-shot jobs for local work that must run after a service is installed/conf
 
 Do not use one-shot jobs for long-running servers, background workers, health-monitored daemons, or arbitrary application workflows that are unrelated to preparing the managed service.
 
+When migrating donor manifests that used legacy `execconfig.setup` arrays and
+punctuation-prefixed setup lines, use
+[Legacy Setup Migration](./legacy-setup-migration.md) before writing new
+`setup.steps`.
+
 ## Contract
 
 Declare jobs under `setup.steps`:

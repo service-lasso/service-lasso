@@ -98,6 +98,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/legacy-setup-migration",
+          label: "Legacy Setup Migration",
+        },
+        {
+          type: "doc",
           id: "reference/startup-broker-resolution",
           label: "Startup Broker Resolution",
         },
