@@ -40,6 +40,13 @@ export interface ServiceSummary {
   version?: string;
   dependencies?: string[];
   dependents?: string[];
+  providerCapabilities?: Record<string, string>;
+  providerRequirements?: Array<{
+    capability: string;
+    requirement: string;
+    serviceId: string;
+    version: string;
+  }>;
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
   healthHistory?: ServiceHealthHistoryState;

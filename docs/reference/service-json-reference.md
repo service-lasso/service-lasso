@@ -47,6 +47,8 @@ This reference tracks each runtime-facing field as:
 | `outputvarregex` | compatibility | `ServiceManifest.outputvarregex?: Record<string, string>` | Validated during manifest discovery as a legacy-compatible stdout/stderr variable extraction contract for services that use `variable` healthchecks. |
 | `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 | `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
+| `requires` | implemented | `ServiceManifest.requires?: Record<string, string>` | Validated as a capability-to-version-requirement map; dependency graph resolves each capability to exactly one enabled provider service and reports missing or ambiguous provider choices with operator-action messages. |
+| `provides` | implemented | `ServiceManifest.provides?: Record<string, string>` | Validated as provider capability metadata and surfaced in service summaries/diagnostics so consumers can see capability/version information. |
 
 ## Purpose of `service.json`
 
@@ -832,6 +834,41 @@ Current direction:
 
 - use this for services that require another service/runtime/provider first
 - keep empty for the minimal sample
+
+### `requires`
+
+Provider capability requirements.
+
+Example:
+
+```json
+"requires": {
+  "java": ">=17",
+  "postgres": ">=15"
+}
+```
+
+Runtime behavior:
+
+- each capability resolves to one enabled discovered provider before startup ordering
+- the resolved provider service id is treated as a concrete dependency
+- missing providers produce a clear missing-provider message
+- multiple matching providers produce an ambiguous-provider message; pin with `depend_on` or remove duplicate providers before start
+- explicit `depend_on` service ids continue to work and can be used alongside capability requirements
+
+### `provides`
+
+Provider capability metadata.
+
+Example:
+
+```json
+"provides": {
+  "java": "17.0.18+8"
+}
+```
+
+Provider manifests should declare the capability name and version they satisfy. Service summaries and diagnostics expose this metadata so operators can understand which concrete provider satisfied a capability requirement.
 
 ## Healthcheck
 

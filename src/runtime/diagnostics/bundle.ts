@@ -58,6 +58,13 @@ export interface DiagnosticsBundleService {
     version: string | null;
     dependencies: string[];
     dependents: string[];
+    providerCapabilities: Record<string, string>;
+    providerRequirements: Array<{
+      capability: string;
+      requirement: string;
+      serviceId: string;
+      version: string;
+    }>;
     ports: Record<string, number>;
     urlKeys: string[];
     envKeys: string[];
@@ -255,6 +262,8 @@ async function buildServiceBundle(
       version: typeof service.manifest.version === "string" ? service.manifest.version : null,
       dependencies: dependencySummary.dependencies,
       dependents: dependencySummary.dependents,
+      providerCapabilities: { ...(service.manifest.provides ?? {}) },
+      providerRequirements: dependencySummary.providerRequirements,
       ports: { ...(service.manifest.ports ?? {}) },
       urlKeys: objectKeys(service.manifest.urls),
       envKeys: objectKeys(service.manifest.env),

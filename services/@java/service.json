@@ -5,6 +5,9 @@
   "version": "17.0.18+8",
   "role": "provider",
   "enabled": true,
+  "provides": {
+    "java": "17.0.18+8"
+  },
   "executable": "java",
   "args": ["--version"],
   "env": {},

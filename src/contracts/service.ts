@@ -210,6 +210,7 @@ export interface ServiceExecutionConfig {
 
 export type ServiceEnvValue = string | string[];
 export type ServiceEnvMap = Record<string, ServiceEnvValue>;
+export type ServiceCapabilityMap = Record<string, string>;
 
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
 export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
@@ -351,6 +352,8 @@ export interface ServiceManifest {
   serviceorder?: number;
   execconfig?: ServiceExecutionConfig;
   depend_on?: string[];
+  requires?: ServiceCapabilityMap;
+  provides?: ServiceCapabilityMap;
   healthcheck?: ServiceHealthcheck;
   outputvarregex?: Record<string, string>;
   env?: ServiceEnvMap;
