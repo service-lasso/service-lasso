@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { loadServiceManifest } from "../dist/runtime/discovery/loadManifest.js";
@@ -20,6 +20,53 @@ async function writeManifest(servicesRoot, serviceId, body) {
   await mkdir(serviceRoot, { recursive: true });
   await writeFile(path.join(serviceRoot, "service.json"), JSON.stringify(body, null, 2));
 }
+
+async function findServiceManifests(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  const manifests = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      manifests.push(...await findServiceManifests(entryPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name === "service.json") {
+      manifests.push(entryPath);
+    }
+  }
+
+  return manifests;
+}
+
+test("checked-in service manifests use canonical healthchecks arrays", async () => {
+  const manifestPaths = [
+    ...await findServiceManifests(path.join(repoRoot, "services")),
+    ...await findServiceManifests(path.join(repoRoot, "fixtures")),
+  ];
+
+  assert.ok(manifestPaths.length > 0);
+  for (const manifestPath of manifestPaths) {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    assert.equal(
+      Object.hasOwn(manifest, "healthcheck"),
+      false,
+      `${path.relative(repoRoot, manifestPath)} must not use singular healthcheck`,
+    );
+    if (manifest.healthchecks !== undefined) {
+      assert.ok(Array.isArray(manifest.healthchecks), `${path.relative(repoRoot, manifestPath)} healthchecks must be an array`);
+      assert.ok(manifest.healthchecks.length > 0, `${path.relative(repoRoot, manifestPath)} healthchecks must not be empty`);
+      for (const [index, healthcheck] of manifest.healthchecks.entries()) {
+        assert.equal(
+          typeof healthcheck.id,
+          "string",
+          `${path.relative(repoRoot, manifestPath)} healthchecks[${index}].id must be stable`,
+        );
+        assert.ok(healthcheck.id.trim().length > 0, `${path.relative(repoRoot, manifestPath)} healthchecks[${index}].id must not be empty`);
+      }
+    }
+  }
+});
 
 test("discoverServices loads valid service manifests from a services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
@@ -137,9 +184,11 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@nginx")?.artifact?.platforms.win32?.assetName, "lasso-nginx-1.30.0-win32.zip");
   assert.deepEqual(byId.get("@nginx")?.ports, { http: 18080 });
   assert.deepEqual(byId.get("@nginx")?.healthcheck, {
+    id: "nginx-http-health",
     type: "http",
     url: "http://127.0.0.1:${HTTP_PORT}/health",
     expected_status: 200,
+    required: true,
     retries: 80,
     interval: 250,
   });
@@ -230,9 +279,11 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_TRAEFIK_URL, "${endpoint.dashboard.url}");
   assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_HOST_DOMAIN, "localhost");
   assert.deepEqual(byId.get("@traefik")?.healthcheck, {
+    id: "traefik-ping-health",
     type: "http",
     url: "${endpoint.ping.url}",
     expected_status: 200,
+    required: true,
     retries: 80,
     interval: 250,
   });
@@ -545,7 +596,51 @@ test("loadServiceManifest accepts canonical healthchecks arrays", async () => {
         required: true,
       },
     ]);
+    assert.deepEqual(manifest.healthcheck, {
+      id: "tcp-port-open",
+      type: "tcp",
+      host: "127.0.0.1",
+      port: "${HTTP_PORT}",
+      retries: 30,
+      interval: 250,
+      required: true,
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest does not project provider process healthchecks into daemon health", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "@node", {
+      id: "@node",
+      name: "Node Runtime",
+      description: "Provider with a version probe healthcheck.",
+      role: "provider",
+      healthchecks: [
+        {
+          id: "node-version",
+          type: "process",
+          retries: 3,
+          interval: 1000,
+        },
+      ],
+    });
+
+    const manifest = await loadServiceManifest(path.join(servicesRoot, "@node", "service.json"));
+
     assert.equal(manifest.healthcheck, undefined);
+    assert.deepEqual(manifest.healthchecks, [
+      {
+        id: "node-version",
+        type: "process",
+        retries: 3,
+        interval: 1000,
+        required: true,
+      },
+    ]);
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

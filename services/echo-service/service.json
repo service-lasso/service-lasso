@@ -73,7 +73,10 @@
       "kind": "local"
     }
   ],
-  "healthcheck": {
-    "type": "process"
-  }
+  "healthchecks": [
+    {
+      "id": "process-health",
+      "type": "process"
+    }
+  ]
 }

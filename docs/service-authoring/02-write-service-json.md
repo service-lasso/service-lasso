@@ -32,7 +32,7 @@ Managed services usually also need:
 
 - `ports` for named service ports
 - `urls` for operator-facing links
-- `healthcheck` for process, HTTP, TCP, file, or variable readiness
+- `healthchecks[]` for process, HTTP, TCP, file, or variable readiness
 - `env` for service-local runtime values
 - `globalenv` for values other services can consume
 - `depend_on` for startup ordering
@@ -45,7 +45,7 @@ Provider services usually need:
 - `globalenv` entries that expose installed tool paths
 - a cheap probe/version command where useful
 - setup steps when the provider must generate local files, install trust material, or prepare a tool cache
-- no long-running daemon healthcheck unless the provider truly starts a process
+- no long-running daemon healthcheck item unless the provider truly starts a process
 
 ## Add Setup Steps When Needed
 

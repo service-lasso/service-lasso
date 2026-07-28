@@ -168,6 +168,13 @@ function manifestUrlEndpoints(manifest) {
     }));
 }
 
+function manifestHealthchecks(manifest) {
+  if (Array.isArray(manifest.healthchecks)) {
+    return manifest.healthchecks;
+  }
+  return manifest.healthcheck ? [manifest.healthcheck] : [];
+}
+
 export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
   const targets = [];
   const seen = new Set();
@@ -189,15 +196,19 @@ export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
     });
   }
 
-  if (manifest.healthcheck?.type === "http" && manifest.healthcheck.url) {
-    const resolvedUrl = resolveServiceText(manifest.healthcheck.url, ports);
+  for (const healthcheck of manifestHealthchecks(manifest)) {
+    if (healthcheck?.type !== "http" || !healthcheck.url) {
+      continue;
+    }
+    const resolvedUrl = resolveServiceText(healthcheck.url, ports);
     if (!resolvedUrl.includes("${") && !seen.has(resolvedUrl)) {
       targets.push({
-        label: "healthcheck",
+        label: healthcheck.id ?? "healthcheck",
         url: resolvedUrl,
-        source: "healthcheck",
-        expectedStatus: manifest.healthcheck.expected_status ?? 200,
+        source: "healthchecks",
+        expectedStatus: healthcheck.expected_status ?? 200,
       });
+      seen.add(resolvedUrl);
     }
   }
 
