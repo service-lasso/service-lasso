@@ -26,6 +26,7 @@ Use this short list as the public documentation map:
 - [Service Catalog](service-catalog.md): available core services, app-owned add-on services, and reference apps.
 - [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
+- [Setup Helper Conventions](service-authoring/setup-helper-conventions.md): standard layout and manifest pattern for helper-backed setup steps.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
 - [Healthcheck Reference](reference/healthcheck-reference.md): canonical `healthchecks[]` contract, readiness defaults, TCP/UDP semantics, output-derived variables, and result shape.
 - [Healthchecks Examples](reference/healthchecks-examples.md): concrete manifest examples for HTTP, TCP, UDP, variable, and optional diagnostic checks.
@@ -52,6 +53,7 @@ Current canonical files:
 - [Healthchecks Examples](reference/healthchecks-examples.md)
 - [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md)
 - [One-shot Jobs](reference/one-shot-jobs.md)
+- [Setup Helper Conventions](service-authoring/setup-helper-conventions.md)
 
 ## Repo boundary rule
 
@@ -82,6 +84,7 @@ That guide is the canonical handoff for:
 - `@` prefix rules for core-owned services
 - required release artifacts and artifact naming
 - `service.json` artifact metadata
+- setup helper conventions for maintainable service-owned bootstrap code
 - service repo verification
 - PR, merge, and branch archive hygiene
 

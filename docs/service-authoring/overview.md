@@ -31,6 +31,7 @@ A finished service has:
 The numbered pages are the process. Use these references only when you need detail while doing a step:
 
 - [service.json Reference](../reference/service-json-reference.md) for exact manifest fields.
+- [Setup Helper Conventions](setup-helper-conventions.md) for helper-backed setup steps that need maintainable cross-platform orchestration.
 - [Create a New Lasso Service](../development/new-lasso-service-guide.md) for the full repo creation handoff.
 
 ## Rule of Thumb

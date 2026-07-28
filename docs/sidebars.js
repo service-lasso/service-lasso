@@ -43,6 +43,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "service-authoring/setup-helper-conventions",
+          label: "Setup Helper Conventions",
+        },
+        {
+          type: "doc",
           id: "service-authoring/03-create-release-repo",
           label: "3. Create the Release Repo",
         },

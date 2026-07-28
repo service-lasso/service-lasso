@@ -52,6 +52,7 @@ Provider services usually need:
 Use `setup.steps` for work that must execute locally after install/config but should not be supervised as a long-running daemon. Common examples include generating local certificates, installing service-local Python dependencies, creating a database schema, or loading sample data.
 
 This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](../reference/one-shot-jobs.md) for CLI/API behavior, dependency ordering, provider-backed execution, rerun policy, and persisted setup history.
+Use [Setup Helper Conventions](setup-helper-conventions.md) when a setup step is better maintained as service-owned helper code instead of a long inline command.
 Use [Legacy Setup Migration](../reference/legacy-setup-migration.md) when
 converting donor-era `execconfig.setup` arrays or punctuation-prefixed setup
 lines into `setup.steps`.
@@ -83,6 +84,8 @@ Rules:
 - `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
 - `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
 - `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.
+
+Keep setup steps visible in the manifest even when the implementation delegates to `scripts/lasso-<service>.mjs` or platform scripts under `scripts/setup/`. The manifest remains the operator-readable contract; helper code owns the detailed orchestration, idempotence checks, readiness polling, exit codes, logging, and sensitive-value handling.
 
 ## Pin the Release
 
