@@ -28,6 +28,44 @@ export interface ApiErrorResponse {
   statusCode: number;
 }
 
+export interface RuntimeSetupStatusResponse {
+  setup: {
+    contractVersion: "service-lasso.setup-status.v1";
+    state:
+      | "not_required"
+      | "setup_required"
+      | "setup_in_progress"
+      | "setup_complete"
+      | "setup_failed";
+    setupMode: boolean;
+    vault: {
+      required: boolean;
+      ready: boolean;
+      path: string;
+    };
+    operator: {
+      osUsername: string;
+      identitySource: "vault";
+    };
+    trustBoundary: {
+      bindHost: string;
+      localOnly: boolean;
+      localhostBootstrapAllowed: boolean;
+      remoteBootstrapAllowed: boolean;
+      setupTokenConfigured: boolean;
+      blockers: string[];
+    };
+  };
+}
+
+export interface RuntimeSetupBootstrapResponse {
+  bootstrap: {
+    ok: true;
+    state: "setup_complete";
+  };
+  setup: RuntimeSetupStatusResponse["setup"];
+}
+
 export interface ServiceSummary {
   id: string;
   name: string;
