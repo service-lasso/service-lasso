@@ -207,6 +207,39 @@ export interface ServiceWorkspaceRegistryResponse {
   registry: ServiceWorkspaceRegistry;
 }
 
+export interface ServiceFileExportArchiveResponse {
+  ok: true;
+  action: "archive-selection";
+  export: {
+    contractVersion: "service-lasso.file-export-artifact.v1";
+    artifactId: string;
+    createdAt: string;
+    serviceId: string;
+    sourceId: string;
+    rootId: string;
+    selectedPaths: string[];
+    archiveFormat: "7z";
+    provider: {
+      serviceId: "@archive";
+      actionId: "archive-selection";
+      version: string | null;
+      runId: string;
+      status: "succeeded";
+    };
+    artifact: {
+      id: string;
+      fileName: string;
+      format: "7z";
+      sizeBytes: number;
+      checksum: {
+        algorithm: "sha256";
+        value: string;
+      };
+      downloadUrl: string;
+    };
+  };
+}
+
 export interface ServiceDetailResponse {
   service: ServiceSummary;
 }
