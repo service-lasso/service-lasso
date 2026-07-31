@@ -81,6 +81,8 @@ auth state in core.
 | `instanceId` | Local Service Lasso instance boundary. Requests cannot cross instances. |
 | `linkedIdentityId` | ZITADEL linked identity id for user requests, or service identity id for service-authenticated requests. |
 | `entitlements` | Workspace-scoped grants flattened from roles or service identity policy. |
+| `roleIds` / `roleNames` | Role evidence used to match explicit `permission_grants`. |
+| `permissionGrants` | Explicit grants resolved for the actor in this workspace. Empty means default deny for scoped resources. |
 | `actor` | Safe actor descriptor: `kind`, `id`, and display label only. |
 | `authMethod` | `zitadel-session` or `service-identity`. |
 | `audit` | Safe actor/workspace/instance metadata for downstream audit events. |
@@ -142,7 +144,9 @@ Forbidden fields in facade provider connection payloads include `secret`,
 
 ### `roles` and entitlements
 
-Roles are workspace-scoped bundles of entitlements. The first concrete
+Roles are workspace-scoped bundles of coarse entitlements. Entitlements keep
+legacy API boundaries readable, but they do not grant service/action/resource
+access by themselves once scoped grants are present. The first concrete
 entitlements are:
 
 - `workspace:read`
@@ -176,6 +180,71 @@ then flattens entitlements only from matching Service Lasso roles in the active
 workspace. Unmapped groups or roles produce no entitlements and fail closed as
 `unauthorized`. This keeps the permission vocabulary in Service Lasso while
 allowing ZITADEL projects to choose their own provider-side group/role labels.
+
+### `permission_grants`
+
+Permission grants are the explicit allow list for service/action/resource
+authorization. The default decision is deny: a request context with no matching
+grant is rejected even when the actor has a coarse role label. Adding or
+importing a service registers available actions, but it must not append grants
+to existing non-owner groups.
+
+Each grant records:
+
+| Field | Notes |
+| --- | --- |
+| `id` | Stable grant id for audit and review. |
+| `workspaceId` | Workspace boundary for the grant. |
+| `target` | `role`, `actor`, or `service` target id. |
+| `permissionKey` | Permission such as `service:restart`, `secrets-broker:resolve`, `workflow:run`, or owner/root wildcard `*`. |
+| `scope` | Scope type and id. Runtime wildcard `runtime/*` is reserved for owner/root bootstrap. |
+| `constraints` | Optional safe structured limits such as time window or max selected paths. |
+| `createdBy` / `createdAt` | Safe audit metadata for who created the grant and when. |
+| `reason` | Human review note. |
+
+Supported scope types are `runtime`, `workspace`, `service`, `action`,
+`file-source`, `file-path`, `broker-namespace`, `export-destination`, and
+`backup-artifact`. A grant only matches when the workspace, target,
+permission key, and scope match the requested resource, except for the
+owner/root wildcard grant.
+
+```json
+{
+  "id": "grant_postgres_admins_restart_postgres",
+  "workspaceId": "wks_local_demo",
+  "target": { "kind": "role", "id": "role_postgres_admins" },
+  "permissionKey": "service:restart",
+  "scope": { "type": "service", "id": "@postgres" },
+  "createdBy": "usr_01hzy9operator",
+  "createdAt": "2026-05-08T11:00:00Z",
+  "reason": "Postgres Admins may restart only Postgres."
+}
+```
+
+Denied authorization decisions include safe evidence such as
+`missing-entitlement`, `missing-grant`, `workspace-mismatch`, or
+`connection-not-ready`. Allowed decisions include the matched grant id, target,
+permission key, and scope for downstream audit metadata.
+
+### `service_action_permissions`
+
+Services can register available actions and required permission keys in the
+core catalogue/resolved service model:
+
+```json
+{
+  "serviceId": "@serviceadmin",
+  "actionId": "services.restart",
+  "permissionKey": "service:restart",
+  "scopeType": "service",
+  "description": "Restart a managed service through Service Admin.",
+  "registeredAt": "2026-05-08T10:00:00Z"
+}
+```
+
+This registration is catalogue metadata only. It makes the assignment visible
+to Service Admin or automation, but it does not grant the action to any group,
+actor, or service identity.
 
 ## Secrets Broker source metadata API
 
