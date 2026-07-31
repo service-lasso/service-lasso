@@ -113,6 +113,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/first-run-vault-bootstrap-permissions",
+          label: "First-run Vault and Permissions",
+        },
+        {
+          type: "doc",
           id: "reference/service-secret-access-policy",
           label: "Service Secret Access Policy",
         },
