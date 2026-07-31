@@ -181,6 +181,11 @@ import {
   listServiceUpdateStates,
 } from "../runtime/updates/actions.js";
 import {
+  getServiceCatalogPackage,
+  listServiceCatalogPackageReleases,
+  listServiceCatalogPackages,
+} from "../runtime/catalog/service-catalog.js";
+import {
   assertWorkflowRunFacadeSecretSafe,
   cancelWorkflowFacadeRun,
   exampleWorkflowRunFacadeState,
@@ -225,6 +230,8 @@ export interface ApiServerOptions {
   monitorIntervalMs?: number;
   updateScheduler?: boolean;
   updateSchedulerIntervalMs?: number;
+  serviceCatalogUrl?: string;
+  serviceCatalogGithubApiBaseUrl?: string;
   workflowRunFacadeState?: WorkflowRunFacadeState;
   telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
   apiRequestTelemetryState?: ApiRequestTelemetryState;
@@ -242,6 +249,8 @@ interface ApiRouteConfig extends RuntimeConfig {
     monitor: boolean;
     updateScheduler: boolean;
   };
+  serviceCatalogUrl?: string;
+  serviceCatalogGithubApiBaseUrl?: string;
 }
 
 export interface RunningApiServer {
@@ -1682,6 +1691,73 @@ async function routeRequest(
       action: "list",
       services: await listServiceUpdateStates(runtimeModel.registry.list()),
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/catalog/packages") {
+    try {
+      writeJson(response, 200, await listServiceCatalogPackages({
+        catalogUrl: config.serviceCatalogUrl,
+        githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+        query: url.searchParams.get("query") ?? url.searchParams.get("q"),
+        category: url.searchParams.get("category"),
+        tag: url.searchParams.get("tag"),
+      }));
+    } catch (error) {
+      throw new ApiError(
+        "catalog_unavailable",
+        502,
+        error instanceof Error ? error.message : "Service catalog could not be loaded.",
+      );
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/catalog/packages/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+    const packageId = pathParts[2] === "packages" ? pathParts[3] : "";
+    if (!packageId || pathParts.length < 4 || pathParts.length > 5 || (pathParts.length === 5 && pathParts[4] !== "releases")) {
+      throw new ApiError("invalid_action", 400, "Unknown service catalog route.");
+    }
+
+    if (pathParts.length === 4) {
+      try {
+        const servicePackage = await getServiceCatalogPackage(packageId, {
+          catalogUrl: config.serviceCatalogUrl,
+          githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+        });
+        if (!servicePackage) {
+          throw new ApiError("not_found", 404, `Unknown catalog package: ${packageId}.`);
+        }
+        writeJson(response, 200, { package: servicePackage });
+      } catch (error) {
+        if (error instanceof ApiError) {
+          throw error;
+        }
+        throw new ApiError(
+          "catalog_unavailable",
+          502,
+          error instanceof Error ? error.message : "Service catalog could not be loaded.",
+        );
+      }
+      return;
+    }
+
+    try {
+      writeJson(response, 200, await listServiceCatalogPackageReleases(packageId, {
+        catalogUrl: config.serviceCatalogUrl,
+        githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Service catalog package releases could not be loaded.";
+      throw new ApiError(
+        message.startsWith("Unknown catalog package:")
+          ? "not_found"
+          : "catalog_releases_unavailable",
+        message.startsWith("Unknown catalog package:") ? 404 : 502,
+        message,
+      );
+    }
     return;
   }
 
@@ -3270,6 +3346,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       monitor: options.monitor === true,
       updateScheduler: options.updateScheduler === true,
     },
+    serviceCatalogUrl: options.serviceCatalogUrl,
+    serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -3370,6 +3448,8 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     autostart: options.autostart,
     monitor: options.monitor,
     updateScheduler: options.updateScheduler,
+    serviceCatalogUrl: options.serviceCatalogUrl,
+    serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
     telemetryExportScheduler,
     apiRequestTelemetryState,
     workflowRunFacadeState: options.workflowRunFacadeState,

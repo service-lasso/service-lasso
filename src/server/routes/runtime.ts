@@ -56,6 +56,13 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     mutating: true,
   },
   {
+    id: "catalog",
+    label: "Service catalog",
+    methods: ["GET"],
+    pathPrefix: "/api/catalog",
+    mutating: false,
+  },
+  {
     id: "dashboard",
     label: "Dashboard adapter",
     methods: ["GET"],

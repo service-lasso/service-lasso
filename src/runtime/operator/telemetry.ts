@@ -956,6 +956,7 @@ export function classifyTelemetryRoute(pathname: string): {
   }
 
   const topLevelRoutes = new Set([
+    "catalog",
     "dashboard",
     "dependencies",
     "diagnostics",
