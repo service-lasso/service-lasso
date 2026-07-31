@@ -15,6 +15,7 @@ import {
   providerConnectionMetadataEndpoints,
   readProviderConnectionMetadata,
   resolveServiceLassoRequestContext,
+  resolveZitadelServiceLassoRoles,
   updateProviderConnectionMetadata,
 } from "../dist/platform/facade.js";
 
@@ -39,7 +40,8 @@ test("platform facade fixture defines users workspaces linked identities provide
   assert.equal(examplePlatformFacadeState.workspaces.length, 1);
   assert.equal(examplePlatformFacadeState.linkedIdentities.length, 1);
   assert.equal(examplePlatformFacadeState.providerConnections.length, 1);
-  assert.equal(examplePlatformFacadeState.roles.length, 1);
+  assert.equal(examplePlatformFacadeState.roles.length, 7);
+  assert.equal(examplePlatformFacadeState.zitadelRoleMappings.length, 7);
   assert.equal(examplePlatformFacadeState.serviceIdentities.length, 1);
 
   const connection = examplePlatformFacadeState.providerConnections[0];
@@ -150,6 +152,7 @@ test("ZITADEL session context maps to internal user workspace and entitlements",
   assert.equal(context.instanceId, "inst_local_demo");
   assert.equal(context.actor.kind, "user");
   assert.equal(context.authMethod, "zitadel-session");
+  assert.deepEqual(context.roleNames, ["operator"]);
   assert.deepEqual(context.audit, {
     actorKind: "user",
     actorId: "usr_01hzy9operator",
@@ -157,9 +160,15 @@ test("ZITADEL session context maps to internal user workspace and entitlements",
     instanceId: "inst_local_demo",
     linkedIdentityId: "lid_zitadel_operator",
     authMethod: "zitadel-session",
+    zitadelIssuer: "http://localhost:8080",
+    zitadelSubject: "zitadel-user-operator",
+    zitadelGroups: ["service-lasso-operators"],
+    zitadelRoles: ["operator"],
+    serviceLassoRoles: ["operator"],
   });
   assert.ok(context.entitlements.includes("secrets-broker:resolve"));
   assert.ok(context.entitlements.includes("workflow:run"));
+  assert.equal(context.entitlements.includes("workspace:admin"), false);
 
   assert.equal(
     mapZitadelSessionToPlatformContext({
@@ -168,6 +177,33 @@ test("ZITADEL session context maps to internal user workspace and entitlements",
     }),
     undefined,
   );
+});
+
+test("ZITADEL group and role claims map explicitly to Service Lasso roles", () => {
+  const identity = examplePlatformFacadeState.linkedIdentities[0];
+
+  assert.deepEqual(
+    resolveZitadelServiceLassoRoles(
+      { issuer: identity.issuer, subject: identity.subject, groups: ["service-lasso-admins"], roles: ["backup-restore"] },
+      { ...identity, claims: { groups: [] } },
+      examplePlatformFacadeState,
+      "wks_local_demo",
+    ),
+    ["admin", "backup-restore-operator"],
+  );
+
+  const denied = resolveServiceLassoRequestContext({
+    kind: "zitadel-session",
+    session: { issuer: identity.issuer, subject: identity.subject, groups: ["unmapped-zitadel-group"] },
+    workspaceId: "wks_local_demo",
+    instanceId: "inst_local_demo",
+  }, {
+    ...examplePlatformFacadeState,
+    linkedIdentities: [{ ...identity, claims: { groups: [] } }],
+  });
+
+  assert.equal(denied.ok, false);
+  assert.equal(!denied.ok && denied.reason, "unauthorized");
 });
 
 test("request context resolver covers fail-closed session and service identity states", () => {

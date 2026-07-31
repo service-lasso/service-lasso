@@ -26,8 +26,17 @@ export type PlatformAuthFailureReason =
 export type PlatformRole = {
   id: string;
   workspaceId: string;
-  name: "owner" | "admin" | "developer" | "operator" | "viewer" | string;
+  name: PlatformRoleName;
   entitlements: PlatformEntitlement[];
+};
+
+export type PlatformRoleName = "owner" | "admin" | "developer" | "operator" | "viewer" | "file-export-operator" | "backup-restore-operator" | "service-account" | string;
+
+export type ZitadelRoleMapping = {
+  workspaceId: string;
+  claim: "group" | "role";
+  value: string;
+  serviceLassoRole: PlatformRoleName;
 };
 
 export type PlatformServiceIdentity = {
@@ -73,6 +82,7 @@ export type LinkedIdentity = {
     email?: string;
     preferredUsername?: string;
     groups?: string[];
+    roles?: string[];
   };
   createdAt: string;
   lastSeenAt?: string;
@@ -144,6 +154,7 @@ export type ZitadelSessionContext = {
   email?: string;
   preferredUsername?: string;
   groups?: string[];
+  roles?: string[];
   expiresAt?: string;
 };
 
@@ -155,6 +166,11 @@ export type PlatformAuditActorMetadata = {
   linkedIdentityId?: string;
   serviceIdentityId?: string;
   authMethod: PlatformAuthMethod;
+  zitadelIssuer?: string;
+  zitadelSubject?: string;
+  zitadelGroups?: string[];
+  zitadelRoles?: string[];
+  serviceLassoRoles?: PlatformRoleName[];
 };
 
 export type PlatformRequestContext = {
@@ -163,6 +179,7 @@ export type PlatformRequestContext = {
   instanceId: string;
   linkedIdentityId: string;
   entitlements: PlatformEntitlement[];
+  roleNames: PlatformRoleName[];
   actor: {
     kind: PlatformActorKind;
     id: string;
@@ -233,6 +250,7 @@ export type PlatformFacadeState = {
   workspaces: PlatformWorkspace[];
   linkedIdentities: LinkedIdentity[];
   roles: PlatformRole[];
+  zitadelRoleMappings: ZitadelRoleMapping[];
   serviceIdentities: PlatformServiceIdentity[];
   providerConnections: ProviderConnectionMetadata[];
 };
@@ -272,12 +290,85 @@ export const examplePlatformFacadeState = {
         email: "operator@example.test",
         preferredUsername: "operator",
         groups: ["service-lasso-operators"],
+        roles: ["operator"],
       },
       createdAt: "2026-05-08T10:00:00Z",
       lastSeenAt: "2026-05-08T10:05:00Z",
     },
   ],
+  zitadelRoleMappings: [
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-owners",
+      serviceLassoRole: "owner",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-admins",
+      serviceLassoRole: "admin",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-operators",
+      serviceLassoRole: "operator",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-viewers",
+      serviceLassoRole: "viewer",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "role",
+      value: "service-account",
+      serviceLassoRole: "service-account",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "role",
+      value: "backup-restore",
+      serviceLassoRole: "backup-restore-operator",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "role",
+      value: "file-export",
+      serviceLassoRole: "file-export-operator",
+    },
+  ],
   roles: [
+    {
+      id: "role_local_owner",
+      workspaceId: "wks_local_demo",
+      name: "owner",
+      entitlements: [
+        "workspace:read",
+        "workspace:admin",
+        "secrets-broker-source:read",
+        "secrets-broker-source:write",
+        "secrets-broker-source:use",
+        "secrets-broker:resolve",
+        "workflow:run",
+      ],
+    },
+    {
+      id: "role_local_admin",
+      workspaceId: "wks_local_demo",
+      name: "admin",
+      entitlements: [
+        "workspace:read",
+        "workspace:admin",
+        "secrets-broker-source:read",
+        "secrets-broker-source:write",
+        "secrets-broker-source:use",
+        "secrets-broker:resolve",
+        "workflow:run",
+      ],
+    },
     {
       id: "role_local_operator",
       workspaceId: "wks_local_demo",
@@ -289,6 +380,30 @@ export const examplePlatformFacadeState = {
         "secrets-broker:resolve",
         "workflow:run",
       ],
+    },
+    {
+      id: "role_local_viewer",
+      workspaceId: "wks_local_demo",
+      name: "viewer",
+      entitlements: ["workspace:read", "secrets-broker-source:read"],
+    },
+    {
+      id: "role_local_file_export_operator",
+      workspaceId: "wks_local_demo",
+      name: "file-export-operator",
+      entitlements: ["workspace:read", "secrets-broker-source:read", "secrets-broker-source:use"],
+    },
+    {
+      id: "role_local_backup_restore_operator",
+      workspaceId: "wks_local_demo",
+      name: "backup-restore-operator",
+      entitlements: ["workspace:read", "secrets-broker-source:use", "secrets-broker:resolve"],
+    },
+    {
+      id: "role_local_service_account",
+      workspaceId: "wks_local_demo",
+      name: "service-account",
+      entitlements: ["workspace:read", "secrets-broker:resolve", "workflow:run"],
     },
   ],
   serviceIdentities: [
@@ -518,8 +633,9 @@ export function resolveServiceLassoRequestContext(
       );
     }
 
+    const roleNames = resolveZitadelServiceLassoRoles(request.session, identity, state, workspaceId);
     const entitlements = state.roles
-      .filter((role) => role.workspaceId === workspaceId)
+      .filter((role) => role.workspaceId === workspaceId && roleNames.includes(role.name))
       .flatMap((role) => role.entitlements);
 
     if (entitlements.length === 0) {
@@ -540,9 +656,17 @@ export function resolveServiceLassoRequestContext(
         instanceId: request.instanceId,
         linkedIdentityId: identity.id,
         entitlements: [...new Set(entitlements)],
+        roleNames,
         actor: { kind: "user", id: identity.userId, displayName: user.displayName },
         authMethod: "zitadel-session",
-        audit,
+        audit: safeAudit({
+          ...audit,
+          zitadelIssuer: identity.issuer,
+          zitadelSubject: identity.subject,
+          zitadelGroups: uniqueStrings([...(identity.claims.groups ?? []), ...(request.session.groups ?? [])]),
+          zitadelRoles: uniqueStrings([...(identity.claims.roles ?? []), ...(request.session.roles ?? [])]),
+          serviceLassoRoles: roleNames,
+        }),
       },
     };
   }
@@ -578,11 +702,29 @@ export function resolveServiceLassoRequestContext(
       instanceId: request.instanceId,
       linkedIdentityId: serviceIdentity.id,
       entitlements: [...new Set(serviceIdentity.entitlements)],
+      roleNames: ["service-account"],
       actor: { kind: "service", id: serviceIdentity.serviceId, displayName: serviceIdentity.displayName },
       authMethod: "service-identity",
       audit,
     },
   };
+}
+
+export function resolveZitadelServiceLassoRoles(
+  session: ZitadelSessionContext,
+  identity: LinkedIdentity,
+  state: PlatformFacadeState = examplePlatformFacadeState,
+  workspaceId = identity.workspaceIds[0],
+): PlatformRoleName[] {
+  const groups = uniqueStrings([...(identity.claims.groups ?? []), ...(session.groups ?? [])]);
+  const roles = uniqueStrings([...(identity.claims.roles ?? []), ...(session.roles ?? [])]);
+
+  return uniqueStrings(
+    state.zitadelRoleMappings
+      .filter((mapping) => mapping.workspaceId === workspaceId)
+      .filter((mapping) => mapping.claim === "group" ? groups.includes(mapping.value) : roles.includes(mapping.value))
+      .map((mapping) => mapping.serviceLassoRole),
+  );
 }
 
 export function mapZitadelSessionToPlatformContext(
@@ -610,6 +752,10 @@ function isExpired(expiresAt: string | undefined, now = new Date()): boolean {
   if (!expiresAt) return false;
   const expiry = Date.parse(expiresAt);
   return Number.isFinite(expiry) && expiry <= now.getTime();
+}
+
+function uniqueStrings<T extends string>(values: T[]): T[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 export function authorizePlatformResource(
