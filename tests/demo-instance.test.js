@@ -13,6 +13,7 @@ import {
   applyDemoServiceAdminRuntimeApiUrl,
   demoProviderServiceIds,
   demoRequiredServiceIds,
+  getDemoStatus,
   resolveDemoOptions,
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
@@ -397,7 +398,9 @@ async function writeCanonicalFixtureManifests(servicesRoot) {
 
 function jsonResponse(status, body) {
   return {
+    ok: status >= 200 && status < 300,
     status,
+    headers: { get: () => "application/json" },
     json: async () => body,
     text: async () => JSON.stringify(body),
   };
@@ -405,7 +408,9 @@ function jsonResponse(status, body) {
 
 function textResponse(status, body) {
   return {
+    ok: status >= 200 && status < 300,
     status,
+    headers: { get: () => "text/plain" },
     json: async () => JSON.parse(body),
     text: async () => body,
   };
@@ -479,6 +484,118 @@ function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6
     return jsonResponse(404, { error: "not_found" });
   };
 }
+
+function canonicalServiceStateFixture({ serviceAdminInstalled = false, serviceAdminConfigured = false } = {}) {
+  return [
+    ...canonicalFixtureServices.map((service) => {
+      const providerRole = service.role === "provider";
+      const sourceAdminService = service.id === "@serviceadmin";
+      return {
+        id: service.id,
+        lifecycle: {
+          installed: sourceAdminService ? serviceAdminInstalled : true,
+          configured: sourceAdminService ? serviceAdminConfigured : true,
+          running: sourceAdminService ? false : !providerRole,
+        },
+        health: { healthy: !sourceAdminService || providerRole },
+      };
+    }),
+    {
+      id: "node-sample-service",
+      lifecycle: {
+        installed: false,
+        configured: false,
+        running: false,
+      },
+      health: { healthy: false },
+    },
+  ];
+}
+
+test("demo gate status accepts the source Admin service-state contract", async () => {
+  const originalFetch = globalThis.fetch;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-"));
+
+  try {
+    const servicesRoot = path.join(tempDir, "services");
+    const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+    const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true });
+    globalThis.fetch = async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/api/services") {
+        return jsonResponse(200, { services: canonicalServiceStateFixture() });
+      }
+      return baseFetch(url, options);
+    };
+    const result = await getDemoStatus({
+      runtimeUrl: "http://127.0.0.1:17883",
+      serviceAdminUrl: "http://127.0.0.1:17700/",
+      workspaceRoot,
+      demoLogRoot: path.join(tempDir, ".demo-logs"),
+      timeoutMs: 100,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.classification, "healthy");
+    assert.equal(result.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
+    assert.match(result.endpoints.serviceAdmin.serviceState.acceptedWarningReason, /Source Service Admin owns port 17700/);
+    assert.deepEqual(
+      result.endpoints.serviceAdmin.serviceState.actual.find((service) => service.id === "@serviceadmin"),
+      {
+        id: "@serviceadmin",
+        installed: false,
+        configured: false,
+        running: false,
+        healthy: false,
+        expectedMode: "source_admin_owns_17700",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo gate status rejects source Admin drift with installed managed artifact state", async () => {
+  const originalFetch = globalThis.fetch;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-mismatch-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true });
+
+  try {
+    globalThis.fetch = async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/api/services") {
+        return jsonResponse(200, {
+          services: canonicalServiceStateFixture({ serviceAdminInstalled: true, serviceAdminConfigured: true }),
+        });
+      }
+      return baseFetch(url, options);
+    };
+    const result = await getDemoStatus({
+      runtimeUrl: "http://127.0.0.1:17883",
+      serviceAdminUrl: "http://127.0.0.1:17700/",
+      workspaceRoot,
+      demoLogRoot: path.join(tempDir, ".demo-logs"),
+      timeoutMs: 100,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.classification, "canonical_service_state_mismatch");
+    assert.equal(result.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
+    assert.deepEqual(
+      result.endpoints.serviceAdmin.serviceState.mismatches.filter((entry) => entry.id === "@serviceadmin"),
+      [
+        { id: "@serviceadmin", field: "installed", expected: false, actual: true },
+        { id: "@serviceadmin", field: "configured", expected: false, actual: true },
+      ],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("demo recycle preflight reports live non-managed listeners", async () => {
   const listener = await listenOnLoopback();
