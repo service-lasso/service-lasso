@@ -208,6 +208,11 @@ GET  /api/services
 GET  /api/services/:id
 GET  /api/runtime
 GET  /api/runtime/capabilities
+GET  /api/operator/inbox
+GET  /api/operator/inbox/counts
+POST /api/operator/inbox/record
+POST /api/operator/inbox/:id/read
+POST /api/operator/inbox/:id/hide
 POST /api/services/:id/install
 POST /api/services/:id/config
 POST /api/services/:id/start
