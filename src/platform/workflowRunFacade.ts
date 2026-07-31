@@ -9,6 +9,7 @@ export type WorkflowFacadeRunStatus = "queued" | "running" | "succeeded" | "fail
 export type WorkflowFacadeErrorCode =
   | "workspace-mismatch"
   | "missing-entitlement"
+  | "missing-grant"
   | "connection-not-ready"
   | "missing-secret"
   | "secret-denied"
@@ -394,7 +395,7 @@ function denied(code: WorkflowFacadeErrorCode, message: string, action: string):
   return { ok: false, error: { code, message, action } };
 }
 
-function authorizationReasonToFacadeError(reason: "allowed" | "missing-entitlement" | "workspace-mismatch" | "connection-not-ready"): WorkflowFacadeErrorCode {
+function authorizationReasonToFacadeError(reason: "allowed" | "missing-entitlement" | "missing-grant" | "workspace-mismatch" | "connection-not-ready"): WorkflowFacadeErrorCode {
   if (reason === "allowed") return "missing-entitlement";
   return reason;
 }
