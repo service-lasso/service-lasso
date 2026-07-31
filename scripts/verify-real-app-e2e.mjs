@@ -363,6 +363,8 @@ let servicesStopped = false;
 
 try {
   console.error(`[service-lasso e2e] temp root ${tempRoot}`);
+  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
   await copyCheckedInServices(servicesRoot);
   await rebaseManifestPorts(servicesRoot);
   const serviceAdminManifest = await readJson(path.join(servicesRoot, "@serviceadmin", "service.json"));

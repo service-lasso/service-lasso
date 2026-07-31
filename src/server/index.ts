@@ -88,6 +88,11 @@ import {
 } from "../runtime/operator/telemetry-scheduler.js";
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
+import {
+  bootstrapLocalVault,
+  isSetupBootstrapAllowed,
+  readRuntimeSetupStatus,
+} from "../runtime/setup/first-run.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
@@ -231,6 +236,7 @@ interface ApiRequestTelemetryState {
 }
 
 interface ApiRouteConfig extends RuntimeConfig {
+  bindHost: string;
   features: {
     autostart: boolean;
     monitor: boolean;
@@ -907,6 +913,31 @@ function isTrustedChatBridgeRequest(request: IncomingMessage): boolean {
   const expectedBuffer = Buffer.from(expected, "utf8");
   const providedBuffer = Buffer.from(provided, "utf8");
   return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function isSetupTokenAccepted(provided: string | undefined): boolean {
+  const expected = process.env.SERVICE_LASSO_SETUP_TOKEN;
+  if (!expected || !provided) {
+    return false;
+  }
+
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const providedBuffer = Buffer.from(provided, "utf8");
+  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function getSetupBootstrapToken(request: IncomingMessage, body: unknown): string | undefined {
+  const headerToken = firstHeader(request.headers["x-service-lasso-setup-token"]);
+  if (headerToken) {
+    return headerToken;
+  }
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return undefined;
+  }
+
+  const token = (body as Record<string, unknown>).setupToken;
+  return typeof token === "string" ? token : undefined;
 }
 
 function parseEntitlements(request: IncomingMessage): PlatformEntitlement[] {
@@ -1943,6 +1974,109 @@ async function routeRequest(
       });
       throw error;
     }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/setup/status") {
+    writeJson(response, 200, {
+      setup: await readRuntimeSetupStatus({
+        workspaceRoot: config.workspaceRoot,
+        bindHost: config.bindHost,
+      }),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/setup/bootstrap") {
+    const body = await readJsonBody(request);
+    const setup = await readRuntimeSetupStatus({
+      workspaceRoot: config.workspaceRoot,
+      bindHost: config.bindHost,
+    });
+    const tokenAccepted = isSetupTokenAccepted(getSetupBootstrapToken(request, body));
+    const actor = getAuditActor(body);
+
+    if (!isSetupBootstrapAllowed(setup, tokenAccepted)) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime",
+        action: "setup.bootstrap.denied",
+        actor,
+        method: "POST",
+        routeTemplate: "/api/setup/bootstrap",
+        outcome: "failure",
+        statusCode: 403,
+        summary: "First-run setup bootstrap denied by local setup trust boundary.",
+        reason: setup.trustBoundary.blockers.join(",") || "setup_bootstrap_not_allowed",
+        metadata: {
+          bindHost: setup.trustBoundary.bindHost,
+          localOnly: setup.trustBoundary.localOnly,
+          setupTokenConfigured: setup.trustBoundary.setupTokenConfigured,
+        },
+      });
+      throw new ApiError(
+        "setup_bootstrap_forbidden",
+        403,
+        "First-run setup bootstrap requires a local-only runtime bind or a configured setup token.",
+      );
+    }
+
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.bootstrap.started",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 202,
+      summary: "First-run setup bootstrap started.",
+    });
+    const bootstrap = await bootstrapLocalVault(config.workspaceRoot);
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.vault.created",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 201,
+      summary: "Local Service Lasso vault marker created.",
+    });
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.root_identity.created",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 201,
+      summary: "Root identity bootstrap was recorded for the local vault.",
+    });
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.bootstrap.completed",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 201,
+      summary: "First-run setup bootstrap completed.",
+    });
+
+    writeJson(response, 201, {
+      bootstrap: {
+        ok: bootstrap.ok,
+        state: bootstrap.state,
+      },
+      setup: await readRuntimeSetupStatus({
+        workspaceRoot: config.workspaceRoot,
+        bindHost: config.bindHost,
+      }),
+    });
     return;
   }
 
@@ -3130,6 +3264,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedConfig = resolveRuntimeConfig(options);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
+    bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0",
     features: {
       autostart: options.autostart === true,
       monitor: options.monitor === true,
@@ -3231,6 +3366,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   });
   const server = createApiServer({
     ...config,
+    host: bindHost,
     autostart: options.autostart,
     monitor: options.monitor,
     updateScheduler: options.updateScheduler,
