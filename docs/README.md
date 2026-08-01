@@ -33,6 +33,7 @@ Use this short list as the public documentation map:
 - [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md): worker-facing implementation handoff for schema, runtime, APIs, migration, and tests.
 - [Release Manifest Verification](reference/release-manifest-verification.md): read-only checks for service release manifests, platform assets, release labels, and checksums.
 - [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
+- [Vault Key Bootstrap](reference/vault-key-bootstrap.md): vault key source order, one-time reveal rules, and safe bootstrap response metadata.
 - [Audit](reference/audit.md): durable metadata-only event history, storage layout, sensitive-data rules, and tamper-evidence meaning.
 - [Process Ownership Registry](reference/process-ownership-registry.md): durable OS process identity, PID-reuse protection, atomic persistence, and safe legacy migration.
 - [Template Upgrade Compatibility](reference/template-upgrade-compatibility.md): read-only checker for app/template inventories against current core provider expectations.
@@ -53,6 +54,7 @@ Current canonical files:
 - [Healthchecks Examples](reference/healthchecks-examples.md)
 - [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md)
 - [One-shot Jobs](reference/one-shot-jobs.md)
+- [Vault Key Bootstrap](reference/vault-key-bootstrap.md)
 - [Setup Helper Conventions](service-authoring/setup-helper-conventions.md)
 
 ## Repo boundary rule

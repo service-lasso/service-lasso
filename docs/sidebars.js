@@ -103,6 +103,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/vault-key-bootstrap",
+          label: "Vault Key Bootstrap",
+        },
+        {
+          type: "doc",
           id: "reference/legacy-setup-migration",
           label: "Legacy Setup Migration",
         },

@@ -461,6 +461,37 @@ export interface RuntimeCapabilitiesResponse {
   };
 }
 
+export type VaultKeySourceType = "os-managed" | "file" | "env" | "cli" | "generated";
+
+export interface VaultKeyFingerprintResponse {
+  algorithm: "sha256";
+  value: string;
+  display: string;
+}
+
+export interface VaultKeySourceResponse {
+  type: VaultKeySourceType;
+  supplied: boolean;
+  reveal: "never" | "once";
+  envName?: string;
+  filePath?: string;
+  fingerprint: VaultKeyFingerprintResponse;
+}
+
+export interface VaultKeyOneTimeRevealResponse {
+  key: string;
+  confirmationRequired: true;
+  warning: string;
+}
+
+export interface VaultKeyBootstrapResponse {
+  contractVersion: "vault-key-bootstrap.v1";
+  status: "ready";
+  source: VaultKeySourceResponse;
+  oneTimeReveal: VaultKeyOneTimeRevealResponse | null;
+  warnings: string[];
+}
+
 export type OperatorCommandKind =
   | "status"
   | "services"
