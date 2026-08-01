@@ -374,6 +374,78 @@ test("rehydration returns adopted running state with retained ports", async () =
   }
 });
 
+test("API restart replaces an adopted persisted process and keeps retained ports", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-restart-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-restart-service", {
+    ports: { service: 18093 },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  let apiServer;
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: child.pid,
+        startedAt: inspection.identity.createdAt,
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18093 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    assert.equal(hasManagedProcess("adopted-restart-service"), true);
+
+    const restart = await postJson(`${apiServer.url}/api/services/adopted-restart-service/restart`);
+
+    assert.equal(restart.response.status, 200);
+    assert.equal(restart.body.action, "restart");
+    assert.equal(restart.body.state.running, true);
+    assert.equal(restart.body.state.runtime.pid > 0, true);
+    assert.notEqual(restart.body.state.runtime.pid, child.pid);
+    assert.deepEqual(restart.body.state.runtime.ports, { service: 18093 });
+    assert.equal(restart.body.state.runtime.endpoints.some((endpoint) => endpoint.port === 18093), true);
+
+    await waitFor(() => child.exitCode !== null || child.signalCode !== null);
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, restart.body.state.runtime.pid);
+    assert.deepEqual(stored.runtime.ports, { service: 18093 });
+
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-restart-service");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, restart.body.state.runtime.pid);
+    assert.deepEqual(ownership.allocation.ports, { service: 18093 });
+  } finally {
+    await apiServer?.stop();
+    await stopManagedProcess("adopted-restart-service", 500).catch(() => null);
+    child.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("adopted process ownership can be stopped without a ChildProcess handle", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-stop-");
