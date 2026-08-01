@@ -103,6 +103,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/vault-key-bootstrap",
+          label: "Vault Key Bootstrap",
+        },
+        {
+          type: "doc",
           id: "reference/legacy-setup-migration",
           label: "Legacy Setup Migration",
         },
@@ -110,6 +115,11 @@ const sidebars = {
           type: "doc",
           id: "reference/startup-broker-resolution",
           label: "Startup Broker Resolution",
+        },
+        {
+          type: "doc",
+          id: "reference/first-run-vault-bootstrap-permissions",
+          label: "First-run Vault and Permissions",
         },
         {
           type: "doc",
@@ -200,6 +210,11 @@ const sidebars = {
           type: "doc",
           id: "reference/operator-mcp",
           label: "Operator MCP",
+        },
+        {
+          type: "doc",
+          id: "reference/operator-inbox",
+          label: "Operator Inbox API",
         },
         {
           type: "doc",

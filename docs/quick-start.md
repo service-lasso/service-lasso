@@ -41,6 +41,12 @@ This starts the Service Lasso API and runs the baseline service set from `servic
 
 The API uses port `18090` so it does not collide with the checked-in `@nginx` baseline service on port `18080`.
 
+On a fresh workspace, launch first enters setup mode. The runtime exposes setup
+state at `http://127.0.0.1:18090/api/setup/status` and starts only the setup
+dependencies needed to complete first-run bootstrap before regular managed
+services are started. After setup completes, rerun the same start command to
+continue the normal baseline launch.
+
 Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 
 ## 4. Open the Useful URLs
@@ -48,6 +54,7 @@ Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 | URL | Purpose |
 | --- | --- |
 | `http://127.0.0.1:18090/api/health` | Service Lasso API health |
+| `http://127.0.0.1:18090/api/setup/status` | first-run setup state and blockers |
 | `http://127.0.0.1:18090/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:17700/` | Service Admin UI |
 | `http://127.0.0.1:4010/` | Echo Service UI/API |

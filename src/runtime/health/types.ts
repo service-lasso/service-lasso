@@ -55,8 +55,18 @@ export type ServiceHealthcheck =
   | FileHealthcheck
   | VariableHealthcheck;
 
+export interface ServiceHealthcheckResult {
+  id: string;
+  type: ServiceHealthcheck["type"];
+  required: boolean;
+  healthy: boolean;
+  attempts: number;
+  detail: string;
+}
+
 export interface ServiceHealthResult {
-  type: ServiceHealthcheck["type"] | "provider" | "unknown";
+  type: ServiceHealthcheck["type"] | "aggregate" | "provider" | "unknown";
   healthy: boolean;
   detail: string;
+  checks?: ServiceHealthcheckResult[];
 }

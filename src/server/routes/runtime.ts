@@ -42,11 +42,25 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     mutating: true,
   },
   {
+    id: "setup",
+    label: "First-run setup",
+    methods: ["GET", "POST"],
+    pathPrefix: "/api/setup",
+    mutating: true,
+  },
+  {
     id: "services",
     label: "Services",
     methods: ["GET", "POST", "PATCH"],
     pathPrefix: "/api/services",
     mutating: true,
+  },
+  {
+    id: "catalog",
+    label: "Service catalog",
+    methods: ["GET"],
+    pathPrefix: "/api/catalog",
+    mutating: false,
   },
   {
     id: "dashboard",
@@ -183,6 +197,7 @@ export function createRuntimeCapabilitiesResponse(input: RuntimeCapabilitiesInpu
             "dependencies",
             "updates",
             "recovery",
+            "setup",
             "service-files",
             "telemetry",
             "log-shipping",

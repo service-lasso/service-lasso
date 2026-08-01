@@ -683,6 +683,8 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
   await writeArchiveProviderService(servicesRoot);
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);

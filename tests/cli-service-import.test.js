@@ -5,7 +5,8 @@ import path from "node:path";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import AdmZip from "adm-zip";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 
 const execFile = promisify(execFileCallback);
@@ -51,6 +52,28 @@ async function makeTempServicesRoot() {
     root,
     servicesRoot: path.join(root, "services"),
   };
+}
+
+function archivedManifest(serviceId = "uploaded-service") {
+  return {
+    id: serviceId,
+    name: "Uploaded Service",
+    description: "Uploaded Service Archive fixture.",
+    version: "2026.8.1-fixture",
+    healthcheck: {
+      type: "process",
+    },
+  };
+}
+
+async function writeServiceArchive(root, entries) {
+  const archivePath = path.join(root, "uploaded-service.zip");
+  const zip = new AdmZip();
+  for (const [entryPath, content] of Object.entries(entries)) {
+    zip.addFile(entryPath, Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8"));
+  }
+  await writeFile(archivePath, zip.toBuffer());
+  return archivePath;
 }
 
 async function startFakeGitHubReleaseServer(manifest) {
@@ -237,6 +260,114 @@ test("services import protects existing manifests unless forced", async () => {
   } finally {
     await firstServer.stop();
     await secondServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import --archive dry-run validates archive service.json without writing", async () => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const archivePath = await writeServiceArchive(root, {
+    "package/service.json": JSON.stringify(archivedManifest(), null, 2),
+    "package/runtime/uploaded-service.mjs": 'console.log("uploaded");\n',
+  });
+  const manifestPath = path.join(servicesRoot, "uploaded-service", "service.json");
+
+  try {
+    const result = await runCli([
+      "services",
+      "import",
+      "--archive",
+      archivePath,
+      "--services-root",
+      servicesRoot,
+      "--dry-run",
+      "--json",
+    ]);
+    const payload = JSON.parse(result.stdout);
+
+    assert.equal(payload.ok, true);
+    assert.equal(payload.source, "archive");
+    assert.equal(payload.state, "validated");
+    assert.equal(payload.serviceId, "uploaded-service");
+    assert.equal(payload.version, "2026.8.1-fixture");
+    assert.equal(payload.wrote, false);
+    assert.equal(await exists(manifestPath), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import --archive stages, copies, and rediscovers uploaded archive contents", async () => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const archivePath = await writeServiceArchive(root, {
+    "package/service.json": JSON.stringify(archivedManifest(), null, 2),
+    "package/runtime/uploaded-service.mjs": 'console.log("uploaded");\n',
+  });
+  const manifestPath = path.join(servicesRoot, "uploaded-service", "service.json");
+  const scriptPath = path.join(servicesRoot, "uploaded-service", "runtime", "uploaded-service.mjs");
+
+  try {
+    const result = await runCli([
+      "services",
+      "import",
+      "--archive",
+      archivePath,
+      "--services-root",
+      servicesRoot,
+      "--json",
+    ]);
+    const payload = JSON.parse(result.stdout);
+    const discovered = await discoverServices(servicesRoot);
+    const written = JSON.parse(await readFile(manifestPath, "utf8"));
+
+    assert.equal(payload.ok, true);
+    assert.equal(payload.state, "imported");
+    assert.equal(payload.wrote, true);
+    assert.equal(written.id, "uploaded-service");
+    assert.equal(await readFile(scriptPath, "utf8"), 'console.log("uploaded");\n');
+    assert.equal(discovered.length, 1);
+    assert.equal(discovered[0].manifest.id, "uploaded-service");
+    assert.equal(discovered[0].manifestPath, manifestPath);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import --archive returns a conflict state without overwriting existing service", async () => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const archivePath = await writeServiceArchive(root, {
+    "service.json": JSON.stringify(archivedManifest(), null, 2),
+  });
+
+  try {
+    await runCli(["services", "import", "--archive", archivePath, "--services-root", servicesRoot, "--json"]);
+    await assert.rejects(
+      runCli(["services", "import", "--archive", archivePath, "--services-root", servicesRoot, "--json"]),
+      (error) => {
+        const payload = JSON.parse(error.stdout);
+        assert.equal(payload.ok, false);
+        assert.equal(payload.state, "conflict");
+        assert.equal(payload.conflict.kind, "target_manifest_exists");
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import --archive rejects unsafe archive traversal entries", async () => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const archivePath = await writeServiceArchive(root, {
+    "C:/evil/service.json": JSON.stringify(archivedManifest(), null, 2),
+  });
+
+  try {
+    await assert.rejects(
+      runCli(["services", "import", "--archive", archivePath, "--services-root", servicesRoot, "--json"]),
+      /Unsafe archive entry/,
+    );
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

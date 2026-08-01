@@ -109,6 +109,7 @@ function usageText(): string {
     "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
+    "  service-lasso services import --archive <path> [--services-root <path>] [--dry-run] [--json]",
     "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
     "  service-lasso release verify-manifest <manifestPath> [--assets-root <path>] [--release-version <version>] [--json]",
     "  service-lasso help",
@@ -413,11 +414,9 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       throw new Error('The "services" command requires one of: import.');
     }
     parsed.serviceCommand = serviceCommand;
-    const repo = remaining.shift();
-    if (!repo || repo.startsWith("-")) {
-      throw new Error('The "services import" command requires an <owner/repo> argument.');
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.repo = remaining.shift();
     }
-    parsed.repo = repo;
   }
 
   if (command === "template") {
@@ -532,6 +531,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --api-base-url.");
         }
         parsed.apiBaseUrl = value;
+        break;
+      }
+      case "--archive": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--archive is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --archive.");
+        }
+        parsed.archivePath = value;
         break;
       }
       case "--core-services-root": {
@@ -1132,11 +1142,24 @@ function printImportServiceResult(result: ImportServiceManifestCliResult, asJson
   }
 
   console.log(result.dryRun ? "[service-lasso] service import dry-run completed" : "[service-lasso] service manifest imported");
-  console.log(`- repo: ${result.repo}`);
-  console.log(`- tag: ${result.resolvedTag ?? result.requestedTag ?? "latest"}`);
+  console.log(`- source: ${result.source}`);
+  if (result.repo) {
+    console.log(`- repo: ${result.repo}`);
+    console.log(`- tag: ${result.resolvedTag ?? result.requestedTag ?? "latest"}`);
+  }
+  if (result.archivePath) {
+    console.log(`- archivePath: ${result.archivePath}`);
+  }
   console.log(`- service: ${result.serviceId}`);
+  if (result.version) {
+    console.log(`- version: ${result.version}`);
+  }
   console.log(`- servicesRoot: ${result.servicesRoot}`);
-  console.log(`- targetPath: ${result.targetPath}`);
+  console.log(`- targetPath: ${result.targetPath ?? "none"}`);
+  console.log(`- state: ${result.state}`);
+  if (result.conflict) {
+    console.log(`- conflict: ${result.conflict.kind} ${result.conflict.path}`);
+  }
   console.log(`- wrote: ${result.wrote}`);
   console.log(`- overwritten: ${result.overwritten}`);
 }
@@ -1211,14 +1234,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   if (parsed.command === "services" && parsed.serviceCommand === "import") {
     const result = await importServiceManifestFromCli({
-      repo: parsed.repo!,
+      repo: parsed.repo,
       tag: parsed.tag,
       servicesRoot: parsed.servicesRoot,
       apiBaseUrl: parsed.apiBaseUrl,
+      archivePath: parsed.archivePath,
       force: parsed.force,
       dryRun: parsed.dryRun,
     });
     printImportServiceResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 

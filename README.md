@@ -174,6 +174,15 @@ node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-exampl
 
 The import command copies the release `service.json` asset into `services/<service-id>/service.json` and refuses to replace an existing manifest unless `--force` is provided.
 
+Import a local Service Archive upload without enabling or starting it:
+
+```powershell
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --dry-run --json
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --json
+```
+
+Archive imports stage and inspect the zip before touching `servicesRoot`, require exactly one valid `service.json`, reject unsafe archive paths, copy the archive content into `services/<service-id>/`, rescan discovery, and return a conflict state instead of overwriting an existing service.
+
 Start the baseline services and leave the API running:
 
 ```powershell
@@ -208,6 +217,11 @@ GET  /api/services
 GET  /api/services/:id
 GET  /api/runtime
 GET  /api/runtime/capabilities
+GET  /api/operator/inbox
+GET  /api/operator/inbox/counts
+POST /api/operator/inbox/record
+POST /api/operator/inbox/:id/read
+POST /api/operator/inbox/:id/hide
 POST /api/services/:id/install
 POST /api/services/:id/config
 POST /api/services/:id/start
@@ -223,6 +237,13 @@ POST /api/services/:id/recovery/doctor
 ```
 
 `POST /api/services/:id/start` and `POST /api/runtime/actions/startAll` use full start semantics: enabled services are installed, configured, non-manual setup steps are reconciled, and then startable services are started in dependency order. Provider-role services in the canonical baseline, including disabled-by-default providers such as `@archive` and supported `@python` artifacts, are still prepared, but they do not require a managed daemon process. Disabled non-provider services, unsupported host artifacts, already-running services, autostart filtering, and truly non-startable services remain explicit skip/blocker cases instead of being forced.
+
+First-run setup is a launch prerequisite. When `GET /api/setup/status` reports
+setup mode, the CLI/API runtime prepares only the setup dependency path
+(`@node`, `@secretsbroker`, and `@serviceadmin`) and skips normal managed
+service starts until the vault owner identity, Owner group, built-in groups, and
+permission catalogue are seeded. Existing workspaces with a ready vault marker
+continue the normal launch path.
 
 ## Use From npm
 

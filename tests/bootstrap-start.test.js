@@ -5,6 +5,7 @@ import { readFile, rm } from "node:fs/promises";
 import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 async function readJsonWhenReady(filePath, timeoutMs = 1_000) {
@@ -29,6 +30,7 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await ensureLocalVaultMarker(workspaceRoot);
     await writeExecutableFixtureService(servicesRoot, "@archive", {
       role: "provider",
       enabled: false,
@@ -108,6 +110,7 @@ test("bootstrapBaselineServices passes the owning runtime API URL to Service Adm
   process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = "http://127.0.0.1:19876";
 
   try {
+    await ensureLocalVaultMarker(workspaceRoot);
     await writeExecutableFixtureService(servicesRoot, "@node", {
       role: "provider",
       healthcheck: null,
@@ -147,6 +150,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await ensureLocalVaultMarker(workspaceRoot);
     await writeExecutableFixtureService(servicesRoot, "@archive", {
       role: "provider",
       enabled: false,
@@ -250,6 +254,54 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
     assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@traefik")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
+  } finally {
+    await stopAllManagedProcesses();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("bootstrapBaselineServices waits normal autostart while first-run setup is required", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-first-run-setup-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "@node", {
+      role: "provider",
+      healthcheck: null,
+    });
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
+    await writeExecutableFixtureService(servicesRoot, "echo-service", {
+      depend_on: ["@node"],
+    });
+    await writeExecutableFixtureService(servicesRoot, "@serviceadmin", {
+      depend_on: ["@node"],
+    });
+
+    const result = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: "test-version",
+      serviceIds: ["@node", "@secretsbroker", "echo-service", "@serviceadmin"],
+    });
+
+    assert.equal(result.setup.state, "setup_required");
+    assert.equal(result.setup.setupMode, true);
+    assert.equal(result.setup.vault.ready, false);
+    assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);
+    assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
+
+    const echo = result.services.find((service) => service.serviceId === "echo-service");
+    assert.ok(echo);
+    assert.equal(echo.state.installed, true);
+    assert.equal(echo.state.configured, true);
+    assert.equal(echo.state.running, false);
+    assert.deepEqual(
+      echo.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:completed", "config:completed", "start:skipped"],
+    );
+    assert.match(echo.actions.at(-1)?.message ?? "", /First-run setup mode is active/);
   } finally {
     await stopAllManagedProcesses();
     resetLifecycleState();

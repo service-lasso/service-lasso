@@ -14,7 +14,9 @@ import {
   platformAuditMetadataIncludesSecretMaterial,
   providerConnectionMetadataEndpoints,
   readProviderConnectionMetadata,
+  registerServiceActionPermission,
   resolveServiceLassoRequestContext,
+  resolveZitadelServiceLassoRoles,
   updateProviderConnectionMetadata,
 } from "../dist/platform/facade.js";
 
@@ -39,7 +41,10 @@ test("platform facade fixture defines users workspaces linked identities provide
   assert.equal(examplePlatformFacadeState.workspaces.length, 1);
   assert.equal(examplePlatformFacadeState.linkedIdentities.length, 1);
   assert.equal(examplePlatformFacadeState.providerConnections.length, 1);
-  assert.equal(examplePlatformFacadeState.roles.length, 1);
+  assert.equal(examplePlatformFacadeState.roles.length, 7);
+  assert.equal(examplePlatformFacadeState.zitadelRoleMappings.length, 7);
+  assert.equal(examplePlatformFacadeState.permissionGrants.length, 4);
+  assert.equal(examplePlatformFacadeState.serviceActionPermissions.length, 1);
   assert.equal(examplePlatformFacadeState.serviceIdentities.length, 1);
 
   const connection = examplePlatformFacadeState.providerConnections[0];
@@ -150,6 +155,8 @@ test("ZITADEL session context maps to internal user workspace and entitlements",
   assert.equal(context.instanceId, "inst_local_demo");
   assert.equal(context.actor.kind, "user");
   assert.equal(context.authMethod, "zitadel-session");
+  assert.deepEqual(context.roleNames, ["operator"]);
+  assert.ok(context.permissionGrants.some((grant) => grant.permissionKey === "workflow:run"));
   assert.deepEqual(context.audit, {
     actorKind: "user",
     actorId: "usr_01hzy9operator",
@@ -157,9 +164,15 @@ test("ZITADEL session context maps to internal user workspace and entitlements",
     instanceId: "inst_local_demo",
     linkedIdentityId: "lid_zitadel_operator",
     authMethod: "zitadel-session",
+    zitadelIssuer: "http://localhost:8080",
+    zitadelSubject: "zitadel-user-operator",
+    zitadelGroups: ["service-lasso-operators"],
+    zitadelRoles: ["operator"],
+    serviceLassoRoles: ["operator"],
   });
   assert.ok(context.entitlements.includes("secrets-broker:resolve"));
   assert.ok(context.entitlements.includes("workflow:run"));
+  assert.equal(context.entitlements.includes("workspace:admin"), false);
 
   assert.equal(
     mapZitadelSessionToPlatformContext({
@@ -168,6 +181,33 @@ test("ZITADEL session context maps to internal user workspace and entitlements",
     }),
     undefined,
   );
+});
+
+test("ZITADEL group and role claims map explicitly to Service Lasso roles", () => {
+  const identity = examplePlatformFacadeState.linkedIdentities[0];
+
+  assert.deepEqual(
+    resolveZitadelServiceLassoRoles(
+      { issuer: identity.issuer, subject: identity.subject, groups: ["service-lasso-admins"], roles: ["backup-restore"] },
+      { ...identity, claims: { groups: [] } },
+      examplePlatformFacadeState,
+      "wks_local_demo",
+    ),
+    ["admin", "backup-restore-operator"],
+  );
+
+  const denied = resolveServiceLassoRequestContext({
+    kind: "zitadel-session",
+    session: { issuer: identity.issuer, subject: identity.subject, groups: ["unmapped-zitadel-group"] },
+    workspaceId: "wks_local_demo",
+    instanceId: "inst_local_demo",
+  }, {
+    ...examplePlatformFacadeState,
+    linkedIdentities: [{ ...identity, claims: { groups: [] } }],
+  });
+
+  assert.equal(denied.ok, false);
+  assert.equal(!denied.ok && denied.reason, "unauthorized");
 });
 
 test("request context resolver covers fail-closed session and service identity states", () => {
@@ -250,11 +290,12 @@ test("authorization boundaries fail closed for workspace mismatch missing entitl
   assert.ok(context);
 
   const connection = examplePlatformFacadeState.providerConnections[0];
-  assert.deepEqual(authorizePlatformResource(context, { kind: "provider-connection", connection }), {
-    allowed: true,
-    reason: "allowed",
-    requiredEntitlements: ["secrets-broker-source:use"],
-  });
+  const allowed = authorizePlatformResource(context, { kind: "provider-connection", connection });
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.reason, "allowed");
+  assert.deepEqual(allowed.requiredEntitlements, ["secrets-broker-source:use"]);
+  assert.equal(allowed.requiredPermission.permissionKey, "secrets-broker-source:use");
+  assert.equal(allowed.grantEvidence.grantId, "grant_operator_provider_use");
 
   assert.equal(
     authorizePlatformResource(
@@ -279,6 +320,121 @@ test("authorization boundaries fail closed for workspace mismatch missing entitl
     }).reason,
     "connection-not-ready",
   );
+});
+
+test("scoped permission grants default deny custom groups and allow only matching service/action scopes", () => {
+  const context = mapZitadelSessionToPlatformContext({
+    issuer: "http://localhost:8080",
+    subject: "zitadel-user-operator",
+  });
+  assert.ok(context);
+
+  const customGroupContext = {
+    ...context,
+    roleIds: ["role_postgres_admins"],
+    roleNames: ["postgres-admins"],
+    entitlements: ["workspace:read"],
+    permissionGrants: [],
+  };
+  const defaultDenied = authorizePlatformResource(customGroupContext, {
+    kind: "service-action",
+    workspaceId: "wks_local_demo",
+    serviceId: "@postgres",
+    actionId: "services.restart",
+    permissionKey: "service:restart",
+  });
+  assert.equal(defaultDenied.allowed, false);
+  assert.equal(defaultDenied.reason, "missing-grant");
+
+  const scopedContext = {
+    ...customGroupContext,
+    permissionGrants: [
+      {
+        id: "grant_postgres_admins_restart_postgres",
+        workspaceId: "wks_local_demo",
+        target: { kind: "role", id: "role_postgres_admins" },
+        permissionKey: "service:restart",
+        scope: { type: "service", id: "@postgres" },
+        createdBy: "usr_01hzy9operator",
+        createdAt: "2026-05-08T11:00:00Z",
+        reason: "Postgres Admins may restart only Postgres.",
+      },
+    ],
+  };
+  const postgresAllowed = authorizePlatformResource(scopedContext, {
+    kind: "service-action",
+    workspaceId: "wks_local_demo",
+    serviceId: "@postgres",
+    actionId: "services.restart",
+    permissionKey: "service:restart",
+  });
+  assert.equal(postgresAllowed.allowed, true);
+  assert.equal(postgresAllowed.grantEvidence.grantId, "grant_postgres_admins_restart_postgres");
+
+  const wrongServiceDenied = authorizePlatformResource(scopedContext, {
+    kind: "service-action",
+    workspaceId: "wks_local_demo",
+    serviceId: "@redis",
+    actionId: "services.restart",
+    permissionKey: "service:restart",
+  });
+  assert.equal(wrongServiceDenied.allowed, false);
+  assert.equal(wrongServiceDenied.reason, "missing-grant");
+});
+
+test("owner wildcard grant allows all service actions while service import does not auto-grant", () => {
+  const ownerContext = {
+    userId: "usr_owner",
+    workspaceId: "wks_local_demo",
+    instanceId: "inst_local_demo",
+    linkedIdentityId: "lid_owner",
+    entitlements: ["workspace:read"],
+    roleIds: ["role_owner"],
+    roleNames: ["owner"],
+    permissionGrants: [
+      {
+        id: "grant_owner_runtime_all",
+        workspaceId: "wks_local_demo",
+        target: { kind: "role", id: "role_owner" },
+        permissionKey: "*",
+        scope: { type: "runtime", id: "*" },
+        createdBy: "bootstrap",
+        createdAt: "2026-05-08T10:00:00Z",
+        reason: "Owner/root bootstrap grant.",
+      },
+    ],
+    actor: { kind: "user", id: "usr_owner", displayName: "Owner Example" },
+    authMethod: "zitadel-session",
+    audit: {
+      actorKind: "user",
+      actorId: "usr_owner",
+      workspaceId: "wks_local_demo",
+      instanceId: "inst_local_demo",
+      linkedIdentityId: "lid_owner",
+      authMethod: "zitadel-session",
+    },
+  };
+
+  const allowed = authorizePlatformResource(ownerContext, {
+    kind: "service-action",
+    workspaceId: "wks_local_demo",
+    serviceId: "@redis",
+    actionId: "services.restart",
+    permissionKey: "service:restart",
+  });
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.grantEvidence.grantId, "grant_owner_runtime_all");
+
+  const imported = registerServiceActionPermission(examplePlatformFacadeState, {
+    serviceId: "@postgres",
+    actionId: "services.restart",
+    permissionKey: "service:restart",
+    scopeType: "service",
+    description: "Restart Postgres after a configuration change.",
+    registeredAt: "2026-05-08T11:00:00Z",
+  });
+  assert.equal(imported.serviceActionPermissions.some((action) => action.serviceId === "@postgres"), true);
+  assert.deepEqual(imported.permissionGrants, examplePlatformFacadeState.permissionGrants);
 });
 
 test("provider connection metadata rejects raw secret and recovery material fields", () => {

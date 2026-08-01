@@ -11,6 +11,10 @@ import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportT
 import type { ServiceCatalogProvenance } from "./service.js";
 import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 import type { ServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
+import type {
+  OperatorInboxCounts,
+  OperatorInboxItem,
+} from "../runtime/operator/inbox.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -26,6 +30,69 @@ export interface ApiErrorResponse {
   error: string;
   message: string;
   statusCode: number;
+}
+
+export interface RuntimeSetupStatusResponse {
+  setup: {
+    contractVersion: "service-lasso.setup-status.v1";
+    state:
+      | "not_required"
+      | "setup_required"
+      | "setup_in_progress"
+      | "setup_complete"
+      | "setup_failed";
+    setupMode: boolean;
+    vault: {
+      required: boolean;
+      ready: boolean;
+      path: string;
+    };
+    operator: {
+      osUsername: string;
+      identitySource: "vault";
+    };
+    trustBoundary: {
+      bindHost: string;
+      localOnly: boolean;
+      localhostBootstrapAllowed: boolean;
+      remoteBootstrapAllowed: boolean;
+      setupTokenConfigured: boolean;
+      blockers: string[];
+    };
+    auth: RuntimeAuthStatusResponse["auth"];
+  };
+}
+
+export interface RuntimeAuthStatusResponse {
+  auth: {
+    contractVersion: "service-lasso.auth-status.v1";
+    request: {
+      clientAddress: string | null;
+      local: boolean;
+    };
+    policy: {
+      bindHost: string;
+      remoteAuthRequired: boolean;
+      trustProxyHeaders: boolean;
+      zitadelEnabled: boolean;
+      localTokenConfigured: boolean;
+    };
+    actor: {
+      authenticated: boolean;
+      kind: "local-root" | "zitadel" | "local-token" | null;
+      actorId: string | null;
+    };
+    mode: "local-root" | "zitadel" | "local-token" | "blocked";
+    blockers: string[];
+  };
+}
+
+export interface RuntimeSetupBootstrapResponse {
+  bootstrap: {
+    ok: true;
+    state: "setup_complete";
+  };
+  setup: RuntimeSetupStatusResponse["setup"];
 }
 
 export interface ServiceSummary {
@@ -205,6 +272,39 @@ export interface ManagedWorkflowRegistryResponse {
 
 export interface ServiceWorkspaceRegistryResponse {
   registry: ServiceWorkspaceRegistry;
+}
+
+export interface ServiceFileExportArchiveResponse {
+  ok: true;
+  action: "archive-selection";
+  export: {
+    contractVersion: "service-lasso.file-export-artifact.v1";
+    artifactId: string;
+    createdAt: string;
+    serviceId: string;
+    sourceId: string;
+    rootId: string;
+    selectedPaths: string[];
+    archiveFormat: "7z";
+    provider: {
+      serviceId: "@archive";
+      actionId: "archive-selection";
+      version: string | null;
+      runId: string;
+      status: "succeeded";
+    };
+    artifact: {
+      id: string;
+      fileName: string;
+      format: "7z";
+      sizeBytes: number;
+      checksum: {
+        algorithm: "sha256";
+        value: string;
+      };
+      downloadUrl: string;
+    };
+  };
 }
 
 export interface ServiceDetailResponse {
@@ -388,6 +488,37 @@ export interface RuntimeCapabilitiesResponse {
       };
     };
   };
+}
+
+export type VaultKeySourceType = "os-managed" | "file" | "env" | "cli" | "generated";
+
+export interface VaultKeyFingerprintResponse {
+  algorithm: "sha256";
+  value: string;
+  display: string;
+}
+
+export interface VaultKeySourceResponse {
+  type: VaultKeySourceType;
+  supplied: boolean;
+  reveal: "never" | "once";
+  envName?: string;
+  filePath?: string;
+  fingerprint: VaultKeyFingerprintResponse;
+}
+
+export interface VaultKeyOneTimeRevealResponse {
+  key: string;
+  confirmationRequired: true;
+  warning: string;
+}
+
+export interface VaultKeyBootstrapResponse {
+  contractVersion: "vault-key-bootstrap.v1";
+  status: "ready";
+  source: VaultKeySourceResponse;
+  oneTimeReveal: VaultKeyOneTimeRevealResponse | null;
+  warnings: string[];
 }
 
 export type OperatorCommandKind =
@@ -724,6 +855,34 @@ export interface OperatorNotificationsResponse {
     critical: number;
     warning: number;
     info: number;
+  };
+}
+
+export interface OperatorInboxListResponse {
+  inbox: {
+    items: OperatorInboxItem[];
+    pagination: {
+      limit: number;
+      nextCursor: string | null;
+      total: number;
+    };
+  };
+}
+
+export interface OperatorInboxItemResponse {
+  inboxItem: OperatorInboxItem;
+}
+
+export interface OperatorInboxMutationResponse {
+  inbox: {
+    items: OperatorInboxItem[];
+    counts: OperatorInboxCounts;
+  };
+}
+
+export interface OperatorInboxCountsResponse {
+  inbox: {
+    counts: OperatorInboxCounts;
   };
 }
 
@@ -1064,4 +1223,92 @@ export interface ServiceTelemetryPreviewResponse {
 
 export interface RuntimeTelemetryExportTestResponse {
   exportTest: TelemetryExportTestResult;
+}
+
+export interface ServiceCatalogRepositoryResponse {
+  owner: string;
+  name: string;
+  url: string;
+}
+
+export interface ServiceCatalogVersionPolicyResponse {
+  channel: "stable" | "preview";
+  selector: "latest-semver" | "latest-release";
+  allowPrerelease: boolean;
+}
+
+export interface ServiceCatalogReleaseAssetRuleResponse {
+  namePattern: string;
+  required: boolean;
+}
+
+export interface ServiceCatalogPackageResponse {
+  packageId: string;
+  displayName: string;
+  summary: string;
+  repository: ServiceCatalogRepositoryResponse;
+  category: string;
+  tags: string[];
+  publisher: string;
+  trustStatus: "approved" | "experimental" | "blocked";
+  approved: boolean;
+  defaultVersionPolicy: ServiceCatalogVersionPolicyResponse;
+  releaseAsset: ServiceCatalogReleaseAssetRuleResponse;
+  manifestPath: string;
+}
+
+export interface ServiceCatalogPackagesResponse {
+  catalog: {
+    catalogId: string;
+    schemaVersion: string;
+    updatedAt: string;
+    source: string;
+    packages: ServiceCatalogPackageResponse[];
+    summary: {
+      total: number;
+      approved: number;
+      categories: string[];
+      filtered: number;
+    };
+  };
+}
+
+export interface ServiceCatalogReleaseAssetResponse {
+  name: string;
+  size: number | null;
+  contentType: string | null;
+  downloadUrl: string | null;
+  selected: boolean;
+}
+
+export interface ServiceCatalogReleaseVersionResponse {
+  tag: string;
+  version: string;
+  name: string | null;
+  releaseUrl: string | null;
+  createdAt: string | null;
+  publishedAt: string | null;
+  prerelease: boolean;
+  draft: boolean;
+  notesSummary: string | null;
+  assets: ServiceCatalogReleaseAssetResponse[];
+  selectedAsset: ServiceCatalogReleaseAssetResponse | null;
+  default: boolean;
+}
+
+export interface ServiceCatalogPackageReleasesResponse {
+  package: ServiceCatalogPackageResponse;
+  versions: ServiceCatalogReleaseVersionResponse[];
+  defaultVersion: ServiceCatalogReleaseVersionResponse | null;
+  source: {
+    type: "github-releases";
+    apiBaseUrl: string;
+    repository: string;
+  };
+  summary: {
+    total: number;
+    stable: number;
+    prerelease: number;
+    drafts: number;
+  };
 }

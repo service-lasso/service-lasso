@@ -7,6 +7,7 @@ import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/pr
 import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
 import {
   clearPersistedFixtureState,
   makeTempServicesRoot,
@@ -22,8 +23,20 @@ async function getJson(url) {
   };
 }
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function getJsonWithHeaders(url, headers) {
+  const response = await fetch(url, { headers });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -42,6 +55,18 @@ async function putJson(url, body) {
     status: response.status,
     body: await response.json(),
   };
+}
+
+async function readRuntimeAuditActions(workspaceRoot) {
+  const auditRoot = path.join(workspaceRoot, ".service-lasso", "audit", "runtime");
+  const entries = await readdir(auditRoot).catch(() => []);
+  const lines = (
+    await Promise.all(entries.map(async (entry) => readFile(path.join(auditRoot, entry), "utf8")))
+  )
+    .join("\n")
+    .split(/\r?\n/u)
+    .filter(Boolean);
+  return lines.map((line) => JSON.parse(line).action);
 }
 
 async function waitFor(readinessCheck, timeoutMs = 1_000) {
@@ -92,6 +117,299 @@ test("runtime API binds to all interfaces by default while reporting a local URL
       delete process.env.SERVICE_LASSO_HOST;
     } else {
       process.env.SERVICE_LASSO_HOST = previousHost;
+    }
+  }
+});
+
+test("GET /api/setup/status reports first-run setup required for a fresh workspace", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-setup-status-"));
+  const previousSetupToken = process.env.SERVICE_LASSO_SETUP_TOKEN;
+  delete process.env.SERVICE_LASSO_SETUP_TOKEN;
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "setup-status-test",
+  });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/setup/status`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.setup.contractVersion, "service-lasso.setup-status.v1");
+    assert.equal(result.body.setup.state, "setup_required");
+    assert.equal(result.body.setup.setupMode, true);
+    assert.equal(result.body.setup.vault.required, true);
+    assert.equal(result.body.setup.vault.ready, false);
+    assert.equal(result.body.setup.operator.identitySource, "vault");
+    assert.equal(result.body.setup.trustBoundary.bindHost, "0.0.0.0");
+    assert.equal(result.body.setup.trustBoundary.localOnly, false);
+    assert.equal(result.body.setup.trustBoundary.localhostBootstrapAllowed, false);
+    assert.equal(result.body.setup.trustBoundary.remoteBootstrapAllowed, false);
+    assert.equal(result.body.setup.trustBoundary.setupTokenConfigured, false);
+    assert.deepEqual(result.body.setup.trustBoundary.blockers, ["setup_token_required_for_remote_bind"]);
+    assert.equal(result.body.setup.auth.contractVersion, "service-lasso.auth-status.v1");
+    assert.equal(result.body.setup.auth.actor.kind, "local-root");
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousSetupToken === undefined) {
+      delete process.env.SERVICE_LASSO_SETUP_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_SETUP_TOKEN = previousSetupToken;
+    }
+  }
+});
+
+test("GET /api/setup/status skips setup mode when the local vault marker exists", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-setup-ready-"));
+  await ensureLocalVaultMarker(tempDir);
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "setup-ready-test",
+  });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/setup/status`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.setup.state, "not_required");
+    assert.equal(result.body.setup.setupMode, false);
+    assert.equal(result.body.setup.vault.ready, true);
+    assert.equal(result.body.setup.trustBoundary.localOnly, true);
+    assert.deepEqual(result.body.setup.trustBoundary.blockers, []);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/setup/bootstrap creates the local vault marker and setup audit trail on local-only bind", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-setup-bootstrap-"));
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "setup-bootstrap-test",
+  });
+
+  try {
+    const result = await postJson(`${apiServer.url}/api/setup/bootstrap`, { actor: "local-operator" });
+
+    assert.equal(result.status, 201);
+    assert.equal(result.body.bootstrap.ok, true);
+    assert.equal(result.body.bootstrap.state, "setup_complete");
+    assert.equal(result.body.setup.state, "not_required");
+    assert.equal(result.body.setup.setupMode, false);
+    assert.equal(result.body.setup.vault.ready, true);
+    assert.deepEqual(await readRuntimeAuditActions(tempDir), [
+      "setup.bootstrap.started",
+      "setup.vault.created",
+      "setup.root_identity.created",
+      "setup.bootstrap.completed",
+    ]);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/setup/bootstrap rejects public bind without a setup token", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-setup-blocked-"));
+  const previousSetupToken = process.env.SERVICE_LASSO_SETUP_TOKEN;
+  delete process.env.SERVICE_LASSO_SETUP_TOKEN;
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "setup-blocked-test",
+  });
+
+  try {
+    const result = await postJson(`${apiServer.url}/api/setup/bootstrap`, { actor: "local-operator" });
+
+    assert.equal(result.status, 403);
+    assert.equal(result.body.error, "setup_bootstrap_forbidden");
+    assert.deepEqual(await readRuntimeAuditActions(tempDir), ["setup.bootstrap.denied"]);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousSetupToken === undefined) {
+      delete process.env.SERVICE_LASSO_SETUP_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_SETUP_TOKEN = previousSetupToken;
+    }
+  }
+});
+
+test("GET /api/runtime/security resolves localhost requests as local-root", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-local-"));
+  await ensureLocalVaultMarker(tempDir);
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "auth-local-test",
+  });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/runtime/security`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.auth.contractVersion, "service-lasso.auth-status.v1");
+    assert.equal(result.body.auth.request.local, true);
+    assert.equal(result.body.auth.policy.remoteAuthRequired, false);
+    assert.equal(result.body.auth.actor.authenticated, true);
+    assert.equal(result.body.auth.actor.kind, "local-root");
+    assert.deepEqual(result.body.auth.blockers, []);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("remote API requests cannot inherit local-root trust without auth", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-remote-denied-"));
+  await ensureLocalVaultMarker(tempDir);
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousLocalToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  const previousZitadel = process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+  process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
+  delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  delete process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "auth-remote-denied-test",
+  });
+
+  try {
+    const result = await getJsonWithHeaders(`${apiServer.url}/api/services`, {
+      "x-forwarded-for": "192.168.1.20",
+    });
+
+    assert.equal(result.status, 401);
+    assert.equal(result.body.error, "remote_auth_required");
+    assert.deepEqual(await readRuntimeAuditActions(tempDir), ["auth.remote.denied"]);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousTrustProxy === undefined) {
+      delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    } else {
+      process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    }
+    if (previousLocalToken === undefined) {
+      delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalToken;
+    }
+    if (previousZitadel === undefined) {
+      delete process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_ZITADEL_ENABLED = previousZitadel;
+    }
+  }
+});
+
+test("remote API requests can authenticate with an explicit local admin token", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-local-token-"));
+  await ensureLocalVaultMarker(tempDir);
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousLocalToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
+  process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = "test-local-admin-token";
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "auth-local-token-test",
+  });
+
+  try {
+    const result = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-forwarded-for": "192.168.1.21",
+      "x-service-lasso-admin-token": "test-local-admin-token",
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.auth.request.local, false);
+    assert.equal(result.body.auth.actor.authenticated, true);
+    assert.equal(result.body.auth.actor.kind, "local-token");
+    assert.equal(result.body.auth.policy.localTokenConfigured, true);
+    assert.deepEqual(result.body.auth.blockers, []);
+
+    const services = await getJsonWithHeaders(`${apiServer.url}/api/services`, {
+      "x-forwarded-for": "192.168.1.21",
+      "x-service-lasso-admin-token": "test-local-admin-token",
+    });
+    assert.equal(services.status, 200);
+    assert.equal(Array.isArray(services.body.services), true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousTrustProxy === undefined) {
+      delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    } else {
+      process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    }
+    if (previousLocalToken === undefined) {
+      delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalToken;
+    }
+  }
+});
+
+test("remote API requests can resolve a Zitadel-authenticated actor", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-zitadel-"));
+  await ensureLocalVaultMarker(tempDir);
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousZitadel = process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+  process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
+  process.env.SERVICE_LASSO_ZITADEL_ENABLED = "true";
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "auth-zitadel-test",
+  });
+
+  try {
+    const result = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-forwarded-for": "192.168.1.22",
+      "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.auth.request.local, false);
+    assert.equal(result.body.auth.actor.authenticated, true);
+    assert.equal(result.body.auth.actor.kind, "zitadel");
+    assert.equal(result.body.auth.actor.actorId, "usr_zitadel_operator");
+    assert.equal(result.body.auth.policy.zitadelEnabled, true);
+    assert.deepEqual(result.body.auth.blockers, []);
+
+    const services = await getJsonWithHeaders(`${apiServer.url}/api/services`, {
+      "x-forwarded-for": "192.168.1.22",
+      "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
+    });
+    assert.equal(services.status, 200);
+    assert.equal(Array.isArray(services.body.services), true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousTrustProxy === undefined) {
+      delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    } else {
+      process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    }
+    if (previousZitadel === undefined) {
+      delete process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_ZITADEL_ENABLED = previousZitadel;
     }
   }
 });

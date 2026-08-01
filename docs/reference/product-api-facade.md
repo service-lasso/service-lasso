@@ -81,6 +81,8 @@ auth state in core.
 | `instanceId` | Local Service Lasso instance boundary. Requests cannot cross instances. |
 | `linkedIdentityId` | ZITADEL linked identity id for user requests, or service identity id for service-authenticated requests. |
 | `entitlements` | Workspace-scoped grants flattened from roles or service identity policy. |
+| `roleIds` / `roleNames` | Role evidence used to match explicit `permission_grants`. |
+| `permissionGrants` | Explicit grants resolved for the actor in this workspace. Empty means default deny for scoped resources. |
 | `actor` | Safe actor descriptor: `kind`, `id`, and display label only. |
 | `authMethod` | `zitadel-session` or `service-identity`. |
 | `audit` | Safe actor/workspace/instance metadata for downstream audit events. |
@@ -142,7 +144,9 @@ Forbidden fields in facade provider connection payloads include `secret`,
 
 ### `roles` and entitlements
 
-Roles are workspace-scoped bundles of entitlements. The first concrete
+Roles are workspace-scoped bundles of coarse entitlements. Entitlements keep
+legacy API boundaries readable, but they do not grant service/action/resource
+access by themselves once scoped grants are present. The first concrete
 entitlements are:
 
 - `workspace:read`
@@ -157,6 +161,90 @@ Secrets Broker resolution requires `secrets-broker:resolve` in the same
 workspace as the requested broker namespace. Workflow/run resolution requires
 `workflow:run`; if a workflow uses provider connection metadata, it also
 requires `secrets-broker-source:use` for each referenced Secrets Broker source metadata record.
+
+### `zitadel_role_mappings`
+
+ZITADEL claims are inputs to an explicit Service Lasso mapping, not direct
+runtime permissions. A mapping record contains:
+
+| Field | Notes |
+| --- | --- |
+| `workspaceId` | Workspace where the mapping is valid. |
+| `claim` | `group` or `role`; other raw claims are not executable grants. |
+| `value` | Exact safe claim value supplied by the trusted app-owned identity layer. |
+| `serviceLassoRole` | Internal role name to load from `roles`, such as `owner`, `admin`, `operator`, `viewer`, `file-export-operator`, `backup-restore-operator`, or `service-account`. |
+
+The resolver merges safe ZITADEL groups/roles from the linked identity record
+and the current trusted session, resolves them through `zitadel_role_mappings`,
+then flattens entitlements only from matching Service Lasso roles in the active
+workspace. Unmapped groups or roles produce no entitlements and fail closed as
+`unauthorized`. This keeps the permission vocabulary in Service Lasso while
+allowing ZITADEL projects to choose their own provider-side group/role labels.
+
+### `permission_grants`
+
+Permission grants are the explicit allow list for service/action/resource
+authorization. The default decision is deny: a request context with no matching
+grant is rejected even when the actor has a coarse role label. Adding or
+importing a service registers available actions, but it must not append grants
+to existing non-owner groups.
+
+Each grant records:
+
+| Field | Notes |
+| --- | --- |
+| `id` | Stable grant id for audit and review. |
+| `workspaceId` | Workspace boundary for the grant. |
+| `target` | `role`, `actor`, or `service` target id. |
+| `permissionKey` | Permission such as `service:restart`, `secrets-broker:resolve`, `workflow:run`, or owner/root wildcard `*`. |
+| `scope` | Scope type and id. Runtime wildcard `runtime/*` is reserved for owner/root bootstrap. |
+| `constraints` | Optional safe structured limits such as time window or max selected paths. |
+| `createdBy` / `createdAt` | Safe audit metadata for who created the grant and when. |
+| `reason` | Human review note. |
+
+Supported scope types are `runtime`, `workspace`, `service`, `action`,
+`file-source`, `file-path`, `broker-namespace`, `export-destination`, and
+`backup-artifact`. A grant only matches when the workspace, target,
+permission key, and scope match the requested resource, except for the
+owner/root wildcard grant.
+
+```json
+{
+  "id": "grant_postgres_admins_restart_postgres",
+  "workspaceId": "wks_local_demo",
+  "target": { "kind": "role", "id": "role_postgres_admins" },
+  "permissionKey": "service:restart",
+  "scope": { "type": "service", "id": "@postgres" },
+  "createdBy": "usr_01hzy9operator",
+  "createdAt": "2026-05-08T11:00:00Z",
+  "reason": "Postgres Admins may restart only Postgres."
+}
+```
+
+Denied authorization decisions include safe evidence such as
+`missing-entitlement`, `missing-grant`, `workspace-mismatch`, or
+`connection-not-ready`. Allowed decisions include the matched grant id, target,
+permission key, and scope for downstream audit metadata.
+
+### `service_action_permissions`
+
+Services can register available actions and required permission keys in the
+core catalogue/resolved service model:
+
+```json
+{
+  "serviceId": "@serviceadmin",
+  "actionId": "services.restart",
+  "permissionKey": "service:restart",
+  "scopeType": "service",
+  "description": "Restart a managed service through Service Admin.",
+  "registeredAt": "2026-05-08T10:00:00Z"
+}
+```
+
+This registration is catalogue metadata only. It makes the assignment visible
+to Service Admin or automation, but it does not grant the action to any group,
+actor, or service identity.
 
 ## Secrets Broker source metadata API
 
@@ -322,12 +410,18 @@ internal context as follows:
 2. Resolve the internal `userId` and allowed `workspaceIds` from that record.
 3. Select the active workspace from request routing or the user's default
    workspace.
-4. Load roles for that workspace and flatten them to entitlements.
+4. Map safe ZITADEL groups/roles through `zitadel_role_mappings` and load only
+   the matching Service Lasso roles for that workspace.
 5. Produce a request context containing `userId`, `workspaceId`, `instanceId`,
    `linkedIdentityId`, actor metadata, auth method, safe audit metadata, and
    entitlements.
-6. Fail closed if the linked identity, workspace, user, session freshness, or
-   required entitlement is missing.
+6. Fail closed if the linked identity, workspace, user, session freshness,
+   mapping, or required entitlement is missing.
+
+Audit metadata may include safe ZITADEL actor context: issuer, subject, groups,
+roles, linked identity id, resolved internal actor id, and resolved Service
+Lasso role names. It must not include raw credentials, tokens, cookies, session
+secrets, or provider response bodies.
 
 ZITADEL remains app/service-owned. This facade contract describes the safe identity metadata core may consume after authentication; it does not make ZITADEL, OIDC sessions, callbacks, or token handling part of the Service Lasso core baseline.
 
@@ -381,6 +475,7 @@ The TypeScript contract lives in `src/platform/facade.ts`. Tests in
 
 - required facade model and endpoint concepts exist,
 - ZITADEL session context maps to internal user/workspace context,
+- ZITADEL group/role claims map explicitly to Service Lasso roles,
 - provider connection metadata is split from secret payloads,
 - Secrets Broker and workflow authorization boundaries are testable, and
 - sensitive strings are rejected or absent from fixture/API shapes.

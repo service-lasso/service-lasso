@@ -11,6 +11,7 @@ import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } 
 import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
+import { readRuntimeSetupStatus, shouldBlockNormalAutostart, type RuntimeSetupStatus } from "../setup/first-run.js";
 
 export const DEFAULT_BASELINE_SERVICE_IDS = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"] as const;
 
@@ -38,6 +39,7 @@ export interface BootstrapBaselineOptions extends RuntimeConfigOptions {
 export interface BootstrapBaselineResult {
   servicesRoot: string;
   workspaceRoot: string;
+  setup: RuntimeSetupStatus;
   requestedServiceIds: string[];
   serviceOrder: string[];
   services: BaselineServiceSummary[];
@@ -55,6 +57,10 @@ function shouldStartService(service: DiscoveredService, state: ServiceLifecycleS
   }
 
   return Boolean(service.manifest.execservice || service.manifest.executable || state.installArtifacts.artifact?.command);
+}
+
+function isSetupBootstrapService(serviceId: string): boolean {
+  return serviceId === "@node" || serviceId === "@secretsbroker" || serviceId === "@serviceadmin";
 }
 
 function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform = process.platform): boolean {
@@ -113,6 +119,8 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
   const registry = createServiceRegistry(discovered);
   const requestedServiceIds = [...(options.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)];
   const serviceOrder = resolveBaselineOrder(registry, requestedServiceIds);
+  const setup = await readRuntimeSetupStatus({ workspaceRoot: runtimeConfig.workspaceRoot });
+  const blockNormalAutostart = shouldBlockNormalAutostart(setup);
   const summaries: BaselineServiceSummary[] = [];
 
   for (const serviceId of serviceOrder) {
@@ -148,6 +156,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
 
     const actions: BaselineActionSummary[] = [];
     let state = getLifecycleState(serviceId);
+    const setupStartBlocked = blockNormalAutostart && !isSetupBootstrapService(serviceId);
 
     if (state.installed) {
       actions.push({ action: "install", status: "skipped", message: "Already installed." });
@@ -183,6 +192,12 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
 
     if (state.running || hasManagedProcess(serviceId)) {
       actions.push({ action: "start", status: "skipped", message: "Already running." });
+    } else if (setupStartBlocked) {
+      actions.push({
+        action: "start",
+        status: "skipped",
+        message: `First-run setup mode is active (${setup.state}); normal service autostart waits until vault setup completes.`,
+      });
     } else if (!shouldStartService(service, state)) {
       actions.push({
         action: "start",
@@ -211,6 +226,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
   return {
     servicesRoot: runtimeConfig.servicesRoot,
     workspaceRoot: runtimeConfig.workspaceRoot,
+    setup,
     requestedServiceIds,
     serviceOrder,
     services: summaries,
