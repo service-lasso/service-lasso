@@ -11,6 +11,7 @@ import {
   configService,
   startService,
   stopService,
+  cancelScheduledSupervisionRestart,
 } from "../dist/runtime/lifecycle/actions.js";
 import {
   hasManagedProcess,
@@ -52,6 +53,54 @@ async function waitFor(predicate, timeoutMs = 1_000) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Condition not met within ${timeoutMs}ms`);
+}
+
+async function writeCrashOnceService(servicesRoot, serviceId, restartPolicy) {
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  const runtimeRoot = path.join(serviceRoot, "runtime");
+  await mkdir(runtimeRoot, { recursive: true });
+  await writeFile(
+    path.join(runtimeRoot, "crash-once.mjs"),
+    `
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const runtimeRoot = path.resolve(process.cwd(), "runtime");
+const markerPath = path.join(runtimeRoot, "crashed-once.txt");
+const readyPath = path.join(runtimeRoot, "ready.txt");
+await mkdir(runtimeRoot, { recursive: true });
+
+try {
+  await access(markerPath);
+  setTimeout(() => {
+    void writeFile(readyPath, "ready");
+  }, 60);
+  setInterval(() => {}, 1000);
+} catch {
+  await writeFile(readyPath, "ready");
+  await writeFile(markerPath, "yes");
+  setTimeout(() => {
+    void rm(readyPath, { force: true }).finally(() => process.exit(7));
+  }, 50);
+}
+`.trim(),
+  );
+  await writeManifest(servicesRoot, serviceId, {
+    id: serviceId,
+    name: serviceId,
+    description: "Fixture that crashes once before staying up.",
+    executable: process.execPath,
+    args: ["runtime/crash-once.mjs"],
+    restartPolicy,
+    healthcheck: {
+      type: "file",
+      file: "./runtime/ready.txt",
+      retries: 10,
+      interval: 20,
+      start_period: 0,
+    },
+  });
+  return { serviceRoot };
 }
 
 test("lifecycle actions execute in the expected bounded order", async () => {
@@ -663,6 +712,39 @@ test("start waits for configured readiness and returns healthy once ready", asyn
   }
 });
 
+test("unexpected crash without restartPolicy records no automatic restart", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-no-policy-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "no-policy-crash", {
+    autoExitMs: 30,
+    exitCode: 7,
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime?.running === false;
+    }, 1_500);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.lastTermination, "crashed");
+    assert.equal(stored.runtime.supervision.lastRestartResult, "blocked");
+    assert.equal(stored.runtime.supervision.restartAttempts, 0);
+    assert.equal(hasManagedProcess("no-policy-crash"), false);
+  } finally {
+    await stopManagedProcess("no-policy-crash", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("start waits for each required healthchecks array item and reports attempts", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
@@ -710,6 +792,42 @@ test("start waits for each required healthchecks array item and reports attempts
   }
 });
 
+test("disabled restartPolicy records no automatic restart after crash", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-disabled-policy-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "disabled-policy-crash", {
+    autoExitMs: 30,
+    exitCode: 7,
+    restartPolicy: {
+      enabled: false,
+      onCrash: true,
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime?.running === false;
+    }, 1_500);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.lastTermination, "crashed");
+    assert.equal(stored.runtime.supervision.lastRestartResult, "blocked");
+    assert.equal(stored.runtime.supervision.restartAttempts, 0);
+  } finally {
+    await stopManagedProcess("disabled-policy-crash", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("start blocks on a failed required healthchecks item and names the check id", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
@@ -746,6 +864,235 @@ test("start blocks on a failed required healthchecks item and names the check id
     assert.match(start.body.message, /failed after 3 readiness attempt/i);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("enabled crash restart policy starts service again through readiness", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-crash-restart-",
+  );
+  const { serviceRoot } = await writeCrashOnceService(servicesRoot, "crash-once-service", {
+    enabled: true,
+    onCrash: true,
+    maxAttempts: 2,
+    backoffSeconds: 0,
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    const firstStart = await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return (
+        stored.runtime?.running === true &&
+        stored.runtime?.metrics?.launchCount >= 2 &&
+        stored.runtime?.supervision?.lastRestartResult === "started"
+      );
+    }, 2_000);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(firstStart.ok, true);
+    assert.equal(stored.runtime.running, true);
+    assert.notEqual(stored.runtime.pid, firstStart.state.runtime.pid);
+    assert.equal(stored.runtime.supervision.restartAttempts, 0);
+    assert.equal(stored.runtime.supervision.lastRestartReason, "crash");
+    assert.equal(stored.runtime.supervision.nextRestartAt, null);
+    assert.equal(
+      stored.runtime.startTrace.current.events.some(
+        (event) => event.phase === "health_check" && event.status === "completed",
+      ),
+      true,
+    );
+  } finally {
+    await stopManagedProcess("crash-once-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("manual stop does not trigger automatic restart", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-manual-stop-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "manual-stop-service", {
+    restartPolicy: {
+      enabled: true,
+      onCrash: true,
+      backoffSeconds: 0,
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+    const stop = await stopService(service);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(stop.state.running, false);
+    assert.equal(stop.state.runtime.lastTermination, "stopped");
+    assert.equal(stop.state.runtime.metrics.launchCount, 1);
+    assert.equal(stop.state.runtime.supervision.lastRestartResult, null);
+  } finally {
+    await stopManagedProcess("manual-stop-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("clean unexpected exit does not restart under crash policy", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-clean-exit-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "clean-exit-service", {
+    autoExitMs: 30,
+    exitCode: 0,
+    restartPolicy: {
+      enabled: true,
+      onCrash: true,
+      backoffSeconds: 0,
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime?.running === false;
+    }, 1_500);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.lastTermination, "exited");
+    assert.equal(stored.runtime.supervision.lastRestartResult, "blocked");
+    assert.equal(stored.runtime.metrics.launchCount, 1);
+  } finally {
+    await stopManagedProcess("clean-exit-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("maxAttempts blocks crash restart attempts at the configured limit", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-max-attempts-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "max-attempts-service", {
+    autoExitMs: 30,
+    exitCode: 7,
+    restartPolicy: {
+      enabled: true,
+      onCrash: true,
+      maxAttempts: 0,
+      backoffSeconds: 0,
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime?.supervision?.lastRestartResult === "blocked";
+    }, 1_500);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.supervision.restartAttempts, 0);
+    assert.equal(stored.runtime.metrics.launchCount, 1);
+  } finally {
+    await stopManagedProcess("max-attempts-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("backoff records the next restart time before launching again", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-backoff-",
+  );
+  const { serviceRoot } = await writeCrashOnceService(servicesRoot, "backoff-service", {
+    enabled: true,
+    onCrash: true,
+    maxAttempts: 1,
+    backoffSeconds: 1,
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime?.supervision?.lastRestartResult === "scheduled";
+    }, 1_500);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.metrics.launchCount, 1);
+    assert.equal(stored.runtime.supervision.restartAttempts, 1);
+    assert.ok(Date.parse(stored.runtime.supervision.nextRestartAt) > Date.parse(stored.runtime.supervision.lastRestartAttemptAt));
+    cancelScheduledSupervisionRestart("backoff-service");
+  } finally {
+    cancelScheduledSupervisionRestart("backoff-service");
+    await stopManagedProcess("backoff-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("disabled service is not automatically restarted after crash", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-supervision-disabled-service-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "disabled-service-crash", {
+    enabled: false,
+    autoExitMs: 30,
+    exitCode: 7,
+    restartPolicy: {
+      enabled: true,
+      onCrash: true,
+      backoffSeconds: 0,
+    },
+  });
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    await startService(service);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime?.supervision?.lastRestartResult === "blocked";
+    }, 1_500);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.metrics.launchCount, 1);
+    assert.equal(stored.runtime.supervision.restartAttempts, 0);
+  } finally {
+    await stopManagedProcess("disabled-service-crash", 100).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
