@@ -174,6 +174,15 @@ node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-exampl
 
 The import command copies the release `service.json` asset into `services/<service-id>/service.json` and refuses to replace an existing manifest unless `--force` is provided.
 
+Import a local Service Archive upload without enabling or starting it:
+
+```powershell
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --dry-run --json
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --json
+```
+
+Archive imports stage and inspect the zip before touching `servicesRoot`, require exactly one valid `service.json`, reject unsafe archive paths, copy the archive content into `services/<service-id>/`, rescan discovery, and return a conflict state instead of overwriting an existing service.
+
 Start the baseline services and leave the API running:
 
 ```powershell
