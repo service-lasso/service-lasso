@@ -565,6 +565,7 @@ export async function rehydrateLifecycleState(
 ): Promise<ServiceLifecycleState | null> {
   const snapshot = await readStoredState(service.serviceRoot);
   const state = parseLifecycleState(service, snapshot);
+  let rehydratedState = state;
 
   if (state) {
     const serviceId = service.manifest.id;
@@ -641,6 +642,7 @@ export async function rehydrateLifecycleState(
             endpoints: resolveServiceEndpoints(service, state.runtime.ports),
           },
         });
+        rehydratedState = adoptedState;
         await writeServiceState(service, adoptedState);
       }
 
@@ -650,7 +652,7 @@ export async function rehydrateLifecycleState(
     }
   }
 
-  return state;
+  return rehydratedState;
 }
 
 export async function rehydrateDiscoveredServices(

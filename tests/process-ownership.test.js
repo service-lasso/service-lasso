@@ -25,7 +25,7 @@ import {
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
-import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
+import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
@@ -304,6 +304,71 @@ test("rehydration clears a reused PID without terminating the unrelated live pro
     assert.equal(ownership, null);
   } finally {
     unrelated.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("rehydration returns adopted running state with retained ports", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-adopted-state-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "rehydrate-adopted-service", {
+    ports: { service: 18092 },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: child.pid,
+        startedAt: inspection.identity.createdAt,
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18092 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, { workspaceRoot });
+
+    assert.equal(rehydrated.running, true);
+    assert.equal(rehydrated.runtime.pid, child.pid);
+    assert.deepEqual(rehydrated.runtime.ports, { service: 18092 });
+    assert.equal(rehydrated.runtime.endpoints.some((endpoint) => endpoint.port === 18092), true);
+    assert.equal(hasManagedProcess("rehydrate-adopted-service"), true);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, child.pid);
+    assert.deepEqual(stored.runtime.ports, { service: 18092 });
+
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "rehydrate-adopted-service");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, child.pid);
+    assert.deepEqual(ownership.allocation.ports, { service: 18092 });
+  } finally {
+    await stopManagedProcess("rehydrate-adopted-service", 500).catch(() => null);
+    child.kill("SIGKILL");
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
