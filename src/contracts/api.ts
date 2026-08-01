@@ -1224,3 +1224,91 @@ export interface ServiceTelemetryPreviewResponse {
 export interface RuntimeTelemetryExportTestResponse {
   exportTest: TelemetryExportTestResult;
 }
+
+export interface ServiceCatalogRepositoryResponse {
+  owner: string;
+  name: string;
+  url: string;
+}
+
+export interface ServiceCatalogVersionPolicyResponse {
+  channel: "stable" | "preview";
+  selector: "latest-semver" | "latest-release";
+  allowPrerelease: boolean;
+}
+
+export interface ServiceCatalogReleaseAssetRuleResponse {
+  namePattern: string;
+  required: boolean;
+}
+
+export interface ServiceCatalogPackageResponse {
+  packageId: string;
+  displayName: string;
+  summary: string;
+  repository: ServiceCatalogRepositoryResponse;
+  category: string;
+  tags: string[];
+  publisher: string;
+  trustStatus: "approved" | "experimental" | "blocked";
+  approved: boolean;
+  defaultVersionPolicy: ServiceCatalogVersionPolicyResponse;
+  releaseAsset: ServiceCatalogReleaseAssetRuleResponse;
+  manifestPath: string;
+}
+
+export interface ServiceCatalogPackagesResponse {
+  catalog: {
+    catalogId: string;
+    schemaVersion: string;
+    updatedAt: string;
+    source: string;
+    packages: ServiceCatalogPackageResponse[];
+    summary: {
+      total: number;
+      approved: number;
+      categories: string[];
+      filtered: number;
+    };
+  };
+}
+
+export interface ServiceCatalogReleaseAssetResponse {
+  name: string;
+  size: number | null;
+  contentType: string | null;
+  downloadUrl: string | null;
+  selected: boolean;
+}
+
+export interface ServiceCatalogReleaseVersionResponse {
+  tag: string;
+  version: string;
+  name: string | null;
+  releaseUrl: string | null;
+  createdAt: string | null;
+  publishedAt: string | null;
+  prerelease: boolean;
+  draft: boolean;
+  notesSummary: string | null;
+  assets: ServiceCatalogReleaseAssetResponse[];
+  selectedAsset: ServiceCatalogReleaseAssetResponse | null;
+  default: boolean;
+}
+
+export interface ServiceCatalogPackageReleasesResponse {
+  package: ServiceCatalogPackageResponse;
+  versions: ServiceCatalogReleaseVersionResponse[];
+  defaultVersion: ServiceCatalogReleaseVersionResponse | null;
+  source: {
+    type: "github-releases";
+    apiBaseUrl: string;
+    repository: string;
+  };
+  summary: {
+    total: number;
+    stable: number;
+    prerelease: number;
+    drafts: number;
+  };
+}
