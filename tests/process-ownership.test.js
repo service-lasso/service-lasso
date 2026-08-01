@@ -18,6 +18,11 @@ import {
   transitionProcessOwnership,
 } from "../dist/runtime/process/registry.js";
 import { startApiServer } from "../dist/server/index.js";
+import {
+  adoptManagedProcess,
+  hasManagedProcess,
+  stopManagedProcess,
+} from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
@@ -299,6 +304,58 @@ test("rehydration clears a reused PID without terminating the unrelated live pro
     assert.equal(ownership, null);
   } finally {
     unrelated.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("adopted process ownership can be stopped without a ChildProcess handle", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-stop-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-stop-service");
+  const child = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    const [service] = await discoverServices(servicesRoot);
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "adopted-stop-service",
+      serviceId: "adopted-stop-service",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "legacy-verified",
+    });
+
+    const handle = await adoptManagedProcess({
+      service,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`,
+      workspaceRoot,
+    });
+
+    assert.equal(handle.pid, child.pid);
+    assert.equal(hasManagedProcess("adopted-stop-service"), true);
+
+    const stopped = await stopManagedProcess("adopted-stop-service", 500);
+    assert.ok(stopped);
+    assert.equal(hasManagedProcess("adopted-stop-service"), false);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
+    assert.equal(ownership.lifecycleState, "stopped");
+    assert.equal(ownership.pid, null);
+  } finally {
+    child.kill("SIGKILL");
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

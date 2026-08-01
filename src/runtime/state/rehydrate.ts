@@ -1,5 +1,5 @@
 import type { DiscoveredService } from "../../contracts/service.js";
-import { hasManagedProcess } from "../execution/supervisor.js";
+import { adoptManagedProcess, hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type {
   LifecycleAction,
@@ -616,6 +616,32 @@ export async function rehydrateLifecycleState(
           .filter((endpoint): endpoint is typeof endpoint & { url: string } => typeof endpoint.url === "string")
           .map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
       });
+
+      if (migration.status === "owned") {
+        await adoptManagedProcess({
+          service,
+          pid: legacyRuntime.pid,
+          startedAt: legacyRuntime.startedAt,
+          command: legacyRuntime.command,
+          workspaceRoot: options.workspaceRoot,
+        });
+        const adoptedState = setLifecycleState(serviceId, {
+          ...nextState,
+          running: true,
+          runtime: {
+            ...nextState.runtime,
+            pid: legacyRuntime.pid,
+            startedAt: legacyRuntime.startedAt,
+            finishedAt: null,
+            exitCode: null,
+            command: legacyRuntime.command,
+            lastTermination: null,
+            ports: state.runtime.ports,
+            endpoints: resolveServiceEndpoints(service, state.runtime.ports),
+          },
+        });
+        await writeServiceState(service, adoptedState);
+      }
 
       if (migration.status === "not_running" || migration.status === "identity_mismatch") {
         await writeServiceState(service, nextState);
