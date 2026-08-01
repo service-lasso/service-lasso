@@ -18,6 +18,7 @@ import path from "node:path";
 import { resolveServiceEndpoints } from "../operator/endpoints.js";
 import { buildServiceNetwork } from "../operator/network.js";
 import { migrateLegacyProcessOwnership } from "../process/registry.js";
+import type { ProcessInspectorDependencies, ProcessIdentityClassification } from "../process/identity.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
 import { writeServiceState } from "./writeState.js";
@@ -25,6 +26,7 @@ import { writeServiceState } from "./writeState.js";
 export interface RehydrateProcessOwnershipOptions {
   workspaceRoot?: string;
   runtimeInstanceId?: string | null;
+  processInspectorDependencies?: ProcessInspectorDependencies;
 }
 
 interface StoredInstallState {
@@ -559,6 +561,60 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
   };
 }
 
+function buildBlockedRehydrateState(
+  service: DiscoveredService,
+  state: ServiceLifecycleState,
+  status: ProcessIdentityClassification,
+  pid: number,
+  reason: string,
+): ServiceLifecycleState {
+  const now = new Date().toISOString();
+  const serviceId = service.manifest.id;
+  const message =
+    status === "unknown_owner"
+      ? `Persisted process owner for service "${serviceId}" could not be verified; inspect PID ${pid} and stop the external process before restarting this service.`
+      : `Persisted process owner for service "${serviceId}" was not adopted because ownership verification returned ${status}.`;
+  const attempt: ServiceStartTraceAttempt = {
+    attemptId: `rehydrate-${serviceId}-${now.replace(/[:.]/g, "-")}`,
+    serviceId,
+    action: "start",
+    startedAt: now,
+    finishedAt: now,
+    status: "blocked",
+    events: [{
+      order: 1,
+      phase: "process_spawn",
+      status: "blocked",
+      serviceId,
+      startedAt: now,
+      finishedAt: now,
+      message,
+      metadata: {
+        processOwnerStatus: status,
+        previousPid: pid,
+        reason,
+        nextSafeAction: "Inspect the persisted PID owner and stop the external process before starting a replacement.",
+      },
+    }],
+  };
+
+  return {
+    ...state,
+    running: false,
+    runtime: {
+      ...state.runtime,
+      pid: null,
+      finishedAt: now,
+      exitCode: null,
+      lastTermination: status === "not_running" ? "exited" : state.runtime.lastTermination,
+      startTrace: {
+        current: attempt,
+        history: [...state.runtime.startTrace.history, attempt],
+      },
+    },
+  };
+}
+
 export async function rehydrateLifecycleState(
   service: DiscoveredService,
   options: RehydrateProcessOwnershipOptions = {},
@@ -617,6 +673,7 @@ export async function rehydrateLifecycleState(
         endpoints: network.endpoints
           .filter((endpoint): endpoint is typeof endpoint & { url: string } => typeof endpoint.url === "string")
           .map((endpoint) => ({ name: endpoint.label, url: endpoint.url })),
+        inspectorDependencies: options.processInspectorDependencies,
       });
 
       if (migration.status === "owned") {
@@ -648,6 +705,15 @@ export async function rehydrateLifecycleState(
 
       if (migration.status === "not_running" || migration.status === "identity_mismatch") {
         await writeServiceState(service, nextState);
+      }
+
+      if (migration.status === "unknown_owner") {
+        const blockedState = setLifecycleState(
+          serviceId,
+          buildBlockedRehydrateState(service, nextState, migration.status, legacyRuntime.pid, migration.reason),
+        );
+        rehydratedState = blockedState;
+        await writeServiceState(service, blockedState);
       }
     }
   }

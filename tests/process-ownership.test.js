@@ -374,6 +374,63 @@ test("rehydration returns adopted running state with retained ports", async () =
   }
 });
 
+test("rehydration records a safe blocker for unverifiable persisted process owners", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-unknown-owner-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "unknown-owner-service");
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+
+  try {
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: 4242,
+        startedAt: "2026-07-18T02:03:04.000Z",
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18094 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, {
+      workspaceRoot,
+      processInspectorDependencies: windowsInspector({
+        ProcessId: 4242,
+        CreationDate: null,
+        ExecutablePath: null,
+        CommandLine: null,
+      }),
+    });
+
+    assert.equal(rehydrated.running, false);
+    assert.equal(rehydrated.runtime.pid, null);
+    assert.equal(hasManagedProcess("unknown-owner-service"), false);
+    assert.equal(rehydrated.runtime.startTrace.current.status, "blocked");
+    assert.equal(rehydrated.runtime.startTrace.current.events[0].metadata.processOwnerStatus, "unknown_owner");
+    assert.equal(rehydrated.runtime.startTrace.current.events[0].metadata.previousPid, 4242);
+    assert.match(
+      rehydrated.runtime.startTrace.current.events[0].metadata.nextSafeAction,
+      /Inspect the persisted PID owner/,
+    );
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.pid, null);
+    assert.equal(stored.runtime.startTrace.current.status, "blocked");
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("API restart replaces an adopted persisted process and keeps retained ports", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-restart-");
