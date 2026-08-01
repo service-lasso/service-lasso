@@ -1017,6 +1017,7 @@ function createWorkflowPlatformContext(request: IncomingMessage, workspaceId: st
     instanceId,
     linkedIdentityId,
     entitlements: parseEntitlements(request),
+    roleNames: ["operator"],
     actor: {
       kind: "user",
       id: userId,
