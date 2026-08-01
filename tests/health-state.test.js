@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
+import dgram from "node:dgram";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
@@ -501,6 +502,264 @@ test("bare TCP healthchecks report ambiguous multi-port services", async () => {
     assert.equal(body.health.healthy, false);
     assert.match(body.health.detail, /multiple service ports/i);
     assert.match(body.health.detail, /address or host \+ port/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("GET /api/services/:id/health aggregates canonical HTTP and TCP healthchecks", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  const httpServer = createServer((_, res) => {
+    res.statusCode = 200;
+    res.end("ok");
+  });
+  httpServer.listen(0, "127.0.0.1");
+  await once(httpServer, "listening");
+  const httpAddress = httpServer.address();
+  if (!httpAddress || typeof httpAddress === "string") {
+    throw new Error("HTTP probe server failed to bind.");
+  }
+
+  const tcpServer = net.createServer((socket) => {
+    socket.end("OK");
+  });
+  tcpServer.listen(0, "127.0.0.1");
+  await once(tcpServer, "listening");
+  const tcpAddress = tcpServer.address();
+  if (!tcpAddress || typeof tcpAddress === "string") {
+    throw new Error("TCP probe server failed to bind.");
+  }
+
+  await writeManifest(servicesRoot, "aggregate-health-service", {
+    id: "aggregate-health-service",
+    name: "Aggregate Health Service",
+    description: "Temporary service for healthchecks array aggregation.",
+    ports: {
+      http: httpAddress.port,
+      tcp: tcpAddress.port,
+    },
+    healthchecks: [
+      {
+        id: "tcp-port-open",
+        type: "tcp",
+        host: "127.0.0.1",
+        port: "${TCP_PORT}",
+      },
+      {
+        id: "http-ready",
+        type: "http",
+        url: "http://127.0.0.1:${HTTP_PORT}/health",
+        expected_status: 200,
+      },
+    ],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/aggregate-health-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.serviceId, "aggregate-health-service");
+    assert.equal(body.health.type, "aggregate");
+    assert.equal(body.health.healthy, true);
+    assert.deepEqual(
+      body.health.checks.map((check) => [check.id, check.type, check.required, check.healthy, check.attempts]),
+      [
+        ["tcp-port-open", "tcp", true, true, 1],
+        ["http-ready", "http", true, true, 1],
+      ],
+    );
+  } finally {
+    await apiServer.stop();
+    httpServer.close();
+    tcpServer.close();
+    await Promise.all([once(httpServer, "close"), once(tcpServer, "close")]);
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("GET /api/services/:id/health reports optional failures without failing the aggregate", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const serviceRoot = await writeManifest(servicesRoot, "optional-health-service", {
+    id: "optional-health-service",
+    name: "Optional Health Service",
+    description: "Temporary service for optional healthchecks.",
+    healthchecks: [
+      {
+        id: "required-file",
+        type: "file",
+        file: "${SERVICE_ROOT}/runtime/ready.txt",
+      },
+      {
+        id: "optional-diagnostic",
+        type: "file",
+        file: "runtime/diagnostic.txt",
+        required: false,
+      },
+    ],
+  });
+  const readyPath = path.join(serviceRoot, "runtime", "ready.txt");
+  await mkdir(path.dirname(readyPath), { recursive: true });
+  await writeFile(readyPath, "ok");
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/optional-health-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.health.type, "aggregate");
+    assert.equal(body.health.healthy, true);
+    assert.equal(body.health.checks.find((check) => check.id === "required-file").healthy, true);
+    assert.equal(body.health.checks.find((check) => check.id === "optional-diagnostic").healthy, false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("GET /api/services/:id/health supports UDP send expect healthchecks", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const udpServer = dgram.createSocket("udp4");
+  udpServer.on("message", (message, remote) => {
+    if (message.toString("utf8") === "ping") {
+      udpServer.send(Buffer.from("pong"), remote.port, remote.address);
+    }
+  });
+  udpServer.bind(0, "127.0.0.1");
+  await once(udpServer, "listening");
+  const udpAddress = udpServer.address();
+
+  await writeManifest(servicesRoot, "udp-health-service", {
+    id: "udp-health-service",
+    name: "UDP Health Service",
+    description: "Temporary service for UDP healthchecks.",
+    ports: {
+      udp: udpAddress.port,
+    },
+    healthchecks: [
+      {
+        id: "udp-ready",
+        type: "udp",
+        host: "127.0.0.1",
+        port: "${UDP_PORT}",
+        send: "ping",
+        expect: "pong",
+        timeout: 250,
+      },
+    ],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/udp-health-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.health.type, "aggregate");
+    assert.equal(body.health.healthy, true);
+    assert.deepEqual(body.health.checks.map((check) => [check.id, check.type, check.healthy]), [
+      ["udp-ready", "udp", true],
+    ]);
+  } finally {
+    await apiServer.stop();
+    udpServer.close();
+    await once(udpServer, "close");
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("GET /api/services/:id/health reports UDP timeout by check id", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  await writeManifest(servicesRoot, "udp-timeout-service", {
+    id: "udp-timeout-service",
+    name: "UDP Timeout Service",
+    description: "Temporary service for UDP timeout healthchecks.",
+    healthchecks: [
+      {
+        id: "udp-timeout",
+        type: "udp",
+        address: "127.0.0.1:9",
+        send: "ping",
+        expect: "pong",
+        timeout: 25,
+      },
+    ],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/udp-timeout-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.health.type, "aggregate");
+    assert.equal(body.health.healthy, false);
+    assert.match(body.health.detail, /udp-timeout/);
+    assert.equal(body.health.checks[0].id, "udp-timeout");
+    assert.match(body.health.checks[0].detail, /timed out after 25ms/i);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("GET /api/services/:id/health supports bare and selector variable healthchecks", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+
+  await writeManifest(servicesRoot, "variable-array-service", {
+    id: "variable-array-service",
+    name: "Variable Array Service",
+    description: "Temporary service for variable healthchecks array.",
+    env: {
+      BARE_READY: "ready",
+      SELECTOR_READY: "ready",
+    },
+    healthchecks: [
+      {
+        id: "bare-variable",
+        type: "variable",
+        variable: "BARE_READY",
+      },
+      {
+        id: "selector-variable",
+        type: "variable",
+        variable: "${SELECTOR_READY}",
+      },
+    ],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/variable-array-service/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.health.type, "aggregate");
+    assert.equal(body.health.healthy, true);
+    assert.deepEqual(body.health.checks.map((check) => [check.id, check.type, check.healthy]), [
+      ["bare-variable", "variable", true],
+      ["selector-variable", "variable", true],
+    ]);
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

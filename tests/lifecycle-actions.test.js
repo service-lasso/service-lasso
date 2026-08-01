@@ -663,6 +663,138 @@ test("start waits for configured readiness and returns healthy once ready", asyn
   }
 });
 
+test("start waits for each required healthchecks array item and reports attempts", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-healthchecks-array-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "array-ready-service", {
+    readyFileAfterMs: 500,
+    readyFileRelativePath: "./runtime/ready.txt",
+    healthchecks: [
+      {
+        id: "process-started",
+        type: "process",
+        retries: 2,
+        interval: 10,
+      },
+      {
+        id: "ready-file",
+        type: "file",
+        file: "./runtime/ready.txt",
+        retries: 20,
+        interval: 50,
+        start_period: 0,
+      },
+    ],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/array-ready-service/install`);
+    await postJson(`${apiServer.url}/api/services/array-ready-service/config`);
+
+    const start = await postJson(`${apiServer.url}/api/services/array-ready-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, true);
+    assert.equal(start.body.health.type, "aggregate");
+    assert.equal(start.body.health.healthy, true);
+    assert.deepEqual(start.body.health.checks.map((check) => check.id), ["process-started", "ready-file"]);
+    assert.equal(start.body.health.checks.find((check) => check.id === "ready-file").attempts >= 1, true);
+    assert.match(start.body.message, /2 healthcheck/i);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("start blocks on a failed required healthchecks item and names the check id", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-healthchecks-fail-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "array-not-ready-service", {
+    healthchecks: [
+      {
+        id: "process-started",
+        type: "process",
+      },
+      {
+        id: "missing-ready-file",
+        type: "file",
+        file: "./runtime/ready.txt",
+        retries: 3,
+        interval: 25,
+      },
+    ],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/array-not-ready-service/install`);
+    await postJson(`${apiServer.url}/api/services/array-not-ready-service/config`);
+
+    const start = await postJson(`${apiServer.url}/api/services/array-not-ready-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, false);
+    assert.equal(start.body.health.type, "aggregate");
+    assert.equal(start.body.health.healthy, false);
+    assert.match(start.body.message, /missing-ready-file/);
+    assert.match(start.body.message, /failed after 3 readiness attempt/i);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("start does not block on failed optional healthchecks array items", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-healthchecks-optional-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "optional-array-service", {
+    healthchecks: [
+      {
+        id: "process-started",
+        type: "process",
+      },
+      {
+        id: "optional-ready-file",
+        type: "file",
+        file: "./runtime/optional.txt",
+        required: false,
+        retries: 5,
+        interval: 25,
+      },
+    ],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/optional-array-service/install`);
+    await postJson(`${apiServer.url}/api/services/optional-array-service/config`);
+
+    const start = await postJson(`${apiServer.url}/api/services/optional-array-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.ok, true);
+    assert.equal(start.body.health.type, "aggregate");
+    assert.equal(start.body.health.healthy, true);
+    const optional = start.body.health.checks.find((check) => check.id === "optional-ready-file");
+    assert.equal(optional.required, false);
+    assert.equal(optional.healthy, false);
+    assert.equal(optional.attempts, 1);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("explicit HTTP healthcheck without readiness options waits with default attempts", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(

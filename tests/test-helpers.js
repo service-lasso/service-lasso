@@ -59,6 +59,7 @@ export async function writeExecutableFixtureService(
     autoExitMs = null,
     exitCode = 0,
     healthcheck = { type: "process" },
+    healthchecks = undefined,
     readyFileAfterMs = null,
     readyFileRelativePath = "./runtime/ready.txt",
     captureEnvKeys = [],
@@ -218,7 +219,9 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     config,
     setup,
     actions,
-    healthcheck: healthcheck === null ? undefined : healthcheck,
+    ...(healthchecks === undefined
+      ? { healthcheck: healthcheck === null ? undefined : healthcheck }
+      : { healthchecks }),
   });
 
   return { serviceRoot, scriptPath };
