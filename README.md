@@ -224,6 +224,13 @@ POST /api/services/:id/recovery/doctor
 
 `POST /api/services/:id/start` and `POST /api/runtime/actions/startAll` use full start semantics: enabled services are installed, configured, non-manual setup steps are reconciled, and then startable services are started in dependency order. Provider-role services in the canonical baseline, including disabled-by-default providers such as `@archive` and supported `@python` artifacts, are still prepared, but they do not require a managed daemon process. Disabled non-provider services, unsupported host artifacts, already-running services, autostart filtering, and truly non-startable services remain explicit skip/blocker cases instead of being forced.
 
+First-run setup is a launch prerequisite. When `GET /api/setup/status` reports
+setup mode, the CLI/API runtime prepares only the setup dependency path
+(`@node`, `@secretsbroker`, and `@serviceadmin`) and skips normal managed
+service starts until the vault owner identity, Owner group, built-in groups, and
+permission catalogue are seeded. Existing workspaces with a ready vault marker
+continue the normal launch path.
+
 ## Use From npm
 
 The public package is:

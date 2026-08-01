@@ -55,6 +55,40 @@ preparation, manifest discovery, and diagnostics can still run when they are
 safe and non-mutating, but baseline service startup must not proceed until the
 vault owner identity exists.
 
+## Launch prerequisite contract
+
+The normal launch path treats setup as a prerequisite phase before managed
+services are allowed to start. Startup resolves the setup status first, then
+uses that decision for both CLI output and runtime API state:
+
+1. Discover the workspace and service roots.
+2. Read setup status from the configured workspace vault path.
+3. If setup is required, prepare only the setup-capable dependency set:
+   `@node`, `@secretsbroker`, and `@serviceadmin`.
+4. Expose setup mode through `GET /api/setup/status` and show the local setup
+   URL from the runtime host and port when an interactive operator can complete
+   setup.
+5. Accept non-interactive setup inputs only from configured setup sources such
+   as `SERVICE_LASSO_SETUP_TOKEN`, `SERVICE_LASSO_VAULT_PATH`, or mounted
+   secret-provider files.
+6. Seed the vault owner identity, Owner group, built-in groups, and permission
+   catalogue before normal mutating actions are allowed.
+7. Record setup decisions and denials as metadata-only audit/history events.
+8. Re-read setup status after bootstrap; when setup is `not_required`, continue
+   the regular managed service launch set in dependency order.
+
+While setup mode is active, install and config reconciliation may still run for
+services that are safe to prepare, but normal service process start is skipped
+with a setup-mode reason. Existing workspaces with a ready vault marker skip
+setup mode and continue normal launch without the setup dependency restriction.
+
+This split keeps first-run prerequisites visible without granting temporary
+admin authority to every managed service. Secrets Broker is available only for
+the setup boundary until the owner identity, built-in groups, and permission
+catalogue are seeded; after that, regular action permission checks decide which
+actors can install, configure, start, restart, import, restore, or rotate
+workspace resources.
+
 ## Vault bootstrap
 
 The first setup action creates the local vault root state and the initial owner
