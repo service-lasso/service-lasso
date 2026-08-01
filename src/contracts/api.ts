@@ -11,6 +11,10 @@ import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportT
 import type { ServiceCatalogProvenance } from "./service.js";
 import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 import type { ServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
+import type {
+  OperatorInboxCounts,
+  OperatorInboxItem,
+} from "../runtime/operator/inbox.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -851,6 +855,34 @@ export interface OperatorNotificationsResponse {
     critical: number;
     warning: number;
     info: number;
+  };
+}
+
+export interface OperatorInboxListResponse {
+  inbox: {
+    items: OperatorInboxItem[];
+    pagination: {
+      limit: number;
+      nextCursor: string | null;
+      total: number;
+    };
+  };
+}
+
+export interface OperatorInboxItemResponse {
+  inboxItem: OperatorInboxItem;
+}
+
+export interface OperatorInboxMutationResponse {
+  inbox: {
+    items: OperatorInboxItem[];
+    counts: OperatorInboxCounts;
+  };
+}
+
+export interface OperatorInboxCountsResponse {
+  inbox: {
+    counts: OperatorInboxCounts;
   };
 }
 

@@ -213,6 +213,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/operator-inbox",
+          label: "Operator Inbox API",
+        },
+        {
+          type: "doc",
           id: "development/telegram-group-control-plan",
           label: "Telegram Group Control Plan",
         },

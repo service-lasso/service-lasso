@@ -133,6 +133,24 @@ import {
   type OperatorActionMutationInput,
   type OperatorActionQueueState,
 } from "../runtime/operator/action-queue.js";
+import {
+  bulkMutateOperatorInboxItems,
+  countOperatorInboxItems,
+  listOperatorInboxItems,
+  mutateOperatorInboxItem,
+  readOperatorInbox,
+  upsertOperatorInboxItem,
+  type OperatorInboxActionAvailability,
+  type OperatorInboxActionKind,
+  type OperatorInboxFilter,
+  type OperatorInboxInput,
+  type OperatorInboxQuery,
+  type OperatorInboxSeverity,
+  type OperatorInboxSource,
+  type OperatorInboxState,
+  type OperatorInboxType,
+  type OperatorInboxVisibility,
+} from "../runtime/operator/inbox.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
@@ -303,6 +321,144 @@ function parseServiceLogReadType(value: string | null): ServiceLogReadType {
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
   return JSON.parse(JSON.stringify(state)) as WorkflowRunFacadeState;
+}
+
+const OPERATOR_INBOX_TYPES = ["system", "workflow", "service", "update", "security", "help", "error"] as const;
+const OPERATOR_INBOX_SEVERITIES = ["info", "success", "warning", "error", "critical"] as const;
+const OPERATOR_INBOX_SOURCES = ["runtime", "service", "workflow", "updater", "broker", "admin-ui", "system"] as const;
+const OPERATOR_INBOX_FILTERS = ["all", "unread", "updates", "system", "workflow", "service", "errors", "hidden"] as const;
+const OPERATOR_INBOX_STATES = ["unread", "read"] as const;
+const OPERATOR_INBOX_VISIBILITIES = ["visible", "hidden"] as const;
+const OPERATOR_INBOX_ACTION_KINDS = ["link", "api", "command"] as const;
+const OPERATOR_INBOX_ACTION_AVAILABILITIES = ["available", "disabled", "expired"] as const;
+
+function parseEnum<T extends string>(
+  name: string,
+  value: unknown,
+  values: readonly T[],
+  options: { required?: boolean } = {},
+): T | undefined {
+  if (value === undefined || value === null || value === "") {
+    if (options.required) {
+      throw new ApiError("invalid_body", 400, `"${name}" must be one of: ${values.join(", ")}.`);
+    }
+    return undefined;
+  }
+  if (typeof value === "string" && values.includes(value as T)) {
+    return value as T;
+  }
+  throw new ApiError("invalid_body", 400, `"${name}" must be one of: ${values.join(", ")}.`);
+}
+
+function parseOperatorInboxQuery(searchParams: URLSearchParams): OperatorInboxQuery {
+  const limit = parseOptionalInteger(searchParams.get("limit"));
+  if (limit !== undefined && limit <= 0) {
+    throw new ApiError("invalid_request", 400, '"limit" must be a positive integer.');
+  }
+
+  return {
+    filter: parseEnum<OperatorInboxFilter>("filter", searchParams.get("filter") ?? undefined, OPERATOR_INBOX_FILTERS),
+    type: parseEnum<OperatorInboxType>("type", searchParams.get("type") ?? undefined, OPERATOR_INBOX_TYPES),
+    state: parseEnum<OperatorInboxState>("state", searchParams.get("state") ?? undefined, OPERATOR_INBOX_STATES),
+    visibility: parseEnum<OperatorInboxVisibility>(
+      "visibility",
+      searchParams.get("visibility") ?? undefined,
+      OPERATOR_INBOX_VISIBILITIES,
+    ),
+    severity: parseEnum<OperatorInboxSeverity>(
+      "severity",
+      searchParams.get("severity") ?? undefined,
+      OPERATOR_INBOX_SEVERITIES,
+    ),
+    source: parseEnum<OperatorInboxSource>("source", searchParams.get("source") ?? undefined, OPERATOR_INBOX_SOURCES),
+    limit,
+    cursor: searchParams.get("cursor") ?? undefined,
+  };
+}
+
+function parseOperatorInboxRecordBody(input: unknown): OperatorInboxInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator inbox record body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  if (typeof candidate.dedupeKey !== "string" || !candidate.dedupeKey.trim()) {
+    throw new ApiError("invalid_body", 400, '"dedupeKey" must be a non-empty string.');
+  }
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) {
+    throw new ApiError("invalid_body", 400, '"title" must be a non-empty string.');
+  }
+  if (typeof candidate.summary !== "string") {
+    throw new ApiError("invalid_body", 400, '"summary" must be a string.');
+  }
+  if (candidate.details !== undefined && candidate.details !== null && typeof candidate.details !== "string") {
+    throw new ApiError("invalid_body", 400, '"details" must be a string or null when present.');
+  }
+
+  const action = candidate.action;
+  if (action !== undefined && action !== null && (!action || typeof action !== "object" || Array.isArray(action))) {
+    throw new ApiError("invalid_body", 400, '"action" must be an object or null when present.');
+  }
+  if (action && typeof action === "object" && !Array.isArray(action)) {
+    const actionRecord = action as Record<string, unknown>;
+    parseEnum<OperatorInboxActionKind>("action.kind", actionRecord.kind, OPERATOR_INBOX_ACTION_KINDS, { required: true });
+    parseEnum<OperatorInboxActionAvailability>(
+      "action.availability",
+      actionRecord.availability,
+      OPERATOR_INBOX_ACTION_AVAILABILITIES,
+      { required: true },
+    );
+  }
+
+  return {
+    dedupeKey: candidate.dedupeKey,
+    title: candidate.title,
+    summary: candidate.summary,
+    details: typeof candidate.details === "string" ? candidate.details : null,
+    type: parseEnum<OperatorInboxType>("type", candidate.type, OPERATOR_INBOX_TYPES, { required: true }) ?? "system",
+    severity: parseEnum<OperatorInboxSeverity>("severity", candidate.severity, OPERATOR_INBOX_SEVERITIES, { required: true }) ?? "info",
+    source: parseEnum<OperatorInboxSource>("source", candidate.source, OPERATOR_INBOX_SOURCES, { required: true }) ?? "runtime",
+    relatedTarget: candidate.relatedTarget as OperatorInboxInput["relatedTarget"],
+    action: candidate.action as OperatorInboxInput["action"],
+    observedAt: typeof candidate.observedAt === "string" ? candidate.observedAt : undefined,
+  };
+}
+
+function parseOperatorInboxMutationBody(input: unknown): { now?: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.now !== undefined && typeof candidate.now !== "string") {
+    throw new ApiError("invalid_body", 400, '"now" must be an ISO timestamp string when present.');
+  }
+  return {
+    now: typeof candidate.now === "string" ? candidate.now : undefined,
+  };
+}
+
+function parseOperatorInboxBulkBody(input: unknown): {
+  action: "read" | "hide";
+  ids: string[];
+  now?: string;
+} {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator inbox bulk body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.action !== "read" && candidate.action !== "hide") {
+    throw new ApiError("invalid_body", 400, '"action" must be one of: read, hide.');
+  }
+  if (!Array.isArray(candidate.ids) || candidate.ids.some((entry) => typeof entry !== "string" || !entry.trim())) {
+    throw new ApiError("invalid_body", 400, '"ids" must be an array of non-empty strings.');
+  }
+  if (candidate.now !== undefined && typeof candidate.now !== "string") {
+    throw new ApiError("invalid_body", 400, '"now" must be an ISO timestamp string when present.');
+  }
+  return {
+    action: candidate.action,
+    ids: candidate.ids,
+    now: typeof candidate.now === "string" ? candidate.now : undefined,
+  };
 }
 
 function parseOperatorActionRecordBody(input: unknown): OperatorActionInput {
@@ -1876,6 +2032,79 @@ async function routeRequest(
         await buildOperatorNotifications(runtimeModel.discovered, runtimeModel.registry, sharedGlobalEnv),
       ),
     );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/inbox") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: listOperatorInboxItems(inbox, parseOperatorInboxQuery(url.searchParams)),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/inbox/counts") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: {
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/operator/inbox/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const inboxItemId = decodeURIComponent(pathParts[3] ?? "");
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    const inboxItem = inbox.items.find((item) => item.id === inboxItemId);
+    if (!inboxItem) {
+      throw new ApiError("inbox_item_not_found", 404, "Unknown operator inbox item id: " + inboxItemId + ".");
+    }
+    writeJson(response, 200, {
+      inboxItem,
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/inbox/record") {
+    const inbox = await upsertOperatorInboxItem(config.workspaceRoot, parseOperatorInboxRecordBody(await readJsonBody(request)));
+    writeJson(response, 200, {
+      inbox: {
+        items: inbox.items,
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/inbox/bulk") {
+    const body = parseOperatorInboxBulkBody(await readJsonBody(request));
+    const inbox = await bulkMutateOperatorInboxItems(config.workspaceRoot, body.action, body.ids, body.now);
+    writeJson(response, 200, {
+      inbox: {
+        items: inbox.items,
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/api/operator/inbox/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const inboxItemId = decodeURIComponent(pathParts[3] ?? "");
+    const mutation = pathParts[4];
+    if (!inboxItemId || (mutation !== "read" && mutation !== "unread" && mutation !== "hide" && mutation !== "unhide")) {
+      throw new ApiError("invalid_action", 400, "Unknown operator inbox mutation route.");
+    }
+    const body = parseOperatorInboxMutationBody(await readJsonBody(request));
+    const inbox = await mutateOperatorInboxItem(config.workspaceRoot, inboxItemId, mutation, body.now);
+    writeJson(response, 200, {
+      inbox: {
+        items: inbox.items,
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
     return;
   }
 
