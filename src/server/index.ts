@@ -147,6 +147,11 @@ import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
+import {
+  createArchiveSelectionExport,
+  parseArchiveSelectionExportRequest,
+  readArchiveExportArtifact,
+} from "../runtime/files/archive-export.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
@@ -1694,6 +1699,90 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/files/workspaces") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, createServiceWorkspaceRegistryResponse(buildServiceWorkspaceRegistry(runtimeModel.discovered)));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/files/archive-selection") {
+    const requestBody = await readJsonBody(request);
+    const auditActor = getAuditActor(requestBody);
+    const parsedRequest = parseArchiveSelectionExportRequest(requestBody);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const service = runtimeModel.registry.getById(parsedRequest.source.serviceId);
+
+    try {
+      const payload = await createArchiveSelectionExport({
+        services: runtimeModel.discovered,
+        registry: runtimeModel.registry,
+        workspaceRoot: config.workspaceRoot,
+        request: parsedRequest,
+      });
+      await appendAuditEvent({
+        serviceRoot: service?.serviceRoot,
+        workspaceRoot: service ? undefined : config.workspaceRoot,
+        source: "runtime-api",
+        action: "service.file.export",
+        actor: auditActor,
+        subject: payload.export.artifactId,
+        serviceId: payload.export.serviceId,
+        method: "POST",
+        routeTemplate: "/api/files/archive-selection",
+        outcome: "success",
+        statusCode: 200,
+        summary: `Archived ${payload.export.selectedPaths.length} file selection item(s) through @archive.`,
+        relatedRevisionId: payload.export.provider.runId,
+        metadata: {
+          sourceId: payload.export.sourceId,
+          rootId: payload.export.rootId,
+          archiveFormat: payload.export.archiveFormat,
+          artifactId: payload.export.artifactId,
+          artifactFileName: payload.export.artifact.fileName,
+          artifactSizeBytes: payload.export.artifact.sizeBytes,
+          checksumAlgorithm: payload.export.artifact.checksum.algorithm,
+          providerServiceId: payload.export.provider.serviceId,
+          providerActionId: payload.export.provider.actionId,
+          providerVersion: payload.export.provider.version,
+          selectedPaths: payload.export.selectedPaths,
+        },
+      });
+      writeJson(response, 200, payload);
+    } catch (error) {
+      await appendAuditEvent({
+        serviceRoot: service?.serviceRoot,
+        workspaceRoot: service ? undefined : config.workspaceRoot,
+        source: "runtime-api",
+        action: "service.file.export",
+        actor: auditActor,
+        subject: parsedRequest.source.sourceId,
+        serviceId: parsedRequest.source.serviceId,
+        method: "POST",
+        routeTemplate: "/api/files/archive-selection",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        summary: "Failed to archive a selected file source through @archive.",
+        reason: getAuditFailureReason(error),
+        metadata: {
+          sourceId: parsedRequest.source.sourceId,
+          archiveFormat: parsedRequest.archiveFormat ?? "7z",
+          selectedPathCount: parsedRequest.source.paths.length,
+        },
+      });
+      throw error;
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/files/exports/") && url.pathname.endsWith("/download")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length !== 5) {
+      notFound(response);
+      return;
+    }
+
+    const artifact = await readArchiveExportArtifact(config.workspaceRoot, decodeURIComponent(pathParts[3] ?? ""));
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/x-7z-compressed");
+    response.setHeader("content-disposition", `attachment; filename="${artifact.metadata.artifact.fileName}"`);
+    response.end(artifact.bytes);
     return;
   }
 
