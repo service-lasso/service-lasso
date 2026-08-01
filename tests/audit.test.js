@@ -212,6 +212,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(recovery.status, 200);
     const action = await postJson(`${apiServer.url}/api/services/audit-service/actions/write-audit-proof/runs`, {
       source: "manual",
+      actor: "operator-ui",
     });
     assert.equal(action.status, 200);
     const missingConfirmation = await postJson(`${apiServer.url}/api/services/audit-service/actions/dangerous-audit-proof/runs`, {
@@ -263,10 +264,14 @@ test("audit API returns durable safe service and runtime mutation events after r
 
     const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=20`);
     assert.equal(audit.status, 200);
-    assert.equal(audit.body.pagination.total, 11);
+    assert.equal(audit.body.pagination.total, 15);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
+        "permission.decision",
+        "permission.decision",
+        "permission.decision",
+        "permission.decision",
         "service.action.run",
         "service.action.run",
         "service.action.run",
@@ -327,7 +332,14 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(actionEvent.outcome, "success");
     assert.equal(actionEvent.relatedRevisionId, action.body.run.runId);
 
-    const confirmationEvents = audit.body.events.filter((event) => event.subject === "dangerous-audit-proof");
+    const permissionEvents = audit.body.events.filter((event) => event.action === "permission.decision");
+    assert.equal(permissionEvents.length, 4);
+    assert.equal(permissionEvents.every((event) => event.metadata.permission === "service.action.run"), true);
+    assert.ok(permissionEvents.some((event) => event.subject === "dangerous-audit-proof" && event.outcome === "failure"));
+
+    const confirmationEvents = audit.body.events.filter(
+      (event) => event.action === "service.action.run" && event.subject === "dangerous-audit-proof",
+    );
     assert.equal(confirmationEvents.length, 2);
     assert.deepEqual(confirmationEvents.map((event) => event.actor), ["operator-ui", "operator-ui"]);
     assert.deepEqual(confirmationEvents.map((event) => event.outcome).sort(), ["failure", "success"]);
@@ -336,7 +348,9 @@ test("audit API returns durable safe service and runtime mutation events after r
     const confirmationSuccess = confirmationEvents.find((event) => event.outcome === "success");
     assert.equal(confirmationSuccess.relatedRevisionId, confirmedAction.body.run.runId);
 
-    const scheduledEvent = audit.body.events.find((event) => event.subject === "scheduled-audit-proof");
+    const scheduledEvent = audit.body.events.find(
+      (event) => event.action === "service.action.run" && event.subject === "scheduled-audit-proof",
+    );
     assert.equal(scheduledEvent.actor, "workflow-engine");
     assert.equal(scheduledEvent.outcome, "success");
     assert.equal(scheduledEvent.relatedRevisionId, scheduledAction.body.run.runId);

@@ -146,6 +146,7 @@ import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
+import { enforcePermission } from "../runtime/permissions/enforcement.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
 import {
@@ -2826,13 +2827,30 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "actions" && pathParts[5] === "runs") {
       const actionId = decodeURIComponent(pathParts[4] ?? "");
       const requestBody = await readJsonBody(request);
-      const auditActor = getAuditActor(requestBody);
+      const runRequest = parseServiceActionRunRequest(requestBody);
+      const actionDefinition = service.manifest.actions?.[actionId];
+      if (!actionDefinition) {
+        throw new ApiError("unknown_action", 404, `Unknown action "${actionId}" for service "${service.manifest.id}".`);
+      }
+      let auditActor = getAuditActor(requestBody);
       try {
+        const permission = await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: runRequest.actor,
+          permission: "service.action.run",
+          sensitive: actionDefinition.requiresConfirmation === true,
+          confirmed: runRequest.confirm,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/actions/:actionId/runs",
+          subject: actionId,
+        });
+        auditActor = permission.actor.id;
         const payload: ServiceActionRunResponse = await runServiceAction(
           service,
           runtimeModel.registry,
           actionId,
-          parseServiceActionRunRequest(requestBody),
+          runRequest,
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
