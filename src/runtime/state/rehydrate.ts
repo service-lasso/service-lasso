@@ -585,6 +585,7 @@ export async function rehydrateLifecycleState(
     const legacyRuntime = snapshot.runtime as StoredRuntimeState | null;
     if (
       options.workspaceRoot &&
+      !hasManagedProcess(serviceId) &&
       legacyRuntime?.running === true &&
       typeof legacyRuntime.pid === "number" &&
       Number.isInteger(legacyRuntime.pid) &&
