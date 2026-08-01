@@ -88,6 +88,7 @@ import {
 } from "../runtime/operator/telemetry-scheduler.js";
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
+import { resolveRuntimeRequestAuth, type RuntimeAuthPolicyStatus } from "../runtime/auth/request-policy.js";
 import {
   bootstrapLocalVault,
   isSetupBootstrapAllowed,
@@ -211,6 +212,7 @@ import type {
   RuntimeOrchestrationResponse,
   OperatorCommandRequest,
   AuditQuery,
+  RuntimeAuthStatusResponse,
   ServiceActionRunResponse,
   ServiceActionRunsResponse,
   ServiceDetailResponse,
@@ -435,6 +437,51 @@ function getApiErrorStatusCode(error: unknown): number {
 
 function getAuditFailureReason(error: unknown): string {
   return redactAuditText(toApiErrorBody(error).message);
+}
+
+function createRuntimeAuthResponse(auth: RuntimeAuthPolicyStatus): RuntimeAuthStatusResponse {
+  return {
+    auth,
+  };
+}
+
+function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolean {
+  if (method === "GET" && pathname === "/api/health") return true;
+  if (method === "GET" && pathname === "/api/runtime/capabilities") return true;
+  if (method === "GET" && pathname === "/api/runtime/security") return true;
+  if (method === "GET" && pathname === "/api/setup/status") return true;
+  if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
+  return false;
+}
+
+async function rejectUnauthorizedRemoteRequest(
+  request: IncomingMessage,
+  config: ApiRouteConfig,
+  auth: RuntimeAuthPolicyStatus,
+): Promise<never> {
+  await appendAuditEvent({
+    workspaceRoot: config.workspaceRoot,
+    source: "runtime-api",
+    action: "auth.remote.denied",
+    actor: "remote-unauthenticated",
+    method: request.method ?? "GET",
+    routeTemplate: new URL(request.url ?? "/", "http://127.0.0.1").pathname,
+    outcome: "failure",
+    statusCode: 401,
+    summary: "Remote runtime API request denied because no accepted authentication context was present.",
+    reason: auth.blockers.join(",") || "remote_auth_required",
+    metadata: {
+      clientAddress: auth.request.clientAddress,
+      bindHost: auth.policy.bindHost,
+      zitadelEnabled: auth.policy.zitadelEnabled,
+      localTokenConfigured: auth.policy.localTokenConfigured,
+    },
+  });
+  throw new ApiError(
+    "remote_auth_required",
+    401,
+    "Remote Service Lasso API access requires Zitadel authentication or an explicit local admin token.",
+  );
 }
 
 function getOperatorActionAuditItem(queue: OperatorActionQueueState, itemId?: string | null): OperatorActionItem | null {
@@ -1626,6 +1673,11 @@ async function routeRequest(
   getTelemetryContinuousExportState: () => TelemetryContinuousExportRuntimeState | null,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  const method = request.method ?? "GET";
+  const auth = resolveRuntimeRequestAuth(request, { bindHost: config.bindHost });
+  if (!isUnauthenticatedRuntimeRoute(method, url.pathname) && auth.policy.remoteAuthRequired && !auth.actor.authenticated) {
+    await rejectUnauthorizedRemoteRequest(request, config, auth);
+  }
 
   if (await routeWorkflowFacadeRequest(request, response, url, config, workflowRunFacadeState)) {
     return;
@@ -2068,10 +2120,13 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/setup/status") {
     writeJson(response, 200, {
-      setup: await readRuntimeSetupStatus({
-        workspaceRoot: config.workspaceRoot,
-        bindHost: config.bindHost,
-      }),
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
     });
     return;
   }
@@ -2161,10 +2216,13 @@ async function routeRequest(
         ok: bootstrap.ok,
         state: bootstrap.state,
       },
-      setup: await readRuntimeSetupStatus({
-        workspaceRoot: config.workspaceRoot,
-        bindHost: config.bindHost,
-      }),
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
     });
     return;
   }
@@ -3064,6 +3122,11 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/runtime/instance") {
     writeJson(response, 200, await createRuntimeInstanceSnapshot(config));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime/security") {
+    writeJson(response, 200, createRuntimeAuthResponse(auth));
     return;
   }
 

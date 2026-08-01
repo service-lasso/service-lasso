@@ -55,6 +55,31 @@ export interface RuntimeSetupStatusResponse {
       setupTokenConfigured: boolean;
       blockers: string[];
     };
+    auth: RuntimeAuthStatusResponse["auth"];
+  };
+}
+
+export interface RuntimeAuthStatusResponse {
+  auth: {
+    contractVersion: "service-lasso.auth-status.v1";
+    request: {
+      clientAddress: string | null;
+      local: boolean;
+    };
+    policy: {
+      bindHost: string;
+      remoteAuthRequired: boolean;
+      trustProxyHeaders: boolean;
+      zitadelEnabled: boolean;
+      localTokenConfigured: boolean;
+    };
+    actor: {
+      authenticated: boolean;
+      kind: "local-root" | "zitadel" | "local-token" | null;
+      actorId: string | null;
+    };
+    mode: "local-root" | "zitadel" | "local-token" | "blocked";
+    blockers: string[];
   };
 }
 
