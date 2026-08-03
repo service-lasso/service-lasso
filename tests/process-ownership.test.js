@@ -309,6 +309,73 @@ test("rehydration clears a reused PID without terminating the unrelated live pro
   }
 });
 
+test("API startup clears a reused PID and starts a replacement without touching the unrelated process", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-api-reused-pid-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "api-reused-pid-service", {
+    ports: { service: 18095 },
+  });
+  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
+  let apiServer;
+
+  try {
+    await new Promise((resolve, reject) => {
+      unrelated.once("spawn", resolve);
+      unrelated.once("error", reject);
+    });
+    const inspection = await inspectProcess(unrelated.pid);
+    assert.equal(inspection.status, "running");
+
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: unrelated.pid,
+        startedAt: inspection.identity.createdAt,
+        command: `${process.execPath} stale-service-command.mjs`,
+        ports: { service: 18095 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const storedAfterBoot = await readStoredState(serviceRoot);
+    assert.equal(storedAfterBoot.runtime.running, false);
+    assert.equal(storedAfterBoot.runtime.pid, null);
+    assert.equal(unrelated.exitCode, null);
+    assert.equal(unrelated.signalCode, null);
+
+    const start = await postJson(`${apiServer.url}/api/services/api-reused-pid-service/start`);
+
+    assert.equal(start.response.status, 200);
+    assert.equal(start.body.action, "start");
+    assert.equal(start.body.state.running, true);
+    assert.equal(start.body.state.runtime.pid > 0, true);
+    assert.notEqual(start.body.state.runtime.pid, unrelated.pid);
+    assert.deepEqual(start.body.state.runtime.ports, { service: 18095 });
+    assert.equal(unrelated.exitCode, null);
+    assert.equal(unrelated.signalCode, null);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, start.body.state.runtime.pid);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "api-reused-pid-service");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, start.body.state.runtime.pid);
+  } finally {
+    await apiServer?.stop();
+    unrelated.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("rehydration returns adopted running state with retained ports", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-adopted-state-");
