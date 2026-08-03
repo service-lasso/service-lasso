@@ -40,3 +40,18 @@ Returns services that depend on `{serviceId}`.
 
 The traversal is cycle-protected. A cyclic graph is reported once per reachable
 dependent and does not include the target as its own dependent.
+
+## Endpoint Cutover Impact
+
+Runtime endpoint cutover planning uses the same dependency graph as startup
+ordering, then narrows the affected set with endpoint selector references in
+materialised service surfaces. When a provider endpoint changes, consumers that
+reference `endpoint.<id>.<field>` selectors are treated as selector consumers,
+and their downstream dependents are included so reload/restart ordering remains
+topological.
+
+The planner records selector usage by artifact class only: `env`, `globalenv`,
+`commandline`, `args`, `urls`, `healthchecks`, `install`, `config`, `setup`, and
+`actions`. It does not return rendered values, secrets, raw config content, or
+command outputs. If dependency cycles prevent a safe order, the planner fails
+before mutation with an actionable cycle error.

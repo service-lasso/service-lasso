@@ -207,3 +207,138 @@ test("depend_on can pin one provider when multiple services satisfy a capability
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("endpoint cutover impact includes selector consumers and downstream dependents only", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-endpoint-cutover-");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "api-provider", {
+      endpoints: [
+        {
+          id: "api",
+          kind: "network",
+          direction: "inbound",
+          protocol: "http",
+          port: { default: 3200, strategy: "preferred" },
+        },
+      ],
+      serviceorder: 1,
+    });
+    await writeExecutableFixtureService(servicesRoot, "direct-consumer", {
+      depend_on: ["api-provider"],
+      env: {
+        API_URL: "${endpoint.api.url}",
+      },
+      serviceorder: 10,
+    });
+    await writeExecutableFixtureService(servicesRoot, "fanout-consumer", {
+      depend_on: ["api-provider"],
+      config: {
+        files: [
+          {
+            path: "generated/client.json",
+            content: "{\"port\":\"${endpoint.api.port}\"}",
+          },
+        ],
+      },
+      serviceorder: 11,
+    });
+    await writeExecutableFixtureService(servicesRoot, "transitive-worker", {
+      depend_on: ["direct-consumer"],
+      serviceorder: 20,
+    });
+    await writeExecutableFixtureService(servicesRoot, "unaffected-dependent", {
+      depend_on: ["api-provider"],
+      env: {
+        STATIC_URL: "http://127.0.0.1:3200",
+      },
+      serviceorder: 30,
+    });
+
+    const graph = new DependencyGraph(createServiceRegistry(await discoverServices(servicesRoot)));
+    const impact = graph.getEndpointCutoverImpact("api-provider", ["api"]);
+
+    assert.deepEqual(impact.selectorConsumerIds, ["direct-consumer", "fanout-consumer"]);
+    assert.deepEqual(impact.restartOrder, ["direct-consumer", "fanout-consumer", "transitive-worker"]);
+    assert.deepEqual(
+      impact.impactedServices.map((service) => ({
+        id: service.id,
+        relation: service.relation,
+        selectors: service.selectorUses.map((use) => use.selector),
+      })),
+      [
+        {
+          id: "direct-consumer",
+          relation: "direct",
+          selectors: ["endpoint.api.url"],
+        },
+        {
+          id: "fanout-consumer",
+          relation: "direct",
+          selectors: ["endpoint.api.port"],
+        },
+        {
+          id: "transitive-worker",
+          relation: "transitive",
+          selectors: [],
+        },
+      ],
+    );
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("endpoint cutover impact filters unchanged endpoint selectors", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-endpoint-cutover-filter-");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "provider", {
+      endpoints: [
+        { id: "api", kind: "network", port: { default: 3200 } },
+        { id: "admin", kind: "network", port: { default: 3201 } },
+      ],
+    });
+    await writeExecutableFixtureService(servicesRoot, "api-consumer", {
+      depend_on: ["provider"],
+      env: { API_PORT: "${endpoint.api.port}" },
+    });
+    await writeExecutableFixtureService(servicesRoot, "admin-consumer", {
+      depend_on: ["provider"],
+      env: { ADMIN_PORT: "${endpoint.admin.port}" },
+    });
+
+    const graph = new DependencyGraph(createServiceRegistry(await discoverServices(servicesRoot)));
+
+    assert.deepEqual(graph.getEndpointCutoverImpact("provider", ["api"]).restartOrder, ["api-consumer"]);
+    assert.deepEqual(graph.getEndpointCutoverImpact("provider", ["admin"]).restartOrder, ["admin-consumer"]);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("endpoint cutover impact fails before mutation when dependencies cycle", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-endpoint-cutover-cycle-");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "provider", {
+      endpoints: [{ id: "api", kind: "network", port: { default: 3200 } }],
+    });
+    await writeExecutableFixtureService(servicesRoot, "cycle-a", {
+      depend_on: ["provider", "cycle-b"],
+      env: { API_PORT: "${endpoint.api.port}" },
+    });
+    await writeExecutableFixtureService(servicesRoot, "cycle-b", {
+      depend_on: ["cycle-a"],
+    });
+
+    const graph = new DependencyGraph(createServiceRegistry(await discoverServices(servicesRoot)));
+
+    assert.throws(
+      () => graph.getEndpointCutoverImpact("provider", ["api"]),
+      /Dependency cycle detected while resolving endpoint cutover impact for "provider"/,
+    );
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
