@@ -76,6 +76,18 @@ async function listenOnLoopback() {
   };
 }
 
+async function allocateLoopbackPorts(count) {
+  const reservations = [];
+  try {
+    for (let index = 0; index < count; index += 1) {
+      reservations.push(await listenOnLoopback());
+    }
+    return reservations.map((reservation) => reservation.port);
+  } finally {
+    await Promise.all(reservations.map((reservation) => reservation.close()));
+  }
+}
+
 async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports, role, urls, healthcheck }) {
   const serviceRoot = path.join(servicesRoot, serviceId);
   await mkdir(serviceRoot, { recursive: true });
@@ -1158,6 +1170,16 @@ test("demo smoke script validates the bounded demo instance end to end", async (
 
   try {
     await cp(path.resolve("services"), servicesRoot, { recursive: true });
+    const [servicePort, healthPort, tcpHealthPort] = await allocateLoopbackPorts(3);
+    const echoManifestPath = path.join(servicesRoot, "echo-service", "service.json");
+    const echoManifest = JSON.parse(await readFile(echoManifestPath, "utf8"));
+    echoManifest.ports = {
+      ...echoManifest.ports,
+      service: servicePort,
+      health: healthPort,
+      tcp_health: tcpHealthPort,
+    };
+    await writeFile(echoManifestPath, `${JSON.stringify(echoManifest, null, 2)}\n`);
 
     const result = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [demoScript], {
