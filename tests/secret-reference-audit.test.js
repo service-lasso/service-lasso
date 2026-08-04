@@ -6,7 +6,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { assertNoSecretMaterial } from "../dist/testing/secretLeakHarness.js";
-import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
+import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const execFile = promisify(execFileCallback);
 const rawSecretSentinel = "SERVICE_LASSO_FAKE_SECRET_SENTINEL_TOKEN_DO_NOT_USE";
@@ -156,6 +156,148 @@ async function writeProviderAuthRequiredFixture(servicesRoot) {
           },
         ],
       },
+    },
+  });
+}
+
+async function writeRotationImpactPlanFixture(servicesRoot) {
+  await writeManifest(servicesRoot, "db-consumer", {
+    id: "db-consumer",
+    name: "DB Consumer",
+    description: "Service that restarts after a secret version changes.",
+    serviceorder: 10,
+    env: {
+      DB_PASSWORD: "\${secretsbroker.DB_PASSWORD}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.DB_PASSWORD",
+          as: "DB_PASSWORD",
+          required: true,
+          onChange: {
+            mode: "restart",
+            reason: "Restart the database consumer after credential activation.",
+          },
+        },
+      ],
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "api-dependent", {
+    serviceorder: 20,
+    depend_on: ["db-consumer"],
+  });
+  await writeManifest(servicesRoot, "cache-reloader", {
+    id: "cache-reloader",
+    name: "Cache Reloader",
+    description: "Service that reloads after a secret version changes.",
+    serviceorder: 30,
+    env: {
+      CACHE_TOKEN: "\${secretsbroker.DB_PASSWORD}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.DB_PASSWORD",
+          as: "CACHE_TOKEN",
+          required: true,
+          onChange: {
+            mode: "reload",
+          },
+        },
+      ],
+    },
+  });
+  await writeManifest(servicesRoot, "action-consumer", {
+    id: "action-consumer",
+    name: "Action Consumer",
+    description: "Service with a declared reload action.",
+    serviceorder: 40,
+    env: {
+      ACTION_TOKEN: "\${secretsbroker.DB_PASSWORD}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    actions: {
+      "reload-secrets": {
+        label: "Reload secrets",
+        mode: "command",
+        command: "node",
+        args: ["-e", "process.exit(0)"],
+      },
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.DB_PASSWORD",
+          as: "ACTION_TOKEN",
+          required: true,
+          onChange: {
+            mode: "action",
+            actionId: "reload-secrets",
+          },
+        },
+      ],
+    },
+  });
+  await writeManifest(servicesRoot, "manual-consumer", {
+    id: "manual-consumer",
+    name: "Manual Consumer",
+    description: "Service that requires manual action after rotation.",
+    serviceorder: 50,
+    env: {
+      MANUAL_TOKEN: "\${secretsbroker.DB_PASSWORD}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.DB_PASSWORD",
+          as: "MANUAL_TOKEN",
+          required: true,
+          onChange: {
+            mode: "manual",
+          },
+        },
+      ],
+    },
+  });
+  await writeManifest(servicesRoot, "none-consumer", {
+    id: "none-consumer",
+    name: "None Consumer",
+    description: "Service that declares no process action is required.",
+    serviceorder: 60,
+    env: {
+      STATIC_TOKEN: "\${secretsbroker.DB_PASSWORD}",
+      RAW_SENTINEL: rawSecretSentinel,
+    },
+    broker: {
+      imports: [
+        {
+          namespace: "secretsbroker",
+          ref: "secretsbroker.DB_PASSWORD",
+          as: "STATIC_TOKEN",
+          required: false,
+          onChange: {
+            mode: "none",
+          },
+        },
+      ],
+    },
+  });
+  await writeManifest(servicesRoot, "missing-policy-consumer", {
+    id: "missing-policy-consumer",
+    name: "Missing Policy Consumer",
+    description: "Service with an undeclared selector that must block automatic rotation.",
+    serviceorder: 70,
+    env: {
+      MISSING_TOKEN: "\${secretsbroker.DB_PASSWORD}",
+      RAW_SENTINEL: rawSecretSentinel,
     },
   });
 }
@@ -370,6 +512,92 @@ test("provider auth-required summary handles mixed provider states", async () =>
     assertNoSecretMaterial(result.body);
   } finally {
     await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("secret rotation impact plan identifies reactions dependants and blockers without raw values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-secret-rotation-plan-");
+  await writeRotationImpactPlanFixture(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/secrets/rotation-plan?ref=secretsbroker.DB_PASSWORD");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.action, undefined);
+    assert.equal(result.body.ref, "secretsbroker.DB_PASSWORD");
+    assert.equal(result.body.status, "blocked");
+    assert.equal(result.body.confirmationRequired, true);
+    assert.equal(result.body.valuePolicy, "metadata_only");
+    assert.equal(result.body.summary.directConsumers, 6);
+    assert.equal(result.body.summary.dependents, 1);
+    assert.equal(result.body.summary.restart, 2);
+    assert.equal(result.body.summary.reload, 1);
+    assert.equal(result.body.summary.action, 1);
+    assert.equal(result.body.summary.manual, 2);
+    assert.equal(result.body.summary.none, 1);
+    assertNoSecretMaterial(result.body);
+
+    const byService = Object.fromEntries(result.body.services.map((service) => [service.serviceId, service]));
+    assert.equal(byService["db-consumer"].action, "restart");
+    assert.deepEqual(byService["db-consumer"].sources, ["broker.import", "env"]);
+    assert.equal(byService["api-dependent"].role, "dependent");
+    assert.equal(byService["api-dependent"].action, "restart");
+    assert.deepEqual(byService["api-dependent"].dependentsOf, ["db-consumer"]);
+    assert.equal(byService["cache-reloader"].action, "reload");
+    assert.equal(byService["action-consumer"].action, "action");
+    assert.equal(byService["action-consumer"].actionId, "reload-secrets");
+    assert.deepEqual(byService["manual-consumer"].blockers, ["manual_change_policy"]);
+    assert.deepEqual(byService["missing-policy-consumer"].blockers, ["missing_broker_import_policy"]);
+    assert.equal(byService["none-consumer"].action, "none");
+    assert.ok(result.body.execution.startOrder.indexOf("db-consumer") < result.body.execution.startOrder.indexOf("api-dependent"));
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/db-consumer/secrets/rotation-plan?ref=secretsbroker.DB_PASSWORD");
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.ref, "secretsbroker.DB_PASSWORD");
+    assert.equal(serviceResult.body.summary.directConsumers, 6);
+    assertNoSecretMaterial(serviceResult.body);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI secrets rotate-plan returns the same metadata-only impact plan", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-secret-rotation-plan-cli-");
+  await writeRotationImpactPlanFixture(servicesRoot);
+
+  try {
+    const stdout = await execFile(
+      process.execPath,
+      [
+        path.resolve("dist", "cli.js"),
+        "secrets",
+        "rotate-plan",
+        "secretsbroker.DB_PASSWORD",
+        "--services-root",
+        servicesRoot,
+        "--workspace-root",
+        workspaceRoot,
+        "--json",
+      ],
+      {
+        cwd: path.resolve("."),
+        env: {
+          ...process.env,
+          npm_package_version: "0.1.0-test",
+        },
+      },
+    );
+    const result = JSON.parse(stdout.stdout);
+    assert.equal(result.action, "rotate-plan");
+    assert.equal(result.ref, "secretsbroker.DB_PASSWORD");
+    assert.equal(result.status, "blocked");
+    assert.equal(result.summary.directConsumers, 6);
+    assert.equal(result.summary.dependents, 1);
+    assert.equal(result.services.some((service) => service.serviceId === "api-dependent" && service.role === "dependent"), true);
+    assertNoSecretMaterial(result);
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

@@ -45,6 +45,7 @@ interface ParsedCliOptions {
   actionId?: string;
   deferredUntil?: string | null;
   serviceId?: string;
+  secretRef?: string;
   repo?: string;
   tag?: string;
   apiBaseUrl?: string;
@@ -101,6 +102,7 @@ function usageText(): string {
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets rotation-readiness [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets provider-auth-required [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets rotate-plan <ref> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -346,12 +348,18 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "secrets") {
     const action = remaining.shift();
-    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required") {
-      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required.');
+    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required" && action !== "rotate-plan") {
+      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required, rotate-plan.');
     }
 
     parsed.secretsAction = action;
-    if (remaining[0] && !remaining[0].startsWith("-")) {
+    if (action === "rotate-plan") {
+      const ref = remaining.shift();
+      if (!ref || ref.startsWith("-")) {
+        throw new Error('The "secrets rotate-plan" command requires a <ref> argument.');
+      }
+      parsed.secretRef = ref;
+    } else if (remaining[0] && !remaining[0].startsWith("-")) {
       parsed.serviceId = remaining.shift();
     }
   }
@@ -965,6 +973,25 @@ function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
     return;
   }
 
+  if (result.action === "rotate-plan") {
+    console.log("[service-lasso] secret rotation impact plan");
+    console.log("- ref: " + result.ref);
+    console.log("- status: " + result.status);
+    console.log("- directConsumers: " + result.summary.directConsumers);
+    console.log("- dependents: " + result.summary.dependents);
+    console.log("- restart: " + result.summary.restart);
+    console.log("- reload: " + result.summary.reload);
+    console.log("- action: " + result.summary.action);
+    console.log("- manual: " + result.summary.manual);
+    console.log("- none: " + result.summary.none);
+    console.log("- blockers: " + result.summary.blockers);
+    for (const service of result.services) {
+      const suffix = service.blockers.length > 0 ? " [" + service.blockers.join(", ") + "]" : "";
+      console.log("- " + service.role + " " + service.serviceId + ": " + service.action + suffix);
+    }
+    return;
+  }
+
   console.log("[service-lasso] secret reference audit");
   if ("services" in result) {
     console.log("- services: " + result.summary.services);
@@ -1422,6 +1449,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     const result = await runSecretsCliAction({
       action: parsed.secretsAction!,
       serviceId: parsed.serviceId,
+      ref: parsed.secretRef,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,

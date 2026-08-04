@@ -288,6 +288,15 @@ export interface ServiceBrokerImport {
   ref: string;
   as?: string;
   required?: boolean;
+  onChange?: ServiceBrokerChangeReaction;
+}
+
+export type ServiceBrokerChangeReactionMode = "restart" | "reload" | "action" | "manual" | "none";
+
+export interface ServiceBrokerChangeReaction {
+  mode: ServiceBrokerChangeReactionMode;
+  actionId?: string;
+  reason?: string;
 }
 
 export interface ServiceBrokerWritebackCapture {
