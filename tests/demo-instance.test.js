@@ -41,6 +41,7 @@ import {
 } from "../scripts/demo-deploy-canonical.mjs";
 import {
   applyCanonicalServiceAdminRuntimeUrl,
+  canonicalDemoServicesRoot,
 } from "../scripts/demo-canonical-root.mjs";
 import {
   buildReachabilityTargets,
@@ -994,13 +995,14 @@ test("demo watchdog defaults to the canonical LAN endpoints and runtime port", (
   assert.equal(recovery.env.SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD, "1");
 });
 
-test("canonical demo verifier defaults to canonical LAN URLs", () => {
+test("canonical demo verifier defaults to loopback runtime and canonical prepared services root", () => {
   const options = resolveCanonicalVerifierOptions([], {});
   assert.equal(options.runtimePort, canonicalRuntimePort);
   assert.equal(options.serviceAdminPort, canonicalServiceAdminPort);
-  assert.equal(options.runtimeUrl, "http://192.168.1.53:17883");
+  assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
   assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
-  assert.equal(options.runtimeHealthUrl, "http://192.168.1.53:17883/api/health");
+  assert.equal(options.runtimeHealthUrl, "http://127.0.0.1:17883/api/health");
+  assert.equal(options.servicesRoot, canonicalDemoServicesRoot);
 });
 
 test("canonical demo verifier accepts live metadata matching checked-in release pins", async () => {
