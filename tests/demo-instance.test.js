@@ -253,6 +253,14 @@ test("canonical deploy accepts npm-forwarded deploy option configs", () => {
   assert.equal(options.workspaceRoot, path.resolve("C:/tmp/service-lasso/workspace"));
 });
 
+test("canonical deploy defaults to loopback runtime control and LAN Admin reachability", () => {
+  const options = resolveCanonicalDeployOptions(["--ref=HEAD"], {});
+
+  assert.equal(options.host, "0.0.0.0");
+  assert.equal(options.runtimeUrl, `http://127.0.0.1:${canonicalRuntimePort}`);
+  assert.equal(options.serviceAdminUrl, `http://192.168.1.53:${canonicalServiceAdminPort}/`);
+});
+
 test("canonical deploy and recycle propagate LAN runtime URLs to child scripts", () => {
   const deployOptions = resolveCanonicalDeployOptions([
     "--ref=HEAD",

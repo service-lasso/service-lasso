@@ -18,7 +18,8 @@ import {
 import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
-const defaultHost = "192.168.1.53";
+const defaultBindHost = "0.0.0.0";
+const defaultUrlHost = "192.168.1.53";
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -224,19 +225,20 @@ function hasNestedJsonPath(value, segments) {
 }
 
 export function resolveCanonicalDeployOptions(args = process.argv.slice(2), env = process.env) {
-  const host = parseFlag(args, "host") ?? parseNpmConfigValue(env, "host") ?? env.SERVICE_LASSO_DEMO_HOST ?? defaultHost;
+  const host = parseFlag(args, "host") ?? parseNpmConfigValue(env, "host") ?? env.SERVICE_LASSO_DEMO_BIND_HOST ?? env.SERVICE_LASSO_DEMO_HOST ?? defaultBindHost;
+  const urlHost = parseFlag(args, "url-host") ?? parseNpmConfigValue(env, "url-host") ?? env.SERVICE_LASSO_DEMO_URL_HOST ?? env.SERVICE_LASSO_DEMO_HOST ?? defaultUrlHost;
   const runtimePort = parseNumber(parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? parseNpmConfigValue(env, "runtime-port") ?? parseNpmConfigValue(env, "port") ?? env.SERVICE_LASSO_PORT, canonicalRuntimePort);
   const serviceAdminPort = parseNumber(parseFlag(args, "service-admin-port") ?? parseNpmConfigValue(env, "service-admin-port") ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_PORT, canonicalServiceAdminPort);
   const runtimeUrl =
     parseFlag(args, "runtime-url")
     ?? parseNpmConfigValue(env, "runtime-url")
     ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL
-    ?? `http://${host}:${runtimePort}`;
+    ?? `http://127.0.0.1:${runtimePort}`;
   const serviceAdminUrl =
     parseFlag(args, "service-admin-url")
     ?? parseNpmConfigValue(env, "service-admin-url")
     ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL
-    ?? `http://${host}:${serviceAdminPort}/`;
+    ?? `http://${urlHost}:${serviceAdminPort}/`;
   const logsRoot = path.resolve(parseFlag(args, "logs-root") ?? parseNpmConfigValue(env, "logs-root") ?? path.join(repoRoot, ".demo-logs"));
   const summaryPath = path.resolve(parseFlag(args, "summary") ?? parseNpmConfigValue(env, "summary") ?? path.join(logsRoot, "canonical-deploy-summary.json"));
   const ref = parseFlag(args, "ref") ?? env.SERVICE_LASSO_DEMO_DEPLOY_REF ?? parseNpmConfigValue(env, "ref") ?? inferPositionalRef(args);
