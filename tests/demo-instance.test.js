@@ -48,6 +48,11 @@ import {
   resolveCanonicalVerifierOptions,
   verifyCanonicalDemo,
 } from "../scripts/demo-verify-canonical.mjs";
+import {
+  buildWorktreeProofCommands,
+  patchWorktreeDemoManifest,
+  resolveWorktreeProofOptions,
+} from "../scripts/demo-worktree-proof.mjs";
 
 async function listenOnLoopback() {
   const server = net.createServer();
@@ -267,6 +272,49 @@ test("canonical deploy and recycle propagate LAN runtime URLs to child scripts",
       "--admin-url=http://192.168.1.53:17700/",
     ],
   );
+});
+
+test("worktree proof records allocated URLs for gate, verifier, and cleanup handoff", () => {
+  const options = resolveWorktreeProofOptions(["--id=issue-947", "--host=0.0.0.0", "--url-host=127.0.0.1"], {});
+  const commands = buildWorktreeProofCommands(options, {
+    runtime: 18123,
+    serviceAdmin: 18124,
+    manifest: {},
+  });
+
+  assert.equal(options.worktreeId, "issue-947");
+  assert.match(options.servicesRoot, /workspace[\\/]demo-instance[\\/]worktree-proof[\\/]issue-947[\\/]services$/);
+  assert.match(options.workspaceRoot, /workspace[\\/]demo-instance[\\/]worktree-proof[\\/]issue-947[\\/]workspace$/);
+  assert.match(commands.gate, /--runtime-url=http:\/\/127\.0\.0\.1:18123/);
+  assert.match(commands.gate, /--admin-url=http:\/\/127\.0\.0\.1:18124\//);
+  assert.match(commands.verify, /--service-admin-port=18124/);
+  assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
+});
+
+test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {
+  const patched = patchWorktreeDemoManifest(
+    "@serviceadmin",
+    {
+      id: "@serviceadmin",
+      ports: { ui: 17700 },
+      env: {
+        SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
+        SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
+      },
+    },
+    {
+      runtimeUrl: "http://127.0.0.1:18123",
+      ports: {
+        manifest: {
+          "@serviceadmin:ports:ui": 18124,
+        },
+      },
+    },
+  );
+
+  assert.equal(patched.ports.ui, 18124);
+  assert.equal(patched.env.SERVICE_LASSO_API_BASE_URL, "http://127.0.0.1:18123");
+  assert.equal(patched.env.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:18123");
 });
 
 test("canonical service admin seed uses the canonical runtime URL for its API proxy", async () => {

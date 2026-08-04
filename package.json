@@ -39,6 +39,7 @@
     "demo:gate": "npm run build && node scripts/demo-gate.mjs",
     "demo:status": "node scripts/demo-status.mjs",
     "demo:verify-canonical": "node scripts/demo-verify-canonical.mjs",
+    "demo:worktree-proof": "npm run build && node scripts/demo-worktree-proof.mjs",
     "demo:reset": "npm run build && node scripts/demo-reset.mjs",
     "demo:deploy-canonical": "npm run build && node scripts/demo-deploy-canonical.mjs",
     "demo:smoke": "npm run build && node scripts/demo-smoke.mjs",
