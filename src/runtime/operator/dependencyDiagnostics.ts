@@ -9,6 +9,7 @@ import type {
 import type { DiscoveredService } from "../../contracts/service.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
 import { getLifecycleState } from "../lifecycle/store.js";
+import type { ServiceLifecycleState, ServiceStartTraceAttempt } from "../lifecycle/types.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import type { DependencyGraph } from "../manager/DependencyGraph.js";
 import { buildServiceNetwork } from "./network.js";
@@ -85,6 +86,31 @@ async function findOccupiedPort(ports: Record<string, number>, running: boolean)
   return null;
 }
 
+function latestFailedReadinessAttempt(lifecycle: ServiceLifecycleState): ServiceStartTraceAttempt | null {
+  const attempts = [
+    lifecycle.runtime.startTrace.current,
+    ...lifecycle.runtime.startTrace.history,
+  ].filter((attempt): attempt is ServiceStartTraceAttempt => attempt !== null);
+
+  return attempts.find((attempt) =>
+    attempt.status === "failed" &&
+    attempt.events.some((event) => event.phase === "health_check" && event.status === "failed"),
+  ) ?? null;
+}
+
+function failedReadinessMessage(lifecycle: ServiceLifecycleState): string | null {
+  const attempt = latestFailedReadinessAttempt(lifecycle);
+  if (!attempt) {
+    return null;
+  }
+
+  const event =
+    attempt.events.find((entry) => entry.phase === "health_check" && entry.status === "failed") ??
+    attempt.events.find((entry) => entry.phase === "terminal_outcome" && entry.status === "failed");
+
+  return event?.message ?? "Previous start attempt failed readiness.";
+}
+
 function buildEndpoints(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string>,
@@ -141,6 +167,7 @@ export async function buildBaselineDependencyDiagnostics(
     const dependencySummary = graph.getServiceDependencies(service.manifest.id);
     const missingDependencies = dependencySummary.dependencies.filter((dependencyId) => !registry.getById(dependencyId));
     const occupiedPort = await findOccupiedPort(ports, lifecycle.running);
+    const failedReadiness = lifecycle.running ? null : failedReadinessMessage(lifecycle);
     const enabled = service.manifest.enabled !== false;
     let readiness: ServiceDependencyReadiness = "ready";
     let blockingReason: ServiceDependencyBlockerKind | null = null;
@@ -170,6 +197,10 @@ export async function buildBaselineDependencyDiagnostics(
       readiness = "degraded";
       blockingReason = "unhealthy";
       blockers.push(health.detail);
+    } else if (failedReadiness !== null) {
+      readiness = "degraded";
+      blockingReason = "unhealthy";
+      blockers.push(failedReadiness);
     } else if (lifecycle.running) {
       readiness = "running";
     }
