@@ -519,17 +519,19 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
 }
 
 export function formatCanonicalVerifierResult(result) {
+  const summary = result.summary ?? {};
+  const services = Array.isArray(summary.services) ? summary.services : [];
   const lines = [
     `[service-lasso demo] canonical verifier ${result.ok ? "passed" : "failed"}`,
-    `- runtime: ${result.summary.runtimeUrl}`,
-    `- serviceAdmin: ${result.summary.serviceAdminUrl}`,
-    `- servicesRoot: ${result.summary.servicesRoot}`,
-    `- workspaceRoot: ${result.summary.workspaceRoot}`,
+    `- runtime: ${summary.runtimeUrl ?? "unknown"}`,
+    `- serviceAdmin: ${summary.serviceAdminUrl ?? "unknown"}`,
+    `- servicesRoot: ${summary.servicesRoot ?? "unknown"}`,
+    `- workspaceRoot: ${summary.workspaceRoot ?? "unknown"}`,
   ];
 
-  if (result.summary.services.length > 0) {
+  if (services.length > 0) {
     lines.push("- release pins:");
-    for (const service of result.summary.services) {
+    for (const service of services) {
       lines.push(
         `  - ${service.id}: expected=${service.expectedTag} catalog=${service.catalogTag} installed=${service.installedTag} prepared=${service.installed}/${service.configured} running=${service.running} healthy=${service.healthy}`,
       );

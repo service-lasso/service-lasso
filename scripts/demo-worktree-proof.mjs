@@ -50,6 +50,17 @@ function parseNumber(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseNpmConfigValue(env, name) {
+  const key = `npm_config_${name.replaceAll("-", "_")}`;
+  const value = env[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function parseNpmBooleanFlag(env, name) {
+  const key = `npm_config_${name.replaceAll("-", "_")}`;
+  return env[key] === "true";
+}
+
 function hasFlag(args, name) {
   return args.includes(`--${name}`);
 }
@@ -109,18 +120,18 @@ async function allocatePort({ host, rangeStart, rangeEnd, reserved }) {
 }
 
 export function resolveWorktreeProofOptions(args = process.argv.slice(2), env = process.env) {
-  const branchHint = parseFlag(args, "id") ?? env.SERVICE_LASSO_WORKTREE_PROOF_ID ?? env.GITHUB_HEAD_REF ?? "";
+  const branchHint = parseFlag(args, "id") ?? parseNpmConfigValue(env, "id") ?? env.SERVICE_LASSO_WORKTREE_PROOF_ID ?? env.GITHUB_HEAD_REF ?? "";
   const worktreeId = slugify(branchHint || path.basename(process.cwd()));
-  const bindHost = parseFlag(args, "host") ?? env.SERVICE_LASSO_WORKTREE_PROOF_HOST ?? "127.0.0.1";
-  const urlHost = parseFlag(args, "url-host") ?? env.SERVICE_LASSO_WORKTREE_PROOF_URL_HOST ?? (bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost);
-  const proofRoot = path.resolve(parseFlag(args, "proof-root") ?? env.SERVICE_LASSO_WORKTREE_PROOF_ROOT ?? path.join(defaultDemoWorkspaceRoot, "worktree-proof", worktreeId));
-  const servicesRoot = path.resolve(parseFlag(args, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? path.join(proofRoot, "services"));
-  const workspaceRoot = path.resolve(parseFlag(args, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? path.join(proofRoot, "workspace"));
-  const demoLogRoot = path.resolve(parseFlag(args, "demo-log-root") ?? env.SERVICE_LASSO_DEMO_LOG_ROOT ?? path.join(repoRoot, ".demo-logs", "worktree-proof", worktreeId));
-  const summaryPath = path.resolve(parseFlag(args, "summary") ?? path.join(demoLogRoot, "worktree-proof-summary.json"));
+  const bindHost = parseFlag(args, "host") ?? parseNpmConfigValue(env, "host") ?? env.SERVICE_LASSO_WORKTREE_PROOF_HOST ?? "127.0.0.1";
+  const urlHost = parseFlag(args, "url-host") ?? parseNpmConfigValue(env, "url-host") ?? env.SERVICE_LASSO_WORKTREE_PROOF_URL_HOST ?? (bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost);
+  const proofRoot = path.resolve(parseFlag(args, "proof-root") ?? parseNpmConfigValue(env, "proof-root") ?? env.SERVICE_LASSO_WORKTREE_PROOF_ROOT ?? path.join(defaultDemoWorkspaceRoot, "worktree-proof", worktreeId));
+  const servicesRoot = path.resolve(parseFlag(args, "services-root") ?? parseNpmConfigValue(env, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? path.join(proofRoot, "services"));
+  const workspaceRoot = path.resolve(parseFlag(args, "workspace-root") ?? parseNpmConfigValue(env, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? path.join(proofRoot, "workspace"));
+  const demoLogRoot = path.resolve(parseFlag(args, "demo-log-root") ?? parseNpmConfigValue(env, "demo-log-root") ?? env.SERVICE_LASSO_DEMO_LOG_ROOT ?? path.join(repoRoot, ".demo-logs", "worktree-proof", worktreeId));
+  const summaryPath = path.resolve(parseFlag(args, "summary") ?? parseNpmConfigValue(env, "summary") ?? path.join(demoLogRoot, "worktree-proof-summary.json"));
 
   return {
-    action: hasFlag(args, "cleanup") ? "cleanup" : "prepare",
+    action: hasFlag(args, "cleanup") || parseNpmBooleanFlag(env, "cleanup") ? "cleanup" : "prepare",
     worktreeId,
     bindHost,
     urlHost,
@@ -129,13 +140,13 @@ export function resolveWorktreeProofOptions(args = process.argv.slice(2), env = 
     workspaceRoot,
     demoLogRoot,
     summaryPath,
-    runtimePort: parseNumber(parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? env.SERVICE_LASSO_PORT, 0),
-    serviceAdminPort: parseNumber(parseFlag(args, "service-admin-port") ?? env.SERVICE_LASSO_WORKTREE_SERVICEADMIN_PORT, 0),
-    portRangeStart: parseNumber(parseFlag(args, "port-range-start") ?? env.SERVICE_LASSO_WORKTREE_PORT_RANGE_START, defaultPortRangeStart),
-    portRangeEnd: parseNumber(parseFlag(args, "port-range-end") ?? env.SERVICE_LASSO_WORKTREE_PORT_RANGE_END, defaultPortRangeEnd),
-    replace: hasFlag(args, "replace") || env.SERVICE_LASSO_WORKTREE_PROOF_REPLACE === "1",
-    preserveState: hasFlag(args, "preserve-state"),
-    json: hasFlag(args, "json") || env.npm_config_json === "true",
+    runtimePort: parseNumber(parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? parseNpmConfigValue(env, "runtime-port") ?? parseNpmConfigValue(env, "port") ?? env.SERVICE_LASSO_PORT, 0),
+    serviceAdminPort: parseNumber(parseFlag(args, "service-admin-port") ?? parseNpmConfigValue(env, "service-admin-port") ?? env.SERVICE_LASSO_WORKTREE_SERVICEADMIN_PORT, 0),
+    portRangeStart: parseNumber(parseFlag(args, "port-range-start") ?? parseNpmConfigValue(env, "port-range-start") ?? env.SERVICE_LASSO_WORKTREE_PORT_RANGE_START, defaultPortRangeStart),
+    portRangeEnd: parseNumber(parseFlag(args, "port-range-end") ?? parseNpmConfigValue(env, "port-range-end") ?? env.SERVICE_LASSO_WORKTREE_PORT_RANGE_END, defaultPortRangeEnd),
+    replace: hasFlag(args, "replace") || parseNpmBooleanFlag(env, "replace") || env.SERVICE_LASSO_WORKTREE_PROOF_REPLACE === "1",
+    preserveState: hasFlag(args, "preserve-state") || parseNpmBooleanFlag(env, "preserve-state"),
+    json: hasFlag(args, "json") || parseNpmBooleanFlag(env, "json"),
   };
 }
 

@@ -233,6 +233,26 @@ test("canonical deploy accepts npm-forwarded positional deploy args", () => {
   );
 });
 
+test("canonical deploy accepts npm-forwarded deploy option configs", () => {
+  const options = resolveCanonicalDeployOptions([], {
+    npm_config_ref: "HEAD",
+    npm_config_force_recovery: "true",
+    npm_config_logs_root: "C:/tmp/service-lasso/deploy-logs",
+    npm_config_runtime_url: "http://127.0.0.1:17883",
+    npm_config_service_admin_url: "http://127.0.0.1:17700/",
+    npm_config_services_root: "C:/tmp/service-lasso/services",
+    npm_config_workspace_root: "C:/tmp/service-lasso/workspace",
+  });
+
+  assert.equal(options.ref, "HEAD");
+  assert.equal(options.forceRecovery, true);
+  assert.equal(options.logsRoot, path.resolve("C:/tmp/service-lasso/deploy-logs"));
+  assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
+  assert.equal(options.serviceAdminUrl, "http://127.0.0.1:17700/");
+  assert.equal(options.servicesRoot, path.resolve("C:/tmp/service-lasso/services"));
+  assert.equal(options.workspaceRoot, path.resolve("C:/tmp/service-lasso/workspace"));
+});
+
 test("canonical deploy and recycle propagate LAN runtime URLs to child scripts", () => {
   const deployOptions = resolveCanonicalDeployOptions([
     "--ref=HEAD",
@@ -309,6 +329,26 @@ test("worktree proof records allocated URLs for gate, verifier, and cleanup hand
   assert.match(commands.gate, /--admin-url=http:\/\/127\.0\.0\.1:18124\//);
   assert.match(commands.verify, /--service-admin-port=18124/);
   assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
+});
+
+test("worktree proof accepts npm-forwarded proof option configs", () => {
+  const options = resolveWorktreeProofOptions([], {
+    npm_config_id: "issue-947",
+    npm_config_replace: "true",
+    npm_config_proof_root: "C:/tmp/service-lasso/proof",
+    npm_config_demo_log_root: "C:/tmp/service-lasso/proof-logs",
+    npm_config_runtime_port: "18123",
+    npm_config_service_admin_port: "18124",
+    npm_config_json: "true",
+  });
+
+  assert.equal(options.worktreeId, "issue-947");
+  assert.equal(options.replace, true);
+  assert.equal(options.proofRoot, path.resolve("C:/tmp/service-lasso/proof"));
+  assert.equal(options.demoLogRoot, path.resolve("C:/tmp/service-lasso/proof-logs"));
+  assert.equal(options.runtimePort, 18123);
+  assert.equal(options.serviceAdminPort, 18124);
+  assert.equal(options.json, true);
 });
 
 test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {

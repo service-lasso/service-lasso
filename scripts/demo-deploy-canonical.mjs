@@ -52,6 +52,11 @@ function parseNpmConfigValue(env, name) {
   return trimmed;
 }
 
+function parseNpmBooleanFlag(env, name) {
+  const key = `npm_config_${name.replaceAll("-", "_")}`;
+  return env[key] === "true";
+}
+
 function inferPositionalRef(args) {
   const positional = args.find((entry) => !entry.startsWith("--") && !entry.startsWith("/"));
   return positional?.trim() || undefined;
@@ -219,19 +224,21 @@ function hasNestedJsonPath(value, segments) {
 }
 
 export function resolveCanonicalDeployOptions(args = process.argv.slice(2), env = process.env) {
-  const host = parseFlag(args, "host") ?? env.SERVICE_LASSO_DEMO_HOST ?? defaultHost;
-  const runtimePort = parseNumber(parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? env.SERVICE_LASSO_PORT, canonicalRuntimePort);
-  const serviceAdminPort = parseNumber(parseFlag(args, "service-admin-port") ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_PORT, canonicalServiceAdminPort);
+  const host = parseFlag(args, "host") ?? parseNpmConfigValue(env, "host") ?? env.SERVICE_LASSO_DEMO_HOST ?? defaultHost;
+  const runtimePort = parseNumber(parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? parseNpmConfigValue(env, "runtime-port") ?? parseNpmConfigValue(env, "port") ?? env.SERVICE_LASSO_PORT, canonicalRuntimePort);
+  const serviceAdminPort = parseNumber(parseFlag(args, "service-admin-port") ?? parseNpmConfigValue(env, "service-admin-port") ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_PORT, canonicalServiceAdminPort);
   const runtimeUrl =
     parseFlag(args, "runtime-url")
+    ?? parseNpmConfigValue(env, "runtime-url")
     ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL
     ?? `http://${host}:${runtimePort}`;
   const serviceAdminUrl =
     parseFlag(args, "service-admin-url")
+    ?? parseNpmConfigValue(env, "service-admin-url")
     ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL
     ?? `http://${host}:${serviceAdminPort}/`;
-  const logsRoot = path.resolve(parseFlag(args, "logs-root") ?? path.join(repoRoot, ".demo-logs"));
-  const summaryPath = path.resolve(parseFlag(args, "summary") ?? path.join(logsRoot, "canonical-deploy-summary.json"));
+  const logsRoot = path.resolve(parseFlag(args, "logs-root") ?? parseNpmConfigValue(env, "logs-root") ?? path.join(repoRoot, ".demo-logs"));
+  const summaryPath = path.resolve(parseFlag(args, "summary") ?? parseNpmConfigValue(env, "summary") ?? path.join(logsRoot, "canonical-deploy-summary.json"));
   const ref = parseFlag(args, "ref") ?? env.SERVICE_LASSO_DEMO_DEPLOY_REF ?? parseNpmConfigValue(env, "ref") ?? inferPositionalRef(args);
   const expectations = parseEndpointExpectations(args, env);
 
@@ -242,13 +249,13 @@ export function resolveCanonicalDeployOptions(args = process.argv.slice(2), env 
     serviceAdminPort,
     runtimeUrl: runtimeUrl.endsWith("/") ? runtimeUrl.slice(0, -1) : runtimeUrl,
     serviceAdminUrl,
-    servicesRoot: path.resolve(parseFlag(args, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? defaultDemoServicesRoot),
-    workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? defaultDemoWorkspaceRoot),
+    servicesRoot: path.resolve(parseFlag(args, "services-root") ?? parseNpmConfigValue(env, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? parseNpmConfigValue(env, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? defaultDemoWorkspaceRoot),
     logsRoot,
     summaryPath,
-    forceRecovery: parseBooleanFlag(args, "force-recovery") || parseBooleanFlag(args, "force"),
-    timeoutMs: parseNumber(parseFlag(args, "timeout-ms") ?? env.SERVICE_LASSO_DEMO_DEPLOY_TIMEOUT_MS, 15 * 60 * 1000),
-    fetchTimeoutMs: parseNumber(parseFlag(args, "fetch-timeout-ms") ?? env.SERVICE_LASSO_DEMO_DEPLOY_FETCH_TIMEOUT_MS, 15_000),
+    forceRecovery: parseBooleanFlag(args, "force-recovery") || parseBooleanFlag(args, "force") || parseNpmBooleanFlag(env, "force-recovery") || parseNpmBooleanFlag(env, "force"),
+    timeoutMs: parseNumber(parseFlag(args, "timeout-ms") ?? parseNpmConfigValue(env, "timeout-ms") ?? env.SERVICE_LASSO_DEMO_DEPLOY_TIMEOUT_MS, 15 * 60 * 1000),
+    fetchTimeoutMs: parseNumber(parseFlag(args, "fetch-timeout-ms") ?? parseNpmConfigValue(env, "fetch-timeout-ms") ?? env.SERVICE_LASSO_DEMO_DEPLOY_FETCH_TIMEOUT_MS, 15_000),
     allowDirtyWorktree: false,
     ...expectations,
   };
@@ -433,6 +440,7 @@ export function buildCanonicalDeployRecycleArgs(options) {
     `--admin-url=${options.serviceAdminUrl}`,
     `--services-root=${options.servicesRoot}`,
     `--workspace-root=${options.workspaceRoot}`,
+    `--demo-log-root=${options.logsRoot}`,
   ];
 }
 
