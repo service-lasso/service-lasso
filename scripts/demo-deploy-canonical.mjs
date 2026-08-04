@@ -15,6 +15,7 @@ import {
   repoRoot,
   stopDemoManagedProcesses,
 } from "./demo-instance-lib.mjs";
+import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultHost = "192.168.1.53";
@@ -559,11 +560,17 @@ async function readRuntimeInstance(options) {
   }
 }
 
+export async function prepareCanonicalDeployOptions(options, seedOptions = {}) {
+  return await prepareCanonicalDemoOptions(options, seedOptions);
+}
+
 export async function runCanonicalDeploy(options = resolveCanonicalDeployOptions()) {
   if (!options.ref) {
     throw new Error("Canonical deploy requires --ref=<git-ref-or-commit> so the deployed source is explicit.");
   }
 
+  const requestedOptions = options;
+  options = await prepareCanonicalDeployOptions(options);
   await mkdir(options.logsRoot, { recursive: true });
   await rm(options.summaryPath, { force: true });
   const startedAt = new Date().toISOString();
@@ -579,7 +586,14 @@ export async function runCanonicalDeploy(options = resolveCanonicalDeployOptions
   }
 
   const beforePortOwners = await inspectRequiredPortOwners(options);
-  const teardown = await stopDemoManagedProcesses(options);
+  const teardown = {
+    canonical: await stopDemoManagedProcesses(options),
+    requested: null,
+  };
+  if (normalizePathForCompare(requestedOptions.servicesRoot) !== normalizePathForCompare(options.servicesRoot)) {
+    teardown.requested = await stopDemoManagedProcesses(requestedOptions);
+  }
+  options = await prepareCanonicalDeployOptions(options, { replace: true });
   const afterManagedStopPortOwners = await inspectRequiredPortOwners(options);
   const unmanaged = unmanagedOwners(afterManagedStopPortOwners, options);
   let forcedStops = [];

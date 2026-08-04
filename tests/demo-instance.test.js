@@ -34,6 +34,7 @@ import {
 import {
   hasJsonPath,
   buildCanonicalDeployRecycleArgs,
+  prepareCanonicalDeployOptions,
   parseEndpointExpectations,
   resolveCanonicalDeployOptions,
   runCanonicalDeploy,
@@ -272,6 +273,25 @@ test("canonical deploy and recycle propagate LAN runtime URLs to child scripts",
       "--admin-url=http://192.168.1.53:17700/",
     ],
   );
+});
+
+test("canonical deploy preparation honors explicit service roots", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-deploy-root-"));
+  const servicesRoot = path.join(tempDir, "services");
+
+  try {
+    const deployOptions = resolveCanonicalDeployOptions([
+      "--ref=HEAD",
+      "--runtime-url=http://127.0.0.1:17883",
+      `--services-root=${servicesRoot}`,
+    ]);
+
+    const prepared = await prepareCanonicalDeployOptions(deployOptions);
+
+    assert.equal(prepared.servicesRoot, servicesRoot);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("worktree proof records allocated URLs for gate, verifier, and cleanup handoff", () => {
