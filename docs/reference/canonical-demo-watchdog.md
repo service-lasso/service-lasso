@@ -41,6 +41,26 @@ ports `17883` and `17700`. `--force-recovery` may be used only during explicit
 operator recovery; it is logged in the summary and attempts to terminate the
 blocking port owners before deploying.
 
+## Issue Worktree Proof
+
+Ordinary developer and validator proof from issue worktrees should not depend
+on the shared canonical ports. Prepare a worktree-owned proof lane first:
+
+```powershell
+npm run demo:worktree-proof -- --id=<issue-or-branch>
+```
+
+The command allocates free runtime, Service Admin, and demo service ports,
+patches the copied demo manifests under the worktree proof root, and writes
+`.demo-logs/worktree-proof/<id>/worktree-proof-summary.json`. Handoffs must
+record the `runtime` and `serviceAdmin` URLs plus the `gate`, `verify`, and
+`cleanup` commands from that summary. Validators should run those recorded
+commands against the allocated URLs instead of assuming `17883` and `17700`.
+
+At final handoff or safe blocker exit, run the recorded cleanup command. If
+cleanup is intentionally skipped, record the reason and the summary path so the
+owning worktree processes can be identified later.
+
 The watchdog checks both LAN URLs before it attempts recovery. If either URL is
 unreachable, it acquires `.demo-logs/demo-watchdog.lock.json` before launching
 recovery so repeated scheduler runs cannot overlap. Manual recycle also acquires
