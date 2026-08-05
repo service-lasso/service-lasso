@@ -106,6 +106,14 @@
       "summary": "Release-backed workflow service for apps that own their workflow definitions and orchestration contract."
     },
     {
+      "id": "zen-bre",
+      "name": "GoRules ZEN Business Rules Engine",
+      "repo": "service-lasso/lasso-zen-bre",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed local decision service for apps that own portable JDM models and business-rules policy."
+    },
+    {
       "id": "postgres",
       "name": "PostgreSQL",
       "repo": "service-lasso/lasso-postgres",
