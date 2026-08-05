@@ -15,12 +15,14 @@ import {
   type ServiceSecretReferenceAudit,
   type ServiceSecretRotationReadinessReport,
 } from "../operator/secret-audit.js";
+import { buildSecretRotationImpactPlan, type SecretRotationImpactPlan } from "../operator/secret-rotation-plan.js";
 
-export type SecretsCliAction = "audit" | "rotation-readiness" | "provider-auth-required";
+export type SecretsCliAction = "audit" | "rotation-readiness" | "provider-auth-required" | "rotate-plan";
 
 export interface SecretsCliOptions extends RuntimeConfigOptions {
   action: SecretsCliAction;
   serviceId?: string;
+  ref?: string;
 }
 
 export type SecretsCliResult =
@@ -53,6 +55,11 @@ export type SecretsCliResult =
       action: "provider-auth-required";
       servicesRoot: string;
       workspaceRoot: string;
+    })
+  | (SecretRotationImpactPlan & {
+      action: "rotate-plan";
+      servicesRoot: string;
+      workspaceRoot: string;
     });
 
 export async function runSecretsCliAction(options: SecretsCliOptions): Promise<SecretsCliResult> {
@@ -62,6 +69,20 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
     version: options.version,
   });
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
+
+  if (options.action === "rotate-plan") {
+    const ref = options.ref?.trim();
+    if (!ref) {
+      throw new Error('The "secrets rotate-plan" command requires a <ref> argument.');
+    }
+
+    return {
+      action: "rotate-plan",
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      ...buildSecretRotationImpactPlan(discovered, ref),
+    };
+  }
 
   if (!options.serviceId && options.action === "audit") {
     return {

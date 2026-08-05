@@ -3,6 +3,7 @@ import type {
   ServiceBrokerAccessOperation,
   ServiceBrokerAccessScope,
   ServiceBrokerBucketKind,
+  ServiceBrokerChangeReactionMode,
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
   ServiceHookStep,
@@ -48,6 +49,7 @@ const brokerAccessOperations = new Set(["resolve", "create", "update", "rotate",
 const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "global"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
 const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
+const brokerChangeReactionModes = new Set(["restart", "reload", "action", "manual", "none"]);
 const endpointKinds = new Set(["network", "url", "mount", "device"]);
 const endpointDirections = new Set(["inbound", "outbound"]);
 const endpointTransports = new Set(["tcp", "udp"]);
@@ -490,6 +492,33 @@ function expectBrokerRef(value: unknown, field: string, manifestPath: string): s
     throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a dotted broker ref like "namespace.KEY".`);
   }
   return ref;
+}
+
+function parseBrokerChangeReaction(value: unknown, field: string, manifestPath: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const mode = expectOptionalEnum<ServiceBrokerChangeReactionMode>(
+    record.mode,
+    `${field}.mode`,
+    brokerChangeReactionModes,
+    "restart, reload, action, manual, or none",
+    manifestPath,
+  );
+  if (!mode) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.mode" to be set.`);
+  }
+
+  return {
+    mode,
+    actionId: record.actionId === undefined ? undefined : expectNonEmptyString(record.actionId, `${field}.actionId`, manifestPath),
+    reason: record.reason === undefined ? undefined : expectNonEmptyString(record.reason, `${field}.reason`, manifestPath),
+  };
 }
 
 function readHookSteps(value: unknown, field: string, manifestPath: string): ServiceHookStep[] | undefined {
@@ -1481,6 +1510,7 @@ function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: strin
             ref: expectBrokerRef(importRecord.ref, `${field}.ref`, manifestPath),
             as: importRecord.as === undefined ? undefined : expectNonEmptyString(importRecord.as, `${field}.as`, manifestPath),
             required: expectOptionalBoolean(importRecord.required, `${field}.required`, manifestPath),
+            onChange: parseBrokerChangeReaction(importRecord.onChange, `${field}.onChange`, manifestPath),
           };
         })
       : undefined,

@@ -118,6 +118,7 @@ import {
   buildServiceSecretReferenceAudit,
   buildServiceSecretRotationReadinessReport,
 } from "../runtime/operator/secret-audit.js";
+import { buildSecretRotationImpactPlan } from "../runtime/operator/secret-rotation-plan.js";
 import {
   getServiceLassoMcpCapabilities,
   handleServiceLassoMcpJsonRpcRequest,
@@ -3077,6 +3078,15 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "secrets" && pathParts[4] === "rotation-plan") {
+      const ref = url.searchParams.get("ref")?.trim();
+      if (!ref) {
+        throw new ApiError("invalid_request", 400, 'Missing required "ref" query parameter.');
+      }
+      writeJson(response, 200, buildSecretRotationImpactPlan(runtimeModel.discovered, ref));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
       writeJson(response, 200, {
         serviceId,
@@ -3624,6 +3634,16 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/secrets/provider-auth-required") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, buildSecretProviderAuthRequiredSummary(runtimeModel.discovered));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/secrets/rotation-plan") {
+    const ref = url.searchParams.get("ref")?.trim();
+    if (!ref) {
+      throw new ApiError("invalid_request", 400, 'Missing required "ref" query parameter.');
+    }
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildSecretRotationImpactPlan(runtimeModel.discovered, ref));
     return;
   }
 
