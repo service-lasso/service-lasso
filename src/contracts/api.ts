@@ -8,6 +8,7 @@ import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
 import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
 import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportTestResult } from "../runtime/operator/telemetry.js";
+import type { EffectiveServiceRouteMetadataSummary } from "../runtime/operator/endpoints.js";
 import type { ServiceCatalogProvenance } from "./service.js";
 import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 import type { ServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
@@ -122,6 +123,7 @@ export interface ServiceSummary {
   catalogProvenance?: ServiceCatalogProvenance;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
+  routeMetadata?: EffectiveServiceRouteMetadataSummary;
   compatibility?: ServiceCompatibilityReport;
   operator?: {
     logPath: string;

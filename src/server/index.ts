@@ -95,6 +95,7 @@ import {
   readRuntimeSetupStatus,
 } from "../runtime/setup/first-run.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { buildEffectiveRouteMetadata } from "../runtime/operator/endpoints.js";
 import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
 import {
@@ -1322,6 +1323,7 @@ async function createServiceSummary(
     catalogProvenance: service.catalogProvenance,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
+    routeMetadata: buildEffectiveRouteMetadata(service, resolvedPorts),
     compatibility: buildServiceCompatibilityReport(service, registry, { updateState: updates }),
     operator: {
       logPath: lifecycle.runtime.logs.logPath ?? runtimeLogs.logPath,
