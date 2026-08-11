@@ -31,13 +31,16 @@
       "kind": "local"
     }
   ],
-  "healthcheck": {
-    "type": "http",
-    "url": "http://127.0.0.1:${SERVICE_PORT}/health",
-    "expected_status": 200,
-    "retries": 80,
-    "interval": 250
-  },
+  "healthchecks": [
+    {
+      "id": "http-health",
+      "type": "http",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "expected_status": 200,
+      "retries": 80,
+      "interval": 250
+    }
+  ],
   "broker": {
     "enabled": true,
     "namespace": "services/node-sample-service",

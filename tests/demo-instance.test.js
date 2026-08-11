@@ -13,6 +13,7 @@ import {
   applyDemoServiceAdminRuntimeApiUrl,
   demoProviderServiceIds,
   demoRequiredServiceIds,
+  getDemoStatus,
   resolveDemoOptions,
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
@@ -33,12 +34,14 @@ import {
 import {
   hasJsonPath,
   buildCanonicalDeployRecycleArgs,
+  prepareCanonicalDeployOptions,
   parseEndpointExpectations,
   resolveCanonicalDeployOptions,
   runCanonicalDeploy,
 } from "../scripts/demo-deploy-canonical.mjs";
 import {
   applyCanonicalServiceAdminRuntimeUrl,
+  canonicalDemoServicesRoot,
 } from "../scripts/demo-canonical-root.mjs";
 import {
   buildReachabilityTargets,
@@ -47,6 +50,11 @@ import {
   resolveCanonicalVerifierOptions,
   verifyCanonicalDemo,
 } from "../scripts/demo-verify-canonical.mjs";
+import {
+  buildWorktreeProofCommands,
+  patchWorktreeDemoManifest,
+  resolveWorktreeProofOptions,
+} from "../scripts/demo-worktree-proof.mjs";
 
 async function listenOnLoopback() {
   const server = net.createServer();
@@ -66,6 +74,18 @@ async function listenOnLoopback() {
       await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     },
   };
+}
+
+async function allocateLoopbackPorts(count) {
+  const reservations = [];
+  try {
+    for (let index = 0; index < count; index += 1) {
+      reservations.push(await listenOnLoopback());
+    }
+    return reservations.map((reservation) => reservation.port);
+  } finally {
+    await Promise.all(reservations.map((reservation) => reservation.close()));
+  }
 }
 
 async function writeCanonicalManifest(servicesRoot, serviceId, { repo, tag, assetName, ports, role, urls, healthcheck }) {
@@ -226,6 +246,34 @@ test("canonical deploy accepts npm-forwarded positional deploy args", () => {
   );
 });
 
+test("canonical deploy accepts npm-forwarded deploy option configs", () => {
+  const options = resolveCanonicalDeployOptions([], {
+    npm_config_ref: "HEAD",
+    npm_config_force_recovery: "true",
+    npm_config_logs_root: "C:/tmp/service-lasso/deploy-logs",
+    npm_config_runtime_url: "http://127.0.0.1:17883",
+    npm_config_service_admin_url: "http://127.0.0.1:17700/",
+    npm_config_services_root: "C:/tmp/service-lasso/services",
+    npm_config_workspace_root: "C:/tmp/service-lasso/workspace",
+  });
+
+  assert.equal(options.ref, "HEAD");
+  assert.equal(options.forceRecovery, true);
+  assert.equal(options.logsRoot, path.resolve("C:/tmp/service-lasso/deploy-logs"));
+  assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
+  assert.equal(options.serviceAdminUrl, "http://127.0.0.1:17700/");
+  assert.equal(options.servicesRoot, path.resolve("C:/tmp/service-lasso/services"));
+  assert.equal(options.workspaceRoot, path.resolve("C:/tmp/service-lasso/workspace"));
+});
+
+test("canonical deploy defaults to loopback runtime control and LAN Admin reachability", () => {
+  const options = resolveCanonicalDeployOptions(["--ref=HEAD"], {});
+
+  assert.equal(options.host, "0.0.0.0");
+  assert.equal(options.runtimeUrl, `http://127.0.0.1:${canonicalRuntimePort}`);
+  assert.equal(options.serviceAdminUrl, `http://192.168.1.53:${canonicalServiceAdminPort}/`);
+});
+
 test("canonical deploy and recycle propagate LAN runtime URLs to child scripts", () => {
   const deployOptions = resolveCanonicalDeployOptions([
     "--ref=HEAD",
@@ -266,6 +314,88 @@ test("canonical deploy and recycle propagate LAN runtime URLs to child scripts",
       "--admin-url=http://192.168.1.53:17700/",
     ],
   );
+});
+
+test("canonical deploy preparation honors explicit service roots", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-deploy-root-"));
+  const servicesRoot = path.join(tempDir, "services");
+
+  try {
+    const deployOptions = resolveCanonicalDeployOptions([
+      "--ref=HEAD",
+      "--runtime-url=http://127.0.0.1:17883",
+      `--services-root=${servicesRoot}`,
+    ]);
+
+    const prepared = await prepareCanonicalDeployOptions(deployOptions);
+
+    assert.equal(prepared.servicesRoot, servicesRoot);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("worktree proof records allocated URLs for gate, verifier, and cleanup handoff", () => {
+  const options = resolveWorktreeProofOptions(["--id=issue-947", "--host=0.0.0.0", "--url-host=127.0.0.1"], {});
+  const commands = buildWorktreeProofCommands(options, {
+    runtime: 18123,
+    serviceAdmin: 18124,
+    manifest: {},
+  });
+
+  assert.equal(options.worktreeId, "issue-947");
+  assert.match(options.servicesRoot, /workspace[\\/]demo-instance[\\/]worktree-proof[\\/]issue-947[\\/]services$/);
+  assert.match(options.workspaceRoot, /workspace[\\/]demo-instance[\\/]worktree-proof[\\/]issue-947[\\/]workspace$/);
+  assert.match(commands.gate, /--runtime-url=http:\/\/127\.0\.0\.1:18123/);
+  assert.match(commands.gate, /--admin-url=http:\/\/127\.0\.0\.1:18124\//);
+  assert.match(commands.verify, /--service-admin-port=18124/);
+  assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
+});
+
+test("worktree proof accepts npm-forwarded proof option configs", () => {
+  const options = resolveWorktreeProofOptions([], {
+    npm_config_id: "issue-947",
+    npm_config_replace: "true",
+    npm_config_proof_root: "C:/tmp/service-lasso/proof",
+    npm_config_demo_log_root: "C:/tmp/service-lasso/proof-logs",
+    npm_config_runtime_port: "18123",
+    npm_config_service_admin_port: "18124",
+    npm_config_json: "true",
+  });
+
+  assert.equal(options.worktreeId, "issue-947");
+  assert.equal(options.replace, true);
+  assert.equal(options.proofRoot, path.resolve("C:/tmp/service-lasso/proof"));
+  assert.equal(options.demoLogRoot, path.resolve("C:/tmp/service-lasso/proof-logs"));
+  assert.equal(options.runtimePort, 18123);
+  assert.equal(options.serviceAdminPort, 18124);
+  assert.equal(options.json, true);
+});
+
+test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {
+  const patched = patchWorktreeDemoManifest(
+    "@serviceadmin",
+    {
+      id: "@serviceadmin",
+      ports: { ui: 17700 },
+      env: {
+        SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
+        SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
+      },
+    },
+    {
+      runtimeUrl: "http://127.0.0.1:18123",
+      ports: {
+        manifest: {
+          "@serviceadmin:ports:ui": 18124,
+        },
+      },
+    },
+  );
+
+  assert.equal(patched.ports.ui, 18124);
+  assert.equal(patched.env.SERVICE_LASSO_API_BASE_URL, "http://127.0.0.1:18123");
+  assert.equal(patched.env.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:18123");
 });
 
 test("canonical service admin seed uses the canonical runtime URL for its API proxy", async () => {
@@ -397,7 +527,9 @@ async function writeCanonicalFixtureManifests(servicesRoot) {
 
 function jsonResponse(status, body) {
   return {
+    ok: status >= 200 && status < 300,
     status,
+    headers: { get: () => "application/json" },
     json: async () => body,
     text: async () => JSON.stringify(body),
   };
@@ -405,7 +537,9 @@ function jsonResponse(status, body) {
 
 function textResponse(status, body) {
   return {
+    ok: status >= 200 && status < 300,
     status,
+    headers: { get: () => "text/plain" },
     json: async () => JSON.parse(body),
     text: async () => body,
   };
@@ -479,6 +613,118 @@ function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6
     return jsonResponse(404, { error: "not_found" });
   };
 }
+
+function canonicalServiceStateFixture({ serviceAdminInstalled = false, serviceAdminConfigured = false } = {}) {
+  return [
+    ...canonicalFixtureServices.map((service) => {
+      const providerRole = service.role === "provider";
+      const sourceAdminService = service.id === "@serviceadmin";
+      return {
+        id: service.id,
+        lifecycle: {
+          installed: sourceAdminService ? serviceAdminInstalled : true,
+          configured: sourceAdminService ? serviceAdminConfigured : true,
+          running: sourceAdminService ? false : !providerRole,
+        },
+        health: { healthy: !sourceAdminService || providerRole },
+      };
+    }),
+    {
+      id: "node-sample-service",
+      lifecycle: {
+        installed: false,
+        configured: false,
+        running: false,
+      },
+      health: { healthy: false },
+    },
+  ];
+}
+
+test("demo gate status accepts the source Admin service-state contract", async () => {
+  const originalFetch = globalThis.fetch;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-"));
+
+  try {
+    const servicesRoot = path.join(tempDir, "services");
+    const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+    const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true });
+    globalThis.fetch = async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/api/services") {
+        return jsonResponse(200, { services: canonicalServiceStateFixture() });
+      }
+      return baseFetch(url, options);
+    };
+    const result = await getDemoStatus({
+      runtimeUrl: "http://127.0.0.1:17883",
+      serviceAdminUrl: "http://127.0.0.1:17700/",
+      workspaceRoot,
+      demoLogRoot: path.join(tempDir, ".demo-logs"),
+      timeoutMs: 100,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.classification, "healthy");
+    assert.equal(result.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
+    assert.match(result.endpoints.serviceAdmin.serviceState.acceptedWarningReason, /Source Service Admin owns port 17700/);
+    assert.deepEqual(
+      result.endpoints.serviceAdmin.serviceState.actual.find((service) => service.id === "@serviceadmin"),
+      {
+        id: "@serviceadmin",
+        installed: false,
+        configured: false,
+        running: false,
+        healthy: false,
+        expectedMode: "source_admin_owns_17700",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo gate status rejects source Admin drift with installed managed artifact state", async () => {
+  const originalFetch = globalThis.fetch;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-mismatch-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true });
+
+  try {
+    globalThis.fetch = async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/api/services") {
+        return jsonResponse(200, {
+          services: canonicalServiceStateFixture({ serviceAdminInstalled: true, serviceAdminConfigured: true }),
+        });
+      }
+      return baseFetch(url, options);
+    };
+    const result = await getDemoStatus({
+      runtimeUrl: "http://127.0.0.1:17883",
+      serviceAdminUrl: "http://127.0.0.1:17700/",
+      workspaceRoot,
+      demoLogRoot: path.join(tempDir, ".demo-logs"),
+      timeoutMs: 100,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.classification, "canonical_service_state_mismatch");
+    assert.equal(result.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
+    assert.deepEqual(
+      result.endpoints.serviceAdmin.serviceState.mismatches.filter((entry) => entry.id === "@serviceadmin"),
+      [
+        { id: "@serviceadmin", field: "installed", expected: false, actual: true },
+        { id: "@serviceadmin", field: "configured", expected: false, actual: true },
+      ],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("demo recycle preflight reports live non-managed listeners", async () => {
   const listener = await listenOnLoopback();
@@ -761,13 +1007,14 @@ test("demo watchdog defaults to the canonical LAN endpoints and runtime port", (
   assert.equal(recovery.env.SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD, "1");
 });
 
-test("canonical demo verifier defaults to canonical LAN URLs", () => {
+test("canonical demo verifier defaults to loopback runtime and canonical prepared services root", () => {
   const options = resolveCanonicalVerifierOptions([], {});
   assert.equal(options.runtimePort, canonicalRuntimePort);
   assert.equal(options.serviceAdminPort, canonicalServiceAdminPort);
-  assert.equal(options.runtimeUrl, "http://192.168.1.53:17883");
+  assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
   assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
-  assert.equal(options.runtimeHealthUrl, "http://192.168.1.53:17883/api/health");
+  assert.equal(options.runtimeHealthUrl, "http://127.0.0.1:17883/api/health");
+  assert.equal(options.servicesRoot, canonicalDemoServicesRoot);
 });
 
 test("canonical demo verifier accepts live metadata matching checked-in release pins", async () => {
@@ -923,6 +1170,16 @@ test("demo smoke script validates the bounded demo instance end to end", async (
 
   try {
     await cp(path.resolve("services"), servicesRoot, { recursive: true });
+    const [servicePort, healthPort, tcpHealthPort] = await allocateLoopbackPorts(3);
+    const echoManifestPath = path.join(servicesRoot, "echo-service", "service.json");
+    const echoManifest = JSON.parse(await readFile(echoManifestPath, "utf8"));
+    echoManifest.ports = {
+      ...echoManifest.ports,
+      service: servicePort,
+      health: healthPort,
+      tcp_health: tcpHealthPort,
+    };
+    await writeFile(echoManifestPath, `${JSON.stringify(echoManifest, null, 2)}\n`);
 
     const result = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [demoScript], {

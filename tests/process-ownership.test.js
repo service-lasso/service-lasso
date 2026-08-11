@@ -18,9 +18,14 @@ import {
   transitionProcessOwnership,
 } from "../dist/runtime/process/registry.js";
 import { startApiServer } from "../dist/server/index.js";
+import {
+  adoptManagedProcess,
+  hasManagedProcess,
+  stopManagedProcess,
+} from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
-import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
+import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
@@ -299,6 +304,319 @@ test("rehydration clears a reused PID without terminating the unrelated live pro
     assert.equal(ownership, null);
   } finally {
     unrelated.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("API startup clears a reused PID and starts a replacement without touching the unrelated process", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-api-reused-pid-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "api-reused-pid-service", {
+    ports: { service: 18095 },
+  });
+  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
+  let apiServer;
+
+  try {
+    await new Promise((resolve, reject) => {
+      unrelated.once("spawn", resolve);
+      unrelated.once("error", reject);
+    });
+    const inspection = await inspectProcess(unrelated.pid);
+    assert.equal(inspection.status, "running");
+
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: unrelated.pid,
+        startedAt: inspection.identity.createdAt,
+        command: `${process.execPath} stale-service-command.mjs`,
+        ports: { service: 18095 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const storedAfterBoot = await readStoredState(serviceRoot);
+    assert.equal(storedAfterBoot.runtime.running, false);
+    assert.equal(storedAfterBoot.runtime.pid, null);
+    assert.equal(unrelated.exitCode, null);
+    assert.equal(unrelated.signalCode, null);
+
+    const start = await postJson(`${apiServer.url}/api/services/api-reused-pid-service/start`);
+
+    assert.equal(start.response.status, 200);
+    assert.equal(start.body.action, "start");
+    assert.equal(start.body.state.running, true);
+    assert.equal(start.body.state.runtime.pid > 0, true);
+    assert.notEqual(start.body.state.runtime.pid, unrelated.pid);
+    assert.deepEqual(start.body.state.runtime.ports, { service: 18095 });
+    assert.equal(unrelated.exitCode, null);
+    assert.equal(unrelated.signalCode, null);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, start.body.state.runtime.pid);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "api-reused-pid-service");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, start.body.state.runtime.pid);
+  } finally {
+    await apiServer?.stop();
+    unrelated.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("rehydration returns adopted running state with retained ports", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-adopted-state-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "rehydrate-adopted-service", {
+    ports: { service: 18092 },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: child.pid,
+        startedAt: inspection.identity.createdAt,
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18092 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, { workspaceRoot });
+
+    assert.equal(rehydrated.running, true);
+    assert.equal(rehydrated.runtime.pid, child.pid);
+    assert.deepEqual(rehydrated.runtime.ports, { service: 18092 });
+    assert.equal(rehydrated.runtime.endpoints.some((endpoint) => endpoint.port === 18092), true);
+    assert.equal(hasManagedProcess("rehydrate-adopted-service"), true);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, child.pid);
+    assert.deepEqual(stored.runtime.ports, { service: 18092 });
+
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "rehydrate-adopted-service");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, child.pid);
+    assert.deepEqual(ownership.allocation.ports, { service: 18092 });
+  } finally {
+    await stopManagedProcess("rehydrate-adopted-service", 500).catch(() => null);
+    child.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("rehydration records a safe blocker for unverifiable persisted process owners", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-unknown-owner-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "unknown-owner-service");
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+
+  try {
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: 4242,
+        startedAt: "2026-07-18T02:03:04.000Z",
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18094 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, {
+      workspaceRoot,
+      processInspectorDependencies: windowsInspector({
+        ProcessId: 4242,
+        CreationDate: null,
+        ExecutablePath: null,
+        CommandLine: null,
+      }),
+    });
+
+    assert.equal(rehydrated.running, false);
+    assert.equal(rehydrated.runtime.pid, null);
+    assert.equal(hasManagedProcess("unknown-owner-service"), false);
+    assert.equal(rehydrated.runtime.startTrace.current.status, "blocked");
+    assert.equal(rehydrated.runtime.startTrace.current.events[0].metadata.processOwnerStatus, "unknown_owner");
+    assert.equal(rehydrated.runtime.startTrace.current.events[0].metadata.previousPid, 4242);
+    assert.match(
+      rehydrated.runtime.startTrace.current.events[0].metadata.nextSafeAction,
+      /Inspect the persisted PID owner/,
+    );
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.pid, null);
+    assert.equal(stored.runtime.startTrace.current.status, "blocked");
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("API restart replaces an adopted persisted process and keeps retained ports", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-restart-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-restart-service", {
+    ports: { service: 18093 },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  let apiServer;
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: child.pid,
+        startedAt: inspection.identity.createdAt,
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18093 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    assert.equal(hasManagedProcess("adopted-restart-service"), true);
+
+    const restart = await postJson(`${apiServer.url}/api/services/adopted-restart-service/restart`);
+
+    assert.equal(restart.response.status, 200);
+    assert.equal(restart.body.action, "restart");
+    assert.equal(restart.body.state.running, true);
+    assert.equal(restart.body.state.runtime.pid > 0, true);
+    assert.notEqual(restart.body.state.runtime.pid, child.pid);
+    assert.deepEqual(restart.body.state.runtime.ports, { service: 18093 });
+    assert.equal(restart.body.state.runtime.endpoints.some((endpoint) => endpoint.port === 18093), true);
+
+    await waitFor(() => child.exitCode !== null || child.signalCode !== null);
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, restart.body.state.runtime.pid);
+    assert.deepEqual(stored.runtime.ports, { service: 18093 });
+
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-restart-service");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, restart.body.state.runtime.pid);
+    assert.deepEqual(ownership.allocation.ports, { service: 18093 });
+  } finally {
+    await apiServer?.stop();
+    await stopManagedProcess("adopted-restart-service", 500).catch(() => null);
+    child.kill("SIGKILL");
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("adopted process ownership can be stopped without a ChildProcess handle", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-stop-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-stop-service");
+  const child = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    const [service] = await discoverServices(servicesRoot);
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "adopted-stop-service",
+      serviceId: "adopted-stop-service",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "legacy-verified",
+    });
+
+    const handle = await adoptManagedProcess({
+      service,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`,
+      workspaceRoot,
+    });
+
+    assert.equal(handle.pid, child.pid);
+    assert.equal(hasManagedProcess("adopted-stop-service"), true);
+
+    const stopped = await stopManagedProcess("adopted-stop-service", 500);
+    assert.ok(stopped);
+    assert.equal(hasManagedProcess("adopted-stop-service"), false);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
+    assert.equal(ownership.lifecycleState, "stopped");
+    assert.equal(ownership.pid, null);
+  } finally {
+    child.kill("SIGKILL");
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

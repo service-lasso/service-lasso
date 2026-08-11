@@ -45,6 +45,7 @@ interface ParsedCliOptions {
   actionId?: string;
   deferredUntil?: string | null;
   serviceId?: string;
+  secretRef?: string;
   repo?: string;
   tag?: string;
   apiBaseUrl?: string;
@@ -101,6 +102,7 @@ function usageText(): string {
     "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets rotation-readiness [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets provider-auth-required [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets rotate-plan <ref> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -109,6 +111,7 @@ function usageText(): string {
     "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
+    "  service-lasso services import --archive <path> [--services-root <path>] [--dry-run] [--json]",
     "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
     "  service-lasso release verify-manifest <manifestPath> [--assets-root <path>] [--release-version <version>] [--json]",
     "  service-lasso help",
@@ -345,12 +348,18 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "secrets") {
     const action = remaining.shift();
-    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required") {
-      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required.');
+    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required" && action !== "rotate-plan") {
+      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required, rotate-plan.');
     }
 
     parsed.secretsAction = action;
-    if (remaining[0] && !remaining[0].startsWith("-")) {
+    if (action === "rotate-plan") {
+      const ref = remaining.shift();
+      if (!ref || ref.startsWith("-")) {
+        throw new Error('The "secrets rotate-plan" command requires a <ref> argument.');
+      }
+      parsed.secretRef = ref;
+    } else if (remaining[0] && !remaining[0].startsWith("-")) {
       parsed.serviceId = remaining.shift();
     }
   }
@@ -413,11 +422,9 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       throw new Error('The "services" command requires one of: import.');
     }
     parsed.serviceCommand = serviceCommand;
-    const repo = remaining.shift();
-    if (!repo || repo.startsWith("-")) {
-      throw new Error('The "services import" command requires an <owner/repo> argument.');
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.repo = remaining.shift();
     }
-    parsed.repo = repo;
   }
 
   if (command === "template") {
@@ -532,6 +539,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --api-base-url.");
         }
         parsed.apiBaseUrl = value;
+        break;
+      }
+      case "--archive": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--archive is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --archive.");
+        }
+        parsed.archivePath = value;
         break;
       }
       case "--core-services-root": {
@@ -955,6 +973,25 @@ function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
     return;
   }
 
+  if (result.action === "rotate-plan") {
+    console.log("[service-lasso] secret rotation impact plan");
+    console.log("- ref: " + result.ref);
+    console.log("- status: " + result.status);
+    console.log("- directConsumers: " + result.summary.directConsumers);
+    console.log("- dependents: " + result.summary.dependents);
+    console.log("- restart: " + result.summary.restart);
+    console.log("- reload: " + result.summary.reload);
+    console.log("- action: " + result.summary.action);
+    console.log("- manual: " + result.summary.manual);
+    console.log("- none: " + result.summary.none);
+    console.log("- blockers: " + result.summary.blockers);
+    for (const service of result.services) {
+      const suffix = service.blockers.length > 0 ? " [" + service.blockers.join(", ") + "]" : "";
+      console.log("- " + service.role + " " + service.serviceId + ": " + service.action + suffix);
+    }
+    return;
+  }
+
   console.log("[service-lasso] secret reference audit");
   if ("services" in result) {
     console.log("- services: " + result.summary.services);
@@ -1132,11 +1169,24 @@ function printImportServiceResult(result: ImportServiceManifestCliResult, asJson
   }
 
   console.log(result.dryRun ? "[service-lasso] service import dry-run completed" : "[service-lasso] service manifest imported");
-  console.log(`- repo: ${result.repo}`);
-  console.log(`- tag: ${result.resolvedTag ?? result.requestedTag ?? "latest"}`);
+  console.log(`- source: ${result.source}`);
+  if (result.repo) {
+    console.log(`- repo: ${result.repo}`);
+    console.log(`- tag: ${result.resolvedTag ?? result.requestedTag ?? "latest"}`);
+  }
+  if (result.archivePath) {
+    console.log(`- archivePath: ${result.archivePath}`);
+  }
   console.log(`- service: ${result.serviceId}`);
+  if (result.version) {
+    console.log(`- version: ${result.version}`);
+  }
   console.log(`- servicesRoot: ${result.servicesRoot}`);
-  console.log(`- targetPath: ${result.targetPath}`);
+  console.log(`- targetPath: ${result.targetPath ?? "none"}`);
+  console.log(`- state: ${result.state}`);
+  if (result.conflict) {
+    console.log(`- conflict: ${result.conflict.kind} ${result.conflict.path}`);
+  }
   console.log(`- wrote: ${result.wrote}`);
   console.log(`- overwritten: ${result.overwritten}`);
 }
@@ -1211,14 +1261,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   if (parsed.command === "services" && parsed.serviceCommand === "import") {
     const result = await importServiceManifestFromCli({
-      repo: parsed.repo!,
+      repo: parsed.repo,
       tag: parsed.tag,
       servicesRoot: parsed.servicesRoot,
       apiBaseUrl: parsed.apiBaseUrl,
+      archivePath: parsed.archivePath,
       force: parsed.force,
       dryRun: parsed.dryRun,
     });
     printImportServiceResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -1395,6 +1449,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     const result = await runSecretsCliAction({
       action: parsed.secretsAction!,
       serviceId: parsed.serviceId,
+      ref: parsed.secretRef,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,

@@ -43,10 +43,13 @@ This reference tracks each runtime-facing field as:
 | Field | Status | TypeScript contract | Runtime/lifecycle behavior |
 | --- | --- | --- | --- |
 | `actions` | implemented | `ServiceManifest.actions?: ServiceActionPolicy` with action definitions, payload policy, workflow steps, and schedule maps | Validated during manifest discovery, used by service action run APIs, used by lifecycle stop overrides, and published through `GET /api/workflows/registry` for enabled scheduled actions. Closed alignment issue: [#777](https://github.com/service-lasso/service-lasso/issues/777). |
+| `install` / `config` | implemented | `ServiceActionMaterialization` with `files[]` and `templates[]` | Lifecycle install/config can materialize inline file content and render service-root-relative template files into bounded generated targets, then persist generated paths in lifecycle artifact state. |
 | `files` | implemented | `ServiceManifest.files?: ServiceFilesPolicy` with service-root-relative workspace roots | Validated during manifest discovery and published through `GET /api/files/workspaces` as the `service-lasso-workspaces` registry for file-manager consumers. |
 | `outputvarregex` | compatibility | `ServiceManifest.outputvarregex?: Record<string, string>` | Validated during manifest discovery as a legacy-compatible stdout/stderr variable extraction contract for services that use `variable` healthchecks. |
 | `serviceorder` | implemented | `ServiceManifest.serviceorder?: number` | Validated as a top-level whole number and used by dependency graph ordering for otherwise-independent services. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 | `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
+| `requires` | implemented | `ServiceManifest.requires?: Record<string, string>` | Validated as a capability-to-version-requirement map; dependency graph resolves each capability to exactly one enabled provider service and reports missing or ambiguous provider choices with operator-action messages. |
+| `provides` | implemented | `ServiceManifest.provides?: Record<string, string>` | Validated as provider capability metadata and surfaced in service summaries/diagnostics so consumers can see capability/version information. |
 
 ## Purpose of `service.json`
 
@@ -111,9 +114,12 @@ The current sample in this repo is:
       "ECHO_MESSAGE": "hello from service-template"
     },
     "depend_on": [],
-    "healthcheck": {
-      "type": "process"
-    }
+    "healthchecks": [
+      {
+        "id": "process-health",
+        "type": "process"
+      }
+    ]
   }
 }
 ```
@@ -364,6 +370,46 @@ Schedule fields currently validated by discovery:
 
 Finite lifecycle actions continue to use their existing bounded runtime behavior. Scheduled actions add contract metadata for later workflow/scheduler consumers; they do not turn cron into a separate service-level action list.
 
+### Install/config materialization
+
+`install.files[]` and `config.files[]` materialize inline content:
+
+```json
+{
+  "config": {
+    "files": [
+      {
+        "path": "./runtime/config.env",
+        "content": "SERVICE_PORT=${SERVICE_PORT}\n"
+      }
+    ]
+  }
+}
+```
+
+`install.templates[]` and `config.templates[]` render checked-in template files from the service package into generated output paths:
+
+```json
+{
+  "config": {
+    "templates": [
+      {
+        "source": "./templates/config.env.template",
+        "target": "./runtime/config.env"
+      }
+    ]
+  }
+}
+```
+
+Rules:
+
+- `source` resolves relative to the service root/package and must stay inside that root.
+- `target` supports the same Service Lasso variable resolution used by inline materialized file paths, then must stay inside the service root.
+- Template file content is rendered with Service Lasso variables before it is written.
+- Generated target paths are recorded in lifecycle `installArtifacts.files` or `configArtifacts.files` alongside inline file outputs.
+- Existing `files[]` behavior remains unchanged.
+
 The runtime publishes scheduled action workflows through `GET /api/workflows/registry`. The registry is generated from validated service manifests, hides disabled services and disabled schedules, and includes stable workflow ids, service/action/schedule metadata, tags, workflow steps, and per-entry checksums for Dagu drift detection.
 
 ## `execconfig`
@@ -494,7 +540,12 @@ Example:
 
 ```json
 "env": {
-  "ECHO_MESSAGE": "hello from service-template"
+  "ECHO_MESSAGE": "hello from service-template",
+  "PATH": [
+    "${PYTHON_HOME}",
+    "${PYTHON_SCRIPTS_PATH}",
+    "${SERVICE_ROOT}/bin"
+  ]
 }
 ```
 
@@ -504,6 +555,20 @@ Current direction:
 - avoid depending on uncontrolled host-machine env leakage
 - use `${VAR}` for local/current-service/derived values and legacy `globalenv` compatibility
 - use `${namespace.KEY}` only for explicit Secrets Broker selectors; unresolved or denied broker refs stay unresolved for diagnostics rather than falling back to a bare local name
+- env and `globalenv` values can be strings or arrays of non-empty strings
+- string arrays resolve selectors per entry and join with the host path delimiter before a process is spawned
+
+Canonical derived path variables:
+
+- `SERVICE_ROOT` is the canonical service package root.
+- `SERVICE_PATH` is a compatibility alias for `SERVICE_ROOT`, intended for portable donor-style examples that refer to the service package path.
+- `SERVICE_STATE_ROOT` points at the runtime state root for the service.
+- `SERVICE_DATA_PATH` points at the service-local `data` directory.
+- `SERVICE_EXECUTABLE_HOME` points at the installed artifact extraction root when a release artifact is installed, otherwise the service package root.
+- `SERVICE_ARTIFACT_ROOT` is present only when an installed release artifact has an extracted path.
+- `SERVICE_ARTIFACT_COMMAND` is present only when the installed release artifact declares both an extracted path and command.
+
+Provider-level path variables such as `NODE_HOME`, `PYTHON_HOME`, and `PYTHON_SCRIPTS_PATH` are not derived automatically for every service. Provider services should export the concrete names they support through their own `globalenv` entries, usually from `SERVICE_ARTIFACT_ROOT` or `SERVICE_ARTIFACT_COMMAND`, and consuming services should depend on the provider that supplies them.
 
 ### `broker`
 
@@ -774,6 +839,41 @@ Current direction:
 - use this for services that require another service/runtime/provider first
 - keep empty for the minimal sample
 
+### `requires`
+
+Provider capability requirements.
+
+Example:
+
+```json
+"requires": {
+  "java": ">=17",
+  "postgres": ">=15"
+}
+```
+
+Runtime behavior:
+
+- each capability resolves to one enabled discovered provider before startup ordering
+- the resolved provider service id is treated as a concrete dependency
+- missing providers produce a clear missing-provider message
+- multiple matching providers produce an ambiguous-provider message; pin with `depend_on` or remove duplicate providers before start
+- explicit `depend_on` service ids continue to work and can be used alongside capability requirements
+
+### `provides`
+
+Provider capability metadata.
+
+Example:
+
+```json
+"provides": {
+  "java": "17.0.18+8"
+}
+```
+
+Provider manifests should declare the capability name and version they satisfy. Service summaries and diagnostics expose this metadata so operators can understand which concrete provider satisfied a capability requirement.
+
 ## Healthcheck
 
 ### Default rule
@@ -785,9 +885,12 @@ Current rule:
 Example:
 
 ```json
-"healthcheck": {
-  "type": "process"
-}
+"healthchecks": [
+  {
+    "id": "process-health",
+    "type": "process"
+  }
+]
 ```
 
 This is the right default for a simple sample service.
@@ -803,6 +906,16 @@ Service Lasso supports these explicit healthcheck types:
 
 `process` is the current template default direction; use one of the explicit types above when a service needs a stronger readiness signal.
 
+When a service declares an explicit `healthchecks[]` item, startup readiness waits by default even if the manifest omits readiness timing fields. Default readiness settings are:
+
+- `retries`: `10`
+- `interval`: `1000` milliseconds
+- `start_period`: `0` milliseconds
+- `timeout`: `2000` milliseconds per network attempt
+
+Existing manifests that set `retries`, `interval`, `start_period`, or `timeout` keep those explicit values.
+`timeout` is optional and must be an integer number of milliseconds when present. HTTP and TCP healthchecks use it as the per-attempt network wait limit. Process, file, and variable healthchecks accept the shared field for manifest compatibility, but their immediate readiness evaluation does not wait on external network I/O.
+
 ### `process` healthcheck
 
 Use when:
@@ -813,9 +926,12 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "process"
-}
+"healthchecks": [
+  {
+    "id": "process-health",
+    "type": "process"
+  }
+]
 ```
 
 ### `http` healthcheck
@@ -827,11 +943,32 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "http",
-  "url": "http://localhost:${SERVICE_PORT}/health",
-  "expected_status": 200
-}
+"healthchecks": [
+  {
+    "id": "http-health",
+    "type": "http",
+    "url": "http://localhost:${SERVICE_PORT}/health",
+    "expected_status": 200,
+    "timeout": 2000
+  }
+]
+```
+
+HTTP healthchecks may include an optional `cookies` string map when a readiness endpoint requires cookie state. Cookie values support the same selector resolution as `url`; omit `cookies` for ordinary stateless health endpoints.
+
+```json
+"healthchecks": [
+  {
+    "id": "http-cookie-health",
+    "type": "http",
+    "url": "http://localhost:${SERVICE_PORT}/healthcheck",
+    "expected_status": 200,
+    "cookies": {
+      "healthcheck": "ready",
+      "workspace": "${SERVICE_ID}"
+    }
+  }
+]
 ```
 
 ### `tcp` healthcheck
@@ -843,9 +980,13 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "tcp"
-}
+"healthchecks": [
+  {
+    "id": "tcp-health",
+    "type": "tcp",
+    "timeout": 2000
+  }
+]
 ```
 
 Bare `type: "tcp"` uses `127.0.0.1` and infers the port only when the service has exactly one unambiguous declared or resolved port.
@@ -853,20 +994,26 @@ Bare `type: "tcp"` uses `127.0.0.1` and infers the port only when the service ha
 Use `address` when a single TCP target string is clearer:
 
 ```json
-"healthcheck": {
-  "type": "tcp",
-  "address": "127.0.0.1:${HTTP_PORT}"
-}
+"healthchecks": [
+  {
+    "id": "tcp-address-health",
+    "type": "tcp",
+    "address": "127.0.0.1:${HTTP_PORT}"
+  }
+]
 ```
 
 Use `host` + `port` when the values should be edited independently:
 
 ```json
-"healthcheck": {
-  "type": "tcp",
-  "host": "127.0.0.1",
-  "port": "${HTTP_PORT}"
-}
+"healthchecks": [
+  {
+    "id": "tcp-port-health",
+    "type": "tcp",
+    "host": "127.0.0.1",
+    "port": "${HTTP_PORT}"
+  }
+]
 ```
 
 Multiple-port services must declare `address` or `host` + `port`. Legacy alias names such as `tcphost` and `tcpport` are not supported.
@@ -902,11 +1049,18 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "file",
-  "file": "${SERVICE_HOME}/.state/runtime/ready.txt"
-}
+"healthchecks": [
+  {
+    "id": "ready-file",
+    "type": "file",
+    "file": "${SERVICE_ROOT}/runtime/ready.txt"
+  }
+]
 ```
+
+Selector resolution applies before the filesystem check. Relative paths remain
+resolved against the service root, absolute paths remain supported, and health
+details report the resolved path that was checked.
 
 ### `variable` healthcheck
 
@@ -918,10 +1072,13 @@ Use when:
 Sample:
 
 ```json
-"healthcheck": {
-  "type": "variable",
-  "variable": "${SERVICE_URL}"
-}
+"healthchecks": [
+  {
+    "id": "service-url-ready",
+    "type": "variable",
+    "variable": "${SERVICE_URL}"
+  }
+]
 ```
 
 ### `outputvarregex`
@@ -934,11 +1091,14 @@ Example:
 "outputvarregex": {
   "FILEBEAT_ENABLED_INPUTS": ".*Enabled inputs: (\\d+).*"
 },
-"healthcheck": {
-  "type": "variable",
-  "variable": "FILEBEAT_ENABLED_INPUTS",
-  "retries": 180
-}
+"healthchecks": [
+  {
+    "id": "filebeat-inputs-ready",
+    "type": "variable",
+    "variable": "FILEBEAT_ENABLED_INPUTS",
+    "retries": 180
+  }
+]
 ```
 
 Runtime contract:
@@ -995,6 +1155,7 @@ Runtime rules:
 ### Setup lifecycle steps
 
 `setup.steps` defines Service Lasso's first-class one-shot job contract. Use setup for named local preparation work that runs after `install` and `config` but is not a daemon process.
+When setup work needs service-owned orchestration, keep the step visible here and move the implementation into a helper such as `scripts/lasso-<service>.mjs` or platform scripts under `scripts/setup/`. See [Setup Helper Conventions](../service-authoring/setup-helper-conventions.md) for the recommended layout, provider/runtime requirements, idempotence rules, readiness polling, exit-code behavior, logging, and sensitive-value handling.
 
 For operator behavior, CLI/API surfaces, dependency ordering, provider-backed execution, rerun policy, and TypeDB init/sample guidance, see [One-shot Jobs](one-shot-jobs.md).
 
@@ -1005,6 +1166,7 @@ Examples:
   "steps": {
     "install-python-deps": {
       "description": "Install service-local Python dependencies.",
+      "cwd": "${SERVICE_ROOT}",
       "commandline": {
         "win32": "pip.exe install --user -r \"${SERVICE_ROOT}\\requirements.txt\"",
         "default": "pip install --user -r \"${SERVICE_ROOT}/requirements.txt\""
@@ -1032,6 +1194,8 @@ Runtime behavior:
 - Direct setup: omit `execservice`; the selected `commandline` is parsed as the executable plus arguments, or `executable` plus `args` can be used.
 - Provider-backed setup: set `execservice` to `@node`, `@python`, or `@java`; `commandline` or `args` becomes the provider executable's argument payload.
 - Platform selection uses `commandline[process.platform]` with `commandline.default` fallback.
+- Optional `cwd` selects the setup command's working directory. It supports Service Lasso variables, relative paths resolve from `SERVICE_ROOT`, absolute paths must still be inside `SERVICE_ROOT`, missing/non-directory values fail before spawn, and setup run history records the resolved cwd.
+- Setup commands do not inherit the full host process environment. Their environment starts from a narrow platform process-launch allowlist, then adds provider env, Service Lasso derived variables, resolved service `env`/`globalenv`/broker values, and setup-step `env`; host-only variables are not visible unless they are part of that explicit allowlist or declared through Service Lasso-controlled inputs.
 - Dependencies in `depend_on` can name services or setup steps using `<serviceId>:<stepId>`.
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.

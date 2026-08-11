@@ -651,6 +651,8 @@ test("GET /api/services/:id/variables returns manifest and derived variables", a
     assert.equal(response.status, 200);
     assert.equal(body.variables.serviceId, "echo-service");
     assert.ok(body.variables.variables.some((entry) => entry.key === "ECHO_MESSAGE" && entry.scope === "manifest"));
+    assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_ROOT" && entry.scope === "derived"));
+    assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_PATH" && entry.scope === "derived"));
     assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_STATE_ROOT" && entry.scope === "derived"));
   } finally {
     await apiServer.stop();
@@ -702,6 +704,48 @@ test("runtime-captured output variables satisfy healthchecks and API variable sc
     assert.equal(typeof persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.matchedAt, "string");
 
     await postJson(`${apiServer.url}/api/services/captured-variable-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime-captured output variables satisfy canonical healthchecks arrays", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-outputvarregex-array-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "captured-variable-array-service", {
+    stdoutLines: ["Loading and starting Inputs completed. Enabled inputs: 4"],
+    outputvarregex: {
+      FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+    },
+    healthchecks: [
+      {
+        id: "filebeat-inputs-ready",
+        type: "variable",
+        variable: "${FILEBEAT_ENABLED_INPUTS}",
+        retries: 10,
+        interval: 25,
+      },
+    ],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/install`);
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/captured-variable-array-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.health.type, "aggregate");
+    assert.equal(start.body.health.healthy, true);
+    assert.equal(start.body.health.checks[0].id, "filebeat-inputs-ready");
+    assert.match(start.body.health.checks[0].detail, /resolved FILEBEAT_ENABLED_INPUTS from runtime scope/i);
+
+    const persistedRuntime = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
+    assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.value, "4");
+
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/stop`);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

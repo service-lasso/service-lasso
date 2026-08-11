@@ -66,6 +66,7 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   assert.equal(registry.getById("@localcert")?.manifest.artifact?.source.tag, "2026.5.2-24e7d2f");
   assert.equal(registry.getById("@nginx")?.manifest.role, undefined);
   assert.equal(registry.getById("@nginx")?.manifest.artifact?.source.repo, "service-lasso/lasso-nginx");
+  assert.deepEqual(registry.getById("@java")?.manifest.provides, { java: "17.0.18+8" });
 
   const echoSummary = graph.getServiceDependencies("echo-service");
   assert.deepEqual(echoSummary.dependencies, []);
@@ -151,6 +152,7 @@ test("GET /api/services/:id returns discovered service detail with dependency co
     assert.equal(body.service.id, "echo-service");
     assert.deepEqual(body.service.dependencies, []);
     assert.deepEqual(body.service.dependents, []);
+    assert.deepEqual(body.service.providerRequirements, []);
     assert.equal(body.service.source, "manifest");
   } finally {
     await apiServer.stop();

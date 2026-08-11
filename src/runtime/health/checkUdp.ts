@@ -1,7 +1,7 @@
 import dgram from "node:dgram";
 import type { ServiceHealthResult, UdpHealthcheck } from "./types.js";
 
-const DEFAULT_UDP_TIMEOUT_MS = 2_000;
+const DEFAULT_UDP_HEALTHCHECK_TIMEOUT_MS = 2_000;
 
 export async function checkUdpHealth(healthcheck: UdpHealthcheck): Promise<ServiceHealthResult> {
   const target =
@@ -25,29 +25,31 @@ export async function checkUdpHealth(healthcheck: UdpHealthcheck): Promise<Servi
     };
   }
 
-  const payload = Buffer.from(healthcheck.send, "utf8");
-  const expected = Buffer.from(healthcheck.expect, "utf8");
-  const timeoutMs = healthcheck.timeout ?? DEFAULT_UDP_TIMEOUT_MS;
+  const timeoutMs = healthcheck.timeout ?? DEFAULT_UDP_HEALTHCHECK_TIMEOUT_MS;
+  const socket = dgram.createSocket("udp4");
 
   return new Promise((resolve) => {
-    const socket = dgram.createSocket("udp4");
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
+    const timeout = setTimeout(() => {
+      finish({
+        type: "udp",
+        healthy: false,
+        detail: `UDP healthcheck timed out after ${timeoutMs}ms: ${target.address}`,
+      });
+    }, timeoutMs);
 
-    const finish = (payload: ServiceHealthResult) => {
+    function finish(payload: ServiceHealthResult) {
       if (settled) {
         return;
       }
 
       settled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
+      clearTimeout(timeout);
       socket.close();
       resolve(payload);
-    };
+    }
 
-    socket.once("error", (error: Error) => {
+    socket.once("error", (error) => {
       finish({
         type: "udp",
         healthy: false,
@@ -55,32 +57,19 @@ export async function checkUdpHealth(healthcheck: UdpHealthcheck): Promise<Servi
       });
     });
 
-    socket.once("message", (message) => {
-      if (message.equals(expected)) {
-        finish({
-          type: "udp",
-          healthy: true,
-          detail: `UDP healthcheck response matched expected payload from ${target.address}.`,
-        });
-        return;
-      }
-
+    socket.on("message", (message) => {
+      const response = message.toString("utf8");
       finish({
         type: "udp",
-        healthy: false,
-        detail: `UDP healthcheck response did not match expected payload from ${target.address}.`,
+        healthy: response === healthcheck.expect,
+        detail:
+          response === healthcheck.expect
+            ? `UDP healthcheck received expected response from ${target.address}.`
+            : `UDP healthcheck received "${response}", expected "${healthcheck.expect}".`,
       });
     });
 
-    timer = setTimeout(() => {
-      finish({
-        type: "udp",
-        healthy: false,
-        detail: `UDP healthcheck timed out waiting for expected response from ${target.address}.`,
-      });
-    }, timeoutMs);
-
-    socket.send(payload, target.port, target.host, (error) => {
+    socket.send(Buffer.from(healthcheck.send), target.port, target.host, (error) => {
       if (error) {
         finish({
           type: "udp",

@@ -43,6 +43,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "service-authoring/setup-helper-conventions",
+          label: "Setup Helper Conventions",
+        },
+        {
+          type: "doc",
           id: "service-authoring/03-create-release-repo",
           label: "3. Create the Release Repo",
         },
@@ -98,8 +103,23 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/vault-key-bootstrap",
+          label: "Vault Key Bootstrap",
+        },
+        {
+          type: "doc",
+          id: "reference/legacy-setup-migration",
+          label: "Legacy Setup Migration",
+        },
+        {
+          type: "doc",
           id: "reference/startup-broker-resolution",
           label: "Startup Broker Resolution",
+        },
+        {
+          type: "doc",
+          id: "reference/first-run-vault-bootstrap-permissions",
+          label: "First-run Vault and Permissions",
         },
         {
           type: "doc",
@@ -190,6 +210,11 @@ const sidebars = {
           type: "doc",
           id: "reference/operator-mcp",
           label: "Operator MCP",
+        },
+        {
+          type: "doc",
+          id: "reference/operator-inbox",
+          label: "Operator Inbox API",
         },
         {
           type: "doc",

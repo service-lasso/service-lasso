@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   DiscoveredService,
   ServiceBrokerImport,
+  ServiceEnvValue,
   ServiceManifest,
 } from "../../contracts/service.js";
 
@@ -112,20 +113,27 @@ function normalizeServiceRefPrefix(serviceId: string): string {
   return normalized || "service";
 }
 
-function metadataForValue(value: string): LegacySecretMetadata {
-  const fingerprint = value
-    ? createHash("sha256").update(value).digest("hex").slice(0, 16)
-    : null;
-  return {
-    present: value.length > 0,
-    length: value.length,
-    fingerprint,
-    valueKind:
-      value.length === 0
-        ? "empty"
+function metadataForValue(value: ServiceEnvValue): LegacySecretMetadata {
+  const fingerprintInput = Array.isArray(value) ? JSON.stringify(value) : value;
+  const valueLength = Array.isArray(value) ? value.reduce((total, entry) => total + entry.length, 0) : value.length;
+  const valueKind =
+    valueLength === 0
+      ? "empty"
+      : Array.isArray(value)
+        ? value.every((entry) => /^\$\{[^}]+\}$/.test(entry.trim()))
+          ? "selector"
+          : "literal"
         : /^\$\{[^}]+\}$/.test(value.trim())
           ? "selector"
-          : "literal",
+          : "literal";
+  const fingerprint = fingerprintInput
+    ? createHash("sha256").update(fingerprintInput).digest("hex").slice(0, 16)
+    : null;
+  return {
+    present: valueLength > 0,
+    length: valueLength,
+    fingerprint,
+    valueKind,
   };
 }
 
@@ -221,7 +229,7 @@ function candidateForEntry(
   service: DiscoveredService,
   source: LegacyEnvSource,
   key: string,
-  value: string,
+  value: ServiceEnvValue,
   options: LegacyGlobalEnvMigrationOptions,
 ): LegacyGlobalEnvMigrationCandidate {
   const { classification, reasons } = classifyLegacyEnvKey(key);

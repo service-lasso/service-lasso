@@ -14,6 +14,14 @@ export interface DependencyEdge {
 export interface ServiceDependencySummary {
   dependencies: string[];
   dependents: string[];
+  providerRequirements: ResolvedProviderRequirement[];
+}
+
+export interface ResolvedProviderRequirement {
+  capability: string;
+  requirement: string;
+  serviceId: string;
+  version: string;
 }
 
 export interface ReverseDependencyBlockedBy {
@@ -64,7 +72,7 @@ export class DependencyGraph {
     return this.#registry
       .list()
       .flatMap((service) =>
-        (service.manifest.depend_on ?? []).map((dependencyId) => ({
+        this.#resolveDependencyIds(service.manifest.id).map((dependencyId) => ({
           from: dependencyId,
           to: service.manifest.id,
         })),
@@ -77,16 +85,20 @@ export class DependencyGraph {
       throw new Error(`Unknown service id: ${serviceId}`);
     }
 
-    const dependencies = [...(service.manifest.depend_on ?? [])].sort();
+    const providerRequirements = this.#resolveProviderRequirements(service.manifest.id);
+    const dependencies = [
+      ...new Set(this.#sortServiceIds([...(service.manifest.depend_on ?? []), ...providerRequirements.map((requirement) => requirement.serviceId)])),
+    ];
     const dependents = this.#registry
       .list()
-      .filter((candidate) => (candidate.manifest.depend_on ?? []).includes(serviceId))
+      .filter((candidate) => this.#resolveDependencyIds(candidate.manifest.id).includes(serviceId))
       .map((candidate) => candidate.manifest.id)
       .sort();
 
     return {
       dependencies,
       dependents,
+      providerRequirements,
     };
   }
 
@@ -96,7 +108,7 @@ export class DependencyGraph {
     const visited = new Set<string>();
     const dependents: ReverseDependencyDependent[] = [];
     const queue: Array<{ id: string; path: string[] }> = services
-      .filter((candidate) => (candidate.manifest.depend_on ?? []).includes(serviceId))
+      .filter((candidate) => this.#resolveDependencyIds(candidate.manifest.id).includes(serviceId))
       .map((candidate) => ({ id: candidate.manifest.id, path: [serviceId, candidate.manifest.id] }))
       .sort((left, right) => left.id.localeCompare(right.id));
 
@@ -132,7 +144,7 @@ export class DependencyGraph {
       });
 
       const nextDependents = services
-        .filter((candidate) => (candidate.manifest.depend_on ?? []).includes(current.id))
+        .filter((candidate) => this.#resolveDependencyIds(candidate.manifest.id).includes(current.id))
         .map((candidate) => candidate.manifest.id)
         .sort((left, right) => left.localeCompare(right));
 
@@ -182,7 +194,7 @@ export class DependencyGraph {
       }
 
       visiting.add(currentServiceId);
-      for (const dependencyId of this.#sortServiceIds(service.manifest.depend_on ?? [])) {
+      for (const dependencyId of this.#resolveDependencyIds(currentServiceId)) {
         visit(dependencyId);
         if (!ordered.includes(dependencyId)) {
           ordered.push(dependencyId);
@@ -206,7 +218,7 @@ export class DependencyGraph {
       const serviceId = service.manifest.id;
       const dependencies = new Set<string>();
 
-      for (const dependencyId of service.manifest.depend_on ?? []) {
+      for (const dependencyId of this.#resolveDependencyIds(serviceId)) {
         if (!this.#registry.getById(dependencyId)) {
           throw new Error(`Unknown service id: ${dependencyId}`);
         }
@@ -260,6 +272,68 @@ export class DependencyGraph {
     return [...serviceIds].sort((left, right) => this.#compareServiceIds(left, right));
   }
 
+  #resolveDependencyIds(serviceId: string): string[] {
+    const service = this.#registry.getById(serviceId);
+    if (!service) {
+      throw new Error(`Unknown service id: ${serviceId}`);
+    }
+
+    const providerRequirements = this.#resolveProviderRequirements(serviceId);
+    return [
+      ...new Set(this.#sortServiceIds([...(service.manifest.depend_on ?? []), ...providerRequirements.map((requirement) => requirement.serviceId)])),
+    ];
+  }
+
+  #resolveProviderRequirements(serviceId: string): ResolvedProviderRequirement[] {
+    const service = this.#registry.getById(serviceId);
+    if (!service) {
+      throw new Error(`Unknown service id: ${serviceId}`);
+    }
+
+    return Object.entries(service.manifest.requires ?? {})
+      .map(([rawCapability, rawRequirement]) => {
+        const capability = rawCapability.trim();
+        const requirement = rawRequirement.trim();
+        const providers = this.#registry
+          .list()
+          .filter((candidate) => candidate.manifest.enabled !== false)
+          .map((candidate) => ({
+            serviceId: candidate.manifest.id,
+            version: candidate.manifest.provides?.[capability],
+          }))
+          .filter((candidate): candidate is { serviceId: string; version: string } =>
+            typeof candidate.version === "string" &&
+            candidate.version.trim().length > 0 &&
+            satisfiesCapabilityVersion(candidate.version, requirement),
+          )
+          .sort((left, right) => this.#compareServiceIds(left.serviceId, right.serviceId));
+        const pinnedProviders = providers.filter((provider) => (service.manifest.depend_on ?? []).includes(provider.serviceId));
+        const candidates = pinnedProviders.length > 0 ? pinnedProviders : providers;
+
+        if (candidates.length === 0) {
+          throw new Error(
+            `No installed provider satisfies capability "${capability}" required by "${serviceId}" (${requirement}).`,
+          );
+        }
+
+        if (candidates.length > 1) {
+          throw new Error(
+            `Ambiguous provider capability "${capability}" required by "${serviceId}": ${candidates
+              .map((provider) => provider.serviceId)
+              .join(", ")}. Pin one provider with depend_on or remove duplicate providers.`,
+          );
+        }
+
+        return {
+          capability,
+          requirement,
+          serviceId: candidates[0].serviceId,
+          version: candidates[0].version.trim(),
+        };
+      })
+      .sort((left, right) => left.capability.localeCompare(right.capability));
+  }
+
   #compareServiceIds(left: string, right: string): number {
     const leftOrder = this.#serviceOrder(left);
     const rightOrder = this.#serviceOrder(right);
@@ -274,4 +348,50 @@ export class DependencyGraph {
 
 export function createServiceRegistry(services: DiscoveredService[]): ServiceRegistry {
   return new ServiceRegistry(services);
+}
+
+function parseVersionParts(value: string): number[] {
+  return value
+    .replace(/^v/i, "")
+    .split(/[.+-]/)
+    .map((part) => Number(part))
+    .filter((part) => Number.isFinite(part));
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = parseVersionParts(left);
+  const rightParts = parseVersionParts(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] ?? 0;
+    const rightPart = rightParts[index] ?? 0;
+    if (leftPart !== rightPart) {
+      return leftPart - rightPart;
+    }
+  }
+
+  return 0;
+}
+
+function satisfiesCapabilityVersion(version: string, requirement: string): boolean {
+  const trimmedRequirement = requirement.trim();
+  if (trimmedRequirement.length === 0 || trimmedRequirement === "*") {
+    return true;
+  }
+
+  const match = /^(>=|<=|>|<|=)?\s*(.+)$/.exec(trimmedRequirement);
+  if (!match) {
+    return false;
+  }
+
+  const operator = match[1] ?? "=";
+  const requiredVersion = match[2].trim();
+  const comparison = compareVersions(version.trim(), requiredVersion);
+
+  if (operator === ">=") return comparison >= 0;
+  if (operator === "<=") return comparison <= 0;
+  if (operator === ">") return comparison > 0;
+  if (operator === "<") return comparison < 0;
+  return comparison === 0;
 }

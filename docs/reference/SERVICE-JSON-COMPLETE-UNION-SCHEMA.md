@@ -318,16 +318,19 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
     "outputvarregex": {
       "<OUTPUT_KEY>": "<regex>"
     },
-    "healthcheck": {
-      "type": "<process|http|tcp|file|variable>",
-      "url": "<health-url>",
-      "expected_status": "<http-status>",
-      "retries": "<retry-count>",
-      "variable": "<variable-name>",
-      "cookies": {
-        "<COOKIE_KEY>": "<cookie-value>"
+    "healthchecks": [
+      {
+        "id": "<healthcheck-id>",
+        "type": "<process|http|tcp|file|variable>",
+        "url": "<health-url>",
+        "expected_status": "<http-status>",
+        "retries": "<retry-count>",
+        "variable": "<variable-name>",
+        "cookies": {
+          "<COOKIE_KEY>": "<cookie-value>"
+        }
       }
-    },
+    ],
     "execshell": "<shell>",
     "ignoreexiterror": "<boolean>"
   }
@@ -534,16 +537,19 @@ The raw credential is launch-only authority: it is not stored in lifecycle state
     "outputvarregex": {
       "<OUTPUT_KEY>": "<value>"
     },
-    "healthcheck": {
-      "type": "<value>",
-      "url": "<value>",
-      "expected_status": "<value>",
-      "retries": "<value>",
-      "variable": "<value>",
-      "cookies": {
-        "<COOKIE_KEY>": "<value>"
+    "healthchecks": [
+      {
+        "id": "<value>",
+        "type": "<value>",
+        "url": "<value>",
+        "expected_status": "<value>",
+        "retries": "<value>",
+        "variable": "<value>",
+        "cookies": {
+          "<COOKIE_KEY>": "<value>"
+        }
       }
-    },
+    ],
     "execshell": "<value>",
     "ignoreexiterror": "<value>"
   }

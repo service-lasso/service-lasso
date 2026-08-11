@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { loadServiceManifest } from "../dist/runtime/discovery/loadManifest.js";
@@ -20,6 +20,53 @@ async function writeManifest(servicesRoot, serviceId, body) {
   await mkdir(serviceRoot, { recursive: true });
   await writeFile(path.join(serviceRoot, "service.json"), JSON.stringify(body, null, 2));
 }
+
+async function findServiceManifests(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  const manifests = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      manifests.push(...await findServiceManifests(entryPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name === "service.json") {
+      manifests.push(entryPath);
+    }
+  }
+
+  return manifests;
+}
+
+test("checked-in service manifests use canonical healthchecks arrays", async () => {
+  const manifestPaths = [
+    ...await findServiceManifests(path.join(repoRoot, "services")),
+    ...await findServiceManifests(path.join(repoRoot, "fixtures")),
+  ];
+
+  assert.ok(manifestPaths.length > 0);
+  for (const manifestPath of manifestPaths) {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    assert.equal(
+      Object.hasOwn(manifest, "healthcheck"),
+      false,
+      `${path.relative(repoRoot, manifestPath)} must not use singular healthcheck`,
+    );
+    if (manifest.healthchecks !== undefined) {
+      assert.ok(Array.isArray(manifest.healthchecks), `${path.relative(repoRoot, manifestPath)} healthchecks must be an array`);
+      assert.ok(manifest.healthchecks.length > 0, `${path.relative(repoRoot, manifestPath)} healthchecks must not be empty`);
+      for (const [index, healthcheck] of manifest.healthchecks.entries()) {
+        assert.equal(
+          typeof healthcheck.id,
+          "string",
+          `${path.relative(repoRoot, manifestPath)} healthchecks[${index}].id must be stable`,
+        );
+        assert.ok(healthcheck.id.trim().length > 0, `${path.relative(repoRoot, manifestPath)} healthchecks[${index}].id must not be empty`);
+      }
+    }
+  }
+});
 
 test("discoverServices loads valid service manifests from a services root", async () => {
   const servicesRoot = await makeTempServicesRoot();
@@ -137,9 +184,11 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@nginx")?.artifact?.platforms.win32?.assetName, "lasso-nginx-1.30.0-win32.zip");
   assert.deepEqual(byId.get("@nginx")?.ports, { http: 18080 });
   assert.deepEqual(byId.get("@nginx")?.healthcheck, {
+    id: "nginx-http-health",
     type: "http",
     url: "http://127.0.0.1:${HTTP_PORT}/health",
     expected_status: 200,
+    required: true,
     retries: 80,
     interval: 250,
   });
@@ -230,9 +279,11 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_TRAEFIK_URL, "${endpoint.dashboard.url}");
   assert.equal(byId.get("@traefik")?.globalenv?.TRAEFIK_HOST_DOMAIN, "localhost");
   assert.deepEqual(byId.get("@traefik")?.healthcheck, {
+    id: "traefik-ping-health",
     type: "http",
     url: "${endpoint.ping.url}",
     expected_status: 200,
+    required: true,
     retries: 80,
     interval: 250,
   });
@@ -267,6 +318,77 @@ test("loadServiceManifest fails explicitly for malformed manifests", async () =>
     await assert.rejects(
       () => loadServiceManifest(manifestPath),
       /expected non-empty string for "name"/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts env and globalenv string arrays", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "path-env-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "path-env-service",
+        name: "Path Env Service",
+        description: "Service with path-list environment entries.",
+        env: {
+          PATH: ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"],
+          MODE: "demo",
+        },
+        globalenv: {
+          TOOL_PATHS: ["${SERVICE_ROOT}/tools", "${SERVICE_ROOT}/plugins"],
+        },
+        setup: {
+          steps: {
+            prepare: {
+              executable: "node",
+              args: ["prepare.mjs"],
+              env: {
+                SETUP_PATH: ["${SERVICE_ROOT}/setup", "${PATH}"],
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+
+    assert.deepEqual(manifest.env?.PATH, ["${PYTHON_HOME}", "${PYTHON_SCRIPTS_PATH}", "${SERVICE_ROOT}/bin"]);
+    assert.equal(manifest.env?.MODE, "demo");
+    assert.deepEqual(manifest.globalenv?.TOOL_PATHS, ["${SERVICE_ROOT}/tools", "${SERVICE_ROOT}/plugins"]);
+    assert.deepEqual(manifest.setup?.steps?.prepare.env?.SETUP_PATH, ["${SERVICE_ROOT}/setup", "${PATH}"]);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects invalid env array entries", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "bad-path-env-service", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "bad-path-env-service",
+        name: "Bad Path Env Service",
+        description: "Service with invalid path-list environment entries.",
+        env: {
+          PATH: ["${SERVICE_ROOT}/bin", ""],
+        },
+      }),
+    );
+
+    await assert.rejects(
+      () => loadServiceManifest(manifestPath),
+      /expected "env" to be a map of strings or non-empty string arrays/i,
     );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
@@ -394,98 +516,211 @@ test("loadServiceManifest rejects legacy tcp healthcheck aliases", async () => {
   }
 });
 
-test("loadServiceManifest accepts UDP send and expect healthchecks", async () => {
+test("loadServiceManifest accepts canonical healthchecks arrays", async () => {
   const servicesRoot = await makeTempServicesRoot();
-  const manifestPath = path.join(servicesRoot, "udp-service", "service.json");
 
   try {
-    await mkdir(path.dirname(manifestPath), { recursive: true });
-    await writeFile(
-      manifestPath,
-      JSON.stringify({
-        id: "udp-service",
-        name: "UDP Service",
-        description: "Service with UDP send and expect health.",
-        healthcheck: {
-          type: "udp",
+    await writeManifest(servicesRoot, "canonical-healthchecks-service", {
+      id: "canonical-healthchecks-service",
+      name: "Canonical Healthchecks Service",
+      description: "Service with canonical healthchecks.",
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+      },
+      healthchecks: [
+        {
+          id: "tcp-port-open",
+          type: "tcp",
           host: "127.0.0.1",
-          port: "${UDP_PORT}",
+          port: "${HTTP_PORT}",
+          retries: 30,
+          interval: 250,
+        },
+        {
+          id: "http-ready",
+          type: "http",
+          url: "http://127.0.0.1:${HTTP_PORT}/health",
+          expected_status: 200,
+          required: false,
+        },
+        {
+          id: "udp-ready",
+          type: "udp",
+          address: "127.0.0.1:${UDP_PORT}",
           send: "ping",
           expect: "pong",
-          retries: 30,
           timeout: 1000,
         },
-      }),
+        {
+          id: "filebeat-inputs-ready",
+          type: "variable",
+          variable: "FILEBEAT_ENABLED_INPUTS",
+        },
+      ],
+    });
+
+    const manifest = await loadServiceManifest(
+      path.join(servicesRoot, "canonical-healthchecks-service", "service.json"),
     );
 
-    const manifest = await loadServiceManifest(manifestPath);
-
+    assert.deepEqual(manifest.healthchecks, [
+      {
+        id: "tcp-port-open",
+        type: "tcp",
+        host: "127.0.0.1",
+        port: "${HTTP_PORT}",
+        retries: 30,
+        interval: 250,
+        required: true,
+      },
+      {
+        id: "http-ready",
+        type: "http",
+        url: "http://127.0.0.1:${HTTP_PORT}/health",
+        expected_status: 200,
+        required: false,
+      },
+      {
+        id: "udp-ready",
+        type: "udp",
+        address: "127.0.0.1:${UDP_PORT}",
+        send: "ping",
+        expect: "pong",
+        timeout: 1000,
+        required: true,
+      },
+      {
+        id: "filebeat-inputs-ready",
+        type: "variable",
+        variable: "FILEBEAT_ENABLED_INPUTS",
+        required: true,
+      },
+    ]);
     assert.deepEqual(manifest.healthcheck, {
-      type: "udp",
+      id: "tcp-port-open",
+      type: "tcp",
       host: "127.0.0.1",
-      port: "${UDP_PORT}",
-      send: "ping",
-      expect: "pong",
+      port: "${HTTP_PORT}",
       retries: 30,
-      timeout: 1000,
+      interval: 250,
+      required: true,
     });
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }
 });
 
-test("loadServiceManifest rejects UDP healthchecks without explicit target", async () => {
+test("loadServiceManifest does not project provider process healthchecks into daemon health", async () => {
   const servicesRoot = await makeTempServicesRoot();
-  const manifestPath = path.join(servicesRoot, "udp-missing-target-service", "service.json");
 
   try {
-    await mkdir(path.dirname(manifestPath), { recursive: true });
-    await writeFile(
-      manifestPath,
-      JSON.stringify({
-        id: "udp-missing-target-service",
-        name: "UDP Missing Target Service",
-        description: "Service with missing UDP target.",
-        healthcheck: {
-          type: "udp",
-          send: "ping",
-          expect: "pong",
+    await writeManifest(servicesRoot, "@node", {
+      id: "@node",
+      name: "Node Runtime",
+      description: "Provider with a version probe healthcheck.",
+      role: "provider",
+      healthchecks: [
+        {
+          id: "node-version",
+          type: "process",
+          retries: 3,
+          interval: 1000,
         },
-      }),
-    );
+      ],
+    });
 
-    await assert.rejects(
-      () => loadServiceManifest(manifestPath),
-      /UDP healthcheck requires "healthcheck\.address" or "healthcheck\.host" \+ "healthcheck\.port"/i,
-    );
+    const manifest = await loadServiceManifest(path.join(servicesRoot, "@node", "service.json"));
+
+    assert.equal(manifest.healthcheck, undefined);
+    assert.deepEqual(manifest.healthchecks, [
+      {
+        id: "node-version",
+        type: "process",
+        retries: 3,
+        interval: 1000,
+        required: true,
+      },
+    ]);
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }
 });
 
-test("loadServiceManifest rejects UDP healthchecks without send and expect", async () => {
+test("loadServiceManifest rejects invalid healthchecks arrays", async () => {
   const servicesRoot = await makeTempServicesRoot();
-  const manifestPath = path.join(servicesRoot, "udp-missing-payload-service", "service.json");
 
   try {
-    await mkdir(path.dirname(manifestPath), { recursive: true });
-    await writeFile(
-      manifestPath,
-      JSON.stringify({
-        id: "udp-missing-payload-service",
-        name: "UDP Missing Payload Service",
-        description: "Service with missing UDP payload.",
-        healthcheck: {
-          type: "udp",
-          address: "127.0.0.1:4012",
-          send: "ping",
+    await writeManifest(servicesRoot, "empty-healthchecks-service", {
+      id: "empty-healthchecks-service",
+      name: "Empty Healthchecks Service",
+      description: "Service with empty canonical healthchecks.",
+      healthchecks: [],
+    });
+    await writeManifest(servicesRoot, "missing-healthcheck-id-service", {
+      id: "missing-healthcheck-id-service",
+      name: "Missing Healthcheck ID Service",
+      description: "Service with a missing healthcheck id.",
+      healthchecks: [{ type: "process" }],
+    });
+    await writeManifest(servicesRoot, "duplicate-healthcheck-id-service", {
+      id: "duplicate-healthcheck-id-service",
+      name: "Duplicate Healthcheck ID Service",
+      description: "Service with duplicate healthcheck ids.",
+      healthchecks: [
+        { id: "ready", type: "process" },
+        { id: "ready", type: "file", file: "ready.txt" },
+      ],
+    });
+    await writeManifest(servicesRoot, "unknown-healthcheck-type-service", {
+      id: "unknown-healthcheck-type-service",
+      name: "Unknown Healthcheck Type Service",
+      description: "Service with an unknown healthcheck type.",
+      healthchecks: [{ id: "ready", type: "smtp" }],
+    });
+    await writeManifest(servicesRoot, "tcp-alias-healthchecks-service", {
+      id: "tcp-alias-healthchecks-service",
+      name: "TCP Alias Healthchecks Service",
+      description: "Service with unsupported TCP aliases in healthchecks.",
+      healthchecks: [
+        {
+          id: "tcp-ready",
+          type: "tcp",
+          tcphost: "127.0.0.1",
+          tcpport: "4012",
         },
-      }),
-    );
+      ],
+    });
+    await writeManifest(servicesRoot, "mixed-healthcheck-fields-service", {
+      id: "mixed-healthcheck-fields-service",
+      name: "Mixed Healthcheck Fields Service",
+      description: "Service with both migration and canonical healthcheck fields.",
+      healthcheck: { type: "process" },
+      healthchecks: [{ id: "ready", type: "process" }],
+    });
 
     await assert.rejects(
-      () => loadServiceManifest(manifestPath),
-      /expected non-empty string for "healthcheck\.expect"/i,
+      () => loadServiceManifest(path.join(servicesRoot, "empty-healthchecks-service", "service.json")),
+      /healthchecks.*at least one item/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "missing-healthcheck-id-service", "service.json")),
+      /healthchecks\[0\]\.id/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "duplicate-healthcheck-id-service", "service.json")),
+      /duplicate healthchecks id "ready"/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "unknown-healthcheck-type-service", "service.json")),
+      /unsupported healthcheck type/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "tcp-alias-healthchecks-service", "service.json")),
+      /tcphost.*tcpport.*healthchecks\[0\]\.host.*healthchecks\[0\]\.port.*healthchecks\[0\]\.address/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "mixed-healthcheck-fields-service", "service.json")),
+      /either "healthcheck" or "healthchecks", not both/i,
     );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
@@ -659,6 +894,7 @@ test("loadServiceManifest accepts manifest readiness retry fields", async () => 
         retries: 5,
         interval: 250,
         start_period: 100,
+        timeout: 750,
       },
     });
 
@@ -671,7 +907,93 @@ test("loadServiceManifest accepts manifest readiness retry fields", async () => 
       retries: 5,
       interval: 250,
       start_period: 100,
+      timeout: 750,
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest accepts string HTTP healthcheck cookies", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "http-cookie-service", {
+      id: "http-cookie-service",
+      name: "HTTP Cookie Service",
+      description: "Manifest proving HTTP readiness cookie parsing.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/healthcheck",
+        expected_status: 200,
+        cookies: {
+          healthcheck: "ready",
+          workspace: "${SERVICE_ID}",
+        },
+      },
+    });
+
+    const manifest = await loadServiceManifest(path.join(servicesRoot, "http-cookie-service", "service.json"));
+
+    assert.deepEqual(manifest.healthcheck, {
+      type: "http",
+      url: "http://127.0.0.1:18080/healthcheck",
+      expected_status: 200,
+      cookies: {
+        healthcheck: "ready",
+        workspace: "${SERVICE_ID}",
+      },
+    });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects non-string HTTP healthcheck cookies", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-cookie-service", {
+      id: "bad-cookie-service",
+      name: "Bad Cookie Service",
+      description: "Manifest with an invalid HTTP readiness cookie.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/healthcheck",
+        cookies: {
+          healthcheck: true,
+        },
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-cookie-service", "service.json")),
+      /healthcheck\.cookies.*string map/i,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects invalid healthcheck timeout values", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+
+  try {
+    await writeManifest(servicesRoot, "bad-timeout-service", {
+      id: "bad-timeout-service",
+      name: "Bad Timeout Service",
+      description: "Manifest with invalid readiness timeout.",
+      healthcheck: {
+        type: "http",
+        url: "http://127.0.0.1:18080/health",
+        timeout: 0,
+      },
+    });
+
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-timeout-service", "service.json")),
+      /healthcheck\.timeout.*integer greater than or equal to 1/i,
+    );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }
@@ -1651,6 +1973,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
                 win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
                 default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
               },
+              cwd: "${SERVICE_ROOT}/jobs",
               env: {
                 SCHEMA_PATH: "${SERVICE_ROOT}/schema",
               },
@@ -1682,6 +2005,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
         win32: "-jar \"${SERVICE_ROOT}\\jobs\\init-schema.jar\"",
         default: "-jar \"${SERVICE_ROOT}/jobs/init-schema.jar\"",
       },
+      cwd: "${SERVICE_ROOT}/jobs",
       env: {
         SCHEMA_PATH: "${SERVICE_ROOT}/schema",
       },
@@ -1695,6 +2019,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
       executable: undefined,
       args: ["jobs/load-sample/basic_upload.py"],
       commandline: undefined,
+      cwd: undefined,
       env: undefined,
       timeoutSeconds: 300,
       rerun: "manual",
@@ -1731,6 +2056,12 @@ test("loadServiceManifest accepts bounded install/config file materialization", 
               content: "{\"port\":\"${SERVICE_PORT}\"}",
             },
           ],
+          templates: [
+            {
+              source: "./templates/config.env.template",
+              target: "./runtime/config.env",
+            },
+          ],
         },
       }),
     );
@@ -1750,6 +2081,12 @@ test("loadServiceManifest accepts bounded install/config file materialization", 
         {
           path: "./runtime/config.json",
           content: "{\"port\":\"${SERVICE_PORT}\"}",
+        },
+      ],
+      templates: [
+        {
+          source: "./templates/config.env.template",
+          target: "./runtime/config.env",
         },
       ],
     });

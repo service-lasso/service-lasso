@@ -1,4 +1,8 @@
-import type { DiscoveredService, ServiceActionDefinition } from "../../contracts/service.js";
+import type {
+  DiscoveredService,
+  ServiceActionDefinition,
+  ServiceRestartPolicy,
+} from "../../contracts/service.js";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { LifecycleStateError } from "../../server/errors.js";
@@ -31,7 +35,9 @@ import {
   buildServiceVariables,
   compileServiceSelectorPlan,
   collectRuntimeGlobalEnv,
+  resolveServiceEnvValue,
   resolveServiceText,
+  type ServiceSelectorDiagnostic,
   type ServiceVariableResolutionOptions,
 } from "../operator/variables.js";
 import { resolveServiceEndpoints } from "../operator/endpoints.js";
@@ -54,12 +60,15 @@ import type {
   LifecycleAction,
   LifecycleActionResult,
   ServiceLifecycleState,
+  ServiceRuntimeSupervisionRestartReason,
   ServiceStartTraceAttempt,
   ServiceStartTraceEventStatus,
   ServiceStartTracePhase,
 } from "./types.js";
 
 const START_TRACE_HISTORY_LIMIT = 5;
+const DEFAULT_RESTART_MAX_ATTEMPTS = 3;
+const DEFAULT_RESTART_BACKOFF_SECONDS = 5;
 const SECRETSBROKER_SERVICE_ID = "@secretsbroker";
 const LAUNCH_LEASE_COMMAND_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND";
 const LAUNCH_LEASE_ARGS_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON";
@@ -68,6 +77,26 @@ const DEFAULT_STOP_ACTION_TIMEOUT_SECONDS = 30;
 const SECRET_LIKE_VALUE_PATTERN =
   /(BEGIN PRIVATE KEY|access_token\s*[:=]\s*[^\s,;}]+|refresh_token\s*[:=]\s*[^\s,;}]+|id_token\s*[:=]\s*[^\s,;}]+|session_cookie\s*[:=]\s*[^\s,;}]+|client_secret\s*[:=]\s*[^\s,;}]+|provider_credential\s*[:=]\s*[^\s,;}]+|raw_secret\s*[:=]\s*[^\s,;}]+|password\s*[:=]\s*[^\s,;}]+|token\s*[:=]\s*[^\s,;}]+|Bearer\s+[A-Za-z0-9._~+/-]{12,})/gi;
 const SECRET_LIKE_KEY_PATTERN = /(secret|token|password|credential|private|cookie|key)/i;
+const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeout>>();
+
+function createEmptySupervisionState(): ServiceLifecycleState["runtime"]["supervision"] {
+  return {
+    restartAttempts: 0,
+    lastRestartAttemptAt: null,
+    lastRestartReason: null,
+    lastRestartResult: null,
+    nextRestartAt: null,
+  };
+}
+
+export function cancelScheduledSupervisionRestart(serviceId: string): void {
+  const timer = scheduledSupervisionRestarts.get(serviceId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  scheduledSupervisionRestarts.delete(serviceId);
+}
 
 function calculateRunDurationMs(
   startedAt: string | null,
@@ -196,6 +225,10 @@ export interface ServiceLifecycleActionOptions {
   brokerLookup?: BrokerLaunchLookup;
   workspaceRoot?: string;
   runtimeInstanceId?: string | null;
+  supervisionRestart?: {
+    reason: ServiceRuntimeSupervisionRestartReason;
+    attemptNumber: number;
+  };
 }
 
 function isUsablePort(value: unknown): value is number {
@@ -400,12 +433,31 @@ function failStartTraceAndThrow(
   attempt: ServiceStartTraceAttempt,
   phase: ServiceStartTracePhase,
   message: string,
+  metadata: Record<string, string | number | boolean | null | string[]> = {},
 ): never {
   if (phase !== "terminal_outcome") {
-    recordStartTraceEvent(serviceId, attempt, phase, "blocked", message);
+    recordStartTraceEvent(serviceId, attempt, phase, "blocked", message, metadata);
   }
   finishStartTrace(serviceId, attempt, "blocked", message);
   throw new LifecycleStateError(message);
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
+}
+
+function formatUnresolvedLocalSelectorMessage(
+  serviceId: string,
+  diagnostics: ServiceSelectorDiagnostic[],
+): string {
+  const refs = diagnostics
+    .map((diagnostic) =>
+      diagnostic.key
+        ? `${diagnostic.key}:${diagnostic.selector}`
+        : diagnostic.selector,
+    )
+    .join(", ");
+  return `Cannot start service "${serviceId}" because required local env selectors are unresolved (${refs}).`;
 }
 
 function formatStartupBrokerFailureMessage(
@@ -444,9 +496,21 @@ async function resolveLaunchVariableResolution(
   );
 }
 
+function classifyUnexpectedTermination(
+  exitCode: number | null,
+  signal: NodeJS.Signals | null,
+): "exited" | "crashed" {
+  if (signal) {
+    return "crashed";
+  }
+
+  return (exitCode ?? 0) === 0 ? "exited" : "crashed";
+}
+
 async function persistProcessExit(
   service: DiscoveredService,
   exitCode: number | null,
+  signal: NodeJS.Signals | null = null,
 ): Promise<void> {
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(
@@ -456,12 +520,10 @@ async function persistProcessExit(
   const revokedIdentity =
     revokedIdentities.at(-1) ??
     getLifecycleState(service.manifest.id).runtime.brokerIdentity;
-  const termination =
-    (exitCode ??
-      getLifecycleState(service.manifest.id).runtime.exitCode ??
-      0) === 0
-      ? "exited"
-      : "crashed";
+  const termination = classifyUnexpectedTermination(
+    exitCode ?? getLifecycleState(service.manifest.id).runtime.exitCode,
+    signal,
+  );
   const state = updateRuntimeState(service.manifest.id, (current) => ({
     ...current,
     running: false,
@@ -477,6 +539,200 @@ async function persistProcessExit(
   }));
 
   await writeServiceState(service, state);
+}
+
+function resolveRestartMaxAttempts(policy: ServiceRestartPolicy): number {
+  return policy.maxAttempts ?? DEFAULT_RESTART_MAX_ATTEMPTS;
+}
+
+function resolveRestartBackoffSeconds(policy: ServiceRestartPolicy): number {
+  return policy.backoffSeconds ?? DEFAULT_RESTART_BACKOFF_SECONDS;
+}
+
+function restartPolicyAllowsCrash(policy: ServiceRestartPolicy): boolean {
+  return policy.enabled === true && policy.onCrash !== false;
+}
+
+async function recordSupervisionDecision(
+  service: DiscoveredService,
+  nextSupervision: ServiceLifecycleState["runtime"]["supervision"],
+  message: string,
+  ok: boolean,
+): Promise<void> {
+  const state = updateRuntimeState(service.manifest.id, (current) => ({
+    ...current,
+    runtime: {
+      ...current.runtime,
+      supervision: nextSupervision,
+    },
+  }));
+  await writeServiceState(service, state);
+  await appendServiceRecoveryHistoryEvents(service, [
+    {
+      kind: "restart",
+      serviceId: service.manifest.id,
+      ok,
+      message,
+      at: new Date().toISOString(),
+    },
+  ]);
+}
+
+async function blockSupervisionRestart(
+  service: DiscoveredService,
+  reason: ServiceRuntimeSupervisionRestartReason,
+  message: string,
+): Promise<void> {
+  const current = getLifecycleState(service.manifest.id);
+  await recordSupervisionDecision(
+    service,
+    {
+      ...current.runtime.supervision,
+      lastRestartReason: reason,
+      lastRestartResult: "blocked",
+      nextRestartAt: null,
+    },
+    message,
+    false,
+  );
+}
+
+async function runScheduledSupervisionRestart(
+  service: DiscoveredService,
+  registry: ServiceRegistry | undefined,
+  options: ServiceLifecycleActionOptions,
+  reason: ServiceRuntimeSupervisionRestartReason,
+  attemptNumber: number,
+): Promise<void> {
+  const serviceId = service.manifest.id;
+  scheduledSupervisionRestarts.delete(serviceId);
+  const targetService = registry?.getById(serviceId) ?? service;
+  const current = getLifecycleState(serviceId);
+
+  if (registry && !registry.getById(serviceId)) {
+    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because it is no longer present in the registry.`);
+    return;
+  }
+  if (targetService.manifest.enabled === false) {
+    await blockSupervisionRestart(targetService, reason, `Automatic restart blocked for "${serviceId}" because the service is disabled.`);
+    return;
+  }
+  if (!current.installed || !current.configured) {
+    await blockSupervisionRestart(targetService, reason, `Automatic restart blocked for "${serviceId}" because it is not installed and configured.`);
+    return;
+  }
+  if (current.running) {
+    await blockSupervisionRestart(targetService, reason, `Automatic restart blocked for "${serviceId}" because it is already running.`);
+    return;
+  }
+
+  try {
+    const result = await startService(targetService, registry, {
+      ...options,
+      supervisionRestart: { reason, attemptNumber },
+    });
+    await writeServiceState(targetService, result.state);
+    await recordSupervisionDecision(
+      targetService,
+      {
+        ...result.state.runtime.supervision,
+        restartAttempts: result.ok ? 0 : attemptNumber,
+        lastRestartAttemptAt: new Date().toISOString(),
+        lastRestartReason: reason,
+        lastRestartResult: result.ok ? "started" : "failed",
+        nextRestartAt: null,
+      },
+      result.ok
+        ? `Automatic restart started "${serviceId}" after ${reason}.`
+        : `Automatic restart failed for "${serviceId}": ${result.message}`,
+      result.ok,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failedState = getLifecycleState(serviceId);
+    await recordSupervisionDecision(
+      targetService,
+      {
+        ...failedState.runtime.supervision,
+        restartAttempts: attemptNumber,
+        lastRestartAttemptAt: new Date().toISOString(),
+        lastRestartReason: reason,
+        lastRestartResult: "failed",
+        nextRestartAt: null,
+      },
+      `Automatic restart failed for "${serviceId}": ${message}`,
+      false,
+    );
+  }
+}
+
+async function superviseUnexpectedProcessExit(
+  service: DiscoveredService,
+  exitCode: number | null,
+  signal: NodeJS.Signals | null,
+  registry: ServiceRegistry | undefined,
+  options: ServiceLifecycleActionOptions,
+): Promise<void> {
+  await persistProcessExit(service, exitCode, signal);
+
+  const serviceId = service.manifest.id;
+  const termination = classifyUnexpectedTermination(exitCode, signal);
+  const reason: ServiceRuntimeSupervisionRestartReason = "crash";
+  const policy = service.manifest.restartPolicy;
+
+  if (!policy || policy.enabled !== true) {
+    await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because restartPolicy is not enabled.`);
+    return;
+  }
+  if (service.manifest.enabled === false) {
+    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because the service is disabled.`);
+    return;
+  }
+  if (termination !== "crashed") {
+    await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because the unexpected exit was clean.`);
+    return;
+  }
+  if (!restartPolicyAllowsCrash(policy)) {
+    await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because restartPolicy.onCrash is disabled.`);
+    return;
+  }
+
+  const current = getLifecycleState(serviceId);
+  if (!current.installed || !current.configured) {
+    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because it is not installed and configured.`);
+    return;
+  }
+
+  const maxAttempts = resolveRestartMaxAttempts(policy);
+  const attemptNumber = current.runtime.supervision.restartAttempts + 1;
+  if (attemptNumber > maxAttempts) {
+    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because maxAttempts was reached.`);
+    return;
+  }
+
+  const now = new Date();
+  const backoffSeconds = resolveRestartBackoffSeconds(policy);
+  const nextRestartAt = new Date(now.getTime() + backoffSeconds * 1000).toISOString();
+  cancelScheduledSupervisionRestart(serviceId);
+  await recordSupervisionDecision(
+    service,
+    {
+      ...current.runtime.supervision,
+      restartAttempts: attemptNumber,
+      lastRestartAttemptAt: now.toISOString(),
+      lastRestartReason: reason,
+      lastRestartResult: "scheduled",
+      nextRestartAt,
+    },
+    `Automatic restart scheduled for "${serviceId}" after ${reason} (attempt ${attemptNumber} of ${maxAttempts}).`,
+    true,
+  );
+
+  const timer = setTimeout(() => {
+    void runScheduledSupervisionRestart(service, registry, options, reason, attemptNumber);
+  }, backoffSeconds * 1000);
+  timer.unref?.();
+  scheduledSupervisionRestarts.set(serviceId, timer);
 }
 
 function resolveExecutionPlanForLifecycle(
@@ -561,7 +817,10 @@ function buildStopOverrideEnvironment(
     buildServiceVariables(service, {}, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
   const actionEnv = Object.fromEntries(
-    Object.entries(action.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, {}, resolvedPorts)]),
+    Object.entries(action.env ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceEnvValue(value, service, {}, resolvedPorts),
+    ]),
   );
 
   return {
@@ -747,6 +1006,9 @@ export async function startService(
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
+  if (!options.supervisionRestart) {
+    cancelScheduledSupervisionRestart(serviceId);
+  }
   const trace = beginStartTrace(serviceId, "start");
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
@@ -900,10 +1162,41 @@ export async function startService(
     service,
     options,
   );
+  const variablePayload = buildServiceVariables(
+    service,
+    sharedGlobalEnv,
+    resolvedPorts,
+    variableResolution,
+  );
+  const unresolvedLocalDiagnostics = variablePayload.diagnostics.filter(
+    (diagnostic) =>
+      diagnostic.kind === "local" &&
+      diagnostic.reason === "unresolved-local",
+  );
   const selectorPlan = compileServiceSelectorPlan({
     ...(service.manifest.globalenv ?? {}),
     ...(service.manifest.env ?? {}),
   });
+  if (unresolvedLocalDiagnostics.length > 0) {
+    failStartTraceAndThrow(
+      serviceId,
+      trace,
+      "env_merge",
+      formatUnresolvedLocalSelectorMessage(serviceId, unresolvedLocalDiagnostics),
+      {
+        unresolvedSelectors: uniqueStrings(
+          unresolvedLocalDiagnostics.map((diagnostic) => diagnostic.selector),
+        ),
+        unresolvedEnvKeys: uniqueStrings(
+          unresolvedLocalDiagnostics.map((diagnostic) => diagnostic.key),
+        ),
+        unresolvedRawSelectors: uniqueStrings(
+          unresolvedLocalDiagnostics.map((diagnostic) => diagnostic.raw),
+        ),
+        brokerRefCount: selectorPlan.brokerRefs.length,
+      },
+    );
+  }
   recordStartTraceEvent(
     serviceId,
     trace,
@@ -935,11 +1228,11 @@ export async function startService(
       workspaceRoot: options.workspaceRoot,
       runtimeInstanceId: options.runtimeInstanceId,
       allocationRevision,
-      onExit: async ({ exitCode, wasStopping }) => {
+      onExit: async ({ exitCode, signal, wasStopping }) => {
         if (wasStopping) {
           return;
         }
-        await persistProcessExit(service, exitCode);
+        await superviseUnexpectedProcessExit(service, exitCode, signal, registry, options);
       },
     });
   } catch (error) {
@@ -1059,6 +1352,9 @@ export async function startService(
         providerServiceId: executionPlan.providerServiceId,
         lastTermination: processStillManaged ? null : state.runtime.lastTermination,
         brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
+        supervision: options.supervisionRestart
+          ? state.runtime.supervision
+          : createEmptySupervisionState(),
       },
     },
     message: readiness.message,
@@ -1071,6 +1367,7 @@ export async function stopService(
   service: DiscoveredService,
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
+  cancelScheduledSupervisionRestart(serviceId);
   const current = getLifecycleState(serviceId);
   if (!current.running) {
     throw new LifecycleStateError(
@@ -1110,6 +1407,7 @@ export async function restartService(
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
+  cancelScheduledSupervisionRestart(serviceId);
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
     throw new LifecycleStateError(
@@ -1176,11 +1474,11 @@ export async function restartService(
     workspaceRoot: options.workspaceRoot,
     runtimeInstanceId: options.runtimeInstanceId,
     allocationRevision,
-    onExit: async ({ exitCode, wasStopping }) => {
+    onExit: async ({ exitCode, signal, wasStopping }) => {
       if (wasStopping) {
         return;
       }
-      await persistProcessExit(service, exitCode);
+      await superviseUnexpectedProcessExit(service, exitCode, signal, registry, options);
     },
   });
 
@@ -1272,6 +1570,7 @@ export async function restartService(
         providerServiceId: executionPlan.providerServiceId,
         lastTermination: null,
         brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
+        supervision: createEmptySupervisionState(),
       },
     },
     message: readiness.message.replace(/^Start/, "Restart"),

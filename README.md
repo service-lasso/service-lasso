@@ -87,6 +87,7 @@ Use these commands when operating or checking the demo:
 | `npm run demo:gate -- --port=17883` | Return one worker-safe gate result with endpoint health, listener state, lifecycle ownership, recovery lock path, recovery attempt evidence, and next safe action. |
 | `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, Service Admin same-origin runtime API probes, workspace root, lifecycle state path, and demo log path. |
 | `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint, Service Admin URL, Service Admin same-origin `/api/dashboard` and `/api/services` JSON responses, and the expected canonical service state. Exits non-zero when either surface is not reachable, an Admin API path returns the HTML shell instead of runtime JSON, or the service state does not match the canonical contract. |
+| `npm run demo:worktree-proof -- --id=issue-947` | Prepare an issue-worktree proof lane with free runtime, Service Admin, and demo service ports. Writes `worktree-proof-summary.json` with the allocated URLs plus exact `demo:gate`, `demo:verify-canonical`, and cleanup commands for developer and validator handoff. |
 | `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
 | `npm run demo:smoke` | Run an isolated end-to-end smoke test against the bounded demo fixture. |
 
@@ -100,6 +101,8 @@ Canonical LAN checks used by the unattended worker are:
 | `http://192.168.1.53:17700/api/services` | Service Admin same-origin service-state probe |
 
 Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state. When runtime health is down and there is no wrong-owner, stale-lock, active-recovery, or listener-conflict blocker, the gate starts one detached Service Lasso runtime process, records the runtime log path under `.demo-logs/`, waits for the canonical endpoints, and returns `recovered` if they become healthy. It exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, `service_admin_down`, `service_admin_api_non_json`, `service_admin_api_down`, `service_admin_services_api_non_json`, `service_admin_services_api_down`, `canonical_service_state_mismatch`, or `service_startup_failure` when the worker should stop and hand off a blocker. `service_admin_api_non_json` means Service Admin was reachable but `/api/dashboard` returned non-JSON content, usually the HTML shell, so the visible UI is not actually connected to the runtime API. `canonical_service_state_mismatch` means the Admin API is reachable but the service list does not match the accepted canonical demo contract. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+
+For ordinary issue worktree proof, prefer `npm run demo:worktree-proof -- --id=<issue-or-branch>` before touching the fixed canonical ports. The command copies the demo services into `workspace/demo-instance/worktree-proof/<id>/services`, allocates free ports, patches the copied manifests, and writes the allocated runtime/Admin URLs plus owner metadata under `.demo-logs/worktree-proof/<id>/worktree-proof-summary.json`. Developer issue comments and validator handoffs should quote the `gate`, `verify`, and `cleanup` commands from that summary so validation checks the exact worktree-owned instance. Use fixed `17883`/`17700` only for intentional shared canonical refreshes.
 
 The current canonical demo accepts the source Service Admin dev server as the visible Admin surface on port `17700`. In that mode the runtime should discover eight manifests, run `@nginx`, `@traefik`, and `echo-service`, keep provider-only services `@java`, `@localcert`, and `@node` installed/configured but not daemonized, and leave `@serviceadmin` intentionally unmanaged because the source Admin server owns `17700`. `node-sample-service` remains a manifest-only sample. `demo:verify-canonical` treats the resulting runtime warning as expected only when that service-state contract matches.
 
@@ -124,7 +127,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | `@python` | release-backed Python runtime provider | acquired from [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) release `2026.4.27-63f915c` on supported hosts; the current pinned release is Windows-only, so other platforms report an explicit unsupported-platform skip instead of a broken install; installed/configured but not launched as a daemon when supported |
 | `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.6.26-bb4449c`; started as a managed daemon with HTTP `/health` |
 | `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.6.28-bd63829` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.7.24-db583d4` |
 
 Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage, but the canonical baseline and demo instance install the production baseline service set. `@archive` and supported `@python` artifacts are part of that baseline so archive-capable and Python-backed services can rely on prepared providers instead of fixture-only installs.
 
@@ -174,6 +177,15 @@ node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-exampl
 
 The import command copies the release `service.json` asset into `services/<service-id>/service.json` and refuses to replace an existing manifest unless `--force` is provided.
 
+Import a local Service Archive upload without enabling or starting it:
+
+```powershell
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --dry-run --json
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --json
+```
+
+Archive imports stage and inspect the zip before touching `servicesRoot`, require exactly one valid `service.json`, reject unsafe archive paths, copy the archive content into `services/<service-id>/`, rescan discovery, and return a conflict state instead of overwriting an existing service.
+
 Start the baseline services and leave the API running:
 
 ```powershell
@@ -208,6 +220,11 @@ GET  /api/services
 GET  /api/services/:id
 GET  /api/runtime
 GET  /api/runtime/capabilities
+GET  /api/operator/inbox
+GET  /api/operator/inbox/counts
+POST /api/operator/inbox/record
+POST /api/operator/inbox/:id/read
+POST /api/operator/inbox/:id/hide
 POST /api/services/:id/install
 POST /api/services/:id/config
 POST /api/services/:id/start
@@ -223,6 +240,13 @@ POST /api/services/:id/recovery/doctor
 ```
 
 `POST /api/services/:id/start` and `POST /api/runtime/actions/startAll` use full start semantics: enabled services are installed, configured, non-manual setup steps are reconciled, and then startable services are started in dependency order. Provider-role services in the canonical baseline, including disabled-by-default providers such as `@archive` and supported `@python` artifacts, are still prepared, but they do not require a managed daemon process. Disabled non-provider services, unsupported host artifacts, already-running services, autostart filtering, and truly non-startable services remain explicit skip/blocker cases instead of being forced.
+
+First-run setup is a launch prerequisite. When `GET /api/setup/status` reports
+setup mode, the CLI/API runtime prepares only the setup dependency path
+(`@node`, `@secretsbroker`, and `@serviceadmin`) and skips normal managed
+service starts until the vault owner identity, Owner group, built-in groups, and
+permission catalogue are seeded. Existing workspaces with a ready vault marker
+continue the normal launch path.
 
 ## Use From npm
 

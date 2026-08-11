@@ -40,7 +40,7 @@ Choose the closest pattern before writing files.
 | Type | When to use | Manifest shape |
 | --- | --- | --- |
 | Provider | The service supplies a runtime/tool to other services and should not run as a daemon. | `role: "provider"` plus `artifact` and `globalenv` |
-| Managed binary | The service owns and runs its executable. | `artifact`, platform `command`, `ports`, `healthcheck` |
+| Managed binary | The service owns and runs its executable. | `artifact`, platform `command`, `ports`, `healthchecks[]` |
 | Provider-backed app | The service runs through another provider such as `@node`, `@python`, or `@java`. | `execservice`, `executable`, `args`, `depend_on` |
 | App-owned add-on service | Consumers opt in by copying its released manifest. | `enabled: false` when unsafe to start without app config |
 
@@ -54,6 +54,7 @@ lasso-foo/
     workflows/
       release.yml
   scripts/
+    lasso-foo.mjs
     package.mjs
     verify-release.mjs
   service.json
@@ -62,7 +63,7 @@ lasso-foo/
   package.json
 ```
 
-Add service-owned runtime source or assets only when the service repo builds its own wrapper. Provider repos often package upstream archives instead.
+Add service-owned runtime source or assets only when the service repo builds its own wrapper. Provider repos often package upstream archives instead. If setup needs cross-platform orchestration, prefer a service helper at `scripts/lasso-<service>.mjs`; keep each setup step declared in `service.json` and let the helper implement focused subcommands. Use [Setup Helper Conventions](../service-authoring/setup-helper-conventions.md) for the full pattern and the platform-script fallback.
 
 ## `service.json` Minimum Contract
 
@@ -85,16 +86,63 @@ Managed services should also declare:
 
 - `ports`
 - `urls`
-- `healthcheck`
+- `healthchecks[]`
 - `env` and `globalenv` where operator or dependent services need resolved values
 - `install.files` or `config.files` when Service Lasso must materialize runtime config
 - `depend_on` when startup requires another service first
+- `setup.steps` when install/config must run idempotent one-shot helper commands before start
 
 Provider services should declare:
 
 - `role: "provider"`
 - `globalenv` entries that expose installed tool paths through `${SERVICE_ARTIFACT_COMMAND}` and `${SERVICE_ARTIFACT_ROOT}`
 - a cheap version/probe command in platform `args`
+
+Use `SERVICE_ROOT` as the canonical service package root in service-local env, setup, config, commandline, and healthcheck selectors. `SERVICE_PATH` is available as a compatibility alias for authoring examples that use package-path wording. Provider-level names such as `NODE_HOME`, `PYTHON_HOME`, and `PYTHON_SCRIPTS_PATH` must be exported by the provider service through `globalenv`; ordinary services should not assume those names exist unless they depend on the provider that publishes them.
+
+## Setup Helper Convention
+
+When setup work is longer than a small command, keep `service.json` declarative and put service-specific orchestration in helper code.
+
+Preferred Node-backed layout:
+
+```text
+lasso-foo/
+  scripts/
+    lasso-foo.mjs
+  service.json
+```
+
+Typical subcommands:
+
+```powershell
+node scripts/lasso-keycloak.mjs generate-keystore
+node scripts/lasso-keycloak.mjs ensure-database
+node scripts/lasso-keycloak.mjs build
+```
+
+Bind those subcommands from manifest-visible setup steps:
+
+```json
+{
+  "depend_on": ["@node", "postgres"],
+  "setup": {
+    "steps": {
+      "ensure-database": {
+        "description": "Create the service database and role when missing.",
+        "execservice": "@node",
+        "cwd": "${SERVICE_ROOT}",
+        "commandline": "scripts/lasso-foo.mjs ensure-database",
+        "depend_on": ["postgres"],
+        "timeoutSeconds": 120,
+        "rerun": "ifMissing"
+      }
+    }
+  }
+}
+```
+
+Use the Node helper pattern only when the service already requires Node or can declare the `@node` provider. When Node should not be required, use platform scripts under `scripts/setup/*.ps1` and `scripts/setup/*.sh` instead. In both cases, the helper or scripts must be idempotent, poll bounded readiness signals, return accurate exit codes, avoid leaking secrets, and log enough context for operators to diagnose failures. See [Setup Helper Conventions](../service-authoring/setup-helper-conventions.md) for the detailed contract.
 
 ## Managed Binary Example
 
@@ -128,11 +176,14 @@ Provider services should declare:
       }
     }
   },
-  "healthcheck": {
-    "type": "http",
-    "url": "http://127.0.0.1:${HTTP_PORT}/health",
-    "expected_status": 200
-  }
+  "healthchecks": [
+    {
+      "id": "http-health",
+      "type": "http",
+      "url": "http://127.0.0.1:${HTTP_PORT}/health",
+      "expected_status": 200
+    }
+  ]
 }
 ```
 
@@ -220,7 +271,7 @@ For a managed service, also prove:
 
 1. Service Lasso can install/acquire the archive.
 2. Service Lasso can config/start/stop the service.
-3. The declared healthcheck becomes healthy.
+3. The declared required healthcheck becomes healthy.
 4. Logs/state/network surfaces are visible when the service claims them.
 
 ## Core Integration
@@ -295,6 +346,7 @@ Use this checklist before handing off:
 - Repo name follows the [`service-lasso/lasso-<name>`](https://github.com/service-lasso?q=lasso-&type=repositories) pattern.
 - Service ID follows the prefix rule.
 - `service.json` has artifact download metadata in the manifest itself.
+- Setup helper layout, provider/runtime dependencies, idempotence, logging, and secret-handling rules are documented when setup delegates to helper code.
 - Release workflow creates `yyyy.m.d-<shortsha>` releases from protected-branch pushes.
 - Artifact names include exact upstream versions when applicable.
 - Released archive paths match platform `command` values.
@@ -308,4 +360,5 @@ Use this checklist before handing off:
 ## Related Docs
 
 - [Service Authoring Overview](../service-authoring/overview.md)
+- [Setup Helper Conventions](../service-authoring/setup-helper-conventions.md)
 - [service.json Reference](../reference/service-json-reference.md)

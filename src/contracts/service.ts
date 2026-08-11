@@ -39,6 +39,18 @@ export interface ServiceUrlEndpoint {
   kind?: string;
 }
 
+export type ServiceLogSourceType = "file" | "glob";
+export type ServiceLogSourceFormat = "text" | "json" | "ndjson";
+
+export interface ServiceLogSourceDeclaration {
+  id: string;
+  label: string;
+  type: ServiceLogSourceType;
+  path?: string;
+  pattern?: string;
+  format?: ServiceLogSourceFormat;
+}
+
 export interface ServicePortDeclaration {
   [name: string]: number;
 }
@@ -52,8 +64,14 @@ export interface ServiceMaterializedFile {
   content: string;
 }
 
+export interface ServiceMaterializedTemplate {
+  source: string;
+  target: string;
+}
+
 export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
+  templates?: ServiceMaterializedTemplate[];
 }
 
 export type ServiceFilesRootMode = "read-only" | "read-write";
@@ -81,7 +99,7 @@ export interface ServiceHookStep {
   cwd?: string;
   timeoutSeconds?: number;
   failurePolicy?: ServiceHookFailurePolicy;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
 }
 
 export interface ServiceMonitoringPolicy {
@@ -166,7 +184,7 @@ export interface ServiceActionDefinition {
   commandline?: Record<string, string>;
   args?: string[];
   cwd?: string;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
   timeoutSeconds?: number;
   requiredState?: ServiceActionRequiredState;
   requiresConfirmation?: boolean;
@@ -188,7 +206,8 @@ export interface ServiceSetupStep {
   executable?: string;
   args?: string[];
   commandline?: Record<string, string>;
-  env?: Record<string, string>;
+  cwd?: string;
+  env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;
 }
@@ -200,6 +219,10 @@ export interface ServiceSetupPolicy {
 export interface ServiceExecutionConfig {
   serviceorder?: number;
 }
+
+export type ServiceEnvValue = string | string[];
+export type ServiceEnvMap = Record<string, ServiceEnvValue>;
+export type ServiceCapabilityMap = Record<string, string>;
 
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
 export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
@@ -277,6 +300,15 @@ export interface ServiceBrokerImport {
   ref: string;
   as?: string;
   required?: boolean;
+  onChange?: ServiceBrokerChangeReaction;
+}
+
+export type ServiceBrokerChangeReactionMode = "restart" | "reload" | "action" | "manual" | "none";
+
+export interface ServiceBrokerChangeReaction {
+  mode: ServiceBrokerChangeReactionMode;
+  actionId?: string;
+  reason?: string;
 }
 
 export interface ServiceBrokerWritebackCapture {
@@ -341,15 +373,19 @@ export interface ServiceManifest {
   serviceorder?: number;
   execconfig?: ServiceExecutionConfig;
   depend_on?: string[];
+  requires?: ServiceCapabilityMap;
+  provides?: ServiceCapabilityMap;
   healthcheck?: ServiceHealthcheck;
+  healthchecks?: ServiceHealthcheck[];
   outputvarregex?: Record<string, string>;
-  env?: Record<string, string>;
-  globalenv?: Record<string, string>;
+  env?: ServiceEnvMap;
+  globalenv?: ServiceEnvMap;
   broker?: ServiceBrokerPolicy;
   endpoints?: ServiceManifestEndpoint[];
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceUrlEndpoint[];
+  logSources?: ServiceLogSourceDeclaration[];
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;

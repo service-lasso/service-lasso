@@ -1,5 +1,5 @@
 import { getServiceStatePaths } from "../state/paths.js";
-import type { DiscoveredService } from "../../contracts/service.js";
+import type { DiscoveredService, ServiceEnvMap, ServiceEnvValue } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import path from "node:path";
 import { buildEndpointVariables } from "./endpoints.js";
@@ -58,11 +58,14 @@ export interface ServiceSelectorDiagnostic {
   selector: string;
   kind: ServiceSelectorKind;
   reason: ServiceSelectorDiagnosticReason;
+  key?: string;
+  raw?: string;
 }
 
 export interface ServiceTextResolutionOptions {
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
+  diagnosticKey?: string;
   allowedBrokerRefs?: Set<string> | string[];
   deniedBrokerRefs?: Set<string> | string[];
   lockedBrokerRefs?: Set<string> | string[];
@@ -214,7 +217,7 @@ function compileServiceSelectorTemplate(
 }
 
 function fingerprintSelectorValues(
-  values: string[] | Record<string, string>,
+  values: string[] | ServiceEnvMap,
 ): string {
   if (Array.isArray(values)) {
     return JSON.stringify({ kind: "array", values });
@@ -230,7 +233,7 @@ function fingerprintSelectorValues(
 
 export function compileCachedServiceSelectorPlan(
   cacheKey: string,
-  values: string[] | Record<string, string>,
+  values: string[] | ServiceEnvMap,
 ): ServiceSelectorPlan {
   const fingerprint = fingerprintSelectorValues(values);
   const cached = selectorPlanCache.get(cacheKey);
@@ -251,9 +254,11 @@ export function compileCachedServiceSelectorPlan(
 }
 
 export function compileServiceSelectorPlan(
-  values: string[] | Record<string, string>,
+  values: string[] | ServiceEnvMap,
 ): ServiceSelectorPlan {
-  const texts = Array.isArray(values) ? values : Object.values(values);
+  const texts = Array.isArray(values)
+    ? values
+    : Object.values(values).flatMap((value) => (Array.isArray(value) ? value : [value]));
   const selectors = new Map<string, ServiceSelectorRef>();
 
   for (const text of texts) {
@@ -272,6 +277,18 @@ export function compileServiceSelectorPlan(
       .filter((selector) => selector.kind === "broker")
       .map((selector) => selector.selector),
   };
+}
+
+function replaceEnvValueSelectors(
+  value: ServiceEnvValue,
+  variables: ServiceVariableEntry[],
+  options: ServiceTextResolutionOptions = {},
+): string {
+  if (Array.isArray(value)) {
+    return value.map((entry) => replaceVariableSelectors(entry, variables, options)).join(path.delimiter);
+  }
+
+  return replaceVariableSelectors(value, variables, options);
 }
 
 function mergeSelectorPlans(plans: ServiceSelectorPlan[]): ServiceSelectorPlan {
@@ -304,6 +321,23 @@ function hasRef(
   return Array.isArray(refs) ? refs.includes(ref) : refs.has(ref);
 }
 
+function pushSelectorDiagnostic(
+  diagnostics: ServiceSelectorDiagnostic[] | undefined,
+  diagnostic: ServiceSelectorDiagnostic,
+  options: ServiceTextResolutionOptions,
+  raw: string,
+): void {
+  if (!diagnostics) {
+    return;
+  }
+
+  diagnostics.push(
+    options.diagnosticKey
+      ? { ...diagnostic, key: options.diagnosticKey, raw }
+      : diagnostic,
+  );
+}
+
 function replaceVariableSelectors(
   value: string,
   variables: ServiceVariableEntry[],
@@ -322,72 +356,112 @@ function replaceVariableSelectors(
           options.allowedBrokerRefs &&
           !hasRef(options.allowedBrokerRefs, ref.selector)
         ) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "denied-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "denied-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.deniedBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "denied-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "denied-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.lockedBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "locked-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "locked-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.sourceAuthRequiredBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "source-auth-required",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "source-auth-required",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.sourceUnavailableBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "source-unavailable",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "source-unavailable",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         if (hasRef(options.degradedBrokerRefs, ref.selector)) {
-          options.diagnostics?.push({
-            selector: ref.selector,
-            kind: "broker",
-            reason: "degraded-broker",
-          });
+          pushSelectorDiagnostic(
+            options.diagnostics,
+            {
+              selector: ref.selector,
+              kind: "broker",
+              reason: "degraded-broker",
+            },
+            options,
+            raw,
+          );
           return raw;
         }
         const brokerValue = options.brokerValues?.[ref.selector];
         if (brokerValue !== undefined) {
           return brokerValue;
         }
-        options.diagnostics?.push({
-          selector: ref.selector,
-          kind: "broker",
-          reason: "missing-broker",
-        });
+        pushSelectorDiagnostic(
+          options.diagnostics,
+          {
+            selector: ref.selector,
+            kind: "broker",
+            reason: "missing-broker",
+          },
+          options,
+          raw,
+        );
         return raw;
       }
 
       const entry = variables.find((candidate) => candidate.key === ref.key);
       if (!entry) {
-        options.diagnostics?.push({
-          selector: ref.selector,
-          kind: "local",
-          reason: "unresolved-local",
-        });
+        pushSelectorDiagnostic(
+          options.diagnostics,
+          {
+            selector: ref.selector,
+            kind: "local",
+            reason: "unresolved-local",
+          },
+          options,
+          raw,
+        );
       }
       return entry ? entry.value : raw;
     })
@@ -404,13 +478,12 @@ export function buildServiceVariables(
   const installArtifact = getLifecycleState(service.manifest.id)
     .installArtifacts.artifact;
   const executableHome = installArtifact?.extractedPath ?? service.serviceRoot;
-  const rawManifestVariables = Object.entries(service.manifest.env ?? {}).map(
-    ([key, value]) => ({
-      key,
-      value,
-      scope: "manifest" as const,
-    }),
-  );
+  const rawManifestEnv = service.manifest.env ?? {};
+  const rawManifestVariables = Object.entries(rawManifestEnv).map(([key, value]) => ({
+    key,
+    value: Array.isArray(value) ? value.join(path.delimiter) : value,
+    scope: "manifest" as const,
+  }));
 
   const globalVariables = Object.entries(sharedGlobalEnv).map(
     ([key, value]) => ({
@@ -428,6 +501,11 @@ export function buildServiceVariables(
     },
     {
       key: "SERVICE_ROOT",
+      value: service.serviceRoot,
+      scope: "derived",
+    },
+    {
+      key: "SERVICE_PATH",
       value: service.serviceRoot,
       scope: "derived",
     },
@@ -484,12 +562,13 @@ export function buildServiceVariables(
     allowedBrokerRefs,
     diagnostics: manifestDiagnostics,
   };
-  const manifestVariables = rawManifestVariables.map((entry) => ({
-    ...entry,
-    value: replaceVariableSelectors(
-      entry.value,
+  const manifestVariables = Object.entries(rawManifestEnv).map(([key, value]) => ({
+    key,
+    scope: "manifest" as const,
+    value: replaceEnvValueSelectors(
+      value,
       [...rawManifestVariables, ...globalVariables, ...derivedVariables],
-      brokerResolutionOptions,
+      { ...brokerResolutionOptions, diagnosticKey: key },
     ),
   }));
 
@@ -591,7 +670,7 @@ export function collectServiceGlobalEnv(
   return Object.fromEntries(
     Object.entries(configuredGlobalEnv).map(([key, value]) => [
       key,
-      replaceVariableSelectors(value, variables),
+      replaceEnvValueSelectors(value, variables),
     ]),
   );
 }
@@ -676,6 +755,29 @@ export function resolveServiceText(
     (entry) => entry.ref,
   );
   return replaceVariableSelectors(value, variablesPayload.variables, {
+    ...options,
+    allowedBrokerRefs:
+      declaredBrokerRefs.length > 0 ? declaredBrokerRefs : undefined,
+  });
+}
+
+export function resolveServiceEnvValue(
+  value: ServiceEnvValue,
+  service: DiscoveredService,
+  sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = {},
+  options: ServiceTextResolutionOptions = {},
+): string {
+  const variablesPayload = buildServiceVariables(
+    service,
+    sharedGlobalEnv,
+    resolvedPorts,
+    options,
+  );
+  const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map(
+    (entry) => entry.ref,
+  );
+  return replaceEnvValueSelectors(value, variablesPayload.variables, {
     ...options,
     allowedBrokerRefs:
       declaredBrokerRefs.length > 0 ? declaredBrokerRefs : undefined,

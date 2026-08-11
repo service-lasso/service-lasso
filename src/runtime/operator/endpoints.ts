@@ -6,6 +6,7 @@ import type {
   ServiceManifest,
   ServiceManifestEndpoint,
 } from "../../contracts/service.js";
+import { composeServiceLassoLocalHostname } from "../traefik/local-route-generation.js";
 
 export interface ResolvedServiceEndpoint {
   id: string;
@@ -31,7 +32,68 @@ export interface EndpointVariable {
   value: string;
 }
 
+export type EffectiveServiceRouteProvider =
+  | "service-lasso-runtime"
+  | "traefik"
+  | "unsupported"
+  | "unavailable";
+
+export type EffectiveServiceRouteState =
+  | "active"
+  | "pending"
+  | "degraded"
+  | "invalid"
+  | "unavailable"
+  | "unknown";
+
+export type EffectiveServiceRouteConfigSource =
+  | "service-manifest"
+  | "runtime-default"
+  | "generated-config"
+  | "unavailable"
+  | "invalid";
+
+export interface EffectiveServiceRouteMetadata {
+  serviceId: string;
+  serviceName: string;
+  endpoint: {
+    id: string;
+    label: string;
+    kind: ServiceEndpointKind;
+    source: ResolvedServiceEndpoint["source"];
+  };
+  exposure: ServiceEndpointExposure;
+  provider: EffectiveServiceRouteProvider;
+  target: {
+    bind?: string;
+    port?: number;
+    protocol?: string;
+    host?: string;
+    path?: string;
+    pathPrefix?: string;
+  };
+  traefik?: {
+    routerName: string;
+    serviceName: string;
+    middlewareNames: string[];
+    entryPoints: string[];
+    tls: "enabled" | "disabled";
+    rule: string;
+  };
+  configSource: EffectiveServiceRouteConfigSource;
+  state: EffectiveServiceRouteState;
+  diagnostics: string[];
+  nextAction: string;
+}
+
+export interface EffectiveServiceRouteMetadataSummary {
+  contractVersion: "service-lasso.route-metadata.v1";
+  routes: EffectiveServiceRouteMetadata[];
+}
+
 const DEFAULT_BIND = "127.0.0.1";
+const forbiddenMaterialPattern =
+  /(?:id_token|access_token|refresh_token|client_secret|session_cookie|password|private[_-]?key|Bearer\s+[A-Za-z0-9._~+/-]{24,}|gh[pousr]_[A-Za-z0-9_]{30,})/i;
 
 export function endpointUrlFromNetwork(
   protocol: string | undefined,
@@ -189,6 +251,196 @@ export function resolveServiceEndpoints(
     ...endpoint,
     port: endpoint.kind === "network" ? resolvedPorts[endpoint.id] ?? endpoint.portDefault : endpoint.port,
   }));
+}
+
+export function buildEffectiveRouteMetadata(
+  service: DiscoveredService,
+  resolvedPorts: Record<string, number> = service.manifest.ports ?? {},
+): EffectiveServiceRouteMetadataSummary {
+  return {
+    contractVersion: "service-lasso.route-metadata.v1",
+    routes: resolveServiceEndpoints(service, resolvedPorts).map((endpoint) =>
+      buildEffectiveRouteMetadataEntry(service, endpoint),
+    ),
+  };
+}
+
+function buildEffectiveRouteMetadataEntry(
+  service: DiscoveredService,
+  endpoint: ResolvedServiceEndpoint,
+): EffectiveServiceRouteMetadata {
+  const diagnostics: string[] = [];
+  const exposure = endpoint.exposure ?? "local";
+  const base = {
+    serviceId: safeMetadataText(service.manifest.id, "redacted-service-id"),
+    serviceName: safeMetadataText(service.manifest.name, "redacted-service"),
+    endpoint: {
+      id: safeMetadataText(endpoint.id, "redacted-endpoint"),
+      label: safeMetadataText(endpoint.label, "redacted endpoint"),
+      kind: endpoint.kind,
+      source: endpoint.source,
+    },
+    exposure,
+    target: {},
+    diagnostics,
+  };
+
+  if (endpoint.kind === "network") {
+    const protocol = endpoint.protocol ?? endpoint.transport ?? "tcp";
+    const target = {
+      bind: safeMetadataText(endpoint.bind ?? DEFAULT_BIND, DEFAULT_BIND),
+      port: endpoint.port,
+      protocol,
+    };
+
+    if (!isUsablePort(endpoint.port)) {
+      diagnostics.push(endpoint.portStrategy === "automatic"
+        ? "Route is waiting for runtime port negotiation."
+        : "Route has no usable target port.");
+      return {
+        ...base,
+        target,
+        provider: "unavailable",
+        configSource: endpoint.portStrategy === "automatic" ? "runtime-default" : "unavailable",
+        state: endpoint.portStrategy === "automatic" ? "pending" : "unavailable",
+        nextAction: endpoint.portStrategy === "automatic"
+          ? "Start or prepare the service so Service Lasso can allocate the endpoint port."
+          : "Add a valid service manifest endpoint port or runtime port reservation.",
+      };
+    }
+
+    if (exposure !== "local" && protocol !== "http" && protocol !== "https") {
+      diagnostics.push("Traefik route metadata is available only for HTTP and HTTPS endpoints.");
+      return {
+        ...base,
+        target,
+        provider: "unsupported",
+        configSource: "service-manifest",
+        state: "degraded",
+        nextAction: "Expose a HTTP/HTTPS endpoint or keep this endpoint runtime-local.",
+      };
+    }
+
+    const traefik = protocol === "http" || protocol === "https"
+      ? buildTraefikRouteIntent(service.manifest.id, endpoint)
+      : undefined;
+
+    return {
+      ...base,
+      target,
+      ...(traefik ? { traefik } : {}),
+      provider: traefik && exposure !== "local" ? "traefik" : "service-lasso-runtime",
+      configSource: traefik && exposure !== "local" ? "generated-config" : "service-manifest",
+      state: "active",
+      nextAction: traefik && exposure !== "local"
+        ? "Publish the generated Traefik route config when proxy deployment is enabled."
+        : "Use the runtime-local endpoint directly or opt into Traefik exposure in the service manifest.",
+    };
+  }
+
+  if (endpoint.kind === "url") {
+    const parsed = parseSafeRouteUrl(endpoint.url);
+    if (!parsed.ok) {
+      diagnostics.push(parsed.reason);
+      return {
+        ...base,
+        target: {},
+        provider: "unavailable",
+        configSource: parsed.invalid ? "invalid" : "unavailable",
+        state: parsed.invalid ? "invalid" : "unavailable",
+        nextAction: parsed.invalid
+          ? "Replace the route URL with metadata-only host/path information before exposing it."
+          : "Add a URL or target endpoint to the service manifest route declaration.",
+      };
+    }
+
+    return {
+      ...base,
+      target: parsed.target,
+      provider: "service-lasso-runtime",
+      configSource: "service-manifest",
+      state: "active",
+      nextAction: "Use this manifest URL as a metadata route; no Traefik config is generated for static URL entries.",
+    };
+  }
+
+  diagnostics.push("This endpoint kind does not produce runtime route metadata.");
+  return {
+    ...base,
+    target: {},
+    provider: "unsupported",
+    configSource: "service-manifest",
+    state: "unknown",
+    nextAction: "Use network or URL endpoints for operator-visible route metadata.",
+  };
+}
+
+function buildTraefikRouteIntent(
+  serviceId: string,
+  endpoint: ResolvedServiceEndpoint,
+): EffectiveServiceRouteMetadata["traefik"] {
+  const appName = sanitizeRouteResourceName(`${serviceId}-${endpoint.id}`);
+  const middlewares = [
+    "servicelasso-strip-spoofed-identity",
+    "servicelasso-forward-auth",
+  ];
+  return {
+    routerName: `${appName}-servicelasso-local`,
+    serviceName: `${appName}-backend`,
+    middlewareNames: middlewares,
+    entryPoints: ["websecure"],
+    tls: "enabled",
+    rule: `Host(\`${composeServiceLassoLocalHostname(`${serviceId}-${endpoint.id}`)}\`)`,
+  };
+}
+
+function parseSafeRouteUrl(url: string | undefined): {
+  ok: true;
+  target: EffectiveServiceRouteMetadata["target"];
+} | {
+  ok: false;
+  invalid: boolean;
+  reason: string;
+} {
+  if (!url) {
+    return { ok: false, invalid: false, reason: "Manifest URL route has no URL." };
+  }
+  if (forbiddenMaterialPattern.test(url)) {
+    return { ok: false, invalid: true, reason: "Manifest URL route contains secret-like material and was not serialized." };
+  }
+  try {
+    const parsed = new URL(url);
+    return {
+      ok: true,
+      target: {
+        protocol: parsed.protocol.replace(/:$/, ""),
+        host: safeMetadataText(parsed.host, "redacted-host"),
+        path: safeMetadataText(parsed.pathname || "/", "/"),
+        pathPrefix: safeMetadataText(firstPathSegment(parsed.pathname), "/"),
+      },
+    };
+  } catch {
+    return { ok: false, invalid: true, reason: "Manifest URL route is not a valid URL." };
+  }
+}
+
+function firstPathSegment(pathname: string): string {
+  const [segment] = pathname.split("/").filter(Boolean);
+  return segment ? `/${segment}` : "/";
+}
+
+function safeMetadataText(value: string, fallback: string): string {
+  return forbiddenMaterialPattern.test(value) ? fallback : value;
+}
+
+function sanitizeRouteResourceName(value: string): string {
+  const name = value
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "")
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return name || "route";
 }
 
 export function buildEndpointVariables(

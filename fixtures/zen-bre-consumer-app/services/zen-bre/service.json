@@ -1,0 +1,234 @@
+{
+  "$schema": "https://service-lasso.dev/schemas/service.schema.json",
+  "id": "zen-bre",
+  "name": "GoRules ZEN Business Rules Engine",
+  "description": "Portable local HTTP decision service powered by the embedded GoRules ZEN engine.",
+  "version": "0.1.0",
+  "enabled": false,
+  "logoutput": true,
+  "icon": [
+    {
+      "provider": "lucide",
+      "name": "workflow"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "http",
+      "kind": "network",
+      "label": "ZEN BRE HTTP API",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "http",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 18089,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "required": true,
+      "primary": true
+    },
+    {
+      "id": "base_url",
+      "kind": "url",
+      "label": "ZEN BRE API",
+      "target": "http",
+      "url": "http://${endpoint.http.bind}:${endpoint.http.port}",
+      "exposure": "local",
+      "required": true,
+      "primary": true
+    },
+    {
+      "id": "live",
+      "kind": "url",
+      "label": "ZEN BRE liveness",
+      "target": "http",
+      "url": "${endpoint.base_url.url}/health/live",
+      "exposure": "local",
+      "required": true
+    },
+    {
+      "id": "ready",
+      "kind": "url",
+      "label": "ZEN BRE readiness",
+      "target": "http",
+      "url": "${endpoint.base_url.url}/health/ready",
+      "exposure": "local",
+      "required": true
+    }
+  ],
+  "env": {
+    "ZEN_BRE_URL": "${endpoint.base_url.url}",
+    "ZEN_BRE_HOST": "${endpoint.http.bind}",
+    "ZEN_BRE_PORT": "${endpoint.http.port}",
+    "ZEN_BRE_DECISIONS_DIR": "${SERVICE_ROOT}/decisions",
+    "ZEN_BRE_VERSION": "0.1.0",
+    "ZEN_BRE_MAX_BODY_BYTES": "1048576",
+    "ZEN_BRE_MAX_MODEL_BYTES": "4194304",
+    "ZEN_BRE_MAX_TOTAL_MODEL_BYTES": "67108864",
+    "ZEN_BRE_MAX_MODELS": "1000",
+    "ZEN_BRE_MAX_CONCURRENCY": "32",
+    "ZEN_BRE_EVALUATION_TIMEOUT_MS": "5000",
+    "ZEN_BRE_MAX_DEPTH": "10",
+    "ZEN_BRE_MAX_JSON_DEPTH": "64",
+    "RUST_LOG": "info"
+  },
+  "globalenv": {
+    "ZEN_BRE_URL": "${endpoint.base_url.url}",
+    "ZEN_BRE_DECISIONS_DIR": "${SERVICE_ROOT}/decisions",
+    "ZEN_BRE_VERSION": "0.1.0"
+  },
+  "healthchecks": [
+    {
+      "id": "zen-bre-ready",
+      "type": "http",
+      "url": "${endpoint.ready.url}",
+      "expected_status": 200,
+      "retries": 80,
+      "interval": 250,
+      "timeout": 2000
+    }
+  ],
+  "files": {
+    "enabled": true,
+    "roots": [
+      {
+        "id": "decisions",
+        "label": "Decisions",
+        "path": "decisions",
+        "mode": "read-write"
+      },
+      {
+        "id": "config",
+        "label": "Configuration",
+        "path": "config",
+        "mode": "read-write"
+      },
+      {
+        "id": "logs",
+        "label": "Logs",
+        "path": "logs",
+        "mode": "read-only"
+      },
+      {
+        "id": "state",
+        "label": "Registry state",
+        "path": ".state",
+        "mode": "read-only",
+        "protected": true
+      }
+    ]
+  },
+  "logs": {
+    "default": {
+      "path": "logs/zen-bre.log"
+    }
+  },
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-zen-bre",
+      "tag": "2026.8.5-da80e10"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-zen-bre-1.0.0-beta.11-windows-x64.zip",
+        "archiveType": "zip",
+        "command": ".\\lasso-zen-bre.exe",
+        "args": [
+          "--service-root",
+          "${SERVICE_ROOT}",
+          "--host",
+          "${endpoint.http.bind}",
+          "--port",
+          "${endpoint.http.port}",
+          "--decisions-dir",
+          "${SERVICE_ROOT}/decisions"
+        ],
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
+      },
+      "linux": {
+        "assetName": "lasso-zen-bre-1.0.0-beta.11-linux-x64.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./lasso-zen-bre",
+        "args": [
+          "--service-root",
+          "${SERVICE_ROOT}",
+          "--host",
+          "${endpoint.http.bind}",
+          "--port",
+          "${endpoint.http.port}",
+          "--decisions-dir",
+          "${SERVICE_ROOT}/decisions"
+        ],
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
+      },
+      "darwin": {
+        "assetName": "lasso-zen-bre-1.0.0-beta.11-macos-arm64.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./lasso-zen-bre",
+        "args": [
+          "--service-root",
+          "${SERVICE_ROOT}",
+          "--host",
+          "${endpoint.http.bind}",
+          "--port",
+          "${endpoint.http.port}",
+          "--decisions-dir",
+          "${SERVICE_ROOT}/decisions"
+        ],
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
+      }
+    }
+  },
+  "execconfig": {
+    "debuglog": true,
+    "serviceorder": 100
+  },
+  "depend_on": [],
+  "updates": {
+    "enabled": false,
+    "mode": "disabled",
+    "track": "pinned"
+  },
+  "meta": {
+    "developers": [
+      {
+        "name": "Service Lasso contributors"
+      }
+    ],
+    "license": "Apache-2.0",
+    "upstream": {
+      "name": "GoRules ZEN",
+      "repository": "https://github.com/gorules/zen",
+      "crate": "zen-engine",
+      "version": "1.0.0-beta.11",
+      "license": "MIT"
+    },
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/service-lasso/lasso-zen-bre.git"
+    },
+    "websiteUrl": "https://github.com/service-lasso/lasso-zen-bre",
+    "documentationUrl": "https://github.com/service-lasso/lasso-zen-bre/blob/develop/README.md",
+    "issuesUrl": "https://github.com/service-lasso/lasso-zen-bre/issues",
+    "tags": [
+      "service-lasso",
+      "decision-service",
+      "business-rules",
+      "gorules",
+      "zen-engine"
+    ]
+  }
+}

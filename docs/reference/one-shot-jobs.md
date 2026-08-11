@@ -11,6 +11,11 @@ Use one-shot jobs for local work that must run after a service is installed/conf
 
 Do not use one-shot jobs for long-running servers, background workers, health-monitored daemons, or arbitrary application workflows that are unrelated to preparing the managed service.
 
+When migrating donor manifests that used legacy `execconfig.setup` arrays and
+punctuation-prefixed setup lines, use
+[Legacy Setup Migration](./legacy-setup-migration.md) before writing new
+`setup.steps`.
+
 ## Contract
 
 Declare jobs under `setup.steps`:
@@ -23,6 +28,7 @@ Declare jobs under `setup.steps`:
         "description": "Initialize the TypeDB schema.",
         "depend_on": ["typedb"],
         "execservice": "@java",
+        "cwd": "${SERVICE_ROOT}/jobs",
         "commandline": {
           "win32": "-jar \"${SERVICE_ROOT}\\jobs\\typedb-init.jar\" --address ${TYPEDB_ADDRESS}",
           "default": "-jar \"${SERVICE_ROOT}/jobs/typedb-init.jar\" --address ${TYPEDB_ADDRESS}"
@@ -50,6 +56,7 @@ Common fields:
 - `execservice`: optional provider service such as `@node`, `@python`, or `@java`.
 - `commandline`: platform map where `win32`, `linux`, or `darwin` override `default`.
 - `executable` and `args`: structured command form when a platform commandline is not needed.
+- `cwd`: optional working directory for the setup command. It supports normal Service Lasso variable selectors, resolves relative paths from the service root, must stay inside the service root, and must exist before the command runs.
 - `env`: setup-step environment additions.
 - `timeoutSeconds`: maximum runtime before the step is failed.
 - `rerun`: `ifMissing`, `manual`, or `always`.
@@ -63,6 +70,7 @@ Runtime behavior is intentionally different from daemon startup:
 - Direct setup omits `execservice`; the selected commandline is parsed as executable plus args, or `executable` plus `args` can be used.
 - Provider-backed setup uses the acquired provider command from `@node`, `@python`, `@java`, or another provider service.
 - Variables from service env, `globalenv`, provider globals, and runtime paths are resolved before execution.
+- When `cwd` is declared, Service Lasso resolves it before spawning the command, fails the setup step if it is missing or outside the service root, and records the resolved working directory in setup run history. When omitted, setup still runs from the service root.
 - Service dependencies are installed/configured first; non-provider service dependencies are started and health-checked before the step runs.
 - Setup step dependencies wait for the referenced setup step result before execution.
 - Stdout, stderr, exit code, timeout, start/end time, and status are persisted under `.state/setup.json`.

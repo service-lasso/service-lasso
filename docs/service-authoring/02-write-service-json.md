@@ -32,7 +32,7 @@ Managed services usually also need:
 
 - `ports` for named service ports
 - `urls` for operator-facing links
-- `healthcheck` for process, HTTP, TCP, file, or variable readiness
+- `healthchecks[]` for process, HTTP, TCP, file, or variable readiness
 - `env` for service-local runtime values
 - `globalenv` for values other services can consume
 - `depend_on` for startup ordering
@@ -45,13 +45,17 @@ Provider services usually need:
 - `globalenv` entries that expose installed tool paths
 - a cheap probe/version command where useful
 - setup steps when the provider must generate local files, install trust material, or prepare a tool cache
-- no long-running daemon healthcheck unless the provider truly starts a process
+- no long-running daemon healthcheck item unless the provider truly starts a process
 
 ## Add Setup Steps When Needed
 
 Use `setup.steps` for work that must execute locally after install/config but should not be supervised as a long-running daemon. Common examples include generating local certificates, installing service-local Python dependencies, creating a database schema, or loading sample data.
 
 This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](../reference/one-shot-jobs.md) for CLI/API behavior, dependency ordering, provider-backed execution, rerun policy, and persisted setup history.
+Use [Setup Helper Conventions](setup-helper-conventions.md) when a setup step is better maintained as service-owned helper code instead of a long inline command.
+Use [Legacy Setup Migration](../reference/legacy-setup-migration.md) when
+converting donor-era `execconfig.setup` arrays or punctuation-prefixed setup
+lines into `setup.steps`.
 
 ```json
 {
@@ -59,6 +63,7 @@ This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](.
     "steps": {
       "generate-cert": {
         "description": "Generate local development certificates.",
+        "cwd": "${SERVICE_ROOT}",
         "commandline": {
           "win32": "mkcert.exe -key-file \"${SERVICE_DATA_PATH}\\mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}\\mkcert.pem\" *.localhost",
           "default": "mkcert -key-file \"${SERVICE_DATA_PATH}/mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}/mkcert.pem\" *.localhost"
@@ -75,9 +80,12 @@ Rules:
 
 - No `execservice` means the setup command runs directly.
 - `execservice` runs the setup step through a provider such as `@node`, `@python`, or `@java`.
+- `cwd` optionally picks the working directory for the setup command. It uses the same variable selectors as `commandline` and `env`, defaults to the service root, and must resolve to an existing directory inside the service root.
 - `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
 - `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
 - `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.
+
+Keep setup steps visible in the manifest even when the implementation delegates to `scripts/lasso-<service>.mjs` or platform scripts under `scripts/setup/`. The manifest remains the operator-readable contract; helper code owns the detailed orchestration, idempotence checks, readiness polling, exit codes, logging, and sensitive-value handling.
 
 ## Pin the Release
 

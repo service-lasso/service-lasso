@@ -3,8 +3,12 @@ import type {
   ServiceBrokerAccessOperation,
   ServiceBrokerAccessScope,
   ServiceBrokerBucketKind,
+  ServiceBrokerChangeReactionMode,
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
+  ServiceLogSourceDeclaration,
+  ServiceLogSourceFormat,
+  ServiceLogSourceType,
   ServiceHookStep,
   ServiceActionConcurrencyPolicy,
   ServiceActionFailurePolicy,
@@ -21,6 +25,8 @@ import type {
   ServiceFilesRootMode,
   ServiceManifestEndpoint,
   ServiceActionWorkflowStep,
+  ServiceEnvMap,
+  ServiceEnvValue,
   ServiceManifest,
   ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
@@ -46,6 +52,7 @@ const brokerAccessOperations = new Set(["resolve", "create", "update", "rotate",
 const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "global"]);
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
 const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
+const brokerChangeReactionModes = new Set(["restart", "reload", "action", "manual", "none"]);
 const endpointKinds = new Set(["network", "url", "mount", "device"]);
 const endpointDirections = new Set(["inbound", "outbound"]);
 const endpointTransports = new Set(["tcp", "udp"]);
@@ -53,10 +60,13 @@ const endpointProtocols = new Set(["http", "https", "tcp", "udp"]);
 const endpointExposures = new Set(["local", "lan", "public"]);
 const endpointPortStrategies = new Set(["automatic", "preferred", "fixed"]);
 const filesRootModes = new Set<ServiceFilesRootMode>(["read-only", "read-write"]);
+const logSourceTypes = new Set(["file", "glob"]);
+const logSourceFormats = new Set(["text", "json", "ndjson"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
+const logSourceIdPattern = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -118,16 +128,17 @@ function expectOptionalFailurePolicy(
 function readHealthcheckReadinessOptions(
   healthRecord: Record<string, unknown>,
   manifestPath: string,
+  fieldPrefix = "healthcheck",
 ): Record<string, number> {
-  const interval = expectOptionalWholeNumber(healthRecord.interval, "healthcheck.interval", manifestPath, 1);
-  const retries = expectOptionalWholeNumber(healthRecord.retries, "healthcheck.retries", manifestPath, 1);
+  const interval = expectOptionalWholeNumber(healthRecord.interval, `${fieldPrefix}.interval`, manifestPath, 1);
+  const retries = expectOptionalWholeNumber(healthRecord.retries, `${fieldPrefix}.retries`, manifestPath, 1);
   const startPeriod = expectOptionalWholeNumber(
     healthRecord.start_period,
-    "healthcheck.start_period",
+    `${fieldPrefix}.start_period`,
     manifestPath,
     0,
   );
-  const timeout = expectOptionalWholeNumber(healthRecord.timeout, "healthcheck.timeout", manifestPath, 1);
+  const timeout = expectOptionalWholeNumber(healthRecord.timeout, `${fieldPrefix}.timeout`, manifestPath, 1);
 
   return {
     ...(interval !== undefined ? { interval } : {}),
@@ -137,59 +148,185 @@ function readHealthcheckReadinessOptions(
   };
 }
 
-function readNetworkHealthcheckTarget(
-  healthRecord: Record<string, unknown>,
+function readHealthcheckRecord(
+  rawHealthcheck: unknown,
   manifestPath: string,
-  protocolLabel: "TCP" | "UDP",
-): { address?: string; host?: string; port?: string | number } {
-  const hasAddress = healthRecord.address !== undefined;
-  const hasHost = healthRecord.host !== undefined;
-  const hasPort = healthRecord.port !== undefined;
-  const rawPort = healthRecord.port;
-
-  if (hasAddress && (hasHost || hasPort)) {
-    throw new Error(
-      `Invalid service manifest at ${manifestPath}: ${protocolLabel} healthcheck must use either "healthcheck.address" or "healthcheck.host" + "healthcheck.port", not both.`,
-    );
+  fieldPrefix = "healthcheck",
+  options: { requireId?: boolean; defaultRequired?: boolean } = {},
+): ServiceHealthcheck {
+  if (!rawHealthcheck || typeof rawHealthcheck !== "object" || Array.isArray(rawHealthcheck)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${fieldPrefix}" to be an object.`);
   }
 
-  if (hasHost !== hasPort) {
-    throw new Error(
-      `Invalid service manifest at ${manifestPath}: ${protocolLabel} healthcheck "host" and "port" must be supplied together.`,
-    );
-  }
-
-  if (
-    hasPort &&
-    typeof rawPort !== "string" &&
-    (typeof rawPort !== "number" ||
-      !Number.isInteger(rawPort) ||
-      rawPort < 1 ||
-      rawPort > 65535)
-  ) {
-    throw new Error(
-      `Invalid service manifest at ${manifestPath}: expected "healthcheck.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
-    );
-  }
-
-  if (typeof rawPort === "string" && rawPort.trim().length === 0) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "healthcheck.port".`);
-  }
-
-  const normalizedPort =
-    rawPort === undefined
-      ? undefined
-      : typeof rawPort === "number"
-        ? rawPort
-        : typeof rawPort === "string"
-          ? rawPort.trim()
-          : undefined;
-
-  return {
-    ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, "healthcheck.address", manifestPath) } : {}),
-    ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, "healthcheck.host", manifestPath) } : {}),
-    ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
+  const healthRecord = rawHealthcheck as Record<string, unknown>;
+  const readinessOptions = readHealthcheckReadinessOptions(healthRecord, manifestPath, fieldPrefix);
+  const id =
+    options.requireId || healthRecord.id !== undefined
+      ? expectNonEmptyString(healthRecord.id, `${fieldPrefix}.id`, manifestPath)
+      : undefined;
+  const required =
+    options.defaultRequired || healthRecord.required !== undefined
+      ? (expectOptionalBoolean(healthRecord.required, `${fieldPrefix}.required`, manifestPath) ?? true)
+      : undefined;
+  const sharedFields = {
+    ...(id !== undefined ? { id } : {}),
+    ...(required !== undefined ? { required } : {}),
+    ...readinessOptions,
   };
+
+  if (healthRecord.type === "process") {
+    return { type: "process", ...sharedFields };
+  }
+
+  if (healthRecord.type === "http") {
+    const cookies = readStringMap(healthRecord.cookies, `${fieldPrefix}.cookies`, manifestPath);
+    return {
+      type: "http",
+      url: expectNonEmptyString(healthRecord.url, `${fieldPrefix}.url`, manifestPath),
+      expected_status:
+        typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
+      ...(cookies !== undefined ? { cookies } : {}),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "tcp") {
+    if (healthRecord.tcphost !== undefined || healthRecord.tcpport !== undefined) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: "tcphost" and "tcpport" are not supported; use "${fieldPrefix}.host" + "${fieldPrefix}.port" or "${fieldPrefix}.address".`,
+      );
+    }
+
+    const hasAddress = healthRecord.address !== undefined;
+    const hasHost = healthRecord.host !== undefined;
+    const hasPort = healthRecord.port !== undefined;
+    const rawPort = healthRecord.port;
+
+    if (hasAddress && (hasHost || hasPort)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: TCP healthcheck must use either "${fieldPrefix}.address" or "${fieldPrefix}.host" + "${fieldPrefix}.port", not both.`,
+      );
+    }
+
+    if (hasHost !== hasPort) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: TCP healthcheck "host" and "port" must be supplied together.`,
+      );
+    }
+
+    if (
+      hasPort &&
+      typeof rawPort !== "string" &&
+      (typeof rawPort !== "number" ||
+        !Number.isInteger(rawPort) ||
+        rawPort < 1 ||
+        rawPort > 65535)
+    ) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${fieldPrefix}.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
+      );
+    }
+
+    if (typeof rawPort === "string" && rawPort.trim().length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "${fieldPrefix}.port".`);
+    }
+
+    const normalizedPort =
+      rawPort === undefined
+        ? undefined
+        : typeof rawPort === "number"
+          ? rawPort
+          : typeof rawPort === "string"
+            ? rawPort.trim()
+            : undefined;
+
+    return {
+      type: "tcp",
+      ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, `${fieldPrefix}.address`, manifestPath) } : {}),
+      ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, `${fieldPrefix}.host`, manifestPath) } : {}),
+      ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "udp") {
+    const hasAddress = healthRecord.address !== undefined;
+    const hasHost = healthRecord.host !== undefined;
+    const hasPort = healthRecord.port !== undefined;
+    const rawPort = healthRecord.port;
+
+    if (hasAddress && (hasHost || hasPort)) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: UDP healthcheck must use either "${fieldPrefix}.address" or "${fieldPrefix}.host" + "${fieldPrefix}.port", not both.`,
+      );
+    }
+
+    if (hasHost !== hasPort) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: UDP healthcheck "host" and "port" must be supplied together.`,
+      );
+    }
+
+    if (!hasAddress && !hasHost) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: UDP healthcheck must define either "${fieldPrefix}.address" or "${fieldPrefix}.host" + "${fieldPrefix}.port".`,
+      );
+    }
+
+    if (
+      hasPort &&
+      typeof rawPort !== "string" &&
+      (typeof rawPort !== "number" ||
+        !Number.isInteger(rawPort) ||
+        rawPort < 1 ||
+        rawPort > 65535)
+    ) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${fieldPrefix}.port" to be a non-empty string selector or an integer port between 1 and 65535.`,
+      );
+    }
+
+    if (typeof rawPort === "string" && rawPort.trim().length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected non-empty string for "${fieldPrefix}.port".`);
+    }
+
+    const normalizedPort =
+      rawPort === undefined
+        ? undefined
+        : typeof rawPort === "number"
+          ? rawPort
+          : typeof rawPort === "string"
+            ? rawPort.trim()
+            : undefined;
+
+    return {
+      type: "udp",
+      ...(hasAddress ? { address: expectNonEmptyString(healthRecord.address, `${fieldPrefix}.address`, manifestPath) } : {}),
+      ...(hasHost ? { host: expectNonEmptyString(healthRecord.host, `${fieldPrefix}.host`, manifestPath) } : {}),
+      ...(normalizedPort !== undefined ? { port: normalizedPort } : {}),
+      send: expectNonEmptyString(healthRecord.send, `${fieldPrefix}.send`, manifestPath),
+      expect: expectNonEmptyString(healthRecord.expect, `${fieldPrefix}.expect`, manifestPath),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "file") {
+    return {
+      type: "file",
+      file: expectNonEmptyString(healthRecord.file, `${fieldPrefix}.file`, manifestPath),
+      ...sharedFields,
+    };
+  }
+
+  if (healthRecord.type === "variable") {
+    return {
+      type: "variable",
+      variable: expectNonEmptyString(healthRecord.variable, `${fieldPrefix}.variable`, manifestPath),
+      ...sharedFields,
+    };
+  }
+
+  throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);
 }
 
 function readActionMaterialization(
@@ -223,15 +360,52 @@ function readActionMaterialization(
     );
   }
 
-  if (!record.files) {
+  if (
+    record.templates !== undefined &&
+    (!Array.isArray(record.templates) ||
+      record.templates.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== "object" ||
+          Array.isArray(entry) ||
+          typeof (entry as Record<string, unknown>).source !== "string" ||
+          typeof (entry as Record<string, unknown>).target !== "string",
+      ))
+  ) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}.templates" to be an array of { source, target } objects.`,
+    );
+  }
+
+  if (!record.files && !record.templates) {
     return {};
   }
 
   return {
-    files: record.files.map((entry) => ({
-      path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
-      content: (entry as Record<string, string>).content,
-    })),
+    ...(record.files
+      ? {
+          files: record.files.map((entry) => ({
+            path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
+            content: (entry as Record<string, string>).content,
+          })),
+        }
+      : {}),
+    ...(record.templates
+      ? {
+          templates: record.templates.map((entry) => ({
+            source: expectNonEmptyString(
+              (entry as Record<string, string>).source,
+              `${field}.templates.source`,
+              manifestPath,
+            ),
+            target: expectNonEmptyString(
+              (entry as Record<string, string>).target,
+              `${field}.templates.target`,
+              manifestPath,
+            ),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -245,6 +419,28 @@ function readStringMap(value: unknown, field: string, manifestPath: string): Rec
   }
 
   return Object.fromEntries(Object.entries(value as Record<string, string>).map(([key, entry]) => [key.trim(), entry]));
+}
+
+function isServiceEnvValue(value: unknown): value is ServiceEnvValue {
+  if (typeof value === "string") {
+    return true;
+  }
+
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function readEnvMap(value: unknown, field: string, manifestPath: string): ServiceEnvMap | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some((entry) => !isServiceEnvValue(entry))) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "${field}" to be a map of strings or non-empty string arrays.`,
+    );
+  }
+
+  return Object.fromEntries(Object.entries(value as ServiceEnvMap).map(([key, entry]) => [key.trim(), entry]));
 }
 
 function readOutputVarRegex(value: unknown, manifestPath: string): Record<string, string> | undefined {
@@ -288,6 +484,79 @@ function readNonEmptyStringArray(value: unknown, field: string, manifestPath: st
   return value.map((entry) => (entry as string).trim());
 }
 
+function expectSafeRelativeLogPath(value: unknown, field: string, manifestPath: string): string {
+  const candidate = expectNonEmptyString(value, field, manifestPath).replace(/\\/g, "/");
+  const segments = candidate.split("/");
+  if (
+    candidate.startsWith("/") ||
+    /^[A-Za-z]:/.test(candidate) ||
+    segments.some((segment) => segment === "..")
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to stay inside the service root.`);
+  }
+
+  return candidate;
+}
+
+function readLogSources(value: unknown, manifestPath: string): ServiceLogSourceDeclaration[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "logSources" to be an array.`);
+  }
+
+  const ids = new Set<string>();
+  return value.map((entry, index) => {
+    const field = `logSources[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    const id = expectNonEmptyString(record.id, `${field}.id`, manifestPath);
+    if (!logSourceIdPattern.test(id) || id === "default" || id === "stdout" || id === "stderr") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${field}.id" to be a unique non-builtin log source id.`,
+      );
+    }
+    if (ids.has(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate logSources id "${id}".`);
+    }
+    ids.add(id);
+
+    const rawType = expectNonEmptyString(record.type, `${field}.type`, manifestPath);
+    if (!logSourceTypes.has(rawType)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.type" to be one of "file" or "glob".`);
+    }
+
+    const type = rawType as ServiceLogSourceType;
+    const pathValue = record.path === undefined ? undefined : expectSafeRelativeLogPath(record.path, `${field}.path`, manifestPath);
+    const pattern = record.pattern === undefined ? undefined : expectSafeRelativeLogPath(record.pattern, `${field}.pattern`, manifestPath);
+    if (type === "file" && !pathValue) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.path" for file log sources.`);
+    }
+    if (type === "glob" && !pattern) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.pattern" for glob log sources.`);
+    }
+
+    const rawFormat = record.format;
+    if (rawFormat !== undefined && (typeof rawFormat !== "string" || !logSourceFormats.has(rawFormat))) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.format" to be one of "text", "json", or "ndjson".`);
+    }
+
+    return {
+      id,
+      label: expectNonEmptyString(record.label, `${field}.label`, manifestPath),
+      type,
+      path: pathValue,
+      pattern,
+      format: rawFormat as ServiceLogSourceFormat | undefined,
+    };
+  });
+}
+
 function expectBrokerNamespace(value: unknown, field: string, manifestPath: string): string {
   const namespace = expectNonEmptyString(value, field, manifestPath);
   if (!brokerNamespacePattern.test(namespace)) {
@@ -302,6 +571,33 @@ function expectBrokerRef(value: unknown, field: string, manifestPath: string): s
     throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be a dotted broker ref like "namespace.KEY".`);
   }
   return ref;
+}
+
+function parseBrokerChangeReaction(value: unknown, field: string, manifestPath: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const mode = expectOptionalEnum<ServiceBrokerChangeReactionMode>(
+    record.mode,
+    `${field}.mode`,
+    brokerChangeReactionModes,
+    "restart, reload, action, manual, or none",
+    manifestPath,
+  );
+  if (!mode) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.mode" to be set.`);
+  }
+
+  return {
+    mode,
+    actionId: record.actionId === undefined ? undefined : expectNonEmptyString(record.actionId, `${field}.actionId`, manifestPath),
+    reason: record.reason === undefined ? undefined : expectNonEmptyString(record.reason, `${field}.reason`, manifestPath),
+  };
 }
 
 function readHookSteps(value: unknown, field: string, manifestPath: string): ServiceHookStep[] | undefined {
@@ -332,7 +628,7 @@ function readHookSteps(value: unknown, field: string, manifestPath: string): Ser
       cwd: typeof record.cwd === "string" ? record.cwd.trim() : undefined,
       timeoutSeconds: expectOptionalWholeNumber(record.timeoutSeconds, `${stepField}.timeoutSeconds`, manifestPath, 1),
       failurePolicy: expectOptionalFailurePolicy(record.failurePolicy, `${stepField}.failurePolicy`, manifestPath),
-      env: readStringMap(record.env, `${stepField}.env`, manifestPath),
+      env: readEnvMap(record.env, `${stepField}.env`, manifestPath),
     };
   });
 }
@@ -465,6 +761,13 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
         );
       }
 
+      const cwd = step.cwd;
+      if (cwd !== undefined && (typeof cwd !== "string" || cwd.trim().length === 0)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.cwd" to be a non-empty string when present.`,
+        );
+      }
+
       const rawRerun = step.rerun;
       if (rawRerun !== undefined && (typeof rawRerun !== "string" || !setupRerunPolicies.has(rawRerun))) {
         throw new Error(
@@ -481,7 +784,8 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
           executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
           args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
           commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
-          env: readStringMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
+          cwd: typeof cwd === "string" ? cwd.trim() : undefined,
+          env: readEnvMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
           timeoutSeconds: expectOptionalWholeNumber(
             step.timeoutSeconds,
             `setup.steps.${normalizedStepId}.timeoutSeconds`,
@@ -1038,7 +1342,7 @@ function readActionPolicy(value: unknown, manifestPath: string): ServiceManifest
           commandline,
           args: readStringArray(action.args, `${actionField}.args`, manifestPath),
           cwd: typeof action.cwd === "string" ? action.cwd.trim() : undefined,
-          env: readStringMap(action.env, `${actionField}.env`, manifestPath),
+          env: readEnvMap(action.env, `${actionField}.env`, manifestPath),
           timeoutSeconds: expectOptionalWholeNumber(action.timeoutSeconds, `${actionField}.timeoutSeconds`, manifestPath, 1),
           requiredState: expectOptionalEnum<ServiceActionRequiredState>(
             action.requiredState,
@@ -1285,6 +1589,7 @@ function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: strin
             ref: expectBrokerRef(importRecord.ref, `${field}.ref`, manifestPath),
             as: importRecord.as === undefined ? undefined : expectNonEmptyString(importRecord.as, `${field}.as`, manifestPath),
             required: expectOptionalBoolean(importRecord.required, `${field}.required`, manifestPath),
+            onChange: parseBrokerChangeReaction(importRecord.onChange, `${field}.onChange`, manifestPath),
           };
         })
       : undefined,
@@ -1325,8 +1630,8 @@ function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: strin
 
 function validateBrokerCollisions(
   broker: ServiceManifest["broker"],
-  env: Record<string, string> | undefined,
-  globalenv: Record<string, string> | undefined,
+  env: ServiceEnvMap | undefined,
+  globalenv: ServiceEnvMap | undefined,
   manifestPath: string,
 ): void {
   if (!broker) {
@@ -1695,92 +2000,58 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"depend_on\" to be an array of non-empty strings.`);
   }
 
+  const requires = readStringMap(record.requires, "requires", manifestPath);
+  const provides = readStringMap(record.provides, "provides", manifestPath);
+
   const rawServiceOrder = expectOptionalWholeNumber(record.serviceorder, "serviceorder", manifestPath, 0);
   const execconfig = readExecutionConfig(record.execconfig, manifestPath);
   const serviceorder = rawServiceOrder ?? execconfig?.serviceorder;
 
   const rawHealthcheck = record.healthcheck;
+  const rawHealthchecks = record.healthchecks;
   let healthcheck: ServiceHealthcheck | undefined;
+  let healthchecks: ServiceHealthcheck[] | undefined;
+
+  if (rawHealthcheck !== undefined && rawHealthchecks !== undefined) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: use either "healthcheck" or "healthchecks", not both.`);
+  }
 
   if (rawHealthcheck !== undefined) {
-    if (!rawHealthcheck || typeof rawHealthcheck !== "object" || Array.isArray(rawHealthcheck)) {
-      throw new Error(`Invalid service manifest at ${manifestPath}: expected \"healthcheck\" to be an object.`);
+    healthcheck = readHealthcheckRecord(rawHealthcheck, manifestPath);
+  }
+
+  if (rawHealthchecks !== undefined) {
+    if (!Array.isArray(rawHealthchecks)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "healthchecks" to be an array.`);
     }
 
-    const healthRecord = rawHealthcheck as Record<string, unknown>;
-    const readinessOptions = readHealthcheckReadinessOptions(healthRecord, manifestPath);
-    if (healthRecord.type === "process") {
-      healthcheck = { type: "process", ...readinessOptions };
-    } else if (healthRecord.type === "http") {
-      healthcheck = {
-        type: "http",
-        url: expectNonEmptyString(healthRecord.url, "healthcheck.url", manifestPath),
-        expected_status:
-          typeof healthRecord.expected_status === "number" ? healthRecord.expected_status : undefined,
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "tcp") {
-      if (healthRecord.tcphost !== undefined || healthRecord.tcpport !== undefined) {
-        throw new Error(
-          `Invalid service manifest at ${manifestPath}: "tcphost" and "tcpport" are not supported; use "healthcheck.host" + "healthcheck.port" or "healthcheck.address".`,
-        );
-      }
+    if (rawHealthchecks.length === 0) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "healthchecks" to contain at least one item.`);
+    }
 
-      healthcheck = {
-        type: "tcp",
-        ...readNetworkHealthcheckTarget(healthRecord, manifestPath, "TCP"),
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "udp") {
-      const target = readNetworkHealthcheckTarget(healthRecord, manifestPath, "UDP");
-      if (target.address === undefined && (target.host === undefined || target.port === undefined)) {
-        throw new Error(
-          `Invalid service manifest at ${manifestPath}: UDP healthcheck requires "healthcheck.address" or "healthcheck.host" + "healthcheck.port".`,
-        );
+    const healthcheckIds = new Set<string>();
+    healthchecks = rawHealthchecks.map((entry, index) => {
+      const fieldPrefix = `healthchecks[${index}]`;
+      const healthcheckEntry = readHealthcheckRecord(entry, manifestPath, fieldPrefix, {
+        requireId: true,
+        defaultRequired: true,
+      });
+      const id = healthcheckEntry.id as string;
+      if (healthcheckIds.has(id)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: duplicate healthchecks id "${id}".`);
       }
-
-      healthcheck = {
-        type: "udp",
-        ...target,
-        send: expectNonEmptyString(healthRecord.send, "healthcheck.send", manifestPath),
-        expect: expectNonEmptyString(healthRecord.expect, "healthcheck.expect", manifestPath),
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "file") {
-      healthcheck = {
-        type: "file",
-        file: expectNonEmptyString(healthRecord.file, "healthcheck.file", manifestPath),
-        ...readinessOptions,
-      };
-    } else if (healthRecord.type === "variable") {
-      healthcheck = {
-        type: "variable",
-        variable: expectNonEmptyString(healthRecord.variable, "healthcheck.variable", manifestPath),
-        ...readinessOptions,
-      };
+      healthcheckIds.add(id);
+      return healthcheckEntry;
+    });
+    if (record.role === "provider") {
+      healthcheck = healthchecks.find((entry) => entry.required !== false && entry.type !== "process");
     } else {
-      throw new Error(`Invalid service manifest at ${manifestPath}: unsupported healthcheck type.`);
+      healthcheck = healthchecks.find((entry) => entry.required !== false) ?? healthchecks[0];
     }
   }
 
-  const rawEnv = record.env;
-  if (
-    rawEnv !== undefined &&
-    (!rawEnv || typeof rawEnv !== "object" || Array.isArray(rawEnv) || Object.values(rawEnv).some((value) => typeof value !== "string"))
-  ) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"env\" to be a string map.`);
-  }
-
-  const rawGlobalEnv = record.globalenv;
-  if (
-    rawGlobalEnv !== undefined &&
-    (!rawGlobalEnv ||
-      typeof rawGlobalEnv !== "object" ||
-      Array.isArray(rawGlobalEnv) ||
-      Object.values(rawGlobalEnv).some((value) => typeof value !== "string"))
-  ) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected \"globalenv\" to be a string map.`);
-  }
+  const env = readEnvMap(record.env, "env", manifestPath);
+  const globalenv = readEnvMap(record.globalenv, "globalenv", manifestPath);
 
   const rawPorts = record.ports;
   if (
@@ -1856,13 +2127,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
   }
 
+  const logSources = readLogSources(record.logSources, manifestPath);
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
   const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
-  const env = rawEnv ? Object.fromEntries(Object.entries(rawEnv as Record<string, string>).map(([key, value]) => [key.trim(), value])) : undefined;
-  const globalenv = rawGlobalEnv
-    ? Object.fromEntries(Object.entries(rawGlobalEnv as Record<string, string>).map(([key, value]) => [key.trim(), value]))
-    : undefined;
   validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
   const install = readActionMaterialization(record.install, "install", manifestPath);
@@ -1886,7 +2154,10 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     serviceorder,
     execconfig,
     depend_on: dependOn?.map((dependency) => dependency.trim()),
+    requires,
+    provides,
     healthcheck,
+    healthchecks,
     outputvarregex,
     env,
     globalenv,
@@ -1908,6 +2179,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       url: (entry as Record<string, string>).url.trim(),
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
+    logSources,
     monitoring,
     restartPolicy,
     doctor,

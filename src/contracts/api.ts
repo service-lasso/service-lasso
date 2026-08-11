@@ -8,9 +8,14 @@ import type { ServiceHealthHistoryState } from "../runtime/health/history.js";
 import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
 import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportTestResult } from "../runtime/operator/telemetry.js";
+import type { EffectiveServiceRouteMetadataSummary } from "../runtime/operator/endpoints.js";
 import type { ServiceCatalogProvenance } from "./service.js";
 import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 import type { ServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
+import type {
+  OperatorInboxCounts,
+  OperatorInboxItem,
+} from "../runtime/operator/inbox.js";
 
 export interface HealthResponse {
   service: "service-lasso";
@@ -28,6 +33,69 @@ export interface ApiErrorResponse {
   statusCode: number;
 }
 
+export interface RuntimeSetupStatusResponse {
+  setup: {
+    contractVersion: "service-lasso.setup-status.v1";
+    state:
+      | "not_required"
+      | "setup_required"
+      | "setup_in_progress"
+      | "setup_complete"
+      | "setup_failed";
+    setupMode: boolean;
+    vault: {
+      required: boolean;
+      ready: boolean;
+      path: string;
+    };
+    operator: {
+      osUsername: string;
+      identitySource: "vault";
+    };
+    trustBoundary: {
+      bindHost: string;
+      localOnly: boolean;
+      localhostBootstrapAllowed: boolean;
+      remoteBootstrapAllowed: boolean;
+      setupTokenConfigured: boolean;
+      blockers: string[];
+    };
+    auth: RuntimeAuthStatusResponse["auth"];
+  };
+}
+
+export interface RuntimeAuthStatusResponse {
+  auth: {
+    contractVersion: "service-lasso.auth-status.v1";
+    request: {
+      clientAddress: string | null;
+      local: boolean;
+    };
+    policy: {
+      bindHost: string;
+      remoteAuthRequired: boolean;
+      trustProxyHeaders: boolean;
+      zitadelEnabled: boolean;
+      localTokenConfigured: boolean;
+    };
+    actor: {
+      authenticated: boolean;
+      kind: "local-root" | "zitadel" | "local-token" | null;
+      actorId: string | null;
+    };
+    mode: "local-root" | "zitadel" | "local-token" | "blocked";
+    blockers: string[];
+  };
+}
+
+export interface RuntimeSetupBootstrapResponse {
+  bootstrap: {
+    ok: true;
+    state: "setup_complete";
+  };
+  setup: RuntimeSetupStatusResponse["setup"];
+}
+
 export interface ServiceSummary {
   id: string;
   name: string;
@@ -40,6 +108,13 @@ export interface ServiceSummary {
   version?: string;
   dependencies?: string[];
   dependents?: string[];
+  providerCapabilities?: Record<string, string>;
+  providerRequirements?: Array<{
+    capability: string;
+    requirement: string;
+    serviceId: string;
+    version: string;
+  }>;
   lifecycle?: ServiceLifecycleState;
   health?: ServiceHealthResult;
   healthHistory?: ServiceHealthHistoryState;
@@ -48,6 +123,7 @@ export interface ServiceSummary {
   catalogProvenance?: ServiceCatalogProvenance;
   statePaths?: ServiceStatePaths;
   provider?: ProviderExecutionPlan;
+  routeMetadata?: EffectiveServiceRouteMetadataSummary;
   compatibility?: ServiceCompatibilityReport;
   operator?: {
     logPath: string;
@@ -120,7 +196,7 @@ export interface AuditEvent {
   sequence: number;
   previousHash: string | null;
   eventHash: string;
-  chainStatus: "valid";
+  chainStatus: "verified" | "broken" | "unavailable";
 }
 
 export type AuditSafeMetadataValue =
@@ -131,11 +207,14 @@ export type AuditSafeMetadataValue =
   | AuditSafeMetadataValue[]
   | { [key: string]: AuditSafeMetadataValue };
 
+export type AuditChainStatus = "verified" | "broken" | "unavailable" | "mixed";
+
 export interface AuditQuery {
   serviceId?: string;
   actor?: string;
   action?: string;
   outcome?: AuditEventOutcome;
+  subjectType?: string;
   source?: string;
   since?: string;
   until?: string;
@@ -146,6 +225,10 @@ export interface AuditQuery {
 
 export interface AuditResponse {
   events: AuditEvent[];
+  nextCursor: string | null;
+  source: "runtime-audit";
+  chainStatus: AuditChainStatus;
+  rawMaterialReturned: false;
   pagination: {
     limit: number;
     nextCursor: string | null;
@@ -198,6 +281,39 @@ export interface ManagedWorkflowRegistryResponse {
 
 export interface ServiceWorkspaceRegistryResponse {
   registry: ServiceWorkspaceRegistry;
+}
+
+export interface ServiceFileExportArchiveResponse {
+  ok: true;
+  action: "archive-selection";
+  export: {
+    contractVersion: "service-lasso.file-export-artifact.v1";
+    artifactId: string;
+    createdAt: string;
+    serviceId: string;
+    sourceId: string;
+    rootId: string;
+    selectedPaths: string[];
+    archiveFormat: "7z";
+    provider: {
+      serviceId: "@archive";
+      actionId: "archive-selection";
+      version: string | null;
+      runId: string;
+      status: "succeeded";
+    };
+    artifact: {
+      id: string;
+      fileName: string;
+      format: "7z";
+      sizeBytes: number;
+      checksum: {
+        algorithm: "sha256";
+        value: string;
+      };
+      downloadUrl: string;
+    };
+  };
 }
 
 export interface ServiceDetailResponse {
@@ -381,6 +497,37 @@ export interface RuntimeCapabilitiesResponse {
       };
     };
   };
+}
+
+export type VaultKeySourceType = "os-managed" | "file" | "env" | "cli" | "generated";
+
+export interface VaultKeyFingerprintResponse {
+  algorithm: "sha256";
+  value: string;
+  display: string;
+}
+
+export interface VaultKeySourceResponse {
+  type: VaultKeySourceType;
+  supplied: boolean;
+  reveal: "never" | "once";
+  envName?: string;
+  filePath?: string;
+  fingerprint: VaultKeyFingerprintResponse;
+}
+
+export interface VaultKeyOneTimeRevealResponse {
+  key: string;
+  confirmationRequired: true;
+  warning: string;
+}
+
+export interface VaultKeyBootstrapResponse {
+  contractVersion: "vault-key-bootstrap.v1";
+  status: "ready";
+  source: VaultKeySourceResponse;
+  oneTimeReveal: VaultKeyOneTimeRevealResponse | null;
+  warnings: string[];
 }
 
 export type OperatorCommandKind =
@@ -720,6 +867,34 @@ export interface OperatorNotificationsResponse {
   };
 }
 
+export interface OperatorInboxListResponse {
+  inbox: {
+    items: OperatorInboxItem[];
+    pagination: {
+      limit: number;
+      nextCursor: string | null;
+      total: number;
+    };
+  };
+}
+
+export interface OperatorInboxItemResponse {
+  inboxItem: OperatorInboxItem;
+}
+
+export interface OperatorInboxMutationResponse {
+  inbox: {
+    items: OperatorInboxItem[];
+    counts: OperatorInboxCounts;
+  };
+}
+
+export interface OperatorInboxCountsResponse {
+  inbox: {
+    counts: OperatorInboxCounts;
+  };
+}
+
 export interface DependenciesResponse {
   dependencies: {
     nodes: { id: string; name: string }[];
@@ -1041,6 +1216,17 @@ export interface ServiceLogSourceResponse {
   archiveId?: string;
   path: string;
   available: boolean;
+  id?: string;
+  label?: string;
+  origin?: "builtin" | "declared" | "discovered";
+  type?: "stream" | "file" | "glob";
+  relativePath?: string;
+  pattern?: string;
+  format?: "text" | "json" | "ndjson";
+  status?: "available" | "missing" | "unavailable";
+  lastSeenAt?: string | null;
+  sizeBytes?: number | null;
+  tail?: boolean;
 }
 
 export interface RuntimeLogShippingPreviewResponse {
@@ -1057,4 +1243,92 @@ export interface ServiceTelemetryPreviewResponse {
 
 export interface RuntimeTelemetryExportTestResponse {
   exportTest: TelemetryExportTestResult;
+}
+
+export interface ServiceCatalogRepositoryResponse {
+  owner: string;
+  name: string;
+  url: string;
+}
+
+export interface ServiceCatalogVersionPolicyResponse {
+  channel: "stable" | "preview";
+  selector: "latest-semver" | "latest-release";
+  allowPrerelease: boolean;
+}
+
+export interface ServiceCatalogReleaseAssetRuleResponse {
+  namePattern: string;
+  required: boolean;
+}
+
+export interface ServiceCatalogPackageResponse {
+  packageId: string;
+  displayName: string;
+  summary: string;
+  repository: ServiceCatalogRepositoryResponse;
+  category: string;
+  tags: string[];
+  publisher: string;
+  trustStatus: "approved" | "experimental" | "blocked";
+  approved: boolean;
+  defaultVersionPolicy: ServiceCatalogVersionPolicyResponse;
+  releaseAsset: ServiceCatalogReleaseAssetRuleResponse;
+  manifestPath: string;
+}
+
+export interface ServiceCatalogPackagesResponse {
+  catalog: {
+    catalogId: string;
+    schemaVersion: string;
+    updatedAt: string;
+    source: string;
+    packages: ServiceCatalogPackageResponse[];
+    summary: {
+      total: number;
+      approved: number;
+      categories: string[];
+      filtered: number;
+    };
+  };
+}
+
+export interface ServiceCatalogReleaseAssetResponse {
+  name: string;
+  size: number | null;
+  contentType: string | null;
+  downloadUrl: string | null;
+  selected: boolean;
+}
+
+export interface ServiceCatalogReleaseVersionResponse {
+  tag: string;
+  version: string;
+  name: string | null;
+  releaseUrl: string | null;
+  createdAt: string | null;
+  publishedAt: string | null;
+  prerelease: boolean;
+  draft: boolean;
+  notesSummary: string | null;
+  assets: ServiceCatalogReleaseAssetResponse[];
+  selectedAsset: ServiceCatalogReleaseAssetResponse | null;
+  default: boolean;
+}
+
+export interface ServiceCatalogPackageReleasesResponse {
+  package: ServiceCatalogPackageResponse;
+  versions: ServiceCatalogReleaseVersionResponse[];
+  defaultVersion: ServiceCatalogReleaseVersionResponse | null;
+  source: {
+    type: "github-releases";
+    apiBaseUrl: string;
+    repository: string;
+  };
+  summary: {
+    total: number;
+    stable: number;
+    prerelease: number;
+    drafts: number;
+  };
 }

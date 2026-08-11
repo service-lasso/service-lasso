@@ -45,6 +45,15 @@ interface ManagedProcessRecord {
   finalizePromise: Promise<void>;
 }
 
+interface AdoptedProcessRecord {
+  service: DiscoveredService;
+  pid: number;
+  startedAt: string;
+  command: string;
+  stopping: boolean;
+  workspaceRoot: string;
+}
+
 interface StartProcessOptions {
   service: DiscoveredService;
   executionPlan: ProviderExecutionPlan;
@@ -63,8 +72,17 @@ interface StartProcessOptions {
   }) => Promise<void> | void;
 }
 
+interface AdoptManagedProcessOptions {
+  service: DiscoveredService;
+  pid: number;
+  startedAt: string;
+  command: string;
+  workspaceRoot: string;
+}
+
 const managedProcesses = new Map<string, ManagedProcessRecord>();
 const managedProcessFinalizers = new Map<string, Promise<void>>();
+const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
 
 async function prepareRuntimeLogStreams(serviceRoot: string, startedAt: string): Promise<{
   paths: ServiceRuntimeLogPaths;
@@ -109,8 +127,7 @@ async function waitForCommandExit(command: string, args: string[]): Promise<void
   });
 }
 
-async function forceKillManagedProcessTree(child: ChildProcess): Promise<void> {
-  const pid = child.pid;
+async function forceKillProcessTree(pid: number): Promise<void> {
   if (!pid) {
     return;
   }
@@ -121,9 +138,15 @@ async function forceKillManagedProcessTree(child: ChildProcess): Promise<void> {
   }
 
   try {
-    child.kill("SIGKILL");
+    process.kill(pid, "SIGKILL");
   } catch {
     // The process may have exited between the timeout and forced kill.
+  }
+}
+
+async function forceKillManagedProcessTree(child: ChildProcess): Promise<void> {
+  if (child.pid) {
+    await forceKillProcessTree(child.pid);
   }
 }
 
@@ -308,20 +331,62 @@ function buildProcessEnvironment(
 }
 
 export function hasManagedProcess(serviceId: string): boolean {
-  return managedProcesses.has(serviceId);
+  return managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId);
 }
 
 export async function beginManagedProcessStop(serviceId: string): Promise<boolean> {
   const record = managedProcesses.get(serviceId);
-  if (!record) {
-    return false;
+  if (record) {
+    record.stopping = true;
+    if (record.workspaceRoot) {
+      await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+    }
+    return true;
   }
 
-  record.stopping = true;
-  if (record.workspaceRoot) {
-    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+  const adopted = adoptedProcesses.get(serviceId);
+  if (adopted) {
+    adopted.stopping = true;
+    await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopping", undefined, adopted.pid);
+    return true;
   }
-  return true;
+
+  return false;
+}
+
+export async function adoptManagedProcess(options: AdoptManagedProcessOptions): Promise<ManagedProcessHandle> {
+  const { service, pid, startedAt, command, workspaceRoot } = options;
+  const serviceId = service.manifest.id;
+
+  const priorFinalizer = managedProcessFinalizers.get(serviceId);
+  if (priorFinalizer) {
+    await priorFinalizer;
+  }
+
+  if (managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId)) {
+    throw new Error(`Service "${serviceId}" already has a managed process.`);
+  }
+
+  const status = await reconcileRegisteredProcess(workspaceRoot, "service", serviceId);
+  if (status !== "owned") {
+    throw new Error(`Cannot adopt service "${serviceId}" process ${pid}: persisted owner status is ${status}.`);
+  }
+
+  adoptedProcesses.set(serviceId, {
+    service,
+    pid,
+    startedAt,
+    command,
+    stopping: false,
+    workspaceRoot,
+  });
+
+  return {
+    pid,
+    startedAt,
+    command,
+    logs: getServiceRuntimeLogPaths(service.serviceRoot, buildServiceRuntimeLogRunId(startedAt)),
+  };
 }
 
 export async function startManagedProcess(options: StartProcessOptions): Promise<ManagedProcessHandle> {
@@ -344,7 +409,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     await priorFinalizer;
   }
 
-  if (managedProcesses.has(serviceId)) {
+  if (managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId)) {
     throw new Error(`Service "${serviceId}" already has a managed process.`);
   }
   if (workspaceRoot) {
@@ -514,7 +579,7 @@ export async function stopManagedProcess(
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
-    return null;
+    return await stopAdoptedProcess(serviceId, timeoutMs);
   }
 
   await beginManagedProcessStop(serviceId);
@@ -555,13 +620,83 @@ export async function stopManagedProcess(
   return result;
 }
 
+async function waitForAdoptedProcessExit(
+  record: AdoptedProcessRecord,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await reconcileRegisteredProcess(record.workspaceRoot, "service", record.service.manifest.id);
+    if (status === "not_running" || status === "identity_mismatch") {
+      return true;
+    }
+    if (status === "unknown_owner") {
+      throw new Error(`Cannot verify adopted service "${record.service.manifest.id}" process owner during stop.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+async function stopAdoptedProcess(
+  serviceId: string,
+  timeoutMs: number,
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
+  const record = adoptedProcesses.get(serviceId);
+  if (!record) {
+    return null;
+  }
+
+  await beginManagedProcessStop(serviceId);
+  const status = await reconcileRegisteredProcess(record.workspaceRoot, "service", serviceId);
+  if (status === "unknown_owner") {
+    throw new Error(`Cannot stop service "${serviceId}" because its adopted process owner is unverifiable.`);
+  }
+  if (status === "not_running" || status === "identity_mismatch") {
+    adoptedProcesses.delete(serviceId);
+    return { exitCode: 0, signal: null };
+  }
+
+  try {
+    process.kill(record.pid);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+      throw error;
+    }
+  }
+
+  const exited = await waitForAdoptedProcessExit(record, timeoutMs);
+  if (!exited) {
+    await forceKillProcessTree(record.pid);
+    await waitForAdoptedProcessExit(record, timeoutMs);
+    adoptedProcesses.delete(serviceId);
+    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
+    return { exitCode: null, signal: "SIGKILL" };
+  }
+
+  adoptedProcesses.delete(serviceId);
+  await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
+  return { exitCode: 0, signal: null };
+}
+
 export async function waitForManagedProcessExit(
   serviceId: string,
   timeoutMs = 5_000,
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
-    return null;
+    const adopted = adoptedProcesses.get(serviceId);
+    if (!adopted) {
+      return null;
+    }
+    await beginManagedProcessStop(serviceId);
+    const exited = await waitForAdoptedProcessExit(adopted, timeoutMs);
+    if (!exited) {
+      return null;
+    }
+    adoptedProcesses.delete(serviceId);
+    await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopped", "not_running", adopted.pid);
+    return { exitCode: 0, signal: null };
   }
 
   await beginManagedProcessStop(serviceId);
@@ -599,6 +734,6 @@ export async function waitForManagedProcessExit(
 }
 
 export async function stopAllManagedProcesses(): Promise<void> {
-  const serviceIds = [...managedProcesses.keys()];
+  const serviceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])];
   await Promise.all(serviceIds.map((serviceId) => stopManagedProcess(serviceId).catch(() => null)));
 }

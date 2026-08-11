@@ -101,11 +101,14 @@
       }
     ]
   },
-  "healthcheck": {
-    "type": "http",
-    "url": "http://127.0.0.1:${HTTP_PORT}/debug/ready",
-    "expected_status": 200,
-    "retries": 80,
-    "interval": 500
-  }
+  "healthchecks": [
+    {
+      "id": "zitadel-http-ready",
+      "type": "http",
+      "url": "http://127.0.0.1:${HTTP_PORT}/debug/ready",
+      "expected_status": 200,
+      "retries": 80,
+      "interval": 500
+    }
+  ]
 }

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
 import type { DiscoveredService, ServiceHookFailurePolicy, ServiceHookStep, ServiceLifecycleHooks } from "../../contracts/service.js";
+import { resolveServiceEnvValue } from "../operator/variables.js";
 
 export type ServiceHookPhase = keyof ServiceLifecycleHooks;
 
@@ -52,7 +53,12 @@ async function runHookStep(
     cwd: resolveStepCwd(service, step),
     env: {
       ...process.env,
-      ...(step.env ?? {}),
+      ...Object.fromEntries(
+        Object.entries(step.env ?? {}).map(([key, value]) => [
+          key,
+          resolveServiceEnvValue(value, service),
+        ]),
+      ),
       SERVICE_ID: service.manifest.id,
       SERVICE_ROOT: service.serviceRoot,
       SERVICE_HOOK_PHASE: phase,

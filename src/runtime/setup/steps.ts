@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createWriteStream, type WriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import type { DiscoveredService, ServiceSetupStep } from "../../contracts/service.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
@@ -13,7 +13,7 @@ import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
 import { startService } from "../lifecycle/actions.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
-import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceText } from "../operator/variables.js";
+import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { writeServiceState } from "../state/writeState.js";
 
@@ -118,8 +118,44 @@ function resolveExecutable(service: DiscoveredService, executionPlan: ProviderEx
   return executable;
 }
 
-function resolveWorkingDirectory(service: DiscoveredService, _executionPlan: ProviderExecutionPlan, _executable: string): string {
-  return service.serviceRoot;
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+class SetupWorkingDirectoryError extends Error {
+  constructor(message: string, readonly cwd?: string) {
+    super(message);
+  }
+}
+
+async function resolveWorkingDirectory(
+  service: DiscoveredService,
+  step: ServiceSetupStep,
+  sharedGlobalEnv: Record<string, string>,
+  resolvedPorts: Record<string, number>,
+): Promise<string> {
+  if (!step.cwd) {
+    return service.serviceRoot;
+  }
+
+  const resolved = resolveServiceText(step.cwd, service, sharedGlobalEnv, resolvedPorts);
+  const cwd = path.resolve(service.serviceRoot, resolved);
+  if (!isPathInside(service.serviceRoot, cwd)) {
+    throw new SetupWorkingDirectoryError(`Setup step cwd for "${service.manifest.id}" must stay inside the service root.`, cwd);
+  }
+
+  const cwdStat = await stat(cwd).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") {
+      throw new SetupWorkingDirectoryError(`Setup step cwd for "${service.manifest.id}" does not exist: ${cwd}`, cwd);
+    }
+    throw error;
+  });
+  if (!cwdStat.isDirectory()) {
+    throw new SetupWorkingDirectoryError(`Setup step cwd for "${service.manifest.id}" is not a directory: ${cwd}`, cwd);
+  }
+
+  return cwd;
 }
 
 function buildStepService(service: DiscoveredService, step: ServiceSetupStep): DiscoveredService {
@@ -223,15 +259,32 @@ function buildProcessEnvironment(
     buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
   const stepEnv = Object.fromEntries(
-    Object.entries(step.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, sharedGlobalEnv, resolvedPorts)]),
+    Object.entries(step.env ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceEnvValue(value, service, sharedGlobalEnv, resolvedPorts),
+    ]),
   );
 
   return {
-    ...process.env,
+    ...buildSetupHostEnvironmentAllowlist(),
     ...executionPlan.providerEnv,
     ...serviceVariables,
     ...stepEnv,
   };
+}
+
+function buildSetupHostEnvironmentAllowlist(): NodeJS.ProcessEnv {
+  const allowedKeys =
+    process.platform === "win32"
+      ? ["ComSpec", "OS", "Path", "PATHEXT", "SystemRoot", "TEMP", "TMP", "USERPROFILE", "WINDIR"]
+      : ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "TMPDIR"];
+
+  return Object.fromEntries(
+    allowedKeys.flatMap((key) => {
+      const value = process.env[key];
+      return typeof value === "string" ? [[key, value]] : [];
+    }),
+  );
 }
 
 function recordSetupRun(serviceId: string, run: ServiceSetupStepRunState): ServiceLifecycleState {
@@ -253,6 +306,41 @@ function recordSetupRun(serviceId: string, run: ServiceSetupStepRunState): Servi
       },
     },
   });
+}
+
+async function createFailedSetupRun(
+  service: DiscoveredService,
+  stepId: string,
+  command: string,
+  message: string,
+  cwd?: string,
+): Promise<ServiceSetupStepRunState> {
+  const now = new Date().toISOString();
+  const runId = buildRunId(stepId);
+  const logs = getSetupRunLogPaths(service.serviceRoot, stepId, runId);
+  await mkdir(path.dirname(logs.logPath), { recursive: true });
+  const combined = createWriteStream(logs.logPath, { flags: "w" });
+  const stdout = createWriteStream(logs.stdoutPath, { flags: "w" });
+  const stderr = createWriteStream(logs.stderrPath, { flags: "w" });
+  stderr.write(`${message}\n`);
+  writeCombinedLogEntry(combined, "stderr", message);
+  await Promise.all([closeWriteStream(combined), closeWriteStream(stdout), closeWriteStream(stderr)]);
+
+  return {
+    runId,
+    serviceId: service.manifest.id,
+    stepId,
+    status: "failed",
+    startedAt: now,
+    finishedAt: now,
+    durationMs: 0,
+    command,
+    ...(cwd ? { cwd } : {}),
+    exitCode: null,
+    signal: null,
+    message,
+    logs,
+  };
 }
 
 function shouldSkipStep(
@@ -397,6 +485,30 @@ export async function runSetupStep(
   const executable = resolveExecutable(service, executionPlan);
   const args = executionPlan.args;
   const command = [executable, ...args].join(" ");
+  let cwd: string;
+  try {
+    cwd = await resolveWorkingDirectory(service, step, sharedGlobalEnv, resolvedPorts);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : `Setup step "${stepId}" failed before command execution.`;
+    const run = await createFailedSetupRun(
+      service,
+      stepId,
+      command,
+      message,
+      error instanceof SetupWorkingDirectoryError ? error.cwd : undefined,
+    );
+    const nextState = recordSetupRun(serviceId, run);
+    visiting.delete(visitKey);
+    return {
+      ok: false,
+      action: "setup",
+      serviceId,
+      stepId,
+      state: nextState,
+      run,
+      message,
+    };
+  }
   const startedAt = new Date().toISOString();
   const runId = buildRunId(stepId);
   const logs = getSetupRunLogPaths(service.serviceRoot, stepId, runId);
@@ -406,7 +518,7 @@ export async function runSetupStep(
   const stdout = createWriteStream(logs.stdoutPath, { flags: "w" });
   const stderr = createWriteStream(logs.stderrPath, { flags: "w" });
   const child = spawn(executable, args, {
-    cwd: resolveWorkingDirectory(service, executionPlan, executable),
+    cwd,
     env: buildProcessEnvironment(service, executionPlan, step, sharedGlobalEnv, resolvedPorts),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -448,6 +560,7 @@ export async function runSetupStep(
     finishedAt,
     durationMs,
     command,
+    cwd,
     exitCode: exit.exitCode,
     signal: exit.signal,
     message,

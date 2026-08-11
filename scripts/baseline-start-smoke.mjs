@@ -182,7 +182,7 @@ async function writeLongRunningService(servicesRoot, serviceId, options = {}) {
     executable: process.execPath,
     args: [path.relative(serviceRoot, scriptPath)],
     depend_on: options.depend_on,
-    healthcheck: { type: "process" },
+    healthchecks: [{ id: "process-health", type: "process" }],
     install: {
       files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }],
     },
@@ -282,10 +282,12 @@ async function writeNginxService(servicesRoot, httpPort) {
         [process.platform]: nginxPlatformArtifact(),
       },
     },
-    healthcheck: {
-      ...coreNginxManifest.healthcheck,
-      url: `http://127.0.0.1:${httpPort}/health`,
-    },
+    healthchecks: [
+      {
+        ...coreNginxManifest.healthchecks[0],
+        url: `http://127.0.0.1:${httpPort}/health`,
+      },
+    ],
   });
 }
 
@@ -379,7 +381,16 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
     depend_on: options.depend_on,
     ports: options.ports,
     urls: options.urls,
-    healthcheck: { type: "http", url: options.healthUrl, expected_status: 200, retries: 20, interval: 250 },
+    healthchecks: [
+      {
+        id: "http-health",
+        type: "http",
+        url: options.healthUrl,
+        expected_status: 200,
+        retries: 20,
+        interval: 250,
+      },
+    ],
     install: {
       files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }],
     },
@@ -472,13 +483,16 @@ async function writeTraefikService(servicesRoot, ports, options = {}) {
         },
       ],
     },
-    healthcheck: {
-      type: "http",
-      url: `http://127.0.0.1:${ports.admin}/ping`,
-      expected_status: 200,
-      retries: 80,
-      interval: 250,
-    },
+    healthchecks: [
+      {
+        id: "traefik-ping-health",
+        type: "http",
+        url: `http://127.0.0.1:${ports.admin}/ping`,
+        expected_status: 200,
+        retries: 80,
+        interval: 250,
+      },
+    ],
   });
 }
 
@@ -669,6 +683,8 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
   await writeArchiveProviderService(servicesRoot);
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);

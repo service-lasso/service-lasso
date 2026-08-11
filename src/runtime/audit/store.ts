@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import type { AuditEvent, AuditEventOutcome, AuditQuery, AuditResponse, AuditSafeMetadataValue } from "../../contracts/api.js";
+import type {
+  AuditChainStatus,
+  AuditEvent,
+  AuditEventOutcome,
+  AuditQuery,
+  AuditResponse,
+  AuditSafeMetadataValue,
+} from "../../contracts/api.js";
 import { assertSafeAuditMetadata } from "./events.js";
 
 export interface AppendAuditEventInput {
@@ -32,6 +39,16 @@ export interface ReadAuditEventsInput {
 const defaultLimit = 100;
 const maxLimit = 500;
 
+type AuditEventChainStatus = AuditEvent["chainStatus"];
+
+export interface AuditChainVerificationResult {
+  filePath: string;
+  chainStatus: AuditEventChainStatus;
+  events: AuditEvent[];
+  brokenAtSequence?: number;
+  reason?: string;
+}
+
 function auditDateSegment(timestamp: string): string {
   return timestamp.slice(0, 10);
 }
@@ -48,8 +65,37 @@ function getServiceAuditPath(serviceRoot: string): string {
   return path.join(serviceRoot, ".state", "audit", "events.jsonl");
 }
 
+function stableCanonicalValue(input: unknown): unknown {
+  if (input === null || typeof input !== "object") {
+    return input;
+  }
+
+  if (Array.isArray(input)) {
+    return input.map((item) => stableCanonicalValue(item));
+  }
+
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>)
+      .filter(([, value]) => value !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => [key, stableCanonicalValue(value)]),
+  );
+}
+
 function stableHash(input: unknown): string {
-  return createHash("sha256").update(JSON.stringify(input), "utf8").digest("hex");
+  return createHash("sha256").update(JSON.stringify(stableCanonicalValue(input)), "utf8").digest("hex");
+}
+
+function auditEventHashPayload(event: AuditEvent, previousHash: string | null): Record<string, unknown> {
+  const { eventHash: _eventHash, chainStatus: _chainStatus, ...safeEvent } = event;
+  return {
+    ...safeEvent,
+    previousHash,
+  };
+}
+
+function computeAuditEventHash(event: AuditEvent, previousHash: string | null): string {
+  return stableHash(auditEventHashPayload(event, previousHash));
 }
 
 function parseJsonl(content: string): AuditEvent[] {
@@ -77,18 +123,103 @@ async function readAuditFile(filePath: string): Promise<AuditEvent[]> {
   return parseJsonl(content);
 }
 
+export async function verifyAuditFile(filePath: string): Promise<AuditChainVerificationResult> {
+  const content = await readFile(filePath, "utf8").catch((error: unknown) => {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return "";
+    }
+    throw error;
+  });
+  const lines = content
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const events: AuditEvent[] = [];
+
+  for (const [index, line] of lines.entries()) {
+    try {
+      events.push(JSON.parse(line) as AuditEvent);
+    } catch {
+      return {
+        filePath,
+        chainStatus: "broken",
+        events,
+        brokenAtSequence: index + 1,
+        reason: "invalid-jsonl",
+      };
+    }
+  }
+
+  if (events.length === 0) {
+    return {
+      filePath,
+      chainStatus: "unavailable",
+      events,
+      reason: "empty",
+    };
+  }
+
+  let previousHash: string | null = null;
+  let chainId: string | null = null;
+
+  for (const [index, event] of events.entries()) {
+    const sequence = index + 1;
+    if (!event.chainId || typeof event.sequence !== "number" || !event.eventHash) {
+      return {
+        filePath,
+        chainStatus: "unavailable",
+        events,
+        brokenAtSequence: sequence,
+        reason: "missing-chain-metadata",
+      };
+    }
+
+    if (chainId === null) {
+      chainId = event.chainId;
+    }
+
+    if (event.chainId !== chainId || event.sequence !== sequence || event.previousHash !== previousHash) {
+      return {
+        filePath,
+        chainStatus: "broken",
+        events,
+        brokenAtSequence: sequence,
+        reason: "chain-link-mismatch",
+      };
+    }
+
+    if (event.eventHash !== computeAuditEventHash(event, previousHash)) {
+      return {
+        filePath,
+        chainStatus: "broken",
+        events,
+        brokenAtSequence: sequence,
+        reason: "event-hash-mismatch",
+      };
+    }
+
+    previousHash = event.eventHash;
+  }
+
+  return {
+    filePath,
+    chainStatus: "verified",
+    events,
+  };
+}
+
 async function appendAuditLine(filePath: string, event: AuditEvent): Promise<void> {
   const existing = await readAuditFile(filePath);
   const previous = existing.at(-1);
-  const sequence = previous ? previous.sequence + 1 : 1;
-  const previousHash = previous?.eventHash ?? null;
+  const sequence = typeof previous?.sequence === "number" ? previous.sequence + 1 : 1;
+  const previousHash = previous?.eventHash || null;
   const eventWithoutHash = {
     ...event,
     sequence,
     previousHash,
-    eventHash: "",
+    chainStatus: "verified" as const,
   };
-  const eventHash = stableHash(eventWithoutHash);
+  const eventHash = computeAuditEventHash(eventWithoutHash, previousHash);
   const nextEvent: AuditEvent = {
     ...eventWithoutHash,
     eventHash,
@@ -126,7 +257,7 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     sequence: 0,
     previousHash: null,
     eventHash: "",
-    chainStatus: "valid",
+    chainStatus: "verified",
   };
   const filePath =
     input.serviceRoot && input.serviceId
@@ -161,6 +292,7 @@ function matchesQuery(event: AuditEvent, query: AuditQuery): boolean {
   if (query.actor && event.actor !== query.actor) return false;
   if (query.action && event.action !== query.action) return false;
   if (query.outcome && event.outcome !== query.outcome) return false;
+  if (query.subjectType && (event as AuditEvent & { subjectType?: string }).subjectType !== query.subjectType) return false;
   if (query.source && event.source !== query.source) return false;
   if (query.since && event.timestamp < query.since) return false;
   if (query.until && event.timestamp > query.until) return false;
@@ -189,6 +321,44 @@ function matchesQuery(event: AuditEvent, query: AuditQuery): boolean {
   return true;
 }
 
+function getEventChainStatus(events: AuditEvent[]): AuditChainStatus {
+  if (events.length === 0) return "unavailable";
+
+  const statuses = new Set<Exclude<AuditChainStatus, "mixed">>();
+  const chains = new Map<string, AuditEvent[]>();
+
+  for (const event of events) {
+    const chain = chains.get(event.chainId) ?? [];
+    chain.push(event);
+    chains.set(event.chainId, chain);
+  }
+
+  for (const chain of chains.values()) {
+    const ordered = [...chain].sort((left, right) => left.sequence - right.sequence);
+    let previousHash: string | null = null;
+    let chainStatus: Exclude<AuditChainStatus, "mixed"> = "verified";
+
+    for (const event of ordered) {
+      if (!event.eventHash || event.previousHash !== previousHash) {
+        chainStatus = "broken";
+        break;
+      }
+
+      const expectedHash = computeAuditEventHash(event, previousHash);
+      if (event.eventHash !== expectedHash) {
+        chainStatus = "broken";
+        break;
+      }
+
+      previousHash = event.eventHash;
+    }
+
+    statuses.add(chainStatus);
+  }
+
+  return statuses.size === 1 ? [...statuses][0] : "mixed";
+}
+
 export async function readAuditEvents(input: ReadAuditEventsInput): Promise<AuditResponse> {
   const query = input.query ?? {};
   const limit = normalizeLimit(query.limit);
@@ -209,17 +379,25 @@ export async function readAuditEvents(input: ReadAuditEventsInput): Promise<Audi
     files.push(getServiceAuditPath(serviceRoot));
   }
 
-  const events = (
-    await Promise.all(files.map(async (filePath) => readAuditFile(filePath)))
-  )
+  const verificationResults = await Promise.all(files.map(async (filePath) => verifyAuditFile(filePath)));
+  const events = verificationResults
     .flat()
+    .flatMap((result) => result.events.map((event) => ({ ...event, chainStatus: result.chainStatus })))
     .filter((event) => matchesQuery(event, query))
-    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    .sort((left, right) =>
+      right.timestamp.localeCompare(left.timestamp) ||
+      right.sequence - left.sequence ||
+      right.id.localeCompare(left.id),
+    );
   const page = events.slice(cursor, cursor + limit);
   const nextCursor = cursor + page.length < events.length ? String(cursor + page.length) : null;
 
   return {
     events: page,
+    nextCursor,
+    source: "runtime-audit",
+    chainStatus: getEventChainStatus(events),
+    rawMaterialReturned: false,
     pagination: {
       limit,
       nextCursor,

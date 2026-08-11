@@ -5,6 +5,7 @@ import {
   defaultDemoServicesRoot,
   defaultDemoWorkspaceRoot,
 } from "./demo-instance-lib.mjs";
+import { canonicalDemoServicesRoot } from "./demo-canonical-root.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 export const canonicalDemoHost = "192.168.1.53";
@@ -42,6 +43,13 @@ function urlPort(url) {
 function normalizePathForCompare(value) {
   const resolved = path.resolve(String(value ?? ""));
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function canonicalServicesRootFor(requestedServicesRoot) {
+  const resolved = path.resolve(requestedServicesRoot ?? defaultDemoServicesRoot);
+  return normalizePathForCompare(resolved) === normalizePathForCompare(defaultDemoServicesRoot)
+    ? canonicalDemoServicesRoot
+    : resolved;
 }
 
 function safeEvidenceUrl(url) {
@@ -168,6 +176,13 @@ function manifestUrlEndpoints(manifest) {
     }));
 }
 
+function manifestHealthchecks(manifest) {
+  if (Array.isArray(manifest.healthchecks)) {
+    return manifest.healthchecks;
+  }
+  return manifest.healthcheck ? [manifest.healthcheck] : [];
+}
+
 export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
   const targets = [];
   const seen = new Set();
@@ -189,15 +204,19 @@ export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
     });
   }
 
-  if (manifest.healthcheck?.type === "http" && manifest.healthcheck.url) {
-    const resolvedUrl = resolveServiceText(manifest.healthcheck.url, ports);
+  for (const healthcheck of manifestHealthchecks(manifest)) {
+    if (healthcheck?.type !== "http" || !healthcheck.url) {
+      continue;
+    }
+    const resolvedUrl = resolveServiceText(healthcheck.url, ports);
     if (!resolvedUrl.includes("${") && !seen.has(resolvedUrl)) {
       targets.push({
-        label: "healthcheck",
+        label: healthcheck.id ?? "healthcheck",
         url: resolvedUrl,
-        source: "healthcheck",
-        expectedStatus: manifest.healthcheck.expected_status ?? 200,
+        source: "healthchecks",
+        expectedStatus: healthcheck.expected_status ?? 200,
       });
+      seen.add(resolvedUrl);
     }
   }
 
@@ -234,7 +253,7 @@ export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), en
   const runtimeUrl = normalizeUrlBase(
     parseFlag(args, "runtime-url")
       ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL
-      ?? `http://${host}:${runtimePort}`,
+      ?? `http://127.0.0.1:${runtimePort}`,
   );
   const serviceAdminUrl =
     parseFlag(args, "service-admin-url")
@@ -250,7 +269,7 @@ export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), en
     runtimeHealthUrl: `${runtimeUrl}/api/health`,
     runtimeSummaryUrl: `${runtimeUrl}/api/runtime`,
     runtimeServicesUrl: `${runtimeUrl}/api/services`,
-    servicesRoot: path.resolve(parseFlag(args, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? defaultDemoServicesRoot),
+    servicesRoot: canonicalServicesRootFor(parseFlag(args, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? defaultDemoServicesRoot),
     workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? defaultDemoWorkspaceRoot),
     timeoutMs: parseNumber(parseFlag(args, "timeout-ms") ?? env.SERVICE_LASSO_DEMO_VERIFY_TIMEOUT_MS, 10_000),
     serviceIds: canonicalServiceIds,
@@ -508,17 +527,19 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
 }
 
 export function formatCanonicalVerifierResult(result) {
+  const summary = result.summary ?? {};
+  const services = Array.isArray(summary.services) ? summary.services : [];
   const lines = [
     `[service-lasso demo] canonical verifier ${result.ok ? "passed" : "failed"}`,
-    `- runtime: ${result.summary.runtimeUrl}`,
-    `- serviceAdmin: ${result.summary.serviceAdminUrl}`,
-    `- servicesRoot: ${result.summary.servicesRoot}`,
-    `- workspaceRoot: ${result.summary.workspaceRoot}`,
+    `- runtime: ${summary.runtimeUrl ?? "unknown"}`,
+    `- serviceAdmin: ${summary.serviceAdminUrl ?? "unknown"}`,
+    `- servicesRoot: ${summary.servicesRoot ?? "unknown"}`,
+    `- workspaceRoot: ${summary.workspaceRoot ?? "unknown"}`,
   ];
 
-  if (result.summary.services.length > 0) {
+  if (services.length > 0) {
     lines.push("- release pins:");
-    for (const service of result.summary.services) {
+    for (const service of services) {
       lines.push(
         `  - ${service.id}: expected=${service.expectedTag} catalog=${service.catalogTag} installed=${service.installedTag} prepared=${service.installed}/${service.configured} running=${service.running} healthy=${service.healthy}`,
       );

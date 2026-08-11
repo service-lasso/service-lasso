@@ -88,7 +88,14 @@ import {
 } from "../runtime/operator/telemetry-scheduler.js";
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
+import { resolveRuntimeRequestAuth, type RuntimeAuthPolicyStatus } from "../runtime/auth/request-policy.js";
+import {
+  bootstrapLocalVault,
+  isSetupBootstrapAllowed,
+  readRuntimeSetupStatus,
+} from "../runtime/setup/first-run.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
+import { buildEffectiveRouteMetadata } from "../runtime/operator/endpoints.js";
 import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
 import {
@@ -112,6 +119,7 @@ import {
   buildServiceSecretReferenceAudit,
   buildServiceSecretRotationReadinessReport,
 } from "../runtime/operator/secret-audit.js";
+import { buildSecretRotationImpactPlan } from "../runtime/operator/secret-rotation-plan.js";
 import {
   getServiceLassoMcpCapabilities,
   handleServiceLassoMcpJsonRpcRequest,
@@ -127,6 +135,24 @@ import {
   type OperatorActionMutationInput,
   type OperatorActionQueueState,
 } from "../runtime/operator/action-queue.js";
+import {
+  bulkMutateOperatorInboxItems,
+  countOperatorInboxItems,
+  listOperatorInboxItems,
+  mutateOperatorInboxItem,
+  readOperatorInbox,
+  upsertOperatorInboxItem,
+  type OperatorInboxActionAvailability,
+  type OperatorInboxActionKind,
+  type OperatorInboxFilter,
+  type OperatorInboxInput,
+  type OperatorInboxQuery,
+  type OperatorInboxSeverity,
+  type OperatorInboxSource,
+  type OperatorInboxState,
+  type OperatorInboxType,
+  type OperatorInboxVisibility,
+} from "../runtime/operator/inbox.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
@@ -140,8 +166,14 @@ import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
+import { enforcePermission } from "../runtime/permissions/enforcement.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
+import {
+  createArchiveSelectionExport,
+  parseArchiveSelectionExportRequest,
+  readArchiveExportArtifact,
+} from "../runtime/files/archive-export.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
@@ -176,6 +208,11 @@ import {
   listServiceUpdateStates,
 } from "../runtime/updates/actions.js";
 import {
+  getServiceCatalogPackage,
+  listServiceCatalogPackageReleases,
+  listServiceCatalogPackages,
+} from "../runtime/catalog/service-catalog.js";
+import {
   assertWorkflowRunFacadeSecretSafe,
   cancelWorkflowFacadeRun,
   exampleWorkflowRunFacadeState,
@@ -201,6 +238,7 @@ import type {
   RuntimeOrchestrationResponse,
   OperatorCommandRequest,
   AuditQuery,
+  RuntimeAuthStatusResponse,
   ServiceActionRunResponse,
   ServiceActionRunsResponse,
   ServiceDetailResponse,
@@ -220,6 +258,8 @@ export interface ApiServerOptions {
   monitorIntervalMs?: number;
   updateScheduler?: boolean;
   updateSchedulerIntervalMs?: number;
+  serviceCatalogUrl?: string;
+  serviceCatalogGithubApiBaseUrl?: string;
   workflowRunFacadeState?: WorkflowRunFacadeState;
   telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
   apiRequestTelemetryState?: ApiRequestTelemetryState;
@@ -231,11 +271,14 @@ interface ApiRequestTelemetryState {
 }
 
 interface ApiRouteConfig extends RuntimeConfig {
+  bindHost: string;
   features: {
     autostart: boolean;
     monitor: boolean;
     updateScheduler: boolean;
   };
+  serviceCatalogUrl?: string;
+  serviceCatalogGithubApiBaseUrl?: string;
 }
 
 export interface RunningApiServer {
@@ -289,6 +332,144 @@ function parseServiceLogReadType(value: string | null): ServiceLogReadType {
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
   return JSON.parse(JSON.stringify(state)) as WorkflowRunFacadeState;
+}
+
+const OPERATOR_INBOX_TYPES = ["system", "workflow", "service", "update", "security", "help", "error"] as const;
+const OPERATOR_INBOX_SEVERITIES = ["info", "success", "warning", "error", "critical"] as const;
+const OPERATOR_INBOX_SOURCES = ["runtime", "service", "workflow", "updater", "broker", "admin-ui", "system"] as const;
+const OPERATOR_INBOX_FILTERS = ["all", "unread", "updates", "system", "workflow", "service", "errors", "hidden"] as const;
+const OPERATOR_INBOX_STATES = ["unread", "read"] as const;
+const OPERATOR_INBOX_VISIBILITIES = ["visible", "hidden"] as const;
+const OPERATOR_INBOX_ACTION_KINDS = ["link", "api", "command"] as const;
+const OPERATOR_INBOX_ACTION_AVAILABILITIES = ["available", "disabled", "expired"] as const;
+
+function parseEnum<T extends string>(
+  name: string,
+  value: unknown,
+  values: readonly T[],
+  options: { required?: boolean } = {},
+): T | undefined {
+  if (value === undefined || value === null || value === "") {
+    if (options.required) {
+      throw new ApiError("invalid_body", 400, `"${name}" must be one of: ${values.join(", ")}.`);
+    }
+    return undefined;
+  }
+  if (typeof value === "string" && values.includes(value as T)) {
+    return value as T;
+  }
+  throw new ApiError("invalid_body", 400, `"${name}" must be one of: ${values.join(", ")}.`);
+}
+
+function parseOperatorInboxQuery(searchParams: URLSearchParams): OperatorInboxQuery {
+  const limit = parseOptionalInteger(searchParams.get("limit"));
+  if (limit !== undefined && limit <= 0) {
+    throw new ApiError("invalid_request", 400, '"limit" must be a positive integer.');
+  }
+
+  return {
+    filter: parseEnum<OperatorInboxFilter>("filter", searchParams.get("filter") ?? undefined, OPERATOR_INBOX_FILTERS),
+    type: parseEnum<OperatorInboxType>("type", searchParams.get("type") ?? undefined, OPERATOR_INBOX_TYPES),
+    state: parseEnum<OperatorInboxState>("state", searchParams.get("state") ?? undefined, OPERATOR_INBOX_STATES),
+    visibility: parseEnum<OperatorInboxVisibility>(
+      "visibility",
+      searchParams.get("visibility") ?? undefined,
+      OPERATOR_INBOX_VISIBILITIES,
+    ),
+    severity: parseEnum<OperatorInboxSeverity>(
+      "severity",
+      searchParams.get("severity") ?? undefined,
+      OPERATOR_INBOX_SEVERITIES,
+    ),
+    source: parseEnum<OperatorInboxSource>("source", searchParams.get("source") ?? undefined, OPERATOR_INBOX_SOURCES),
+    limit,
+    cursor: searchParams.get("cursor") ?? undefined,
+  };
+}
+
+function parseOperatorInboxRecordBody(input: unknown): OperatorInboxInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator inbox record body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  if (typeof candidate.dedupeKey !== "string" || !candidate.dedupeKey.trim()) {
+    throw new ApiError("invalid_body", 400, '"dedupeKey" must be a non-empty string.');
+  }
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) {
+    throw new ApiError("invalid_body", 400, '"title" must be a non-empty string.');
+  }
+  if (typeof candidate.summary !== "string") {
+    throw new ApiError("invalid_body", 400, '"summary" must be a string.');
+  }
+  if (candidate.details !== undefined && candidate.details !== null && typeof candidate.details !== "string") {
+    throw new ApiError("invalid_body", 400, '"details" must be a string or null when present.');
+  }
+
+  const action = candidate.action;
+  if (action !== undefined && action !== null && (!action || typeof action !== "object" || Array.isArray(action))) {
+    throw new ApiError("invalid_body", 400, '"action" must be an object or null when present.');
+  }
+  if (action && typeof action === "object" && !Array.isArray(action)) {
+    const actionRecord = action as Record<string, unknown>;
+    parseEnum<OperatorInboxActionKind>("action.kind", actionRecord.kind, OPERATOR_INBOX_ACTION_KINDS, { required: true });
+    parseEnum<OperatorInboxActionAvailability>(
+      "action.availability",
+      actionRecord.availability,
+      OPERATOR_INBOX_ACTION_AVAILABILITIES,
+      { required: true },
+    );
+  }
+
+  return {
+    dedupeKey: candidate.dedupeKey,
+    title: candidate.title,
+    summary: candidate.summary,
+    details: typeof candidate.details === "string" ? candidate.details : null,
+    type: parseEnum<OperatorInboxType>("type", candidate.type, OPERATOR_INBOX_TYPES, { required: true }) ?? "system",
+    severity: parseEnum<OperatorInboxSeverity>("severity", candidate.severity, OPERATOR_INBOX_SEVERITIES, { required: true }) ?? "info",
+    source: parseEnum<OperatorInboxSource>("source", candidate.source, OPERATOR_INBOX_SOURCES, { required: true }) ?? "runtime",
+    relatedTarget: candidate.relatedTarget as OperatorInboxInput["relatedTarget"],
+    action: candidate.action as OperatorInboxInput["action"],
+    observedAt: typeof candidate.observedAt === "string" ? candidate.observedAt : undefined,
+  };
+}
+
+function parseOperatorInboxMutationBody(input: unknown): { now?: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.now !== undefined && typeof candidate.now !== "string") {
+    throw new ApiError("invalid_body", 400, '"now" must be an ISO timestamp string when present.');
+  }
+  return {
+    now: typeof candidate.now === "string" ? candidate.now : undefined,
+  };
+}
+
+function parseOperatorInboxBulkBody(input: unknown): {
+  action: "read" | "hide";
+  ids: string[];
+  now?: string;
+} {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Operator inbox bulk body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.action !== "read" && candidate.action !== "hide") {
+    throw new ApiError("invalid_body", 400, '"action" must be one of: read, hide.');
+  }
+  if (!Array.isArray(candidate.ids) || candidate.ids.some((entry) => typeof entry !== "string" || !entry.trim())) {
+    throw new ApiError("invalid_body", 400, '"ids" must be an array of non-empty strings.');
+  }
+  if (candidate.now !== undefined && typeof candidate.now !== "string") {
+    throw new ApiError("invalid_body", 400, '"now" must be an ISO timestamp string when present.');
+  }
+  return {
+    action: candidate.action,
+    ids: candidate.ids,
+    now: typeof candidate.now === "string" ? candidate.now : undefined,
+  };
 }
 
 function parseOperatorActionRecordBody(input: unknown): OperatorActionInput {
@@ -424,6 +605,51 @@ function getApiErrorStatusCode(error: unknown): number {
 
 function getAuditFailureReason(error: unknown): string {
   return redactAuditText(toApiErrorBody(error).message);
+}
+
+function createRuntimeAuthResponse(auth: RuntimeAuthPolicyStatus): RuntimeAuthStatusResponse {
+  return {
+    auth,
+  };
+}
+
+function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolean {
+  if (method === "GET" && pathname === "/api/health") return true;
+  if (method === "GET" && pathname === "/api/runtime/capabilities") return true;
+  if (method === "GET" && pathname === "/api/runtime/security") return true;
+  if (method === "GET" && pathname === "/api/setup/status") return true;
+  if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
+  return false;
+}
+
+async function rejectUnauthorizedRemoteRequest(
+  request: IncomingMessage,
+  config: ApiRouteConfig,
+  auth: RuntimeAuthPolicyStatus,
+): Promise<never> {
+  await appendAuditEvent({
+    workspaceRoot: config.workspaceRoot,
+    source: "runtime-api",
+    action: "auth.remote.denied",
+    actor: "remote-unauthenticated",
+    method: request.method ?? "GET",
+    routeTemplate: new URL(request.url ?? "/", "http://127.0.0.1").pathname,
+    outcome: "failure",
+    statusCode: 401,
+    summary: "Remote runtime API request denied because no accepted authentication context was present.",
+    reason: auth.blockers.join(",") || "remote_auth_required",
+    metadata: {
+      clientAddress: auth.request.clientAddress,
+      bindHost: auth.policy.bindHost,
+      zitadelEnabled: auth.policy.zitadelEnabled,
+      localTokenConfigured: auth.policy.localTokenConfigured,
+    },
+  });
+  throw new ApiError(
+    "remote_auth_required",
+    401,
+    "Remote Service Lasso API access requires Zitadel authentication or an explicit local admin token.",
+  );
 }
 
 function getOperatorActionAuditItem(queue: OperatorActionQueueState, itemId?: string | null): OperatorActionItem | null {
@@ -661,7 +887,7 @@ async function appendWorkflowRepoRuntimeAuditEvent(input: {
 function parseAuditQuery(searchParams: URLSearchParams): AuditQuery {
   const query: AuditQuery = {};
 
-  for (const key of ["serviceId", "actor", "action", "source", "since", "until", "query", "limit", "cursor"] as const) {
+  for (const key of ["serviceId", "actor", "action", "source", "subjectType", "since", "until", "query", "limit", "cursor"] as const) {
     const value = searchParams.get(key);
     if (value !== null && value.trim()) {
       query[key] = value.trim();
@@ -909,6 +1135,31 @@ function isTrustedChatBridgeRequest(request: IncomingMessage): boolean {
   return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
+function isSetupTokenAccepted(provided: string | undefined): boolean {
+  const expected = process.env.SERVICE_LASSO_SETUP_TOKEN;
+  if (!expected || !provided) {
+    return false;
+  }
+
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const providedBuffer = Buffer.from(provided, "utf8");
+  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function getSetupBootstrapToken(request: IncomingMessage, body: unknown): string | undefined {
+  const headerToken = firstHeader(request.headers["x-service-lasso-setup-token"]);
+  if (headerToken) {
+    return headerToken;
+  }
+
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return undefined;
+  }
+
+  const token = (body as Record<string, unknown>).setupToken;
+  return typeof token === "string" ? token : undefined;
+}
+
 function parseEntitlements(request: IncomingMessage): PlatformEntitlement[] {
   const header = firstHeader(request.headers["x-service-lasso-entitlements"]);
   if (header === undefined) {
@@ -933,6 +1184,7 @@ function createWorkflowPlatformContext(request: IncomingMessage, workspaceId: st
     instanceId,
     linkedIdentityId,
     entitlements: parseEntitlements(request),
+    roleNames: ["operator"],
     actor: {
       kind: "user",
       id: userId,
@@ -1061,6 +1313,8 @@ async function createServiceSummary(
     version: service.manifest.version,
     dependencies: dependencySummary.dependencies,
     dependents: dependencySummary.dependents,
+    providerCapabilities: service.manifest.provides,
+    providerRequirements: dependencySummary.providerRequirements,
     lifecycle,
     health,
     healthHistory,
@@ -1069,6 +1323,7 @@ async function createServiceSummary(
     catalogProvenance: service.catalogProvenance,
     statePaths: getServiceStatePaths(service.serviceRoot),
     provider,
+    routeMetadata: buildEffectiveRouteMetadata(service, resolvedPorts),
     compatibility: buildServiceCompatibilityReport(service, registry, { updateState: updates }),
     operator: {
       logPath: lifecycle.runtime.logs.logPath ?? runtimeLogs.logPath,
@@ -1588,6 +1843,11 @@ async function routeRequest(
   getTelemetryContinuousExportState: () => TelemetryContinuousExportRuntimeState | null,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  const method = request.method ?? "GET";
+  const auth = resolveRuntimeRequestAuth(request, { bindHost: config.bindHost });
+  if (!isUnauthenticatedRuntimeRoute(method, url.pathname) && auth.policy.remoteAuthRequired && !auth.actor.authenticated) {
+    await rejectUnauthorizedRemoteRequest(request, config, auth);
+  }
 
   if (await routeWorkflowFacadeRequest(request, response, url, config, workflowRunFacadeState)) {
     return;
@@ -1652,6 +1912,73 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/catalog/packages") {
+    try {
+      writeJson(response, 200, await listServiceCatalogPackages({
+        catalogUrl: config.serviceCatalogUrl,
+        githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+        query: url.searchParams.get("query") ?? url.searchParams.get("q"),
+        category: url.searchParams.get("category"),
+        tag: url.searchParams.get("tag"),
+      }));
+    } catch (error) {
+      throw new ApiError(
+        "catalog_unavailable",
+        502,
+        error instanceof Error ? error.message : "Service catalog could not be loaded.",
+      );
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/catalog/packages/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+    const packageId = pathParts[2] === "packages" ? pathParts[3] : "";
+    if (!packageId || pathParts.length < 4 || pathParts.length > 5 || (pathParts.length === 5 && pathParts[4] !== "releases")) {
+      throw new ApiError("invalid_action", 400, "Unknown service catalog route.");
+    }
+
+    if (pathParts.length === 4) {
+      try {
+        const servicePackage = await getServiceCatalogPackage(packageId, {
+          catalogUrl: config.serviceCatalogUrl,
+          githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+        });
+        if (!servicePackage) {
+          throw new ApiError("not_found", 404, `Unknown catalog package: ${packageId}.`);
+        }
+        writeJson(response, 200, { package: servicePackage });
+      } catch (error) {
+        if (error instanceof ApiError) {
+          throw error;
+        }
+        throw new ApiError(
+          "catalog_unavailable",
+          502,
+          error instanceof Error ? error.message : "Service catalog could not be loaded.",
+        );
+      }
+      return;
+    }
+
+    try {
+      writeJson(response, 200, await listServiceCatalogPackageReleases(packageId, {
+        catalogUrl: config.serviceCatalogUrl,
+        githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Service catalog package releases could not be loaded.";
+      throw new ApiError(
+        message.startsWith("Unknown catalog package:")
+          ? "not_found"
+          : "catalog_releases_unavailable",
+        message.startsWith("Unknown catalog package:") ? 404 : 502,
+        message,
+      );
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/workflows/registry") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, createManagedWorkflowRegistryResponse(buildManagedWorkflowRegistry(runtimeModel.discovered)));
@@ -1661,6 +1988,90 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/files/workspaces") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, createServiceWorkspaceRegistryResponse(buildServiceWorkspaceRegistry(runtimeModel.discovered)));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/files/archive-selection") {
+    const requestBody = await readJsonBody(request);
+    const auditActor = getAuditActor(requestBody);
+    const parsedRequest = parseArchiveSelectionExportRequest(requestBody);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const service = runtimeModel.registry.getById(parsedRequest.source.serviceId);
+
+    try {
+      const payload = await createArchiveSelectionExport({
+        services: runtimeModel.discovered,
+        registry: runtimeModel.registry,
+        workspaceRoot: config.workspaceRoot,
+        request: parsedRequest,
+      });
+      await appendAuditEvent({
+        serviceRoot: service?.serviceRoot,
+        workspaceRoot: service ? undefined : config.workspaceRoot,
+        source: "runtime-api",
+        action: "service.file.export",
+        actor: auditActor,
+        subject: payload.export.artifactId,
+        serviceId: payload.export.serviceId,
+        method: "POST",
+        routeTemplate: "/api/files/archive-selection",
+        outcome: "success",
+        statusCode: 200,
+        summary: `Archived ${payload.export.selectedPaths.length} file selection item(s) through @archive.`,
+        relatedRevisionId: payload.export.provider.runId,
+        metadata: {
+          sourceId: payload.export.sourceId,
+          rootId: payload.export.rootId,
+          archiveFormat: payload.export.archiveFormat,
+          artifactId: payload.export.artifactId,
+          artifactFileName: payload.export.artifact.fileName,
+          artifactSizeBytes: payload.export.artifact.sizeBytes,
+          checksumAlgorithm: payload.export.artifact.checksum.algorithm,
+          providerServiceId: payload.export.provider.serviceId,
+          providerActionId: payload.export.provider.actionId,
+          providerVersion: payload.export.provider.version,
+          selectedPaths: payload.export.selectedPaths,
+        },
+      });
+      writeJson(response, 200, payload);
+    } catch (error) {
+      await appendAuditEvent({
+        serviceRoot: service?.serviceRoot,
+        workspaceRoot: service ? undefined : config.workspaceRoot,
+        source: "runtime-api",
+        action: "service.file.export",
+        actor: auditActor,
+        subject: parsedRequest.source.sourceId,
+        serviceId: parsedRequest.source.serviceId,
+        method: "POST",
+        routeTemplate: "/api/files/archive-selection",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        summary: "Failed to archive a selected file source through @archive.",
+        reason: getAuditFailureReason(error),
+        metadata: {
+          sourceId: parsedRequest.source.sourceId,
+          archiveFormat: parsedRequest.archiveFormat ?? "7z",
+          selectedPathCount: parsedRequest.source.paths.length,
+        },
+      });
+      throw error;
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/files/exports/") && url.pathname.endsWith("/download")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    if (pathParts.length !== 5) {
+      notFound(response);
+      return;
+    }
+
+    const artifact = await readArchiveExportArtifact(config.workspaceRoot, decodeURIComponent(pathParts[3] ?? ""));
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/x-7z-compressed");
+    response.setHeader("content-disposition", `attachment; filename="${artifact.metadata.artifact.fileName}"`);
+    response.end(artifact.bytes);
     return;
   }
 
@@ -1700,6 +2111,79 @@ async function routeRequest(
         await buildOperatorNotifications(runtimeModel.discovered, runtimeModel.registry, sharedGlobalEnv),
       ),
     );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/inbox") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: listOperatorInboxItems(inbox, parseOperatorInboxQuery(url.searchParams)),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/inbox/counts") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: {
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/operator/inbox/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const inboxItemId = decodeURIComponent(pathParts[3] ?? "");
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    const inboxItem = inbox.items.find((item) => item.id === inboxItemId);
+    if (!inboxItem) {
+      throw new ApiError("inbox_item_not_found", 404, "Unknown operator inbox item id: " + inboxItemId + ".");
+    }
+    writeJson(response, 200, {
+      inboxItem,
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/inbox/record") {
+    const inbox = await upsertOperatorInboxItem(config.workspaceRoot, parseOperatorInboxRecordBody(await readJsonBody(request)));
+    writeJson(response, 200, {
+      inbox: {
+        items: inbox.items,
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/operator/inbox/bulk") {
+    const body = parseOperatorInboxBulkBody(await readJsonBody(request));
+    const inbox = await bulkMutateOperatorInboxItems(config.workspaceRoot, body.action, body.ids, body.now);
+    writeJson(response, 200, {
+      inbox: {
+        items: inbox.items,
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname.startsWith("/api/operator/inbox/")) {
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const inboxItemId = decodeURIComponent(pathParts[3] ?? "");
+    const mutation = pathParts[4];
+    if (!inboxItemId || (mutation !== "read" && mutation !== "unread" && mutation !== "hide" && mutation !== "unhide")) {
+      throw new ApiError("invalid_action", 400, "Unknown operator inbox mutation route.");
+    }
+    const body = parseOperatorInboxMutationBody(await readJsonBody(request));
+    const inbox = await mutateOperatorInboxItem(config.workspaceRoot, inboxItemId, mutation, body.now);
+    writeJson(response, 200, {
+      inbox: {
+        items: inbox.items,
+        counts: countOperatorInboxItems(inbox.items),
+      },
+    });
     return;
   }
 
@@ -1941,6 +2425,115 @@ async function routeRequest(
       });
       throw error;
     }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/setup/status") {
+    writeJson(response, 200, {
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/setup/bootstrap") {
+    const body = await readJsonBody(request);
+    const setup = await readRuntimeSetupStatus({
+      workspaceRoot: config.workspaceRoot,
+      bindHost: config.bindHost,
+    });
+    const tokenAccepted = isSetupTokenAccepted(getSetupBootstrapToken(request, body));
+    const actor = getAuditActor(body);
+
+    if (!isSetupBootstrapAllowed(setup, tokenAccepted)) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime",
+        action: "setup.bootstrap.denied",
+        actor,
+        method: "POST",
+        routeTemplate: "/api/setup/bootstrap",
+        outcome: "failure",
+        statusCode: 403,
+        summary: "First-run setup bootstrap denied by local setup trust boundary.",
+        reason: setup.trustBoundary.blockers.join(",") || "setup_bootstrap_not_allowed",
+        metadata: {
+          bindHost: setup.trustBoundary.bindHost,
+          localOnly: setup.trustBoundary.localOnly,
+          setupTokenConfigured: setup.trustBoundary.setupTokenConfigured,
+        },
+      });
+      throw new ApiError(
+        "setup_bootstrap_forbidden",
+        403,
+        "First-run setup bootstrap requires a local-only runtime bind or a configured setup token.",
+      );
+    }
+
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.bootstrap.started",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 202,
+      summary: "First-run setup bootstrap started.",
+    });
+    const bootstrap = await bootstrapLocalVault(config.workspaceRoot);
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.vault.created",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 201,
+      summary: "Local Service Lasso vault marker created.",
+    });
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.root_identity.created",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 201,
+      summary: "Root identity bootstrap was recorded for the local vault.",
+    });
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime",
+      action: "setup.bootstrap.completed",
+      actor,
+      method: "POST",
+      routeTemplate: "/api/setup/bootstrap",
+      outcome: "success",
+      statusCode: 201,
+      summary: "First-run setup bootstrap completed.",
+    });
+
+    writeJson(response, 201, {
+      bootstrap: {
+        ok: bootstrap.ok,
+        state: bootstrap.state,
+      },
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
+    });
     return;
   }
 
@@ -2262,6 +2855,21 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "audit") {
+      writeJson(
+        response,
+        200,
+        await readAuditEvents({
+          serviceRoots: [service.serviceRoot],
+          query: {
+            ...parseAuditQuery(url.searchParams),
+            serviceId,
+          },
+        }),
+      );
+      return;
+    }
+
     if (request.method === "PATCH" && pathParts.length === 4 && pathParts[3] === "meta") {
       let auditActor = "unknown";
       let auditReason: string | null = null;
@@ -2487,6 +3095,15 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "secrets" && pathParts[4] === "rotation-plan") {
+      const ref = url.searchParams.get("ref")?.trim();
+      if (!ref) {
+        throw new ApiError("invalid_request", 400, 'Missing required "ref" query parameter.');
+      }
+      writeJson(response, 200, buildSecretRotationImpactPlan(runtimeModel.discovered, ref));
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "updates") {
       writeJson(response, 200, {
         serviceId,
@@ -2543,13 +3160,30 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "actions" && pathParts[5] === "runs") {
       const actionId = decodeURIComponent(pathParts[4] ?? "");
       const requestBody = await readJsonBody(request);
-      const auditActor = getAuditActor(requestBody);
+      const runRequest = parseServiceActionRunRequest(requestBody);
+      const actionDefinition = service.manifest.actions?.[actionId];
+      if (!actionDefinition) {
+        throw new ApiError("unknown_action", 404, `Unknown action "${actionId}" for service "${service.manifest.id}".`);
+      }
+      let auditActor = getAuditActor(requestBody);
       try {
+        const permission = await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: runRequest.actor,
+          permission: "service.action.run",
+          sensitive: actionDefinition.requiresConfirmation === true,
+          confirmed: runRequest.confirm,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/actions/:actionId/runs",
+          subject: actionId,
+        });
+        auditActor = permission.actor.id;
         const payload: ServiceActionRunResponse = await runServiceAction(
           service,
           runtimeModel.registry,
           actionId,
-          parseServiceActionRunRequest(requestBody),
+          runRequest,
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
@@ -2842,6 +3476,11 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/security") {
+    writeJson(response, 200, createRuntimeAuthResponse(auth));
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/runtime/capabilities") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(
@@ -3015,6 +3654,16 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/secrets/rotation-plan") {
+    const ref = url.searchParams.get("ref")?.trim();
+    if (!ref) {
+      throw new ApiError("invalid_request", 400, 'Missing required "ref" query parameter.');
+    }
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, buildSecretRotationImpactPlan(runtimeModel.discovered, ref));
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/variables") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
@@ -3128,11 +3777,14 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedConfig = resolveRuntimeConfig(options);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
+    bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0",
     features: {
       autostart: options.autostart === true,
       monitor: options.monitor === true,
       updateScheduler: options.updateScheduler === true,
     },
+    serviceCatalogUrl: options.serviceCatalogUrl,
+    serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -3178,6 +3830,13 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       writeJson(response, body.statusCode, body);
     });
   });
+}
+
+async function closeApiServer(server: Server): Promise<void> {
+  server.close();
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await once(server, "close");
 }
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
@@ -3229,9 +3888,12 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   });
   const server = createApiServer({
     ...config,
+    host: bindHost,
     autostart: options.autostart,
     monitor: options.monitor,
     updateScheduler: options.updateScheduler,
+    serviceCatalogUrl: options.serviceCatalogUrl,
+    serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
     telemetryExportScheduler,
     apiRequestTelemetryState,
     workflowRunFacadeState: options.workflowRunFacadeState,
@@ -3309,8 +3971,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     await updateScheduler?.stop();
     await telemetryExportScheduler.stop();
     await markRuntimeInstanceStopped(config);
-    server.close();
-    await once(server, "close");
+    await closeApiServer(server);
     await transitionProcessOwnership(
       config.workspaceRoot,
       "runtime",
@@ -3344,8 +4005,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       await telemetryExportScheduler?.stop();
       await stopAllManagedProcesses();
       await markRuntimeInstanceStopped(config);
-      server.close();
-      await once(server, "close");
+      await closeApiServer(server);
       await transitionProcessOwnership(
         config.workspaceRoot,
         "runtime",

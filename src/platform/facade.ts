@@ -11,6 +11,8 @@ export type PlatformEntitlement =
   | "secrets-broker-source:use"
   | "secrets-broker:resolve"
   | "workflow:run";
+export type PlatformPermissionKey = PlatformEntitlement | "service:read" | "service:manage" | "service:start" | "service:stop" | "service:restart" | "service:file-export" | "backup:create" | "backup:restore" | "*" | (string & {});
+export type PlatformPermissionScopeType = "runtime" | "workspace" | "service" | "action" | "file-source" | "file-path" | "broker-namespace" | "export-destination" | "backup-artifact";
 
 export type PlatformActorKind = "user" | "service";
 export type PlatformAuthMethod = "zitadel-session" | "service-identity";
@@ -26,8 +28,46 @@ export type PlatformAuthFailureReason =
 export type PlatformRole = {
   id: string;
   workspaceId: string;
-  name: "owner" | "admin" | "developer" | "operator" | "viewer" | string;
+  name: PlatformRoleName;
   entitlements: PlatformEntitlement[];
+};
+
+export type PlatformRoleName = "owner" | "admin" | "developer" | "operator" | "viewer" | "file-export-operator" | "backup-restore-operator" | "service-account" | string;
+
+export type ZitadelRoleMapping = {
+  workspaceId: string;
+  claim: "group" | "role";
+  value: string;
+  serviceLassoRole: PlatformRoleName;
+};
+
+export type PlatformPermissionGrantTarget =
+  | { kind: "role"; id: string }
+  | { kind: "actor"; id: string }
+  | { kind: "service"; id: string };
+
+export type PlatformPermissionGrant = {
+  id: string;
+  workspaceId: string;
+  target: PlatformPermissionGrantTarget;
+  permissionKey: PlatformPermissionKey;
+  scope: {
+    type: PlatformPermissionScopeType;
+    id: string | "*";
+  };
+  constraints?: Record<string, string | number | boolean>;
+  createdBy: string;
+  createdAt: string;
+  reason?: string;
+};
+
+export type PlatformServiceActionPermission = {
+  serviceId: string;
+  actionId: string;
+  permissionKey: PlatformPermissionKey;
+  scopeType: PlatformPermissionScopeType;
+  description: string;
+  registeredAt: string;
 };
 
 export type PlatformServiceIdentity = {
@@ -73,6 +113,7 @@ export type LinkedIdentity = {
     email?: string;
     preferredUsername?: string;
     groups?: string[];
+    roles?: string[];
   };
   createdAt: string;
   lastSeenAt?: string;
@@ -144,6 +185,7 @@ export type ZitadelSessionContext = {
   email?: string;
   preferredUsername?: string;
   groups?: string[];
+  roles?: string[];
   expiresAt?: string;
 };
 
@@ -155,6 +197,11 @@ export type PlatformAuditActorMetadata = {
   linkedIdentityId?: string;
   serviceIdentityId?: string;
   authMethod: PlatformAuthMethod;
+  zitadelIssuer?: string;
+  zitadelSubject?: string;
+  zitadelGroups?: string[];
+  zitadelRoles?: string[];
+  serviceLassoRoles?: PlatformRoleName[];
 };
 
 export type PlatformRequestContext = {
@@ -163,6 +210,9 @@ export type PlatformRequestContext = {
   instanceId: string;
   linkedIdentityId: string;
   entitlements: PlatformEntitlement[];
+  roleIds?: string[];
+  roleNames: PlatformRoleName[];
+  permissionGrants?: PlatformPermissionGrant[];
   actor: {
     kind: PlatformActorKind;
     id: string;
@@ -206,12 +256,30 @@ export type PlatformContextResolution =
 export type AuthorizationResource =
   | { kind: "provider-connection"; connection: ProviderConnectionMetadata }
   | { kind: "secrets-broker-ref"; workspaceId: string; brokerNamespace: string; ref: string }
-  | { kind: "workflow-run"; workspaceId: string; workflowId: string; requiredProviderConnectionIds?: string[] };
+  | { kind: "workflow-run"; workspaceId: string; workflowId: string; requiredProviderConnectionIds?: string[] }
+  | { kind: "service-action"; workspaceId: string; serviceId: string; actionId: string; permissionKey?: PlatformPermissionKey };
+
+export type AuthorizationGrantEvidence = {
+  grantId: string;
+  targetKind: PlatformPermissionGrantTarget["kind"];
+  targetId: string;
+  permissionKey: PlatformPermissionKey;
+  scopeType: PlatformPermissionScopeType;
+  scopeId: string | "*";
+};
+
+export type AuthorizationPermissionRequirement = {
+  permissionKey: PlatformPermissionKey;
+  scopeType: PlatformPermissionScopeType;
+  scopeId: string;
+};
 
 export type AuthorizationDecision = {
   allowed: boolean;
-  reason: "allowed" | "missing-entitlement" | "workspace-mismatch" | "connection-not-ready";
+  reason: "allowed" | "missing-entitlement" | "missing-grant" | "workspace-mismatch" | "connection-not-ready";
   requiredEntitlements: PlatformEntitlement[];
+  requiredPermission: AuthorizationPermissionRequirement;
+  grantEvidence?: AuthorizationGrantEvidence;
 };
 
 export const coreFacadeBoundary = {
@@ -233,6 +301,9 @@ export type PlatformFacadeState = {
   workspaces: PlatformWorkspace[];
   linkedIdentities: LinkedIdentity[];
   roles: PlatformRole[];
+  zitadelRoleMappings: ZitadelRoleMapping[];
+  permissionGrants: PlatformPermissionGrant[];
+  serviceActionPermissions: PlatformServiceActionPermission[];
   serviceIdentities: PlatformServiceIdentity[];
   providerConnections: ProviderConnectionMetadata[];
 };
@@ -272,12 +343,85 @@ export const examplePlatformFacadeState = {
         email: "operator@example.test",
         preferredUsername: "operator",
         groups: ["service-lasso-operators"],
+        roles: ["operator"],
       },
       createdAt: "2026-05-08T10:00:00Z",
       lastSeenAt: "2026-05-08T10:05:00Z",
     },
   ],
+  zitadelRoleMappings: [
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-owners",
+      serviceLassoRole: "owner",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-admins",
+      serviceLassoRole: "admin",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-operators",
+      serviceLassoRole: "operator",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "group",
+      value: "service-lasso-viewers",
+      serviceLassoRole: "viewer",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "role",
+      value: "service-account",
+      serviceLassoRole: "service-account",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "role",
+      value: "backup-restore",
+      serviceLassoRole: "backup-restore-operator",
+    },
+    {
+      workspaceId: "wks_local_demo",
+      claim: "role",
+      value: "file-export",
+      serviceLassoRole: "file-export-operator",
+    },
+  ],
   roles: [
+    {
+      id: "role_local_owner",
+      workspaceId: "wks_local_demo",
+      name: "owner",
+      entitlements: [
+        "workspace:read",
+        "workspace:admin",
+        "secrets-broker-source:read",
+        "secrets-broker-source:write",
+        "secrets-broker-source:use",
+        "secrets-broker:resolve",
+        "workflow:run",
+      ],
+    },
+    {
+      id: "role_local_admin",
+      workspaceId: "wks_local_demo",
+      name: "admin",
+      entitlements: [
+        "workspace:read",
+        "workspace:admin",
+        "secrets-broker-source:read",
+        "secrets-broker-source:write",
+        "secrets-broker-source:use",
+        "secrets-broker:resolve",
+        "workflow:run",
+      ],
+    },
     {
       id: "role_local_operator",
       workspaceId: "wks_local_demo",
@@ -289,6 +433,82 @@ export const examplePlatformFacadeState = {
         "secrets-broker:resolve",
         "workflow:run",
       ],
+    },
+    {
+      id: "role_local_viewer",
+      workspaceId: "wks_local_demo",
+      name: "viewer",
+      entitlements: ["workspace:read", "secrets-broker-source:read"],
+    },
+    {
+      id: "role_local_file_export_operator",
+      workspaceId: "wks_local_demo",
+      name: "file-export-operator",
+      entitlements: ["workspace:read", "secrets-broker-source:read", "secrets-broker-source:use"],
+    },
+    {
+      id: "role_local_backup_restore_operator",
+      workspaceId: "wks_local_demo",
+      name: "backup-restore-operator",
+      entitlements: ["workspace:read", "secrets-broker-source:use", "secrets-broker:resolve"],
+    },
+    {
+      id: "role_local_service_account",
+      workspaceId: "wks_local_demo",
+      name: "service-account",
+      entitlements: ["workspace:read", "secrets-broker:resolve", "workflow:run"],
+    },
+  ],
+  permissionGrants: [
+    {
+      id: "grant_operator_workspace_read",
+      workspaceId: "wks_local_demo",
+      target: { kind: "role", id: "role_local_operator" },
+      permissionKey: "workspace:read",
+      scope: { type: "workspace", id: "wks_local_demo" },
+      createdBy: "bootstrap",
+      createdAt: "2026-05-08T10:00:00Z",
+      reason: "Built-in operator workspace visibility.",
+    },
+    {
+      id: "grant_operator_provider_use",
+      workspaceId: "wks_local_demo",
+      target: { kind: "role", id: "role_local_operator" },
+      permissionKey: "secrets-broker-source:use",
+      scope: { type: "broker-namespace", id: "workspaces/local-demo/provider-connections/github" },
+      createdBy: "bootstrap",
+      createdAt: "2026-05-08T10:00:00Z",
+      reason: "Built-in operator can use the demo GitHub metadata source.",
+    },
+    {
+      id: "grant_operator_broker_resolve",
+      workspaceId: "wks_local_demo",
+      target: { kind: "role", id: "role_local_operator" },
+      permissionKey: "secrets-broker:resolve",
+      scope: { type: "broker-namespace", id: "workspaces/local-demo/provider-connections/github" },
+      createdBy: "bootstrap",
+      createdAt: "2026-05-08T10:00:00Z",
+      reason: "Built-in operator can resolve the demo GitHub broker ref.",
+    },
+    {
+      id: "grant_operator_workflow_run",
+      workspaceId: "wks_local_demo",
+      target: { kind: "role", id: "role_local_operator" },
+      permissionKey: "workflow:run",
+      scope: { type: "action", id: "official.core.maintenance/backup-check" },
+      createdBy: "bootstrap",
+      createdAt: "2026-05-08T10:00:00Z",
+      reason: "Built-in operator can run the demo maintenance workflow.",
+    },
+  ],
+  serviceActionPermissions: [
+    {
+      serviceId: "@serviceadmin",
+      actionId: "services.restart",
+      permissionKey: "service:restart",
+      scopeType: "service",
+      description: "Restart a managed service through Service Admin.",
+      registeredAt: "2026-05-08T10:00:00Z",
     },
   ],
   serviceIdentities: [
@@ -518,9 +738,9 @@ export function resolveServiceLassoRequestContext(
       );
     }
 
-    const entitlements = state.roles
-      .filter((role) => role.workspaceId === workspaceId)
-      .flatMap((role) => role.entitlements);
+    const mappedRoleNames = resolveZitadelServiceLassoRoles(request.session, identity, state, workspaceId);
+    const roles = state.roles.filter((role) => role.workspaceId === workspaceId && mappedRoleNames.includes(role.name));
+    const entitlements = roles.flatMap((role) => role.entitlements);
 
     if (entitlements.length === 0) {
       return authFailure(
@@ -532,6 +752,8 @@ export function resolveServiceLassoRequestContext(
     }
 
     const audit = safeAudit({ actorKind: "user", actorId: identity.userId, workspaceId, instanceId: request.instanceId, linkedIdentityId: identity.id, authMethod: "zitadel-session" });
+    const roleIds = roles.map((role) => role.id);
+    const roleNames = roles.map((role) => role.name);
     return {
       ok: true,
       context: {
@@ -540,9 +762,19 @@ export function resolveServiceLassoRequestContext(
         instanceId: request.instanceId,
         linkedIdentityId: identity.id,
         entitlements: [...new Set(entitlements)],
+        roleIds,
+        roleNames,
+        permissionGrants: grantsForContext(state.permissionGrants, workspaceId, identity.userId, "user", roleIds, roleNames),
         actor: { kind: "user", id: identity.userId, displayName: user.displayName },
         authMethod: "zitadel-session",
-        audit,
+        audit: safeAudit({
+          ...audit,
+          zitadelIssuer: identity.issuer,
+          zitadelSubject: identity.subject,
+          zitadelGroups: uniqueStrings([...(identity.claims.groups ?? []), ...(request.session.groups ?? [])]),
+          zitadelRoles: uniqueStrings([...(identity.claims.roles ?? []), ...(request.session.roles ?? [])]),
+          serviceLassoRoles: roleNames,
+        }),
       },
     };
   }
@@ -578,11 +810,30 @@ export function resolveServiceLassoRequestContext(
       instanceId: request.instanceId,
       linkedIdentityId: serviceIdentity.id,
       entitlements: [...new Set(serviceIdentity.entitlements)],
+      roleNames: ["service-account"],
+      permissionGrants: grantsForContext(state.permissionGrants, request.workspaceId, serviceIdentity.serviceId, "service", [], ["service-account"]),
       actor: { kind: "service", id: serviceIdentity.serviceId, displayName: serviceIdentity.displayName },
       authMethod: "service-identity",
       audit,
     },
   };
+}
+
+export function resolveZitadelServiceLassoRoles(
+  session: ZitadelSessionContext,
+  identity: LinkedIdentity,
+  state: PlatformFacadeState = examplePlatformFacadeState,
+  workspaceId = identity.workspaceIds[0],
+): PlatformRoleName[] {
+  const groups = uniqueStrings([...(identity.claims.groups ?? []), ...(session.groups ?? [])]);
+  const roles = uniqueStrings([...(identity.claims.roles ?? []), ...(session.roles ?? [])]);
+
+  return uniqueStrings(
+    state.zitadelRoleMappings
+      .filter((mapping) => mapping.workspaceId === workspaceId)
+      .filter((mapping) => mapping.claim === "group" ? groups.includes(mapping.value) : roles.includes(mapping.value))
+      .map((mapping) => mapping.serviceLassoRole),
+  );
 }
 
 export function mapZitadelSessionToPlatformContext(
@@ -612,32 +863,126 @@ function isExpired(expiresAt: string | undefined, now = new Date()): boolean {
   return Number.isFinite(expiry) && expiry <= now.getTime();
 }
 
+function uniqueStrings<T extends string>(values: T[]): T[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
 export function authorizePlatformResource(
   context: PlatformRequestContext,
   resource: AuthorizationResource,
 ): AuthorizationDecision {
   const requiredEntitlements = requiredEntitlementsForResource(resource);
+  const requiredPermission = requiredPermissionForResource(resource);
   const workspaceId = "connection" in resource ? resource.connection.workspaceId : resource.workspaceId;
 
   if (workspaceId !== context.workspaceId) {
-    return { allowed: false, reason: "workspace-mismatch", requiredEntitlements };
+    return { allowed: false, reason: "workspace-mismatch", requiredEntitlements, requiredPermission };
   }
 
   if (!requiredEntitlements.every((entitlement) => context.entitlements.includes(entitlement))) {
-    return { allowed: false, reason: "missing-entitlement", requiredEntitlements };
+    return { allowed: false, reason: "missing-entitlement", requiredEntitlements, requiredPermission };
   }
 
   if (resource.kind === "provider-connection" && resource.connection.status !== "ready") {
-    return { allowed: false, reason: "connection-not-ready", requiredEntitlements };
+    return { allowed: false, reason: "connection-not-ready", requiredEntitlements, requiredPermission };
   }
 
-  return { allowed: true, reason: "allowed", requiredEntitlements };
+  const grantEvidence = matchingGrantEvidence(context, requiredPermission);
+  if (Array.isArray(context.permissionGrants) && !grantEvidence) {
+    return { allowed: false, reason: "missing-grant", requiredEntitlements, requiredPermission };
+  }
+
+  return { allowed: true, reason: "allowed", requiredEntitlements, requiredPermission, grantEvidence };
 }
 
 function requiredEntitlementsForResource(resource: AuthorizationResource): PlatformEntitlement[] {
   if (resource.kind === "provider-connection") return ["secrets-broker-source:use"];
   if (resource.kind === "secrets-broker-ref") return ["secrets-broker:resolve"];
+  if (resource.kind === "service-action") return ["workspace:read"];
   return ["workflow:run", "secrets-broker-source:use"];
+}
+
+function requiredPermissionForResource(resource: AuthorizationResource): AuthorizationPermissionRequirement {
+  if (resource.kind === "provider-connection") {
+    return {
+      permissionKey: "secrets-broker-source:use",
+      scopeType: "broker-namespace",
+      scopeId: resource.connection.brokerNamespace ?? resource.connection.id,
+    };
+  }
+  if (resource.kind === "secrets-broker-ref") {
+    return {
+      permissionKey: "secrets-broker:resolve",
+      scopeType: "broker-namespace",
+      scopeId: resource.brokerNamespace,
+    };
+  }
+  if (resource.kind === "service-action") {
+    return {
+      permissionKey: resource.permissionKey ?? `service:${resource.actionId}`,
+      scopeType: "service",
+      scopeId: resource.serviceId,
+    };
+  }
+  return {
+    permissionKey: "workflow:run",
+    scopeType: "action",
+    scopeId: resource.workflowId,
+  };
+}
+
+export function registerServiceActionPermission(
+  state: PlatformFacadeState,
+  registration: PlatformServiceActionPermission,
+): PlatformFacadeState {
+  return {
+    ...state,
+    serviceActionPermissions: [
+      ...state.serviceActionPermissions.filter(
+        (candidate) => !(candidate.serviceId === registration.serviceId && candidate.actionId === registration.actionId),
+      ),
+      registration,
+    ],
+    permissionGrants: [...state.permissionGrants],
+  };
+}
+
+function grantsForContext(
+  grants: PlatformPermissionGrant[],
+  workspaceId: string,
+  actorId: string,
+  actorKind: PlatformActorKind,
+  roleIds: string[],
+  roleNames: string[],
+): PlatformPermissionGrant[] {
+  return grants.filter((grant) => {
+    if (grant.workspaceId !== workspaceId) return false;
+    if (grant.target.kind === "actor") return grant.target.id === actorId;
+    if (grant.target.kind === "service") return actorKind === "service" && grant.target.id === actorId;
+    return roleIds.includes(grant.target.id) || roleNames.includes(grant.target.id);
+  });
+}
+
+function matchingGrantEvidence(
+  context: PlatformRequestContext,
+  requiredPermission: NonNullable<AuthorizationDecision["requiredPermission"]>,
+): AuthorizationGrantEvidence | undefined {
+  const grant = context.permissionGrants?.find((candidate) => {
+    if (candidate.permissionKey !== "*" && candidate.permissionKey !== requiredPermission.permissionKey) return false;
+    if (candidate.scope.type === "runtime" && candidate.scope.id === "*") return true;
+    if (candidate.scope.type !== requiredPermission.scopeType) return false;
+    return candidate.scope.id === "*" || candidate.scope.id === requiredPermission.scopeId;
+  });
+
+  if (!grant) return undefined;
+  return {
+    grantId: grant.id,
+    targetKind: grant.target.kind,
+    targetId: grant.target.id,
+    permissionKey: grant.permissionKey,
+    scopeType: grant.scope.type,
+    scopeId: grant.scope.id,
+  };
 }
 
 const secretLikeFieldPattern = /(secret|token|apiKey|api_key|privateKey|private_key|password|credential|recoveryMaterial|recovery_material|keyMaterial|key_material)$/i;

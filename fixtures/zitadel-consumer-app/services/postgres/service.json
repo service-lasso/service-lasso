@@ -70,10 +70,13 @@
       }
     ]
   },
-  "healthcheck": {
-    "type": "tcp",
-    "address": "${POSTGRES_HOST}:${POSTGRES_PORT}",
-    "retries": 80,
-    "interval": 250
-  }
+  "healthchecks": [
+    {
+      "id": "postgres-tcp-ready",
+      "type": "tcp",
+      "address": "${POSTGRES_HOST}:${POSTGRES_PORT}",
+      "retries": 80,
+      "interval": 250
+    }
+  ]
 }
