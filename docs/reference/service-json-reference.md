@@ -28,6 +28,7 @@ Supported explicit healthcheck types include:
 
 - `http`
 - `tcp`
+- `udp`
 - `file`
 - `variable`
 
@@ -1016,6 +1017,28 @@ Use `host` + `port` when the values should be edited independently:
 ```
 
 Multiple-port services must declare `address` or `host` + `port`. Legacy alias names such as `tcphost` and `tcpport` are not supported.
+
+### `udp` healthcheck
+
+Use when:
+
+- readiness depends on a UDP service replying to an explicit probe payload
+- a TCP connect check would be misleading because UDP is connectionless
+
+Sample:
+
+```json
+"healthcheck": {
+  "type": "udp",
+  "host": "127.0.0.1",
+  "port": "${UDP_PORT}",
+  "send": "ping",
+  "expect": "pong",
+  "timeout": 1000
+}
+```
+
+UDP healthchecks require either `address` or `host` + `port`, and they require both `send` and `expect`. Service Lasso sends the configured datagram and only reports healthy when the response exactly matches `expect` within the timeout. Fire-and-forget UDP checks are intentionally not treated as strong readiness proof.
 
 ### `file` healthcheck
 
