@@ -196,7 +196,7 @@ export interface AuditEvent {
   sequence: number;
   previousHash: string | null;
   eventHash: string;
-  chainStatus: "valid";
+  chainStatus: "verified" | "broken" | "unavailable";
 }
 
 export type AuditSafeMetadataValue =
