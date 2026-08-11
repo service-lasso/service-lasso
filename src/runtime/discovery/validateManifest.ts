@@ -6,6 +6,9 @@ import type {
   ServiceBrokerChangeReactionMode,
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
+  ServiceLogSourceDeclaration,
+  ServiceLogSourceFormat,
+  ServiceLogSourceType,
   ServiceHookStep,
   ServiceActionConcurrencyPolicy,
   ServiceActionFailurePolicy,
@@ -57,10 +60,13 @@ const endpointProtocols = new Set(["http", "https", "tcp", "udp"]);
 const endpointExposures = new Set(["local", "lan", "public"]);
 const endpointPortStrategies = new Set(["automatic", "preferred", "fixed"]);
 const filesRootModes = new Set<ServiceFilesRootMode>(["read-only", "read-write"]);
+const logSourceTypes = new Set(["file", "glob"]);
+const logSourceFormats = new Set(["text", "json", "ndjson"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
+const logSourceIdPattern = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -476,6 +482,79 @@ function readNonEmptyStringArray(value: unknown, field: string, manifestPath: st
   }
 
   return value.map((entry) => (entry as string).trim());
+}
+
+function expectSafeRelativeLogPath(value: unknown, field: string, manifestPath: string): string {
+  const candidate = expectNonEmptyString(value, field, manifestPath).replace(/\\/g, "/");
+  const segments = candidate.split("/");
+  if (
+    candidate.startsWith("/") ||
+    /^[A-Za-z]:/.test(candidate) ||
+    segments.some((segment) => segment === "..")
+  ) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to stay inside the service root.`);
+  }
+
+  return candidate;
+}
+
+function readLogSources(value: unknown, manifestPath: string): ServiceLogSourceDeclaration[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "logSources" to be an array.`);
+  }
+
+  const ids = new Set<string>();
+  return value.map((entry, index) => {
+    const field = `logSources[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    const id = expectNonEmptyString(record.id, `${field}.id`, manifestPath);
+    if (!logSourceIdPattern.test(id) || id === "default" || id === "stdout" || id === "stderr") {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: expected "${field}.id" to be a unique non-builtin log source id.`,
+      );
+    }
+    if (ids.has(id)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: duplicate logSources id "${id}".`);
+    }
+    ids.add(id);
+
+    const rawType = expectNonEmptyString(record.type, `${field}.type`, manifestPath);
+    if (!logSourceTypes.has(rawType)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.type" to be one of "file" or "glob".`);
+    }
+
+    const type = rawType as ServiceLogSourceType;
+    const pathValue = record.path === undefined ? undefined : expectSafeRelativeLogPath(record.path, `${field}.path`, manifestPath);
+    const pattern = record.pattern === undefined ? undefined : expectSafeRelativeLogPath(record.pattern, `${field}.pattern`, manifestPath);
+    if (type === "file" && !pathValue) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.path" for file log sources.`);
+    }
+    if (type === "glob" && !pattern) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.pattern" for glob log sources.`);
+    }
+
+    const rawFormat = record.format;
+    if (rawFormat !== undefined && (typeof rawFormat !== "string" || !logSourceFormats.has(rawFormat))) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.format" to be one of "text", "json", or "ndjson".`);
+    }
+
+    return {
+      id,
+      label: expectNonEmptyString(record.label, `${field}.label`, manifestPath),
+      type,
+      path: pathValue,
+      pattern,
+      format: rawFormat as ServiceLogSourceFormat | undefined,
+    };
+  });
 }
 
 function expectBrokerNamespace(value: unknown, field: string, manifestPath: string): string {
@@ -2048,6 +2127,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     throw new Error(`Invalid service manifest at ${manifestPath}: expected \"urls\" to be an array of { label, url } objects.`);
   }
 
+  const logSources = readLogSources(record.logSources, manifestPath);
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
   const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
@@ -2099,6 +2179,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       url: (entry as Record<string, string>).url.trim(),
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
+    logSources,
     monitoring,
     restartPolicy,
     doctor,
