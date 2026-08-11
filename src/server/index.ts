@@ -887,7 +887,7 @@ async function appendWorkflowRepoRuntimeAuditEvent(input: {
 function parseAuditQuery(searchParams: URLSearchParams): AuditQuery {
   const query: AuditQuery = {};
 
-  for (const key of ["serviceId", "actor", "action", "source", "since", "until", "query", "limit", "cursor"] as const) {
+  for (const key of ["serviceId", "actor", "action", "source", "subjectType", "since", "until", "query", "limit", "cursor"] as const) {
     const value = searchParams.get(key);
     if (value !== null && value.trim()) {
       query[key] = value.trim();
@@ -2852,6 +2852,21 @@ async function routeRequest(
 
     if (!service) {
       notFound(response);
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "audit") {
+      writeJson(
+        response,
+        200,
+        await readAuditEvents({
+          serviceRoots: [service.serviceRoot],
+          query: {
+            ...parseAuditQuery(url.searchParams),
+            serviceId,
+          },
+        }),
+      );
       return;
     }
 
