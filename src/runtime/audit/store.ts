@@ -39,11 +39,11 @@ export interface ReadAuditEventsInput {
 const defaultLimit = 100;
 const maxLimit = 500;
 
-type AuditChainStatus = AuditEvent["chainStatus"];
+type AuditEventChainStatus = AuditEvent["chainStatus"];
 
 export interface AuditChainVerificationResult {
   filePath: string;
-  chainStatus: AuditChainStatus;
+  chainStatus: AuditEventChainStatus;
   events: AuditEvent[];
   brokenAtSequence?: number;
   reason?: string;
@@ -344,10 +344,7 @@ function getEventChainStatus(events: AuditEvent[]): AuditChainStatus {
         break;
       }
 
-      const expectedHash = stableHash({
-        ...event,
-        eventHash: "",
-      });
+      const expectedHash = computeAuditEventHash(event, previousHash);
       if (event.eventHash !== expectedHash) {
         chainStatus = "broken";
         break;
