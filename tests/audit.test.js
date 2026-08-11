@@ -308,7 +308,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(configEvent.outcome, "success");
     assert.equal(configEvent.chainId, "service:audit-service");
     assert.ok(configEvent.eventHash);
-    assert.equal(configEvent.chainStatus, "valid");
+    assert.equal(configEvent.chainStatus, "verified");
     assert.equal(configEvent.metadata.configPath, "service.json");
     assert.equal(configEvent.metadata.previousHash, save.body.backup.previousHash);
     assert.equal(configEvent.metadata.currentHash, save.body.backup.currentHash);
