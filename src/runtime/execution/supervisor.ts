@@ -432,10 +432,10 @@ function adoptedProcessTreeTarget(record: AdoptedProcessRecord): OwnedProcessTre
 }
 
 async function adoptedProcessPollDelay(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, ADOPTED_PROCESS_POLL_INTERVAL_MS);
-    timeout.unref?.();
-  });
+  // Keep this bounded timer referenced: shutdown explicitly awaits the adopted
+  // monitor finalizer, and an unref'ed timer can otherwise leave that promise
+  // pending after the owned process tree becomes the last active handle.
+  await new Promise<void>((resolve) => setTimeout(resolve, ADOPTED_PROCESS_POLL_INTERVAL_MS));
 }
 
 async function refreshAdoptedProcessTreeMembers(record: AdoptedProcessRecord): Promise<void> {
