@@ -60,6 +60,7 @@ interface ParsedCliOptions {
   targetServicesRoot?: string;
   coreServicesRoot?: string;
   workspaceRoot?: string;
+  generationId?: string;
   json: boolean;
   force: boolean;
   includeManual: boolean;
@@ -91,7 +92,7 @@ function usageText(): string {
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery restart-preflight <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
-    "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--generation <id>] [--json]",
     "  service-lasso readiness gate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -471,6 +472,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --workspace-root.");
         }
         parsed.workspaceRoot = value;
+        break;
+      }
+      case "--generation": {
+        if (command !== "instance") {
+          throw new Error("--generation is only supported for the instance command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --generation.");
+        }
+        parsed.generationId = value;
         break;
       }
       case "--port": {
@@ -1202,6 +1214,7 @@ function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): 
     console.log("- current: not recorded");
   } else {
     console.log("- current: " + result.instance.instanceId);
+    console.log("- generation: " + result.instance.generationId);
     console.log("- status: " + result.instance.status);
     console.log("- api: " + result.instance.apiUrl);
     console.log("- servicesRoot: " + result.instance.servicesRoot);
@@ -1211,6 +1224,7 @@ function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): 
   console.log("- active: " + result.registry.activeCount);
   console.log("- stale: " + result.registry.staleCount);
   console.log("- unknown: " + result.registry.unknownCount);
+  console.log("- selection: " + result.selection.classification + " (" + result.selection.reason + ")");
 }
 
 function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {
@@ -1373,6 +1387,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     const result = await readRuntimeInstanceForCli({
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
+      generationId: parsed.generationId,
       version: runtimeVersion,
     });
     printInstanceResult(result, parsed.json);

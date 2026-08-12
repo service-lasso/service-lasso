@@ -32,6 +32,7 @@ export interface ProcessOwnershipEntry {
   ownerType: ProcessOwnerType;
   ownerId: string;
   serviceId: string | null;
+  generationId: string | null;
   workspaceId: string;
   runtimeInstanceId: string | null;
   pid: number | null;
@@ -63,6 +64,7 @@ export interface RecordProcessOwnershipInput {
   ownerType: ProcessOwnerType;
   ownerId: string;
   serviceId?: string | null;
+  generationId?: string | null;
   runtimeInstanceId?: string | null;
   pid: number;
   ownerRoot: string;
@@ -77,6 +79,7 @@ export interface RecordProcessOwnershipInput {
 export interface LegacyProcessOwnershipInput {
   ownerId: string;
   serviceId: string;
+  generationId?: string | null;
   runtimeInstanceId?: string | null;
   pid: number;
   startedAt: string;
@@ -244,6 +247,7 @@ function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
     ownerType,
     ownerId: value.ownerId,
     serviceId: typeof value.serviceId === "string" ? value.serviceId : null,
+    generationId: typeof value.generationId === "string" ? value.generationId : null,
     workspaceId: value.workspaceId,
     runtimeInstanceId: typeof value.runtimeInstanceId === "string" ? value.runtimeInstanceId : null,
     pid,
@@ -391,19 +395,28 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
   }
 }
 
+export async function withWorkspaceLifecycleLock<T>(
+  workspaceRoot: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const release = await acquireWorkspaceLifecycleLock(workspaceRoot);
+  try {
+    return await action();
+  } finally {
+    await release();
+  }
+}
+
 async function mutateRegistry(
   workspaceRoot: string,
   recipe: (registry: ProcessOwnershipRegistry, now: string) => ProcessOwnershipRegistry,
 ): Promise<ProcessOwnershipRegistry> {
-  const release = await acquireWorkspaceLifecycleLock(workspaceRoot);
-  try {
+  return await withWorkspaceLifecycleLock(workspaceRoot, async () => {
     const now = new Date().toISOString();
     const next = recipe(await readProcessOwnershipRegistry(workspaceRoot), now);
     await atomicWriteRegistry(workspaceRoot, next);
     return next;
-  } finally {
-    await release();
-  }
+  });
 }
 
 function replaceEntry(registry: ProcessOwnershipRegistry, entry: ProcessOwnershipEntry, now: string): ProcessOwnershipRegistry {
@@ -437,6 +450,7 @@ export async function recordProcessOwnership(
       ownerType: input.ownerType,
       ownerId: input.ownerId,
       serviceId: input.serviceId ?? (input.ownerType === "service" ? input.ownerId : null),
+      generationId: input.generationId ?? null,
       workspaceId: resolveWorkspaceProcessId(workspaceRoot),
       runtimeInstanceId: input.runtimeInstanceId ?? null,
       pid: input.pid,
@@ -598,6 +612,7 @@ export async function migrateLegacyProcessOwnership(
       ownerType: "service",
       ownerId: input.ownerId,
       serviceId: input.serviceId,
+      generationId: input.generationId,
       runtimeInstanceId: input.runtimeInstanceId,
       pid: input.pid,
       ownerRoot: input.ownerRoot,

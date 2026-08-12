@@ -31,6 +31,8 @@ import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/ru
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function waitFor(check, timeoutMs = 3_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -231,6 +233,7 @@ test("workspace process registry writes atomically, recovers from residue, and c
     const recorded = await recordProcessOwnership(workspaceRoot, {
       ownerType: "runtime",
       ownerId: "runtime-test",
+      generationId: "generation-test",
       runtimeInstanceId: "runtime-test",
       pid: process.pid,
       ownerRoot: tempRoot,
@@ -242,6 +245,7 @@ test("workspace process registry writes atomically, recovers from residue, and c
     });
 
     assert.equal(recorded.pid, process.pid);
+    assert.equal(recorded.generationId, "generation-test");
     assert.equal(recorded.identityStatus, "owned");
     assert.equal(recorded.allocation.ports.api, 18080);
     assert.equal(recorded.allocation.endpoints[0].url, "http://127.0.0.1:18080/");
@@ -997,6 +1001,7 @@ test("runtime and service ownership are durable before readiness and clear after
     );
     assert.equal(runtimeEntry.lifecycleState, "running");
     assert.equal(runtimeEntry.pid, process.pid);
+    assert.match(runtimeEntry.generationId, UUID_PATTERN);
 
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/install`)).response.status, 200);
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/config`)).response.status, 200);
@@ -1014,7 +1019,9 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal(started.body.state.running, true);
     const running = await findProcessOwnership(workspaceRoot, "service", "owned-service");
     assert.equal(running.lifecycleState, "running");
+    assert.equal(running.generationId, runtimeEntry.generationId);
     assert.equal(running.pid, started.body.state.runtime.pid);
+    assert.equal(started.body.state.runtime.generationId, runtimeEntry.generationId);
 
     const registryText = await readFile(getProcessRegistryPath(workspaceRoot), "utf8");
     assert.equal(registryText.includes("never-persist-this-value"), false);

@@ -90,6 +90,7 @@ function createInitialState(): ServiceLifecycleState {
       steps: {},
     },
     runtime: {
+      generationId: null,
       pid: null,
       startedAt: null,
       finishedAt: null,
@@ -181,6 +182,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       ),
     },
     runtime: {
+      generationId: current.runtime.generationId ?? null,
       pid: current.runtime.pid,
       startedAt: current.runtime.startedAt,
       finishedAt: current.runtime.finishedAt,
@@ -270,6 +272,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       ),
     },
     runtime: {
+      generationId: nextState.runtime.generationId ?? null,
       pid: nextState.runtime.pid,
       startedAt: nextState.runtime.startedAt,
       finishedAt: nextState.runtime.finishedAt,

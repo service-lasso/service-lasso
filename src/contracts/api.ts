@@ -396,11 +396,66 @@ export interface RuntimeSummaryResponse {
 }
 
 export type RuntimeInstanceStatus = "active" | "stale" | "unknown";
+export type RuntimeGenerationPhase = "starting" | "running" | "stopping" | "stopped" | "failed" | "superseded";
 
-export interface RuntimeInstanceRecord {
+export interface RuntimeSourceIdentity {
+  branch: string | null;
+  commit: string | null;
+}
+
+export interface RuntimeGenerationRecord {
+  generationId: string;
   instanceId: string;
   servicesRoot: string;
   workspaceRoot: string;
+  runtimeRoot: string;
+  pid: number;
+  phase: RuntimeGenerationPhase;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  allocationRevision: string | null;
+  endpoints: Array<{ name: string; url: string }>;
+  source: RuntimeSourceIdentity;
+}
+
+export interface RuntimeGenerationRegistrySnapshot {
+  path: string;
+  activeGenerationId: string | null;
+  generations: RuntimeGenerationRecord[];
+}
+
+export type RuntimeLaneClassification =
+  | "selected"
+  | "not_found"
+  | "stale"
+  | "ambiguous"
+  | "wrong_lane"
+  | "unknown_owner";
+
+export interface RuntimeLaneSelection {
+  classification: RuntimeLaneClassification;
+  reason: string;
+  selectedGenerationId: string | null;
+  selectedInstanceId: string | null;
+  workspaceRoot: string;
+  servicesRoot: string;
+  endpoint: string | null;
+  runtimeIdentity: {
+    pid: number;
+    createdAt: string;
+    executablePath: string;
+    commandHash: string;
+  } | null;
+  candidateGenerationIds: string[];
+}
+
+export interface RuntimeInstanceRecord {
+  instanceId: string;
+  generationId: string;
+  servicesRoot: string;
+  workspaceRoot: string;
+  runtimeRoot: string;
   pid: number;
   apiPort: number;
   apiUrl: string;
@@ -411,6 +466,8 @@ export interface RuntimeInstanceRecord {
   leaseExpiresAt: string;
   leaseTtlMs: number;
   version: string;
+  phase: RuntimeGenerationPhase;
+  source: RuntimeSourceIdentity;
   status: RuntimeInstanceStatus;
   statusReason?: string;
   staleReason?: string;
@@ -427,6 +484,8 @@ export interface RuntimeInstanceRegistrySnapshot {
 export interface RuntimeInstanceResponse {
   instance: RuntimeInstanceRecord | null;
   registry: RuntimeInstanceRegistrySnapshot;
+  generations: RuntimeGenerationRegistrySnapshot;
+  selection: RuntimeLaneSelection;
 }
 
 export interface RuntimeFeatureFlags {

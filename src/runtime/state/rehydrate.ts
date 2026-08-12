@@ -25,6 +25,7 @@ import { writeServiceState } from "./writeState.js";
 
 export interface RehydrateProcessOwnershipOptions {
   workspaceRoot?: string;
+  runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
   processInspectorDependencies?: ProcessInspectorDependencies;
 }
@@ -64,6 +65,7 @@ interface StoredConfigState {
 }
 
 interface StoredRuntimeState {
+  generationId?: string | null;
   running?: boolean;
   pid?: number | null;
   startedAt?: string | null;
@@ -524,6 +526,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
     },
     setup: setupState,
     runtime: {
+      generationId: typeof runtime?.generationId === "string" ? runtime.generationId : null,
       pid: null,
       startedAt: typeof runtime?.startedAt === "string" ? runtime.startedAt : null,
       finishedAt: typeof runtime?.finishedAt === "string" ? runtime.finishedAt : null,
@@ -663,6 +666,7 @@ export async function rehydrateLifecycleState(
       const migration = await migrateLegacyProcessOwnership(options.workspaceRoot, {
         ownerId: serviceId,
         serviceId,
+        generationId: options.runtimeGenerationId,
         runtimeInstanceId: options.runtimeInstanceId,
         pid: legacyRuntime.pid,
         startedAt: legacyRuntime.startedAt,

@@ -224,6 +224,7 @@ export interface ServiceLifecycleActionOptions {
   variableResolution?: ServiceVariableResolutionOptions;
   brokerLookup?: BrokerLaunchLookup;
   workspaceRoot?: string;
+  runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
@@ -1226,6 +1227,7 @@ export async function startService(
       secureEnv: scopedBrokerIdentity?.env,
       variableResolution,
       workspaceRoot: options.workspaceRoot,
+      runtimeGenerationId: options.runtimeGenerationId,
       runtimeInstanceId: options.runtimeInstanceId,
       allocationRevision,
       onExit: async ({ exitCode, signal, wasStopping }) => {
@@ -1269,6 +1271,7 @@ export async function startService(
     running: true,
     runtime: {
       ...state.runtime,
+      generationId: options.runtimeGenerationId ?? null,
       pid: handle.pid,
       startedAt: handle.startedAt,
       finishedAt: null,
@@ -1473,6 +1476,7 @@ export async function restartService(
     variableResolution,
     workspaceRoot: options.workspaceRoot,
     runtimeInstanceId: options.runtimeInstanceId,
+    runtimeGenerationId: options.runtimeGenerationId,
     allocationRevision,
     onExit: async ({ exitCode, signal, wasStopping }) => {
       if (wasStopping) {

@@ -80,6 +80,7 @@ interface StartProcessOptions {
   secureEnv?: Record<string, string>;
   variableResolution?: ServiceVariableResolutionOptions;
   workspaceRoot?: string;
+  runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
   allocationRevision?: string | null;
   onExit?: (payload: {
@@ -523,6 +524,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     secureEnv,
     variableResolution,
     workspaceRoot,
+    runtimeGenerationId,
     runtimeInstanceId,
     allocationRevision,
     onExit,
@@ -622,6 +624,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         ownerType: "service",
         ownerId: serviceId,
         serviceId,
+        generationId: runtimeGenerationId,
         runtimeInstanceId,
         pid: child.pid ?? 0,
         ownerRoot: service.serviceRoot,

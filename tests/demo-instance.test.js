@@ -545,7 +545,13 @@ function textResponse(status, body) {
   };
 }
 
-function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6.6-good", sourceServiceAdmin = false }) {
+function canonicalFetch({
+  servicesRoot,
+  workspaceRoot,
+  serviceAdminTag = "2026.6.6-good",
+  sourceServiceAdmin = false,
+  generationId = "11111111-1111-4111-8111-111111111111",
+}) {
   const services = canonicalFixtureServices.map((service) => {
     const tag = service.id === "@serviceadmin" ? serviceAdminTag : service.tag;
     const providerRole = service.role === "provider";
@@ -606,6 +612,21 @@ function canonicalFetch({ servicesRoot, workspaceRoot, serviceAdminTag = "2026.6
     }
     if (parsed.pathname === "/api/runtime") {
       return jsonResponse(200, { runtime: { servicesRoot, workspaceRoot } });
+    }
+    if (parsed.pathname === "/api/runtime/instance") {
+      return jsonResponse(200, {
+        instance: {
+          instanceId: "sl_canonical",
+          generationId,
+          servicesRoot,
+          workspaceRoot,
+          apiUrl: parsed.origin,
+        },
+        selection: {
+          classification: "selected",
+          selectedGenerationId: generationId,
+        },
+      });
     }
     if (parsed.pathname === "/api/services") {
       return jsonResponse(200, { services });
@@ -1043,6 +1064,50 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
   }
 });
 
+test("canonical demo verifier discovers only the active workspace generation endpoint", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-generation-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const stateDirectory = path.join(workspaceRoot, ".service-lasso");
+  const generationId = "11111111-1111-4111-8111-111111111111";
+  const runtimeUrl = "http://192.168.1.53:17883";
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(path.join(stateDirectory, "runtime-instance.json"), `${JSON.stringify({
+      generationId,
+      servicesRoot,
+      workspaceRoot,
+      phase: "running",
+      status: "active",
+      apiUrl: runtimeUrl,
+    }, null, 2)}\n`);
+    await writeFile(path.join(stateDirectory, "runtime-generations.json"), `${JSON.stringify({
+      version: 1,
+      activeGenerationId: generationId,
+      generations: [{
+        generationId,
+        servicesRoot,
+        workspaceRoot,
+        phase: "running",
+        endpoints: [{ name: "api", url: runtimeUrl }],
+      }],
+    }, null, 2)}\n`);
+
+    const result = await verifyCanonicalDemo(
+      { servicesRoot, workspaceRoot, serviceAdminUrl: "http://192.168.1.53:17700/" },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot, generationId }) },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.summary.runtimeUrl, runtimeUrl);
+    assert.equal(result.summary.generationId, generationId);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("canonical demo verifier accepts source Admin owning the canonical Service Admin port", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
   const servicesRoot = path.join(tempDir, "services");
@@ -1098,6 +1163,40 @@ test("canonical demo verifier reports wrong runtime lane and stale release pins"
     assert.ok(result.failures.some((failure) => failure.code === "wrong_runtime_port"));
     assert.ok(result.failures.some((failure) => failure.code === "stale_release_pin"));
     assert.ok(result.failures.some((failure) => failure.code === "stale_installed_artifact"));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier rejects a healthy runtime from another generation", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-generation-lane-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const expectedGenerationId = "22222222-2222-4222-8222-222222222222";
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        generationId: expectedGenerationId,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      {
+        fetch: canonicalFetch({
+          servicesRoot,
+          workspaceRoot,
+          generationId: "33333333-3333-4333-8333-333333333333",
+        }),
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.ok(result.failures.some((failure) =>
+      failure.name === "runtime generation matches explicit selector" && failure.code === "wrong_lane",
+    ));
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

@@ -18,7 +18,7 @@ process.
 Each active process record includes:
 
 - the owner type (`runtime` or `service`) and owner id;
-- the workspace id and runtime instance id;
+- the workspace id, runtime instance id, and runtime generation id when known;
 - the PID;
 - the process creation time reported by the operating system;
 - the resolved executable path;
@@ -31,6 +31,13 @@ Raw command lines and environment variables are never written to this file.
 Endpoint credentials, query strings, and fragments are removed before an
 endpoint is persisted. The registry therefore contains the evidence needed for
 identity comparison without becoming a second source of secrets.
+
+The runtime generation id links the runtime process record and every managed
+service process record back to the same startup attempt. Legacy records may
+have a null generation id, but new runtime launches persist the generation
+before allocation or launch and propagate it before readiness can succeed.
+Runtime lane selection requires this fingerprint and generation to agree; a
+PID, port, health response, or lease never establishes authority by itself.
 
 ## Atomic lifecycle
 

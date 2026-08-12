@@ -61,7 +61,7 @@ async function prepareServicePrerequisites(
 export async function prepareAndStartService(
   service: DiscoveredService,
   registry: ServiceRegistry,
-  options: { workspaceRoot?: string } = {},
+  options: { workspaceRoot?: string; runtimeGenerationId?: string | null; runtimeInstanceId?: string | null } = {},
 ): Promise<PreparedStartResult> {
   const serviceId = service.manifest.id;
   const graph = new DependencyGraph(registry);
@@ -97,4 +97,3 @@ export async function prepareAndStartService(
 
   return { result, skippedReason: null, state };
 }
-
