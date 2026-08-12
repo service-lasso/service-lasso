@@ -5,6 +5,7 @@ import type {
 } from "../../contracts/api.js";
 import type { DiscoveredService, ServiceManifest } from "../../contracts/service.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
+import { getProviderReadiness } from "../providers/resolveProvider.js";
 import { compareTimestampedReleaseTags } from "../updates/check.js";
 import type { ServiceUpdateState } from "../updates/state.js";
 
@@ -103,11 +104,17 @@ export function buildServiceCompatibilityReport(
       id: dependencyId,
       status: registry.getById(dependencyId) ? ("satisfied" as const) : ("missing" as const),
     })),
-    ...requiredProviders.map((providerId) => ({
-      kind: "provider" as const,
-      id: providerId,
-      status: registry.getById(providerId) ? ("satisfied" as const) : ("missing" as const),
-    })),
+    ...requiredProviders.map((providerId): ServiceCompatibilityRequirementStatus => {
+      const provider = registry.getById(providerId);
+      if (!provider) {
+        return { kind: "provider", id: providerId, status: "missing" };
+      }
+
+      const readiness = getProviderReadiness(provider);
+      return readiness.ready
+        ? { kind: "provider", id: providerId, status: "satisfied" }
+        : { kind: "provider", id: providerId, status: "not-ready", detail: readiness.detail };
+    }),
     ...requiredPorts.map((port) => ({
       kind: "port" as const,
       id: port.name,
@@ -122,6 +129,9 @@ export function buildServiceCompatibilityReport(
     ...requirements
       .filter((requirement) => requirement.status === "missing")
       .map((requirement) => `Required ${requirement.kind} "${requirement.id}" is not discovered.`),
+    ...requirements
+      .filter((requirement) => requirement.kind === "provider" && requirement.status === "not-ready")
+      .map((requirement) => `Required provider "${requirement.id}" is not ready: ${requirement.detail}`),
   ];
 
   return {

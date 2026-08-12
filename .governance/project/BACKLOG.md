@@ -10,6 +10,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-995` | `in_progress` | Fail closed when provider-backed execution is unprepared | `SPEC-002`, `AC-4H`, `AC-4U`, `AC-4Y` | GitHub issue: `#995`. Require explicit provider dependencies, reject unprepared release-backed provider execution instead of ambient runtime fallback, and expose provider readiness in compatibility output while preserving direct executables without `execservice`. |
 | `ISS-873` | `in_review` | Add isolated WSL self-hosted runner pool installer | `SPEC-004`, `WSL-RUNNER-001` through `WSL-RUNNER-005` | GitHub issue: `#873`; pull request: `#874`. Validation: 451 repository tests, focused contract, PowerShell parse, and three-member non-mutating plan passed. |
 | `ISS-001` | `done` | Normalize provisional project intent and the first governed spec | `SPEC-001`, `AC-1` | Bootstrap intent/spec normalization completed and preserved as governance traceability. |
 | `ISS-002` | `done` | Install strict Git workflow bootstrap artifacts | `SPEC-001`, `AC-2` | Required bootstrap workflow artifacts were installed during bootstrap. |
@@ -155,6 +156,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
 | --- | --- | --- | --- | --- | --- |
+| `TASK-995` | `in_progress` | `ISS-995` | Harden provider dependency and readiness enforcement | `SPEC-002`, `AC-4H`, `AC-4U`, `AC-4Y` | Service/setup `execservice` declarations require an explicit provider dependency; runtime execution fails closed until the provider and release artifact are ready; compatibility reports unready providers; direct executables without `execservice` retain their current behavior. |
 | `TASK-850` | `in_progress` | `ISS-850` | Reconcile main-only work into develop and enforce correct branch direction | `SPEC-003`, `BR-001` through `BR-007` | Complete commit/file classification, conflict-resolved recovery PR into `develop`, mandatory Broker/Admin/Core verification, corrected tracking states, and branch-policy guard evidence. |
 | `TASK-867` | `in_review` | `ISS-867` | Add atomic verifiable process ownership | `SPEC-002`, `AC-4BH` | Versioned workspace registry records runtime and service processes before readiness; active-host and Windows-mock identity coverage classifies live/dead/reused/unverifiable PIDs; interrupted writes and abandoned verified locks recover safely. Evidence: build, typecheck, docs build, diff check, and the focused lifecycle/registry slice pass with 30/30 tests. |
 | `TASK-868` | `blocked` | `ISS-868` | Adopt verified processes and terminate their process trees | `SPEC-002`, `AC-4BH` | Starts after `#867` merges; exit evidence requires crash/restart adoption, healthy state restoration, dead/reused/unverified PID handling, Windows/Linux descendant cleanup, and release only after confirmed tree exit. |

@@ -155,7 +155,7 @@ import {
   type OperatorInboxVisibility,
 } from "../runtime/operator/inbox.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
-import { resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
+import { ProviderNotReadyError, resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
@@ -1326,6 +1326,20 @@ async function materializeRuntimeEndpointAllocation(
   }
 }
 
+function resolveReadyProviderForResponse(
+  service: DiscoveredService,
+  registry: ReturnType<typeof createServiceRegistry>,
+) {
+  try {
+    return resolveProviderExecution(service, registry);
+  } catch (error) {
+    if (error instanceof ProviderNotReadyError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 async function createServiceSummary(
   service: Awaited<ReturnType<typeof loadRuntimeModel>>["discovered"][number],
   graph: DependencyGraph,
@@ -1340,7 +1354,7 @@ async function createServiceSummary(
   const runtimeLogs = getServiceRuntimeLogPaths(service.serviceRoot);
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts);
   const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
-  const provider = resolveProviderExecution(service, registry);
+  const provider = resolveReadyProviderForResponse(service, registry);
   const updates = await readServiceUpdateState(service);
   const recovery = await readServiceRecoveryHistory(service);
 
@@ -1487,7 +1501,7 @@ async function buildLifecycleActionResponse(
     sharedGlobalEnv,
   );
   const healthHistory = await recordServiceHealthTransition(service, health);
-  const provider = resolveProviderExecution(service, registry);
+  const provider = resolveReadyProviderForResponse(service, registry);
 
   return {
     action: result.action,

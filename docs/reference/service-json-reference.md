@@ -473,6 +473,7 @@ Current direction:
 Provider-backed example:
 
 ```json
+"depend_on": ["@node"],
 "execservice": "@node",
 "executable": "NODE",
 "args": ["runtime/server.js"]
@@ -492,7 +493,9 @@ This means `execservice` and `executable` are related, but not the same thing:
 Practical rule:
 
 - use both when you want provider-backed execution to stay explicit
-- do not assume `execservice` alone is enough unless Service Lasso later defines provider defaults clearly enough to make `executable` optional
+- declare the `execservice` provider in top-level `depend_on`; provider-backed execution fails closed until that provider is installed and configured
+- release-backed providers must have an installed artifact command and root; Service Lasso does not fall back to an ambient host executable when the release artifact is unprepared
+- omitting `execservice` remains the explicit choice for a direct executable that may resolve from the service payload or host environment
 
 ### `args` and `commandline`
 
@@ -527,6 +530,7 @@ Runtime-provider service used to run this service through another packaged/runti
 Example:
 
 ```json
+"depend_on": ["@node"],
 "execservice": "@node"
 ```
 
@@ -1305,6 +1309,8 @@ manifest fields:
   as a cross-platform fallback
 - provider requirements come from `execservice` and setup-step
   `execservice` declarations
+- discovered providers are `not-ready` until install/config completes and a
+  release-backed provider has an installed artifact command/root
 - declared port requirements come from normalized network endpoints, including compatibility `ports`
 - service dependency requirements come from `depend_on`
 

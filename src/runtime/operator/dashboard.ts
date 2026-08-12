@@ -18,7 +18,6 @@ import { getServiceRuntimeLogPaths } from "./logs.js";
 import { buildServiceVariables } from "./variables.js";
 import { readServiceMeta } from "../state/meta.js";
 import { getServiceStatePaths } from "../state/paths.js";
-import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import { isProviderRole } from "../roles.js";
 
 type DashboardServiceStatus = DashboardServiceResponse["status"];
@@ -357,14 +356,12 @@ export async function buildDashboardService(
     sharedGlobalEnv,
   );
   const meta = await readServiceMeta(service.serviceRoot);
-  const provider = resolveProviderExecution(service, registry);
   const endpoints = buildDashboardEndpoints(service, sharedGlobalEnv, resolvedPorts);
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables;
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const status = mapServiceStatus(lifecycle, health);
   const runtimeLabel =
     lifecycle.runtime.provider ??
-    provider.provider ??
     service.manifest.execservice ??
     service.manifest.executable ??
     "direct";

@@ -2029,6 +2029,58 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
   }
 });
 
+test("loadServiceManifest requires service-level execservice providers in depend_on", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "provider-consumer", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, JSON.stringify({
+      id: "provider-consumer",
+      name: "Provider Consumer",
+      description: "Provider dependency validation fixture.",
+      execservice: "@node",
+      args: ["app.js"],
+    }));
+
+    await assert.rejects(
+      loadServiceManifest(manifestPath),
+      /"execservice" provider "@node" must be declared in "depend_on"/,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest requires setup execservice providers in service or step dependencies", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "setup-provider-consumer", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, JSON.stringify({
+      id: "setup-provider-consumer",
+      name: "Setup Provider Consumer",
+      description: "Setup provider dependency validation fixture.",
+      setup: {
+        steps: {
+          migrate: {
+            execservice: "@python",
+            args: ["migrate.py"],
+          },
+        },
+      },
+    }));
+
+    await assert.rejects(
+      loadServiceManifest(manifestPath),
+      /"setup\.steps\.migrate\.execservice" provider "@python" must be declared/,
+    );
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest accepts bounded install/config file materialization", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "materialized-service", "service.json");
