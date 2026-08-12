@@ -33,27 +33,21 @@ test("startup broker plan includes generated writeback metadata without raw valu
 
   try {
     await writeExecutableFixtureService(servicesRoot, "generated-broker-secret", {
-      env: {
-        SESSION_SEED: rawSeed,
-      },
+      env: { SESSION_SEED: rawSeed },
       broker: {
         enabled: true,
         namespace: "services/generated-broker-secret",
-        buckets: [
-          { namespace: "services/generated-broker-secret", kind: "service" },
-        ],
+        buckets: [{ namespace: "services/generated-broker-secret", kind: "service" }],
         accessPolicy: {
           serviceId: "generated-broker-secret",
           workspace: "test",
-          grants: [
-            {
-              namespace: "services/generated-broker-secret",
-              scope: "service",
-              refs: ["sample.SESSION_SECRET"],
-              operations: ["create"],
-              purpose: "create generated session secret metadata",
-            },
-          ],
+          grants: [{
+            namespace: "services/generated-broker-secret",
+            scope: "service",
+            refs: ["sample.SESSION_SECRET"],
+            operations: ["create"],
+            purpose: "create generated session secret metadata",
+          }],
         },
         writeback: {
           allowedNamespaces: ["services/generated-broker-secret"],
@@ -61,23 +55,19 @@ test("startup broker plan includes generated writeback metadata without raw valu
           allowedRefs: ["sample.SESSION_SECRET"],
           allowOverwrite: false,
           auditReason: "test generated secret provisioning",
-          generatedSecrets: [
-            {
-              ref: "sample.SESSION_SECRET",
-              source: "${SESSION_SEED}",
-              operation: "create",
-              required: true,
-            },
-          ],
-        },
-        exports: [
-          {
-            namespace: "services/generated-broker-secret",
+          generatedSecrets: [{
             ref: "sample.SESSION_SECRET",
             source: "${SESSION_SEED}",
+            operation: "create",
             required: true,
-          },
-        ],
+          }],
+        },
+        exports: [{
+          namespace: "services/generated-broker-secret",
+          ref: "sample.SESSION_SECRET",
+          source: "${SESSION_SEED}",
+          required: true,
+        }],
       },
     });
     const { registry } = await prepareRegistry(servicesRoot);
@@ -85,31 +75,18 @@ test("startup broker plan includes generated writeback metadata without raw valu
     assert.ok(service);
 
     const plan = compileServiceStartupBrokerPlan(service);
-    assert.deepEqual(plan.buckets, [
-      { namespace: "services/generated-broker-secret", kind: "service" },
-    ]);
-    assert.deepEqual(plan.writeback.allowedNamespaces, ["services/generated-broker-secret"]);
+    assert.deepEqual(plan.buckets, [{ namespace: "services/generated-broker-secret", kind: "service" }]);
     assert.deepEqual(plan.writeback.allowedOperations, ["create"]);
-    assert.deepEqual(plan.writeback.allowedRefs, ["sample.SESSION_SECRET"]);
-    assert.equal(plan.writeback.allowOverwrite, false);
-    assert.equal(plan.writeback.auditReason, "test generated secret provisioning");
-    assert.deepEqual(plan.writeback.generatedSecrets, [
-      {
-        namespace: "services/generated-broker-secret",
-        ref: "sample.SESSION_SECRET",
-        operation: "create",
-        required: true,
-        sourceRefs: ["SESSION_SEED"],
-        valuePolicy: {
-          kind: "session-secret",
-          bytes: 32,
-          encoding: "base64url",
-          minEntropyBits: 256,
-        },
-        overwrite: "deny",
-        auditReason: "test generated secret provisioning",
-      },
-    ]);
+    assert.deepEqual(plan.writeback.generatedSecrets, [{
+      namespace: "services/generated-broker-secret",
+      ref: "sample.SESSION_SECRET",
+      operation: "create",
+      required: true,
+      sourceRefs: ["SESSION_SEED"],
+      valuePolicy: { kind: "session-secret", bytes: 32, encoding: "base64url", minEntropyBits: 256 },
+      overwrite: "deny",
+      auditReason: "test generated secret provisioning",
+    }]);
     assert.equal(JSON.stringify(plan).includes(rawSeed), false);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

@@ -37,6 +37,11 @@ Current related repos:
 | [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) | release-backed NGINX service used by the baseline Traefik setup |
 | [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed Traefik edge/router service |
 | [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres) | app-owned PostgreSQL service repo for local relational database dependencies |
+| [`service-lasso/lasso-pgadmin4`](https://github.com/service-lasso/lasso-pgadmin4) | app-owned pgAdmin4 browser UI for PostgreSQL admin workflows |
+| [`service-lasso/lasso-openobserve`](https://github.com/service-lasso/lasso-openobserve) | app-owned OpenObserve observability service for local logs, metrics, and traces |
+| [`service-lasso/lasso-filebeat`](https://github.com/service-lasso/lasso-filebeat) | app-owned Filebeat log shipper service for forwarding app logs into OpenObserve-compatible destinations |
+| [`service-lasso/lasso-soarca`](https://github.com/service-lasso/lasso-soarca) | app-owned SOARCA CACAO orchestration API service for playbook execution |
+| [`service-lasso/lasso-cacao-roaster`](https://github.com/service-lasso/lasso-cacao-roaster) | app-owned CACAO Roaster web UI for CACAO playbook authoring and SOARCA pairing |
 | [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo) | app-owned MongoDB service repo for local document database dependencies |
 | [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb) | app-owned TypeDB daemon repo that runs through `@java` and exports TypeDB connection globals |
 | [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files) | app-owned file-manager service repo with React UI and filesystem-backed API |
@@ -47,6 +52,7 @@ Current related repos:
 | [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms) | app-owned Websight CMS service repo that depends on `@java`, `mongo`, `nginx`, `totaljs-flow`, and `totaljs-messageservice` |
 | [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server) | app-owned BPMN modeling and execution service repo that depends on `mongo` |
 | [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel) | app-owned ZITADEL service repo for identity setups |
+| [`service-lasso/lasso-keycloak`](https://github.com/service-lasso/lasso-keycloak) | app-owned Keycloak service repo for PostgreSQL-backed identity setups |
 | [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned Dagu service repo for workflow orchestration setups |
 | [`service-lasso/service-template`](https://github.com/service-lasso/service-template) | template for creating new release-backed `lasso-*` service repos |
 | [`service-lasso/service-lasso-app-node`](https://github.com/service-lasso/service-lasso-app-node) | Node host reference app template using Service Lasso |

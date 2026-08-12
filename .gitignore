@@ -1,10 +1,20 @@
 # Local reference material kept out of git history
 ref/
+.work-agent/
 
 # Runtime/build artifacts
 node_modules/
 dist/
 .tmp/
 artifacts/
+.demo-logs/
 docs/.docusaurus/
 docs/build/
+workspace/
+services/*/.state/
+services/*/data/
+services/*/logs/
+services/*/runtime/
+services/*/temp/
+!services/node-sample-service/runtime/
+!services/node-sample-service/runtime/**

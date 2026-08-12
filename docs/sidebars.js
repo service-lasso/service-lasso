@@ -43,6 +43,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "service-authoring/setup-helper-conventions",
+          label: "Setup Helper Conventions",
+        },
+        {
+          type: "doc",
           id: "service-authoring/03-create-release-repo",
           label: "3. Create the Release Repo",
         },
@@ -63,8 +68,188 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/service-lockfile",
+          label: "Service Lockfile",
+        },
+        {
+          type: "doc",
+          id: "reference/service-config-drift",
+          label: "Service Config Drift",
+        },
+        {
+          type: "doc",
+          id: "reference/service-config-editor-api",
+          label: "Service Config Editor API",
+        },
+        {
+          type: "doc",
+          id: "reference/config-snapshot",
+          label: "Configuration Snapshot",
+        },
+        {
+          type: "doc",
+          id: "reference/config-apply-preflight",
+          label: "Config Apply Preflight",
+        },
+        {
+          type: "doc",
+          id: "reference/workspace-backup-restore",
+          label: "Workspace Backup and Restore",
+        },
+        {
+          type: "doc",
+          id: "reference/one-shot-jobs",
+          label: "One-shot Jobs",
+        },
+        {
+          type: "doc",
+          id: "reference/vault-key-bootstrap",
+          label: "Vault Key Bootstrap",
+        },
+        {
+          type: "doc",
+          id: "reference/legacy-setup-migration",
+          label: "Legacy Setup Migration",
+        },
+        {
+          type: "doc",
+          id: "reference/startup-broker-resolution",
+          label: "Startup Broker Resolution",
+        },
+        {
+          type: "doc",
+          id: "reference/first-run-vault-bootstrap-permissions",
+          label: "First-run Vault and Permissions",
+        },
+        {
+          type: "doc",
+          id: "reference/service-secret-access-policy",
+          label: "Service Secret Access Policy",
+        },
+        {
+          type: "doc",
+          id: "reference/legacy-globalenv-migration",
+          label: "Legacy globalenv Migration",
+        },
+        {
+          type: "doc",
+          id: "reference/secret-leak-regression-harness",
+          label: "Secret Leak Regression Harness",
+        },
+        {
+          type: "doc",
+          id: "reference/secret-reference-audit",
+          label: "Secret Reference Audit",
+        },
+        {
+          type: "doc",
+          id: "reference/audit",
+          label: "Audit",
+        },
+        {
+          type: "doc",
+          id: "reference/traefik-local-route-generation",
+          label: "Traefik Local Route Generation",
+        },
+        {
+          type: "doc",
+          id: "reference/endpoints-contract",
+          label: "Endpoints Contract",
+        },
+        {
+          type: "doc",
+          id: "reference/startup-endpoint-allocation",
+          label: "Startup Endpoint Allocation",
+        },
+        {
+          type: "doc",
+          id: "reference/runtime-instance-registry",
+          label: "Runtime Instance Registry",
+        },
+        {
+          type: "doc",
+          id: "reference/process-ownership-registry",
+          label: "Process Ownership Registry",
+        },
+        {
+          type: "doc",
+          id: "reference/baseline-dependency-diagnostics",
+          label: "Baseline Dependency Diagnostics",
+        },
+        {
+          type: "doc",
+          id: "reference/readiness-gate",
+          label: "Readiness Gate CLI",
+        },
+        {
+          type: "doc",
+          id: "reference/dependency-graph-api",
+          label: "Dependency Graph API",
+        },
+        {
+          type: "doc",
+          id: "reference/runtime-port-reservations",
+          label: "Runtime Port Reservations",
+        },
+        {
+          type: "doc",
+          id: "reference/local-sso-loop-smoke",
+          label: "Local SSO Loop Smoke",
+        },
+        {
+          type: "doc",
+          id: "reference/runtime-log-api",
+          label: "Runtime Log API",
+        },
+        {
+          type: "doc",
+          id: "reference/log-shipping",
+          label: "Log Shipping Preview API",
+        },
+        {
+          type: "doc",
+          id: "reference/redacted-telemetry-preview",
+          label: "Redacted Telemetry Preview",
+        },
+        {
+          type: "doc",
+          id: "reference/operator-mcp",
+          label: "Operator MCP",
+        },
+        {
+          type: "doc",
+          id: "reference/operator-inbox",
+          label: "Operator Inbox API",
+        },
+        {
+          type: "doc",
+          id: "development/telegram-group-control-plan",
+          label: "Telegram Group Control Plan",
+        },
+        {
+          type: "doc",
+          id: "reference/service-start-trace-api",
+          label: "Service Start Trace API",
+        },
+        {
+          type: "doc",
+          id: "reference/servicelasso-localhost-sso-test-matrix",
+          label: "SSO Test Matrix",
+        },
+        {
+          type: "doc",
+          id: "reference/zitadel-consumer-integration",
+          label: "ZITADEL Consumer Integration",
+        },
+        {
+          type: "doc",
           id: "development/new-lasso-service-guide",
           label: "Service Repo Handoff",
+        },
+        {
+          type: "doc",
+          id: "development/dependency-security",
+          label: "Dependency Security Boundaries",
         },
       ],
     },

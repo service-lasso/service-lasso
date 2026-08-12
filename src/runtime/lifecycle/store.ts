@@ -2,6 +2,60 @@ import type { ServiceLifecycleState } from "./types.js";
 
 const lifecycleState = new Map<string, ServiceLifecycleState>();
 
+function createInitialSupervisionState(): ServiceLifecycleState["runtime"]["supervision"] {
+  return {
+    restartAttempts: 0,
+    lastRestartAttemptAt: null,
+    lastRestartReason: null,
+    lastRestartResult: null,
+    nextRestartAt: null,
+  };
+}
+
+function cloneBrokerIdentity(identity: ServiceLifecycleState["runtime"]["brokerIdentity"]): ServiceLifecycleState["runtime"]["brokerIdentity"] {
+  if (!identity) {
+    return null;
+  }
+
+  return {
+    id: identity.id,
+    serviceId: identity.serviceId,
+    issuedAt: identity.issuedAt,
+    expiresAt: identity.expiresAt,
+    revokedAt: identity.revokedAt,
+    transportBinding: identity.transportBinding
+      ? { ...identity.transportBinding }
+      : null,
+    scope: {
+      namespaces: [...identity.scope.namespaces],
+      operations: [...identity.scope.operations],
+      refs: [...identity.scope.refs],
+    },
+    audit: { ...identity.audit },
+  };
+}
+
+function cloneStartTrace(trace: ServiceLifecycleState["runtime"]["startTrace"]): ServiceLifecycleState["runtime"]["startTrace"] {
+  return {
+    current: trace.current
+      ? {
+          ...trace.current,
+          events: trace.current.events.map((event) => ({
+            ...event,
+            metadata: { ...event.metadata },
+          })),
+        }
+      : null,
+    history: trace.history.map((attempt) => ({
+      ...attempt,
+      events: attempt.events.map((event) => ({
+        ...event,
+        metadata: { ...event.metadata },
+      })),
+    })),
+  };
+}
+
 function createInitialState(): ServiceLifecycleState {
   return {
     installed: false,
@@ -22,9 +76,10 @@ function createInitialState(): ServiceLifecycleState {
         archiveType: null,
         archivePath: null,
         extractedPath: null,
-        command: null,
-        args: [],
-      },
+      command: null,
+      args: [],
+      checksum: null,
+    },
     },
     configArtifacts: {
       files: [],
@@ -35,6 +90,7 @@ function createInitialState(): ServiceLifecycleState {
       steps: {},
     },
     runtime: {
+      generationId: null,
       pid: null,
       startedAt: null,
       finishedAt: null,
@@ -43,8 +99,11 @@ function createInitialState(): ServiceLifecycleState {
       provider: null,
       providerServiceId: null,
       lastTermination: null,
+      allocationRevision: null,
       ports: {},
+      endpoints: [],
       logs: {
+        runId: null,
         logPath: null,
         stdoutPath: null,
         stderrPath: null,
@@ -58,6 +117,13 @@ function createInitialState(): ServiceLifecycleState {
         totalRunDurationMs: 0,
         lastRunDurationMs: null,
       },
+      variables: {},
+      brokerIdentity: null,
+      startTrace: {
+        current: null,
+        history: [],
+      },
+      supervision: createInitialSupervisionState(),
     },
   };
 }
@@ -92,6 +158,9 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
               extractedPath: current.installArtifacts.artifact.extractedPath,
               command: current.installArtifacts.artifact.command,
               args: [...current.installArtifacts.artifact.args],
+              checksum: current.installArtifacts.artifact.checksum
+                ? { ...current.installArtifacts.artifact.checksum }
+                : null,
             },
           }
         : {}),
@@ -114,6 +183,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       ),
     },
     runtime: {
+      generationId: current.runtime.generationId ?? null,
       pid: current.runtime.pid,
       startedAt: current.runtime.startedAt,
       finishedAt: current.runtime.finishedAt,
@@ -122,8 +192,11 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       provider: current.runtime.provider,
       providerServiceId: current.runtime.providerServiceId,
       lastTermination: current.runtime.lastTermination,
+      allocationRevision: current.runtime.allocationRevision,
       ports: { ...current.runtime.ports },
+      endpoints: current.runtime.endpoints.map((endpoint) => ({ ...endpoint })),
       logs: {
+        runId: current.runtime.logs.runId,
         logPath: current.runtime.logs.logPath,
         stdoutPath: current.runtime.logs.stdoutPath,
         stderrPath: current.runtime.logs.stderrPath,
@@ -137,6 +210,17 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
         totalRunDurationMs: current.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: current.runtime.metrics.lastRunDurationMs,
       },
+      variables: Object.fromEntries(
+        Object.entries(current.runtime.variables).map(([key, variable]) => [
+          key,
+          { ...variable },
+        ]),
+      ),
+      brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
+      startTrace: cloneStartTrace(current.runtime.startTrace),
+      supervision: current.runtime.supervision
+        ? { ...current.runtime.supervision }
+        : createInitialSupervisionState(),
     },
   };
 }
@@ -165,6 +249,9 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
               extractedPath: nextState.installArtifacts.artifact.extractedPath,
               command: nextState.installArtifacts.artifact.command,
               args: [...nextState.installArtifacts.artifact.args],
+              checksum: nextState.installArtifacts.artifact.checksum
+                ? { ...nextState.installArtifacts.artifact.checksum }
+                : null,
             },
           }
         : {}),
@@ -187,6 +274,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       ),
     },
     runtime: {
+      generationId: nextState.runtime.generationId ?? null,
       pid: nextState.runtime.pid,
       startedAt: nextState.runtime.startedAt,
       finishedAt: nextState.runtime.finishedAt,
@@ -195,8 +283,11 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       provider: nextState.runtime.provider,
       providerServiceId: nextState.runtime.providerServiceId,
       lastTermination: nextState.runtime.lastTermination,
+      allocationRevision: nextState.runtime.allocationRevision,
       ports: { ...nextState.runtime.ports },
+      endpoints: nextState.runtime.endpoints.map((endpoint) => ({ ...endpoint })),
       logs: {
+        runId: nextState.runtime.logs.runId,
         logPath: nextState.runtime.logs.logPath,
         stdoutPath: nextState.runtime.logs.stdoutPath,
         stderrPath: nextState.runtime.logs.stderrPath,
@@ -210,6 +301,17 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
         totalRunDurationMs: nextState.runtime.metrics.totalRunDurationMs,
         lastRunDurationMs: nextState.runtime.metrics.lastRunDurationMs,
       },
+      variables: Object.fromEntries(
+        Object.entries(nextState.runtime.variables).map(([key, variable]) => [
+          key,
+          { ...variable },
+        ]),
+      ),
+      brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
+      startTrace: cloneStartTrace(nextState.runtime.startTrace),
+      supervision: nextState.runtime.supervision
+        ? { ...nextState.runtime.supervision }
+        : createInitialSupervisionState(),
     },
   };
 

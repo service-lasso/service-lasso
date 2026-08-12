@@ -1,9 +1,54 @@
 import type { ServiceHealthcheck } from "../runtime/health/types.js";
 
-export interface ServiceEndpoint {
+export type ServiceEndpointKind = "network" | "url" | "mount" | "device";
+export type ServiceEndpointDirection = "inbound" | "outbound";
+export type ServiceEndpointTransport = "tcp" | "udp";
+export type ServiceEndpointProtocol = "http" | "https" | "tcp" | "udp";
+export type ServiceEndpointExposure = "local" | "lan" | "public";
+export type ServiceEndpointPortStrategy = "automatic" | "preferred" | "fixed";
+
+export interface ServiceEndpointPortDeclaration {
+  default?: number;
+  strategy?: ServiceEndpointPortStrategy;
+  policy?: ServiceEndpointPortStrategy;
+  range?: {
+    start: number;
+    end: number;
+  };
+}
+
+export interface ServiceManifestEndpoint {
+  id: string;
+  kind: ServiceEndpointKind;
+  label?: string;
+  direction?: ServiceEndpointDirection;
+  transport?: ServiceEndpointTransport;
+  protocol?: ServiceEndpointProtocol;
+  bind?: string;
+  port?: ServiceEndpointPortDeclaration;
+  target?: string;
+  url?: string;
+  exposure?: ServiceEndpointExposure;
+  required?: boolean;
+  primary?: boolean;
+}
+
+export interface ServiceUrlEndpoint {
   label: string;
   url: string;
   kind?: string;
+}
+
+export type ServiceLogSourceType = "file" | "glob";
+export type ServiceLogSourceFormat = "text" | "json" | "ndjson";
+
+export interface ServiceLogSourceDeclaration {
+  id: string;
+  label: string;
+  type: ServiceLogSourceType;
+  path?: string;
+  pattern?: string;
+  format?: ServiceLogSourceFormat;
 }
 
 export interface ServicePortDeclaration {
@@ -19,8 +64,30 @@ export interface ServiceMaterializedFile {
   content: string;
 }
 
+export interface ServiceMaterializedTemplate {
+  source: string;
+  target: string;
+}
+
 export interface ServiceActionMaterialization {
   files?: ServiceMaterializedFile[];
+  templates?: ServiceMaterializedTemplate[];
+}
+
+export type ServiceFilesRootMode = "read-only" | "read-write";
+
+export interface ServiceFilesRootDeclaration {
+  id: string;
+  label: string;
+  path: string;
+  mode: ServiceFilesRootMode;
+  hidden?: boolean;
+  protected?: boolean;
+}
+
+export interface ServiceFilesPolicy {
+  enabled?: boolean;
+  roots?: ServiceFilesRootDeclaration[];
 }
 
 export type ServiceHookFailurePolicy = "block" | "warn" | "continue";
@@ -32,7 +99,7 @@ export interface ServiceHookStep {
   cwd?: string;
   timeoutSeconds?: number;
   failurePolicy?: ServiceHookFailurePolicy;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
 }
 
 export interface ServiceMonitoringPolicy {
@@ -117,7 +184,7 @@ export interface ServiceActionDefinition {
   commandline?: Record<string, string>;
   args?: string[];
   cwd?: string;
-  env?: Record<string, string>;
+  env?: ServiceEnvMap;
   timeoutSeconds?: number;
   requiredState?: ServiceActionRequiredState;
   requiresConfirmation?: boolean;
@@ -139,14 +206,24 @@ export interface ServiceSetupStep {
   executable?: string;
   args?: string[];
   commandline?: Record<string, string>;
-  env?: Record<string, string>;
+  cwd?: string;
+  env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;
+  outputs?: string[];
 }
 
 export interface ServiceSetupPolicy {
   steps?: Record<string, ServiceSetupStep>;
 }
+
+export interface ServiceExecutionConfig {
+  serviceorder?: number;
+}
+
+export type ServiceEnvValue = string | string[];
+export type ServiceEnvMap = Record<string, ServiceEnvValue>;
+export type ServiceCapabilityMap = Record<string, string>;
 
 export type ServiceUpdateMode = "disabled" | "notify" | "download" | "install";
 export type ServiceUpdateRunningServicePolicy = "skip" | "require-stopped" | "stop-start" | "restart";
@@ -183,14 +260,30 @@ export interface ServiceArtifactPlatform {
   assetName?: string;
   assetUrl?: string;
   archiveType: ServiceArtifactArchiveType;
+  sha256?: string;
   command?: string;
   args?: string[];
+  checksum?: {
+    algorithm: "sha256";
+    value?: string;
+    assetName?: string;
+  };
 }
 
 export interface ServiceArchiveArtifact {
   kind: "archive";
   source: ServiceArtifactSource;
   platforms: Record<string, ServiceArtifactPlatform>;
+}
+
+export interface ServiceCatalogProvenance {
+  sourcePath: string;
+  sourceType: ServiceArtifactSource["type"] | null;
+  repo: string | null;
+  releaseTag: string | null;
+  assetNames: string[];
+  checksumPresent: boolean;
+  packagedRuntimeVersion: string | null;
 }
 
 export type ServiceRole = "service" | "provider";
@@ -208,9 +301,16 @@ export interface ServiceBrokerImport {
   ref: string;
   as?: string;
   required?: boolean;
+  onChange?: ServiceBrokerChangeReaction;
 }
 
-export type ServiceBrokerWritebackOperation = "create" | "update" | "rotate" | "delete";
+export type ServiceBrokerChangeReactionMode = "restart" | "reload" | "action" | "manual" | "none";
+
+export interface ServiceBrokerChangeReaction {
+  mode: ServiceBrokerChangeReactionMode;
+  actionId?: string;
+  reason?: string;
+}
 
 export interface ServiceBrokerWritebackCapture {
   ref: string;
@@ -224,6 +324,24 @@ export interface ServiceBrokerExport {
   ref: string;
   source: string;
   required?: boolean;
+}
+
+export type ServiceBrokerWritebackOperation = "create" | "update" | "rotate" | "delete";
+export type ServiceBrokerAccessOperation = "resolve" | ServiceBrokerWritebackOperation;
+export type ServiceBrokerAccessScope = "workspace" | "service" | "app" | "shared" | "global";
+
+export interface ServiceBrokerAccessGrant {
+  namespace: string;
+  scope?: ServiceBrokerAccessScope;
+  refs?: string[];
+  operations: ServiceBrokerAccessOperation[];
+  purpose: string;
+}
+
+export interface ServiceBrokerAccessPolicy {
+  serviceId?: string;
+  workspace?: string;
+  grants?: ServiceBrokerAccessGrant[];
 }
 
 export interface ServiceBrokerWritebackPolicy {
@@ -241,6 +359,7 @@ export interface ServiceBrokerPolicy {
   buckets?: ServiceBrokerBucket[];
   imports?: ServiceBrokerImport[];
   exports?: ServiceBrokerExport[];
+  accessPolicy?: ServiceBrokerAccessPolicy;
   writeback?: ServiceBrokerWritebackPolicy;
 }
 
@@ -252,20 +371,29 @@ export interface ServiceManifest {
   role?: ServiceRole;
   enabled?: boolean;
   autostart?: boolean;
+  serviceorder?: number;
+  execconfig?: ServiceExecutionConfig;
   depend_on?: string[];
+  requires?: ServiceCapabilityMap;
+  provides?: ServiceCapabilityMap;
   healthcheck?: ServiceHealthcheck;
-  env?: Record<string, string>;
-  globalenv?: Record<string, string>;
+  healthchecks?: ServiceHealthcheck[];
+  outputvarregex?: Record<string, string>;
+  env?: ServiceEnvMap;
+  globalenv?: ServiceEnvMap;
   broker?: ServiceBrokerPolicy;
+  endpoints?: ServiceManifestEndpoint[];
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
-  urls?: ServiceEndpoint[];
+  urls?: ServiceUrlEndpoint[];
+  logSources?: ServiceLogSourceDeclaration[];
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;
   hooks?: ServiceLifecycleHooks;
   actions?: ServiceActionPolicy;
   setup?: ServiceSetupPolicy;
+  files?: ServiceFilesPolicy;
   updates?: ServiceUpdatePolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;
@@ -280,4 +408,5 @@ export interface DiscoveredService {
   manifest: ServiceManifest;
   manifestPath: string;
   serviceRoot: string;
+  catalogProvenance: ServiceCatalogProvenance;
 }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, readdir, rm } from "node:fs/promises";
+import { readFile, readdir, rm, unlink } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -43,6 +43,36 @@ test("service detail includes richer operator metadata", async () => {
     assert.equal(body.service.operator.logPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "service.log")), true);
     assert.equal(body.service.operator.variableCount >= 3, true);
     assert.equal(body.service.operator.endpointCount >= 2, true);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("service detail exposes read-only catalog provenance", async () => {
+  resetLifecycleState();
+  await clearPersistedFixtureState(servicesRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const response = await fetch(`${apiServer.url}/api/services/${encodeURIComponent("@node")}`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.service.catalogProvenance, {
+      sourcePath: "@node/service.json",
+      sourceType: "github-release",
+      repo: "service-lasso/lasso-node",
+      releaseTag: "2026.8.12-1500d36",
+      assetNames: [
+        "lasso-node-v24.15.0-darwin.tar.gz",
+        "lasso-node-v24.15.0-linux.tar.gz",
+        "lasso-node-v24.15.0-win32.zip",
+      ],
+      checksumPresent: false,
+      packagedRuntimeVersion: "v24.15.0",
+    });
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -136,6 +166,97 @@ test("service meta routes persist favorites and dependency graph layout across r
   }
 });
 
+test("service config editor routes read, validate, save, and retain backups", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-config-editor-");
+  await writeManifest(servicesRoot, "editable-service", {
+    id: "editable-service",
+    name: "Editable Service",
+    description: "Service with editable manifest.",
+    env: {
+      TOKEN_REF: "secret://editable-service/token",
+    },
+    healthcheck: { type: "process" },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const readResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`);
+    const readBody = await readResponse.json();
+
+    assert.equal(readResponse.status, 200);
+    assert.equal(readBody.serviceId, "editable-service");
+    assert.equal(readBody.fileName, "server.json");
+    assert.match(readBody.path, /service\.json$/);
+    assert.match(readBody.content, /Editable Service/);
+    assert.equal(readBody.safety.rawSecretValuesLoaded, false);
+    assert.deepEqual(readBody.revisions, []);
+
+    const invalidResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "{not-json" }),
+    });
+    const invalidBody = await invalidResponse.json();
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(invalidBody.error, "invalid_json");
+
+    const nextContent = JSON.stringify(
+      {
+        id: "editable-service",
+        name: "Editable Service",
+        description: "Updated safely from Service Admin.",
+        enabled: true,
+        env: {
+          TOKEN_REF: "secret://editable-service/token",
+        },
+        healthcheck: { type: "process" },
+      },
+      null,
+      2,
+    );
+    const saveResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        content: nextContent,
+        actor: "service-admin-test",
+        reason: "operator config editor save test",
+      }),
+    });
+    const saveBody = await saveResponse.json();
+
+    assert.equal(saveResponse.status, 200);
+    assert.equal(saveBody.serviceId, "editable-service");
+    assert.equal(saveBody.validationStatus, "valid");
+    assert.equal(saveBody.backup.actor, "service-admin-test");
+    assert.equal(saveBody.backup.reason, "operator config editor save test");
+    assert.equal(saveBody.backup.validationStatus, "valid");
+    assert.match(saveBody.backup.content, /Editable Service/);
+    assert.match(saveBody.backup.content, /secret:\/\/editable-service\/token/);
+
+    const updatedManifest = JSON.parse(await readFile(path.join(servicesRoot, "editable-service", "service.json"), "utf8"));
+    assert.equal(updatedManifest.description, "Updated safely from Service Admin.");
+
+    const backupsResponse = await fetch(`${apiServer.url}/api/services/editable-service/config/backups`);
+    const backupsBody = await backupsResponse.json();
+    assert.equal(backupsResponse.status, 200);
+    assert.equal(backupsBody.revisions.length, 1);
+    assert.equal(backupsBody.revisions[0].id, saveBody.backup.id);
+    assert.equal(backupsBody.revisions[0].previousHash, saveBody.backup.previousHash);
+
+    const rereadResponse = await fetch(`${apiServer.url}/api/services/editable-service/config`);
+    const rereadBody = await rereadResponse.json();
+    assert.equal(rereadResponse.status, 200);
+    assert.equal(rereadBody.backupCount, 1);
+    assert.match(rereadBody.content, /Updated safely from Service Admin/);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("managed stdout/stderr are captured into runtime-owned log files and surfaced through API/state", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-logs-");
@@ -151,6 +272,8 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
     const start = await postJson(`${apiServer.url}/api/services/loggy-service/start`);
 
     assert.equal(start.status, 200);
+    assert.equal(typeof start.body.state.runtime.logs.runId, "string");
+    assert.match(start.body.state.runtime.logs.runId, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(start.body.state.runtime.logs.logPath.endsWith(path.join("loggy-service", "logs", "runtime", "service.log")), true);
     assert.equal(start.body.state.runtime.logs.stdoutPath.endsWith(path.join("loggy-service", "logs", "runtime", "stdout.log")), true);
     assert.equal(start.body.state.runtime.logs.stderrPath.endsWith(path.join("loggy-service", "logs", "runtime", "stderr.log")), true);
@@ -165,6 +288,7 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
     });
 
     assert.equal(logsResponse.response.status, 200);
+    assert.equal(logsResponse.body.logs.runId, start.body.state.runtime.logs.runId);
     assert.equal(logsResponse.body.logs.retention.maxArchives, 3);
     assert.deepEqual(logsResponse.body.logs.archives, []);
     assert.deepEqual(
@@ -228,20 +352,38 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
 
     const infoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=%40reader-service&type=default`);
     const infoBody = await infoResponse.json();
-    const chunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=%40reader-service&type=default&limit=50`);
-    const chunkBody = await chunkResponse.json();
-    const stdoutInfoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=%40reader-service&type=stdout`);
+    const stdoutInfoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=reader-service&type=stdout`);
     const stdoutInfoBody = await stdoutInfoResponse.json();
-    const stdoutChunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=%40reader-service&type=stdout&limit=50`);
+    const chunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=default&limit=50`);
+    const chunkBody = await chunkResponse.json();
+    const stdoutChunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=stdout&limit=50`);
     const stdoutChunkBody = await stdoutChunkResponse.json();
-    const stderrChunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=%40reader-service&type=stderr&limit=50`);
+    const stderrChunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=stderr&limit=50`);
     const stderrChunkBody = await stderrChunkResponse.json();
+    const cursorResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=default&limit=1`);
+    const cursorBody = await cursorResponse.json();
+    const nextCursorResponse = await fetch(
+      `${apiServer.url}/api/logs/read?service=reader-service&type=default&cursor=${cursorBody.nextCursor}&limit=1`,
+    );
+    const nextCursorBody = await nextCursorResponse.json();
+    const searchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=reader-service&type=default&q=reader%20stdout&limit=5`,
+    );
+    const searchBody = await searchResponse.json();
 
     assert.equal(infoResponse.status, 200);
     assert.equal(infoBody.serviceId, "@reader-service");
     assert.equal(infoBody.type, "default");
+    assert.equal(infoBody.available, true);
     assert.deepEqual(infoBody.availableTypes, ["default", "stdout", "stderr"]);
-    assert.equal(infoBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "service.log")), true);
+    assert.deepEqual(infoBody.sources.map((source) => source.stream), ["combined", "stdout", "stderr"]);
+    assert.equal(infoBody.sources.every((source) => source.kind === "current"), true);
+    assert.equal(infoBody.sources.every((source) => typeof source.runId === "string" && source.runId.length > 0), true);
+    assert.equal(infoBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
+    assert.equal(stdoutInfoResponse.status, 200);
+    assert.equal(stdoutInfoBody.type, "stdout");
+    assert.equal(stdoutInfoBody.available, true);
+    assert.equal(stdoutInfoBody.path.endsWith(path.join("reader-service", "logs", "runtime", "stdout.log")), true);
 
     assert.equal(chunkResponse.status, 200);
     assert.equal(chunkBody.serviceId, "@reader-service");
@@ -251,6 +393,58 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(chunkBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "service.log")), true);
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
     assert.ok(chunkBody.lines.some((line) => line.includes("\"message\":\"reader stderr\"")));
+    assert.equal(chunkBody.cursor, String(chunkBody.end));
+    assert.equal(chunkBody.available, true);
+    assert.equal(chunkBody.source.stream, "combined");
+    assert.equal(typeof chunkBody.source.runId, "string");
+    assert.equal(chunkBody.entries.some((entry) => entry.stream === "stdout" && entry.message === "reader stdout"), true);
+
+    assert.equal(stdoutChunkResponse.status, 200);
+    assert.equal(stdoutChunkBody.type, "stdout");
+    assert.equal(stdoutChunkBody.available, true);
+    assert.equal(stdoutChunkBody.source.stream, "stdout");
+    assert.deepEqual(stdoutChunkBody.lines, ["reader stdout"]);
+    assert.equal(stdoutChunkBody.entries[0].stream, "stdout");
+    assert.equal(stdoutChunkBody.entries[0].message, "reader stdout");
+
+    assert.equal(stderrChunkResponse.status, 200);
+    assert.equal(stderrChunkBody.type, "stderr");
+    assert.equal(stderrChunkBody.available, true);
+    assert.equal(stderrChunkBody.source.stream, "stderr");
+    assert.deepEqual(stderrChunkBody.lines, ["reader stderr"]);
+    assert.equal(stderrChunkBody.entries[0].stream, "stderr");
+    assert.equal(stderrChunkBody.entries[0].message, "reader stderr");
+
+    assert.equal(cursorResponse.status, 200);
+    assert.equal(cursorBody.lines.length, 1);
+    assert.equal(typeof cursorBody.nextCursor, "string");
+    assert.equal(nextCursorResponse.status, 200);
+    assert.equal(nextCursorBody.lines.length, 1);
+
+    assert.equal(searchResponse.status, 200);
+    assert.equal(searchBody.serviceId, "@reader-service");
+    assert.equal(searchBody.query, "reader stdout");
+    assert.equal(searchBody.includeArchives, false);
+    assert.equal(searchBody.matches.length, 1);
+    assert.equal(searchBody.matches[0].stream, "stdout");
+    assert.equal(searchBody.matches[0].message, "reader stdout");
+
+    const stdoutSearchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=reader-service&type=stdout&q=reader%20stdout&limit=5`,
+    );
+    const stdoutSearchBody = await stdoutSearchResponse.json();
+    assert.equal(stdoutSearchResponse.status, 200);
+    assert.equal(stdoutSearchBody.type, "stdout");
+    assert.equal(stdoutSearchBody.matches.length, 1);
+    assert.equal(stdoutSearchBody.matches[0].stream, "stdout");
+
+    await unlink(path.join(servicesRoot, "@reader-service", "logs", "runtime", "stderr.log"));
+    const missingStderrResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=stderr&limit=50`);
+    const missingStderrBody = await missingStderrResponse.json();
+    assert.equal(missingStderrResponse.status, 200);
+    assert.equal(missingStderrBody.type, "stderr");
+    assert.equal(missingStderrBody.available, false);
+    assert.deepEqual(missingStderrBody.lines, []);
 
     assert.equal(stdoutInfoResponse.status, 200);
     assert.equal(stdoutInfoBody.type, "stdout");
@@ -287,9 +481,11 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
     await postJson(`${apiServer.url}/api/services/archive-loggy-service/install`);
     await postJson(`${apiServer.url}/api/services/archive-loggy-service/config`);
 
+    const runIds = [];
     for (let run = 0; run < 5; run += 1) {
       const start = await postJson(`${apiServer.url}/api/services/archive-loggy-service/start`);
       assert.equal(start.status, 200);
+      runIds.push(start.body.state.runtime.logs.runId);
 
       await waitFor(async () => {
         const response = await fetch(`${apiServer.url}/api/services/archive-loggy-service/logs`);
@@ -310,6 +506,13 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
     assert.equal(logsResponse.status, 200);
     assert.equal(logsBody.logs.retention.maxArchives, 3);
     assert.equal(logsBody.logs.archives.length, 3);
+    assert.equal(new Set(runIds).size, 5);
+    assert.equal(logsBody.logs.runId, runIds.at(-1));
+    assert.deepEqual(
+      logsBody.logs.archives.map((archive) => archive.runId),
+      logsBody.logs.archives.map((archive) => archive.archiveId),
+    );
+    assert.equal(new Set(logsBody.logs.archives.map((archive) => archive.archiveId)).size, 3);
     assert.deepEqual(
       logsBody.logs.entries
         .filter((entry) => entry.message.length > 0)
@@ -329,6 +532,23 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
       assert.match(archivedStderr, /archive stderr/);
     }
 
+    const currentSearchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=archive-loggy-service&type=default&q=archive%20stdout&limit=10`,
+    );
+    const currentSearchBody = await currentSearchResponse.json();
+    const archiveSearchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=archive-loggy-service&type=default&q=archive%20stdout&includeArchives=true&limit=10`,
+    );
+    const archiveSearchBody = await archiveSearchResponse.json();
+
+    assert.equal(currentSearchResponse.status, 200);
+    assert.equal(currentSearchBody.includeArchives, false);
+    assert.equal(currentSearchBody.matches.length, 1);
+    assert.equal(archiveSearchResponse.status, 200);
+    assert.equal(archiveSearchBody.includeArchives, true);
+    assert.equal(archiveSearchBody.matches.length >= 4, true);
+    assert.equal(archiveSearchBody.matches.some((entry) => entry.source.kind === "archive"), true);
+
     const archiveDirectories = await readdir(path.join(serviceRoot, "logs", "archive"), { withFileTypes: true });
     assert.equal(archiveDirectories.filter((entry) => entry.isDirectory()).length, 3);
   } finally {
@@ -344,7 +564,7 @@ test("service metrics surface persisted process evidence and survive runtime res
   await writeExecutableFixtureService(servicesRoot, "metric-service", {
     stdoutLines: ["metric stdout"],
     stderrLines: ["metric stderr"],
-    autoExitMs: 75,
+    autoExitMs: 2_500,
     exitCode: 3,
   });
 
@@ -360,12 +580,15 @@ test("service metrics surface persisted process evidence and survive runtime res
       const response = await fetch(`${firstServer.url}/api/services/metric-service/metrics`);
       const body = await response.json();
 
-      if (body.metrics.process.crashCount === 1) {
+      if (
+        body.metrics.process.crashCount === 1 &&
+        body.metrics.process.running === false
+      ) {
         return { response, body };
       }
 
       return null;
-    }, 2_000);
+    }, 6_000);
 
     assert.equal(metricsResponse.response.status, 200);
     assert.equal(metricsResponse.body.metrics.serviceId, "metric-service");
@@ -428,11 +651,105 @@ test("GET /api/services/:id/variables returns manifest and derived variables", a
     assert.equal(response.status, 200);
     assert.equal(body.variables.serviceId, "echo-service");
     assert.ok(body.variables.variables.some((entry) => entry.key === "ECHO_MESSAGE" && entry.scope === "manifest"));
+    assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_ROOT" && entry.scope === "derived"));
+    assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_PATH" && entry.scope === "derived"));
     assert.ok(body.variables.variables.some((entry) => entry.key === "SERVICE_STATE_ROOT" && entry.scope === "derived"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();
     await clearPersistedFixtureState(servicesRoot);
+  }
+});
+
+test("runtime-captured output variables satisfy healthchecks and API variable scope", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-outputvarregex-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "captured-variable-service", {
+    stdoutLines: ["Loading and starting Inputs completed. Enabled inputs: 3"],
+    outputvarregex: {
+      FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+    },
+    healthcheck: {
+      type: "variable",
+      variable: "${FILEBEAT_ENABLED_INPUTS}",
+      retries: 10,
+      interval: 25,
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/install`);
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/captured-variable-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.health.type, "variable");
+    assert.equal(start.body.health.healthy, true);
+    assert.match(start.body.health.detail, /resolved FILEBEAT_ENABLED_INPUTS from runtime scope/i);
+
+    const variablesResponse = await fetch(`${apiServer.url}/api/services/captured-variable-service/variables`);
+    const variablesBody = await variablesResponse.json();
+    const captured = variablesBody.variables.variables.find((entry) => entry.key === "FILEBEAT_ENABLED_INPUTS");
+    const persistedRuntime = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
+
+    assert.equal(variablesResponse.status, 200);
+    assert.deepEqual(captured, {
+      key: "FILEBEAT_ENABLED_INPUTS",
+      value: "3",
+      scope: "runtime",
+    });
+    assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.value, "3");
+    assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.source, "stdout");
+    assert.equal(typeof persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.matchedAt, "string");
+
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime-captured output variables satisfy canonical healthchecks arrays", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-outputvarregex-array-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "captured-variable-array-service", {
+    stdoutLines: ["Loading and starting Inputs completed. Enabled inputs: 4"],
+    outputvarregex: {
+      FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+    },
+    healthchecks: [
+      {
+        id: "filebeat-inputs-ready",
+        type: "variable",
+        variable: "${FILEBEAT_ENABLED_INPUTS}",
+        retries: 10,
+        interval: 25,
+      },
+    ],
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/install`);
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/captured-variable-array-service/start`);
+
+    assert.equal(start.status, 200);
+    assert.equal(start.body.health.type, "aggregate");
+    assert.equal(start.body.health.healthy, true);
+    assert.equal(start.body.health.checks[0].id, "filebeat-inputs-ready");
+    assert.match(start.body.health.checks[0].detail, /resolved FILEBEAT_ENABLED_INPUTS from runtime scope/i);
+
+    const persistedRuntime = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
+    assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.value, "4");
+
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/stop`);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
@@ -594,7 +911,7 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
     assert.equal(body.network.ports.service, 4010);
     assert.ok(body.network.endpoints.some((entry) => entry.label === "service"));
     assert.ok(body.network.endpoints.some((entry) => entry.label === "ui"));
-    assert.ok(body.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:4010/health"));
+    assert.ok(body.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:4011/health"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();

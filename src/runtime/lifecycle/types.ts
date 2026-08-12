@@ -1,8 +1,47 @@
 import type { ProviderKind } from "../providers/types.js";
+import type { ScopedBrokerIdentityMetadata } from "../broker/identity.js";
+import type { ResolvedServiceEndpoint } from "../operator/endpoints.js";
 
 export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart";
 
 export type SetupStepStatus = "succeeded" | "failed" | "timeout" | "skipped";
+
+export type ServiceStartTracePhase =
+  | "dependency_resolution"
+  | "port_selection"
+  | "artifact_acquisition"
+  | "env_merge"
+  | "process_spawn"
+  | "health_check"
+  | "terminal_outcome";
+
+export type ServiceStartTraceEventStatus = "completed" | "blocked" | "failed" | "skipped";
+
+export interface ServiceStartTraceEvent {
+  order: number;
+  phase: ServiceStartTracePhase;
+  status: ServiceStartTraceEventStatus;
+  serviceId: string;
+  startedAt: string;
+  finishedAt: string;
+  message: string;
+  metadata: Record<string, string | number | boolean | null | string[]>;
+}
+
+export interface ServiceStartTraceAttempt {
+  attemptId: string;
+  serviceId: string;
+  action: "start" | "restart";
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "succeeded" | "failed" | "blocked";
+  events: ServiceStartTraceEvent[];
+}
+
+export interface ServiceStartTraceState {
+  current: ServiceStartTraceAttempt | null;
+  history: ServiceStartTraceAttempt[];
+}
 
 export interface ServiceSetupStepRunState {
   runId: string;
@@ -13,6 +52,7 @@ export interface ServiceSetupStepRunState {
   finishedAt: string;
   durationMs: number;
   command: string;
+  cwd?: string;
   exitCode: number | null;
   signal: string | null;
   message: string;
@@ -47,6 +87,15 @@ export interface ServiceMaterializedArtifactsState {
     extractedPath: string | null;
     command: string | null;
     args: string[];
+    checksum: {
+      algorithm: "sha256";
+      source: "manifest" | "release-asset";
+      expected: string;
+      actual: string;
+      assetName: string;
+      checksumAssetName: string | null;
+      verifiedAt: string;
+    } | null;
   };
 }
 
@@ -60,7 +109,25 @@ export interface ServiceRuntimeMetricsState {
   lastRunDurationMs: number | null;
 }
 
+export interface ServiceRuntimeVariableState {
+  value: string;
+  source: "stdout" | "stderr";
+  matchedAt: string;
+}
+
+export type ServiceRuntimeSupervisionRestartReason = "crash" | "unhealthy";
+export type ServiceRuntimeSupervisionRestartResult = "scheduled" | "started" | "failed" | "blocked";
+
+export interface ServiceRuntimeSupervisionState {
+  restartAttempts: number;
+  lastRestartAttemptAt: string | null;
+  lastRestartReason: ServiceRuntimeSupervisionRestartReason | null;
+  lastRestartResult: ServiceRuntimeSupervisionRestartResult | null;
+  nextRestartAt: string | null;
+}
+
 export interface ServiceRuntimeState {
+  generationId: string | null;
   pid: number | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -69,13 +136,20 @@ export interface ServiceRuntimeState {
   provider: ProviderKind | null;
   providerServiceId: string | null;
   lastTermination: "stopped" | "exited" | "crashed" | null;
+  allocationRevision: string | null;
   ports: Record<string, number>;
+  endpoints: ResolvedServiceEndpoint[];
   logs: {
+    runId: string | null;
     logPath: string | null;
     stdoutPath: string | null;
     stderrPath: string | null;
   };
   metrics: ServiceRuntimeMetricsState;
+  variables: Record<string, ServiceRuntimeVariableState>;
+  brokerIdentity: ScopedBrokerIdentityMetadata | null;
+  startTrace: ServiceStartTraceState;
+  supervision: ServiceRuntimeSupervisionState;
 }
 
 export interface ServiceLifecycleState {

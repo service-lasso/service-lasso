@@ -1,17 +1,26 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { closeSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { createConnection } from "node:net";
+import { access, cp, mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
+import net, { createConnection } from "node:net";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
 export const defaultDemoLogRoot = path.join(repoRoot, ".demo-logs");
-export const defaultBaselineServiceIds = ["@java", "@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"];
-export const demoServiceIds = [...defaultBaselineServiceIds, "node-sample-service"];
+export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const defaultBaselineServiceIds = [...demoRequiredServiceIds];
+export const demoServiceIds = [...demoRequiredServiceIds, "node-sample-service"];
+export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+export const demoFixedPortChecks = [
+  { serviceId: "@serviceadmin", portName: "ui", host: "127.0.0.1", port: 17700 },
+  { serviceId: "@secretsbroker", portName: "service", host: "127.0.0.1", port: 17890 },
+  { serviceId: "@nginx", portName: "http", host: "127.0.0.1", port: 18080 },
+  { serviceId: "@traefik", portName: "admin", host: "127.0.0.1", port: 19081 },
+  { serviceId: "echo-service", portName: "health", host: "127.0.0.1", port: 4011 },
+];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -19,29 +28,26 @@ function parseFlag(args, name) {
   return match ? match.slice(prefix.length) : undefined;
 }
 
-function parseNpmConfig(name) {
-  return process.env[`npm_config_${name.replaceAll("-", "_")}`];
-}
-
-function parseOption(args, name) {
-  return parseFlag(args, name) ?? parseNpmConfig(name);
+function parseOption(args, name, envName) {
+  return parseFlag(args, name) ?? process.env[`npm_config_${name.replaceAll("-", "_")}`] ?? process.env[envName];
 }
 
 export function resolveDemoOptions(args = process.argv.slice(2)) {
-  const port = Number(parseOption(args, "port") ?? process.env.SERVICE_LASSO_PORT ?? 18080);
-  const host = parseOption(args, "host") ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
+  const port = Number(parseOption(args, "port", "SERVICE_LASSO_PORT") ?? 18080);
+  const host = parseOption(args, "host", "SERVICE_LASSO_HOST") ?? "127.0.0.1";
 
   return {
-    servicesRoot: path.resolve(parseOption(args, "services-root") ?? defaultDemoServicesRoot),
-    workspaceRoot: path.resolve(parseOption(args, "workspace-root") ?? defaultDemoWorkspaceRoot),
+    servicesRoot: path.resolve(parseOption(args, "services-root", "SERVICE_LASSO_SERVICES_ROOT") ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(parseOption(args, "workspace-root", "SERVICE_LASSO_WORKSPACE_ROOT") ?? defaultDemoWorkspaceRoot),
     port,
     host,
-    runtimeUrl: parseOption(args, "runtime-url") ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
-    serviceAdminUrl: parseOption(args, "admin-url") ?? process.env.SERVICE_LASSO_ADMIN_URL ?? "http://127.0.0.1:17700/",
-    demoLogRoot: path.resolve(parseOption(args, "demo-log-root") ?? defaultDemoLogRoot),
-    timeoutMs: Number(parseOption(args, "timeout-ms") ?? process.env.SERVICE_LASSO_DEMO_TIMEOUT_MS ?? 5_000),
-    json: args.includes("--json") || parseNpmConfig("json") === "true",
+    runtimeUrl: parseOption(args, "runtime-url", "SERVICE_LASSO_RUNTIME_URL") ?? `http://127.0.0.1:${port}`,
+    serviceAdminUrl: parseOption(args, "admin-url", "SERVICE_LASSO_ADMIN_URL") ?? "http://127.0.0.1:17700/",
+    demoLogRoot: path.resolve(parseOption(args, "demo-log-root", "SERVICE_LASSO_DEMO_LOG_ROOT") ?? defaultDemoLogRoot),
+    timeoutMs: Number(parseOption(args, "timeout-ms", "SERVICE_LASSO_DEMO_TIMEOUT_MS") ?? 5_000),
+    json: args.includes("--json") || process.env.npm_config_json === "true",
     preserve: args.includes("--preserve"),
+    foreground: args.includes("--foreground"),
   };
 }
 
@@ -86,15 +92,445 @@ export async function ensureDemoServiceManifests(servicesRoot, options = {}) {
       force: true,
       filter: (source) => {
         const relativePath = path.relative(sourceRoot, source);
-        if (!relativePath) {
-          return true;
-        }
-
+        if (!relativePath) return true;
         const firstSegment = relativePath.split(path.sep)[0];
         return firstSegment !== ".state" && firstSegment !== "logs" && firstSegment !== "temp";
       },
     });
   }
+}
+
+async function readJsonIfPresent(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function processExists(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processExists(pid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !processExists(pid);
+}
+
+async function waitForCommandExit(command, args) {
+  await new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
+
+async function commandOutput(command, args, options = {}) {
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, {
+      ...options,
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.once("close", (code) => resolve(code === 0 ? stdout.trim() : ""));
+    child.once("error", () => resolve(""));
+  });
+}
+
+async function terminateProcessTree(pid, label) {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !processExists(pid)) {
+    return { label, pid, stopped: false, reason: "not_running" };
+  }
+
+  if (process.platform === "win32") {
+    await waitForCommandExit("taskkill", ["/pid", String(pid), "/t", "/f"]);
+    return { label, pid, stopped: !processExists(pid), reason: processExists(pid) ? "still_running" : "terminated" };
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return { label, pid, stopped: true, reason: "terminated" };
+  }
+
+  if (!(await waitForProcessExit(pid))) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Process exited between checks.
+    }
+  }
+
+  return { label, pid, stopped: !processExists(pid), reason: processExists(pid) ? "still_running" : "terminated" };
+}
+
+async function canBindPort(host, port) {
+  const server = net.createServer();
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (server.listening) {
+      await new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }).catch(() => undefined);
+    }
+  }
+}
+
+function sameResolvedPath(left, right) {
+  const leftResolved = path.resolve(String(left ?? ""));
+  const rightResolved = path.resolve(String(right ?? ""));
+  return process.platform === "win32"
+    ? leftResolved.toLowerCase() === rightResolved.toLowerCase()
+    : leftResolved === rightResolved;
+}
+
+function runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot }) {
+  return Boolean(
+    runtimeInstance
+      && sameResolvedPath(runtimeInstance.servicesRoot, servicesRoot)
+      && sameResolvedPath(runtimeInstance.workspaceRoot, workspaceRoot),
+  );
+}
+
+async function getProcessCommandEvidence(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return {};
+  }
+
+  if (process.platform === "win32") {
+    const raw = await commandOutput("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object -First 1 ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress`,
+    ]);
+    if (!raw) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return {
+        executablePath: typeof parsed.ExecutablePath === "string" ? parsed.ExecutablePath : undefined,
+        commandLine: typeof parsed.CommandLine === "string" ? parsed.CommandLine : undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  if (process.platform === "linux") {
+    try {
+      const currentPidNamespace = await readlink("/proc/self/ns/pid");
+      const candidates = pid === process.pid
+        ? ["/proc/self"]
+        : (await readdir("/proc", { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+          .map((entry) => `/proc/${entry.name}`);
+      for (const processPath of candidates) {
+        try {
+          const [status, pidNamespace] = await Promise.all([
+            readFile(`${processPath}/status`, "utf8"),
+            readlink(`${processPath}/ns/pid`),
+          ]);
+          const namespacePids = status.match(/^NSpid:\s+([\d\s]+)$/m)?.[1]
+            ?.trim()
+            .split(/\s+/)
+            .map(Number) ?? [];
+          if (namespacePids.at(-1) !== pid || pidNamespace !== currentPidNamespace) {
+            continue;
+          }
+          const [commandValue, executablePath] = await Promise.all([
+            readFile(`${processPath}/cmdline`),
+            readlink(`${processPath}/exe`).catch(() => undefined),
+          ]);
+          const commandLine = commandValue
+            .toString("utf8")
+            .split("\0")
+            .filter(Boolean)
+            .join(" ");
+          return { executablePath, commandLine };
+        } catch {
+          // Processes can exit while the bounded process-table scan is in progress.
+        }
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+
+  const commandLine = await commandOutput("ps", ["-p", String(pid), "-o", "command="]);
+  return commandLine ? { commandLine } : {};
+}
+
+async function getListeningPortEvidence(port) {
+  if (!Number.isInteger(port) || port <= 0) {
+    return [];
+  }
+
+  if (process.platform === "win32") {
+    const netstat = await commandOutput("netstat", ["-ano", "-p", "tcp"]);
+    const pids = new Set();
+    for (const line of netstat.split(/\r?\n/)) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 5 || columns[0].toUpperCase() !== "TCP" || columns[3].toUpperCase() !== "LISTENING") {
+        continue;
+      }
+      const localAddress = columns[1];
+      if (localAddress.endsWith(`:${port}`) || localAddress.endsWith(`]:${port}`)) {
+        const pid = Number(columns[4]);
+        if (Number.isInteger(pid) && pid > 0) {
+          pids.add(pid);
+        }
+      }
+    }
+
+    return await Promise.all(
+      [...pids].map(async (pid) => ({
+        pid,
+        ...(await getProcessCommandEvidence(pid)),
+      })),
+    );
+  }
+
+  const lsof = await commandOutput("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
+  const pids = new Set();
+  for (const line of lsof.split(/\r?\n/).slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    const pid = Number(columns[1]);
+    if (Number.isInteger(pid) && pid > 0) {
+      pids.add(pid);
+    }
+  }
+
+  return await Promise.all(
+    [...pids].map(async (pid) => ({
+      pid,
+      ...(await getProcessCommandEvidence(pid)),
+    })),
+  );
+}
+
+function truncateEvidence(value, maxLength = 260) {
+  if (typeof value !== "string" || value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function formatListeningPortEvidence(evidence) {
+  if (!evidence.length) {
+    return "process evidence unavailable";
+  }
+
+  return evidence
+    .map((entry) => {
+      const details = [`pid=${entry.pid}`];
+      if (entry.executablePath) {
+        details.push(`exe=${JSON.stringify(truncateEvidence(entry.executablePath))}`);
+      }
+      if (entry.commandLine) {
+        details.push(`command=${JSON.stringify(truncateEvidence(entry.commandLine))}`);
+      }
+      return details.join(" ");
+    })
+    .join("; ");
+}
+
+export async function assertDemoRecycleOwnership(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const runtimeInstancePath = path.join(workspaceRoot, ".service-lasso", "runtime-instance.json");
+  const runtimeInstance = await readJsonIfPresent(runtimeInstancePath);
+
+  if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
+    return;
+  }
+
+  if (await canBindPort("127.0.0.1", port)) {
+    return;
+  }
+
+  const metadataState = runtimeInstance
+    ? `runtime-instance.json points at servicesRoot=${JSON.stringify(runtimeInstance.servicesRoot ?? null)} workspaceRoot=${JSON.stringify(runtimeInstance.workspaceRoot ?? null)}`
+    : "runtime-instance.json is missing";
+  const evidence = await getListeningPortEvidence(port);
+
+  throw new Error(
+    `Demo recycle blocked by stale/orphan runtime ownership for workspace ${workspaceRoot}: ${metadataState} while runtime-api http 127.0.0.1:${port} is already listening. Process evidence: ${formatListeningPortEvidence(evidence)}. Recovery: wait for any scheduled demo:watchdog recovery to finish, then stop only the verified stale foreground demo process or choose a different demo port before retrying.`,
+  );
+}
+
+export async function assertDemoPortsAvailable({ port, workspaceRoot, fixedPortChecks = demoFixedPortChecks } = {}) {
+  const checks = [
+    { serviceId: "runtime-api", portName: "http", host: "127.0.0.1", port },
+    ...fixedPortChecks,
+  ].filter((entry) => Number.isInteger(entry.port) && entry.port > 0);
+  const blocked = [];
+
+  for (const check of checks) {
+    if (!(await canBindPort(check.host, check.port))) {
+      blocked.push(check);
+    }
+  }
+
+  if (blocked.length > 0) {
+    const details = blocked
+      .map((entry) => `${entry.serviceId} ${entry.portName} ${entry.host}:${entry.port}`)
+      .join(", ");
+    const workspaceHint = workspaceRoot ? ` for workspace ${path.resolve(workspaceRoot)}` : "";
+    throw new Error(
+      `Demo recycle blocked by live non-managed listener(s)${workspaceHint}: ${details}. Stop the external preview/process or choose a different demo port before retrying.`,
+    );
+  }
+}
+
+function commandLooksServiceOwned(command, serviceRoot) {
+  return typeof command === "string" && command.includes(path.resolve(serviceRoot));
+}
+
+function pathLooksServiceOwned(filePath, serviceRoot) {
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return false;
+  }
+  const relativePath = path.relative(path.resolve(serviceRoot), path.resolve(filePath));
+  return Boolean(relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+async function stopRuntimeServices(runtimeInstance) {
+  const apiUrl = runtimeInstance?.apiUrl ?? (
+    Number.isInteger(runtimeInstance?.apiPort)
+      ? `http://127.0.0.1:${runtimeInstance.apiPort}`
+      : null
+  );
+  if (!apiUrl) {
+    return { label: "runtime-api-stopAll", stopped: false, reason: "missing_runtime_api_url" };
+  }
+
+  try {
+    const result = await getJson(`${apiUrl}/api/runtime/actions/stopAll`, "POST", 15_000);
+    return {
+      label: "runtime-api-stopAll",
+      stopped: result.status === 200,
+      reason: result.status === 200 ? "stop_all_requested" : `http_${result.status}`,
+    };
+  } catch (error) {
+    return {
+      label: "runtime-api-stopAll",
+      stopped: false,
+      reason: `stop_all_failed:${error.message}`,
+    };
+  }
+}
+
+export async function stopDemoManagedProcesses(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const stopped = [];
+  const skipped = [];
+  const handledPids = new Set();
+  const runtimeInstance = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"));
+
+  if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
+    stopped.push(await stopRuntimeServices(runtimeInstance));
+    stopped.push(await terminateProcessTree(runtimeInstance.pid, "runtime-api"));
+    if (Number.isInteger(runtimeInstance.pid)) {
+      handledPids.add(runtimeInstance.pid);
+    }
+  }
+
+  for (const serviceId of demoServiceIds) {
+    const serviceRoot = path.join(servicesRoot, serviceId);
+    const runtimeState = await readJsonIfPresent(path.join(serviceRoot, ".state", "runtime.json"));
+    if (!runtimeState || !processExists(runtimeState.pid)) {
+      continue;
+    }
+
+    if (!commandLooksServiceOwned(runtimeState.command, serviceRoot)) {
+      skipped.push({
+        serviceId,
+        pid: runtimeState.pid,
+        reason: "runtime_state_command_not_owned_by_service_root",
+      });
+      continue;
+    }
+
+    stopped.push(await terminateProcessTree(runtimeState.pid, serviceId));
+    handledPids.add(runtimeState.pid);
+  }
+
+  const processRegistry = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "processes.json"));
+  for (const entry of processRegistry?.entries ?? []) {
+    if (
+      entry?.ownerType !== "service" ||
+      entry.lifecycleState !== "running" ||
+      entry.identityStatus !== "owned" ||
+      !Number.isInteger(entry.pid) ||
+      handledPids.has(entry.pid)
+    ) {
+      continue;
+    }
+
+    const serviceId = typeof entry.serviceId === "string" && entry.serviceId
+      ? entry.serviceId
+      : entry.ownerId;
+    if (!demoServiceIds.includes(serviceId)) {
+      continue;
+    }
+
+    const serviceRoot = path.join(servicesRoot, serviceId);
+    if (!sameResolvedPath(entry.ownerRoot, serviceRoot) || !processExists(entry.pid)) {
+      continue;
+    }
+
+    const evidence = await getProcessCommandEvidence(entry.pid);
+    if (
+      !commandLooksServiceOwned(evidence.commandLine, serviceRoot) &&
+      !pathLooksServiceOwned(evidence.executablePath, serviceRoot)
+    ) {
+      skipped.push({
+        serviceId,
+        pid: entry.pid,
+        reason: "process_registry_command_not_owned_by_service_root",
+      });
+      continue;
+    }
+
+    stopped.push(await terminateProcessTree(entry.pid, serviceId));
+    handledPids.add(entry.pid);
+  }
+
+  return { stopped, skipped };
 }
 
 async function removeManifestDeclaredFiles(serviceRoot) {
@@ -135,6 +571,22 @@ export async function resetDemoInstance(options = {}) {
       await removeManifestDeclaredFiles(serviceRoot);
     }),
   );
+}
+
+export async function applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl) {
+  if (!runtimeUrl) {
+    return null;
+  }
+
+  const manifestPath = path.join(path.resolve(servicesRoot), "@serviceadmin", "service.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.env = {
+    ...(manifest.env ?? {}),
+    SERVICE_LASSO_API_BASE_URL: runtimeUrl,
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: runtimeUrl,
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifestPath;
 }
 
 async function importDistModule(relativePath) {
@@ -514,6 +966,7 @@ export async function startDetachedDemoRuntime(options = {}) {
       "--preserve",
       `--port=${port}`,
       `--host=${options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1"}`,
+      `--runtime-url=${options.runtimeUrl ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`}`,
       `--services-root=${servicesRoot}`,
       `--workspace-root=${workspaceRoot}`,
       `--admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
@@ -524,6 +977,7 @@ export async function startDetachedDemoRuntime(options = {}) {
         ...process.env,
         SERVICE_LASSO_PORT: String(port),
         SERVICE_LASSO_HOST: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
+        SERVICE_LASSO_RUNTIME_URL: options.runtimeUrl ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
         SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
         SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
       },
@@ -824,18 +1278,20 @@ export async function startDemoRuntime(options = {}) {
   const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
   const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
-  const serviceAdminProbe = await fetchStatus(serviceAdminUrl, Math.min(options.timeoutMs ?? 5_000, 1_000));
-  const baselineServiceIds = serviceAdminProbe.ok
-    ? defaultBaselineServiceIds.filter((serviceId) => serviceId !== "@serviceadmin")
-    : defaultBaselineServiceIds;
-
   await ensureDemoServiceManifests(servicesRoot);
-  const bootstrap = await bootstrapBaselineServices({
-    servicesRoot,
-    workspaceRoot,
-    version: process.env.npm_package_version ?? "0.1.0",
-    serviceIds: baselineServiceIds,
-  });
+  let bootstrap = null;
+  if (options.skipBootstrap !== true) {
+    const serviceAdminProbe = await fetchStatus(serviceAdminUrl, Math.min(options.timeoutMs ?? 5_000, 1_000));
+    const baselineServiceIds = serviceAdminProbe.ok
+      ? defaultBaselineServiceIds.filter((serviceId) => serviceId !== "@serviceadmin")
+      : defaultBaselineServiceIds;
+    bootstrap = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: process.env.npm_package_version ?? "0.1.0",
+      serviceIds: baselineServiceIds,
+    });
+  }
   const runtime = await startRuntimeApp({
     servicesRoot,
     workspaceRoot,
@@ -848,11 +1304,19 @@ export async function startDemoRuntime(options = {}) {
   return runtime;
 }
 
-async function getJson(url, method = "GET") {
-  const response = await fetch(url, { method });
+async function getJson(url, method = "GET", timeoutMs = 30_000) {
+  const response = await fetch(url, { method, signal: AbortSignal.timeout(timeoutMs) });
   return {
     status: response.status,
     body: await response.json(),
+  };
+}
+
+async function getText(url, timeoutMs = 30_000) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  return {
+    status: response.status,
+    body: await response.text(),
   };
 }
 
@@ -875,6 +1339,189 @@ async function waitFor(check, timeoutMs = 2_000, intervalMs = 50) {
   throw new Error(`Condition not met within ${timeoutMs}ms.`);
 }
 
+async function postServiceAction(apiUrl, serviceId, action) {
+  const result = await getJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}/${action}`, "POST");
+  assertCondition(
+    result.status === 200,
+    `Expected ${serviceId} ${action} to return 200, got ${result.status}: ${JSON.stringify(result.body)}`,
+  );
+  return result.body;
+}
+
+async function waitForHttpOk(url, label, timeoutMs = 300_000) {
+  return await waitFor(async () => {
+    try {
+      const result = await getText(url, 10_000);
+      return result.status >= 200 && result.status < 300 ? result : null;
+    } catch {
+      return null;
+    }
+  }, timeoutMs, 500).catch((error) => {
+    throw new Error(`${label} did not become reachable at ${url}: ${error.message}`);
+  });
+}
+
+async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_000) {
+  const wantsHealthy = Object.hasOwn(expected, "healthy") ? expected.healthy : true;
+  return await waitFor(async () => {
+    const result = await getJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}`);
+    if (result.status !== 200 || result.body.service?.id !== serviceId) {
+      return null;
+    }
+
+    const service = result.body.service;
+    if (
+      service.lifecycle?.installed === true
+      && service.lifecycle?.configured === true
+      && service.lifecycle?.running === expected.running
+      && (wantsHealthy === undefined || service.health?.healthy === wantsHealthy)
+    ) {
+      return service;
+    }
+    return null;
+  }, timeoutMs, 500).catch((error) => {
+    throw new Error(`${serviceId} did not reach running=${expected.running} healthy=${wantsHealthy ?? "any"}: ${error.message}`);
+  });
+}
+
+async function getGitSummary() {
+  const [branch, commit] = await Promise.all([
+    commandOutput("git", ["branch", "--show-current"], { cwd: repoRoot }),
+    commandOutput("git", ["rev-parse", "--short=12", "HEAD"], { cwd: repoRoot }),
+  ]);
+
+  return {
+    branch: branch || "unknown",
+    commit: commit || "unknown",
+  };
+}
+
+export async function runDemoRecycle(options = {}) {
+  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
+  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
+  const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
+  const serviceAdminUrl = (options.serviceAdminUrl ?? "http://127.0.0.1:17700").replace(/\/$/, "");
+  const preserve = options.preserve === true;
+  const keepAlive = options.keepAlive === true;
+  await assertDemoRecycleOwnership({ servicesRoot, workspaceRoot, port });
+  const stopped = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
+
+  await assertDemoPortsAvailable({ port, workspaceRoot });
+  await resetDemoInstance({ servicesRoot, workspaceRoot });
+  await applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl);
+
+  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, host, serviceAdminUrl, skipBootstrap: true });
+  let servicesStopped = false;
+  let runtimeKeptAlive = false;
+
+  try {
+    const apiUrl = runtimeUrl;
+    const apiHealth = await getJson(`${apiUrl}/api/health`);
+    assertCondition(apiHealth.status === 200 && apiHealth.body.status === "ok", "Expected runtime API health to report ok.");
+
+    const previousRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+    const previousApiBaseUrl = process.env.SERVICE_LASSO_API_BASE_URL;
+    process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiUrl;
+    process.env.SERVICE_LASSO_API_BASE_URL = apiUrl;
+
+    try {
+      for (const serviceId of demoRequiredServiceIds) {
+        await postServiceAction(apiUrl, serviceId, "install");
+        await postServiceAction(apiUrl, serviceId, "config");
+      }
+
+      for (const serviceId of demoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
+        await postServiceAction(apiUrl, serviceId, "start");
+      }
+    } finally {
+      if (previousRuntimeApiBaseUrl === undefined) {
+        delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+      } else {
+        process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = previousRuntimeApiBaseUrl;
+      }
+      if (previousApiBaseUrl === undefined) {
+        delete process.env.SERVICE_LASSO_API_BASE_URL;
+      } else {
+        process.env.SERVICE_LASSO_API_BASE_URL = previousApiBaseUrl;
+      }
+    }
+
+    const serviceStates = [];
+    for (const serviceId of demoRequiredServiceIds) {
+      const expected = demoProviderServiceIds.has(serviceId)
+        ? { running: false, healthy: undefined }
+        : { running: true, healthy: true };
+      serviceStates.push(await waitForServiceState(apiUrl, serviceId, expected));
+    }
+
+    const secretsBrokerHealthUrl = "http://127.0.0.1:17890/health";
+    const nginxHealthUrl = "http://127.0.0.1:18080/health";
+    const traefikHealthUrl = "http://127.0.0.1:19081/ping";
+    const echoHealthUrl = "http://127.0.0.1:4011/health";
+
+    const serviceAdminRoot = await waitForHttpOk(`${serviceAdminUrl}/`, "Service Admin UI");
+    const serviceAdminHealth = await waitForHttpOk(`${serviceAdminUrl}/health`, "Service Admin health");
+    const secretsBrokerHealth = await waitForHttpOk(secretsBrokerHealthUrl, "Secrets Broker health");
+    const nginxHealth = await waitForHttpOk(nginxHealthUrl, "NGINX health");
+    const traefikHealth = await waitForHttpOk(traefikHealthUrl, "Traefik health");
+    const echoHealth = await waitForHttpOk(echoHealthUrl, "Echo Service health");
+    const services = await getJson(`${apiUrl}/api/services`);
+    assertCondition(services.status === 200, "Expected runtime /api/services to return 200.");
+
+    const git = await getGitSummary();
+
+    const result = {
+      apiUrl,
+      serviceAdminUrl,
+      servicesRoot,
+      workspaceRoot,
+      git,
+      stopped,
+      endpoints: {
+        runtimeApiHealth: { url: `${apiUrl}/api/health`, status: apiHealth.status },
+        serviceAdminRoot: { url: `${serviceAdminUrl}/`, status: serviceAdminRoot.status },
+        serviceAdminHealth: { url: `${serviceAdminUrl}/health`, status: serviceAdminHealth.status },
+        secretsBrokerHealth: { url: secretsBrokerHealthUrl, status: secretsBrokerHealth.status },
+        nginxHealth: { url: nginxHealthUrl, status: nginxHealth.status },
+        traefikHealth: { url: traefikHealthUrl, status: traefikHealth.status },
+        echoHealth: { url: echoHealthUrl, status: echoHealth.status },
+        runtimeServices: { url: `${apiUrl}/api/services`, status: services.status },
+      },
+      services: serviceStates.map((service) => ({
+        id: service.id,
+        running: service.lifecycle?.running === true,
+        healthy: service.health?.healthy === true,
+      })),
+    };
+
+    if (keepAlive) {
+      runtimeKeptAlive = true;
+    }
+
+    return result;
+  } catch (error) {
+    try {
+      await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
+      servicesStopped = true;
+    } catch {}
+    throw error;
+  } finally {
+    if (!preserve && !runtimeKeptAlive) {
+      if (!servicesStopped) {
+        try {
+          await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
+        } catch {}
+      }
+      await resetDemoInstance({ servicesRoot, workspaceRoot });
+    }
+    if (!runtimeKeptAlive) {
+      await runtime.apiServer.stop();
+    }
+  }
+}
+
 export async function runDemoSmoke(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
@@ -883,7 +1530,7 @@ export async function runDemoSmoke(options = {}) {
 
   await resetDemoInstance({ servicesRoot, workspaceRoot });
 
-  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port });
+  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, skipBootstrap: true });
 
   try {
     const health = await getJson(`${runtime.apiServer.url}/api/health`);
@@ -1012,7 +1659,12 @@ export async function runDemoSmoke(options = {}) {
         health: health.body.status,
         runtimeServices: runtimeSummary.body.runtime.totalServices,
         defaultBaselineServices: defaultBaselineServiceIds,
-        demoServicesExercised: [...new Set([...defaultBaselineServiceIds, "node-sample-service"])],
+        demoServicesExercised: [
+          "echo-service",
+          "@node",
+          "node-sample-service",
+          ...defaultBaselineServiceIds.filter((serviceId) => serviceId !== "echo-service" && serviceId !== "@node"),
+        ],
       },
     };
   } finally {

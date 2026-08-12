@@ -1,9 +1,12 @@
 import path from "node:path";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
+import { getLockedServiceEntry, readServiceLockfile, type ServiceLockfileEntry } from "../lockfile/service-lockfile.js";
 import { getServiceStatePaths } from "../state/paths.js";
+import type { StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 
 export interface AcquiredArtifactState {
   sourceType: "github-release";
@@ -15,8 +18,20 @@ export interface AcquiredArtifactState {
   archiveType: "zip" | "tar.gz" | "tgz";
   archivePath: string;
   extractedPath: string;
+  checksumSha256?: string | null;
   command: string | null;
   args: string[];
+  checksum: AcquiredArtifactChecksumState | null;
+}
+
+export interface AcquiredArtifactChecksumState {
+  algorithm: "sha256";
+  source: "manifest" | "release-asset";
+  expected: string;
+  actual: string;
+  assetName: string;
+  checksumAssetName: string | null;
+  verifiedAt: string;
 }
 
 interface GitHubReleaseAsset {
@@ -33,10 +48,22 @@ interface ResolvedArtifactDownload {
   assetName: string;
   assetUrl: string;
   releaseTag: string | null;
+  checksumSha256: string | null;
+  checksumAssetName: string | null;
+  checksumAssetUrl: string | null;
 }
 
 function normalizeApiBaseUrl(candidate: string | undefined): string {
   return (candidate?.trim() || "https://api.github.com").replace(/\/+$/, "");
+}
+
+function githubHeaders(): Record<string, string> {
+  const token = process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  return {
+    accept: "application/vnd.github+json",
+    "user-agent": "service-lasso-core-runtime",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): {
@@ -60,31 +87,45 @@ function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): {
 async function resolveGitHubReleaseDownload(
   artifact: ServiceArchiveArtifact,
   platform: ServiceArtifactPlatform,
+  lockedEntry: ServiceLockfileEntry | null,
 ): Promise<ResolvedArtifactDownload> {
+  if (lockedEntry?.assetUrl) {
+    return {
+      assetName: lockedEntry.assetName,
+      assetUrl: lockedEntry.assetUrl,
+      releaseTag: lockedEntry.releaseTag,
+      checksumSha256: lockedEntry.checksumSha256,
+      checksumAssetName: null,
+      checksumAssetUrl: null,
+    };
+  }
+
   if (platform.assetUrl) {
     return {
       assetName: platform.assetName ?? path.basename(new URL(platform.assetUrl).pathname),
       assetUrl: platform.assetUrl,
       releaseTag: artifact.source.tag ?? artifact.source.channel ?? null,
+      checksumSha256: platform.sha256 ?? null,
+      checksumAssetName: null,
+      checksumAssetUrl: null,
     };
   }
 
-  if (!platform.assetName) {
+  const assetName = lockedEntry?.assetName ?? platform.assetName;
+  if (!assetName) {
     throw new Error("Artifact platform entry must define assetName when assetUrl is not provided.");
   }
 
   const apiBaseUrl = normalizeApiBaseUrl(artifact.source.api_base_url);
   const repoPath = artifact.source.repo.trim().replace(/^\/+|\/+$/g, "");
-  const releasePath = artifact.source.tag?.trim()
-    ? `/repos/${repoPath}/releases/tags/${encodeURIComponent(artifact.source.tag.trim())}`
+  const pinnedTag = lockedEntry?.releaseTag ?? artifact.source.tag?.trim();
+  const releasePath = pinnedTag
+    ? "/repos/" + repoPath + "/releases/tags/" + encodeURIComponent(pinnedTag)
     : artifact.source.channel && artifact.source.channel.trim().length > 0 && artifact.source.channel.trim() !== "latest"
-      ? `/repos/${repoPath}/releases/tags/${encodeURIComponent(artifact.source.channel.trim())}`
-      : `/repos/${repoPath}/releases/latest`;
-  const response = await fetch(`${apiBaseUrl}${releasePath}`, {
-    headers: {
-      accept: "application/vnd.github+json",
-      "user-agent": "service-lasso-core-runtime",
-    },
+      ? "/repos/" + repoPath + "/releases/tags/" + encodeURIComponent(artifact.source.channel.trim())
+      : "/repos/" + repoPath + "/releases/latest";
+  const response = await fetch(apiBaseUrl + releasePath, {
+    headers: githubHeaders(),
   });
 
   if (!response.ok) {
@@ -94,21 +135,33 @@ async function resolveGitHubReleaseDownload(
   }
 
   const payload = (await response.json()) as GitHubReleaseResponse;
-  const asset = payload.assets?.find((candidate) => candidate.name === platform.assetName);
+  const asset = payload.assets?.find((candidate) => candidate.name === assetName);
   if (!asset) {
     throw new Error(
-      `Release metadata for "${artifact.source.repo}" did not contain asset "${platform.assetName}".`,
+      `Release metadata for "${artifact.source.repo}" did not contain asset "${assetName}".`,
+    );
+  }
+  const checksumAssetName = platform.checksum?.assetName?.trim() || null;
+  const checksumAsset = checksumAssetName
+    ? payload.assets?.find((candidate) => candidate.name === checksumAssetName)
+    : null;
+  if (checksumAssetName && !checksumAsset) {
+    throw new Error(
+      `Release metadata for "${artifact.source.repo}" did not contain checksum asset "${checksumAssetName}".`,
     );
   }
 
   return {
     assetName: asset.name,
     assetUrl: asset.browser_download_url,
-    releaseTag: typeof payload.tag_name === "string" ? payload.tag_name : artifact.source.tag ?? artifact.source.channel ?? null,
+    releaseTag: lockedEntry?.releaseTag ?? (typeof payload.tag_name === "string" ? payload.tag_name : artifact.source.tag ?? artifact.source.channel ?? null),
+    checksumSha256: lockedEntry?.checksumSha256 ?? platform.sha256 ?? null,
+    checksumAssetName,
+    checksumAssetUrl: checksumAsset?.browser_download_url ?? null,
   };
 }
 
-async function downloadToFile(assetUrl: string, destinationPath: string): Promise<void> {
+async function downloadToFile(assetUrl: string, destinationPath: string, exclusive = false): Promise<void> {
   const response = await fetch(assetUrl);
   if (!response.ok) {
     throw new Error(`Failed to download service artifact from "${assetUrl}": ${response.status} ${response.statusText}`);
@@ -116,16 +169,158 @@ async function downloadToFile(assetUrl: string, destinationPath: string): Promis
 
   const bytes = Buffer.from(await response.arrayBuffer());
   await mkdir(path.dirname(destinationPath), { recursive: true });
-  await writeFile(destinationPath, bytes);
+  if (!exclusive) {
+    await writeFile(destinationPath, bytes);
+    return;
+  }
+  const handle = await open(destinationPath, "wx", 0o600);
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function syncDirectoryOnPosix(directoryPath: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const directory = await open(directoryPath, "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+
+async function downloadText(assetUrl: string): Promise<string> {
+  const response = await fetch(assetUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download service artifact checksum from "${assetUrl}": ${response.status} ${response.statusText}`);
+  }
+
+  return await response.text();
+}
+
+function normalizeSha256(value: string, context: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw new Error(`Malformed SHA-256 checksum for ${context}.`);
+  }
+  return normalized;
+}
+
+function findSha256InChecksumFile(content: string, artifactAssetName: string, checksumAssetName: string): string {
+  let parsedEntries = 0;
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const match = line.match(/^([A-Fa-f0-9]{64})\s+\*?(.+)$/);
+    if (!match) {
+      continue;
+    }
+
+    parsedEntries += 1;
+    const [, checksum, filename] = match;
+    const normalizedFilename = filename.trim().replace(/^\.\//, "");
+    if (normalizedFilename === artifactAssetName || path.basename(normalizedFilename) === artifactAssetName) {
+      return normalizeSha256(checksum, `artifact "${artifactAssetName}" in checksum asset "${checksumAssetName}"`);
+    }
+  }
+
+  if (parsedEntries === 0) {
+    throw new Error(`Malformed checksum asset "${checksumAssetName}": no SHA-256 entries were found.`);
+  }
+
+  throw new Error(`Checksum asset "${checksumAssetName}" did not contain an entry for "${artifactAssetName}".`);
+}
+
+async function verifyArchiveChecksum(
+  archivePath: string,
+  assetName: string,
+  checksum: ServiceArtifactPlatform["checksum"],
+  resolved: ResolvedArtifactDownload,
+  verifiedActualSha256?: string,
+): Promise<AcquiredArtifactChecksumState | null> {
+  if (!checksum) {
+    if (resolved.checksumSha256) {
+      const expected = normalizeSha256(resolved.checksumSha256, `artifact "${assetName}"`);
+      const actual = verifiedActualSha256 ?? createHash("sha256").update(await readFile(archivePath)).digest("hex");
+      if (actual !== expected) {
+        throw new Error(`Service artifact "${assetName}" checksum did not match expected SHA-256.`);
+      }
+
+      return {
+        algorithm: "sha256",
+        source: "manifest",
+        expected,
+        actual,
+        assetName,
+        checksumAssetName: null,
+        verifiedAt: new Date().toISOString(),
+      };
+    }
+
+    return null;
+  }
+
+  if (checksum.algorithm !== "sha256") {
+    throw new Error(`Unsupported service artifact checksum algorithm "${checksum.algorithm}".`);
+  }
+
+  if (checksum.value && checksum.assetName) {
+    throw new Error("Artifact checksum must declare either value or assetName, not both.");
+  }
+
+  if (!checksum.value && !checksum.assetName) {
+    throw new Error("Artifact checksum must declare value or assetName.");
+  }
+
+  let expected: string;
+  let source: AcquiredArtifactChecksumState["source"];
+  if (checksum.value) {
+    expected = normalizeSha256(checksum.value, `artifact "${assetName}"`);
+    source = "manifest";
+  } else {
+    if (!checksum.assetName || !resolved.checksumAssetUrl) {
+      throw new Error(`Artifact checksum asset "${checksum.assetName}" could not be resolved from release metadata.`);
+    }
+    expected = findSha256InChecksumFile(
+      await downloadText(resolved.checksumAssetUrl),
+      assetName,
+      checksum.assetName,
+    );
+    source = "release-asset";
+  }
+
+  const actual = verifiedActualSha256 ?? createHash("sha256").update(await readFile(archivePath)).digest("hex");
+  if (actual !== expected) {
+    throw new Error(`Checksum mismatch for service artifact "${assetName}".`);
+  }
+
+  return {
+    algorithm: "sha256",
+    source,
+    expected,
+    actual,
+    assetName,
+    checksumAssetName: resolved.checksumAssetName,
+    verifiedAt: new Date().toISOString(),
+  };
 }
 
 async function extractArchive(
   archivePath: string,
   archiveType: ServiceArtifactPlatform["archiveType"],
   destinationPath: string,
+  destinationPrepared = false,
 ): Promise<void> {
-  await rm(destinationPath, { recursive: true, force: true });
-  await mkdir(destinationPath, { recursive: true });
+  if (!destinationPrepared) {
+    await rm(destinationPath, { recursive: true, force: true });
+    await mkdir(destinationPath, { recursive: true });
+  }
 
   if (archiveType === "zip") {
     const archive = new AdmZip(archivePath);
@@ -148,26 +343,85 @@ async function fileExists(targetPath: string): Promise<boolean> {
   }
 }
 
-export async function acquireInstallArtifact(service: DiscoveredService): Promise<AcquiredArtifactState | null> {
+export async function acquireInstallArtifact(
+  service: DiscoveredService,
+  hooks?: StartupArtifactAcquisitionHooks,
+): Promise<AcquiredArtifactState | null> {
   const artifact = service.manifest.artifact;
   if (!artifact) {
     return null;
   }
 
+  const servicesRoot = path.dirname(service.serviceRoot);
+  const lockfile = await readServiceLockfile(servicesRoot);
+  const lockedEntry = lockfile ? getLockedServiceEntry(service, lockfile) : null;
   const { definition } = getCurrentPlatformArtifact(artifact);
-  const resolved = await resolveGitHubReleaseDownload(artifact, definition);
+  const resolved = await resolveGitHubReleaseDownload(artifact, definition, lockedEntry);
   const paths = getServiceStatePaths(service.serviceRoot);
   const releaseSegment = (resolved.releaseTag ?? "latest").replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.artifacts, releaseSegment, resolved.assetName);
   const extractedPath = path.join(paths.extracted, "current");
 
-  await mkdir(path.dirname(archivePath), { recursive: true });
-  if (!(await fileExists(archivePath))) {
-    await downloadToFile(resolved.assetUrl, archivePath);
+  const plan = hooks ? await hooks.prepare({ archivePath }) : null;
+  let checksum: AcquiredArtifactChecksumState | null;
+  let selectedExtractedPath = extractedPath;
+  if (plan) {
+    const transactionHooks = hooks!;
+    if (!(await fileExists(archivePath))) {
+      await transactionHooks.prepareArchiveDownload(plan.actionId);
+      await downloadToFile(resolved.assetUrl, plan.archiveTempPath, true);
+      let archiveEvidence = await transactionHooks.recordArchive(plan.actionId, plan.archiveTempPath);
+      checksum = await verifyArchiveChecksum(
+        plan.archiveTempPath,
+        resolved.assetName,
+        definition.checksum,
+        resolved,
+        archiveEvidence.digest,
+      );
+      try {
+        await link(plan.archiveTempPath, archivePath);
+        await syncDirectoryOnPosix(path.dirname(archivePath));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        archiveEvidence = await transactionHooks.recordArchive(plan.actionId, archivePath);
+        checksum = await verifyArchiveChecksum(
+          archivePath,
+          resolved.assetName,
+          definition.checksum,
+          resolved,
+          archiveEvidence.digest,
+        );
+      } finally {
+        await unlink(plan.archiveTempPath).catch(() => undefined);
+        await syncDirectoryOnPosix(path.dirname(archivePath));
+      }
+    } else {
+      const archiveEvidence = await transactionHooks.recordArchive(plan.actionId, archivePath);
+      checksum = await verifyArchiveChecksum(
+        archivePath,
+        resolved.assetName,
+        definition.checksum,
+        resolved,
+        archiveEvidence.digest,
+      );
+    }
+    await transactionHooks.prepareExtraction(plan.actionId);
+    await extractArchive(archivePath, definition.archiveType, plan.extractionStagingPath, true);
+    await transactionHooks.recordArchive(plan.actionId, archivePath);
+    await transactionHooks.beforeExtractionPublish(plan.actionId);
+    await rename(plan.extractionStagingPath, plan.extractionPath);
+    await transactionHooks.afterExtractionPublish(plan.actionId);
+    selectedExtractedPath = plan.extractionPath;
+  } else {
+    await mkdir(path.dirname(archivePath), { recursive: true });
+    if (!(await fileExists(archivePath))) {
+      await downloadToFile(resolved.assetUrl, archivePath);
+    }
+    checksum = await verifyArchiveChecksum(archivePath, resolved.assetName, definition.checksum, resolved);
+    await extractArchive(archivePath, definition.archiveType, extractedPath);
   }
-  await extractArchive(archivePath, definition.archiveType, extractedPath);
 
-  return {
+  const acquired: AcquiredArtifactState = {
     sourceType: artifact.source.type,
     repo: artifact.source.repo,
     channel: artifact.source.channel ?? null,
@@ -176,8 +430,12 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
     assetUrl: resolved.assetUrl,
     archiveType: definition.archiveType,
     archivePath,
-    extractedPath,
+    extractedPath: selectedExtractedPath,
+    checksumSha256: resolved.checksumSha256,
     command: definition.command ?? null,
     args: definition.args ?? [],
+    checksum,
   };
+  if (plan) await hooks!.complete(plan.actionId, acquired);
+  return acquired;
 }

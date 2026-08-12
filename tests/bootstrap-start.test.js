@@ -1,11 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
+import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
+
+async function readJsonWhenReady(filePath, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await readFile(filePath, "utf8"));
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  throw lastError;
+}
 
 test("bootstrapBaselineServices installs, configures, and starts baseline services in dependency order", async () => {
   resetLifecycleState();
@@ -13,6 +30,12 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await ensureLocalVaultMarker(workspaceRoot);
+    await writeExecutableFixtureService(servicesRoot, "@archive", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
     await writeExecutableFixtureService(servicesRoot, "@java");
     await writeExecutableFixtureService(servicesRoot, "@localcert");
     await writeExecutableFixtureService(servicesRoot, "@nginx");
@@ -22,6 +45,12 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       config: { files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }] },
     });
     await writeExecutableFixtureService(servicesRoot, "@node");
+    await writeExecutableFixtureService(servicesRoot, "@python", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
@@ -35,20 +64,23 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["@java", "@localcert", "@nginx", "@traefik", "@node", "echo-service", "@serviceadmin"]);
-    assert.deepEqual(result.serviceOrder, ["@java", "@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]);
-    assert.equal(result.services.length, 7);
+    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"]);
+    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+    assert.equal(result.services.length, 10);
 
     for (const service of result.services) {
       assert.equal(service.status, "completed");
+      const expectedActions = service.serviceId === "@archive" || service.serviceId === "@python"
+        ? ["install:completed", "config:completed", "start:skipped"]
+        : ["install:completed", "config:completed", "start:completed"];
       assert.deepEqual(
         service.actions.map((action) => `${action.action}:${action.status}`),
-        ["install:completed", "config:completed", "start:completed"],
+        expectedActions,
       );
       const state = getLifecycleState(service.serviceId);
       assert.equal(state.installed, true, `${service.serviceId} installed`);
       assert.equal(state.configured, true, `${service.serviceId} configured`);
-      assert.equal(state.running, true, `${service.serviceId} running`);
+      assert.equal(state.running, service.serviceId !== "@archive" && service.serviceId !== "@python", `${service.serviceId} running`);
     }
 
     const rerun = await bootstrapBaselineServices({
@@ -70,12 +102,60 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
   }
 });
 
+test("bootstrapBaselineServices passes the owning runtime API URL to Service Admin", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-serviceadmin-runtime-api-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const previousRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+  process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = "http://127.0.0.1:19876";
+
+  try {
+    await ensureLocalVaultMarker(workspaceRoot);
+    await writeExecutableFixtureService(servicesRoot, "@node", {
+      role: "provider",
+      healthcheck: null,
+    });
+    await writeExecutableFixtureService(servicesRoot, "@serviceadmin", {
+      depend_on: ["@node"],
+      captureEnvKeys: ["SERVICE_LASSO_RUNTIME_API_BASE_URL"],
+    });
+
+    const result = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: "test-version",
+      serviceIds: ["@node", "@serviceadmin"],
+    });
+
+    assert.deepEqual(result.serviceOrder, ["@node", "@serviceadmin"]);
+    assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
+
+    const envSnapshot = await readJsonWhenReady(path.join(servicesRoot, "@serviceadmin", "runtime", "env.json"));
+    assert.equal(envSnapshot.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:19876");
+  } finally {
+    if (previousRuntimeApiBaseUrl === undefined) {
+      delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+    } else {
+      process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = previousRuntimeApiBaseUrl;
+    }
+    await stopAllManagedProcesses();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("bootstrapBaselineServices skips managed start for provider-role baseline services", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-baseline-provider-");
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await ensureLocalVaultMarker(workspaceRoot);
+    await writeExecutableFixtureService(servicesRoot, "@archive", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
     await writeExecutableFixtureService(servicesRoot, "@java", {
       role: "provider",
       healthcheck: null,
@@ -97,6 +177,12 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       role: "provider",
       healthcheck: null,
     });
+    await writeExecutableFixtureService(servicesRoot, "@python", {
+      role: "provider",
+      enabled: false,
+      healthcheck: null,
+    });
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
@@ -108,16 +194,25 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       servicesRoot,
       workspaceRoot,
       version: "test-version",
+      serviceIds: ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"],
     });
+    const archive = result.services.find((service) => service.serviceId === "@archive");
     const node = result.services.find((service) => service.serviceId === "@node");
+    const python = result.services.find((service) => service.serviceId === "@python");
     const java = result.services.find((service) => service.serviceId === "@java");
     const localcert = result.services.find((service) => service.serviceId === "@localcert");
     const nginx = result.services.find((service) => service.serviceId === "@nginx");
 
+    assert.ok(archive);
     assert.ok(java);
     assert.ok(node);
+    assert.ok(python);
     assert.ok(localcert);
     assert.ok(nginx);
+    assert.deepEqual(
+      archive.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:completed", "config:completed", "start:skipped"],
+    );
     assert.deepEqual(
       java.actions.map((action) => `${action.action}:${action.status}`),
       ["install:completed", "config:completed", "start:skipped"],
@@ -134,20 +229,133 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       nginx.actions.map((action) => `${action.action}:${action.status}`),
       ["install:completed", "config:completed", "start:skipped"],
     );
+    assert.deepEqual(
+      python.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:completed", "config:completed", "start:skipped"],
+    );
+    assert.match(archive.actions.at(-1)?.message ?? "", /Provider role/);
     assert.match(java.actions.at(-1)?.message ?? "", /Provider role/);
     assert.match(node.actions.at(-1)?.message ?? "", /Provider role/);
+    assert.match(python.actions.at(-1)?.message ?? "", /Provider role/);
+    assert.equal(archive.state.installed, true);
+    assert.equal(archive.state.configured, true);
+    assert.equal(archive.state.running, false);
     assert.equal(java.state.installed, true);
     assert.equal(java.state.configured, true);
     assert.equal(java.state.running, false);
     assert.equal(node.state.installed, true);
     assert.equal(node.state.configured, true);
     assert.equal(node.state.running, false);
+    assert.equal(python.state.installed, true);
+    assert.equal(python.state.configured, true);
+    assert.equal(python.state.running, false);
     assert.equal(localcert.state.running, false);
     assert.equal(nginx.state.running, false);
+    assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@traefik")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
   } finally {
     await stopAllManagedProcesses();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("bootstrapBaselineServices waits normal autostart while first-run setup is required", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-first-run-setup-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "@node", {
+      role: "provider",
+      healthcheck: null,
+    });
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
+    await writeExecutableFixtureService(servicesRoot, "echo-service", {
+      depend_on: ["@node"],
+    });
+    await writeExecutableFixtureService(servicesRoot, "@serviceadmin", {
+      depend_on: ["@node"],
+    });
+
+    const result = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: "test-version",
+      serviceIds: ["@node", "@secretsbroker", "echo-service", "@serviceadmin"],
+    });
+
+    assert.equal(result.setup.state, "setup_required");
+    assert.equal(result.setup.setupMode, true);
+    assert.equal(result.setup.vault.ready, false);
+    assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);
+    assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
+
+    const echo = result.services.find((service) => service.serviceId === "echo-service");
+    assert.ok(echo);
+    assert.equal(echo.state.installed, true);
+    assert.equal(echo.state.configured, true);
+    assert.equal(echo.state.running, false);
+    assert.deepEqual(
+      echo.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:completed", "config:completed", "start:skipped"],
+    );
+    assert.match(echo.actions.at(-1)?.message ?? "", /First-run setup mode is active/);
+  } finally {
+    await stopAllManagedProcesses();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("bootstrapBaselineServices skips baseline services with unsupported host artifacts explicitly", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-baseline-unsupported-platform-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await writeManifest(servicesRoot, "@python", {
+      id: "@python",
+      name: "Python Runtime",
+      description: "Unsupported platform provider fixture.",
+      role: "provider",
+      enabled: false,
+      artifact: {
+        kind: "archive",
+        source: {
+          type: "github-release",
+          repo: "service-lasso/lasso-python",
+          tag: "2026.4.27-test",
+        },
+        platforms: {
+          unsupported_test_platform: {
+            assetName: "python-unsupported.zip",
+            archiveType: "zip",
+            command: "./python",
+          },
+        },
+      },
+    });
+
+    const result = await bootstrapBaselineServices({
+      servicesRoot,
+      workspaceRoot,
+      version: "test-version",
+      serviceIds: ["@python"],
+    });
+    const python = result.services.find((service) => service.serviceId === "@python");
+
+    assert.ok(python);
+    assert.equal(python.status, "skipped");
+    assert.equal(python.state.installed, false);
+    assert.equal(python.state.configured, false);
+    assert.deepEqual(
+      python.actions.map((action) => `${action.action}:${action.status}`),
+      ["install:skipped"],
+    );
+    assert.match(python.message, new RegExp(`host platform "${process.platform}"`));
+  } finally {
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

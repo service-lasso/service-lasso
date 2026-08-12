@@ -34,6 +34,17 @@ The consuming app should only need the service manifest. That `service.json` mus
 
 For bundled release outputs, the packaging step runs Service Lasso package/acquire first and includes the downloaded service archives in the release artifact. At runtime, the bundled output should not need to download those services again.
 
+## Import a Released Manifest
+
+Use the CLI import flow when the add-on repo publishes `service.json` as a release asset:
+
+```powershell
+node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-example --services-root ./services --dry-run --json
+node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-example --services-root ./services
+```
+
+The command downloads and validates only the released manifest, writes it to `services/<service-id>/service.json`, and leaves service enablement, setup, secrets, install, and start decisions to the consuming app/operator. Existing manifests are protected by default; use `--force` only when replacing a manifest intentionally.
+
 ## Baseline and Reference Apps
 
 Core baseline services live in this repo's `services/` folder. Reference apps should include the services they demonstrate, commonly including `echo-service` and `@serviceadmin`.

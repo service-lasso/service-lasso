@@ -1,3 +1,4 @@
+import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
 import {
   getDemoStatus,
   printDemoStatus,
@@ -6,14 +7,11 @@ import {
   writeDemoLifecycleState,
 } from "./demo-instance-lib.mjs";
 
-const options = resolveDemoOptions();
+const options = await prepareCanonicalDemoOptions(resolveDemoOptions());
 const status = await getDemoStatus(options);
 
 if (status.ok) {
-  const lifecycleState = await writeDemoLifecycleState(status, {
-    phase: "already_healthy",
-  });
-
+  const lifecycleState = await writeDemoLifecycleState(status, { phase: "already_healthy" });
   if (options.json) {
     console.log(JSON.stringify({ ...status, lifecycleState }, null, 2));
   } else {

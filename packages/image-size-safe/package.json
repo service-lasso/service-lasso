@@ -1,0 +1,25 @@
+{
+  "name": "image-size",
+  "version": "2.0.3",
+  "description": "Fail-closed Service Lasso build-time replacement for vulnerable image-size parsers.",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./index.cjs",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./fromFile": {
+      "types": "./fromFile.d.ts",
+      "import": "./fromFile.js",
+      "require": "./fromFile.cjs"
+    }
+  },
+  "files": ["index.cjs", "index.d.ts", "index.js", "fromFile.cjs", "fromFile.d.ts", "fromFile.js"],
+  "engines": { "node": ">=22" }
+}

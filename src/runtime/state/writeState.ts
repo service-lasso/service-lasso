@@ -73,6 +73,7 @@ export async function writeServiceState(
       JSON.stringify(
         {
           running: lifecycle.running,
+          generationId: lifecycle.runtime.generationId,
           pid: lifecycle.runtime.pid,
           startedAt: lifecycle.runtime.startedAt,
           finishedAt: lifecycle.runtime.finishedAt,
@@ -81,9 +82,15 @@ export async function writeServiceState(
           provider: lifecycle.runtime.provider,
           providerServiceId: lifecycle.runtime.providerServiceId,
           lastTermination: lifecycle.runtime.lastTermination,
+          allocationRevision: lifecycle.runtime.allocationRevision,
           ports: lifecycle.runtime.ports,
+          endpoints: lifecycle.runtime.endpoints,
           logs: lifecycle.runtime.logs,
           metrics: lifecycle.runtime.metrics,
+          variables: lifecycle.runtime.variables,
+          brokerIdentity: lifecycle.runtime.brokerIdentity,
+          startTrace: lifecycle.runtime.startTrace,
+          supervision: lifecycle.runtime.supervision,
           lastAction: lifecycle.lastAction,
           actionHistory: lifecycle.actionHistory,
         },

@@ -3,7 +3,19 @@ export interface ServiceNetworkResponse {
     serviceId: string;
     ports: Record<string, number>;
     portmapping: Record<string, string>;
-    endpoints: { label: string; url: string; kind: string }[];
+    endpoints: {
+      id: string;
+      label: string;
+      kind: string;
+      url?: string;
+      bind?: string;
+      port?: number;
+      protocol?: string;
+      transport?: string;
+      exposure?: string;
+      target?: string;
+      source: string;
+    }[];
   };
 }
 

@@ -17,6 +17,8 @@ If you use the bundled GitHub release artifact instead of cloning source, the ba
 
 ## 1. Clone the Repo
 
+The plain clone path is the supported Quick Start path:
+
 ```powershell
 git clone https://github.com/service-lasso/service-lasso.git
 cd service-lasso
@@ -32,10 +34,22 @@ npm run build
 ## 3. Start Service Lasso
 
 ```powershell
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --json
+node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --port-policy preferred --json
 ```
 
 This starts the Service Lasso API and runs the baseline service set from `services/`.
+
+The runtime API and baseline services are planned together. The API keeps port
+`18080` when it is free and the preferred `@nginx` proposal is renegotiated;
+no manual manifest or port edit is required. Query
+`http://127.0.0.1:18080/api/runtime/endpoints/allocation` for every resolved
+endpoint.
+
+On a fresh workspace, launch first enters setup mode. The runtime exposes setup
+state at `http://127.0.0.1:18080/api/setup/status` and starts only the setup
+dependencies needed to complete first-run bootstrap before regular managed
+services are started. After setup completes, rerun the same start command to
+continue the normal baseline launch.
 
 Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 
@@ -44,9 +58,12 @@ Keep this terminal open while you test. Stop it later with `Ctrl+C`.
 | URL | Purpose |
 | --- | --- |
 | `http://127.0.0.1:18080/api/health` | Service Lasso API health |
+| `http://127.0.0.1:18080/api/setup/status` | first-run setup state and blockers |
 | `http://127.0.0.1:18080/api/services` | discovered services and lifecycle state |
+| `http://127.0.0.1:18080/api/runtime/endpoints/allocation` | resolved API/service endpoint plan |
 | `http://127.0.0.1:17700/` | Service Admin UI |
 | `http://127.0.0.1:4010/` | Echo Service UI/API |
+| Use the allocation response | NGINX baseline web page (preferred port may move) |
 | `http://127.0.0.1:19081/dashboard/` | Traefik dashboard |
 
 ## 5. Stop Services

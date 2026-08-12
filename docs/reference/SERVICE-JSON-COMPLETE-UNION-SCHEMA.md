@@ -204,6 +204,52 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
     "globalenv": {
       "<GLOBAL_ENV_KEY>": "<value>"
     },
+    "broker": {
+      "enabled": true,
+      "namespace": "services/<service-id>",
+      "buckets": [
+        {
+          "namespace": "services/<service-id>",
+          "kind": "service",
+          "description": "private current-service values"
+        },
+        {
+          "namespace": "shared/<bucket>",
+          "kind": "shared"
+        }
+      ],
+      "imports": [
+        {
+          "namespace": "shared/<bucket>",
+          "ref": "bucket.KEY",
+          "as": "PROCESS_ENV_NAME",
+          "required": true
+        }
+      ],
+      "exports": [
+        {
+          "namespace": "services/<service-id>",
+          "ref": "service.KEY",
+          "source": "${LOCAL_ENV}",
+          "required": false
+        }
+      ],
+      "writeback": {
+        "allowedNamespaces": ["services/<service-id>"],
+        "allowedOperations": ["create", "update", "rotate", "delete"],
+        "allowedRefs": ["service.KEY"],
+        "allowOverwrite": false,
+        "auditReason": "capture generated service secret",
+        "generatedSecrets": [
+          {
+            "ref": "service.KEY",
+            "source": "${LOCAL_ENV}",
+            "operation": "create",
+            "required": false
+          }
+        ]
+      }
+    },
     "depend_on": [
       "<dependency-service-id>"
     ],
@@ -242,27 +288,66 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
     "portmapping": {
       "<PORT_NAME>": "<port-value>"
     },
+    "endpoints": [
+      {
+        "id": "<endpoint-id>",
+        "kind": "<network|url|mount|device>",
+        "label": "<display-label>",
+        "direction": "<inbound|outbound>",
+        "transport": "<tcp|udp>",
+        "protocol": "<http|https|tcp|udp>",
+        "bind": "<host-or-interface>",
+        "port": {
+          "default": "<port-number-or-0>",
+          "strategy": "<automatic|preferred|fixed>",
+          "range": {
+            "start": "<port-start>",
+            "end": "<port-end>"
+          }
+        },
+        "target": "<endpoint-id>",
+        "url": "<url-template-or-value>",
+        "exposure": "<local|lan|public>",
+        "required": "<boolean>",
+        "primary": "<boolean>"
+      }
+    ],
     "urls": {
       "<URL_KEY>": "<url-template-or-value>"
     },
     "outputvarregex": {
       "<OUTPUT_KEY>": "<regex>"
     },
-    "healthcheck": {
-      "type": "<process|http|tcp|file|variable>",
-      "url": "<health-url>",
-      "expected_status": "<http-status>",
-      "retries": "<retry-count>",
-      "variable": "<variable-name>",
-      "cookies": {
-        "<COOKIE_KEY>": "<cookie-value>"
+    "healthchecks": [
+      {
+        "id": "<healthcheck-id>",
+        "type": "<process|http|tcp|file|variable>",
+        "url": "<health-url>",
+        "expected_status": "<http-status>",
+        "retries": "<retry-count>",
+        "variable": "<variable-name>",
+        "cookies": {
+          "<COOKIE_KEY>": "<cookie-value>"
+        }
       }
-    },
+    ],
     "execshell": "<shell>",
     "ignoreexiterror": "<boolean>"
   }
 }
 ```
+
+### Runtime broker identity
+
+When `broker.writeback` is present, the runtime mints a per-launch scoped broker credential and injects it through reserved process environment keys:
+
+- `SERVICE_LASSO_BROKER_IDENTITY_ID`
+- `SERVICE_LASSO_BROKER_CREDENTIAL`
+- `SERVICE_LASSO_BROKER_CREDENTIAL_EXPIRES_AT`
+- `SERVICE_LASSO_BROKER_TRANSPORT_BINDING_KIND`
+- `SERVICE_LASSO_BROKER_TRANSPORT_BINDING_SUBJECT`
+
+The raw credential is launch-only authority: it is not stored in lifecycle state or logs. Persisted lifecycle metadata is limited to non-secret identity/audit fields, optional transport-binding kind/subject, and revocation/expiry timestamps.
 
 ## Union skeleton (keys only)
 
@@ -452,16 +537,19 @@ This keeps `install` and `config` explicit (as discussed), but removes unnecessa
     "outputvarregex": {
       "<OUTPUT_KEY>": "<value>"
     },
-    "healthcheck": {
-      "type": "<value>",
-      "url": "<value>",
-      "expected_status": "<value>",
-      "retries": "<value>",
-      "variable": "<value>",
-      "cookies": {
-        "<COOKIE_KEY>": "<value>"
+    "healthchecks": [
+      {
+        "id": "<value>",
+        "type": "<value>",
+        "url": "<value>",
+        "expected_status": "<value>",
+        "retries": "<value>",
+        "variable": "<value>",
+        "cookies": {
+          "<COOKIE_KEY>": "<value>"
+        }
       }
-    },
+    ],
     "execshell": "<value>",
     "ignoreexiterror": "<value>"
   }

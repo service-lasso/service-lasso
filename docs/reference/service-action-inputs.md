@@ -2,10 +2,7 @@
 
 _Status: first runtime contract for generic action payloads._
 
-Service actions can opt in to typed payloads for manual API calls and workflow engines.
-The action declaration owns the payload policy. A run request can then provide an
-inline payload, a reference to a stored payload, or both when the action explicitly
-allows mixed values.
+Service actions can opt in to typed payloads for manual API calls and workflow engines. The action declaration owns the payload policy. A run request can then provide an inline payload, a reference to a stored payload, or both when the action explicitly allows mixed values.
 
 ## Manifest Policy
 
@@ -84,13 +81,7 @@ Mixed payload:
 }
 ```
 
-Stored payload references resolve from:
-
-```text
-<service-root>/.state/action-payloads/<payloadRef>.json
-```
-
-Reference ids may contain letters, numbers, dot, dash, and underscore.
+Stored payload references resolve from `<service-root>/.state/action-payloads/<payloadRef>.json`. Reference ids may contain letters, numbers, dot, dash, and underscore.
 
 ## Runtime Environment
 
@@ -103,7 +94,7 @@ Action processes receive:
 
 ## History
 
-Action history records `run.metadata.payload`:
+Action history records only the reference and whitelisted inline metadata:
 
 ```json
 {
@@ -115,5 +106,4 @@ Action history records `run.metadata.payload`:
 }
 ```
 
-The full resolved payload is not stored in history. Only the stored reference id
-and whitelisted inline fields are retained.
+The full resolved payload is not stored in history.

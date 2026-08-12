@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
-import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
+import { hasManagedProcess, stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { configService, installService, startService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -85,6 +85,45 @@ test("runtime monitor restarts a crashed service when policy allows", async () =
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime shutdown cancels a scheduled supervision restart before returning", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-monitor-shutdown-");
+  let removed = false;
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "shutdown-restart-service", {
+      autoExitMs: 100,
+      exitCode: 2,
+      restartPolicy: {
+        enabled: true,
+        onCrash: true,
+        maxAttempts: 1,
+        backoffSeconds: 1,
+      },
+    });
+
+    const registry = await prepareRegistry(servicesRoot);
+    const service = registry.getById("shutdown-restart-service");
+    assert.ok(service);
+    await installConfigStart(service, registry);
+    await waitFor(() => (
+      getLifecycleState("shutdown-restart-service").runtime.supervision.lastRestartResult === "scheduled"
+    ));
+
+    await stopAllManagedProcesses();
+    await rm(tempRoot, { recursive: true, force: true });
+    removed = true;
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+    assert.equal(hasManagedProcess("shutdown-restart-service"), false);
+    await assert.rejects(access(tempRoot), { code: "ENOENT" });
+  } finally {
+    await stopAllManagedProcesses();
+    if (!removed) {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   }
 });
 

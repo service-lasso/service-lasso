@@ -6,6 +6,8 @@ unlisted: true
 
 Date: 2026-05-01
 
+Status: completed on 2026-05-03.
+
 Linked issue: `#172`
 
 Spec binding: `SPEC-002`, `AC-4W`, `AC-4Y`, `AC-4Z`
@@ -14,7 +16,7 @@ Spec binding: `SPEC-002`, `AC-4W`, `AC-4Y`, `AC-4Z`
 
 Core `service-lasso` now carries verified release-backed provider manifests for `@node`, `@python`, and `@java`.
 
-The remaining `#172` work is not core runtime implementation. It is the sibling-repo propagation step: make the reference apps and `service-template` inherit the same provider inventory model from core without accidentally turning non-baseline providers into implied defaults.
+The final `#172` work was the sibling-repo propagation step: make the reference apps and `service-template` inherit the same provider inventory model from core without accidentally turning non-baseline providers into implied defaults.
 
 ## Current State
 
@@ -27,7 +29,7 @@ Core currently ships these provider/runtime manifests:
 - `services/@nginx/service.json`
 - `services/@traefik/service.json`
 
-Current sibling inventories do **not** mirror that full provider set.
+Sibling inventories now mirror the provider model by carrying disabled optional `@python` and `@java` manifests alongside the baseline inventory.
 
 Observed checked-in inventory shape across:
 
@@ -38,7 +40,7 @@ Observed checked-in inventory shape across:
 - `service-lasso-app-tauri`
 - `service-lasso-app-packager-pkg`
 
-Current inventory contents are only:
+Baseline inventory contents remain:
 
 - `echo-service`
 - `@serviceadmin`
@@ -47,11 +49,11 @@ Current inventory contents are only:
 - `@nginx`
 - `@traefik`
 
-So the unresolved gap is precise:
+The resolved gap was:
 
 - `@node` propagation is already done
-- `@python` and `@java` are present in core but absent from sibling template/reference inventories
-- current docs/backlog wording still sounds broader than the actual remaining work
+- `@python` and `@java` are present in core and now present as disabled optional provider manifests in sibling template/reference inventories
+- docs/backlog wording now treats propagation as complete
 
 ## Planning Decision
 
@@ -104,12 +106,21 @@ Minimum surfaces to check per repo:
 
 ### Phase 3 - Validation
 
-After propagation, prove:
+Propagation proof:
 
-1. checked-in inventories still parse cleanly
-2. baseline/fresh-clone flows are unchanged
+1. checked-in inventories parse cleanly
+2. baseline/fresh-clone flows remain unchanged
 3. optional disabled providers do not break source/bootstrap/bundled packaging flows
-4. at least one reference validation pass confirms the new optional manifests are tolerated in a normal host repo
+4. reference validation passed in `service-template`, app-node, app-web, app-electron, app-tauri, and app-packager-pkg
+
+Merged propagation PRs:
+
+- [`service-template#8`](https://github.com/service-lasso/service-template/pull/8)
+- [`service-lasso-app-node#11`](https://github.com/service-lasso/service-lasso-app-node/pull/11)
+- [`service-lasso-app-web#22`](https://github.com/service-lasso/service-lasso-app-web/pull/22)
+- [`service-lasso-app-electron#11`](https://github.com/service-lasso/service-lasso-app-electron/pull/11)
+- [`service-lasso-app-tauri#21`](https://github.com/service-lasso/service-lasso-app-tauri/pull/21)
+- [`service-lasso-app-packager-pkg#13`](https://github.com/service-lasso/service-lasso-app-packager-pkg/pull/13)
 
 ## Verification Expectations
 

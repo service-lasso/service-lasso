@@ -9,6 +9,8 @@
   "env": {
     "ECHO_MESSAGE": "hello from echo-service harness",
     "ECHO_PORT": "${SERVICE_PORT}",
+    "ECHO_HTTP_HEALTH_PORT": "${HEALTH_PORT}",
+    "ECHO_TCP_PORT": "${TCP_HEALTH_PORT}",
     "ECHO_LOG_PATH": "./runtime/echo.log",
     "ECHO_STATE_PATH": "./runtime/state.json",
     "ECHO_DB_PATH": "./runtime/echo.sqlite"
@@ -18,7 +20,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-echoservice",
-      "tag": "2026.4.20-a417abd"
+      "tag": "2026.5.3-6d3dc19"
     },
     "platforms": {
       "win32": {
@@ -55,7 +57,9 @@
     ]
   },
   "ports": {
-    "service": 4010
+    "service": 4010,
+    "health": 4011,
+    "tcp_health": 4012
   },
   "urls": [
     {
@@ -64,12 +68,15 @@
       "kind": "local"
     },
     {
-      "label": "service",
-      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "label": "health",
+      "url": "http://127.0.0.1:${HEALTH_PORT}/health",
       "kind": "local"
     }
   ],
-  "healthcheck": {
-    "type": "process"
-  }
+  "healthchecks": [
+    {
+      "id": "process-health",
+      "type": "process"
+    }
+  ]
 }

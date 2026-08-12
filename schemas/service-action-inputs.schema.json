@@ -26,10 +26,7 @@
     },
     "recordInlineFields": {
       "type": "array",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
+      "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
     }
   },
@@ -43,14 +40,10 @@
       "properties": {
         "type": {
           "oneOf": [
-            {
-              "$ref": "#/$defs/jsonType"
-            },
+            { "$ref": "#/$defs/jsonType" },
             {
               "type": "array",
-              "items": {
-                "$ref": "#/$defs/jsonType"
-              },
+              "items": { "$ref": "#/$defs/jsonType" },
               "minItems": 1,
               "uniqueItems": true
             }
@@ -58,21 +51,14 @@
         },
         "required": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
+          "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
         },
         "properties": {
           "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/payloadSchema"
-          }
+          "additionalProperties": { "$ref": "#/$defs/payloadSchema" }
         },
-        "additionalProperties": {
-          "type": "boolean"
-        }
+        "additionalProperties": { "type": "boolean" }
       }
     }
   }

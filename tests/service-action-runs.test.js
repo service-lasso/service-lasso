@@ -6,13 +6,20 @@ import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 
-async function postJson(url, body = {}) {
+const localRootActor = { type: "local-root", id: "local-root", permissions: ["*"] };
+const systemActionActor = { type: "system", id: "scheduler-runtime", permissions: ["service.action.run"] };
+
+async function postJson(url, body = {}, includeDefaultActor = true) {
+  const requestBody =
+    includeDefaultActor && body && typeof body === "object" && !Array.isArray(body) && body.actor === undefined
+      ? { actor: localRootActor, ...body }
+      : body;
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(requestBody),
   });
   return {
     status: response.status,
@@ -157,6 +164,7 @@ test("service action run API executes command actions and exposes persisted hist
       scheduleId: "nightly",
       stepId: "backup",
       parentActionId: "nightly-backup",
+      actor: systemActionActor,
       params: {
         retainDays: 7,
       },
@@ -174,6 +182,7 @@ test("service action run API executes command actions and exposes persisted hist
     assert.equal(run.body.run.metadata.scheduleId, "nightly");
     assert.equal(run.body.run.metadata.stepId, "backup");
     assert.equal(run.body.run.metadata.parentActionId, "nightly-backup");
+    assert.equal(run.body.run.metadata.actor, "scheduler-runtime");
     assert.deepEqual(run.body.run.metadata.params, { retainDays: 7 });
     assert.deepEqual(run.body.run.metadata.payload, {
       source: "inline",
@@ -203,6 +212,7 @@ test("service action run API executes command actions and exposes persisted hist
       source: "dagu",
       workflowId: "minecraft.backup.nightly",
       scheduleId: "nightly",
+      actor: systemActionActor,
       payloadRef: "stored-backup",
       payload: {
         mode: "incremental",
@@ -236,6 +246,23 @@ test("service action run API executes command actions and exposes persisted hist
     const allHistory = await getJson(`${apiServer.url}/api/services/action-service/actions`);
     assert.equal(allHistory.status, 200);
     assert.equal(allHistory.body.runs.length, 2);
+
+    const missingActor = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
+      payload: {
+        retainDays: 7,
+      },
+    }, false);
+    assert.equal(missingActor.status, 401);
+    assert.equal(missingActor.body.error, "actor_required");
+
+    const actorWithoutPermission = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
+      actor: { type: "system", id: "health-monitor", permissions: [] },
+      payload: {
+        retainDays: 7,
+      },
+    });
+    assert.equal(actorWithoutPermission.status, 403);
+    assert.equal(actorWithoutPermission.body.error, "permission_denied");
 
     const missingPayload = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`);
     assert.equal(missingPayload.status, 400);
@@ -275,6 +302,7 @@ test("service action run API executes command actions and exposes persisted hist
     const scheduledWithoutWorkflow = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
       source: "dagu",
       scheduleId: "nightly",
+      actor: systemActionActor,
     });
     assert.equal(scheduledWithoutWorkflow.status, 400);
     assert.equal(scheduledWithoutWorkflow.body.error, "scheduled_metadata_required");
@@ -284,6 +312,7 @@ test("service action run API executes command actions and exposes persisted hist
     const scheduledWithoutSchedule = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
       source: "scheduler",
       workflowId: "minecraft.backup.nightly",
+      actor: systemActionActor,
     });
     assert.equal(scheduledWithoutSchedule.status, 400);
     assert.equal(scheduledWithoutSchedule.body.error, "scheduled_metadata_required");
@@ -292,6 +321,7 @@ test("service action run API executes command actions and exposes persisted hist
       source: "dagu",
       workflowId: "minecraft.backup.nightly",
       scheduleId: "unknown",
+      actor: systemActionActor,
     });
     assert.equal(unknownSchedule.status, 404);
     assert.equal(unknownSchedule.body.error, "unknown_action_schedule");
@@ -300,6 +330,7 @@ test("service action run API executes command actions and exposes persisted hist
       source: "scheduler",
       workflowId: "minecraft.backup.disabled",
       scheduleId: "disabled",
+      actor: systemActionActor,
     });
     assert.equal(disabledSchedule.status, 409);
     assert.equal(disabledSchedule.body.error, "disabled_action_schedule");
@@ -308,6 +339,7 @@ test("service action run API executes command actions and exposes persisted hist
       source: "dagu",
       workflowId: "minecraft.unscheduled.nightly",
       scheduleId: "nightly",
+      actor: systemActionActor,
     });
     assert.equal(unscheduledAction.status, 409);
     assert.equal(unscheduledAction.body.error, "scheduled_action_not_configured");

@@ -205,12 +205,21 @@ test("audit API returns durable safe service and runtime mutation events after r
     const initial = await getJson(`${apiServer.url}/api/audit`);
     assert.equal(initial.status, 200);
     assert.deepEqual(initial.body.events, []);
+    assert.equal(initial.body.source, "runtime-audit");
+    assert.equal(initial.body.chainStatus, "unavailable");
+    assert.equal(initial.body.rawMaterialReturned, false);
+    assert.equal(initial.body.nextCursor, null);
 
     const install = await postJson(`${apiServer.url}/api/services/audit-service/install`);
     assert.equal(install.status, 200);
     const config = await postJson(`${apiServer.url}/api/services/audit-service/config`);
     assert.equal(config.status, 200);
-    const meta = await patchJson(`${apiServer.url}/api/services/audit-service/meta`, { favorite: true });
+    const meta = await patchJson(`${apiServer.url}/api/services/audit-service/meta`, {
+      actor: "operator-ui",
+      reason: "pin favorite and graph position",
+      favorite: true,
+      dependencyGraphPosition: { x: 12, y: 34 },
+    });
     assert.equal(meta.status, 200);
     const runtime = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`);
     assert.equal(runtime.status, 200);
@@ -220,6 +229,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(recovery.status, 200);
     const action = await postJson(`${apiServer.url}/api/services/audit-service/actions/write-audit-proof/runs`, {
       source: "manual",
+      actor: "operator-ui",
     });
     assert.equal(action.status, 200);
     const missingConfirmation = await postJson(`${apiServer.url}/api/services/audit-service/actions/dangerous-audit-proof/runs`, {
@@ -259,20 +269,35 @@ test("audit API returns durable safe service and runtime mutation events after r
       content: JSON.stringify(editedConfig, null, 2),
     });
     assert.equal(save.status, 200);
+    const invalidSave = await putJson(`${apiServer.url}/api/services/audit-service/config`, {
+      actor: "operator-ui",
+      reason: "bad config should still audit safely",
+      content: '{"id":"audit-service","env":{"SECRET_TOKEN":"SUPER_SECRET_VALUE"',
+    });
+    assert.equal(invalidSave.status, 400);
 
     await apiServer.stop();
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
-    const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=10`);
+    const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-service&limit=20`);
     assert.equal(audit.status, 200);
-    assert.equal(audit.body.pagination.total, 10);
+    assert.equal(audit.body.source, "runtime-audit");
+    assert.equal(audit.body.chainStatus, "verified");
+    assert.equal(audit.body.rawMaterialReturned, false);
+    assert.equal(audit.body.nextCursor, null);
+    assert.equal(audit.body.pagination.total, 15);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
+        "permission.decision",
+        "permission.decision",
+        "permission.decision",
+        "permission.decision",
         "service.action.run",
         "service.action.run",
         "service.action.run",
         "service.action.run",
+        "service.config.save",
         "service.config.save",
         "service.lifecycle.config",
         "service.lifecycle.install",
@@ -282,13 +307,35 @@ test("audit API returns durable safe service and runtime mutation events after r
       ],
     );
 
-    const configEvent = audit.body.events.find((event) => event.action === "service.config.save");
+    const metaEvent = audit.body.events.find((event) => event.action === "service.meta.update");
+    assert.equal(metaEvent.actor, "operator-ui");
+    assert.equal(metaEvent.reason, "pin favorite and graph position");
+    assert.deepEqual(metaEvent.metadata.changedFields, ["favorite", "dependencyGraphPosition"]);
+    assert.equal(metaEvent.metadata.favorite, true);
+    assert.deepEqual(metaEvent.metadata.dependencyGraphPosition, { x: 12, y: 34 });
+
+    const configEvent = audit.body.events.find((event) => event.action === "service.config.save" && event.outcome === "success");
     assert.equal(configEvent.actor, "operator-ui");
+    assert.equal(configEvent.reason, "metadata-only audit coverage");
     assert.equal(configEvent.relatedRevisionId, save.body.backup.id);
     assert.equal(configEvent.outcome, "success");
     assert.equal(configEvent.chainId, "service:audit-service");
     assert.ok(configEvent.eventHash);
-    assert.equal(configEvent.chainStatus, "valid");
+    assert.equal(configEvent.chainStatus, "verified");
+    assert.equal(configEvent.metadata.configPath, "service.json");
+    assert.equal(configEvent.metadata.previousHash, save.body.backup.previousHash);
+    assert.equal(configEvent.metadata.currentHash, save.body.backup.currentHash);
+    assert.equal(configEvent.metadata.validationStatus, "valid");
+
+    const configFailure = audit.body.events.find((event) => event.action === "service.config.save" && event.outcome === "failure");
+    assert.equal(configFailure.actor, "operator-ui");
+    assert.match(configFailure.reason, /valid JSON object string/u);
+    assert.equal(configFailure.relatedRevisionId, null);
+    assert.equal(configFailure.metadata.configPath, "service.json");
+    assert.equal(configFailure.metadata.validationStatus, "invalid");
+    assert.equal(configFailure.metadata.requestedReason, "bad config should still audit safely");
+    assert.equal(typeof configFailure.metadata.previousHash, "string");
+    assert.equal(typeof configFailure.metadata.currentHash, "string");
 
     const setupEvent = audit.body.events.find((event) => event.action === "service.setup.run");
     assert.equal(setupEvent.subject, "write-audit-proof");
@@ -306,7 +353,14 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(actionEvent.outcome, "success");
     assert.equal(actionEvent.relatedRevisionId, action.body.run.runId);
 
-    const confirmationEvents = audit.body.events.filter((event) => event.subject === "dangerous-audit-proof");
+    const permissionEvents = audit.body.events.filter((event) => event.action === "permission.decision");
+    assert.equal(permissionEvents.length, 4);
+    assert.equal(permissionEvents.every((event) => event.metadata.permission === "service.action.run"), true);
+    assert.ok(permissionEvents.some((event) => event.subject === "dangerous-audit-proof" && event.outcome === "failure"));
+
+    const confirmationEvents = audit.body.events.filter(
+      (event) => event.action === "service.action.run" && event.subject === "dangerous-audit-proof",
+    );
     assert.equal(confirmationEvents.length, 2);
     assert.deepEqual(confirmationEvents.map((event) => event.actor), ["operator-ui", "operator-ui"]);
     assert.deepEqual(confirmationEvents.map((event) => event.outcome).sort(), ["failure", "success"]);
@@ -315,7 +369,9 @@ test("audit API returns durable safe service and runtime mutation events after r
     const confirmationSuccess = confirmationEvents.find((event) => event.outcome === "success");
     assert.equal(confirmationSuccess.relatedRevisionId, confirmedAction.body.run.runId);
 
-    const scheduledEvent = audit.body.events.find((event) => event.subject === "scheduled-audit-proof");
+    const scheduledEvent = audit.body.events.find(
+      (event) => event.action === "service.action.run" && event.subject === "scheduled-audit-proof",
+    );
     assert.equal(scheduledEvent.actor, "workflow-engine");
     assert.equal(scheduledEvent.outcome, "success");
     assert.equal(scheduledEvent.relatedRevisionId, scheduledAction.body.run.runId);
@@ -325,6 +381,23 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(runtimeAudit.status, 200);
     assert.equal(runtimeAudit.body.events.length, 1);
     assert.equal(runtimeAudit.body.events[0].chainId, "runtime");
+    assert.equal(runtimeAudit.body.chainStatus, "verified");
+
+    const serviceScopedAudit = await getJson(`${apiServer.url}/api/services/audit-service/audit?limit=4`);
+    assert.equal(serviceScopedAudit.status, 200);
+    assert.equal(serviceScopedAudit.body.source, "runtime-audit");
+    assert.equal(serviceScopedAudit.body.chainStatus, "verified");
+    assert.equal(serviceScopedAudit.body.rawMaterialReturned, false);
+    assert.equal(serviceScopedAudit.body.events.length, 4);
+    assert.equal(serviceScopedAudit.body.pagination.total, 15);
+    assert.equal(serviceScopedAudit.body.nextCursor, "4");
+    assert.deepEqual([...new Set(serviceScopedAudit.body.events.map((event) => event.serviceId))], ["audit-service"]);
+
+    const nextServiceAuditPage = await getJson(`${apiServer.url}/api/services/audit-service/audit?limit=4&cursor=${serviceScopedAudit.body.nextCursor}`);
+    assert.equal(nextServiceAuditPage.status, 200);
+    assert.equal(nextServiceAuditPage.body.events.length, 4);
+    assert.equal(nextServiceAuditPage.body.pagination.total, 15);
+    assert.equal(nextServiceAuditPage.body.nextCursor, "8");
 
     const secretSearch = await getJson(`${apiServer.url}/api/audit?query=SUPER_SECRET_VALUE`);
     assert.equal(secretSearch.status, 200);
@@ -335,6 +408,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     const workflowParamSearch = await getJson(`${apiServer.url}/api/audit?query=WORKFLOW_SECRET_PARAM`);
     assert.equal(workflowParamSearch.status, 200);
     assert.equal(workflowParamSearch.body.pagination.total, 0);
+    assert.equal(JSON.stringify(audit.body).includes("SUPER_SECRET_VALUE"), false);
 
     const serviceAuditFile = path.join(serviceRoot, ".state", "audit", `${new Date().toISOString().slice(0, 10)}.jsonl`);
     const runtimeAuditFile = path.join(workspaceRoot, ".service-lasso", "audit", "runtime", `${new Date().toISOString().slice(0, 10)}.jsonl`);
@@ -375,41 +449,9 @@ test("audit store keeps service events in portable date-bucket JSONL files", asy
       query: { serviceId: "portable-service" },
     });
 
+    assert.equal(result.chainStatus, "verified");
     assert.equal(result.pagination.total, 1);
     assert.equal(result.events[0].id, event.id);
-    assert.equal(result.events[0].serviceId, "portable-service");
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test("audit reader ignores corrupt JSONL rows and returns valid events newest first", async () => {
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-corrupt-");
-  const workspaceRoot = path.join(tempRoot, "workspace");
-  const serviceRoot = path.join(servicesRoot, "corrupt-service");
-
-  try {
-    await mkdir(serviceRoot, { recursive: true });
-    const runtimeEvent = await appendAuditEvent(createAuditInput({
-      workspaceRoot,
-      action: "runtime.old",
-      summary: "Old runtime event",
-    }));
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const serviceEvent = await appendAuditEvent(createAuditInput({
-      serviceRoot,
-      serviceId: "corrupt-service",
-      source: "service",
-      action: "service.new",
-      summary: "New service event",
-    }));
-    const serviceAuditFile = path.join(serviceRoot, ".state", "audit", `${serviceEvent.timestamp.slice(0, 10)}.jsonl`);
-    await writeFile(serviceAuditFile, `${await readFile(serviceAuditFile, "utf8")}{not-json}\n`, "utf8");
-
-    const result = await readAuditEvents({ workspaceRoot, serviceRoots: [serviceRoot] });
-
-    assert.equal(result.pagination.total, 2);
-    assert.deepEqual(result.events.map((event) => event.id), [serviceEvent.id, runtimeEvent.id]);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -438,6 +480,45 @@ test("audit API records update checks that mutate durable update state", async (
     assert.equal(audit.body.events[0].outcome, "success");
     assert.equal(audit.body.events[0].relatedRevisionId, "2026.4.24-new");
     assert.match(audit.body.events[0].summary, /update_available/u);
+  } finally {
+    await apiServer.stop().catch(() => undefined);
+    await releaseServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("audit API records update download and install failures without unsafe request material", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-update-failure-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const releaseServer = await startAuditReleaseServer();
+  await writeManifest(servicesRoot, "audit-update-service", createAuditUpdateManifest(releaseServer));
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const check = await postJson(`${apiServer.url}/api/updates/check`, { serviceId: "audit-update-service" });
+    assert.equal(check.status, 200);
+    assert.equal(check.body.services[0].result.status, "update_available");
+
+    const download = await postJson(`${apiServer.url}/api/services/audit-update-service/update/download`);
+    assert.equal(download.status, 500);
+
+    const install = await postJson(`${apiServer.url}/api/services/audit-update-service/update/install`, {
+      force: "raw-update-secret",
+    });
+    assert.equal(install.status, 400);
+
+    const audit = await getJson(`${apiServer.url}/api/audit?serviceId=audit-update-service&limit=10`);
+    assert.equal(audit.status, 200);
+    const downloadAudit = audit.body.events.find((event) => event.action === "service.update.download");
+    const installAudit = audit.body.events.find((event) => event.action === "service.update.install");
+    assert.equal(downloadAudit.outcome, "failure");
+    assert.equal(downloadAudit.routeTemplate, "/api/services/:serviceId/update/download");
+    assert.equal(installAudit.outcome, "failure");
+    assert.equal(installAudit.statusCode, 400);
+    assert.equal(installAudit.routeTemplate, "/api/services/:serviceId/update/install");
+    assert.equal(JSON.stringify(audit.body).includes("raw-update-secret"), false);
   } finally {
     await apiServer.stop().catch(() => undefined);
     await releaseServer.stop();

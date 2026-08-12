@@ -1,26 +1,72 @@
 import { startRuntimeApp } from "./runtime/app.js";
-import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
+import type { BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
+import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
+import { importServiceManifestFromCli, type ImportServiceManifestCliResult } from "./runtime/cli/importService.js";
+import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "./runtime/cli/health.js";
+import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
+import { runReleaseCliAction, type ReleaseCliAction, type ReleaseCliResult } from "./runtime/cli/release.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
+import { runOperatorCliAction, type OperatorActionsCliAction, type OperatorCliResult } from "./runtime/cli/operator.js";
+import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
+import { runTemplateCliAction, type TemplateCliAction, type TemplateCliResult } from "./runtime/cli/template.js";
 import { runUpdatesCliAction, type UpdateCliAction, type UpdatesCliResult } from "./runtime/cli/updates.js";
+import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cli/config-drift.js";
+import { runConfigApplyCliAction, type ConfigApplyCliAction, type ConfigApplyCliResult } from "./runtime/cli/config-apply.js";
+import { runConfigSnapshotCliAction, type ConfigSnapshotCliAction, type ConfigSnapshotCliResult } from "./runtime/cli/config-snapshot.js";
+import { runDiagnosticsCliAction, type DiagnosticsCliAction, type DiagnosticsCliResult } from "./runtime/cli/diagnostics.js";
+import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
+import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
+import { runReadinessGateCliAction, type ReadinessGateCliResult } from "./runtime/cli/readiness.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
+import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
+  readinessAction?: "gate";
+  serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
+  healthAction?: HealthCliAction;
+  planAction?: RuntimePlanCliAction;
+  lockfileAction?: LockfileCliAction;
+  configApplyAction?: ConfigApplyCliAction;
+  configSnapshotAction?: ConfigSnapshotCliAction;
+  secretsAction?: SecretsCliAction;
+  backupAction?: BackupCliAction;
+  diagnosticsAction?: DiagnosticsCliAction;
+  operatorActionsAction?: OperatorActionsCliAction;
+  templateAction?: TemplateCliAction;
+  releaseAction?: ReleaseCliAction;
+  actionId?: string;
+  deferredUntil?: string | null;
   serviceId?: string;
+  secretRef?: string;
+  repo?: string;
+  tag?: string;
+  apiBaseUrl?: string;
+  manifestPath?: string;
+  assetsRoot?: string;
+  releaseVersion?: string;
   stepId?: string;
+  archivePath?: string;
+  snapshotPath?: string;
   port?: number;
+  portPolicy?: "automatic" | "preferred" | "fixed";
   servicesRoot?: string;
+  targetServicesRoot?: string;
+  coreServicesRoot?: string;
   workspaceRoot?: string;
+  generationId?: string;
   json: boolean;
   force: boolean;
   includeManual: boolean;
+  dryRun?: boolean;
+  preview?: boolean;
 }
 
 function usageText(): string {
@@ -29,8 +75,8 @@ function usageText(): string {
     "",
     "Usage:",
     "  service-lasso",
-    "  service-lasso serve [--port <number>] [--services-root <path>] [--workspace-root <path>]",
-    "  service-lasso start [--port <number>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso serve [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>]",
+    "  service-lasso start [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso install <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup list [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup run <serviceId> [stepId] [--services-root <path>] [--workspace-root <path>] [--force] [--include-manual] [--json]",
@@ -38,8 +84,38 @@ function usageText(): string {
     "  service-lasso updates check [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates download <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso updates install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso plan start [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan stop [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan autostart [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso plan update-install <serviceId> [--services-root <path>] [--workspace-root <path>] [--force] [--json]",
+    "  service-lasso plan import <manifestPath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery status [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso recovery doctor <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso recovery restart-preflight <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--generation <id>] [--json]",
+    "  service-lasso readiness gate [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-drift [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-apply preflight [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-snapshot export [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso config-snapshot import <snapshotPath> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets audit [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets rotation-readiness [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets provider-auth-required [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets rotate-plan <ref> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions list [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions acknowledge <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
+    "  service-lasso services import --archive <path> [--services-root <path>] [--dry-run] [--json]",
+    "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
+    "  service-lasso release verify-manifest <manifestPath> [--assets-root <path>] [--release-version <version>] [--json]",
     "  service-lasso help",
     "  service-lasso --version",
     "",
@@ -49,7 +125,13 @@ function usageText(): string {
     "  - The install command acquires and installs a service from manifest-owned artifact metadata without starting it.",
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
+    "  - The plan command previews start, stop, update-install, and app-owned service import actions without writing state.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
+    "  - The instance command reads local runtime identity and recent instance registry state.",
+    "  - The readiness command emits a machine-readable gate for baseline automation.",
+    "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
+    "  - The template check-upgrade command compares an app/template service inventory to current core provider expectations.",
+    "  - The release verify-manifest command checks service.json, platform assets, release labels, and SHA-256 checksums.",
   ].join("\n");
 }
 
@@ -83,7 +165,22 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "start" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
-      commandToken === "recovery"
+      commandToken === "recovery" ||
+      commandToken === "health" ||
+      commandToken === "plan" ||
+      commandToken === "lockfile" ||
+      commandToken === "instance" ||
+      commandToken === "readiness" ||
+      commandToken === "config-drift" ||
+      commandToken === "config-apply" ||
+      commandToken === "config-snapshot" ||
+      commandToken === "secrets" ||
+      commandToken === "backup" ||
+      commandToken === "diagnostics" ||
+      commandToken === "operator" ||
+      commandToken === "services" ||
+      commandToken === "template" ||
+      commandToken === "release"
       ? commandToken
       : null;
   if (!command) {
@@ -146,20 +243,216 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "recovery") {
     const action = remaining.shift();
-    if (action !== "status" && action !== "doctor") {
-      throw new Error('The "recovery" command requires one of: status, doctor.');
+    if (action !== "status" && action !== "doctor" && action !== "restart-preflight") {
+      throw new Error('The "recovery" command requires one of: status, doctor, restart-preflight.');
     }
 
     parsed.recoveryAction = action;
-    if (action === "doctor") {
+    if (action === "doctor" || action === "restart-preflight") {
       const serviceId = remaining.shift();
       if (!serviceId || serviceId.startsWith("-")) {
-        throw new Error('The "recovery doctor" command requires a <serviceId> argument.');
+        throw new Error(`The "recovery ${action}" command requires a <serviceId> argument.`);
       }
       parsed.serviceId = serviceId;
     } else if (remaining[0] && !remaining[0].startsWith("-")) {
       parsed.serviceId = remaining.shift();
     }
+  }
+
+  if (command === "health") {
+    const action = remaining.shift();
+    if (action !== "history") {
+      throw new Error('The "health" command requires: history.');
+    }
+
+    parsed.healthAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
+  if (command === "lockfile") {
+    const action = remaining.shift();
+    if (action !== "generate" && action !== "verify") {
+      throw new Error('The "lockfile" command requires one of: generate, verify.');
+    }
+
+    parsed.lockfileAction = action;
+  }
+
+  if (command === "readiness") {
+    const action = remaining.shift();
+    if (action !== "gate") {
+      throw new Error('The "readiness" command requires: gate.');
+    }
+
+    parsed.readinessAction = action;
+  }
+
+  if (command === "plan") {
+    const action = remaining.shift();
+    if (action !== "start" && action !== "stop" && action !== "autostart" && action !== "update-install" && action !== "import") {
+      throw new Error('The "plan" command requires one of: start, stop, autostart, update-install, import.');
+    }
+
+    parsed.planAction = action;
+    if (action === "update-install") {
+      const serviceId = remaining.shift();
+      if (!serviceId || serviceId.startsWith("-")) {
+        throw new Error('The "plan update-install" command requires a <serviceId> argument.');
+      }
+      parsed.serviceId = serviceId;
+    }
+    if (action === "import") {
+      const manifestPath = remaining.shift();
+      if (!manifestPath || manifestPath.startsWith("-")) {
+        throw new Error('The "plan import" command requires a <manifestPath> argument.');
+      }
+      parsed.manifestPath = manifestPath;
+    }
+  }
+
+  if (command === "config-drift" && remaining[0] && !remaining[0].startsWith("-")) {
+    parsed.serviceId = remaining.shift();
+  }
+
+  if (command === "config-apply") {
+    const action = remaining.shift();
+    if (action !== "preflight") {
+      throw new Error('The "config-apply" command requires: preflight.');
+    }
+
+    parsed.configApplyAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
+  if (command === "config-snapshot") {
+    const action = remaining.shift();
+    if (action !== "export" && action !== "import") {
+      throw new Error('The "config-snapshot" command requires one of: export, import.');
+    }
+
+    parsed.configSnapshotAction = action;
+    if (action === "export") {
+      if (remaining[0] && !remaining[0].startsWith("-")) {
+        parsed.serviceId = remaining.shift();
+      }
+    } else {
+      const snapshotPath = remaining.shift();
+      if (!snapshotPath || snapshotPath.startsWith("-")) {
+        throw new Error('The "config-snapshot import" command requires a <snapshotPath> argument.');
+      }
+      parsed.snapshotPath = snapshotPath;
+    }
+  }
+
+  if (command === "secrets") {
+    const action = remaining.shift();
+    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required" && action !== "rotate-plan") {
+      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required, rotate-plan.');
+    }
+
+    parsed.secretsAction = action;
+    if (action === "rotate-plan") {
+      const ref = remaining.shift();
+      if (!ref || ref.startsWith("-")) {
+        throw new Error('The "secrets rotate-plan" command requires a <ref> argument.');
+      }
+      parsed.secretRef = ref;
+    } else if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.serviceId = remaining.shift();
+    }
+  }
+
+  if (command === "backup") {
+    const action = remaining.shift();
+    if (action !== "create" && action !== "restore-plan") {
+      throw new Error('The "backup" command requires one of: create, restore-plan.');
+    }
+
+    parsed.backupAction = action;
+    if (action === "restore-plan") {
+      const archivePath = remaining.shift();
+      if (!archivePath || archivePath.startsWith("-")) {
+        throw new Error('The "backup restore-plan" command requires an <archivePath> argument.');
+      }
+      parsed.archivePath = archivePath;
+    }
+  }
+
+  if (command === "diagnostics") {
+    const action = remaining.shift();
+    if (action !== "bundle") {
+      throw new Error('The "diagnostics" command requires: bundle.');
+    }
+
+    parsed.diagnosticsAction = action;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      const scope = remaining.shift();
+      if (scope && scope !== "baseline") {
+        parsed.serviceId = scope;
+      }
+    }
+  }
+
+  if (command === "operator") {
+    const scope = remaining.shift();
+    if (scope !== "actions") {
+      throw new Error('The "operator" command requires the "actions" scope.');
+    }
+
+    const action = remaining.shift();
+    if (action !== "list" && action !== "acknowledge" && action !== "defer" && action !== "reopen") {
+      throw new Error('The "operator actions" command requires one of: list, acknowledge, defer, reopen.');
+    }
+
+    parsed.operatorActionsAction = action;
+    if (action !== "list") {
+      const actionId = remaining.shift();
+      if (!actionId || actionId.startsWith("-")) {
+        throw new Error(`The "operator actions ${action}" command requires an <actionId> argument.`);
+      }
+      parsed.actionId = actionId;
+    }
+  }
+
+  if (command === "services") {
+    const serviceCommand = remaining.shift();
+    if (serviceCommand !== "import") {
+      throw new Error('The "services" command requires one of: import.');
+    }
+    parsed.serviceCommand = serviceCommand;
+    if (remaining[0] && !remaining[0].startsWith("-")) {
+      parsed.repo = remaining.shift();
+    }
+  }
+
+  if (command === "template") {
+    const action = remaining.shift();
+    if (action !== "check-upgrade") {
+      throw new Error('The "template" command requires one of: check-upgrade.');
+    }
+    parsed.templateAction = action;
+    const targetServicesRoot = remaining.shift();
+    if (!targetServicesRoot || targetServicesRoot.startsWith("-")) {
+      throw new Error('The "template check-upgrade" command requires a <targetServicesRoot> argument.');
+    }
+    parsed.targetServicesRoot = targetServicesRoot;
+  }
+
+  if (command === "release") {
+    const action = remaining.shift();
+    if (action !== "verify-manifest") {
+      throw new Error('The "release" command requires one of: verify-manifest.');
+    }
+    parsed.releaseAction = action;
+    const manifestPath = remaining.shift();
+    if (!manifestPath || manifestPath.startsWith("-")) {
+      throw new Error('The "release verify-manifest" command requires a <manifestPath> argument.');
+    }
+    parsed.manifestPath = manifestPath;
   }
 
   while (remaining.length > 0) {
@@ -182,6 +475,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         parsed.workspaceRoot = value;
         break;
       }
+      case "--generation": {
+        if (command !== "instance") {
+          throw new Error("--generation is only supported for the instance command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --generation.");
+        }
+        parsed.generationId = value;
+        break;
+      }
       case "--port": {
         if (command !== "serve" && command !== "start") {
           throw new Error("--port is only supported for the serve and start commands.");
@@ -193,16 +497,121 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         parsed.port = parsePort(value);
         break;
       }
+      case "--port-policy": {
+        if (command !== "serve" && command !== "start") {
+          throw new Error("--port-policy is only supported for the serve and start commands.");
+        }
+        const value = remaining.shift();
+        if (value !== "automatic" && value !== "preferred" && value !== "fixed") {
+          throw new Error("--port-policy must be one of: automatic, preferred, fixed.");
+        }
+        parsed.portPolicy = value;
+        break;
+      }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery") {
-          throw new Error("--json is only supported for the install, start, setup, updates, and recovery commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template" && command !== "release") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, template, and release commands.");
         }
         parsed.json = true;
         break;
       }
+      case "--until": {
+        if (command !== "operator" || parsed.operatorActionsAction !== "defer") {
+          throw new Error("--until is only supported for operator actions defer.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --until.");
+        }
+        parsed.deferredUntil = value;
+        break;
+      }
+      case "--dry-run": {
+        if ((command !== "services" || parsed.serviceCommand !== "import") && command !== "diagnostics") {
+          throw new Error("--dry-run is only supported for the services import and diagnostics bundle commands.");
+        }
+        parsed.dryRun = true;
+        if (command === "diagnostics") {
+          parsed.preview = true;
+        }
+        break;
+      }
+      case "--preview": {
+        if (command !== "diagnostics") {
+          throw new Error("--preview is only supported for the diagnostics bundle command.");
+        }
+        parsed.preview = true;
+        break;
+      }
+      case "--tag": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--tag is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --tag.");
+        }
+        parsed.tag = value;
+        break;
+      }
+      case "--api-base-url": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--api-base-url is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --api-base-url.");
+        }
+        parsed.apiBaseUrl = value;
+        break;
+      }
+      case "--archive": {
+        if (command !== "services" || parsed.serviceCommand !== "import") {
+          throw new Error("--archive is only supported for the services import command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --archive.");
+        }
+        parsed.archivePath = value;
+        break;
+      }
+      case "--core-services-root": {
+        if (command !== "template" || parsed.templateAction !== "check-upgrade") {
+          throw new Error("--core-services-root is only supported for the template check-upgrade command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --core-services-root.");
+        }
+        parsed.coreServicesRoot = value;
+        break;
+      }
+      case "--assets-root": {
+        if (command !== "release" || parsed.releaseAction !== "verify-manifest") {
+          throw new Error("--assets-root is only supported for the release verify-manifest command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --assets-root.");
+        }
+        parsed.assetsRoot = value;
+        break;
+      }
+      case "--release-version": {
+        if (command !== "release" || parsed.releaseAction !== "verify-manifest") {
+          throw new Error("--release-version is only supported for the release verify-manifest command.");
+        }
+        const value = remaining.shift();
+        if (!value) {
+          throw new Error("Missing value for --release-version.");
+        }
+        parsed.releaseVersion = value;
+        break;
+      }
       case "--force": {
-        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run"))) {
-          throw new Error("--force is only supported for updates install and setup run commands.");
+        if (!((command === "updates" && parsed.updateAction === "install") || (command === "setup" && parsed.setupAction === "run") || (command === "plan" && parsed.planAction === "update-install") || (command === "services" && parsed.serviceCommand === "import"))) {
+          throw new Error("--force is only supported for updates install, setup run, plan update-install, and services import commands.");
         }
         parsed.force = true;
         break;
@@ -279,6 +688,26 @@ function printUpdatesResult(result: UpdatesCliResult, asJson: boolean): void {
   console.log(`- service: ${result.serviceId}`);
   console.log(`- installedTag: ${result.state.installArtifacts.artifact?.tag ?? "unknown"}`);
   console.log(`- forced: ${result.forced}`);
+  console.log(`- rollbackReadiness: ${result.rollbackReadiness.status}`);
+}
+
+function printPlanResult(result: RuntimePlanCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] dry-run plan");
+  console.log(`- action: ${result.action}`);
+  console.log(`- ok: ${result.ok}`);
+  console.log(`- servicesRoot: ${result.servicesRoot}`);
+  for (const step of result.steps) {
+    const reason = step.reason ? ` (${step.reason})` : "";
+    console.log(`- ${step.order}. ${step.serviceId}: ${step.action} ${step.status}${reason}`);
+    if (step.prerequisites.length > 0) {
+      console.log(`  prerequisites: ${step.prerequisites.join("; ")}`);
+    }
+  }
 }
 
 function formatRecoveryLine(service: { serviceId: string; recovery: ServiceRecoveryHistoryState }): string {
@@ -312,11 +741,372 @@ function printRecoveryResult(result: RecoveryCliResult, asJson: boolean): void {
     return;
   }
 
+  if (result.action === "restart-preflight") {
+    console.log("[service-lasso] restart preflight");
+    console.log(`- service: ${result.serviceId}`);
+    console.log(`- ok: ${result.preflight.ok}`);
+    console.log(`- status: ${result.preflight.status}`);
+    console.log(`- blockers: ${result.preflight.blockers.length}`);
+    console.log(`- warnings: ${result.preflight.warnings.length}`);
+    console.log(`- dependents: ${result.preflight.dependencyGraph.dependents.length}`);
+    console.log(`- restartOrderRisk: ${result.preflight.restartOrderRisk.level}`);
+    return;
+  }
+
   console.log("[service-lasso] doctor completed");
   console.log(`- service: ${result.serviceId}`);
   console.log(`- ok: ${result.doctor.ok}`);
   console.log(`- blocked: ${result.doctor.blocked}`);
   console.log(`- steps: ${result.doctor.steps.length}`);
+}
+
+function printHealthResult(result: HealthCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] health history");
+  for (const service of result.services) {
+    const last = service.healthHistory.transitions.at(-1);
+    if (!last) {
+      console.log(`- ${service.serviceId}: no health transitions`);
+      continue;
+    }
+    console.log(`- ${service.serviceId}: ${service.healthHistory.transitions.length} transitions, last ${last.status}/${last.checkType} at ${last.at}`);
+  }
+}
+
+function printLockfileResult(result: LockfileCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "generate") {
+    console.log("[service-lasso] service lockfile generated");
+    console.log("- lockfilePath: " + result.lockfilePath);
+    console.log("- services: " + result.lockfile.services.length);
+    return;
+  }
+
+  console.log(result.ok ? "[service-lasso] service lockfile verified" : "[service-lasso] service lockfile drift detected");
+  console.log("- lockfilePath: " + result.lockfilePath);
+  console.log("- checkedServices: " + result.checkedServices);
+  for (const issue of result.issues) {
+    console.log("- " + issue.serviceId + ": " + issue.status + " (" + issue.message + ")");
+  }
+}
+
+function printTemplateResult(result: TemplateCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(result.ok ? "[service-lasso] template upgrade compatibility checked" : "[service-lasso] template upgrade compatibility blocked");
+  console.log("- status: " + result.status);
+  console.log("- targetServicesRoot: " + result.targetServicesRoot);
+  console.log("- checkedProviders: " + result.checkedProviders);
+  console.log("- findings: errors=" + result.summary.errors + " warnings=" + result.summary.warnings);
+  for (const provider of result.providers) {
+    console.log("- " + provider.serviceId + ": " + provider.status);
+  }
+  for (const finding of result.findings) {
+    console.log("- " + finding.severity + " " + finding.serviceId + ": " + finding.kind + " - " + finding.hint);
+  }
+}
+
+function printReleaseResult(result: ReleaseCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(result.ok ? "[service-lasso] release manifest verified" : "[service-lasso] release manifest verification blocked");
+  console.log("- service: " + (result.service.id ?? "unknown"));
+  console.log("- version: " + (result.service.version ?? "unknown"));
+  console.log("- releaseVersion: " + (result.releaseVersion ?? "unknown"));
+  console.log("- assetsRoot: " + result.assetsRoot);
+  console.log("- assets: " + result.summary.presentAssets + "/" + result.summary.expectedAssets);
+  console.log("- checksumsVerified: " + result.summary.checksumsVerified);
+  console.log("- findings: errors=" + result.summary.errors + " warnings=" + result.summary.warnings);
+  for (const asset of result.assets) {
+    console.log(
+      "- " +
+        asset.platform +
+        ": " +
+        (asset.assetName ?? "unknown") +
+        " asset=" +
+        asset.status +
+        " checksum=" +
+        asset.checksum.status,
+    );
+  }
+  for (const finding of result.findings) {
+    const context = finding.platform ? " " + finding.platform : "";
+    console.log("- " + finding.severity + context + ": " + finding.code + " - " + finding.message);
+  }
+}
+
+function printConfigDriftResult(result: ConfigDriftCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] config drift");
+  for (const service of result.services) {
+    console.log(`- ${service.serviceId}: ${service.summary.drifted} drifted / ${service.summary.total} files`);
+    for (const file of service.files.filter((entry) => entry.status !== "unchanged")) {
+      console.log(`  - ${file.path}: ${file.status}`);
+    }
+  }
+}
+
+function printConfigApplyResult(result: ConfigApplyCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] config apply preflight");
+  console.log("- ok: " + result.ok);
+  console.log("- mutated: " + result.mutated);
+  console.log(
+    "- services: allowed=" +
+      result.summary.allowed +
+      " warning=" +
+      result.summary.warning +
+      " blocked=" +
+      result.summary.blocked,
+  );
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.status);
+    console.log("  restartRequired: " + service.restartRequirement.required);
+    for (const gate of service.policyGates.filter((entry) => entry.status !== "allowed")) {
+      console.log("  gate " + gate.gate + ": " + gate.status + " (" + gate.reason + ")");
+    }
+  }
+}
+
+function printConfigSnapshotResult(result: ConfigSnapshotCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "export") {
+    console.log("[service-lasso] config snapshot exported");
+    console.log("- snapshotPath: " + result.snapshotPath);
+    console.log("- services: " + result.snapshot.serviceCount);
+    console.log("- policy: runtime/logs excluded, raw secrets redacted, import dry-run by default");
+    return;
+  }
+
+  console.log("[service-lasso] config snapshot import dry-run");
+  console.log("- snapshotPath: " + result.snapshotPath);
+  console.log("- ok: " + result.ok);
+  console.log("- mutated: " + result.mutated);
+  for (const blocked of result.blocked) {
+    console.log("- blocked: " + blocked);
+  }
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.action + " (" + service.reasons.join(", ") + ")");
+  }
+}
+
+function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "rotation-readiness") {
+    console.log("[service-lasso] secret rotation readiness");
+    if ("services" in result) {
+      console.log("- services: " + result.summary.services);
+      console.log("- references: " + result.summary.references);
+      console.log("- ready: " + result.summary.ready);
+      console.log("- needsPolicy: " + result.summary.needsPolicy);
+      console.log("- needsCapability: " + result.summary.needsCapability);
+      console.log("- needsAuthCheck: " + result.summary.needsAuthCheck);
+      console.log("- blocked: " + result.summary.blocked);
+      for (const service of result.services) {
+        console.log(
+          "- " +
+            service.serviceId +
+            ": ready=" +
+            service.summary.ready +
+            " needsPolicy=" +
+            service.summary.needsPolicy +
+            " needsCapability=" +
+            service.summary.needsCapability +
+            " needsAuthCheck=" +
+            service.summary.needsAuthCheck +
+            " blocked=" +
+            service.summary.blocked,
+        );
+      }
+      return;
+    }
+
+    console.log("- service: " + result.serviceId);
+    console.log("- ready: " + result.summary.ready);
+    console.log("- needsPolicy: " + result.summary.needsPolicy);
+    console.log("- needsCapability: " + result.summary.needsCapability);
+    console.log("- needsAuthCheck: " + result.summary.needsAuthCheck);
+    console.log("- blocked: " + result.summary.blocked);
+    for (const ref of result.refs) {
+      const suffix = ref.blockers.length > 0 ? " [" + ref.blockers.join(", ") + "]" : "";
+      console.log("- " + ref.status + ": " + ref.ref + suffix);
+    }
+    return;
+  }
+
+  if (result.action === "provider-auth-required") {
+    console.log("[service-lasso] secret provider auth-required summary");
+    if ("services" in result) {
+      console.log("- services: " + result.summary.services);
+      console.log("- providers: " + result.summary.providers);
+      console.log("- references: " + result.summary.references);
+      console.log("- authRequired: " + result.summary.authRequired);
+      console.log("- notRequired: " + result.summary.notRequired);
+      console.log("- blocked: " + result.summary.blocked);
+      for (const provider of result.providers) {
+        console.log(
+          "- provider " +
+            provider.provider +
+            ": authRequiredRefs=" +
+            provider.authRequiredRefs +
+            " services=" +
+            provider.services.join(", "),
+        );
+      }
+      return;
+    }
+
+    console.log("- service: " + result.serviceId);
+    console.log("- authRequired: " + result.summary.authRequired);
+    console.log("- notRequired: " + result.summary.notRequired);
+    console.log("- blocked: " + result.summary.blocked);
+    for (const ref of result.refs) {
+      const suffix = ref.blockers.length > 0 ? " [" + ref.blockers.join(", ") + "]" : "";
+      console.log("- " + ref.status + ": " + ref.ref + suffix);
+    }
+    return;
+  }
+
+  if (result.action === "rotate-plan") {
+    console.log("[service-lasso] secret rotation impact plan");
+    console.log("- ref: " + result.ref);
+    console.log("- status: " + result.status);
+    console.log("- directConsumers: " + result.summary.directConsumers);
+    console.log("- dependents: " + result.summary.dependents);
+    console.log("- restart: " + result.summary.restart);
+    console.log("- reload: " + result.summary.reload);
+    console.log("- action: " + result.summary.action);
+    console.log("- manual: " + result.summary.manual);
+    console.log("- none: " + result.summary.none);
+    console.log("- blockers: " + result.summary.blockers);
+    for (const service of result.services) {
+      const suffix = service.blockers.length > 0 ? " [" + service.blockers.join(", ") + "]" : "";
+      console.log("- " + service.role + " " + service.serviceId + ": " + service.action + suffix);
+    }
+    return;
+  }
+
+  console.log("[service-lasso] secret reference audit");
+  if ("services" in result) {
+    console.log("- services: " + result.summary.services);
+    console.log("- references: " + result.summary.references);
+    console.log("- present: " + result.summary.present);
+    console.log("- missing: " + result.summary.missing);
+    console.log("- malformed: " + result.summary.malformed);
+    for (const service of result.services) {
+      console.log(
+        "- " +
+          service.serviceId +
+          ": present=" +
+          service.summary.present +
+          " missing=" +
+          service.summary.missing +
+          " malformed=" +
+          service.summary.malformed,
+      );
+    }
+    return;
+  }
+
+  console.log("- service: " + result.serviceId);
+  console.log("- present: " + result.summary.present);
+  console.log("- missing: " + result.summary.missing);
+  console.log("- malformed: " + result.summary.malformed);
+  for (const finding of result.findings) {
+    console.log("- " + finding.status + ": " + finding.ref + " (" + finding.location + ")");
+  }
+}
+
+function printBackupResult(result: BackupCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.action === "create") {
+    console.log("[service-lasso] workspace backup created");
+    console.log("- archivePath: " + result.archivePath);
+    console.log("- services: " + result.manifest.serviceCount);
+    console.log("- policy: manifests/state redacted, log contents excluded");
+    return;
+  }
+
+  console.log("[service-lasso] restore plan completed");
+  console.log("- archivePath: " + result.archivePath);
+  console.log("- ok: " + result.ok);
+  console.log("- services: current=" + result.serviceCount.current + " backup=" + result.serviceCount.backup);
+  console.log("- mutated: " + result.mutated);
+  for (const blocked of result.blocked) {
+    console.log("- blocked: " + blocked);
+  }
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": " + service.action + " (" + service.reasons.join(", ") + ")");
+  }
+}
+
+function printDiagnosticsResult(result: DiagnosticsCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] diagnostics bundle preview");
+  console.log("- scope: " + result.scope.kind + (result.scope.serviceId ? " " + result.scope.serviceId : ""));
+  console.log("- services: " + result.runtime.serviceCount);
+  console.log("- wouldWriteBundle: " + result.output.wouldWriteBundle);
+  console.log("- files: " + result.output.files.length);
+  console.log("- redaction: " + result.redaction.value);
+  for (const service of result.services) {
+    console.log("- " + service.serviceId + ": files=" + service.files.length + " logSegments=" + service.logSegments.length);
+    const envRedaction = service.redactions.find((entry) => entry.surface === "manifest.env");
+    const globalenvRedaction = service.redactions.find((entry) => entry.surface === "manifest.globalenv");
+    console.log("  envKeys: " + (envRedaction?.keys?.join(", ") || "none"));
+    console.log("  globalenvKeys: " + (globalenvRedaction?.keys?.join(", ") || "none"));
+  }
+}
+
+function printOperatorResult(result: OperatorCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] operator action queue");
+  console.log(`- action: ${result.actionsAction}`);
+  console.log(`- items: ${result.queue.items.length}`);
+  for (const item of result.queue.items) {
+    console.log(`- ${item.id}: ${item.status} ${item.severity} ${item.title}`);
+  }
 }
 
 function printSetupResult(result: SetupCliResult, asJson: boolean): void {
@@ -351,9 +1141,14 @@ function printBootstrapResult(
   asJson: boolean,
 ): void {
   const payload = {
+    schema: "service-lasso.baseline-start.v1",
+    status: "completed",
     servicesRoot: result.servicesRoot,
     workspaceRoot: result.workspaceRoot,
     apiUrl: app.apiServer.url,
+    instanceId: app.apiServer.instanceId,
+    generationId: app.apiServer.generationId,
+    ownerPid: app.apiServer.ownerPid,
     requestedServiceIds: result.requestedServiceIds,
     serviceOrder: result.serviceOrder,
     services: result.services,
@@ -396,6 +1191,80 @@ function printInstallResult(result: Awaited<ReturnType<typeof installServiceFrom
   }
 }
 
+function printImportServiceResult(result: ImportServiceManifestCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(result.dryRun ? "[service-lasso] service import dry-run completed" : "[service-lasso] service manifest imported");
+  console.log(`- source: ${result.source}`);
+  if (result.repo) {
+    console.log(`- repo: ${result.repo}`);
+    console.log(`- tag: ${result.resolvedTag ?? result.requestedTag ?? "latest"}`);
+  }
+  if (result.archivePath) {
+    console.log(`- archivePath: ${result.archivePath}`);
+  }
+  console.log(`- service: ${result.serviceId}`);
+  if (result.version) {
+    console.log(`- version: ${result.version}`);
+  }
+  console.log(`- servicesRoot: ${result.servicesRoot}`);
+  console.log(`- targetPath: ${result.targetPath ?? "none"}`);
+  console.log(`- state: ${result.state}`);
+  if (result.conflict) {
+    console.log(`- conflict: ${result.conflict.kind} ${result.conflict.path}`);
+  }
+  console.log(`- wrote: ${result.wrote}`);
+  console.log(`- overwritten: ${result.overwritten}`);
+}
+
+function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] runtime instance");
+  if (!result.instance) {
+    console.log("- current: not recorded");
+  } else {
+    console.log("- current: " + result.instance.instanceId);
+    console.log("- generation: " + result.instance.generationId);
+    console.log("- status: " + result.instance.status);
+    console.log("- api: " + result.instance.apiUrl);
+    console.log("- servicesRoot: " + result.instance.servicesRoot);
+    console.log("- workspaceRoot: " + result.instance.workspaceRoot);
+  }
+  console.log("- registry: " + result.registry.path);
+  console.log("- active: " + result.registry.activeCount);
+  console.log("- stale: " + result.registry.staleCount);
+  console.log("- unknown: " + result.registry.unknownCount);
+  console.log("- selection: " + result.selection.classification + " (" + result.selection.reason + ")");
+}
+
+function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] readiness gate");
+  console.log("- status: " + result.status);
+  console.log("- baselineStartPossible: " + result.baseline.startPossible);
+  console.log("- services: enabled=" + result.baseline.enabledServices + " total=" + result.baseline.totalServices);
+  console.log("- providers: required=" + result.providers.required.length + " missing=" + result.providers.missing.length);
+  console.log("- git: " + (result.workspace.git.branch ?? "unknown") + " clean=" + result.workspace.git.clean);
+  for (const blocker of result.blockers) {
+    console.log("- blocked: " + blocker.message);
+  }
+  for (const warning of result.warnings) {
+    console.log("- warning: " + warning.message);
+  }
+  console.log("- nextAction: " + result.nextAction);
+}
+
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const parsed = parseCliArgs(argv);
   const runtimeVersion = resolveRuntimeVersion();
@@ -418,6 +1287,50 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printInstallResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "services" && parsed.serviceCommand === "import") {
+    const result = await importServiceManifestFromCli({
+      repo: parsed.repo,
+      tag: parsed.tag,
+      servicesRoot: parsed.servicesRoot,
+      apiBaseUrl: parsed.apiBaseUrl,
+      archivePath: parsed.archivePath,
+      force: parsed.force,
+      dryRun: parsed.dryRun,
+    });
+    printImportServiceResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "template") {
+    const result = await runTemplateCliAction({
+      action: parsed.templateAction!,
+      targetServicesRoot: parsed.targetServicesRoot!,
+      coreServicesRoot: parsed.coreServicesRoot,
+    });
+    printTemplateResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "release") {
+    const result = await runReleaseCliAction({
+      action: parsed.releaseAction!,
+      manifestPath: parsed.manifestPath!,
+      assetsRoot: parsed.assetsRoot,
+      releaseVersion: parsed.releaseVersion,
+    });
+    printReleaseResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -449,6 +1362,20 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
+  if (parsed.command === "plan") {
+    const result = await runRuntimePlanCliAction({
+      action: parsed.planAction!,
+      serviceId: parsed.serviceId,
+      manifestPath: parsed.manifestPath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+      force: parsed.force,
+    });
+    printPlanResult(result, parsed.json);
+    return;
+  }
+
   if (parsed.command === "recovery") {
     const result = await runRecoveryCliAction({
       action: parsed.recoveryAction!,
@@ -461,24 +1388,164 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
+  if (parsed.command === "health") {
+    const result = await runHealthCliAction({
+      action: parsed.healthAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printHealthResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "instance") {
+    const result = await readRuntimeInstanceForCli({
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      generationId: parsed.generationId,
+      version: runtimeVersion,
+    });
+    printInstanceResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "readiness") {
+    const result = await runReadinessGateCliAction({
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printReadinessGateResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "lockfile") {
+    const result = await runLockfileCliAction({
+      action: parsed.lockfileAction!,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printLockfileResult(result, parsed.json);
+    if (result.action === "verify" && !result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "config-drift") {
+    const result = await runConfigDriftCliAction({
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printConfigDriftResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "config-apply") {
+    const result = await runConfigApplyCliAction({
+      action: parsed.configApplyAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printConfigApplyResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (parsed.command === "config-snapshot") {
+    const result = await runConfigSnapshotCliAction({
+      action: parsed.configSnapshotAction!,
+      serviceId: parsed.serviceId,
+      snapshotPath: parsed.snapshotPath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printConfigSnapshotResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "secrets") {
+    const result = await runSecretsCliAction({
+      action: parsed.secretsAction!,
+      serviceId: parsed.serviceId,
+      ref: parsed.secretRef,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printSecretsResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "backup") {
+    const result = await runBackupCliAction({
+      action: parsed.backupAction!,
+      archivePath: parsed.archivePath,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printBackupResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "diagnostics") {
+    const result = await runDiagnosticsCliAction({
+      action: parsed.diagnosticsAction!,
+      serviceId: parsed.serviceId,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+      preview: parsed.preview ?? false,
+    });
+    printDiagnosticsResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "operator") {
+    const result = await runOperatorCliAction({
+      action: "actions",
+      actionsAction: parsed.operatorActionsAction!,
+      itemId: parsed.actionId,
+      deferredUntil: parsed.deferredUntil,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printOperatorResult(result, parsed.json);
+    return;
+  }
+
   if (parsed.command === "start") {
-    const bootstrap = await bootstrapBaselineServices({
-      servicesRoot: parsed.servicesRoot,
-      workspaceRoot: parsed.workspaceRoot,
-      version: runtimeVersion,
-    });
+    const runtimePort = parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
     const app = await startRuntimeApp({
-      port: parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080),
+      port: runtimePort,
+      portPolicy: parsed.portPolicy,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,
+      baselineBootstrap: {},
     });
-    printBootstrapResult(bootstrap, app, parsed.json);
+    printBootstrapResult(app.apiServer.baselineBootstrap!, app, parsed.json);
     return;
   }
 
   const app = await startRuntimeApp({
     port: parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080),
+    portPolicy: parsed.portPolicy,
     servicesRoot: parsed.servicesRoot,
     workspaceRoot: parsed.workspaceRoot,
     version: runtimeVersion,

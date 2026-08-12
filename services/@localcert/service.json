@@ -36,7 +36,12 @@
           "default": "mkcert -pkcs12 -p12-file \"${SERVICE_DATA_FILE_PFX}\" -client ${CERTS_DOMAINS}"
         },
         "timeoutSeconds": 120,
-        "rerun": "ifMissing"
+        "rerun": "ifMissing",
+        "outputs": [
+          "data/mkcert.pfx",
+          "data/rootCA.pem",
+          "data/rootCA-key.pem"
+        ]
       },
       "generate-key-cert": {
         "description": "Generate PEM key/certificate files with mkcert into the service data directory.",
@@ -48,7 +53,11 @@
           "default": "mkcert -key-file \"${SERVICE_DATA_FILE_KEY}\" -cert-file \"${SERVICE_DATA_FILE_CERT}\" -client ${CERTS_DOMAINS}"
         },
         "timeoutSeconds": 120,
-        "rerun": "ifMissing"
+        "rerun": "ifMissing",
+        "outputs": [
+          "data/mkcert.key",
+          "data/mkcert.pem"
+        ]
       },
       "install-root-ca": {
         "description": "Optionally install the mkcert root CA into the configured trust stores.",

@@ -121,18 +121,10 @@ function inferGeneratedSecretKind(
   source: string,
 ): ServiceStartupBrokerGeneratedSecretKind {
   const subject = `${ref} ${source}`.toLowerCase();
-  if (subject.includes("password") || /\bpass\b/.test(subject)) {
-    return "password";
-  }
-  if (subject.includes("session")) {
-    return "session-secret";
-  }
-  if (subject.includes("api") && subject.includes("token")) {
-    return "api-token";
-  }
-  if (subject.includes("token")) {
-    return "token";
-  }
+  if (subject.includes("password") || /\bpass\b/.test(subject)) return "password";
+  if (subject.includes("session")) return "session-secret";
+  if (subject.includes("api") && subject.includes("token")) return "api-token";
+  if (subject.includes("token")) return "token";
   return "secret";
 }
 
@@ -140,10 +132,9 @@ function generatedSecretPolicy(
   ref: string,
   source: string,
 ): ServiceStartupBrokerGeneratedSecretPlan["valuePolicy"] {
-  const kind = inferGeneratedSecretKind(ref, source);
   const bytes = 32;
   return {
-    kind,
+    kind: inferGeneratedSecretKind(ref, source),
     bytes,
     encoding: "base64url",
     minEntropyBits: bytes * 8,
@@ -216,13 +207,9 @@ export function compileServiceStartupBrokerPlan(
   const broker = service.manifest.broker;
   const imports = (service.manifest.broker?.imports ?? []).map(normalizeImport);
   const importTemplates = imports.map((entry) => `\${${entry.ref}}`);
-  const exportsByRef = new Map(
-    (broker?.exports ?? []).map((entry) => [entry.ref, entry]),
-  );
+  const exportsByRef = new Map((broker?.exports ?? []).map((entry) => [entry.ref, entry]));
   const writeback = broker?.writeback;
-  const generatedSecrets: ServiceStartupBrokerGeneratedSecretPlan[] = (
-    writeback?.generatedSecrets ?? []
-  ).map((entry) => {
+  const generatedSecrets: ServiceStartupBrokerGeneratedSecretPlan[] = (writeback?.generatedSecrets ?? []).map((entry) => {
     const exportEntry = exportsByRef.get(entry.ref);
     const sourcePlan = compileCachedServiceSelectorPlan(
       `service:${service.manifestPath}:${service.manifest.id}:startup-broker:writeback:${entry.ref}`,
@@ -268,14 +255,7 @@ export function compileServiceStartupBrokerPlan(
     imports,
     writeback: {
       allowedNamespaces: [...(writeback?.allowedNamespaces ?? [])],
-      allowedOperations: [
-        ...(writeback?.allowedOperations ?? [
-          "create",
-          "update",
-          "rotate",
-          "delete",
-        ]),
-      ],
+      allowedOperations: [...(writeback?.allowedOperations ?? ["create", "update", "rotate", "delete"])],
       allowedRefs: [...(writeback?.allowedRefs ?? [])],
       allowOverwrite: writeback?.allowOverwrite === true,
       auditReason: writeback?.auditReason ?? null,
