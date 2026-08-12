@@ -726,10 +726,7 @@ test("unexpected crash without restartPolicy records no automatic restart", asyn
     await configService(service);
     await startService(service);
 
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    await waitForManagedProcessFinalization("no-policy-crash");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "crashed");
@@ -810,15 +807,13 @@ test("disabled restartPolicy records no automatic restart after crash", async ()
     await configService(service);
     await startService(service);
 
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    await waitForManagedProcessFinalization("disabled-policy-crash");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "crashed");
     assert.equal(stored.runtime.supervision.lastRestartResult, "blocked");
     assert.equal(stored.runtime.supervision.restartAttempts, 0);
+    assert.equal(hasManagedProcess("disabled-policy-crash"), false);
   } finally {
     await stopManagedProcess("disabled-policy-crash", 100).catch(() => null);
     resetLifecycleState();
