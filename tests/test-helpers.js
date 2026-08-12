@@ -37,8 +37,10 @@ export async function clearPersistedFixtureState(servicesRoot) {
 export async function makeTempServicesRoot(prefix = "service-lasso-fixture-") {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), prefix));
   const servicesRoot = path.join(tempRoot, "services");
+  const workspaceRoot = path.join(tempRoot, "workspace");
   await mkdir(servicesRoot, { recursive: true });
-  return { tempRoot, servicesRoot };
+  await mkdir(workspaceRoot, { recursive: true });
+  return { tempRoot, servicesRoot, workspaceRoot };
 }
 
 export async function writeManifest(servicesRoot, serviceId, body) {
@@ -57,6 +59,7 @@ export async function writeExecutableFixtureService(
     autoExitMs = null,
     exitCode = 0,
     healthcheck = { type: "process" },
+    healthchecks = undefined,
     readyFileAfterMs = null,
     readyFileRelativePath = "./runtime/ready.txt",
     captureEnvKeys = [],
@@ -69,15 +72,24 @@ export async function writeExecutableFixtureService(
     monitoring = undefined,
     restartPolicy = undefined,
     doctor = undefined,
+    endpoints = undefined,
     ports = undefined,
+    serviceorder = undefined,
+    execconfig = undefined,
     depend_on = undefined,
+    requires = undefined,
+    provides = undefined,
+    execservice = undefined,
     urls = undefined,
     install = undefined,
     config = undefined,
     setup = undefined,
     actions = undefined,
     role = undefined,
+    enabled = undefined,
     broker = undefined,
+    outputvarregex = undefined,
+    ignoreSignals = false,
   } = options;
 
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -123,8 +135,8 @@ async function writeEnvSnapshot() {
   await writeFile(targetPath, JSON.stringify(payload, null, 2));
 }
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.on("SIGTERM", ${ignoreSignals ? "() => {}" : "shutdown"});
+process.on("SIGINT", ${ignoreSignals ? "() => {}" : "shutdown"});
 
 if (captureEnvPath && Array.isArray(captureEnvKeys) && captureEnvKeys.length > 0) {
   void writeEnvSnapshot();
@@ -158,6 +170,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     name: serviceId,
     description: `Executable fixture for ${serviceId}.`,
     role,
+    enabled,
     executable: process.execPath,
     args: [path.relative(serviceRoot, scriptPath)],
     env: {
@@ -188,19 +201,29 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
         : {}),
     },
     globalenv,
+    outputvarregex,
     broker,
+    outputvarregex,
     autostart,
     monitoring,
     restartPolicy,
     doctor,
+    endpoints,
     ports,
+    serviceorder,
+    execconfig,
     depend_on,
+    requires,
+    provides,
+    execservice,
     urls,
     install,
     config,
     setup,
     actions,
-    healthcheck: healthcheck === null ? undefined : healthcheck,
+    ...(healthchecks === undefined
+      ? { healthcheck: healthcheck === null ? undefined : healthcheck }
+      : { healthchecks }),
   });
 
   return { serviceRoot, scriptPath };

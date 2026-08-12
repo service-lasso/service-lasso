@@ -5,6 +5,9 @@
   "version": "3.11.5",
   "role": "provider",
   "enabled": false,
+  "provides": {
+    "python": "3.11.5"
+  },
   "executable": "python",
   "args": ["--version"],
   "env": {

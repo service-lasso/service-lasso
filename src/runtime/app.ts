@@ -10,6 +10,9 @@ export interface RuntimeApp {
 }
 
 export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<RuntimeApp> {
+  const apiPort = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
+
   const serviceRoot = await ensureRuntimeConfig(
     resolveRuntimeConfig({
       servicesRoot: options.servicesRoot,
@@ -20,10 +23,13 @@ export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<R
   const apiServer = await startApiServer({
     servicesRoot: serviceRoot.servicesRoot,
     workspaceRoot: serviceRoot.workspaceRoot,
-    port: options.port,
-    host: options.host,
+    port: apiPort,
+    portPolicy: options.portPolicy,
+    host: bindHost,
     version: serviceRoot.version,
+    baselineBootstrap: options.baselineBootstrap,
   });
+  process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiServer.url;
 
   return {
     mode: "development",

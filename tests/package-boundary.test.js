@@ -16,7 +16,7 @@ async function readJson(relativePath) {
 test("root package declares the bounded workspace map", async () => {
   const packageJson = await readJson("package.json");
 
-  assert.deepEqual(packageJson.workspaces, ["packages/core"]);
+  assert.deepEqual(packageJson.workspaces, ["packages/core", "packages/image-size-safe"]);
 });
 
 test("npm start builds before launching the runtime entrypoint", async () => {

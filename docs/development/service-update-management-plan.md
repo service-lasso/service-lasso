@@ -21,6 +21,7 @@ The first implemented slices are intentionally bounded:
 - `#127` adds maintenance-window and running-service safety for update installs
 - `#128` surfaces update notifications and bounded update actions in Service Admin
 - `#129` adds deterministic E2E verification and an opt-in live Echo Service release verifier
+- `#519` adds an operator-safe provenance summary for discovered update candidates
 
 ## Manifest Shape
 
@@ -116,6 +117,7 @@ services/<service-id>/.state/updates.json
 This file records:
 
 - `lastCheck`: checked time, status, reason, source repo, track, installed tag, manifest tag, and latest tag
+- `provenance`: source repo, candidate tag, matched asset name, checksum availability, release URL, discovery time, and current-vs-candidate comparison
 - `available`: latest release/candidate metadata from discovery
 - `downloadedCandidate`: candidate archive/extract metadata once later download work stores a candidate
 - `installDeferred`: operator-facing reason and next eligible time when install must wait
@@ -146,7 +148,7 @@ Current behavior:
 - `install` installs a downloaded or resolvable candidate when `updates.mode` is `install`
 - `install --force` allows an explicit operator override when policy is not install mode
 - human output distinguishes latest, update available, downloaded candidate, deferred install, and failed checks
-- JSON output includes machine-readable status, version/source fields, and recommended action for checks
+- JSON output includes machine-readable status, version/source fields, provenance, and recommended action for checks
 
 ## Runtime API Surface
 
@@ -168,6 +170,7 @@ Current behavior:
 - `POST /api/services/:id/update/download` downloads a candidate without mutating active install metadata
 - `POST /api/services/:id/update/install` accepts optional `{ "force": true }`
 - invalid request bodies and missing services use the existing API error body shape
+- update state responses include the same safe provenance object used by CLI JSON output; raw secrets, tokens, and credential payloads are not part of update provenance
 
 ## Scheduler Surface
 

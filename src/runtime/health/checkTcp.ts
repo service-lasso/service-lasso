@@ -1,31 +1,33 @@
 import net from "node:net";
 import type { ServiceHealthResult, TcpHealthcheck } from "./types.js";
 
-export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<ServiceHealthResult> {
-  const address = healthcheck.address.trim();
-  const separator = address.lastIndexOf(":");
+const DEFAULT_TCP_HEALTHCHECK_TIMEOUT_MS = 2_000;
 
-  if (separator <= 0 || separator === address.length - 1) {
+export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<ServiceHealthResult> {
+  const target =
+    healthcheck.address !== undefined
+      ? parseTcpAddress(healthcheck.address)
+      : parseTcpHostPort(healthcheck.host, healthcheck.port);
+
+  if (!target) {
     return {
       type: "tcp",
       healthy: false,
-      detail: `TCP healthcheck address is invalid: ${address}`,
+      detail: "TCP healthcheck target is invalid; expected address or host + port.",
     };
   }
 
-  const host = address.slice(0, separator);
-  const port = Number(address.slice(separator + 1));
-
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  if (!Number.isInteger(target.port) || target.port < 1 || target.port > 65535) {
     return {
       type: "tcp",
       healthy: false,
-      detail: `TCP healthcheck port is invalid: ${address}`,
+      detail: `TCP healthcheck port is invalid: ${target.address}`,
     };
   }
 
   return new Promise((resolve) => {
-    const socket = net.createConnection({ host, port });
+    const socket = net.createConnection({ host: target.host, port: target.port });
+    const timeoutMs = healthcheck.timeout ?? DEFAULT_TCP_HEALTHCHECK_TIMEOUT_MS;
     let settled = false;
 
     const finish = (payload: ServiceHealthResult) => {
@@ -42,7 +44,7 @@ export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<Servi
       finish({
         type: "tcp",
         healthy: true,
-        detail: `TCP healthcheck connected successfully to ${address}.`,
+        detail: `TCP healthcheck connected successfully to ${target.address}.`,
       });
     });
 
@@ -55,13 +57,52 @@ export async function checkTcpHealth(healthcheck: TcpHealthcheck): Promise<Servi
       });
     });
 
-    socket.setTimeout(2_000, () => {
+    socket.setTimeout(timeoutMs, () => {
       socket.destroy();
       finish({
         type: "tcp",
         healthy: false,
-        detail: `TCP healthcheck timed out: ${address}`,
+        detail: `TCP healthcheck timed out after ${timeoutMs}ms: ${target.address}`,
       });
     });
   });
+}
+
+function parseTcpAddress(address: string): { host: string; port: number; address: string } | undefined {
+  const resolvedAddress = address.trim();
+  const separator = resolvedAddress.lastIndexOf(":");
+
+  if (separator <= 0 || separator === resolvedAddress.length - 1) {
+    return undefined;
+  }
+
+  const host = resolvedAddress.slice(0, separator).trim();
+  const port = Number(resolvedAddress.slice(separator + 1).trim());
+  if (!host) {
+    return undefined;
+  }
+
+  return {
+    host,
+    port,
+    address: `${host}:${Number.isFinite(port) ? port : resolvedAddress.slice(separator + 1).trim()}`,
+  };
+}
+
+function parseTcpHostPort(
+  host: string | undefined,
+  port: string | number | undefined,
+): { host: string; port: number; address: string } | undefined {
+  const resolvedHost = host?.trim();
+  const resolvedPort = typeof port === "number" ? port : Number(port?.trim());
+
+  if (!resolvedHost) {
+    return undefined;
+  }
+
+  return {
+    host: resolvedHost,
+    port: resolvedPort,
+    address: `${resolvedHost}:${Number.isFinite(resolvedPort) ? resolvedPort : String(port ?? "").trim()}`,
+  };
 }

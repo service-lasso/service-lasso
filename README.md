@@ -17,9 +17,9 @@ Relevant repos:
 | [`service-lasso/service-lasso-app-tauri`](https://github.com/service-lasso/service-lasso-app-tauri) | Tauri host reference app template |
 | [`service-lasso/service-lasso-app-packager-pkg`](https://github.com/service-lasso/service-lasso-app-packager-pkg), [`service-lasso/service-lasso-app-packager-sea`](https://github.com/service-lasso/service-lasso-app-packager-sea), [`service-lasso/service-lasso-app-packager-nexe`](https://github.com/service-lasso/service-lasso-app-packager-nexe) | Node packaging reference templates for packaged app outputs |
 | [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) | Echo Service harness used to test lifecycle, UI/API, logs, state, SQLite, and failure behavior |
-| [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node), [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python), [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java), [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive) | release-backed runtime and utility provider services |
+| [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node), [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python), [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java), [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive), [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) | release-backed runtime, utility provider, and secrets broker services |
 | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert), [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx), [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed baseline infrastructure services |
-| [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres), [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo), [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb), [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files), [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi), [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab), [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice), [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow), [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms), [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server), [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned add-on service repos that consumers can add to their own `services/` folder |
+| [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres), [`service-lasso/lasso-pgadmin4`](https://github.com/service-lasso/lasso-pgadmin4), [`service-lasso/lasso-openobserve`](https://github.com/service-lasso/lasso-openobserve), [`service-lasso/lasso-filebeat`](https://github.com/service-lasso/lasso-filebeat), [`service-lasso/lasso-soarca`](https://github.com/service-lasso/lasso-soarca), [`service-lasso/lasso-cacao-roaster`](https://github.com/service-lasso/lasso-cacao-roaster), [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo), [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb), [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files), [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi), [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab), [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice), [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow), [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms), [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server), [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-keycloak`](https://github.com/service-lasso/lasso-keycloak), [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned add-on service repos that consumers can add to their own `services/` folder |
 
 ## Requirements
 
@@ -29,36 +29,43 @@ Relevant repos:
 
 ## Quick Start
 
-Clone the repo, install dependencies, build the runtime, then start the verified baseline service set:
+Start the local demo with one command:
 
 ```powershell
 git clone https://github.com/service-lasso/service-lasso.git
 cd service-lasso
 npm ci
-npm run build
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --json
+npm run demo
 ```
 
-The command starts the Service Lasso API at:
+Open Service Admin:
 
 ```text
-http://127.0.0.1:18080
+http://127.0.0.1:17700/
 ```
 
-Useful local URLs after startup:
+The demo command builds the runtime, prepares the canonical demo service root, starts the demo API on port `17883`, and starts the baseline service set. Operators should not need to pass service roots, workspace roots, or ports for the normal local demo.
+
+### Local demo URLs
 
 | URL | Purpose |
 | --- | --- |
-| `http://127.0.0.1:18080/api/health` | Service Lasso API health |
-| `http://127.0.0.1:18080/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:17700/` | Service Admin UI |
+| `http://127.0.0.1:17883/api/health` | Service Lasso API health |
+| `http://127.0.0.1:17883/api/runtime` | runtime boundary, service root, workspace root, and version |
+| `http://127.0.0.1:17883/api/services` | discovered services and lifecycle state |
 | `http://127.0.0.1:4010/` | Echo Service UI/API |
+| `http://127.0.0.1:4010/health` | Echo Service health endpoint |
+| `http://127.0.0.1:18080/` | NGINX baseline web page |
+| `http://127.0.0.1:18080/health` | NGINX health endpoint |
+| `http://127.0.0.1:17890/health` | Secrets Broker health endpoint |
+| `http://127.0.0.1:19081/ping` | Traefik health/ping endpoint |
 | `http://127.0.0.1:19081/dashboard/` | Traefik dashboard |
 
 Stop managed services before closing the runtime:
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:18080/api/runtime/actions/stopAll
+Invoke-RestMethod -Method Post http://127.0.0.1:17883/api/runtime/actions/stopAll
 ```
 
 Then stop the Service Lasso process with `Ctrl+C`.
@@ -80,6 +87,7 @@ Use these commands when operating or checking the demo:
 | `npm run demo:gate -- --port=17883` | Return one worker-safe gate result with endpoint health, listener state, lifecycle ownership, recovery lock path, recovery attempt evidence, and next safe action. |
 | `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, Service Admin same-origin runtime API probes, workspace root, lifecycle state path, and demo log path. |
 | `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint, Service Admin URL, Service Admin same-origin `/api/dashboard` and `/api/services` JSON responses, and the expected canonical service state. Exits non-zero when either surface is not reachable, an Admin API path returns the HTML shell instead of runtime JSON, or the service state does not match the canonical contract. |
+| `npm run demo:worktree-proof -- --id=issue-947` | Prepare an issue-worktree proof lane with free runtime, Service Admin, and demo service ports. Writes `worktree-proof-summary.json` with the allocated URLs plus exact `demo:gate`, `demo:verify-canonical`, and cleanup commands for developer and validator handoff. |
 | `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
 | `npm run demo:smoke` | Run an isolated end-to-end smoke test against the bounded demo fixture. |
 
@@ -93,6 +101,8 @@ Canonical LAN checks used by the unattended worker are:
 | `http://192.168.1.53:17700/api/services` | Service Admin same-origin service-state probe |
 
 Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state. When runtime health is down and there is no wrong-owner, stale-lock, active-recovery, or listener-conflict blocker, the gate starts one detached Service Lasso runtime process, records the runtime log path under `.demo-logs/`, waits for the canonical endpoints, and returns `recovered` if they become healthy. It exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, `service_admin_down`, `service_admin_api_non_json`, `service_admin_api_down`, `service_admin_services_api_non_json`, `service_admin_services_api_down`, `canonical_service_state_mismatch`, or `service_startup_failure` when the worker should stop and hand off a blocker. `service_admin_api_non_json` means Service Admin was reachable but `/api/dashboard` returned non-JSON content, usually the HTML shell, so the visible UI is not actually connected to the runtime API. `canonical_service_state_mismatch` means the Admin API is reachable but the service list does not match the accepted canonical demo contract. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+
+For ordinary issue worktree proof, prefer `npm run demo:worktree-proof -- --id=<issue-or-branch>` before touching the fixed canonical ports. The command copies the demo services into `workspace/demo-instance/worktree-proof/<id>/services`, allocates free ports, patches the copied manifests, and writes the allocated runtime/Admin URLs plus owner metadata under `.demo-logs/worktree-proof/<id>/worktree-proof-summary.json`. Developer issue comments and validator handoffs should quote the `gate`, `verify`, and `cleanup` commands from that summary so validation checks the exact worktree-owned instance. Use fixed `17883`/`17700` only for intentional shared canonical refreshes.
 
 The current canonical demo accepts the source Service Admin dev server as the visible Admin surface on port `17700`. In that mode the runtime should discover eight manifests, run `@nginx`, `@traefik`, and `echo-service`, keep provider-only services `@java`, `@localcert`, and `@node` installed/configured but not daemonized, and leave `@serviceadmin` intentionally unmanaged because the source Admin server owns `17700`. `node-sample-service` remains a manifest-only sample. `demo:verify-canonical` treats the resulting runtime warning as expected only when that service-state contract matches.
 
@@ -108,16 +118,20 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 
 | Service | Role | Source |
 | --- | --- | --- |
-| `@node` | release-backed Node runtime provider | acquired from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.4.27-eca215a`; installed/configured but not launched as a daemon |
-| `@localcert` | release-backed core local certificate utility for Traefik | acquired from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.4.27-591ed28`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
+| `@archive` | optional release-backed 7-Zip archive utility provider | acquired from [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive) release `2026.5.2-a223a48`; installed/configured as a provider and skipped for daemon launch |
+| `@java` | release-backed Java runtime provider | acquired from [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) release `2026.8.12-d5765f1`; installed/configured but not launched as a daemon |
+| `@localcert` | release-backed core local certificate utility for Traefik | acquired from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.5.2-24e7d2f`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
 | `@nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
-| `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.4.27-bbc7f15` |
-| `echo-service` | test harness service with UI/API/log/state behavior | acquired from a [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) GitHub release |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from a [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) GitHub release |
+| `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.7.26-f13b89c` |
+| `@node` | release-backed Node runtime provider | acquired from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.8.12-1500d36`; installed/configured but not launched as a daemon |
+| `@python` | release-backed Python runtime provider | acquired from [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) release `2026.4.27-63f915c` on supported hosts; the current pinned release is Windows-only, so other platforms report an explicit unsupported-platform skip instead of a broken install; installed/configured but not launched as a daemon when supported |
+| `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.8.12-9be43fc`; started as a managed daemon with HTTP `/health` |
+| `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.7.24-db583d4` |
 
-Additional manifests such as `@java`, `@python`, `@archive`, and `node-sample-service` exist for provider and fixture coverage. They are not part of the default baseline start command. `@archive` is optional because Service Lasso already extracts normal `zip`, `tar.gz`, and `tgz` release artifacts without an external archive provider; add it only when a service needs external 7-Zip tooling for formats such as `.7z`, `.rar`, `.xz`, split archives, or legacy install flows.
+Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage, but the canonical baseline and demo instance install the production baseline service set. `@archive` and supported `@python` artifacts are part of that baseline so archive-capable and Python-backed services can rely on prepared providers instead of fixture-only installs.
 
-App-owned add-on service repos such as [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres), [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo), [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb), [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files), [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi), [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab), [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice), [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow), [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms), [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server), [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), and [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) can be added by committing their released `service.json` into your app's `services/` folder. PostgreSQL, MongoDB, and TypeDB are app-owned because database names, schema/data retention, and credentials belong to the consuming app. Files is app-owned because stored file content and compatibility needs belong to the consuming app. FastAPI, JupyterLab, BPMN Server, Websight CMS, and the Total.js services are app-owned because API routes, notebooks, CMS content/repository data, model/process definitions, message integrations, and Flow project state are application-specific. ZITADEL is not in the core baseline because it requires app-owned PostgreSQL and `ZITADEL_MASTERKEY` configuration before start. Dagu is app-owned because workflow orchestration and workflow files are app-specific.
+App-owned add-on service repos such as [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres), [`service-lasso/lasso-pgadmin4`](https://github.com/service-lasso/lasso-pgadmin4), [`service-lasso/lasso-openobserve`](https://github.com/service-lasso/lasso-openobserve), [`service-lasso/lasso-filebeat`](https://github.com/service-lasso/lasso-filebeat), [`service-lasso/lasso-soarca`](https://github.com/service-lasso/lasso-soarca), [`service-lasso/lasso-cacao-roaster`](https://github.com/service-lasso/lasso-cacao-roaster), [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo), [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb), [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files), [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi), [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab), [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice), [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow), [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms), [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server), [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-keycloak`](https://github.com/service-lasso/lasso-keycloak), and [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) can be added by committing their released `service.json` into your app's `services/` folder. PostgreSQL, pgAdmin4, OpenObserve, Filebeat, MongoDB, and TypeDB are app-owned because database names, telemetry/log retention, schema/data retention, credentials, and admin access belong to the consuming app. SOARCA and CACAO Roaster are app-owned because playbooks, orchestration integrations, authoring workflows, auth, reporting, and execution policy belong to the consuming app. Files is app-owned because stored file content and compatibility needs belong to the consuming app. FastAPI, JupyterLab, BPMN Server, Websight CMS, and the Total.js services are app-owned because API routes, notebooks, CMS content/repository data, model/process definitions, message integrations, and Flow project state are application-specific. ZITADEL and Keycloak are not in the core baseline because identity data, database retention, admin credentials, and production-grade secret policy belong to the consuming app. Dagu is app-owned because workflow orchestration and workflow files are app-specific.
 
 ## Services Folder Contract
 
@@ -154,10 +168,28 @@ Install a service artifact without starting it:
 node dist/cli.js install echo-service --services-root ./services --workspace-root ./workspace --json
 ```
 
+Import a released app-owned service manifest without enabling or starting it:
+
+```powershell
+node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-example --services-root ./services --dry-run --json
+node dist/cli.js services import service-lasso/lasso-dagu --tag 2026.5.22-example --services-root ./services
+```
+
+The import command copies the release `service.json` asset into `services/<service-id>/service.json` and refuses to replace an existing manifest unless `--force` is provided.
+
+Import a local Service Archive upload without enabling or starting it:
+
+```powershell
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --dry-run --json
+node dist/cli.js services import --archive ./downloads/my-service.zip --services-root ./services --json
+```
+
+Archive imports stage and inspect the zip before touching `servicesRoot`, require exactly one valid `service.json`, reject unsafe archive paths, copy the archive content into `services/<service-id>/`, rescan discovery, and return a conflict state instead of overwriting an existing service.
+
 Start the baseline services and leave the API running:
 
 ```powershell
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --json
+node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18090 --json
 ```
 
 Check or apply service updates:
@@ -186,6 +218,13 @@ Common endpoints:
 GET  /api/health
 GET  /api/services
 GET  /api/services/:id
+GET  /api/runtime
+GET  /api/runtime/capabilities
+GET  /api/operator/inbox
+GET  /api/operator/inbox/counts
+POST /api/operator/inbox/record
+POST /api/operator/inbox/:id/read
+POST /api/operator/inbox/:id/hide
 POST /api/services/:id/install
 POST /api/services/:id/config
 POST /api/services/:id/start
@@ -199,6 +238,15 @@ POST /api/services/:id/update/install
 GET  /api/recovery
 POST /api/services/:id/recovery/doctor
 ```
+
+`POST /api/services/:id/start` and `POST /api/runtime/actions/startAll` use full start semantics: enabled services are installed, configured, non-manual setup steps are reconciled, and then startable services are started in dependency order. Provider-role services in the canonical baseline, including disabled-by-default providers such as `@archive` and supported `@python` artifacts, are still prepared, but they do not require a managed daemon process. Disabled non-provider services, unsupported host artifacts, already-running services, autostart filtering, and truly non-startable services remain explicit skip/blocker cases instead of being forced.
+
+First-run setup is a launch prerequisite. When `GET /api/setup/status` reports
+setup mode, the CLI/API runtime prepares only the setup dependency path
+(`@node`, `@secretsbroker`, and `@serviceadmin`) and skips normal managed
+service starts until the vault owner identity, Owner group, built-in groups, and
+permission catalogue are seeded. Existing workspaces with a ready vault marker
+continue the normal launch path.
 
 ## Use From npm
 
@@ -225,7 +273,7 @@ console.log(api.url);
 CLI use from an installed package:
 
 ```powershell
-npx service-lasso start --services-root ./services --workspace-root ./workspace --port 18080
+npx service-lasso start --services-root ./services --workspace-root ./workspace --port 18090
 ```
 
 The npm package provides the runtime and CLI. Your app still provides its own `services/` manifests and workspace location.
@@ -243,6 +291,22 @@ Run the clean-clone baseline start smoke:
 ```powershell
 npm run verify:baseline-start
 ```
+
+Run the real app E2E state gate against the checked-in baseline manifests:
+
+```powershell
+npm run verify:real-app-e2e
+```
+
+This starts the built CLI/API runtime, verifies Service Admin/API state for the real baseline services, exercises a real lifecycle stop/start, and checks concrete service health endpoints including `@secretsbroker`. It also verifies every checkable advertised UI/API/health URL in the baseline manifests, including NGINX, Echo Service, Service Admin, Secrets Broker, Traefik admin, and the provider-backed Node sample service. The gate pins API and managed-service port negotiation to the local Service Lasso range `17880-17980` by setting `SERVICE_LASSO_PORT_RANGE_START`/`SERVICE_LASSO_PORT_RANGE_END`, so repeated or parallel local runs do not drift into random Windows firewall prompt ports.
+
+Run the multi-instance port gate:
+
+```powershell
+npm run verify:multi-instance-ports
+```
+
+This starts two isolated Service Lasso instances at the same time inside `17880-17980` and fails if any API or managed-service port collides or escapes the range.
 
 Run live release-backed service checks:
 

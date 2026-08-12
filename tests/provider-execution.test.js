@@ -46,6 +46,24 @@ async function writeManifest(servicesRoot, serviceId, body) {
   await writeFile(path.join(serviceRoot, "service.json"), JSON.stringify(body, null, 2));
 }
 
+function setProviderReady(providerServiceId, artifact) {
+  const state = getLifecycleState(providerServiceId);
+  setLifecycleState(providerServiceId, {
+    ...state,
+    installed: true,
+    configured: true,
+    installArtifacts: artifact
+      ? {
+          ...state.installArtifacts,
+          artifact: {
+            ...state.installArtifacts.artifact,
+            ...artifact,
+          },
+        }
+      : state.installArtifacts,
+  });
+}
+
 test("provider resolution returns direct execution for standalone services", async () => {
   const discovered = await discoverServices(servicesRoot);
   const registry = createServiceRegistry(discovered);
@@ -78,13 +96,57 @@ test("provider resolution returns node execution for provider-backed services", 
   const registry = createServiceRegistry(discovered);
   const nodeSampleService = registry.getById("node-sample-service");
 
-  assert.ok(nodeSampleService);
-  const plan = resolveProviderExecution(nodeSampleService, registry);
+  try {
+    setProviderReady("@node", { command: "node", extractedPath: "provider-root" });
+    assert.ok(nodeSampleService);
+    const plan = resolveProviderExecution(nodeSampleService, registry);
 
-  assert.equal(plan.provider, "node");
-  assert.equal(plan.providerServiceId, "@node");
-  assert.equal(plan.commandPreview, "node runtime/server.mjs");
-  assert.equal(plan.providerEnv.NODE_ENV, "development");
+    assert.equal(plan.provider, "node");
+    assert.equal(plan.providerServiceId, "@node");
+    assert.equal(plan.commandPreview, "node ${SERVICE_ROOT}/runtime/server.mjs");
+    assert.equal(plan.providerEnv.NODE_ENV, "development");
+  } finally {
+    resetLifecycleState();
+  }
+});
+
+test("release-backed provider resolution fails closed before its artifact is ready", async () => {
+  resetLifecycleState();
+  const discovered = await discoverServices(servicesRoot);
+  const registry = createServiceRegistry(discovered);
+  const nodeSampleService = registry.getById("node-sample-service");
+
+  try {
+    assert.ok(nodeSampleService);
+    assert.throws(
+      () => resolveProviderExecution(nodeSampleService, registry),
+      (error) =>
+        error?.code === "provider_not_ready" &&
+        error?.statusCode === 409 &&
+        error?.readiness?.status === "not-installed",
+    );
+
+    const installedState = getLifecycleState("@node");
+    setLifecycleState("@node", { ...installedState, installed: true });
+    assert.throws(
+      () => resolveProviderExecution(nodeSampleService, registry),
+      (error) => error?.code === "provider_not_ready" && error?.readiness?.status === "not-configured",
+    );
+
+    setProviderReady("@node");
+    assert.throws(
+      () => resolveProviderExecution(nodeSampleService, registry),
+      (error) => error?.code === "provider_not_ready" && error?.readiness?.status === "artifact-command-missing",
+    );
+
+    setProviderReady("@node", { command: "node" });
+    assert.throws(
+      () => resolveProviderExecution(nodeSampleService, registry),
+      (error) => error?.code === "provider_not_ready" && error?.readiness?.status === "artifact-root-missing",
+    );
+  } finally {
+    resetLifecycleState();
+  }
 });
 
 test("provider resolution prefers an installed provider artifact command", async () => {
@@ -97,6 +159,7 @@ test("provider resolution prefers an installed provider artifact command", async
   setLifecycleState("@node", {
     ...providerState,
     installed: true,
+    configured: true,
     installArtifacts: {
       ...providerState.installArtifacts,
       artifact: {
@@ -119,7 +182,7 @@ test("provider resolution prefers an installed provider artifact command", async
 
     assert.equal(plan.provider, "node");
     assert.equal(plan.executable, ".\\node.exe");
-    assert.deepEqual(plan.args, ["runtime/server.mjs"]);
+    assert.deepEqual(plan.args, ["${SERVICE_ROOT}/runtime/server.mjs"]);
     assert.equal(plan.commandRoot, path.join("provider-root"));
   } finally {
     resetLifecycleState();
@@ -140,6 +203,7 @@ test("provider resolution returns python execution for python-backed services", 
       id: "py-service",
       name: "Python Service",
       description: "Python-backed service",
+      depend_on: ["@python"],
       execservice: "@python",
       executable: "python",
       args: ["app.py"],
@@ -149,6 +213,7 @@ test("provider resolution returns python execution for python-backed services", 
     const registry = createServiceRegistry(discovered);
     const pyService = registry.getById("py-service");
 
+    setProviderReady("@python");
     assert.ok(pyService);
     const plan = resolveProviderExecution(pyService, registry);
 
@@ -178,6 +243,7 @@ test("provider resolution returns java execution for java-backed services", asyn
       id: "java-service",
       name: "Java Service",
       description: "Java-backed service",
+      depend_on: ["@java"],
       execservice: "@java",
       args: ["-jar", "app.jar"],
     });
@@ -186,6 +252,7 @@ test("provider resolution returns java execution for java-backed services", asyn
     const registry = createServiceRegistry(discovered);
     const javaService = registry.getById("java-service");
 
+    setProviderReady("@java");
     assert.ok(javaService);
     const plan = resolveProviderExecution(javaService, registry);
 
@@ -415,6 +482,7 @@ test("unknown provider ids fail explicitly", async () => {
       id: "broken-service",
       name: "Broken Service",
       description: "Invalid provider reference",
+      depend_on: ["@missing"],
       execservice: "@missing",
       executable: "node",
       args: ["broken.js"],

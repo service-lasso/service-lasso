@@ -3,9 +3,13 @@ import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
 import { runAndRecordDoctorPreflight, type DoctorRunResult } from "../recovery/doctor.js";
 import { readServiceRecoveryHistory, type ServiceRecoveryHistoryState } from "../recovery/history.js";
+import {
+  buildRestartSafetyPreflightReport,
+  type RestartSafetyPreflightReport,
+} from "../operator/restart-safety-preflight.js";
 import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 
-export type RecoveryCliAction = "status" | "doctor";
+export type RecoveryCliAction = "status" | "doctor" | "restart-preflight";
 
 export interface RecoveryCliOptions extends RuntimeConfigOptions {
   action: RecoveryCliAction;
@@ -29,6 +33,13 @@ export type RecoveryCliResult =
       serviceId: string;
       doctor: DoctorRunResult;
       recovery: ServiceRecoveryHistoryState;
+    }
+  | {
+      action: "restart-preflight";
+      servicesRoot: string;
+      workspaceRoot: string;
+      serviceId: string;
+      preflight: RestartSafetyPreflightReport;
     };
 
 export async function runRecoveryCliAction(options: RecoveryCliOptions): Promise<RecoveryCliResult> {
@@ -64,12 +75,22 @@ export async function runRecoveryCliAction(options: RecoveryCliOptions): Promise
   }
 
   if (!options.serviceId) {
-    throw new Error('The "recovery doctor" command requires a <serviceId> argument.');
+    throw new Error(`The "recovery ${options.action}" command requires a <serviceId> argument.`);
   }
 
   const service = registry.getById(options.serviceId);
   if (!service) {
     throw new Error(`Unknown service id: ${options.serviceId}.`);
+  }
+
+  if (options.action === "restart-preflight") {
+    return {
+      action: "restart-preflight",
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      serviceId: service.manifest.id,
+      preflight: buildRestartSafetyPreflightReport(service, registry),
+    };
   }
 
   const doctor = await runAndRecordDoctorPreflight(service);

@@ -26,6 +26,14 @@
       "summary": "Managed NGINX Open Source service started before Traefik in the default baseline."
     },
     {
+      "id": "@secretsbroker",
+      "name": "Secrets Broker",
+      "repo": "service-lasso/lasso-secretsbroker",
+      "group": "Baseline Core",
+      "status": "Available",
+      "summary": "Local-first secrets broker for service identities, policy, audit, and secret resolution in the default baseline."
+    },
+    {
       "id": "@traefik",
       "name": "Traefik Edge Router",
       "repo": "service-lasso/lasso-traefik",
@@ -82,6 +90,14 @@
       "summary": "Release-backed identity service for apps that own the required database, domain, and secret configuration."
     },
     {
+      "id": "keycloak",
+      "name": "Keycloak",
+      "repo": "service-lasso/lasso-keycloak",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed Keycloak identity service that runs through @java, depends on PostgreSQL, and exposes health, metrics, admin URL, setup, and env contracts for app-owned identity stacks."
+    },
+    {
       "id": "dagu",
       "name": "Dagu",
       "repo": "service-lasso/lasso-dagu",
@@ -90,12 +106,60 @@
       "summary": "Release-backed workflow service for apps that own their workflow definitions and orchestration contract."
     },
     {
+      "id": "zen-bre",
+      "name": "GoRules ZEN Business Rules Engine",
+      "repo": "service-lasso/lasso-zen-bre",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed local decision service for apps that own portable JDM models and business-rules policy."
+    },
+    {
       "id": "postgres",
       "name": "PostgreSQL",
       "repo": "service-lasso/lasso-postgres",
       "group": "App-Owned Services",
       "status": "Available",
       "summary": "Release-backed PostgreSQL service for apps that need a local relational database such as Keycloak or ZITADEL dependencies."
+    },
+    {
+      "id": "pgadmin4",
+      "name": "pgAdmin4",
+      "repo": "service-lasso/lasso-pgadmin4",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed pgAdmin4 browser UI for apps that own PostgreSQL credentials, data retention, and admin access."
+    },
+    {
+      "id": "openobserve",
+      "name": "OpenObserve",
+      "repo": "service-lasso/lasso-openobserve",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed observability service for apps that own local telemetry data, credentials, and retention policy."
+    },
+    {
+      "id": "filebeat",
+      "name": "Filebeat",
+      "repo": "service-lasso/lasso-filebeat",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed log shipper for apps that own log paths, OpenObserve-compatible output, credentials, and retention policy."
+    },
+    {
+      "id": "soarca",
+      "name": "SOARCA",
+      "repo": "service-lasso/lasso-soarca",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed CACAO orchestration API for apps that own playbooks, integrations, auth, reporting, and execution policy."
+    },
+    {
+      "id": "cacao-roaster",
+      "name": "CACAO Roaster",
+      "repo": "service-lasso/lasso-cacao-roaster",
+      "group": "App-Owned Services",
+      "status": "Available",
+      "summary": "Release-backed CACAO playbook authoring UI that runs through @node, depends on SOARCA, and injects SOARCA_URL at runtime."
     },
     {
       "id": "mongo",

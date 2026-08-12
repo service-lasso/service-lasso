@@ -35,6 +35,64 @@ async function reserveLoopbackPort() {
   });
 }
 
+function endpointPortDefaults() {
+  return Object.fromEntries(
+    (coreTraefikManifest.endpoints ?? [])
+      .filter((endpoint) => endpoint.kind === "network")
+      .map((endpoint) => [endpoint.id, endpoint.port?.default ?? 0]),
+  );
+}
+
+function endpointsWithPorts(ports) {
+  return (coreTraefikManifest.endpoints ?? []).map((endpoint) => {
+    if (endpoint.kind !== "network") {
+      return endpoint;
+    }
+
+    return {
+      ...endpoint,
+      port: {
+        ...endpoint.port,
+        default: ports[endpoint.id],
+      },
+    };
+  });
+}
+
+function renderExpectedText(value, ports) {
+  const networkEndpoints = new Map(
+    (coreTraefikManifest.endpoints ?? [])
+      .filter((endpoint) => endpoint.kind === "network")
+      .map((endpoint) => [
+        endpoint.id,
+        {
+          bind: endpoint.bind ?? "127.0.0.1",
+          port: ports[endpoint.id],
+          protocol: endpoint.protocol ?? "tcp",
+        },
+      ]),
+  );
+  const urlEndpoints = new Map();
+  for (const endpoint of coreTraefikManifest.endpoints ?? []) {
+    if (endpoint.kind !== "url") {
+      continue;
+    }
+    const target = networkEndpoints.get(endpoint.target);
+    if (!target) {
+      continue;
+    }
+    const renderedUrl = String(endpoint.url ?? "")
+      .replace(/\$\{endpoint\.([^}]+)\.bind\}/g, (_match, id) => networkEndpoints.get(id)?.bind ?? "")
+      .replace(/\$\{endpoint\.([^}]+)\.port\}/g, (_match, id) => String(networkEndpoints.get(id)?.port ?? ""));
+    urlEndpoints.set(endpoint.id, renderedUrl || `${target.protocol}://${target.bind}:${target.port}/`);
+  }
+
+  return String(value)
+    .replace(/\$\{endpoint\.([^}]+)\.bind\}/g, (_match, id) => networkEndpoints.get(id)?.bind ?? "")
+    .replace(/\$\{endpoint\.([^}]+)\.port\}/g, (_match, id) => String(networkEndpoints.get(id)?.port ?? ""))
+    .replace(/\$\{endpoint\.([^}]+)\.url\}/g, (_match, id) => urlEndpoints.get(id) ?? "");
+}
+
 function platformArtifact() {
   switch (process.platform) {
     case "win32":
@@ -113,19 +171,10 @@ async function writeTraefikManifest(serviceRoot, ports) {
     path.join(serviceRoot, "service.json"),
     `${JSON.stringify(
       {
-        id: serviceId,
-        name: "Traefik Router",
-        description: "Release-backed Traefik verification manifest.",
+        ...coreTraefikManifest,
         version: releaseVersion,
-        enabled: true,
         depend_on: coreTraefikManifest.depend_on,
-        ports: Object.fromEntries(
-          Object.keys(coreTraefikManifest.ports ?? {}).map((key) => [key, ports[key]]),
-        ),
-        portmapping: coreTraefikManifest.portmapping,
-        commandline: coreTraefikManifest.commandline,
-        env: coreTraefikManifest.env,
-        globalenv: coreTraefikManifest.globalenv,
+        endpoints: endpointsWithPorts(ports),
         artifact: {
           kind: "archive",
           source: {
@@ -145,8 +194,6 @@ async function writeTraefikManifest(serviceRoot, ports) {
             },
           ],
         },
-        config: coreTraefikManifest.config,
-        healthcheck: coreTraefikManifest.healthcheck,
       },
       null,
       2,
@@ -182,7 +229,7 @@ const serviceRoot = path.join(servicesRoot, serviceId);
 const ports = {
   api: await reserveLoopbackPort(),
 };
-for (const key of Object.keys(coreTraefikManifest.ports ?? {})) {
+for (const key of Object.keys(endpointPortDefaults())) {
   ports[key] = await reserveLoopbackPort();
 }
 
@@ -234,29 +281,12 @@ try {
     throw new Error(`Traefik runtime health did not report healthy HTTP: ${JSON.stringify(health)}`);
   }
   const globalEnv = await getJson(`${api.url}/api/globalenv`);
-  const expectedGlobalEnv = {
-    TRAEFIK_HTTP_PORT: String(ports.web),
-    TRAEFIK_HTTPS_PORT: String(ports.websecure),
-    TRAEFIK_INTERNAL_PORT: String(ports.admin),
-    TRAEFIK_HTTPS_TRAEFIK_PORT: String(ports.https_traefik),
-    TRAEFIK_HTTPS_NGINX_PORT: String(ports.https_nginx),
-    TRAEFIK_HTTPS_CMS_PORT: String(ports.https_cms),
-    TRAEFIK_HTTPS_FLOW_PORT: String(ports.https_flow),
-    TRAEFIK_HTTPS_FLOWTMS_PORT: String(ports.https_flowtms),
-    TRAEFIK_HTTPS_API_PORT: String(ports.https_api),
-    TRAEFIK_HTTPS_FILES_PORT: String(ports.https_files),
-    TRAEFIK_HTTPS_BPMN_PORT: String(ports.https_bpmn),
-    TRAEFIK_MONGO_PORT: String(ports.mongo),
-    TRAEFIK_TYPEDB_PORT: String(ports.typedb),
-    TRAEFIK_WEB_URL: `http://127.0.0.1:${ports.web}/`,
-    TRAEFIK_WEBSECURE_URL: `https://127.0.0.1:${ports.websecure}/`,
-    TRAEFIK_DASHBOARD_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
-    TRAEFIK_PING_URL: `http://127.0.0.1:${ports.admin}/ping`,
-    TRAEFIK_TRAEFIK_URL: `http://127.0.0.1:${ports.admin}/dashboard/`,
-    TRAEFIK_HOST_DOMAIN: "localhost",
-    TRAEFIK_HOST_DOMAIN_URL: "localhost",
-    TRAEFIK_HOST_DOMAIN_SUFFIX: "localhost",
-  };
+  const expectedGlobalEnv = Object.fromEntries(
+    Object.entries(coreTraefikManifest.globalenv ?? {}).map(([key, value]) => [
+      key,
+      renderExpectedText(value, ports),
+    ]),
+  );
   for (const [key, value] of Object.entries(expectedGlobalEnv)) {
     if (globalEnv.globalenv?.[key] !== value) {
       throw new Error(`Traefik globalenv ${key} mismatch: ${JSON.stringify(globalEnv.globalenv)}`);
@@ -268,23 +298,20 @@ try {
       throw new Error(`Traefik network port ${key} mismatch: ${JSON.stringify(network.network?.ports)}`);
     }
   }
-  const expectedPortmapping = {
-    HTTP: String(ports.web),
-    HTTPS: String(ports.websecure),
-    HTTPS_TRAEFIK: String(ports.https_traefik),
-    HTTPS_NGINX: String(ports.https_nginx),
-    HTTPS_CMS: String(ports.https_cms),
-    HTTPS_FLOW: String(ports.https_flow),
-    HTTPS_FLOWTMS: String(ports.https_flowtms),
-    HTTPS_API: String(ports.https_api),
-    HTTPS_FILES: String(ports.https_files),
-    HTTPS_BPMN: String(ports.https_bpmn),
-    TCP_MOGNO: String(ports.mongo),
-    TCP_TYPEDB: String(ports.typedb),
-  };
-  for (const [key, value] of Object.entries(expectedPortmapping)) {
-    if (network.network?.portmapping?.[key] !== value) {
-      throw new Error(`Traefik network portmapping ${key} mismatch: ${JSON.stringify(network.network?.portmapping)}`);
+
+  const endpoints = new Map((network.network?.endpoints ?? []).map((endpoint) => [endpoint.id, endpoint]));
+  for (const [key, value] of Object.entries(ports).filter(([key]) => key !== "api")) {
+    if (endpoints.get(key)?.port !== value) {
+      throw new Error(`Traefik endpoint ${key} port mismatch: ${JSON.stringify(network.network?.endpoints)}`);
+    }
+  }
+  for (const endpoint of coreTraefikManifest.endpoints ?? []) {
+    if (endpoint.kind !== "url") {
+      continue;
+    }
+    const expectedUrl = renderExpectedText(endpoint.url, ports);
+    if (endpoints.get(endpoint.id)?.url !== expectedUrl) {
+      throw new Error(`Traefik endpoint ${endpoint.id} URL mismatch: ${JSON.stringify(network.network?.endpoints)}`);
     }
   }
 

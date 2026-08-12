@@ -21,6 +21,11 @@ async function postJson(url) {
   };
 }
 
+async function resetSetupTestState() {
+  await stopAllManagedProcesses();
+  resetLifecycleState();
+}
+
 async function runCli(args) {
   const result = await execFile(process.execPath, [path.resolve("dist", "cli.js"), ...args], {
     cwd: path.resolve("."),
@@ -47,8 +52,11 @@ async function writeSetupScript(serviceRoot, name = "setup-writer.mjs") {
       "  serviceId: process.env.SERVICE_ID,",
       "  serviceRoot: process.env.SERVICE_ROOT,",
       "  dataPath: process.env.SERVICE_DATA_PATH,",
+      "  cwd: process.cwd(),",
       "  inherited: process.env.INHERITED_GLOBAL ?? null,",
-      "  stepValue: process.env.STEP_VALUE ?? null",
+      "  serviceValue: process.env.SERVICE_VALUE ?? null,",
+      "  stepValue: process.env.STEP_VALUE ?? null,",
+      "  hostOnly: process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF ?? null",
       "}, null, 2));",
       "console.log('setup writer complete');",
       "console.error('setup writer stderr');",
@@ -58,7 +66,7 @@ async function writeSetupScript(serviceRoot, name = "setup-writer.mjs") {
 }
 
 test("setup run executes direct steps, captures logs, and persists setup history", async () => {
-  resetLifecycleState();
+  await resetSetupTestState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-direct-");
   const serviceRoot = await writeManifest(servicesRoot, "setup-service", {
     id: "setup-service",
@@ -99,23 +107,190 @@ test("setup run executes direct steps, captures logs, and persists setup history
     assert.equal(output.serviceId, "setup-service");
     assert.equal(output.serviceRoot, serviceRoot);
     assert.equal(output.dataPath, path.join(serviceRoot, "data"));
+    assert.equal(path.resolve(output.cwd), path.resolve(serviceRoot));
     assert.equal(output.stepValue, "configured-setup-service");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.setup.steps["write-file"].status, "succeeded");
+    assert.equal(path.resolve(stored.setup.steps["write-file"].lastRun.cwd), path.resolve(serviceRoot));
     assert.equal(stored.runtime.lastAction, "setup");
     assert.deepEqual(stored.runtime.actionHistory, ["install", "config", "setup"]);
     assert.match(await readFile(stored.setup.steps["write-file"].lastRun.logs.stdoutPath, "utf8"), /setup writer complete/);
     assert.match(await readFile(stored.setup.steps["write-file"].lastRun.logs.stderrPath, "utf8"), /setup writer stderr/);
   } finally {
     await apiServer.stop();
-    resetLifecycleState();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup env excludes uncontrolled host variables while preserving controlled inputs", async () => {
+  await resetSetupTestState();
+  const previousHostOnly = process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF;
+  process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF = "host-only-secret";
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-controlled-env-");
+  const serviceRoot = await writeManifest(servicesRoot, "controlled-env-setup", {
+    id: "controlled-env-setup",
+    name: "Controlled Env Setup",
+    description: "Setup environment boundary proof.",
+    env: {
+      SETUP_OUTPUT_PATH: "./runtime/setup-output.json",
+      SERVICE_VALUE: "${GLOBAL_VALUE}-${SERVICE_ID}",
+    },
+    globalenv: {
+      GLOBAL_VALUE: "from-global",
+    },
+    setup: {
+      steps: {
+        "capture-env": {
+          executable: process.execPath,
+          args: ["runtime/setup-writer.mjs"],
+          env: {
+            STEP_VALUE: "step-${SERVICE_VALUE}",
+          },
+          timeoutSeconds: 5,
+        },
+      },
+    },
+  });
+  await writeSetupScript(serviceRoot);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/controlled-env-setup/install`);
+    await postJson(`${apiServer.url}/api/services/controlled-env-setup/config`);
+    const setup = await postJson(`${apiServer.url}/api/services/controlled-env-setup/setup/run/capture-env`);
+
+    assert.equal(setup.status, 200);
+    assert.equal(setup.body.ok, true);
+    const output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "setup-output.json"), "utf8"));
+    assert.equal(output.serviceValue, "from-global-controlled-env-setup");
+    assert.equal(output.stepValue, "step-from-global-controlled-env-setup");
+    assert.equal(output.hostOnly, null);
+  } finally {
+    await apiServer.stop();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (previousHostOnly === undefined) {
+      delete process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF;
+    } else {
+      process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF = previousHostOnly;
+    }
+  }
+});
+
+test("setup run resolves explicit cwd selectors and records cwd in history", async () => {
+  await resetSetupTestState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-");
+  const serviceRoot = await writeManifest(servicesRoot, "setup-cwd", {
+    id: "setup-cwd",
+    name: "Setup Cwd",
+    description: "Explicit setup cwd proof.",
+    setup: {
+      steps: {
+        "service-root": {
+          executable: process.execPath,
+          cwd: "${SERVICE_ROOT}",
+          args: ["runtime/setup-writer.mjs"],
+          timeoutSeconds: 5,
+        },
+        "artifact-bin": {
+          executable: process.execPath,
+          cwd: "${SERVICE_ROOT}/runtime/bin",
+          args: ["runtime/setup-writer.mjs"],
+          env: {
+            SETUP_OUTPUT_PATH: "./cwd-output.json",
+          },
+          timeoutSeconds: 5,
+        },
+      },
+    },
+  });
+  await writeSetupScript(serviceRoot);
+  await mkdir(path.join(serviceRoot, "runtime", "bin"), { recursive: true });
+  await writeSetupScript(path.join(serviceRoot, "runtime", "bin"));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/setup-cwd/install`);
+    await postJson(`${apiServer.url}/api/services/setup-cwd/config`);
+
+    const serviceRootRun = await postJson(`${apiServer.url}/api/services/setup-cwd/setup/run/service-root`);
+    assert.equal(serviceRootRun.status, 200);
+    assert.equal(serviceRootRun.body.ok, true);
+    assert.equal(path.resolve(serviceRootRun.body.runs[0].cwd), path.resolve(serviceRoot));
+
+    const artifactBinRun = await postJson(`${apiServer.url}/api/services/setup-cwd/setup/run/artifact-bin`);
+    assert.equal(artifactBinRun.status, 200);
+    assert.equal(artifactBinRun.body.ok, true);
+    assert.equal(path.resolve(artifactBinRun.body.runs[0].cwd), path.resolve(serviceRoot, "runtime", "bin"));
+
+    const output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "bin", "cwd-output.json"), "utf8"));
+    assert.equal(path.resolve(output.cwd), path.resolve(serviceRoot, "runtime", "bin"));
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(path.resolve(stored.setup.steps["service-root"].lastRun.cwd), path.resolve(serviceRoot));
+    assert.equal(path.resolve(stored.setup.steps["artifact-bin"].lastRun.cwd), path.resolve(serviceRoot, "runtime", "bin"));
+  } finally {
+    await apiServer.stop();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup run fails before spawning when cwd is missing or outside the service root", async () => {
+  await resetSetupTestState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-invalid-");
+  const serviceRoot = await writeManifest(servicesRoot, "bad-setup-cwd", {
+    id: "bad-setup-cwd",
+    name: "Bad Setup Cwd",
+    description: "Invalid setup cwd proof.",
+    setup: {
+      steps: {
+        missing: {
+          executable: process.execPath,
+          cwd: "${SERVICE_ROOT}/missing",
+          args: ["-e", "process.exit(99)"],
+          timeoutSeconds: 5,
+          rerun: "always",
+        },
+        escape: {
+          executable: process.execPath,
+          cwd: "../outside",
+          args: ["-e", "process.exit(99)"],
+          timeoutSeconds: 5,
+          rerun: "always",
+        },
+      },
+    },
+  });
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/bad-setup-cwd/install`);
+    await postJson(`${apiServer.url}/api/services/bad-setup-cwd/config`);
+
+    const missing = await postJson(`${apiServer.url}/api/services/bad-setup-cwd/setup/run/missing`);
+    assert.equal(missing.status, 200);
+    assert.equal(missing.body.ok, false);
+    assert.equal(missing.body.runs[0].exitCode, null);
+    assert.match(missing.body.runs[0].message, /does not exist/);
+    assert.equal(path.resolve(missing.body.runs[0].cwd), path.resolve(serviceRoot, "missing"));
+
+    const escape = await postJson(`${apiServer.url}/api/services/bad-setup-cwd/setup/run/escape`);
+    assert.equal(escape.status, 200);
+    assert.equal(escape.body.ok, false);
+    assert.equal(escape.body.runs[0].exitCode, null);
+    assert.match(escape.body.runs[0].message, /must stay inside the service root/);
+  } finally {
+    await apiServer.stop();
+    await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("provider-backed setup runs through execservice with provider env", async () => {
-  resetLifecycleState();
+  await resetSetupTestState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-provider-");
   await writeManifest(servicesRoot, "@node", {
     id: "@node",
@@ -161,13 +336,13 @@ test("provider-backed setup runs through execservice with provider env", async (
     assert.equal(output.inherited, "from-provider");
   } finally {
     await apiServer.stop();
-    resetLifecycleState();
+    await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("setup dependencies start required daemon services before running the step", async () => {
-  resetLifecycleState();
+  await resetSetupTestState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-dependency-");
   const database = await writeExecutableFixtureService(servicesRoot, "database", {
     readyFileAfterMs: 20,
@@ -212,13 +387,13 @@ test("setup dependencies start required daemon services before running the step"
     assert.equal(getLifecycleState("loader").setup.steps.load.status, "succeeded");
   } finally {
     await apiServer.stop();
-    resetLifecycleState();
+    await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("setup records failed and timed-out steps without pretending success", async () => {
-  resetLifecycleState();
+  await resetSetupTestState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-failure-");
   await writeManifest(servicesRoot, "broken-setup", {
     id: "broken-setup",
@@ -259,13 +434,13 @@ test("setup records failed and timed-out steps without pretending success", asyn
     assert.equal(timeout.body.runs[0].status, "timeout");
   } finally {
     await apiServer.stop();
-    resetLifecycleState();
+    await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("CLI setup list and run expose stable JSON output", async () => {
-  resetLifecycleState();
+  await resetSetupTestState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cli-");
   const workspaceRoot = path.join(tempRoot, "workspace");
   await mkdir(workspaceRoot, { recursive: true });
@@ -306,13 +481,13 @@ test("CLI setup list and run expose stable JSON output", async () => {
     assert.equal(run.result.runs[0].stepId, "write");
     assert.equal(run.result.runs[0].status, "succeeded");
   } finally {
-    resetLifecycleState();
+    await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test("bootstrapBaselineServices runs non-manual setup steps for provider-role services", async () => {
-  resetLifecycleState();
+  await resetSetupTestState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-bootstrap-");
   const workspaceRoot = path.join(tempRoot, "workspace");
 
@@ -331,10 +506,13 @@ test("bootstrapBaselineServices runs non-manual setup steps for provider-role se
       },
     });
     await writeSetupScript(localcert.serviceRoot);
+    await writeExecutableFixtureService(servicesRoot, "@archive", { role: "provider", enabled: false, healthcheck: null });
     await writeExecutableFixtureService(servicesRoot, "@java", { role: "provider", healthcheck: null });
     await writeExecutableFixtureService(servicesRoot, "@nginx", { role: "provider", healthcheck: null });
     await writeExecutableFixtureService(servicesRoot, "@traefik", { depend_on: ["@localcert", "@nginx"] });
     await writeExecutableFixtureService(servicesRoot, "@node", { role: "provider", healthcheck: null });
+    await writeExecutableFixtureService(servicesRoot, "@python", { role: "provider", enabled: false, healthcheck: null });
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", { depend_on: ["@node", "@traefik"] });
     await writeExecutableFixtureService(servicesRoot, "@serviceadmin", { depend_on: ["@node"] });
 
@@ -354,8 +532,7 @@ test("bootstrapBaselineServices runs non-manual setup steps for provider-role se
     assert.ok(rerunLocalcert);
     assert.ok(rerunLocalcert.actions.some((action) => action.action === "setup" && action.status === "skipped"));
   } finally {
-    await stopAllManagedProcesses();
-    resetLifecycleState();
+    await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

@@ -18,7 +18,7 @@ import { getServiceRuntimeLogPaths } from "./logs.js";
 import { buildServiceVariables } from "./variables.js";
 import { readServiceMeta } from "../state/meta.js";
 import { getServiceStatePaths } from "../state/paths.js";
-import { resolveProviderExecution } from "../providers/resolveProvider.js";
+import { isProviderRole } from "../roles.js";
 
 type DashboardServiceStatus = DashboardServiceResponse["status"];
 
@@ -33,6 +33,10 @@ function mapServiceStatus(
   health: ServiceHealthResult,
 ): DashboardServiceStatus {
   if (!lifecycle.running) {
+    if (health.type === "provider" && health.healthy) {
+      return "available";
+    }
+
     return "stopped";
   }
 
@@ -42,7 +46,7 @@ function mapServiceStatus(
 function mapRuntimeHealth(
   status: DashboardServiceStatus,
 ): DashboardServiceResponse["runtimeHealth"]["health"] {
-  if (status === "running") {
+  if (status === "running" || status === "available") {
     return "healthy";
   }
 
@@ -115,8 +119,9 @@ function buildDashboardEndpoints(
   resolvedPorts: Record<string, number>,
 ): DashboardEndpointResponse[] {
   return buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts).endpoints.map((endpoint) => {
+    const endpointUrl = endpoint.url ?? "";
     try {
-      const parsed = new URL(endpoint.url);
+      const parsed = new URL(endpointUrl);
       const protocol = parsed.protocol.replace(/:$/, "");
       const safeProtocol =
         protocol === "http" || protocol === "https" || protocol === "tcp" ? protocol : "http";
@@ -132,7 +137,7 @@ function buildDashboardEndpoints(
 
       return {
         label: endpoint.label,
-        url: endpoint.url,
+        url: endpointUrl,
         bind: parsed.hostname,
         port,
         protocol: safeProtocol,
@@ -141,11 +146,11 @@ function buildDashboardEndpoints(
     } catch {
       return {
         label: endpoint.label,
-        url: endpoint.url,
-        bind: "unknown",
-        port: 0,
+        url: endpointUrl,
+        bind: endpoint.bind ?? "unknown",
+        port: endpoint.port ?? 0,
         protocol: "http",
-        exposure: endpoint.kind === "lan" ? "lan" : endpoint.kind === "public" ? "public" : "local",
+        exposure: endpoint.exposure === "lan" ? "lan" : endpoint.exposure === "public" ? "public" : "local",
       };
     }
   });
@@ -166,11 +171,11 @@ function buildDashboardLinks(endpoints: DashboardEndpointResponse[]): DashboardS
     }));
 }
 
-function mapVariableScope(scope: "manifest" | "derived" | "global"): "global" | "service" {
+function mapVariableScope(scope: "manifest" | "derived" | "global" | "broker" | "runtime"): "global" | "service" {
   return scope === "global" ? "global" : "service";
 }
 
-function mapVariableSource(scope: "manifest" | "derived" | "global"): string {
+function mapVariableSource(scope: "manifest" | "derived" | "global" | "broker" | "runtime"): string {
   if (scope === "manifest") {
     return "service.json";
   }
@@ -179,10 +184,22 @@ function mapVariableSource(scope: "manifest" | "derived" | "global"): string {
     return "globalenv";
   }
 
+  if (scope === "broker") {
+    return "broker.imports";
+  }
+
+  if (scope === "runtime") {
+    return "process-output";
+  }
+
   return "runtime";
 }
 
 function inferServiceType(service: DiscoveredService, runtimeLabel: string, endpoints: DashboardEndpointResponse[]): string {
+  if (isProviderRole(service.manifest)) {
+    return "provider";
+  }
+
   if (service.manifest.id.startsWith("@")) {
     return "runtime";
   }
@@ -294,16 +311,23 @@ async function buildRelatedServices(
   );
 }
 
-function buildDashboardActions(service: DashboardServiceResponse): DashboardActionResponse[] {
+function buildDashboardActions(service: DashboardServiceResponse, manifestRole: DiscoveredService["manifest"]["role"]): DashboardActionResponse[] {
   const actions: DashboardActionResponse[] = [
     { id: "install", label: "Install service", kind: "install" },
-    { id: "start", label: "Start service", kind: "start" },
-    { id: "stop", label: "Stop service", kind: "stop" },
-    { id: "restart", label: "Restart service", kind: "restart" },
     { id: "reload", label: "Reload service", kind: "reload" },
     { id: "open_logs", label: "Open logs", kind: "open_logs" },
     { id: "open_config", label: "Open config", kind: "open_config" },
   ];
+
+  if (manifestRole !== "provider") {
+    actions.splice(
+      1,
+      0,
+      { id: "start", label: "Start service", kind: "start" },
+      { id: "stop", label: "Stop service", kind: "stop" },
+      { id: "restart", label: "Restart service", kind: "restart" },
+    );
+  }
 
   if (service.links.length > 0) {
     actions.push({ id: "open_admin", label: "Open endpoint", kind: "open_admin" });
@@ -332,14 +356,12 @@ export async function buildDashboardService(
     sharedGlobalEnv,
   );
   const meta = await readServiceMeta(service.serviceRoot);
-  const provider = resolveProviderExecution(service, registry);
   const endpoints = buildDashboardEndpoints(service, sharedGlobalEnv, resolvedPorts);
   const variables = buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables;
   const dependencySummary = graph.getServiceDependencies(service.manifest.id);
   const status = mapServiceStatus(lifecycle, health);
   const runtimeLabel =
     lifecycle.runtime.provider ??
-    provider.provider ??
     service.manifest.execservice ??
     service.manifest.executable ??
     "direct";
@@ -360,7 +382,7 @@ export async function buildDashboardService(
     note: health.detail,
     links: buildDashboardLinks(endpoints),
     installed: lifecycle.installed,
-    role: runtimeLabel,
+    role: service.manifest.role ?? "service",
     runtimeHealth,
     endpoints,
     metadata: {
@@ -401,7 +423,7 @@ export async function buildDashboardService(
     actions: [],
   };
 
-  dashboardService.actions = buildDashboardActions(dashboardService);
+  dashboardService.actions = buildDashboardActions(dashboardService, service.manifest.role);
   return dashboardService;
 }
 
@@ -433,6 +455,7 @@ export function buildDashboardSummary(
     },
     servicesTotal: services.length,
     servicesRunning: services.filter((service) => service.status === "running").length,
+    servicesAvailable: services.filter((service) => service.status === "available").length,
     servicesStopped: services.filter((service) => service.status === "stopped").length,
     servicesDegraded: services.filter((service) => service.status === "degraded").length,
     networkExposureCount: services.reduce((count, service) => count + service.links.length, 0),
@@ -440,6 +463,8 @@ export function buildDashboardSummary(
     favorites,
     others,
     warnings,
-    problemServices: services.filter((service) => service.status !== "running"),
+    problemServices: services.filter(
+      (service) => service.status !== "running" && service.status !== "available",
+    ),
   };
 }

@@ -7,7 +7,7 @@ import { ApiError, LifecycleStateError } from "../../server/errors.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
-import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceText } from "../operator/variables.js";
+import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
@@ -59,7 +59,7 @@ export interface ServiceActionRunRequest {
   scheduleId?: string;
   stepId?: string;
   parentActionId?: string;
-  actor?: string;
+  actor?: unknown;
   params?: Record<string, unknown>;
   payload?: Record<string, unknown>;
   payloadRef?: string;
@@ -154,6 +154,22 @@ function expectOptionalString(candidate: Record<string, unknown>, field: string)
   return value.trim();
 }
 
+function getActionRunActorId(actor: unknown): string | null {
+  if (typeof actor === "string" && actor.trim().length > 0) {
+    return actor.trim();
+  }
+  if (!isRecord(actor)) {
+    return null;
+  }
+  if (typeof actor.id === "string" && actor.id.trim().length > 0) {
+    return actor.id.trim();
+  }
+  if (typeof actor.actorId === "string" && actor.actorId.trim().length > 0) {
+    return actor.actorId.trim();
+  }
+  return null;
+}
+
 export function parseServiceActionRunRequest(input: unknown): ServiceActionRunRequest {
   if (!isRecord(input)) {
     throw new ApiError("invalid_body", 400, "Action run body must be a JSON object.");
@@ -182,7 +198,7 @@ export function parseServiceActionRunRequest(input: unknown): ServiceActionRunRe
     scheduleId: expectOptionalString(input, "scheduleId") ?? undefined,
     stepId: expectOptionalString(input, "stepId") ?? undefined,
     parentActionId: expectOptionalString(input, "parentActionId") ?? undefined,
-    actor: expectOptionalString(input, "actor") ?? undefined,
+    actor: input.actor,
     params: (input.params as Record<string, unknown> | undefined) ?? {},
     payload: input.payload as Record<string, unknown> | undefined,
     payloadRef: expectOptionalString(input, "payloadRef") ?? undefined,
@@ -200,7 +216,7 @@ function buildRunMetadata(
     scheduleId: request.scheduleId ?? null,
     stepId: request.stepId ?? null,
     parentActionId: request.parentActionId ?? null,
-    actor: request.actor ?? null,
+    actor: getActionRunActorId(request.actor),
     params: request.params ?? {},
     payload,
   };
@@ -532,7 +548,10 @@ function buildProcessEnvironment(
     buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
   );
   const actionEnv = Object.fromEntries(
-    Object.entries(action.env ?? {}).map(([key, value]) => [key, resolveServiceText(value, service, sharedGlobalEnv, resolvedPorts)]),
+    Object.entries(action.env ?? {}).map(([key, value]) => [
+      key,
+      resolveServiceEnvValue(value, service, sharedGlobalEnv, resolvedPorts),
+    ]),
   );
 
   return {

@@ -1,14 +1,668 @@
-import { getDemoStatus, printDemoStatus, resolveDemoOptions } from "./demo-instance-lib.mjs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  defaultDemoServicesRoot,
+  defaultDemoWorkspaceRoot,
+} from "./demo-instance-lib.mjs";
+import { canonicalDemoServicesRoot } from "./demo-canonical-root.mjs";
 
-const options = resolveDemoOptions();
-const status = await getDemoStatus(options);
+const scriptPath = fileURLToPath(import.meta.url);
+export const canonicalDemoHost = "192.168.1.53";
+export const canonicalRuntimePort = 17883;
+export const canonicalServiceAdminPort = 17700;
+export const canonicalServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
 
-if (options.json) {
-  console.log(JSON.stringify(status, null, 2));
-} else {
-  printDemoStatus(status);
+function parseFlag(args, name) {
+  const prefix = `--${name}=`;
+  const value = args.find((entry) => entry.startsWith(prefix));
+  return value ? value.slice(prefix.length) : undefined;
 }
 
-if (!status.ok) {
-  process.exitCode = 1;
+function parseNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeUrlBase(url) {
+  return url.endsWith("/") ? url.slice(0, -1) : url;
+}
+
+function urlPort(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) {
+      return Number(parsed.port);
+    }
+    return parsed.protocol === "https:" ? 443 : 80;
+  } catch {
+    return null;
+  }
+}
+
+function normalizePathForCompare(value) {
+  const resolved = path.resolve(String(value ?? ""));
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function canonicalServicesRootFor(requestedServicesRoot) {
+  const resolved = path.resolve(requestedServicesRoot ?? defaultDemoServicesRoot);
+  return normalizePathForCompare(resolved) === normalizePathForCompare(defaultDemoServicesRoot)
+    ? canonicalDemoServicesRoot
+    : resolved;
+}
+
+function safeEvidenceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.search) parsed.search = "?<redacted>";
+    return parsed.toString();
+  } catch {
+    return String(url).replace(/\?.*$/, "?<redacted>");
+  }
+}
+
+function safeBodySnippet(body) {
+  const compact = String(body ?? "")
+    .replace(/("(?:token|secret|password|cookie|credential|authorization|api[_-]?key)"\s*:\s*)"[^"]*"/gi, "$1\"<redacted>\"")
+    .replace(
+      /(^|[\s,{;&])((?:token|secret|password|cookie|credential|authorization|api[_-]?key)[^=:\s]*\s*[=:]\s*)[^\s,;&]+/gi,
+      "$1$2<redacted>",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
+}
+
+function isDashboardSummaryResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && typeof body.summary === "object"
+    && body.summary !== null
+    && typeof body.summary.runtime === "object"
+    && body.summary.runtime !== null
+    && typeof body.summary.servicesTotal === "number"
+  );
+}
+
+function isServiceListResponse(body) {
+  return (
+    typeof body === "object"
+    && body !== null
+    && Array.isArray(body.services)
+  );
+}
+
+function check(checks, name, ok, code, detail = "") {
+  checks.push({ name, ok, code: ok ? null : code, detail });
+}
+
+function checkEqual(checks, name, actual, expected, code, detailPrefix = "") {
+  const ok = actual === expected;
+  const detail = ok
+    ? `${actual}`
+    : `${detailPrefix}${detailPrefix ? ": " : ""}expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`;
+  check(checks, name, ok, code, detail);
+}
+
+async function fetchJson(url, fetchImpl, timeoutMs) {
+  try {
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const body = await response.json();
+    return { ok: response.status >= 200 && response.status < 300, status: response.status, body };
+  } catch (error) {
+    return { ok: false, status: null, error: error.message, body: null };
+  }
+}
+
+async function fetchText(url, fetchImpl, timeoutMs) {
+  try {
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const body = await response.text();
+    return { ok: response.status >= 200 && response.status < 300, status: response.status, body };
+  } catch (error) {
+    return { ok: false, status: null, error: error.message, body: "" };
+  }
+}
+
+async function readJson(filePath) {
+  return JSON.parse(await readFile(filePath, "utf8"));
+}
+
+export function resolveServiceText(value, ports = {}) {
+  const replacements = new Map();
+  for (const [name, port] of Object.entries(ports ?? {})) {
+    const normalized = String(name).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+    replacements.set(`${normalized}_PORT`, String(port));
+    if (name === "service") replacements.set("SERVICE_PORT", String(port));
+    replacements.set(`endpoint.${name}.bind`, "127.0.0.1");
+    replacements.set(`endpoint.${name}.host`, "127.0.0.1");
+    replacements.set(`endpoint.${name}.port`, String(port));
+  }
+
+  return String(value).replace(/\$\{([^}]+)\}/g, (match, variableName) => replacements.get(variableName.trim()) ?? match);
+}
+
+function shouldCheckAdvertisedUrl(serviceId, endpoint) {
+  const label = String(endpoint.label ?? "").toLowerCase();
+  if (label === "websecure") return false;
+  if (serviceId === "@traefik" && label === "web") return false;
+  return ["api", "dashboard", "health", "ping", "service", "ui", "web"].includes(label);
+}
+
+function manifestUrls(manifest) {
+  if (Array.isArray(manifest.urls)) {
+    return manifest.urls;
+  }
+  return manifest.urls ? [manifest.urls] : [];
+}
+
+function manifestEndpointPorts(manifest) {
+  return Object.fromEntries(
+    (manifest.endpoints ?? [])
+      .filter((endpoint) => endpoint.kind === "network")
+      .map((endpoint) => [endpoint.id, endpoint.port?.default ?? 0]),
+  );
+}
+
+function manifestUrlEndpoints(manifest) {
+  return (manifest.endpoints ?? [])
+    .filter((endpoint) => endpoint.kind === "url")
+    .map((endpoint) => ({
+      label: endpoint.label ?? endpoint.id,
+      url: endpoint.url,
+      kind: endpoint.exposure ?? "local",
+    }));
+}
+
+function manifestHealthchecks(manifest) {
+  if (Array.isArray(manifest.healthchecks)) {
+    return manifest.healthchecks;
+  }
+  return manifest.healthcheck ? [manifest.healthcheck] : [];
+}
+
+export function buildReachabilityTargets(serviceId, manifest, ports = {}) {
+  const targets = [];
+  const seen = new Set();
+
+  for (const endpoint of [...manifestUrls(manifest), ...manifestUrlEndpoints(manifest)]) {
+    if (!endpoint?.url || !shouldCheckAdvertisedUrl(serviceId, endpoint)) {
+      continue;
+    }
+    const resolvedUrl = resolveServiceText(endpoint.url, ports);
+    if (resolvedUrl.includes("${") || (!resolvedUrl.startsWith("http://") && !resolvedUrl.startsWith("https://"))) {
+      continue;
+    }
+    seen.add(resolvedUrl);
+    targets.push({
+      label: endpoint.label ?? "url",
+      url: resolvedUrl,
+      source: "manifest.urls",
+      expectedStatus: 200,
+    });
+  }
+
+  for (const healthcheck of manifestHealthchecks(manifest)) {
+    if (healthcheck?.type !== "http" || !healthcheck.url) {
+      continue;
+    }
+    const resolvedUrl = resolveServiceText(healthcheck.url, ports);
+    if (!resolvedUrl.includes("${") && !seen.has(resolvedUrl)) {
+      targets.push({
+        label: healthcheck.id ?? "healthcheck",
+        url: resolvedUrl,
+        source: "healthchecks",
+        expectedStatus: healthcheck.expected_status ?? 200,
+      });
+      seen.add(resolvedUrl);
+    }
+  }
+
+  return targets;
+}
+
+async function checkReachabilityTarget(checks, serviceId, target, fetchImpl, timeoutMs) {
+  const result = await fetchText(target.url, fetchImpl, timeoutMs);
+  const ok = result.status === target.expectedStatus;
+  const evidenceUrl = safeEvidenceUrl(target.url);
+  const detail = ok
+    ? `${evidenceUrl}: HTTP ${result.status}, body="${safeBodySnippet(result.body)}"`
+    : `${evidenceUrl}: ${result.error ?? `HTTP ${result.status}`}, body="${safeBodySnippet(result.body)}"`;
+  check(
+    checks,
+    `${serviceId} advertised ${target.label} reachable`,
+    ok,
+    "unreachable_service_url",
+    detail,
+  );
+}
+
+export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), env = process.env) {
+  const host = parseFlag(args, "host") ?? env.SERVICE_LASSO_DEMO_HOST ?? canonicalDemoHost;
+  const runtimePort = parseNumber(
+    parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? env.SERVICE_LASSO_PORT,
+    canonicalRuntimePort,
+  );
+  const serviceAdminPort = parseNumber(
+    parseFlag(args, "service-admin-port") ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_PORT,
+    canonicalServiceAdminPort,
+  );
+
+  const explicitRuntimeUrl = parseFlag(args, "runtime-url") ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL;
+  const runtimeUrl = normalizeUrlBase(explicitRuntimeUrl ?? `http://127.0.0.1:${runtimePort}`);
+  const serviceAdminUrl =
+    parseFlag(args, "service-admin-url")
+    ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL
+    ?? `http://${host}:${serviceAdminPort}/`;
+
+  return {
+    host,
+    runtimePort,
+    serviceAdminPort,
+    runtimeUrl,
+    runtimeUrlExplicit: Boolean(explicitRuntimeUrl),
+    generationId: parseFlag(args, "generation") ?? env.SERVICE_LASSO_DEMO_GENERATION_ID ?? null,
+    serviceAdminUrl,
+    runtimeHealthUrl: `${runtimeUrl}/api/health`,
+    runtimeSummaryUrl: `${runtimeUrl}/api/runtime`,
+    runtimeServicesUrl: `${runtimeUrl}/api/services`,
+    servicesRoot: canonicalServicesRootFor(parseFlag(args, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? defaultDemoWorkspaceRoot),
+    timeoutMs: parseNumber(parseFlag(args, "timeout-ms") ?? env.SERVICE_LASSO_DEMO_VERIFY_TIMEOUT_MS, 10_000),
+    serviceIds: canonicalServiceIds,
+  };
+}
+
+export async function readExpectedDemoServices(servicesRoot, serviceIds = canonicalServiceIds) {
+  const expected = new Map();
+
+  for (const serviceId of serviceIds) {
+    const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
+    const platform = manifest.artifact?.platforms?.[process.platform];
+    const expectedPorts = Object.keys(manifest.ports ?? {}).length > 0 ? manifest.ports : manifestEndpointPorts(manifest);
+    expected.set(serviceId, {
+      id: serviceId,
+      providerRole: manifest.role === "provider",
+      repo: manifest.artifact?.source?.repo ?? null,
+      tag: manifest.artifact?.source?.tag ?? null,
+      assetName: platform?.assetName ?? null,
+      ports: expectedPorts,
+      reachabilityTargets: buildReachabilityTargets(serviceId, manifest, expectedPorts),
+      serviceRoot: path.join(servicesRoot, serviceId),
+    });
+  }
+
+  return expected;
+}
+
+function serviceSummary(service, expected) {
+  return {
+    id: service.id,
+    installed: service.lifecycle?.installed === true,
+    configured: service.lifecycle?.configured === true,
+    running: service.lifecycle?.running === true,
+    healthy: service.health?.healthy === true,
+    catalogTag: service.catalogProvenance?.releaseTag ?? null,
+    installedTag: service.lifecycle?.installArtifacts?.artifact?.tag ?? null,
+    expectedTag: expected.tag,
+  };
+}
+
+function isSourceServiceAdminState(service) {
+  return (
+    service?.lifecycle?.installed !== true
+    && service?.lifecycle?.configured !== true
+    && service?.lifecycle?.running !== true
+    && service?.health?.healthy !== true
+  );
+}
+
+export async function verifyCanonicalDemo(options = {}, deps = {}) {
+  let resolved = {
+    ...resolveCanonicalVerifierOptions([], {}),
+    ...options,
+  };
+  const runtimeUrlExplicit = typeof options.runtimeUrlExplicit === "boolean"
+    ? options.runtimeUrlExplicit
+    : options.runtimeUrl !== undefined;
+  let workspaceDiscovery = null;
+  let workspaceDiscoveryMatchesRoots = false;
+  let workspaceDiscoveryIsActive = false;
+  const stateDirectory = path.join(resolved.workspaceRoot, ".service-lasso");
+  const [workspaceInstance, generationRegistry] = await Promise.all([
+    readJson(path.join(stateDirectory, "runtime-instance.json")).catch(() => null),
+    readJson(path.join(stateDirectory, "runtime-generations.json")).catch(() => null),
+  ]);
+  if (workspaceInstance || generationRegistry) {
+    const selectedGenerationId = resolved.generationId ?? generationRegistry?.activeGenerationId ?? null;
+    const generation = Array.isArray(generationRegistry?.generations)
+      ? generationRegistry.generations.find((entry) => entry.generationId === selectedGenerationId) ?? null
+      : null;
+    const apiEndpoint = generation?.endpoints?.find((entry) => entry.name === "api")?.url ?? null;
+    workspaceDiscovery = { instance: workspaceInstance, generation, activeGenerationId: generationRegistry?.activeGenerationId ?? null };
+    workspaceDiscoveryMatchesRoots = Boolean(
+      workspaceInstance
+      && generation
+      && normalizePathForCompare(workspaceInstance.workspaceRoot) === normalizePathForCompare(resolved.workspaceRoot)
+      && normalizePathForCompare(workspaceInstance.servicesRoot) === normalizePathForCompare(resolved.servicesRoot)
+      && normalizePathForCompare(generation.workspaceRoot) === normalizePathForCompare(resolved.workspaceRoot)
+      && normalizePathForCompare(generation.servicesRoot) === normalizePathForCompare(resolved.servicesRoot)
+      && workspaceInstance.generationId === generation.generationId,
+    );
+    workspaceDiscoveryIsActive = Boolean(
+      workspaceDiscoveryMatchesRoots
+      && generationRegistry?.activeGenerationId === generation?.generationId
+      && generation?.phase === "running"
+      && workspaceInstance?.phase === "running"
+      && workspaceInstance?.status !== "stale"
+      && apiEndpoint,
+    );
+    if (workspaceDiscoveryIsActive) {
+      const discoveredRuntimeUrl = normalizeUrlBase(apiEndpoint);
+      resolved = {
+        ...resolved,
+        generationId: resolved.generationId ?? generation.generationId,
+        runtimeUrl: runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl,
+        runtimeHealthUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/health`,
+        runtimeSummaryUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/runtime`,
+        runtimeServicesUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/services`,
+      };
+    }
+  }
+  const fetchImpl = deps.fetch ?? fetch;
+  const checks = [];
+  const expectedServices = await readExpectedDemoServices(resolved.servicesRoot, resolved.serviceIds);
+
+  checkEqual(
+    checks,
+    "runtime port is canonical",
+    urlPort(resolved.runtimeUrl),
+    resolved.runtimePort,
+    "wrong_runtime_port",
+  );
+  checkEqual(
+    checks,
+    "Service Admin port is canonical",
+    urlPort(resolved.serviceAdminUrl),
+    resolved.serviceAdminPort,
+    "wrong_serviceadmin_port",
+  );
+
+  const serviceAdminApiBase = normalizeUrlBase(resolved.serviceAdminUrl);
+  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices, runtimeInstance] = await Promise.all([
+    fetchText(resolved.serviceAdminUrl, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${serviceAdminApiBase}/api/dashboard`, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${serviceAdminApiBase}/api/services`, fetchImpl, resolved.timeoutMs),
+    fetchJson(resolved.runtimeHealthUrl, fetchImpl, resolved.timeoutMs),
+    fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
+    fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${resolved.runtimeUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
+  ]);
+
+  check(
+    checks,
+    "Service Admin LAN reachable",
+    serviceAdmin.ok,
+    "unreachable_lan",
+    serviceAdmin.ok ? `HTTP ${serviceAdmin.status}` : `${resolved.serviceAdminUrl}: ${serviceAdmin.error ?? `HTTP ${serviceAdmin.status}`}`,
+  );
+  check(
+    checks,
+    "runtime health LAN reachable",
+    runtimeHealth.ok && runtimeHealth.body?.status === "ok",
+    "unreachable_lan",
+    runtimeHealth.ok
+      ? `HTTP ${runtimeHealth.status}, status=${JSON.stringify(runtimeHealth.body?.status ?? null)}`
+      : `${resolved.runtimeHealthUrl}: ${runtimeHealth.error ?? `HTTP ${runtimeHealth.status}`}`,
+  );
+  check(
+    checks,
+    "runtime summary reachable",
+    Boolean(runtimeSummary.ok && runtimeSummary.body?.runtime),
+    "missing_runtime_metadata",
+    runtimeSummary.ok ? `HTTP ${runtimeSummary.status}` : `${resolved.runtimeSummaryUrl}: ${runtimeSummary.error ?? `HTTP ${runtimeSummary.status}`}`,
+  );
+  check(
+    checks,
+    "runtime services reachable",
+    Boolean(runtimeServices.ok && Array.isArray(runtimeServices.body?.services)),
+    "missing_runtime_services",
+    runtimeServices.ok ? `HTTP ${runtimeServices.status}` : `${resolved.runtimeServicesUrl}: ${runtimeServices.error ?? `HTTP ${runtimeServices.status}`}`,
+  );
+  check(
+    checks,
+    "runtime generation discovery reachable",
+    Boolean(runtimeInstance.ok && runtimeInstance.body?.instance),
+    "missing_runtime_generation",
+    runtimeInstance.ok ? `HTTP ${runtimeInstance.status}` : `${resolved.runtimeUrl}/api/runtime/instance: ${runtimeInstance.error ?? `HTTP ${runtimeInstance.status}`}`,
+  );
+  if (workspaceDiscovery) {
+    check(checks, "workspace generation roots match selector", workspaceDiscoveryMatchesRoots, "wrong_lane");
+    check(checks, "workspace generation is active with a published endpoint", workspaceDiscoveryIsActive, "stale_runtime_generation");
+    checkEqual(
+      checks,
+      "workspace generation matches selected runtime",
+      runtimeInstance.body?.instance?.generationId ?? null,
+      workspaceDiscovery.generation?.generationId ?? null,
+      "wrong_lane",
+    );
+  }
+  if (resolved.generationId) {
+    checkEqual(
+      checks,
+      "runtime generation matches explicit selector",
+      runtimeInstance.body?.instance?.generationId ?? null,
+      resolved.generationId,
+      "wrong_lane",
+    );
+  }
+  checkEqual(
+    checks,
+    "runtime generation selection is verified",
+    runtimeInstance.body?.selection?.classification ?? null,
+    "selected",
+    runtimeInstance.body?.selection?.classification === "ambiguous" ? "ambiguous_runtime" : "wrong_lane",
+  );
+  if (runtimeInstance.body?.instance) {
+    checkEqual(
+      checks,
+      "runtime instance services root matches canonical repo",
+      normalizePathForCompare(runtimeInstance.body.instance.servicesRoot),
+      normalizePathForCompare(resolved.servicesRoot),
+      "wrong_lane",
+    );
+    checkEqual(
+      checks,
+      "runtime instance workspace root matches canonical demo",
+      normalizePathForCompare(runtimeInstance.body.instance.workspaceRoot),
+      normalizePathForCompare(resolved.workspaceRoot),
+      "wrong_lane",
+    );
+    checkEqual(
+      checks,
+      "runtime endpoint belongs to selected generation",
+      normalizeUrlBase(runtimeInstance.body.instance.apiUrl),
+      normalizeUrlBase(resolved.runtimeUrl),
+      "wrong_lane",
+    );
+  }
+  check(
+    checks,
+    "Service Admin same-origin dashboard reachable",
+    serviceAdminDashboard.ok && isDashboardSummaryResponse(serviceAdminDashboard.body),
+    "service_admin_api_unhealthy",
+    serviceAdminDashboard.ok
+      ? `HTTP ${serviceAdminDashboard.status}`
+      : `${serviceAdminApiBase}/api/dashboard: ${serviceAdminDashboard.error ?? `HTTP ${serviceAdminDashboard.status}`}`,
+  );
+  check(
+    checks,
+    "Service Admin same-origin services reachable",
+    serviceAdminServices.ok && isServiceListResponse(serviceAdminServices.body),
+    "service_admin_api_unhealthy",
+    serviceAdminServices.ok
+      ? `HTTP ${serviceAdminServices.status}`
+      : `${serviceAdminApiBase}/api/services: ${serviceAdminServices.error ?? `HTTP ${serviceAdminServices.status}`}`,
+  );
+
+  const runtime = runtimeSummary.body?.runtime;
+  if (runtime) {
+    checkEqual(
+      checks,
+      "runtime services root matches canonical repo",
+      normalizePathForCompare(runtime.servicesRoot),
+      normalizePathForCompare(resolved.servicesRoot),
+      "wrong_lane",
+    );
+    checkEqual(
+      checks,
+      "runtime workspace root matches canonical demo",
+      normalizePathForCompare(runtime.workspaceRoot),
+      normalizePathForCompare(resolved.workspaceRoot),
+      "wrong_lane",
+    );
+  }
+
+  const liveServices = new Map((runtimeServices.body?.services ?? []).map((service) => [service.id, service]));
+  const serviceAdminLive = liveServices.get("@serviceadmin");
+  const sourceServiceAdminMode = serviceAdmin.ok
+    && serviceAdminDashboard.ok
+    && isDashboardSummaryResponse(serviceAdminDashboard.body)
+    && serviceAdminServices.ok
+    && isServiceListResponse(serviceAdminServices.body)
+    && isSourceServiceAdminState(serviceAdminLive);
+  const serviceSummaries = [];
+
+  for (const [serviceId, expected] of expectedServices.entries()) {
+    const live = liveServices.get(serviceId);
+    check(checks, `${serviceId} is present`, Boolean(live), "missing_service", serviceId);
+    if (!live) {
+      continue;
+    }
+
+    serviceSummaries.push(serviceSummary(live, expected));
+    const sourceServiceAdmin = serviceId === "@serviceadmin" && sourceServiceAdminMode;
+    if (sourceServiceAdmin) {
+      check(checks, `${serviceId} source Admin owns canonical port`, true, null, "same-origin runtime APIs are healthy on 17700");
+      check(checks, `${serviceId} managed artifact intentionally not installed`, live.lifecycle?.installed !== true, "unexpected_managed_serviceadmin", `installed=${live.lifecycle?.installed === true}`);
+      check(checks, `${serviceId} managed artifact intentionally not configured`, live.lifecycle?.configured !== true, "unexpected_managed_serviceadmin", `configured=${live.lifecycle?.configured === true}`);
+      check(checks, `${serviceId} managed artifact intentionally not running`, live.lifecycle?.running !== true, "unexpected_managed_serviceadmin", `running=${live.lifecycle?.running === true}`);
+      check(checks, `${serviceId} managed artifact health intentionally inactive`, live.health?.healthy !== true, "unexpected_managed_serviceadmin", `healthy=${live.health?.healthy === true}`);
+    } else {
+      check(checks, `${serviceId} is installed`, live.lifecycle?.installed === true, "unprepared_service", `installed=${live.lifecycle?.installed === true}`);
+      check(checks, `${serviceId} is configured`, live.lifecycle?.configured === true, "unprepared_service", `configured=${live.lifecycle?.configured === true}`);
+      check(
+        checks,
+        expected.providerRole ? `${serviceId} provider daemon is not required` : `${serviceId} is running`,
+        live.lifecycle?.running === !expected.providerRole,
+        "unhealthy_service",
+        `running=${live.lifecycle?.running === true}`,
+      );
+      check(checks, `${serviceId} is healthy`, live.health?.healthy === true, "unhealthy_service", `healthy=${live.health?.healthy === true}`);
+    }
+    checkEqual(
+      checks,
+      `${serviceId} service root matches canonical services root`,
+      normalizePathForCompare(live.serviceRoot),
+      normalizePathForCompare(expected.serviceRoot),
+      "wrong_lane",
+    );
+    checkEqual(checks, `${serviceId} catalog repo matches manifest`, live.catalogProvenance?.repo ?? null, expected.repo, "stale_release_pin");
+    checkEqual(checks, `${serviceId} catalog release tag matches manifest`, live.catalogProvenance?.releaseTag ?? null, expected.tag, "stale_release_pin");
+    if (!sourceServiceAdmin) {
+      checkEqual(checks, `${serviceId} installed artifact repo matches manifest`, live.lifecycle?.installArtifacts?.artifact?.repo ?? null, expected.repo, "stale_installed_artifact");
+      checkEqual(checks, `${serviceId} installed artifact tag matches manifest`, live.lifecycle?.installArtifacts?.artifact?.tag ?? null, expected.tag, "stale_installed_artifact");
+      if (expected.assetName) {
+        checkEqual(
+          checks,
+          `${serviceId} installed artifact asset matches platform`,
+          live.lifecycle?.installArtifacts?.artifact?.assetName ?? null,
+          expected.assetName,
+          "stale_installed_artifact",
+        );
+      }
+    }
+
+    if (sourceServiceAdmin) {
+      check(checks, `${serviceId} advertised ui reachable through source Admin`, true, null, `${resolved.serviceAdminUrl}: HTTP ${serviceAdmin.status}`);
+      continue;
+    }
+
+    for (const [portName, port] of Object.entries(expected.ports)) {
+      checkEqual(
+        checks,
+        `${serviceId} runtime port ${portName} matches manifest`,
+        live.lifecycle?.runtime?.ports?.[portName] ?? null,
+        port,
+        "wrong_service_port",
+      );
+    }
+
+    if (expected.providerRole) {
+      check(checks, `${serviceId} advertised URL reachability not applicable`, expected.reachabilityTargets.length === 0, "unexpected_provider_url", `targets=${expected.reachabilityTargets.length}`);
+      continue;
+    }
+
+    const runtimePorts = live.lifecycle?.runtime?.ports ?? expected.ports;
+    const manifest = await readJson(path.join(expected.serviceRoot, "service.json"));
+    const targets = buildReachabilityTargets(serviceId, manifest, runtimePorts);
+    if (targets.length === 0) {
+      check(checks, `${serviceId} has no advertised URL reachability target`, true, null, "not applicable");
+    }
+    for (const target of targets) {
+      await checkReachabilityTarget(checks, serviceId, target, fetchImpl, resolved.timeoutMs);
+    }
+  }
+
+  return {
+    ok: checks.every((entry) => entry.ok),
+    checks,
+    failures: checks.filter((entry) => !entry.ok),
+    summary: {
+      runtimeUrl: resolved.runtimeUrl,
+      serviceAdminUrl: resolved.serviceAdminUrl,
+      servicesRoot: resolved.servicesRoot,
+      workspaceRoot: resolved.workspaceRoot,
+      generationId: runtimeInstance.body?.instance?.generationId ?? resolved.generationId ?? null,
+      services: serviceSummaries,
+    },
+  };
+}
+
+export function formatCanonicalVerifierResult(result) {
+  const summary = result.summary ?? {};
+  const services = Array.isArray(summary.services) ? summary.services : [];
+  const lines = [
+    `[service-lasso demo] canonical verifier ${result.ok ? "passed" : "failed"}`,
+    `- runtime: ${summary.runtimeUrl ?? "unknown"}`,
+    `- serviceAdmin: ${summary.serviceAdminUrl ?? "unknown"}`,
+    `- servicesRoot: ${summary.servicesRoot ?? "unknown"}`,
+    `- workspaceRoot: ${summary.workspaceRoot ?? "unknown"}`,
+  ];
+
+  if (services.length > 0) {
+    lines.push("- release pins:");
+    for (const service of services) {
+      lines.push(
+        `  - ${service.id}: expected=${service.expectedTag} catalog=${service.catalogTag} installed=${service.installedTag} prepared=${service.installed}/${service.configured} running=${service.running} healthy=${service.healthy}`,
+      );
+    }
+  }
+
+  lines.push("- checks:");
+  for (const checkResult of result.checks) {
+    lines.push(
+      `  - ${checkResult.ok ? "ok" : "FAIL"} ${checkResult.name}${checkResult.ok ? "" : ` [${checkResult.code}]`}: ${checkResult.detail}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  const result = await verifyCanonicalDemo(resolveCanonicalVerifierOptions());
+  console.log(formatCanonicalVerifierResult(result));
+  process.exitCode = result.ok ? 0 : 1;
 }

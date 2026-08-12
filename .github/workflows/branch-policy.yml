@@ -1,0 +1,59 @@
+name: Branch Policy
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-direction:
+    name: Validate branch direction
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check pull request direction
+        env:
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$BASE_BRANCH" == "main" ]]; then
+            if [[ "$HEAD_BRANCH" != "develop" && "$HEAD_BRANCH" != hotfix/* ]]; then
+              echo "Normal development must never target main. Only develop promotion or an authorised hotfix/* branch is allowed." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [[ "$BASE_BRANCH" != "develop" ]]; then
+            echo "Pull requests must target develop, except explicit develop-to-main promotion or authorised hotfix work." >&2
+            exit 1
+          fi
+
+          if [[ "$HEAD_BRANCH" == "main" ]]; then
+            echo "main is not a development source and must not be merged into develop directly." >&2
+            exit 1
+          fi
+
+          if [[ ! "$HEAD_BRANCH" =~ ^(feature|fix|docs|chore)/ ]]; then
+            echo "Normal work branches must use feature/, fix/, docs/, or chore/ and be issue-scoped." >&2
+            exit 1
+          fi
+
+      - name: Check develop ancestry
+        if: github.event.pull_request.base.ref == 'develop'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git init branch-policy-check
+          cd branch-policy-check
+          git remote add origin "${{ github.server_url }}/${{ github.repository }}.git"
+          git fetch --no-tags --depth=1 origin develop
+          git fetch --no-tags --depth=200 origin "$HEAD_SHA"
+          git merge-base --is-ancestor origin/develop "$HEAD_SHA" || {
+            echo "The pull request branch is not based on current develop. Update it from develop before review." >&2
+            exit 1
+          }

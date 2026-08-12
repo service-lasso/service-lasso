@@ -1,5 +1,5 @@
 import type { DiscoveredService } from "../../contracts/service.js";
-import { resolveServiceText } from "../operator/variables.js";
+import { resolveServiceText, type ServiceTextResolutionOptions } from "../operator/variables.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 
 export function selectPlatformCommandline(
@@ -60,11 +60,12 @@ export function resolveExecutionArgs(
   executionPlan: ProviderExecutionPlan,
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
+  options: ServiceTextResolutionOptions = {},
 ): string[] {
   const commandline = selectPlatformCommandline(service.manifest.commandline);
   if (!commandline) {
-    return executionPlan.args;
+    return executionPlan.args.map((arg) => resolveServiceText(arg, service, sharedGlobalEnv, resolvedPorts, options));
   }
 
-  return parseCommandlineArgs(resolveServiceText(commandline, service, sharedGlobalEnv, resolvedPorts));
+  return parseCommandlineArgs(resolveServiceText(commandline, service, sharedGlobalEnv, resolvedPorts, options));
 }

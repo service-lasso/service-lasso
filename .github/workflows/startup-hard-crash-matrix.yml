@@ -1,0 +1,52 @@
+name: Startup hard-crash matrix
+
+on:
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  startup-hard-crash:
+    name: startup-hard-crash (${{ matrix.os }}, ${{ matrix.phase }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        phase:
+          - preflight_reconciliation
+          - allocation_reserved
+          - configuration_materialized
+          - process_spawned
+          - ownership_persisted
+          - owned_readiness_proven
+          - generation_committed
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build runtime
+        run: npm run build
+
+      - name: Verify startup hard-crash recovery phase
+        env:
+          SERVICE_LASSO_HARD_CRASH_PHASE: ${{ matrix.phase }}
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-hard-crash-instances.json
+        run: node --test --test-concurrency=1 tests/startup-hard-crash-matrix.test.js

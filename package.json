@@ -6,7 +6,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
-    "packages/core"
+    "packages/core",
+    "packages/image-size-safe"
   ],
   "engines": {
     "node": ">=22"
@@ -23,36 +24,53 @@
     "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
     "verify:package-consumer": "npm run build && node scripts/verify-package-consumer.mjs",
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
+    "verify:real-app-e2e": "npm run build && node scripts/verify-real-app-e2e.mjs",
+    "verify:multi-instance-ports": "npm run build && node scripts/verify-multi-instance-ports.mjs",
+    "verify:service-catalog": "npm run build && node scripts/verify-service-catalog.mjs",
+    "local:multi-instance": "npm run build && node scripts/start-local-multi-instance.mjs",
     "verify:reference-app-lifecycle": "npm run build && node scripts/verify-reference-app-lifecycle.mjs",
     "verify:service-updates": "npm run build && node scripts/verify-service-updates.mjs",
     "verify:recovery-hooks": "npm run build && node scripts/verify-recovery-hooks.mjs",
     "verify:echo-health": "npm run build && node scripts/verify-release-backed-echo-health.mjs",
     "verify:traefik-release": "npm run build && node scripts/verify-release-backed-traefik.mjs",
+    "demo": "npm run build && node scripts/demo-start.mjs --port=17883",
     "demo:start": "npm run build && node scripts/demo-start.mjs",
     "demo:watchdog": "npm run build && node scripts/demo-watchdog.mjs",
     "demo:recycle": "npm run build && node scripts/demo-recycle.mjs",
     "demo:gate": "npm run build && node scripts/demo-gate.mjs",
     "demo:status": "node scripts/demo-status.mjs",
     "demo:verify-canonical": "node scripts/demo-verify-canonical.mjs",
+    "demo:worktree-proof": "npm run build && node scripts/demo-worktree-proof.mjs",
     "demo:reset": "npm run build && node scripts/demo-reset.mjs",
+    "demo:deploy-canonical": "npm run build && node scripts/demo-deploy-canonical.mjs",
     "demo:smoke": "npm run build && node scripts/demo-smoke.mjs",
     "docs:start": "docusaurus start docs",
     "docs:build": "docusaurus build docs",
     "docs:serve": "docusaurus serve docs",
-    "docs:clear": "docusaurus clear docs"
+    "docs:clear": "docusaurus clear docs",
+    "audit:production": "npm audit --omit=dev --audit-level=low",
+    "audit:tooling": "npm audit --audit-level=high",
+    "release:assets:expected": "node scripts/check-release-assets.mjs --expected",
+    "release:assets:check": "node scripts/check-release-assets.mjs",
+    "bootstrap:local-sso": "node scripts/local-sso-bootstrap.mjs",
+    "test:local-sso": "npm run build && node --test --test-concurrency=1 tests/local-sso-bootstrap.test.js",
+    "test:local-sso-loop": "npm run build && node --test --test-concurrency=1 tests/local-sso-loop-smoke.test.js"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
-    "tar": "^7.5.2"
+    "adm-zip": "0.6.0",
+    "tar": "7.5.22"
   },
   "devDependencies": {
-    "@docusaurus/core": "3.9.2",
-    "@docusaurus/preset-classic": "3.9.2",
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@types/adm-zip": "^0.5.7",
     "@types/node": "^24.5.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "serialize-javascript": "7.1.0"
   }
 }

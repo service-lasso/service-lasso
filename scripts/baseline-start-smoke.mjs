@@ -12,6 +12,12 @@ const coreTraefikManifest = JSON.parse(
 const coreNodeManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@node", "service.json"), "utf8"),
 );
+const coreArchiveManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@archive", "service.json"), "utf8"),
+);
+const corePythonManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "services", "@python", "service.json"), "utf8"),
+);
 const coreJavaManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@java", "service.json"), "utf8"),
 );
@@ -29,6 +35,14 @@ const nodeReleaseVersion = coreNodeManifest.artifact?.source?.tag;
 if (!nodeReleaseVersion) {
   throw new Error("Core @node manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
+const archiveReleaseVersion = coreArchiveManifest.artifact?.source?.tag;
+if (!archiveReleaseVersion) {
+  throw new Error("Core @archive manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
+const pythonReleaseVersion = corePythonManifest.artifact?.source?.tag;
+if (!pythonReleaseVersion) {
+  throw new Error("Core @python manifest must be pinned to artifact.source.tag for baseline smoke.");
+}
 const javaReleaseVersion = coreJavaManifest.artifact?.source?.tag;
 if (!javaReleaseVersion) {
   throw new Error("Core @java manifest must be pinned to artifact.source.tag for baseline smoke.");
@@ -41,6 +55,9 @@ const nginxReleaseVersion = coreNginxManifest.artifact?.source?.tag;
 if (!nginxReleaseVersion) {
   throw new Error("Core @nginx manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
+
+const baselineProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+const baselineDaemonServiceIds = new Set(["@nginx", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,7 +182,7 @@ async function writeLongRunningService(servicesRoot, serviceId, options = {}) {
     executable: process.execPath,
     args: [path.relative(serviceRoot, scriptPath)],
     depend_on: options.depend_on,
-    healthcheck: { type: "process" },
+    healthchecks: [{ id: "process-health", type: "process" }],
     install: {
       files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }],
     },
@@ -185,13 +202,33 @@ async function writeNodeProviderService(servicesRoot) {
   });
 }
 
-async function writeProviderDependencyService(servicesRoot, serviceId) {
+async function writeProviderDependencyService(servicesRoot, serviceId, options = {}) {
   await writeJson(path.join(servicesRoot, serviceId, "service.json"), {
     id: serviceId,
     name: serviceId,
     description: `Baseline smoke provider dependency for ${serviceId}.`,
     role: "provider",
-    enabled: true,
+    enabled: options.enabled ?? true,
+  });
+}
+
+async function writeArchiveProviderService(servicesRoot) {
+  const serviceId = "@archive";
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+  await writeJson(path.join(serviceRoot, "service.json"), {
+    ...coreArchiveManifest,
+    enabled: false,
+  });
+}
+
+async function writePythonProviderService(servicesRoot) {
+  const serviceId = "@python";
+  const serviceRoot = path.join(servicesRoot, serviceId);
+  await mkdir(path.join(serviceRoot, "runtime"), { recursive: true });
+  await writeJson(path.join(serviceRoot, "service.json"), {
+    ...corePythonManifest,
+    enabled: false,
   });
 }
 
@@ -245,25 +282,48 @@ async function writeNginxService(servicesRoot, httpPort) {
         [process.platform]: nginxPlatformArtifact(),
       },
     },
-    healthcheck: {
-      ...coreNginxManifest.healthcheck,
-      url: `http://127.0.0.1:${httpPort}/health`,
-    },
+    healthchecks: [
+      {
+        ...coreNginxManifest.healthchecks[0],
+        url: `http://127.0.0.1:${httpPort}/health`,
+      },
+    ],
   });
 }
 
 function assertBaselineServiceSummary(service) {
+  if (service.status === "skipped") {
+    assert(
+      service.message.includes(`host platform "${process.platform}"`),
+      `${service.serviceId} was skipped without an explicit host platform reason.`,
+    );
+    assert(service.actions.some((action) => action.action === "install" && action.status === "skipped"));
+    return;
+  }
+
   assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
   assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
 
-  if (["@java", "@localcert", "@node"].includes(service.serviceId)) {
+  if (["@archive", "@java", "@localcert", "@node", "@python"].includes(service.serviceId)) {
     const startAction = service.actions.find((action) => action.action === "start");
     assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
     assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
+    if (service.serviceId === "@archive") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === archiveReleaseVersion,
+        "@archive provider did not install from the pinned release artifact.",
+      );
+    }
     if (service.serviceId === "@node") {
       assert(
         service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
         "@node provider did not install from the pinned release artifact.",
+      );
+    }
+    if (service.serviceId === "@python") {
+      assert(
+        service.state.installArtifacts?.artifact?.tag === pythonReleaseVersion,
+        "@python provider did not install from the pinned release artifact.",
       );
     }
     if (service.serviceId === "@localcert") {
@@ -321,7 +381,16 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
     depend_on: options.depend_on,
     ports: options.ports,
     urls: options.urls,
-    healthcheck: { type: "http", url: options.healthUrl, expected_status: 200, retries: 20, interval: 250 },
+    healthchecks: [
+      {
+        id: "http-health",
+        type: "http",
+        url: options.healthUrl,
+        expected_status: 200,
+        retries: 20,
+        interval: 250,
+      },
+    ],
     install: {
       files: [{ path: "./runtime/install.txt", content: "installed ${SERVICE_ID}\n" }],
     },
@@ -414,13 +483,16 @@ async function writeTraefikService(servicesRoot, ports, options = {}) {
         },
       ],
     },
-    healthcheck: {
-      type: "http",
-      url: `http://127.0.0.1:${ports.admin}/ping`,
-      expected_status: 200,
-      retries: 80,
-      interval: 250,
-    },
+    healthchecks: [
+      {
+        id: "traefik-ping-health",
+        type: "http",
+        url: `http://127.0.0.1:${ports.admin}/ping`,
+        expected_status: 200,
+        retries: 80,
+        interval: 250,
+      },
+    ],
   });
 }
 
@@ -478,6 +550,123 @@ function assert(condition, message) {
   }
 }
 
+function summarizeLogEntries(entries) {
+  return entries.slice(-5).map((entry) => `${entry.level}:${entry.message}`);
+}
+
+function buildBaselineFailureEvidence(serviceId, service, logs, chunk) {
+  const runtime = service?.lifecycle?.runtime;
+  return {
+    serviceId,
+    lifecycle: {
+      installed: service?.lifecycle?.installed ?? null,
+      configured: service?.lifecycle?.configured ?? null,
+      running: service?.lifecycle?.running ?? null,
+      lastAction: service?.lifecycle?.lastAction ?? null,
+      actionHistory: service?.lifecycle?.actionHistory ?? [],
+    },
+    health: service?.health ?? null,
+    runtime: {
+      pid: runtime?.pid ?? null,
+      ports: runtime?.ports ?? {},
+      command: runtime?.command ?? null,
+      logs: runtime?.logs ?? null,
+    },
+    logApi: logs
+      ? {
+          logPath: logs.logPath,
+          stdoutPath: logs.stdoutPath,
+          stderrPath: logs.stderrPath,
+          entries: summarizeLogEntries(logs.entries ?? []),
+          archiveCount: logs.archives?.length ?? 0,
+          retention: logs.retention ?? null,
+        }
+      : null,
+    logReadApi: chunk
+      ? {
+          path: chunk.path,
+          totalLines: chunk.totalLines,
+          returnedLines: chunk.lines?.length ?? 0,
+          tail: chunk.lines?.slice(-5) ?? [],
+        }
+      : null,
+  };
+}
+
+function assertServiceEvidence(condition, serviceId, message, evidence) {
+  if (!condition) {
+    throw new Error(`${serviceId}: ${message}\n${JSON.stringify(evidence, null, 2)}`);
+  }
+}
+
+async function assertBaselineServiceDetail(serviceId, service, summary) {
+  const evidence = buildBaselineFailureEvidence(serviceId, service);
+  assertServiceEvidence(service?.lifecycle?.installed === true, serviceId, "service was not installed.", evidence);
+  assertServiceEvidence(service.lifecycle?.configured === true, serviceId, "service was not configured.", evidence);
+  assertServiceEvidence(service.health?.healthy === true, serviceId, "service health did not report healthy.", evidence);
+
+  if (baselineProviderServiceIds.has(serviceId)) {
+    assertServiceEvidence(service.lifecycle?.running === false, serviceId, "provider service should not be marked running.", evidence);
+    assertServiceEvidence(summary?.actions.some((action) => action.action === "start" && action.status === "skipped") === true, serviceId, "provider start was not explicitly skipped.", evidence);
+    return;
+  }
+
+  assertServiceEvidence(baselineDaemonServiceIds.has(serviceId), serviceId, "service is neither an expected daemon nor provider baseline service.", evidence);
+  assertServiceEvidence(service.lifecycle?.running === true, serviceId, "daemon service was not running.", evidence);
+  assertServiceEvidence(Number.isInteger(service.lifecycle?.runtime?.pid), serviceId, "daemon service did not expose a runtime pid.", evidence);
+}
+
+async function assertBaselineServiceLogs(apiPort, serviceId, service) {
+  const encodedServiceId = encodeURIComponent(serviceId);
+  const logsPayload = await waitForJson(`http://127.0.0.1:${apiPort}/api/services/${encodedServiceId}/logs`);
+  const logs = logsPayload.logs;
+  const chunk = await waitForJson(
+    `http://127.0.0.1:${apiPort}/api/logs/read?service=${encodedServiceId}&type=default&limit=20`,
+  );
+  const evidence = buildBaselineFailureEvidence(serviceId, service, logs, chunk);
+  const expectedLogSuffix = path.join(serviceId, "logs", "runtime", "service.log");
+  const expectedStdoutSuffix = path.join(serviceId, "logs", "runtime", "stdout.log");
+  const expectedStderrSuffix = path.join(serviceId, "logs", "runtime", "stderr.log");
+
+  assertServiceEvidence(logs?.serviceId === serviceId, serviceId, "operator log payload returned the wrong service id.", evidence);
+  assertServiceEvidence(
+    typeof logs.logPath === "string" && logs.logPath.endsWith(expectedLogSuffix),
+    serviceId,
+    "operator log payload did not include the runtime service log path.",
+    evidence,
+  );
+  assertServiceEvidence(
+    typeof logs.stdoutPath === "string" && logs.stdoutPath.endsWith(expectedStdoutSuffix),
+    serviceId,
+    "operator log payload did not include the runtime stdout log path.",
+    evidence,
+  );
+  assertServiceEvidence(
+    typeof logs.stderrPath === "string" && logs.stderrPath.endsWith(expectedStderrSuffix),
+    serviceId,
+    "operator log payload did not include the runtime stderr log path.",
+    evidence,
+  );
+  assertServiceEvidence(Array.isArray(logs.entries), serviceId, "operator log entries were not an array.", evidence);
+  assertServiceEvidence(
+    logs.entries.length > 0 || Number.isInteger(chunk?.totalLines),
+    serviceId,
+    "operator logs exposed neither synthetic lifecycle metadata nor retrievable log state.",
+    evidence,
+  );
+  assertServiceEvidence(chunk?.serviceId === serviceId, serviceId, "log reader returned the wrong service id.", evidence);
+  assertServiceEvidence(Number.isInteger(chunk.totalLines), serviceId, "log reader did not expose total line state.", evidence);
+
+  if (baselineDaemonServiceIds.has(serviceId)) {
+    assertServiceEvidence(
+      logs.entries.length > 0 || chunk.totalLines > 0,
+      serviceId,
+      "daemon service did not expose runtime log content.",
+      evidence,
+    );
+  }
+}
+
 const smokeTempParent = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Temp") : os.tmpdir();
 const tempRoot = await mkdtemp(path.join(smokeTempParent, "service-lasso-baseline-start-smoke-"));
 const servicesRoot = path.join(tempRoot, "services");
@@ -488,15 +677,25 @@ const traefikWebPort = await reserveLoopbackPort();
 const nginxHttpPort = await reserveLoopbackPort();
 const echoPort = await reserveLoopbackPort();
 const adminPort = await reserveLoopbackPort();
+const secretsBrokerPort = await reserveLoopbackPort();
 let cli = null;
 let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
+  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
+  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
+  await writeArchiveProviderService(servicesRoot);
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
+  await writePythonProviderService(servicesRoot);
+  await writeHttpService(servicesRoot, "@secretsbroker", "service", {
+    ports: { service: secretsBrokerPort },
+    urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
+    healthUrl: `http://127.0.0.1:${secretsBrokerPort}/health`,
+  });
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
@@ -521,22 +720,24 @@ try {
 
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
+  const expectedServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"];
+  if (serviceIds.includes("@python")) {
+    expectedServiceIds.splice(5, 0, "@python");
+  }
   assert(
-    JSON.stringify(serviceIds) === JSON.stringify(["@java", "@localcert", "@nginx", "@node", "@serviceadmin", "@traefik", "echo-service"]),
+    JSON.stringify(serviceIds) === JSON.stringify(expectedServiceIds),
     `Unexpected service list: ${JSON.stringify(serviceIds)}`,
   );
 
   for (const serviceId of serviceIds) {
     const detail = await waitForJson(`http://127.0.0.1:${apiPort}/api/services/${encodeURIComponent(serviceId)}`);
     const service = detail.service;
-    assert(service?.lifecycle?.installed === true, `${serviceId} was not installed.`);
-    assert(service.lifecycle?.configured === true, `${serviceId} was not configured.`);
-    assert(service.health?.healthy === true, `${serviceId} health did not report healthy.`);
-    if (["@java", "@localcert", "@node"].includes(serviceId)) {
-      assert(service.lifecycle?.running === false, `${serviceId} provider should not be marked running.`);
-    } else {
-      assert(service.lifecycle?.running === true, `${serviceId} was not running.`);
+    const summary = cliSummary.services.find((entry) => entry.serviceId === serviceId);
+    if (!cliSummary.requestedServiceIds.includes(serviceId) || summary?.status === "skipped") {
+      continue;
     }
+    await assertBaselineServiceDetail(serviceId, service, summary);
+    await assertBaselineServiceLogs(apiPort, serviceId, service);
   }
 
   const nginx = await fetch(`http://127.0.0.1:${nginxHttpPort}/health`);
@@ -545,6 +746,8 @@ try {
   assert(echo.ok, "Echo Service health surface was not reachable.");
   const admin = await fetch(`http://127.0.0.1:${adminPort}/health`);
   assert(admin.ok, "Service Admin health surface was not reachable.");
+  const secretsBroker = await fetch(`http://127.0.0.1:${secretsBrokerPort}/health`);
+  assert(secretsBroker.ok, "Secrets Broker health surface was not reachable.");
   const traefik = await fetch(`http://127.0.0.1:${traefikAdminPort}/ping`);
   assert(traefik.ok, "Traefik release-backed ping surface was not reachable.");
 

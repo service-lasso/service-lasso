@@ -30,9 +30,10 @@ Use [service.json Reference](../reference/service-json-reference.md) for field-l
 
 Managed services usually also need:
 
-- `ports` for named service ports
+- `endpoints[]` for named network interfaces and their
+  `automatic`/`preferred`/`fixed` port policies
 - `urls` for operator-facing links
-- `healthcheck` for process, HTTP, TCP, file, or variable readiness
+- `healthchecks[]` for process, HTTP, TCP, file, or variable readiness
 - `env` for service-local runtime values
 - `globalenv` for values other services can consume
 - `depend_on` for startup ordering
@@ -45,11 +46,21 @@ Provider services usually need:
 - `globalenv` entries that expose installed tool paths
 - a cheap probe/version command where useful
 - setup steps when the provider must generate local files, install trust material, or prepare a tool cache
-- no long-running daemon healthcheck unless the provider truly starts a process
+- no long-running daemon healthcheck item unless the provider truly starts a process
 
 ## Add Setup Steps When Needed
 
 Use `setup.steps` for work that must execute locally after install/config but should not be supervised as a long-running daemon. Common examples include generating local certificates, installing service-local Python dependencies, creating a database schema, or loading sample data.
+
+This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](../reference/one-shot-jobs.md) for CLI/API behavior, dependency ordering, provider-backed execution, rerun policy, and persisted setup history.
+Use [Startup Endpoint Allocation](../reference/startup-endpoint-allocation.md)
+to distinguish author proposals from resolved runtime selectors. Generated
+files, command lines, URLs, and health checks should reference
+`${endpoint.<id>.<field>}` instead of copying numeric defaults.
+Use [Setup Helper Conventions](setup-helper-conventions.md) when a setup step is better maintained as service-owned helper code instead of a long inline command.
+Use [Legacy Setup Migration](../reference/legacy-setup-migration.md) when
+converting donor-era `execconfig.setup` arrays or punctuation-prefixed setup
+lines into `setup.steps`.
 
 ```json
 {
@@ -57,6 +68,7 @@ Use `setup.steps` for work that must execute locally after install/config but sh
     "steps": {
       "generate-cert": {
         "description": "Generate local development certificates.",
+        "cwd": "${SERVICE_ROOT}",
         "commandline": {
           "win32": "mkcert.exe -key-file \"${SERVICE_DATA_PATH}\\mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}\\mkcert.pem\" *.localhost",
           "default": "mkcert -key-file \"${SERVICE_DATA_PATH}/mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}/mkcert.pem\" *.localhost"
@@ -73,9 +85,12 @@ Rules:
 
 - No `execservice` means the setup command runs directly.
 - `execservice` runs the setup step through a provider such as `@node`, `@python`, or `@java`.
+- `cwd` optionally picks the working directory for the setup command. It uses the same variable selectors as `commandline` and `env`, defaults to the service root, and must resolve to an existing directory inside the service root.
 - `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
 - `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
 - `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.
+
+Keep setup steps visible in the manifest even when the implementation delegates to `scripts/lasso-<service>.mjs` or platform scripts under `scripts/setup/`. The manifest remains the operator-readable contract; helper code owns the detailed orchestration, idempotence checks, readiness polling, exit codes, logging, and sensitive-value handling.
 
 ## Pin the Release
 
@@ -89,6 +104,16 @@ The manifest must point to a real release asset:
       "type": "github-release",
       "repo": "service-lasso/lasso-example",
       "tag": "2026.4.29-abc1234"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-example-win32.zip",
+        "archiveType": "zip",
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
+      }
     }
   }
 }
@@ -96,10 +121,13 @@ The manifest must point to a real release asset:
 
 The release tag uses `yyyy.m.d-<shortsha>`. Artifact names should include the exact upstream service, runtime, framework, or tool version.
 
+For release-backed services, declare checksum verification per platform whenever the release publishes a checksum. Use either a direct SHA-256 `checksum.value` or a release checksum asset such as `checksum.assetName: "SHA256SUMS.txt"`. Service Lasso verifies the archive before extraction or install state mutation and fails closed on missing, malformed, unsupported, or mismatched checksum evidence.
+
 ## Exit Criteria
 
 Move to step 3 only when:
 
 - `service.json` can identify the exact GitHub release asset to download
+- release-backed archive checksums are declared when the release publishes them
 - commands, env, dependencies, ports, and health checks match the planned service shape
 - the manifest can be copied into `services/<service-id>/service.json` without needing a second hidden metadata file

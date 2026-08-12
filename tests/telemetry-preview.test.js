@@ -1,0 +1,1711 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { startApiServer } from "../dist/server/index.js";
+import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { assertNoSecretMaterial } from "../dist/testing/secretLeakHarness.js";
+import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
+
+const rawSecretSentinel = "SERVICE_LASSO_FAKE_OTEL_SECRET_SENTINEL_DO_NOT_USE";
+const sentinels = [
+  {
+    label: "otel-secret-sentinel",
+    value: rawSecretSentinel,
+    description: "Fake OTEL secret sentinel used for redaction regression tests.",
+  },
+];
+
+async function getJson(url) {
+  const response = await fetch(url);
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function postJson(url) {
+  const response = await fetch(url, { method: "POST" });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function startMockCollector() {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.from(chunk));
+    }
+    requests.push({
+      method: request.method,
+      url: request.url,
+      headers: request.headers,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    response.statusCode = 202;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ accepted: true }));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    requests,
+    url: `http://127.0.0.1:${address.port}/v1/traces`,
+    stop: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}
+
+async function startMockBrokerTelemetry(payload) {
+  const server = createServer((request, response) => {
+    if (request.url !== "/v1/telemetry") {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+
+    response.statusCode = 200;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify(payload));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  return {
+    port: address.port,
+    stop: () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}
+
+async function waitFor(predicate, timeoutMs = 2000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(predicate(), true);
+}
+
+async function writeUpdateState(serviceRoot, state) {
+  const stateRoot = path.join(serviceRoot, ".state");
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(path.join(stateRoot, "updates.json"), JSON.stringify(state, null, 2));
+}
+
+async function writeSetupState(serviceRoot, state) {
+  const stateRoot = path.join(serviceRoot, ".state");
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(path.join(stateRoot, "setup.json"), JSON.stringify(state, null, 2));
+}
+
+function assertAllowlistedSignals(telemetry) {
+  const allowed = new Set(telemetry.redaction.allowedAttributes);
+
+  for (const service of telemetry.services) {
+    assert.equal(typeof service.serviceId, "string");
+    for (const signal of service.signals) {
+      assert.match(signal.traceId, /^[a-f0-9]{32}$/);
+      assert.match(signal.spanId, /^[a-f0-9]{16}$/);
+      assert.equal(signal.traceparent, `00-${signal.traceId}-${signal.spanId}-01`);
+      assert.match(signal.correlationId, /^sl-[a-f0-9]{16}$/);
+      assert.ok(signal.kind === "span" || signal.kind === "metric");
+      for (const key of Object.keys(signal.attributes)) {
+        assert.equal(allowed.has(key), true, key);
+      }
+    }
+  }
+
+  for (const request of telemetry.apiRequests ?? []) {
+    assert.equal(typeof request.routeGroup, "string");
+    assert.equal(typeof request.routeTemplate, "string");
+    assert.equal(request.routeTemplate.includes(rawSecretSentinel), false);
+    assert.match(request.signal.traceId, /^[a-f0-9]{32}$/);
+    assert.match(request.signal.spanId, /^[a-f0-9]{16}$/);
+    assert.equal(request.signal.traceparent, `00-${request.signal.traceId}-${request.signal.spanId}-01`);
+    assert.match(request.signal.correlationId, /^sl-[a-f0-9]{16}$/);
+    assert.equal(request.signal.kind, "span");
+    for (const key of Object.keys(request.signal.attributes)) {
+      assert.equal(allowed.has(key), true, key);
+    }
+  }
+}
+
+function assertSafeLatencyBuckets(summary) {
+  const allowed = new Set(["lt_50ms", "50_249ms", "250_999ms", "1s_plus"]);
+  const total = summary.latencyBuckets.reduce((count, bucket) => {
+    assert.equal(allowed.has(bucket.key), true, bucket.key);
+    assert.equal(Number.isInteger(bucket.count), true);
+    assert.equal(bucket.count > 0, true);
+    return count + bucket.count;
+  }, 0);
+
+  assert.equal(total, summary.retainedCount);
+}
+
+test("GET /api/telemetry returns redacted OTEL-shaped lifecycle and health metadata", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-preview-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-consumer", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+      PUBLIC_MODE: "demo",
+    },
+    globalenv: {
+      UPSTREAM_PASSWORD: rawSecretSentinel,
+    },
+    config: {
+      files: [
+        {
+          path: "config/app.env",
+          content: "TOKEN=" + rawSecretSentinel,
+        },
+      ],
+    },
+  });
+
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://collector.example/v1/traces?token=" + rawSecretSentinel;
+  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel;
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "dry-run";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.contractVersion, "service-lasso.telemetry-preview.v1");
+    assert.deepEqual(result.body.telemetry.resource, {
+      serviceName: "service-lasso-core",
+      serviceNamespace: "service-lasso",
+      serviceInstanceId: "local-runtime",
+    });
+    assert.deepEqual(result.body.telemetry.traceContext, {
+      propagation: "w3c-trace-context",
+      responseHeaders: {
+        correlationId: "x-service-lasso-correlation-id",
+        traceId: "x-service-lasso-trace-id",
+        traceparent: "traceparent",
+      },
+      traceparentSampled: true,
+      incomingHeadersAccepted: false,
+      incomingHeadersReturned: false,
+      rawHeadersReturned: false,
+      routeTemplateOnly: true,
+    });
+    assert.equal(result.body.telemetry.exporter.status, "configured");
+    assert.equal(result.body.telemetry.exporter.endpointConfigured, true);
+    assert.equal(result.body.telemetry.exporter.endpointValueReturned, false);
+    assert.equal(result.body.telemetry.exporter.headersValueReturned, false);
+    assert.deepEqual(result.body.telemetry.apiRequests, []);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 0,
+      droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
+      retainedCount: 0,
+      droppedCount: 0,
+      totalObservedCount: 0,
+      mutatingCount: 0,
+      routeGroups: [],
+      statusClasses: [],
+      outcomes: [],
+      latencyBuckets: [],
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.deepEqual(result.body.telemetry.exportPreview, {
+      mode: "dry_run",
+      status: "not_sent",
+      protocol: "otlp-http",
+      contentType: "application/json",
+      signalCount: 33,
+      serviceCount: 1,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      allowedAttributeCount: result.body.telemetry.redaction.allowedAttributes.length,
+      droppedFieldClasses: result.body.telemetry.redaction.forbiddenFieldClasses,
+      safeEnvelopeFields: [
+        "resource.serviceName",
+        "resource.serviceNamespace",
+        "resource.serviceInstanceId",
+        "signals.kind",
+        "signals.name",
+        "signals.traceId",
+        "signals.spanId",
+        "signals.traceparent",
+        "signals.correlationId",
+        "signals.attributes",
+        "apiRequests.routeGroup",
+        "apiRequests.routeTemplate",
+      ],
+      reason:
+        "Dry-run OTLP export envelope is ready for local verification; the runtime does not send telemetry from this preview API.",
+    });
+    assert.deepEqual(result.body.telemetry.continuousExport, {
+      status: "disabled",
+      intervalMs: null,
+      inFlight: false,
+      lastAttemptAt: null,
+      lastStatus: null,
+      exporterStatusCode: null,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersConfigured: true,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      reason:
+        "Continuous OTLP export is disabled until SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT, SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=export are configured.",
+    });
+    assert.equal(result.body.telemetry.services.length, 1);
+    assert.equal(result.body.telemetry.services[0].serviceId, "telemetry-consumer");
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 33);
+    assert.equal(result.body.telemetry.services[0].signals.length, 33);
+    const runtimeOperationSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.runtime.operation_count",
+    );
+    assert.deepEqual(
+      runtimeOperationSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "runtime_metrics.launch",
+        "runtime_metrics.stop",
+        "runtime_metrics.exit",
+        "runtime_metrics.crash",
+        "runtime_metrics.restart",
+      ],
+    );
+    assert.deepEqual(
+      runtimeOperationSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0, 0, 0],
+    );
+    const healthTransitionSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.health.transition_count",
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "health_history.total",
+        "health_history.healthy",
+        "health_history.unhealthy",
+        "health_history.flapping",
+      ],
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0, 0],
+    );
+    const dependencyReadinessSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.dependency.readiness_count",
+    );
+    assert.deepEqual(
+      dependencyReadinessSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      ["dependency.declared", "dependency.present", "dependency.missing"],
+    );
+    assert.deepEqual(
+      dependencyReadinessSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0],
+    );
+    const artifactReadinessSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.artifact.readiness_count",
+    );
+    assert.deepEqual(
+      artifactReadinessSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "artifact.manifest_source",
+        "artifact.platform_asset",
+        "artifact.installed",
+        "artifact.checksum_verified",
+      ],
+    );
+    assert.deepEqual(
+      artifactReadinessSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0, 0],
+    );
+    const networkEndpointSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.network.endpoint_count",
+    );
+    assert.deepEqual(
+      networkEndpointSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "network.endpoint.declared",
+        "network.endpoint.local",
+        "network.endpoint.external",
+        "network.endpoint.health",
+      ],
+    );
+    assert.deepEqual(
+      networkEndpointSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0, 0],
+    );
+    const updateStateSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.update.state_count",
+    );
+    assert.deepEqual(
+      updateStateSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "update.installed",
+        "update.available",
+        "update.downloaded_candidate",
+        "update.install_deferred",
+        "update.failed",
+      ],
+    );
+    assert.deepEqual(
+      updateStateSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [1, 0, 0, 0, 0],
+    );
+    const setupStateSignals = result.body.telemetry.services[0].signals.filter(
+      (signal) => signal.name === "service_lasso.service.setup.step_state_count",
+    );
+    assert.deepEqual(
+      setupStateSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      ["setup.declared", "setup.succeeded", "setup.failed", "setup.timeout", "setup.skipped"],
+    );
+    assert.deepEqual(
+      setupStateSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 0, 0, 0],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/telemetry-consumer/telemetry");
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.telemetry.serviceId, "telemetry-consumer");
+    assert.equal(serviceResult.body.telemetry.signals[0].name, "service_lasso.service.lifecycle");
+    assertNoSecretMaterial(serviceResult.body, { sentinels });
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/services/@secretsbroker/telemetry bridges broker metadata-only signals", async () => {
+  const broker = await startMockBrokerTelemetry({
+    signals: [
+      {
+        kind: "metric",
+        name: "secretsbroker.lockout.active",
+        traceId: "d789f733966031da58c194f5305109e6",
+        spanId: "22cdc9a0c7c81192",
+        correlationId: "sl-0f6b44a6927780a9",
+        attributes: {
+          "broker.lockout.active_count": 7,
+          ref: "secret://workspace/" + rawSecretSentinel,
+          authorization: "Bearer " + rawSecretSentinel,
+          requestBody: rawSecretSentinel,
+        },
+      },
+      {
+        kind: "metric",
+        name: "secretsbroker.api.request.duration_bucket",
+        traceId: "8700b0949e07647258219615ef9b3d44",
+        spanId: "18b217b95e407c44",
+        traceparent: "00-badbadbadbadbadbadbadbadbadbadba-18b217b95e407c44-01",
+        correlationId: "sl-1f4f0d9b105d5059",
+        attributes: {
+          "broker.api.duration_bucket": "lt_50ms",
+          "broker.api.method": "GET",
+          "broker.api.mutating": false,
+          "broker.api.route": "/v1/secrets/{ref}",
+          "broker.api.route_group": "secrets",
+          "broker.api.status_class": "2xx",
+          "broker.operation.count": 3,
+          "broker.operation.outcome": "ready",
+          query: "?token=" + rawSecretSentinel,
+        },
+      },
+    ],
+  });
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-broker-bridge-");
+  await writeManifest(servicesRoot, "@secretsbroker", {
+    id: "@secretsbroker",
+    name: "Secrets Broker",
+    description: "Local broker telemetry bridge fixture.",
+    version: "2026.6.27-test",
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    ports: {
+      service: broker.port,
+    },
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const serviceResult = await getJson(apiServer.url + "/api/services/%40secretsbroker/telemetry");
+
+    assert.equal(serviceResult.status, 200);
+    assert.equal(serviceResult.body.telemetry.serviceId, "@secretsbroker");
+    const signalNames = serviceResult.body.telemetry.signals.map((signal) => signal.name);
+    assert.equal(signalNames.includes("secretsbroker.lockout.active"), true);
+    assert.equal(signalNames.includes("secretsbroker.api.request.duration_bucket"), true);
+
+    const lockoutSignal = serviceResult.body.telemetry.signals.find(
+      (signal) => signal.name === "secretsbroker.lockout.active",
+    );
+    assert.equal(lockoutSignal.attributes["broker.lockout.active_count"], 7);
+    assert.equal(lockoutSignal.traceparent, `00-${lockoutSignal.traceId}-${lockoutSignal.spanId}-01`);
+
+    const durationSignal = serviceResult.body.telemetry.signals.find(
+      (signal) => signal.name === "secretsbroker.api.request.duration_bucket",
+    );
+    assert.equal(durationSignal.attributes["broker.api.route"], "/v1/secrets/{ref}");
+    assert.equal(durationSignal.attributes["broker.operation.count"], 3);
+    assert.equal(durationSignal.traceparent, `00-${durationSignal.traceId}-${durationSignal.spanId}-01`);
+    assert.equal(Object.keys(lockoutSignal.attributes).includes("authorization"), false);
+    assert.equal(Object.keys(lockoutSignal.attributes).includes("requestBody"), false);
+    assert.equal(Object.keys(durationSignal.attributes).includes("query"), false);
+    assertNoSecretMaterial(serviceResult.body, { sentinels });
+
+    const runtimeResult = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+    assert.equal(runtimeResult.status, 200);
+    const runtimeBrokerTelemetry = runtimeResult.body.telemetry.services.find(
+      (service) => service.serviceId === "@secretsbroker",
+    );
+    assert.ok(runtimeBrokerTelemetry);
+    assert.equal(
+      runtimeBrokerTelemetry.signals.some((signal) => signal.name === "secretsbroker.lockout.active"),
+      true,
+    );
+    assertNoSecretMaterial(runtimeResult.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await broker.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports update-state counts without release URLs or reasons", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-update-state-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "telemetry-update-state", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+  await writeUpdateState(serviceRoot, {
+    serviceId: "telemetry-update-state",
+    state: "downloadedCandidate",
+    updatedAt: "2026-06-26T00:00:00.000Z",
+    lastCheck: {
+      checkedAt: "2026-06-26T00:00:00.000Z",
+      status: "update_available",
+      reason: "Tracked release differs " + rawSecretSentinel,
+      sourceRepo: "service-lasso/lasso-" + rawSecretSentinel,
+      track: "latest",
+      installedTag: "2026.6.25-old",
+      manifestTag: "2026.6.25-old",
+      latestTag: "2026.6.26-new",
+    },
+    provenance: null,
+    available: {
+      tag: "2026.6.26-new",
+      version: null,
+      releaseUrl: "https://github.com/service-lasso/lasso-secret/releases/tag/" + rawSecretSentinel,
+      publishedAt: "2026-06-26T00:00:00.000Z",
+      assetName: "secret-" + rawSecretSentinel + ".zip",
+      assetUrl: "https://downloads.example/" + rawSecretSentinel + ".zip",
+    },
+    downloadedCandidate: {
+      tag: "2026.6.26-new",
+      version: null,
+      assetName: "secret-" + rawSecretSentinel + ".zip",
+      assetUrl: "https://downloads.example/" + rawSecretSentinel + ".zip",
+      archivePath: "C:/tmp/" + rawSecretSentinel + ".zip",
+      extractedPath: "C:/tmp/" + rawSecretSentinel,
+      downloadedAt: "2026-06-26T00:01:00.000Z",
+    },
+    installDeferred: {
+      reason: "maintenance window blocked " + rawSecretSentinel,
+      deferredAt: "2026-06-26T00:02:00.000Z",
+      nextEligibleAt: null,
+    },
+    failed: {
+      reason: "download failed " + rawSecretSentinel,
+      failedAt: "2026-06-26T00:03:00.000Z",
+      sourceStatus: "check_failed",
+    },
+    hookResults: [],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry?update=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-update-state",
+    );
+    assert.ok(serviceTelemetry);
+    const updateStateSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.update.state_count",
+    );
+    assert.deepEqual(
+      updateStateSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "update.installed",
+        "update.available",
+        "update.downloaded_candidate",
+        "update.install_deferred",
+        "update.failed",
+      ],
+    );
+    assert.deepEqual(
+      updateStateSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 1, 0, 0],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("downloads.example"), false);
+    assert.equal(serialized.includes("releaseUrl"), false);
+    assert.equal(serialized.includes("archivePath"), false);
+    assert.equal(serialized.includes("maintenance window blocked"), false);
+    assert.equal(serialized.includes("download failed"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/telemetry-update-state/telemetry");
+    assert.equal(serviceResult.status, 200);
+    const serviceUpdateSignals = serviceResult.body.telemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.update.state_count",
+    );
+    assert.deepEqual(
+      serviceUpdateSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [0, 0, 1, 0, 0],
+    );
+    assertNoSecretMaterial(serviceResult.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports setup step state counts without step ids or run detail", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-setup-state-");
+  const serviceRoot = await writeManifest(servicesRoot, "telemetry-setup-state", {
+    id: "telemetry-setup-state",
+    name: "Telemetry Setup State",
+    description: "Fixture with setup state metadata.",
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    setup: {
+      steps: {
+        ["init-" + rawSecretSentinel]: {
+          description: "Initialize " + rawSecretSentinel,
+          args: ["runtime/init-" + rawSecretSentinel + ".mjs"],
+          env: {
+            SETUP_TOKEN: rawSecretSentinel,
+          },
+        },
+        ["repair-" + rawSecretSentinel]: {
+          description: "Repair " + rawSecretSentinel,
+          args: ["runtime/repair-" + rawSecretSentinel + ".mjs"],
+        },
+        ["timeout-" + rawSecretSentinel]: {
+          description: "Timeout " + rawSecretSentinel,
+          args: ["runtime/timeout-" + rawSecretSentinel + ".mjs"],
+        },
+      },
+    },
+  });
+  const runBase = {
+    runId: "run-" + rawSecretSentinel,
+    serviceId: "telemetry-setup-state",
+    startedAt: "2026-06-26T00:00:00.000Z",
+    finishedAt: "2026-06-26T00:00:01.000Z",
+    durationMs: 1000,
+    command: "node runtime/setup-" + rawSecretSentinel + ".mjs",
+    exitCode: 0,
+    signal: null,
+    message: "setup completed " + rawSecretSentinel,
+    logs: {
+      logPath: "C:/tmp/" + rawSecretSentinel + "/setup.log",
+      stdoutPath: "C:/tmp/" + rawSecretSentinel + "/stdout.log",
+      stderrPath: "C:/tmp/" + rawSecretSentinel + "/stderr.log",
+    },
+  };
+  await writeSetupState(serviceRoot, {
+    updatedAt: "2026-06-26T00:00:02.000Z",
+    steps: {
+      ["init-" + rawSecretSentinel]: {
+        status: "succeeded",
+        lastRun: {
+          ...runBase,
+          stepId: "init-" + rawSecretSentinel,
+          status: "succeeded",
+        },
+        history: [],
+      },
+      ["repair-" + rawSecretSentinel]: {
+        status: "failed",
+        lastRun: {
+          ...runBase,
+          stepId: "repair-" + rawSecretSentinel,
+          status: "failed",
+          exitCode: 1,
+          message: "setup failed " + rawSecretSentinel,
+        },
+        history: [],
+      },
+      ["timeout-" + rawSecretSentinel]: {
+        status: "timeout",
+        lastRun: {
+          ...runBase,
+          stepId: "timeout-" + rawSecretSentinel,
+          status: "timeout",
+          exitCode: null,
+          message: "setup timed out " + rawSecretSentinel,
+        },
+        history: [],
+      },
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry?setup=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-setup-state",
+    );
+    assert.ok(serviceTelemetry);
+    const setupStateSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.setup.step_state_count",
+    );
+    assert.deepEqual(
+      setupStateSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      ["setup.declared", "setup.succeeded", "setup.failed", "setup.timeout", "setup.skipped"],
+    );
+    assert.deepEqual(
+      setupStateSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [3, 1, 1, 1, 0],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("setup.steps"), false);
+    assert.equal(serialized.includes("init-"), false);
+    assert.equal(serialized.includes("repair-"), false);
+    assert.equal(serialized.includes("timeout-"), false);
+    assert.equal(serialized.includes("setup completed"), false);
+    assert.equal(serialized.includes("setup failed"), false);
+    assert.equal(serialized.includes("setup.log"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/telemetry-setup-state/telemetry");
+    assert.equal(serviceResult.status, 200);
+    const serviceSetupSignals = serviceResult.body.telemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.setup.step_state_count",
+    );
+    assert.deepEqual(
+      serviceSetupSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [3, 1, 1, 1, 0],
+    );
+    assertNoSecretMaterial(serviceResult.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports health transition counts without transition detail", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-health-history-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-health-history", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const health = await getJson(apiServer.url + "/api/services/telemetry-health-history/health");
+    assert.equal(health.status, 200);
+    assert.equal(health.body.history.transitions.length, 1);
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-health-history",
+    );
+    assert.ok(serviceTelemetry);
+    const healthTransitionSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.health.transition_count",
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "health_history.total",
+        "health_history.healthy",
+        "health_history.unhealthy",
+        "health_history.flapping",
+      ],
+    );
+    assert.deepEqual(
+      healthTransitionSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [1, 0, 1, 0],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("transitions"), false);
+    assert.equal(serialized.includes("observed"), false);
+    assert.equal(serialized.includes("detail"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports dependency readiness counts without dependency identifiers", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-dependency-readiness-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-present-dependency", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "telemetry-dependent", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+    depend_on: ["telemetry-present-dependency", rawSecretSentinel],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry?dependency=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-dependent",
+    );
+    assert.ok(serviceTelemetry);
+    const dependencyReadinessSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.dependency.readiness_count",
+    );
+    assert.deepEqual(
+      dependencyReadinessSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      ["dependency.declared", "dependency.present", "dependency.missing"],
+    );
+    assert.deepEqual(
+      dependencyReadinessSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [2, 1, 1],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("depend_on"), false);
+    assert.equal(serialized.includes("telemetry-present-dependency"), true);
+    assertNoSecretMaterial(result.body, { sentinels });
+
+    const serviceResult = await getJson(apiServer.url + "/api/services/telemetry-dependent/telemetry");
+    assert.equal(serviceResult.status, 200);
+    const serviceDependencySignals = serviceResult.body.telemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.dependency.readiness_count",
+    );
+    assert.deepEqual(
+      serviceDependencySignals.map((signal) => signal.attributes["service.operation.count"]),
+      [2, 1, 1],
+    );
+    assertNoSecretMaterial(serviceResult.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports artifact readiness counts without artifact URLs or checksum values", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-artifact-readiness-");
+  await writeManifest(servicesRoot, "telemetry-artifact", {
+    id: "telemetry-artifact",
+    name: "telemetry-artifact",
+    description: "Fixture with release artifact metadata.",
+    artifact: {
+      kind: "archive",
+      source: {
+        type: "github-release",
+        repo: "service-lasso/lasso-telemetry-artifact",
+        tag: rawSecretSentinel,
+      },
+      platforms: {
+        default: {
+          assetName: "lasso-telemetry-artifact-" + rawSecretSentinel + ".zip",
+          assetUrl: "https://downloads.example/" + rawSecretSentinel + ".zip",
+          archiveType: "zip",
+          sha256: "0".repeat(64),
+          checksum: {
+            algorithm: "sha256",
+            value: "1".repeat(64),
+          },
+        },
+      },
+    },
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry?artifact=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-artifact",
+    );
+    assert.ok(serviceTelemetry);
+    const artifactReadinessSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.artifact.readiness_count",
+    );
+    assert.deepEqual(
+      artifactReadinessSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "artifact.manifest_source",
+        "artifact.platform_asset",
+        "artifact.installed",
+        "artifact.checksum_verified",
+      ],
+    );
+    assert.deepEqual(
+      artifactReadinessSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [1, 1, 0, 0],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("assetUrl"), false);
+    assert.equal(serialized.includes("downloads.example"), false);
+    assert.equal(serialized.includes("sha256"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports network endpoint counts without endpoint URL material", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-network-endpoints-");
+  await writeManifest(servicesRoot, "telemetry-network", {
+    id: "telemetry-network",
+    name: "telemetry-network",
+    description: "Fixture with network endpoint metadata.",
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    healthcheck: {
+      type: "http",
+      url: "https://broker.example/health?token=" + rawSecretSentinel,
+    },
+    urls: [
+      {
+        label: "ui",
+        kind: "ui",
+        url: "http://127.0.0.1:17001/app?token=" + rawSecretSentinel,
+      },
+      {
+        label: "docs",
+        kind: "docs",
+        url: "https://docs.example/" + rawSecretSentinel,
+      },
+      {
+        label: "health",
+        kind: "health",
+        url: "http://localhost:17001/health?secret=" + rawSecretSentinel,
+      },
+    ],
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry?endpoint=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-network",
+    );
+    assert.ok(serviceTelemetry);
+    const networkEndpointSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.network.endpoint_count",
+    );
+    assert.deepEqual(
+      networkEndpointSignals.map((signal) => signal.attributes["service.operation.phase"]),
+      [
+        "network.endpoint.declared",
+        "network.endpoint.local",
+        "network.endpoint.external",
+        "network.endpoint.health",
+      ],
+    );
+    assert.deepEqual(
+      networkEndpointSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [4, 4, 2, 1],
+    );
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("broker.example"), false);
+    assert.equal(serialized.includes("docs.example"), false);
+    assert.equal(serialized.includes("127.0.0.1:17001"), false);
+    assert.equal(serialized.includes("/health"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/telemetry/export-test sends only sanitized metadata to a local mock collector", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-export-test-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-export", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+    config: {
+      files: [
+        {
+          path: "config/secret.env",
+          content: "SECRET=" + rawSecretSentinel,
+        },
+      ],
+    },
+  });
+
+  const collector = await startMockCollector();
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url;
+  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel;
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "mock-collector";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await fetch(apiServer.url + "/api/telemetry/export-test", { method: "POST" });
+    const body = await result.json();
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(body.exportTest, {
+      mode: "mock_collector",
+      status: "sent",
+      protocol: "otlp-http",
+      contentType: "application/json",
+      signalCount: 33,
+      serviceCount: 1,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      localCollectorOnly: true,
+      collectorStatusCode: 202,
+      reason: "Sanitized telemetry was sent to the configured local mock collector.",
+    });
+    assert.equal(collector.requests.length, 1);
+    assert.equal(collector.requests[0].method, "POST");
+    assert.match(collector.requests[0].headers["content-type"], /application\/json/);
+
+    const payload = JSON.parse(collector.requests[0].body);
+    assert.deepEqual(payload.resource, {
+      serviceName: "service-lasso-core",
+      serviceNamespace: "service-lasso",
+      serviceInstanceId: "local-runtime",
+    });
+    assert.equal(body.exportTest.signalCount, 33);
+    assert.equal(payload.signals.length, 33);
+    assert.equal(payload.signals[0].attributes["service.id"], "telemetry-export");
+    assertNoSecretMaterial(body, { sentinels });
+    assertNoSecretMaterial(payload, { sentinels });
+    assert.equal(JSON.stringify(body).includes("signals"), false);
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    await apiServer.stop();
+    await collector.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/telemetry/export sends sanitized metadata only when explicitly enabled", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-export-action-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-export-action", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+    config: {
+      files: [
+        {
+          path: "config/export.env",
+          content: "SECRET=" + rawSecretSentinel,
+        },
+      ],
+    },
+  });
+
+  const collector = await startMockCollector();
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url + "?token=" + rawSecretSentinel;
+  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel + ",x-safe-route=local";
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "export";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const preview = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.telemetry.exportPreview.mode, "export_configured");
+    assert.equal(preview.body.telemetry.exportPreview.status, "not_sent");
+    assert.equal(preview.body.telemetry.exportPreview.endpointValueReturned, false);
+    assert.equal(preview.body.telemetry.exportPreview.headersValueReturned, false);
+    assert.equal(preview.body.telemetry.exportPreview.bodyValueReturned, false);
+
+    const result = await fetch(apiServer.url + "/api/telemetry/export?token=" + rawSecretSentinel, { method: "POST" });
+    const body = await result.json();
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(body.export, {
+      mode: "export",
+      status: "sent",
+      protocol: "otlp-http",
+      contentType: "application/json",
+      signalCount: 34,
+      serviceCount: 1,
+      endpointConfigured: true,
+      endpointValueReturned: false,
+      headersConfigured: true,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      exporterStatusCode: 202,
+      reason: "Sanitized telemetry was sent to the configured OTLP HTTP endpoint.",
+    });
+    assert.equal(collector.requests.length, 1);
+    assert.equal(collector.requests[0].method, "POST");
+    assert.equal(collector.requests[0].headers.authorization, "Bearer " + rawSecretSentinel);
+    assert.equal(collector.requests[0].headers["x-safe-route"], "local");
+
+    const payload = JSON.parse(collector.requests[0].body);
+    assert.deepEqual(payload.resource, {
+      serviceName: "service-lasso-core",
+      serviceNamespace: "service-lasso",
+      serviceInstanceId: "local-runtime",
+    });
+    assert.equal(payload.signals.length, body.export.signalCount);
+    assert.equal(payload.signals[0].attributes["service.id"], "telemetry-export-action");
+    assertNoSecretMaterial(body, { sentinels });
+    assertNoSecretMaterial(payload, { sentinels });
+    assert.equal(JSON.stringify(body).includes("signals"), false);
+    assert.equal(JSON.stringify(body).includes(collector.url), false);
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    await apiServer.stop();
+    await collector.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/telemetry/export blocks unsupported endpoint and header configuration safely", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-export-blocked-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-export-blocked", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "file:///tmp/" + rawSecretSentinel;
+  delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "export";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const endpointResult = await fetch(apiServer.url + "/api/telemetry/export?token=" + rawSecretSentinel, {
+      method: "POST",
+    });
+    const endpointBody = await endpointResult.json();
+    assert.equal(endpointResult.status, 200);
+    assert.equal(endpointBody.export.mode, "export");
+    assert.equal(endpointBody.export.status, "blocked");
+    assert.equal(endpointBody.export.endpointValueReturned, false);
+    assert.equal(endpointBody.export.headersValueReturned, false);
+    assert.equal(endpointBody.export.bodyValueReturned, false);
+    assert.match(endpointBody.export.reason, /HTTP\(S\) endpoint/);
+    assertNoSecretMaterial(endpointBody, { sentinels });
+
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:9/v1/traces";
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "bad header=Bearer " + rawSecretSentinel;
+
+    const headerResult = await fetch(apiServer.url + "/api/telemetry/export?token=" + rawSecretSentinel, {
+      method: "POST",
+    });
+    const headerBody = await headerResult.json();
+    assert.equal(headerResult.status, 200);
+    assert.equal(headerBody.export.mode, "export");
+    assert.equal(headerBody.export.status, "blocked");
+    assert.equal(headerBody.export.endpointValueReturned, false);
+    assert.equal(headerBody.export.headersValueReturned, false);
+    assert.equal(headerBody.export.bodyValueReturned, false);
+    assert.match(headerBody.export.reason, /unsupported header shape/);
+    assertNoSecretMaterial(headerBody, { sentinels });
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("startApiServer runs continuous sanitized OTLP export only when explicitly enabled", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-continuous-export-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-continuous-export", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+    },
+  });
+  const collector = await startMockCollector();
+
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  const previousContinuous = process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT;
+  const previousInterval = process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS;
+  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url + "?token=" + rawSecretSentinel;
+  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel;
+  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "export";
+  process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT = "1";
+  process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS = "5000";
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await waitFor(() => collector.requests.length > 0);
+    const payload = JSON.parse(collector.requests[0].body);
+    assert.equal(payload.resource.serviceName, "service-lasso-core");
+    assert.equal(payload.signals.length > 0, true);
+    assertNoSecretMaterial(payload, { sentinels });
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.continuousExport.status, "running");
+    assert.equal(result.body.telemetry.continuousExport.intervalMs, 5000);
+    assert.equal(result.body.telemetry.continuousExport.lastStatus, "sent");
+    assert.equal(result.body.telemetry.continuousExport.exporterStatusCode, 202);
+    assert.equal(result.body.telemetry.continuousExport.endpointConfigured, true);
+    assert.equal(result.body.telemetry.continuousExport.endpointValueReturned, false);
+    assert.equal(result.body.telemetry.continuousExport.headersConfigured, true);
+    assert.equal(result.body.telemetry.continuousExport.headersValueReturned, false);
+    assert.equal(result.body.telemetry.continuousExport.bodyValueReturned, false);
+    assertNoSecretMaterial(result.body, { sentinels });
+    assert.equal(JSON.stringify(result.body).includes(collector.url), false);
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousHeaders === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = previousHeaders;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    if (previousContinuous === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT = previousContinuous;
+    }
+    if (previousInterval === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_INTERVAL_MS = previousInterval;
+    }
+    await apiServer.stop();
+    await collector.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry redacts sensitive-looking values even on allowlisted attributes", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-attribute-redaction-");
+  await writeManifest(servicesRoot, "telemetry-redaction", {
+    id: "telemetry-redaction",
+    name: "telemetry-redaction",
+    description: "Fixture with sensitive-looking metadata.",
+    version: rawSecretSentinel,
+    executable: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    healthcheck: { type: "process" },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.redaction.redactedValue, "[REDACTED]");
+    assert.deepEqual(result.body.telemetry.redaction.patternClasses, [
+      "bearer tokens",
+      "GitHub-style tokens",
+      "AWS access keys",
+      "private key blocks",
+      "basic-auth URLs",
+      "sensitive key-value pairs",
+      "Service Lasso secret regression sentinels",
+    ]);
+    const attributes = result.body.telemetry.services[0].signals[0].attributes;
+    assert.equal(attributes["service.version"], "[REDACTED]");
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports safe API request outcome telemetry without raw URL material", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-api-request-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-api", {});
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const missingService = await fetch(
+      apiServer.url + "/api/services/" + encodeURIComponent(rawSecretSentinel) + "/health?token=" + rawSecretSentinel,
+    );
+    assert.equal(missingService.status, 404);
+    const missingServiceCorrelationId = missingService.headers.get("x-service-lasso-correlation-id");
+    const missingServiceTraceId = missingService.headers.get("x-service-lasso-trace-id");
+    const missingServiceTraceparent = missingService.headers.get("traceparent");
+    assert.match(missingServiceCorrelationId, /^sl-[a-f0-9]{16}$/);
+    assert.match(missingServiceTraceId, /^[a-f0-9]{32}$/);
+    assert.match(missingServiceTraceparent, /^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+
+    const health = await getJson(apiServer.url + "/api/health?token=" + rawSecretSentinel);
+    assert.equal(health.status, 200);
+    const healthResponse = await fetch(apiServer.url + "/api/health");
+    assert.equal(healthResponse.status, 200);
+    const healthCorrelationId = healthResponse.headers.get("x-service-lasso-correlation-id");
+    const healthTraceId = healthResponse.headers.get("x-service-lasso-trace-id");
+    const healthTraceparent = healthResponse.headers.get("traceparent");
+    assert.match(healthCorrelationId, /^sl-[a-f0-9]{16}$/);
+    assert.match(healthTraceId, /^[a-f0-9]{32}$/);
+    assert.match(healthTraceparent, /^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.apiRequests.length, 3);
+    assert.deepEqual(
+      result.body.telemetry.apiRequests.map((request) => request.routeTemplate),
+      ["/api/services/{serviceId}/health", "/api/health", "/api/health"],
+    );
+    assert.deepEqual(
+      result.body.telemetry.apiRequests.map((request) => request.signal.attributes["http.response.status_class"]),
+      ["4xx", "2xx", "2xx"],
+    );
+    assert.equal(result.body.telemetry.apiRequests[0].signal.attributes["service.operation.outcome"], "client_error");
+    assert.equal(result.body.telemetry.apiRequests[1].signal.attributes["service.operation.outcome"], "success");
+    assert.equal(result.body.telemetry.apiRequests[0].signal.correlationId, missingServiceCorrelationId);
+    assert.equal(result.body.telemetry.apiRequests[0].signal.traceId, missingServiceTraceId);
+    assert.equal(result.body.telemetry.apiRequests[0].signal.traceparent, missingServiceTraceparent);
+    assert.equal(result.body.telemetry.apiRequests[2].signal.correlationId, healthCorrelationId);
+    assert.equal(result.body.telemetry.apiRequests[2].signal.traceId, healthTraceId);
+    assert.equal(result.body.telemetry.apiRequests[2].signal.traceparent, healthTraceparent);
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 36);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 3,
+      droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.equal(result.body.telemetry.apiRequestSummary.retainedCount, 3);
+    assert.equal(result.body.telemetry.apiRequestSummary.droppedCount, 0);
+    assert.equal(result.body.telemetry.apiRequestSummary.totalObservedCount, 3);
+    assert.equal(result.body.telemetry.apiRequestSummary.mutatingCount, 0);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.routeGroups, [
+      { key: "health", count: 2 },
+      { key: "services", count: 1 },
+    ]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.statusClasses, [
+      { key: "2xx", count: 2 },
+      { key: "4xx", count: 1 },
+    ]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.outcomes, [
+      { key: "success", count: 2 },
+      { key: "client_error", count: 1 },
+    ]);
+    assert.equal(result.body.telemetry.apiRequestSummary.routeTemplateOnly, true);
+    assert.equal(result.body.telemetry.apiRequestSummary.rawMaterialReturned, false);
+    assertSafeLatencyBuckets(result.body.telemetry.apiRequestSummary);
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry keeps export envelope disabled until explicit dry-run config is present", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-export-disabled-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-disabled", {});
+
+  const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
+  const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+  delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+  delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const result = await getJson(apiServer.url + "/api/telemetry");
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.telemetry.exporter.status, "disabled");
+    assert.equal(result.body.telemetry.exportPreview.mode, "disabled");
+    assert.equal(result.body.telemetry.exportPreview.status, "not_sent");
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 33);
+    assert.equal(result.body.telemetry.exportPreview.endpointValueReturned, false);
+    assert.equal(result.body.telemetry.exportPreview.headersValueReturned, false);
+    assert.equal(result.body.telemetry.exportPreview.bodyValueReturned, false);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 0,
+      droppedCount: 0,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.deepEqual(result.body.telemetry.apiRequestSummary, {
+      retainedCount: 0,
+      droppedCount: 0,
+      totalObservedCount: 0,
+      mutatingCount: 0,
+      routeGroups: [],
+      statusClasses: [],
+      outcomes: [],
+      latencyBuckets: [],
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.match(result.body.telemetry.exportPreview.reason, /OTLP export remains disabled/i);
+    assert.deepEqual(result.body.telemetry.continuousExport, {
+      status: "disabled",
+      intervalMs: null,
+      inFlight: false,
+      lastAttemptAt: null,
+      lastStatus: null,
+      exporterStatusCode: null,
+      endpointConfigured: false,
+      endpointValueReturned: false,
+      headersConfigured: false,
+      headersValueReturned: false,
+      bodyValueReturned: false,
+      reason:
+        "Continuous OTLP export is disabled until SERVICE_LASSO_OTEL_CONTINUOUS_EXPORT, SERVICE_LASSO_OTEL_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT, and SERVICE_LASSO_OTEL_EXPORT_MODE=export are configured.",
+    });
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+
+    const exportResult = await fetch(apiServer.url + "/api/telemetry/export-test", { method: "POST" });
+    const exportBody = await exportResult.json();
+    assert.equal(exportResult.status, 200);
+    assert.equal(exportBody.exportTest.mode, "disabled");
+    assert.equal(exportBody.exportTest.status, "not_sent");
+    assert.equal(exportBody.exportTest.endpointConfigured, false);
+    assert.equal(exportBody.exportTest.collectorStatusCode, null);
+    assert.equal(exportBody.exportTest.endpointValueReturned, false);
+    assert.equal(exportBody.exportTest.headersValueReturned, false);
+    assert.equal(exportBody.exportTest.bodyValueReturned, false);
+    assertNoSecretMaterial(exportBody, { sentinels });
+
+    const liveExportResult = await fetch(apiServer.url + "/api/telemetry/export", { method: "POST" });
+    const liveExportBody = await liveExportResult.json();
+    assert.equal(liveExportResult.status, 200);
+    assert.equal(liveExportBody.export.mode, "disabled");
+    assert.equal(liveExportBody.export.status, "not_sent");
+    assert.equal(liveExportBody.export.endpointConfigured, false);
+    assert.equal(liveExportBody.export.headersConfigured, false);
+    assert.equal(liveExportBody.export.exporterStatusCode, null);
+    assert.equal(liveExportBody.export.endpointValueReturned, false);
+    assert.equal(liveExportBody.export.headersValueReturned, false);
+    assert.equal(liveExportBody.export.bodyValueReturned, false);
+    assertNoSecretMaterial(liveExportBody, { sentinels });
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_ENABLED;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_ENABLED = previousEnabled;
+    }
+    if (previousEndpoint === undefined) {
+      delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    } else {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint;
+    }
+    if (previousExportMode === undefined) {
+      delete process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
+    } else {
+      process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
+    }
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports start-trace phases without trace messages or metadata values", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-start-trace-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-start-trace", {
+    env: {
+      API_TOKEN: rawSecretSentinel,
+      PUBLIC_MODE: "demo",
+    },
+    globalenv: {
+      UPSTREAM_PASSWORD: rawSecretSentinel,
+    },
+    ports: {
+      service: 0,
+    },
+  });
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    assert.equal((await postJson(apiServer.url + "/api/services/telemetry-start-trace/install")).status, 200);
+    assert.equal((await postJson(apiServer.url + "/api/services/telemetry-start-trace/config")).status, 200);
+    assert.equal((await postJson(apiServer.url + "/api/services/telemetry-start-trace/start")).status, 200);
+
+    const result = await getJson(apiServer.url + "/api/telemetry");
+
+    assert.equal(result.status, 200);
+    const serviceTelemetry = result.body.telemetry.services.find(
+      (service) => service.serviceId === "telemetry-start-trace",
+    );
+    assert.ok(serviceTelemetry);
+    const traceSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.start_trace_event",
+    );
+    assert.equal(traceSignals.length, 7);
+    assert.deepEqual(
+      traceSignals.map((signal) => signal.attributes["service.start_trace.event_phase"]),
+      [
+        "dependency_resolution",
+        "port_selection",
+        "artifact_acquisition",
+        "env_merge",
+        "process_spawn",
+        "health_check",
+        "terminal_outcome",
+      ],
+    );
+    assert.deepEqual(
+      traceSignals.map((signal) => signal.attributes["service.start_trace.event_order"]),
+      [1, 2, 3, 4, 5, 6, 7],
+    );
+    assert.equal(traceSignals.at(-1).attributes["service.start_trace.attempt_status"], "succeeded");
+    assert.equal(traceSignals.at(-1).attributes["service.operation.phase"], "start_trace.terminal_outcome");
+    assert.equal(typeof traceSignals.at(-1).attributes["service.operation.duration_ms"], "number");
+    const runtimeOperationSignals = serviceTelemetry.signals.filter(
+      (signal) => signal.name === "service_lasso.service.runtime.operation_count",
+    );
+    assert.deepEqual(
+      runtimeOperationSignals.map((signal) => signal.attributes["service.operation.count"]),
+      [1, 0, 0, 0, 0],
+    );
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 43);
+    assertAllowlistedSignals(result.body.telemetry);
+
+    const serialized = JSON.stringify(result.body);
+    assert.equal(serialized.includes("metadata"), false);
+    assert.equal(serialized.includes("message"), false);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("GET /api/telemetry reports bounded API request buffer metadata without raw request material", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-telemetry-buffer-");
+  await writeExecutableFixtureService(servicesRoot, "telemetry-buffer", {});
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    for (let index = 0; index < 55; index += 1) {
+      const response = await fetch(
+        apiServer.url + "/api/health?token=" + encodeURIComponent(rawSecretSentinel) + "&index=" + index,
+      );
+      assert.equal(response.status, 200);
+    }
+
+    const result = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.telemetry.apiRequestBuffer, {
+      capacity: 50,
+      retainedCount: 50,
+      droppedCount: 5,
+      routeTemplateOnly: true,
+      rawMaterialReturned: false,
+    });
+    assert.equal(result.body.telemetry.apiRequestSummary.retainedCount, 50);
+    assert.equal(result.body.telemetry.apiRequestSummary.droppedCount, 5);
+    assert.equal(result.body.telemetry.apiRequestSummary.totalObservedCount, 55);
+    assert.equal(result.body.telemetry.apiRequestSummary.mutatingCount, 0);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.routeGroups, [{ key: "health", count: 50 }]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.statusClasses, [{ key: "2xx", count: 50 }]);
+    assert.deepEqual(result.body.telemetry.apiRequestSummary.outcomes, [{ key: "success", count: 50 }]);
+    assert.equal(result.body.telemetry.apiRequestSummary.routeTemplateOnly, true);
+    assert.equal(result.body.telemetry.apiRequestSummary.rawMaterialReturned, false);
+    assertSafeLatencyBuckets(result.body.telemetry.apiRequestSummary);
+    assert.equal(result.body.telemetry.apiRequests.length, 50);
+    assert.equal(
+      result.body.telemetry.apiRequests.every((request) => request.routeTemplate === "/api/health"),
+      true,
+    );
+    assert.equal(result.body.telemetry.exportPreview.signalCount, 83);
+    assertAllowlistedSignals(result.body.telemetry);
+    assertNoSecretMaterial(result.body, { sentinels });
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});

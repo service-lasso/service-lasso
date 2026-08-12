@@ -1,0 +1,5 @@
+# npm run build
+
+> service-lasso@0.1.0 build
+> tsc -p tsconfig.json
+

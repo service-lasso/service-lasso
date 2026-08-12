@@ -8,12 +8,7 @@ const startedAt = new Date().toISOString();
 const requestedPort = Number.parseInt(process.env.NODE_SAMPLE_PORT ?? process.env.SERVICE_PORT ?? "4020", 10);
 const port = Number.isFinite(requestedPort) && requestedPort >= 0 ? requestedPort : 4020;
 const heartbeatMs = Math.max(1_000, Number.parseInt(process.env.NODE_SAMPLE_HEARTBEAT_MS ?? "5000", 10) || 5000);
-const counters = {
-  heartbeat: 0,
-  stdout: 0,
-  stderr: 0,
-  commands: 0,
-};
+const counters = { heartbeat: 0, stdout: 0, stderr: 0, commands: 0 };
 
 let server;
 let heartbeat;
@@ -76,12 +71,7 @@ function handleRequest(request, response) {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
 
   if (request.method === "GET" && url.pathname === "/") {
-    sendJson(response, 200, {
-      serviceId,
-      status: "running",
-      startedAt,
-      rawMaterialReturned: false,
-    });
+    sendJson(response, 200, { serviceId, status: "running", startedAt, rawMaterialReturned: false });
     return;
   }
 
@@ -98,34 +88,18 @@ function handleRequest(request, response) {
   if ((request.method === "GET" || request.method === "POST") && url.pathname === "/demo/log") {
     const message = getRequestMessage(url);
     emitStdout(`demo log message="${message}"`);
-    sendJson(response, 200, {
-      ok: true,
-      emitted: true,
-      stream: "stdout",
-      message,
-      rawMaterialReturned: false,
-    });
+    sendJson(response, 200, { ok: true, emitted: true, stream: "stdout", message, rawMaterialReturned: false });
     return;
   }
 
   if ((request.method === "GET" || request.method === "POST") && url.pathname === "/demo/error") {
     const message = getRequestMessage(url);
     emitStderr(`demo error message="${message}"`);
-    sendJson(response, 200, {
-      ok: true,
-      emitted: true,
-      stream: "stderr",
-      message,
-      rawMaterialReturned: false,
-    });
+    sendJson(response, 200, { ok: true, emitted: true, stream: "stderr", message, rawMaterialReturned: false });
     return;
   }
 
-  sendJson(response, 404, {
-    ok: false,
-    error: "not_found",
-    rawMaterialReturned: false,
-  });
+  sendJson(response, 404, { ok: false, error: "not_found", rawMaterialReturned: false });
 }
 
 function handleCommand(line) {
@@ -136,30 +110,23 @@ function handleCommand(line) {
     emitStdout("command help supported=help,ping,status,emit");
     return;
   }
-
   if (command === "ping") {
     emitStdout("command pong");
     return;
   }
-
   if (command === "status") {
     emitStdout(`command status uptimeMs=${Math.max(0, Math.round(process.uptime() * 1000))} stdout=${counters.stdout} stderr=${counters.stderr}`);
     return;
   }
-
   if (command.startsWith("emit ")) {
     emitStdout(`command emit message="${sanitizeMessage(command.slice(5))}"`);
     return;
   }
-
   emitStderr("command rejected reason=unsupported");
 }
 
 async function shutdown() {
-  if (shuttingDown) {
-    return;
-  }
-
+  if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(heartbeat);
   await writeProviderEnvSnapshot().catch(() => undefined);
@@ -169,7 +136,6 @@ async function shutdown() {
     setTimeout(() => process.exit(0), 2_000).unref();
     return;
   }
-
   process.exit(0);
 }
 
@@ -182,7 +148,6 @@ if (!process.stdin.isTTY) {
 }
 
 emitStdout("starting");
-
 server = http.createServer(handleRequest);
 server.listen(port, "127.0.0.1", () => {
   const address = server.address();
