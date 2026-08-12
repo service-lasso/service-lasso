@@ -235,7 +235,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
-  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.6.26-bb4449c");
+  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.12-9be43fc");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
   assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{endpoint\.mongo\.port\}"/);
