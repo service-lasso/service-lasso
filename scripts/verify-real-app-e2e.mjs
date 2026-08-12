@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startApiServer } from "../dist/server/index.js";
 import { buildReachabilityTargets } from "./demo-verify-canonical.mjs";
+import { discoverOwningRuntime, ownerExitFailure, RuntimeOwnerFailure } from "./runtime-owner.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
@@ -69,7 +69,17 @@ async function readJson(filePath) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30_000) {
-  return fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+  const request = fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+  if (!activeRuntimeOwner) return request;
+  if (activeRuntimeOwner.exit) throw ownerExitFailure(activeRuntimeOwner, activeRuntimeIdentity?.record);
+  const result = await Promise.race([
+    request.then((response) => ({ response })),
+    activeRuntimeOwner.closed.then(() => ({ ownerExited: true })),
+  ]);
+  if (result.ownerExited || activeRuntimeOwner.exit) {
+    throw ownerExitFailure(activeRuntimeOwner, activeRuntimeIdentity?.record);
+  }
+  return result.response;
 }
 
 async function waitForJson(url, timeoutMs = 300_000) {
@@ -86,6 +96,7 @@ async function waitForJson(url, timeoutMs = 300_000) {
       }
       lastError = new Error(`GET ${url} failed with ${response.status} or non-JSON/empty body: ${text.slice(0, 500)}`);
     } catch (error) {
+      if (error instanceof RuntimeOwnerFailure) throw error;
       lastError = error;
     }
     await sleep(250);
@@ -107,6 +118,7 @@ async function waitForText(url, timeoutMs = 300_000) {
       }
       lastError = new Error(`GET ${url} failed with ${response.status}: ${body.slice(0, 500)}`);
     } catch (error) {
+      if (error instanceof RuntimeOwnerFailure) throw error;
       lastError = error;
     }
     await sleep(250);
@@ -156,20 +168,31 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
     },
   );
 
-  let stdout = "";
-  let stderr = "";
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
   child.stdout?.on("data", (chunk) => {
-    stdout += chunk.toString();
+    stdoutBytes += chunk.length;
   });
   child.stderr?.on("data", (chunk) => {
-    stderr += chunk.toString();
+    stderrBytes += chunk.length;
   });
 
+  let exit = null;
   const closed = new Promise((resolve) => {
-    child.once("close", (code, signal) => resolve({ code, signal }));
+    child.once("close", (code, signal) => {
+      exit = { code, signal };
+      resolve(exit);
+    });
   });
 
-  return { child, closed, get stdout() { return stdout; }, get stderr() { return stderr; } };
+  return {
+    child,
+    closed,
+    pid: child.pid,
+    get exit() { return exit; },
+    get stdoutBytes() { return stdoutBytes; },
+    get stderrBytes() { return stderrBytes; },
+  };
 }
 
 async function stopChild(child) {
@@ -244,24 +267,6 @@ function manifestPort(manifest, name) {
   throw new Error(`Manifest ${manifest.id ?? "<unknown>"} does not declare port ${name}.`);
 }
 
-async function readTextIfPresent(filePath) {
-  try {
-    return await readFile(filePath, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-async function printRuntimeLogs(servicesRoot, serviceId) {
-  const logsRoot = path.join(servicesRoot, serviceId, "logs", "runtime");
-  console.error(`[service-lasso e2e] ${serviceId} stdout:`);
-  console.error(await readTextIfPresent(path.join(logsRoot, "stdout.log")));
-  console.error(`[service-lasso e2e] ${serviceId} stderr:`);
-  console.error(await readTextIfPresent(path.join(logsRoot, "stderr.log")));
-  console.error(`[service-lasso e2e] ${serviceId} service log:`);
-  console.error(await readTextIfPresent(path.join(logsRoot, "service.log")));
-}
-
 async function waitForHealthyHttp(url, label, timeoutMs = 300_000) {
   const startedAt = Date.now();
   let lastError = null;
@@ -275,6 +280,7 @@ async function waitForHealthyHttp(url, label, timeoutMs = 300_000) {
       const body = await response.text().catch(() => "");
       lastError = new Error(`${label} endpoint ${url} returned ${response.status}: ${body.slice(0, 500)}`);
     } catch (error) {
+      if (error instanceof RuntimeOwnerFailure) throw error;
       lastError = error;
     }
     await sleep(250);
@@ -297,6 +303,7 @@ async function waitForReachableEndpoint(url, label, expectedStatus = 200, timeou
       }
       lastError = new Error(`GET ${url} failed with ${response.status}: ${body.slice(0, 500)}`);
     } catch (error) {
+      if (error instanceof RuntimeOwnerFailure) throw error;
       lastError = error;
     }
     await sleep(250);
@@ -356,10 +363,12 @@ const tempRoot = await mkdtemp(path.join(e2eTempParent, "real-app-"));
 const servicesRoot = path.join(tempRoot, "services");
 const workspaceRoot = path.join(tempRoot, "workspace");
 const apiPort = await reserveLoopbackPort();
-const apiUrl = `http://127.0.0.1:${apiPort}`;
+let apiUrl = null;
 let cli = null;
-let apiServer = null;
 let servicesStopped = false;
+let activeRuntimeOwner = null;
+let activeRuntimeIdentity = null;
+let verificationStep = "prepare_fixture";
 
 try {
   console.error(`[service-lasso e2e] temp root ${tempRoot}`);
@@ -373,28 +382,16 @@ try {
   const traefikManifest = await readJson(path.join(servicesRoot, "@traefik", "service.json"));
   const echoManifest = await readJson(path.join(servicesRoot, "echo-service", "service.json"));
 
+  verificationStep = "start_runtime";
   cli = startCli({ servicesRoot, workspaceRoot, port: apiPort, servicePortStart: apiPort + 1 });
-
-  let health = null;
-  const apiDeadline = Date.now() + 300_000;
-  while (Date.now() < apiDeadline && !health) {
-    const closed = await Promise.race([cli.closed, sleep(250).then(() => null)]);
-    if (closed) {
-      if (closed.code !== 0) {
-        throw new Error(`dist/cli.js start exited with code ${closed.code ?? "null"} signal ${closed.signal ?? "null"}. stderr: ${cli.stderr}`);
-      }
-      apiServer = await startApiServer({ servicesRoot, workspaceRoot, port: apiPort });
-      break;
-    }
-
-    try {
-      health = await waitForJson(`${apiUrl}/api/health`, 250);
-    } catch {}
-  }
-
-  health ??= await waitForJson(`${apiUrl}/api/health`);
+  activeRuntimeIdentity = await discoverOwningRuntime({ owner: cli, servicesRoot, workspaceRoot });
+  activeRuntimeOwner = cli;
+  apiUrl = activeRuntimeIdentity.apiUrl;
+  const health = activeRuntimeIdentity.health;
+  console.error(`[service-lasso e2e] owning runtime generation ${activeRuntimeIdentity.generationId} pid ${activeRuntimeIdentity.ownerPid} selected API port ${new URL(apiUrl).port}`);
   assert(health.status === "ok" && health.api?.status === "up", "Core API health did not report ok/up.");
 
+  verificationStep = "service_catalog";
   const services = await waitForJson(`${apiUrl}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
   for (const serviceId of baselineServiceIds) {
@@ -410,11 +407,13 @@ try {
     await waitForServiceState(apiUrl, serviceId, { running: !isProvider, healthy: isProvider ? undefined : true });
   }
 
+  verificationStep = "dashboard_summary";
   console.error("[service-lasso e2e] baseline services reached expected state");
   const dashboard = await waitForJson(`${apiUrl}/api/dashboard`);
   assert(dashboard.summary?.servicesTotal >= baselineServiceIds.length, "Dashboard summary did not include baseline services.");
   assert(dashboard.summary?.servicesRunning >= baselineServiceIds.length - providerServiceIds.size, "Dashboard running count is lower than expected baseline daemons.");
 
+  verificationStep = "dashboard_services";
   const dashboardServices = await waitForJson(`${apiUrl}/api/dashboard/services`);
   const dashboardIds = new Set(dashboardServices.services.map((service) => service.id));
   for (const serviceId of baselineServiceIds) {
@@ -426,6 +425,7 @@ try {
     assert(service?.runtimeHealth?.state === "available", `${serviceId} provider runtime state did not report Available.`);
   }
 
+  verificationStep = "baseline_reachability";
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/`, "Service Admin UI");
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/health`, "Service Admin health");
   await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerManifest.ports.service}/health`, "Secrets Broker health");
@@ -433,14 +433,17 @@ try {
   await waitForHealthyHttp(`http://127.0.0.1:${echoManifest.ports.health}/health`, "Echo Service health");
   await waitForHealthyHttp(`http://127.0.0.1:${manifestPort(traefikManifest, "admin")}/ping`, "Traefik ping");
 
+  verificationStep = "advertised_reachability";
   const liveAfterStart = await waitForJson(`${apiUrl}/api/services`);
   for (const service of liveAfterStart.services.filter((entry) => baselineServiceIds.includes(entry.id))) {
     await verifyAdvertisedReachability(servicesRoot, service);
   }
 
+  verificationStep = "service_admin_content";
   const serviceAdminHtml = await waitForText(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/`);
   assert(/Service Lasso|service-lasso|root/i.test(serviceAdminHtml), "Service Admin UI root did not return recognizable app content.");
 
+  verificationStep = "secrets_broker_restart";
   const stopBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/stop`);
   assert(stopBroker.ok === true, "Stopping @secretsbroker did not return ok=true.");
   await waitForServiceState(apiUrl, "@secretsbroker", { running: false, healthy: undefined });
@@ -450,29 +453,47 @@ try {
   await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
   await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerManifest.ports.service}/health`, "Secrets Broker health after restart");
 
+  verificationStep = "reverse_cleanup";
   await postJson(`${apiUrl}/api/runtime/actions/stopAll`);
   servicesStopped = true;
   console.log("[service-lasso e2e] real app baseline state gate passed");
 } catch (error) {
-  if (cli) {
-    console.error("[service-lasso e2e] CLI stdout:");
-    console.error(cli.stdout);
-    console.error("[service-lasso e2e] CLI stderr:");
-    console.error(cli.stderr);
+  if (!apiUrl && error instanceof RuntimeOwnerFailure && error.cleanupApiUrl) {
+    apiUrl = error.cleanupApiUrl;
   }
-  for (const serviceId of baselineServiceIds) {
-    await printRuntimeLogs(servicesRoot, serviceId);
-  }
-  throw error;
+  const failure = error instanceof RuntimeOwnerFailure
+    ? error.diagnostic
+    : {
+        schema: "service-lasso.real-app-e2e-failure.v1",
+        code: "real_app_verification_failed",
+        observedAt: new Date().toISOString(),
+        causeClass: error instanceof Error ? error.name : "unknown",
+        phase: "verification",
+        step: verificationStep,
+        owner: cli ? {
+          pid: cli.pid,
+          exitCode: cli.exit?.code ?? null,
+          signal: cli.exit?.signal ?? null,
+          stdoutBytes: cli.stdoutBytes,
+          stderrBytes: cli.stderrBytes,
+        } : null,
+        runtime: activeRuntimeIdentity ? {
+          instanceId: activeRuntimeIdentity.instanceId,
+          generationId: activeRuntimeIdentity.generationId,
+          pid: activeRuntimeIdentity.ownerPid,
+          apiPort: Number(new URL(activeRuntimeIdentity.apiUrl).port),
+        } : null,
+      };
+  console.error(`[service-lasso e2e] ${JSON.stringify(failure)}`);
+  throw new Error(JSON.stringify(failure));
 } finally {
-  if (!servicesStopped) {
+  if (!servicesStopped && apiUrl && !cli?.exit) {
     try {
+      // The isolated services/workspace roots are owned by this verification
+      // transaction. stopAll uses the runtime dependency graph's shutdown order.
       await postJson(`${apiUrl}/api/runtime/actions/stopAll`);
       servicesStopped = true;
     } catch {}
-  }
-  if (apiServer) {
-    await apiServer.stop();
   }
   if (cli) {
     await stopChild(cli.child);
