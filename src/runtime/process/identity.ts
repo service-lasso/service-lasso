@@ -99,6 +99,11 @@ async function inspectLinuxProcess(
       .toString("utf8")
       .split("\0")
       .filter((entry) => entry.length > 0);
+    const commandEnd = stat.lastIndexOf(")");
+    const fieldsAfterCommand = commandEnd >= 0 ? stat.slice(commandEnd + 2).trim().split(/\s+/) : [];
+    if (fieldsAfterCommand[0] === "Z") {
+      return { status: "not_running", reason: "process_is_zombie" };
+    }
     const executablePath = executableLink?.trim() || commandParts[0] || "";
     const startTicks = parseLinuxStartTicks(stat);
     const bootTimeSeconds = parseLinuxBootTime(procStat);

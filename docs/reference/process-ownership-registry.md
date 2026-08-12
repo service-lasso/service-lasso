@@ -24,6 +24,7 @@ Each active process record includes:
 - the resolved executable path;
 - a SHA-256 hash of the process command line;
 - the allocation revision, allocated ports, and safe endpoints known at launch;
+- the owned process-tree boundary (`posix` process group, future Windows Job Object, or explicit no-group fallback);
 - lifecycle and identity status, with created and updated timestamps.
 
 Raw command lines and environment variables are never written to this file.
@@ -77,10 +78,33 @@ and command hash. A definite mismatch clears the stale PID without touching the
 unrelated live process. Incomplete or unavailable inspection remains
 `unknown_owner` and is not treated as ownership.
 
+## Adoption and process-tree stop
+
+At startup, a persisted service is adopted only after its PID, creation time,
+executable and command hash all match. Its existing allocation and process-tree
+boundary are retained. Adopted owners are polled with OS identity inspection;
+when the root exits, the runtime confirms or terminates the remaining verified
+tree before clearing running state or releasing ownership.
+
+New Linux and macOS service launches run in a dedicated POSIX process group.
+Normal stop signals that group, waits for the complete non-zombie group to
+exit, escalates to `SIGKILL` after the bounded timeout, and fails without
+clearing ownership if the tree still cannot be confirmed stopped.
+
+Older persisted services may have no group record. For those services, the
+runtime snapshots the root's child and grandchild relationships and captures a
+full identity fingerprint for every descendant. Each fingerprint is checked
+again immediately before signalling, so a reused descendant PID is not killed.
+
+On Windows, Node does not expose a native Job Object API in this runtime. The
+supervisor therefore verifies the recorded root identity and uses synchronous
+`taskkill /PID <pid> /T`, adding `/F` only after the graceful timeout. The
+Windows/Linux matrix in `.github/workflows/lifecycle-process-tree.yml` runs the
+same root/child/grandchild behavior proof on both platforms.
+
 ## Scope of this contract
 
-This registry closes the persistence and PID-reuse safety part of lifecycle
-management. Process-tree adoption and termination after a Service Lasso restart
-are tracked separately in issue `#868`. Startup-wide endpoint negotiation and
+This registry is the authority for persistence, PID-reuse safety, verified
+adoption and process-tree termination. Startup-wide endpoint negotiation and
 propagation are tracked in `#869`, and the operator-facing CLI contract is
 tracked in `#870`.

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import net, { createConnection } from "node:net";
 
@@ -242,6 +242,47 @@ async function getProcessCommandEvidence(pid) {
         executablePath: typeof parsed.ExecutablePath === "string" ? parsed.ExecutablePath : undefined,
         commandLine: typeof parsed.CommandLine === "string" ? parsed.CommandLine : undefined,
       };
+    } catch {
+      return {};
+    }
+  }
+
+  if (process.platform === "linux") {
+    try {
+      const currentPidNamespace = await readlink("/proc/self/ns/pid");
+      const candidates = pid === process.pid
+        ? ["/proc/self"]
+        : (await readdir("/proc", { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+          .map((entry) => `/proc/${entry.name}`);
+      for (const processPath of candidates) {
+        try {
+          const [status, pidNamespace] = await Promise.all([
+            readFile(`${processPath}/status`, "utf8"),
+            readlink(`${processPath}/ns/pid`),
+          ]);
+          const namespacePids = status.match(/^NSpid:\s+([\d\s]+)$/m)?.[1]
+            ?.trim()
+            .split(/\s+/)
+            .map(Number) ?? [];
+          if (namespacePids.at(-1) !== pid || pidNamespace !== currentPidNamespace) {
+            continue;
+          }
+          const [commandValue, executablePath] = await Promise.all([
+            readFile(`${processPath}/cmdline`),
+            readlink(`${processPath}/exe`).catch(() => undefined),
+          ]);
+          const commandLine = commandValue
+            .toString("utf8")
+            .split("\0")
+            .filter(Boolean)
+            .join(" ");
+          return { executablePath, commandLine };
+        } catch {
+          // Processes can exit while the bounded process-table scan is in progress.
+        }
+      }
+      return {};
     } catch {
       return {};
     }
