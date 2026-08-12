@@ -54,7 +54,8 @@ Common fields:
 - `cwd`: optional working directory for the setup command. It supports normal Service Lasso variable selectors, resolves relative paths from the service root, must stay inside the service root, and must exist before the command runs.
 - `env`: setup-step environment additions.
 - `timeoutSeconds`: maximum runtime before the step is failed.
-- `rerun`: `ifMissing`, `manual`, or `always`.
+- `rerun`: `ifMissing`, `ifChanged`, `manual`, or `always`.
+- `fingerprint`: optional array of Service Lasso variable-enabled strings. Required when `rerun` is `ifChanged`; the runtime resolves each entry and stores only a SHA-256 hash of the resolved input set, never the raw resolved values.
 
 ## Runtime Behavior
 
@@ -69,7 +70,7 @@ Runtime behavior is intentionally different from daemon startup:
 - Service dependencies are installed/configured first; non-provider service dependencies are started and health-checked before the step runs.
 - Setup step dependencies wait for the referenced setup step result before execution.
 - Stdout, stderr, exit code, timeout, start/end time, and status are persisted under `.state/setup.json`.
-- Baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+- Baseline bootstrap runs non-manual setup steps, skips already successful `ifMissing` steps, and reruns `ifChanged` steps when their resolved fingerprint inputs no longer match the last successful run.
 
 ## CLI and API
 

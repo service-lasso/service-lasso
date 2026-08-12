@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -294,12 +295,41 @@ function recordSetupRun(serviceId: string, run: ServiceSetupStepRunState): Servi
   });
 }
 
+function computeSetupInputFingerprint(
+  service: DiscoveredService,
+  step: ServiceSetupStep,
+  sharedGlobalEnv: Record<string, string>,
+  resolvedPorts: Record<string, number>,
+): ServiceSetupStepRunState["inputFingerprint"] {
+  if (!step.fingerprint || step.fingerprint.length === 0) {
+    return undefined;
+  }
+
+  const resolvedInputs = step.fingerprint.map((entry) => resolveServiceText(entry, service, sharedGlobalEnv, resolvedPorts));
+  const hash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: 1,
+        declarations: step.fingerprint,
+        resolvedInputs,
+      }),
+    )
+    .digest("hex");
+
+  return {
+    algorithm: "sha256",
+    hash,
+    inputCount: step.fingerprint.length,
+  };
+}
+
 async function createFailedSetupRun(
   service: DiscoveredService,
   stepId: string,
   command: string,
   message: string,
   cwd?: string,
+  inputFingerprint?: ServiceSetupStepRunState["inputFingerprint"],
 ): Promise<ServiceSetupStepRunState> {
   const now = new Date().toISOString();
   const runId = buildRunId(stepId);
@@ -325,6 +355,7 @@ async function createFailedSetupRun(
     exitCode: null,
     signal: null,
     message,
+    ...(inputFingerprint ? { inputFingerprint } : {}),
     logs,
   };
 }
@@ -334,6 +365,7 @@ function shouldSkipStep(
   stepId: string,
   step: ServiceSetupStep,
   force: boolean,
+  inputFingerprint?: ServiceSetupStepRunState["inputFingerprint"],
 ): string | null {
   if (force || step.rerun === "always") {
     return null;
@@ -341,6 +373,18 @@ function shouldSkipStep(
 
   const prior = getLifecycleState(service.manifest.id).setup.steps[stepId];
   if (!prior || prior.status !== "succeeded") {
+    return null;
+  }
+
+  if (step.rerun === "ifChanged") {
+    const priorFingerprint = prior.lastRun?.inputFingerprint;
+    if (
+      inputFingerprint &&
+      priorFingerprint?.algorithm === inputFingerprint.algorithm &&
+      priorFingerprint.hash === inputFingerprint.hash
+    ) {
+      return "setup step inputs unchanged";
+    }
     return null;
   }
 
@@ -431,7 +475,10 @@ export async function runSetupStep(
     throw new Error(`Cannot run setup for service "${serviceId}" before config.`);
   }
 
-  const skipReason = shouldSkipStep(service, stepId, step, options.force === true);
+  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
+  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
+  const inputFingerprint = computeSetupInputFingerprint(service, step, sharedGlobalEnv, resolvedPorts);
+  const skipReason = shouldSkipStep(service, stepId, step, options.force === true, inputFingerprint);
   if (skipReason) {
     const now = new Date().toISOString();
     const prior = getLifecycleState(serviceId).setup.steps[stepId]?.lastRun;
@@ -465,8 +512,6 @@ export async function runSetupStep(
 
   await ensureSetupDependencies(service, stepId, step, registry, visiting);
 
-  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
-  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
   const executionPlan = resolveStepExecutionPlan(service, registry, step, sharedGlobalEnv, resolvedPorts);
   const executable = resolveExecutable(service, executionPlan);
   const args = executionPlan.args;
@@ -482,6 +527,7 @@ export async function runSetupStep(
       command,
       message,
       error instanceof SetupWorkingDirectoryError ? error.cwd : undefined,
+      inputFingerprint,
     );
     const nextState = recordSetupRun(serviceId, run);
     visiting.delete(visitKey);
@@ -550,6 +596,7 @@ export async function runSetupStep(
     exitCode: exit.exitCode,
     signal: exit.signal,
     message,
+    ...(inputFingerprint ? { inputFingerprint } : {}),
     logs,
   };
   const nextState = recordSetupRun(serviceId, run);

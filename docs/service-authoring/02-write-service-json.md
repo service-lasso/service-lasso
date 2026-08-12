@@ -65,7 +65,11 @@ This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](.
           "default": "mkcert -key-file \"${SERVICE_DATA_PATH}/mkcert.key\" -cert-file \"${SERVICE_DATA_PATH}/mkcert.pem\" *.localhost"
         },
         "timeoutSeconds": 60,
-        "rerun": "ifMissing"
+        "rerun": "ifChanged",
+        "fingerprint": [
+          "${SERVICE_ARTIFACT_ROOT}",
+          "${SERVICE_DATA_PATH}/config.yml"
+        ]
       }
     }
   }
@@ -79,6 +83,7 @@ Rules:
 - `cwd` optionally picks the working directory for the setup command. It uses the same variable selectors as `commandline` and `env`, defaults to the service root, and must resolve to an existing directory inside the service root.
 - `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
 - `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
+- `rerun: "ifChanged"` reruns after a successful run only when the resolved `fingerprint` inputs change; persisted setup state stores the SHA-256 hash metadata, not the raw input values.
 - `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.
 
 ## Pin the Release

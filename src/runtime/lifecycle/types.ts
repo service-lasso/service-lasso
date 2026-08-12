@@ -56,6 +56,11 @@ export interface ServiceSetupStepRunState {
   exitCode: number | null;
   signal: string | null;
   message: string;
+  inputFingerprint?: {
+    algorithm: "sha256";
+    hash: string;
+    inputCount: number;
+  };
   logs: {
     logPath: string;
     stdoutPath: string;

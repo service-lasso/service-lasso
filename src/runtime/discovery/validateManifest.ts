@@ -24,6 +24,7 @@ import type {
   ServiceEnvMap,
   ServiceEnvValue,
   ServiceManifest,
+  ServiceSetupStep,
   ServiceSetupRerunPolicy,
   ServiceUpdateInstallWindow,
   ServiceUpdateMode,
@@ -38,7 +39,7 @@ const updateModes = new Set(["disabled", "notify", "download", "install"]);
 const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-start", "restart"]);
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
-const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
+const setupRerunPolicies = new Set(["manual", "ifMissing", "ifChanged", "always"]);
 const actionModes = new Set(["built-in", "command", "workflow", "handler"]);
 const actionRequiredStates = new Set(["any", "running", "stopped"]);
 const actionConcurrencyPolicies = new Set(["skip-if-running", "allow-parallel"]);
@@ -444,30 +445,49 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
       const rawRerun = step.rerun;
       if (rawRerun !== undefined && (typeof rawRerun !== "string" || !setupRerunPolicies.has(rawRerun))) {
         throw new Error(
-          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.rerun" to be one of "manual", "ifMissing", or "always".`,
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.rerun" to be one of "manual", "ifMissing", "ifChanged", or "always".`,
         );
       }
 
-      return [
-        normalizedStepId,
-        {
-          description: typeof step.description === "string" ? step.description.trim() : undefined,
-          depend_on: Array.isArray(dependOn) ? dependOn.map((dependency) => (dependency as string).trim()) : undefined,
-          execservice: typeof step.execservice === "string" ? step.execservice.trim() : undefined,
-          executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
-          args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
-          commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
-          cwd: typeof cwd === "string" ? cwd.trim() : undefined,
-          env: readEnvMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
-          timeoutSeconds: expectOptionalWholeNumber(
-            step.timeoutSeconds,
-            `setup.steps.${normalizedStepId}.timeoutSeconds`,
-            manifestPath,
-            1,
-          ),
-          rerun: rawRerun as ServiceSetupRerunPolicy | undefined,
-        },
-      ];
+      const fingerprint = step.fingerprint;
+      if (
+        fingerprint !== undefined &&
+        (!Array.isArray(fingerprint) ||
+          fingerprint.some((entry) => typeof entry !== "string" || entry.trim().length === 0))
+      ) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.fingerprint" to be an array of non-empty strings.`,
+        );
+      }
+
+      if (rawRerun === "ifChanged" && (!Array.isArray(fingerprint) || fingerprint.length === 0)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: setup step "${normalizedStepId}" with rerun "ifChanged" must define a non-empty "fingerprint" array.`,
+        );
+      }
+
+      const normalizedStep: ServiceSetupStep = {
+        description: typeof step.description === "string" ? step.description.trim() : undefined,
+        depend_on: Array.isArray(dependOn) ? dependOn.map((dependency) => (dependency as string).trim()) : undefined,
+        execservice: typeof step.execservice === "string" ? step.execservice.trim() : undefined,
+        executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
+        args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
+        commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
+        cwd: typeof cwd === "string" ? cwd.trim() : undefined,
+        env: readEnvMap(step.env, `setup.steps.${normalizedStepId}.env`, manifestPath),
+        timeoutSeconds: expectOptionalWholeNumber(
+          step.timeoutSeconds,
+          `setup.steps.${normalizedStepId}.timeoutSeconds`,
+          manifestPath,
+          1,
+        ),
+        rerun: rawRerun as ServiceSetupRerunPolicy | undefined,
+      };
+      if (Array.isArray(fingerprint)) {
+        normalizedStep.fingerprint = fingerprint.map((entry) => (entry as string).trim());
+      }
+
+      return [normalizedStepId, normalizedStep];
     }),
   );
 

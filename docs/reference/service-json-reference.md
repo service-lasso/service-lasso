@@ -1063,7 +1063,7 @@ Runtime behavior:
 - Dependencies in `depend_on` can name services or setup steps using `<serviceId>:<stepId>`.
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
-- `rerun` supports `ifMissing`, `manual`, and `always`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+- `rerun` supports `ifMissing`, `ifChanged`, `manual`, and `always`; baseline bootstrap runs non-manual setup steps, skips already successful `ifMissing` steps, and reruns `ifChanged` steps when their resolved `fingerprint` inputs no longer match the last successful run. Persisted setup state stores only SHA-256 fingerprint metadata, not raw resolved values.
 
 CLI:
 

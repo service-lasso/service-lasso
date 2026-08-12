@@ -354,6 +354,19 @@ function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
     exitCode: typeof record.exitCode === "number" ? record.exitCode : null,
     signal: typeof record.signal === "string" ? record.signal : null,
     message: record.message,
+    inputFingerprint:
+      record.inputFingerprint?.algorithm === "sha256" &&
+      typeof record.inputFingerprint.hash === "string" &&
+      /^[a-f0-9]{64}$/.test(record.inputFingerprint.hash) &&
+      typeof record.inputFingerprint.inputCount === "number" &&
+      Number.isInteger(record.inputFingerprint.inputCount) &&
+      record.inputFingerprint.inputCount >= 0
+        ? {
+            algorithm: "sha256",
+            hash: record.inputFingerprint.hash,
+            inputCount: record.inputFingerprint.inputCount,
+          }
+        : undefined,
     logs: record.logs,
   };
 }

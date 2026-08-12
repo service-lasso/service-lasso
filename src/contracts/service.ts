@@ -115,7 +115,7 @@ export interface ServiceLifecycleHooks {
   onFailure?: ServiceHookStep[];
 }
 
-export type ServiceSetupRerunPolicy = "manual" | "ifMissing" | "always";
+export type ServiceSetupRerunPolicy = "manual" | "ifMissing" | "ifChanged" | "always";
 
 export type ServiceActionMode = "built-in" | "command" | "workflow" | "handler";
 export type ServiceActionRequiredState = "any" | "running" | "stopped";
@@ -192,6 +192,7 @@ export interface ServiceSetupStep {
   env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;
+  fingerprint?: string[];
 }
 
 export interface ServiceSetupPolicy {

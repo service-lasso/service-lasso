@@ -1716,7 +1716,8 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
                 SCHEMA_PATH: "${SERVICE_ROOT}/schema",
               },
               timeoutSeconds: 120,
-              rerun: "ifMissing",
+              rerun: "ifChanged",
+              fingerprint: ["${SERVICE_ROOT}/schema", "${SCHEMA_PATH}"],
             },
             "load-sample": {
               description: "Load optional sample data.",
@@ -1748,7 +1749,8 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
         SCHEMA_PATH: "${SERVICE_ROOT}/schema",
       },
       timeoutSeconds: 120,
-      rerun: "ifMissing",
+      rerun: "ifChanged",
+      fingerprint: ["${SERVICE_ROOT}/schema", "${SCHEMA_PATH}"],
     });
     assert.deepEqual(manifest.setup?.steps["load-sample"], {
       description: "Load optional sample data.",
@@ -1762,6 +1764,39 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
       timeoutSeconds: 300,
       rerun: "manual",
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects ifChanged setup steps without fingerprints", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "bad-setup-fingerprint", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "bad-setup-fingerprint",
+        name: "Bad Setup Fingerprint",
+        description: "Service with invalid setup fingerprint policy.",
+        setup: {
+          steps: {
+            build: {
+              executable: "node",
+              args: ["build.mjs"],
+              rerun: "ifChanged",
+            },
+          },
+        },
+      }),
+    );
+
+    await assert.rejects(
+      () => loadServiceManifest(manifestPath),
+      /rerun "ifChanged" must define a non-empty "fingerprint" array/i,
+    );
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

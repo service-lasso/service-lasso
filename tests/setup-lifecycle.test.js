@@ -7,7 +7,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
-import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
@@ -58,6 +58,29 @@ async function writeSetupScript(serviceRoot, name = "setup-writer.mjs") {
       "}, null, 2));",
       "console.log('setup writer complete');",
       "console.error('setup writer stderr');",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+async function writeFingerprintSetupScript(serviceRoot) {
+  const runtimeRoot = path.join(serviceRoot, "runtime");
+  await mkdir(runtimeRoot, { recursive: true });
+  await writeFile(
+    path.join(runtimeRoot, "fingerprint-writer.mjs"),
+    [
+      "import { mkdir, readFile, writeFile } from 'node:fs/promises';",
+      "import path from 'node:path';",
+      "const outputPath = path.resolve(process.cwd(), './runtime/fingerprint-output.json');",
+      "let count = 0;",
+      "try { count = JSON.parse(await readFile(outputPath, 'utf8')).count ?? 0; } catch {}",
+      "await mkdir(path.dirname(outputPath), { recursive: true });",
+      "await writeFile(outputPath, JSON.stringify({",
+      "  count: count + 1,",
+      "  stepValue: process.env.STEP_VALUE ?? null,",
+      "  artifactRoot: process.env.SERVICE_ARTIFACT_ROOT ?? null",
+      "}, null, 2));",
+      "console.log('fingerprint writer complete');",
     ].join("\n"),
     "utf8",
   );
@@ -227,6 +250,123 @@ test("setup run fails before spawning when cwd is missing or outside the service
     assert.match(escape.body.runs[0].message, /must stay inside the service root/);
   } finally {
     await apiServer.stop();
+    await resetSetupTestState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("ifChanged setup steps skip unchanged inputs and rerun after fingerprint changes", async () => {
+  await resetSetupTestState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-ifchanged-");
+  let apiServer;
+
+  async function writeFingerprintManifest(value) {
+    return writeManifest(servicesRoot, "fingerprinted", {
+      id: "fingerprinted",
+      name: "Fingerprinted Setup",
+      description: "Setup step with input fingerprint policy.",
+      env: {
+        FINGERPRINT_VALUE: value,
+      },
+      setup: {
+        steps: {
+          "write-fingerprint": {
+            executable: process.execPath,
+            args: ["runtime/fingerprint-writer.mjs"],
+            env: {
+              STEP_VALUE: "${FINGERPRINT_VALUE}",
+            },
+            rerun: "ifChanged",
+            fingerprint: ["${FINGERPRINT_VALUE}", "${SERVICE_ARTIFACT_ROOT}"],
+            timeoutSeconds: 5,
+          },
+        },
+      },
+    });
+  }
+
+  function setArtifactRoot(serviceRoot, label) {
+    const current = getLifecycleState("fingerprinted");
+    setLifecycleState("fingerprinted", {
+      ...current,
+      installArtifacts: {
+        ...current.installArtifacts,
+        artifact: {
+          sourceType: "github-release",
+          repo: "service-lasso/example-service",
+          channel: null,
+          tag: label,
+          assetName: "example.zip",
+          assetUrl: null,
+          archiveType: "zip",
+          archivePath: path.join(serviceRoot, "runtime", `${label}.zip`),
+          extractedPath: path.join(serviceRoot, "runtime", label),
+          command: "fingerprint-writer.mjs",
+          args: [],
+          checksum: null,
+        },
+      },
+    });
+  }
+
+  try {
+    const serviceRoot = await writeFingerprintManifest("alpha");
+    await writeFingerprintSetupScript(serviceRoot);
+    apiServer = await startApiServer({ port: 0, servicesRoot });
+    await postJson(`${apiServer.url}/api/services/fingerprinted/install`);
+    await postJson(`${apiServer.url}/api/services/fingerprinted/config`);
+    setArtifactRoot(serviceRoot, "artifact-v1");
+
+    const first = await postJson(`${apiServer.url}/api/services/fingerprinted/setup/run/write-fingerprint`);
+    assert.equal(first.status, 200);
+    assert.equal(first.body.ok, true);
+    assert.equal(first.body.runs[0].status, "succeeded");
+    assert.equal(first.body.runs[0].inputFingerprint.algorithm, "sha256");
+    assert.match(first.body.runs[0].inputFingerprint.hash, /^[a-f0-9]{64}$/);
+    assert.equal(first.body.runs[0].inputFingerprint.inputCount, 2);
+
+    const unchanged = await postJson(`${apiServer.url}/api/services/fingerprinted/setup/run/write-fingerprint`);
+    assert.equal(unchanged.status, 200);
+    assert.equal(unchanged.body.ok, true);
+    assert.deepEqual(unchanged.body.runs, []);
+    assert.deepEqual(unchanged.body.skipped, [{ stepId: "write-fingerprint", reason: "setup step inputs unchanged" }]);
+
+    let output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "fingerprint-output.json"), "utf8"));
+    assert.equal(output.count, 1);
+    assert.equal(output.stepValue, "alpha");
+    assert.equal(path.resolve(output.artifactRoot), path.resolve(serviceRoot, "runtime", "artifact-v1"));
+
+    await apiServer.stop();
+    apiServer = undefined;
+    await writeFingerprintManifest("beta");
+    apiServer = await startApiServer({ port: 0, servicesRoot });
+
+    const changedEnv = await postJson(`${apiServer.url}/api/services/fingerprinted/setup/run/write-fingerprint`);
+    assert.equal(changedEnv.status, 200);
+    assert.equal(changedEnv.body.ok, true);
+    assert.equal(changedEnv.body.runs[0].status, "succeeded");
+    output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "fingerprint-output.json"), "utf8"));
+    assert.equal(output.count, 2);
+    assert.equal(output.stepValue, "beta");
+
+    setArtifactRoot(serviceRoot, "artifact-v2");
+    const changedArtifact = await postJson(`${apiServer.url}/api/services/fingerprinted/setup/run/write-fingerprint`);
+    assert.equal(changedArtifact.status, 200);
+    assert.equal(changedArtifact.body.ok, true);
+    assert.equal(changedArtifact.body.runs[0].status, "succeeded");
+    output = JSON.parse(await readFile(path.join(serviceRoot, "runtime", "fingerprint-output.json"), "utf8"));
+    assert.equal(output.count, 3);
+    assert.equal(path.resolve(output.artifactRoot), path.resolve(serviceRoot, "runtime", "artifact-v2"));
+
+    const stored = await readStoredState(serviceRoot);
+    const lastRun = stored.setup.steps["write-fingerprint"].lastRun;
+    assert.equal(lastRun.inputFingerprint.algorithm, "sha256");
+    assert.match(lastRun.inputFingerprint.hash, /^[a-f0-9]{64}$/);
+    assert.doesNotMatch(JSON.stringify(lastRun.inputFingerprint), /alpha|beta|artifact-v2/);
+  } finally {
+    if (apiServer) {
+      await apiServer.stop();
+    }
     await resetSetupTestState();
     await rm(tempRoot, { recursive: true, force: true });
   }
