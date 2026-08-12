@@ -4481,12 +4481,15 @@ async function startApiServerInternal(
   const recoveryModel = await loadRuntimeModel(config.servicesRoot);
   const recovery = await inspectStartupRecovery(config, recoveryModel.discovered);
   let recoveryClassification = recovery.classification;
-  if (
-    recoveryClassification === "resume" &&
-    recovery.journal &&
-    !baselineIntentMatches(recovery.journal, baselineServiceIds)
-  ) {
-    recoveryClassification = "rollback";
+  if (recoveryClassification === "resume" && recovery.journal) {
+    const interruptedBaselineServiceIds = journalBaselineServiceIds(recovery.journal);
+    if (
+      interruptedBaselineServiceIds !== null ||
+      baselineServiceIds !== null ||
+      !baselineIntentMatches(recovery.journal, baselineServiceIds)
+    ) {
+      recoveryClassification = "rollback";
+    }
   }
   let recoveryAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
   let recoveryAdoptServiceIds: ReadonlySet<string> | undefined;

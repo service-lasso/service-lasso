@@ -168,7 +168,14 @@ test("AC-4BJ.4/.5/.8 hard-crashed CLI baseline rolls back its uncommitted owner 
       assert.notEqual(recovered.generationId, interrupted.generationId);
       assert.notEqual(apiServer.endpointAllocationPlan.allocationId, interruptedAllocation.allocationId);
       assert.notEqual(recoveredOwner.pid, interruptedOwner.pid);
+      assert.equal(recoveredOwner.generationId, apiServer.generationId);
+      assert.equal(recoveredOwner.allocation.revision, apiServer.endpointAllocationPlan.allocationId);
       assert.equal(getLifecycleState("resume-service").running, true);
+      assert.equal(getLifecycleState("resume-service").runtime.generationId, apiServer.generationId);
+      assert.equal(
+        getLifecycleState("resume-service").runtime.allocationRevision,
+        apiServer.endpointAllocationPlan.allocationId,
+      );
       const capturedEnv = JSON.parse(await readFile(
         path.join(fixture.servicesRoot, "resume-service", "runtime", "env.json"),
         "utf8",
