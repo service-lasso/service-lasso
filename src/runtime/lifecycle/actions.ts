@@ -514,6 +514,11 @@ async function persistProcessExit(
   service: DiscoveredService,
   exitCode: number | null,
   signal: NodeJS.Signals | null = null,
+  supervisionDecision?: {
+    supervision: ServiceLifecycleState["runtime"]["supervision"];
+    message: string;
+    ok: boolean;
+  },
 ): Promise<void> {
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(
@@ -538,10 +543,22 @@ async function persistProcessExit(
       lastTermination: termination,
       metrics: applyRunCompletionMetrics(current, finishedAt, termination),
       brokerIdentity: revokedIdentity,
+      supervision: supervisionDecision?.supervision ?? current.runtime.supervision,
     },
   }));
 
   await writeServiceState(service, state);
+  if (supervisionDecision) {
+    await appendServiceRecoveryHistoryEvents(service, [
+      {
+        kind: "restart",
+        serviceId: service.manifest.id,
+        ok: supervisionDecision.ok,
+        message: supervisionDecision.message,
+        at: finishedAt,
+      },
+    ]);
+  }
 }
 
 function resolveRestartMaxAttempts(policy: ServiceRestartPolicy): number {
@@ -676,40 +693,52 @@ async function superviseUnexpectedProcessExit(
   registry: ServiceRegistry | undefined,
   options: ServiceLifecycleActionOptions,
 ): Promise<void> {
-  await persistProcessExit(service, exitCode, signal);
-
   const serviceId = service.manifest.id;
   const termination = classifyUnexpectedTermination(exitCode, signal);
   const reason: ServiceRuntimeSupervisionRestartReason = "crash";
   const policy = service.manifest.restartPolicy;
 
+  const persistBlockedExit = async (message: string): Promise<void> => {
+    const current = getLifecycleState(serviceId);
+    await persistProcessExit(service, exitCode, signal, {
+      supervision: {
+        ...current.runtime.supervision,
+        lastRestartReason: reason,
+        lastRestartResult: "blocked",
+        nextRestartAt: null,
+      },
+      message,
+      ok: false,
+    });
+  };
+
   if (!policy || policy.enabled !== true) {
-    await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because restartPolicy is not enabled.`);
+    await persistBlockedExit(`Automatic restart skipped for "${serviceId}" because restartPolicy is not enabled.`);
     return;
   }
   if (service.manifest.enabled === false) {
-    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because the service is disabled.`);
+    await persistBlockedExit(`Automatic restart blocked for "${serviceId}" because the service is disabled.`);
     return;
   }
   if (termination !== "crashed") {
-    await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because the unexpected exit was clean.`);
+    await persistBlockedExit(`Automatic restart skipped for "${serviceId}" because the unexpected exit was clean.`);
     return;
   }
   if (!restartPolicyAllowsCrash(policy)) {
-    await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because restartPolicy.onCrash is disabled.`);
+    await persistBlockedExit(`Automatic restart skipped for "${serviceId}" because restartPolicy.onCrash is disabled.`);
     return;
   }
 
   const current = getLifecycleState(serviceId);
   if (!current.installed || !current.configured) {
-    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because it is not installed and configured.`);
+    await persistBlockedExit(`Automatic restart blocked for "${serviceId}" because it is not installed and configured.`);
     return;
   }
 
   const maxAttempts = resolveRestartMaxAttempts(policy);
   const attemptNumber = current.runtime.supervision.restartAttempts + 1;
   if (attemptNumber > maxAttempts) {
-    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because maxAttempts was reached.`);
+    await persistBlockedExit(`Automatic restart blocked for "${serviceId}" because maxAttempts was reached.`);
     return;
   }
 
@@ -717,9 +746,8 @@ async function superviseUnexpectedProcessExit(
   const backoffSeconds = resolveRestartBackoffSeconds(policy);
   const nextRestartAt = new Date(now.getTime() + backoffSeconds * 1000).toISOString();
   cancelScheduledSupervisionRestart(serviceId);
-  await recordSupervisionDecision(
-    service,
-    {
+  await persistProcessExit(service, exitCode, signal, {
+    supervision: {
       ...current.runtime.supervision,
       restartAttempts: attemptNumber,
       lastRestartAttemptAt: now.toISOString(),
@@ -727,9 +755,9 @@ async function superviseUnexpectedProcessExit(
       lastRestartResult: "scheduled",
       nextRestartAt,
     },
-    `Automatic restart scheduled for "${serviceId}" after ${reason} (attempt ${attemptNumber} of ${maxAttempts}).`,
-    true,
-  );
+    message: `Automatic restart scheduled for "${serviceId}" after ${reason} (attempt ${attemptNumber} of ${maxAttempts}).`,
+    ok: true,
+  });
 
   const timer = setTimeout(() => {
     void runScheduledSupervisionRestart(service, registry, options, reason, attemptNumber);

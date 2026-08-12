@@ -17,6 +17,7 @@ import {
   hasManagedProcess,
   startManagedProcess,
   stopManagedProcess,
+  waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
@@ -728,10 +729,11 @@ test("unexpected crash without restartPolicy records no automatic restart", asyn
     await configService(service);
     await startService(service);
 
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    assert.equal(
+      await waitForManagedProcessFinalization("no-policy-crash", 30_000),
+      true,
+      "managed crash finalization should complete",
+    );
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "crashed");

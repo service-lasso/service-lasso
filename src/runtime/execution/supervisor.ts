@@ -320,6 +320,30 @@ export function hasManagedProcess(serviceId: string): boolean {
   return managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId);
 }
 
+export async function waitForManagedProcessFinalization(
+  serviceId: string,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  const finalizer = managedProcessFinalizers.get(serviceId);
+  if (!finalizer) {
+    return !hasManagedProcess(serviceId);
+  }
+
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<false>((resolve) => {
+    timeout = setTimeout(() => resolve(false), timeoutMs);
+    timeout.unref?.();
+  });
+  const finalized = await Promise.race([
+    finalizer.then(() => true),
+    timeoutPromise,
+  ]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+  return finalized;
+}
+
 function managedProcessTreeTarget(record: ManagedProcessRecord): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
@@ -651,7 +675,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   void monitorManagedProcessTree(record).catch(() => undefined);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
-    record.treeTerminationPromise ??= terminateOwnedProcessTree(managedProcessTreeTarget(record), 5_000);
+    record.treeTerminationPromise ??= terminateOwnedProcessTree({
+      ...managedProcessTreeTarget(record),
+      rootKnownExited: true,
+    }, 5_000);
     await record.treeTerminationPromise;
     await new Promise<void>((resolve) => setImmediate(resolve));
     record.exitCode = exitCode;
