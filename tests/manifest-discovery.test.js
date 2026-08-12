@@ -296,8 +296,8 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
     SERVICE_HOST: "0.0.0.0",
     SERVICE_PORT: "${UI_PORT}",
-    SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
-    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
+    SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",
   });
 });
 
@@ -1133,6 +1133,7 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
           ref: "database.PASSWORD",
           as: "DB_PASSWORD",
           required: true,
+          onChange: undefined,
         },
       ],
       exports: [

@@ -767,7 +767,7 @@ test("GET /api/services/:id/health supports bare and selector variable healthche
   }
 });
 
-test("HTTP healthcheck lifecycle actions stay 200 when the probe is unavailable", async () => {
+test("HTTP healthcheck lifecycle actions fail start cleanly when the probe is unavailable", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
   await writeExecutableFixtureService(servicesRoot, "http-health-fixture", {
@@ -786,12 +786,15 @@ test("HTTP healthcheck lifecycle actions stay 200 when the probe is unavailable"
     const start = await postJson(`${apiServer.url}/api/services/http-health-fixture/start`);
     const stop = await postJson(`${apiServer.url}/api/services/http-health-fixture/stop`);
 
-    for (const response of [install, config, start, stop]) {
+    for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
       assert.equal(response.body.health.type, "http");
       assert.equal(response.body.health.healthy, false);
       assert.match(response.body.health.detail, /HTTP healthcheck failed:/i);
     }
+    assert.equal(start.body.ok, false);
+    assert.equal(stop.status, 409);
+    assert.equal(stop.body.error, "invalid_lifecycle_state");
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
@@ -799,7 +802,7 @@ test("HTTP healthcheck lifecycle actions stay 200 when the probe is unavailable"
   }
 });
 
-test("TCP healthcheck lifecycle actions stay 200 when the probe is unavailable", async () => {
+test("TCP healthcheck lifecycle actions fail start cleanly when the probe is unavailable", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
   await writeExecutableFixtureService(servicesRoot, "tcp-health-fixture", {
@@ -817,12 +820,15 @@ test("TCP healthcheck lifecycle actions stay 200 when the probe is unavailable",
     const start = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/start`);
     const stop = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/stop`);
 
-    for (const response of [install, config, start, stop]) {
+    for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
       assert.equal(response.body.health.type, "tcp");
       assert.equal(response.body.health.healthy, false);
       assert.match(response.body.health.detail, /TCP healthcheck failed:/i);
     }
+    assert.equal(start.body.ok, false);
+    assert.equal(stop.status, 409);
+    assert.equal(stop.body.error, "invalid_lifecycle_state");
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
@@ -935,7 +941,7 @@ test("file healthchecks support absolute paths", async () => {
   }
 });
 
-test("file healthcheck lifecycle actions stay 200 when the file is unavailable", async () => {
+test("file healthcheck lifecycle actions fail start cleanly when the file is unavailable", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
   await writeExecutableFixtureService(servicesRoot, "file-health-fixture", {
@@ -953,12 +959,15 @@ test("file healthcheck lifecycle actions stay 200 when the file is unavailable",
     const start = await postJson(`${apiServer.url}/api/services/file-health-fixture/start`);
     const stop = await postJson(`${apiServer.url}/api/services/file-health-fixture/stop`);
 
-    for (const response of [install, config, start, stop]) {
+    for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
       assert.equal(response.body.health.type, "file");
       assert.equal(response.body.health.healthy, false);
       assert.match(response.body.health.detail, /did not find expected file/i);
     }
+    assert.equal(start.body.ok, false);
+    assert.equal(stop.status, 409);
+    assert.equal(stop.body.error, "invalid_lifecycle_state");
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });
@@ -1000,7 +1009,7 @@ test("GET /api/services/:id/health supports bounded variable healthchecks", asyn
   }
 });
 
-test("variable healthcheck lifecycle actions stay 200 when the variable is unavailable", async () => {
+test("variable healthcheck lifecycle actions fail start cleanly when the variable is unavailable", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
   await writeExecutableFixtureService(servicesRoot, "variable-health-fixture", {
@@ -1018,12 +1027,15 @@ test("variable healthcheck lifecycle actions stay 200 when the variable is unava
     const start = await postJson(`${apiServer.url}/api/services/variable-health-fixture/start`);
     const stop = await postJson(`${apiServer.url}/api/services/variable-health-fixture/stop`);
 
-    for (const response of [install, config, start, stop]) {
+    for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
       assert.equal(response.body.health.type, "variable");
       assert.equal(response.body.health.healthy, false);
       assert.match(response.body.health.detail, /did not resolve expected variable/i);
     }
+    assert.equal(start.body.ok, false);
+    assert.equal(stop.status, 409);
+    assert.equal(stop.body.error, "invalid_lifecycle_state");
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

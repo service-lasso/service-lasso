@@ -205,7 +205,10 @@ test("MCP tool calls return redacted log summaries and sanitized routes", async 
     const diagnosticsPayload = JSON.parse(diagnostics.body.result.contents[0].text);
     const serialized = JSON.stringify({ routePayload, logPayload, diagnosticsPayload });
 
-    assert.equal(routePayload.services[0].endpoints[0].url, "https://example.invalid:43102/admin");
+    assert.equal(
+      routePayload.services[0].endpoints.find((endpoint) => endpoint.label === "admin")?.url,
+      "https://example.invalid:43102/admin",
+    );
     assert.equal(logPayload.log.entries[0].message.includes("[REDACTED]"), true);
     assert.equal(diagnosticsPayload.secretReferences.references, 1);
     assertNoSecretMaterial(routePayload);
