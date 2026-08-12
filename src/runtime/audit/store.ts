@@ -279,7 +279,20 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
   }
 
   const timestamp = new Date().toISOString();
-  const chainId = input.serviceId ? `service:${input.serviceId}` : "runtime";
+  const target =
+    input.serviceRoot && input.serviceId
+      ? {
+          auditDir: getServiceAuditDir(input.serviceRoot),
+          filePath: getServiceAuditPath(input.serviceRoot, timestamp),
+          chainId: `service:${input.serviceId}`,
+        }
+      : input.workspaceRoot
+        ? {
+            auditDir: getRuntimeAuditDir(input.workspaceRoot),
+            filePath: getRuntimeAuditPath(input.workspaceRoot, timestamp),
+            chainId: "runtime",
+          }
+        : null;
   const event: AuditEvent = {
     id: randomUUID(),
     timestamp,
@@ -297,25 +310,12 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     correlationId: input.correlationId ?? randomUUID(),
     relatedRevisionId: input.relatedRevisionId ?? null,
     metadata: input.metadata,
-    chainId,
+    chainId: target?.chainId ?? "runtime",
     sequence: 0,
     previousHash: null,
     eventHash: "",
     chainStatus: "verified",
   };
-  const target =
-    input.serviceRoot && input.serviceId
-      ? {
-          auditDir: getServiceAuditDir(input.serviceRoot),
-          filePath: getServiceAuditPath(input.serviceRoot, timestamp),
-        }
-      : input.workspaceRoot
-        ? {
-            auditDir: getRuntimeAuditDir(input.workspaceRoot),
-            filePath: getRuntimeAuditPath(input.workspaceRoot, timestamp),
-          }
-        : null;
-
   if (!target) {
     return event;
   }
