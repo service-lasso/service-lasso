@@ -1141,9 +1141,14 @@ function printBootstrapResult(
   asJson: boolean,
 ): void {
   const payload = {
+    schema: "service-lasso.baseline-start.v1",
+    status: "completed",
     servicesRoot: result.servicesRoot,
     workspaceRoot: result.workspaceRoot,
     apiUrl: app.apiServer.url,
+    instanceId: app.apiServer.instanceId,
+    generationId: app.apiServer.generationId,
+    ownerPid: app.apiServer.ownerPid,
     requestedServiceIds: result.requestedServiceIds,
     serviceOrder: result.serviceOrder,
     services: result.services,
