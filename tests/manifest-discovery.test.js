@@ -195,13 +195,13 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
   assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
-  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-eca215a");
+  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.8.12-1500d36");
   assert.equal(byId.get("@node")?.artifact?.platforms.win32?.assetName, "lasso-node-v24.15.0-win32.zip");
   assert.deepEqual(byServiceId.get("@node")?.catalogProvenance, {
     sourcePath: "@node/service.json",
     sourceType: "github-release",
     repo: "service-lasso/lasso-node",
-    releaseTag: "2026.4.27-eca215a",
+    releaseTag: "2026.8.12-1500d36",
     assetNames: [
       "lasso-node-v24.15.0-darwin.tar.gz",
       "lasso-node-v24.15.0-linux.tar.gz",

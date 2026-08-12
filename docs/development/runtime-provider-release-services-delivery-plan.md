@@ -28,7 +28,7 @@ It separates current truth from target delivery so the repo does not imply relea
 
 | Service | Current repo | Current core behavior | Release-backed today | Notes |
 | --- | --- | --- | --- | --- |
-| `@node` | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-eca215a`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
+| `@node` | [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins portable-symlink release `2026.8.12-1500d36`, acquires exact Node `v24.15.0`, and skips provider daemon launch. |
 | `@localcert` | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) | release-backed provider in the current core baseline | yes, repo release exists | Core manifest pins `2026.4.27-591ed28`, acquires local cert material, exports certificate globals, and skips provider daemon launch. |
 | `@python` | [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) | non-baseline release-backed provider in core | yes, Windows-only repo release exists | Core manifest pins `2026.4.27-63f915c` and can acquire official Python.org Windows embeddable `3.11.5`; Linux/macOS remain deferred. |
 | `@java` | [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) | non-baseline release-backed provider in core | yes, repo release exists | Core manifest pins portable-symlink release `2026.8.12-d5765f1` and can acquire Eclipse Temurin JRE `17.0.18+8` across Windows/Linux/macOS. |

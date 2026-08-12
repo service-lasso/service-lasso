@@ -37,7 +37,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-node",
-      "tag": "2026.4.27-eca215a"
+      "tag": "2026.8.12-1500d36"
     },
     "platforms": {
       "win32": {
