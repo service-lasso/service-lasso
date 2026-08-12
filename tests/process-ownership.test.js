@@ -646,7 +646,7 @@ test("API restart replaces an adopted persisted process and keeps retained ports
 
     const restart = await postJson(`${apiServer.url}/api/services/adopted-restart-service/restart`);
 
-    assert.equal(restart.response.status, 200);
+    assert.equal(restart.response.status, 200, JSON.stringify(restart.body));
     assert.equal(restart.body.action, "restart");
     assert.equal(restart.body.state.running, true);
     assert.equal(restart.body.state.runtime.pid > 0, true);

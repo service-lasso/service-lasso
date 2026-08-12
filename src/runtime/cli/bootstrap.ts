@@ -1,9 +1,9 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { hasManagedProcess } from "../execution/supervisor.js";
-import { configService, installService, startService } from "../lifecycle/actions.js";
+import { configService, installService, startService, type ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "../lifecycle/types.js";
-import { listSetupStepIds, runServiceSetup } from "../setup/steps.js";
+import { listSetupStepIds, runServiceSetup, type SetupTransactionHooks } from "../setup/steps.js";
 import { DependencyGraph, createServiceRegistry } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -13,6 +13,11 @@ import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { readRuntimeSetupStatus, shouldBlockNormalAutostart, type RuntimeSetupStatus } from "../setup/first-run.js";
 import { servicePortsFromEndpointAllocation, type RuntimeEndpointAllocationPlan } from "../ports/allocation.js";
+import type {
+  MaterializationWriteHooks,
+  StartupArtifactAcquisitionHooks,
+  StartupMaterializationKind,
+} from "../startup/materialization.js";
 
 export const DEFAULT_BASELINE_SERVICE_IDS = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"] as const;
 
@@ -36,6 +41,18 @@ export interface BaselineServiceSummary {
 export interface BootstrapBaselineOptions extends RuntimeConfigOptions {
   serviceIds?: readonly string[];
   endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
+  transactionHooks?: BootstrapBaselineTransactionHooks;
+}
+
+export interface BootstrapBaselineTransactionHooks {
+  runtimeGenerationId: string;
+  runtimeInstanceId: string;
+  materializationHooksFor(service: DiscoveredService, kind: StartupMaterializationKind): MaterializationWriteHooks;
+  artifactAcquisitionHooksFor(service: DiscoveredService): StartupArtifactAcquisitionHooks;
+  setupTransactionHooks: SetupTransactionHooks;
+  beforeServiceStart(service: DiscoveredService): Promise<void>;
+  afterServiceStart(service: DiscoveredService): Promise<void>;
+  afterAction(service: DiscoveredService, action: LifecycleAction): Promise<void>;
 }
 
 export interface BootstrapBaselineResult {
@@ -80,9 +97,12 @@ async function runLifecycleAction(
   action: LifecycleAction,
   workspaceRoot?: string,
   endpointAllocationPlan?: RuntimeEndpointAllocationPlan,
+  transactionHooks?: BootstrapBaselineTransactionHooks,
 ): Promise<LifecycleActionResult> {
-  const allocationOptions = {
+  const allocationOptions: ServiceLifecycleActionOptions = {
     workspaceRoot,
+    runtimeGenerationId: transactionHooks?.runtimeGenerationId,
+    runtimeInstanceId: transactionHooks?.runtimeInstanceId,
     plannedPorts: endpointAllocationPlan
       ? servicePortsFromEndpointAllocation(endpointAllocationPlan)[service.manifest.id]
       : undefined,
@@ -90,14 +110,22 @@ async function runLifecycleAction(
   };
   try {
     if (action === "install") {
-      return await installService(service, registry);
+      return await installService(service, registry, {
+        ...allocationOptions,
+        materializationHooks: transactionHooks?.materializationHooksFor(service, "install"),
+        artifactAcquisitionHooks: transactionHooks?.artifactAcquisitionHooksFor(service),
+      });
     }
 
     if (action === "config") {
-      return await configService(service, registry, allocationOptions);
+      return await configService(service, registry, {
+        ...allocationOptions,
+        materializationHooks: transactionHooks?.materializationHooksFor(service, "config"),
+      });
     }
 
     if (action === "start") {
+      await transactionHooks?.beforeServiceStart(service);
       return await startService(service, registry, allocationOptions);
     }
   } catch (error) {
@@ -125,7 +153,13 @@ function resolveBaselineOrder(registry: ServiceRegistry, requestedServiceIds: re
 export async function bootstrapBaselineServices(options: BootstrapBaselineOptions = {}): Promise<BootstrapBaselineResult> {
   const runtimeConfig = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
-  await rehydrateDiscoveredServices(discovered, { workspaceRoot: runtimeConfig.workspaceRoot });
+  // Transactional callers have already completed generation-scoped rehydration,
+  // including the explicit allow-list of owners that recovery may adopt. A
+  // second unrestricted pass here could adopt a persisted process that the
+  // startup recovery inspection intentionally did not verify.
+  if (!options.transactionHooks) {
+    await rehydrateDiscoveredServices(discovered, { workspaceRoot: runtimeConfig.workspaceRoot });
+  }
   const registry = createServiceRegistry(discovered);
   const requestedServiceIds = [...(options.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)];
   const serviceOrder = resolveBaselineOrder(registry, requestedServiceIds);
@@ -177,8 +211,10 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
         "install",
         runtimeConfig.workspaceRoot,
         options.endpointAllocationPlan,
+        options.transactionHooks,
       );
       await writeServiceState(service, result.state);
+      await options.transactionHooks?.afterAction(service, "install");
       state = result.state;
       actions.push({ action: "install", status: "completed", message: result.message });
     }
@@ -192,14 +228,18 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
         "config",
         runtimeConfig.workspaceRoot,
         options.endpointAllocationPlan,
+        options.transactionHooks,
       );
       await writeServiceState(service, result.state);
+      await options.transactionHooks?.afterAction(service, "config");
       state = result.state;
       actions.push({ action: "config", status: "completed", message: result.message });
     }
 
     if (listSetupStepIds(service).length > 0) {
-      const result = await runServiceSetup(service, registry);
+      const result = await runServiceSetup(service, registry, {
+        transactionHooks: options.transactionHooks?.setupTransactionHooks,
+      });
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({
@@ -209,6 +249,9 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
       });
       if (!result.ok) {
         throw formatActionFailure(serviceId, "setup", new Error(result.message));
+      }
+      if (result.runs.length > 0) {
+        await options.transactionHooks?.afterAction(service, "setup");
       }
     }
 
@@ -235,8 +278,16 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
         "start",
         runtimeConfig.workspaceRoot,
         options.endpointAllocationPlan,
+        options.transactionHooks,
       );
       await writeServiceState(service, result.state);
+      if (!result.ok) {
+        throw formatActionFailure(serviceId, "start", new Error(result.message));
+      }
+      if (result.ok && result.state.running) {
+        await options.transactionHooks?.afterServiceStart(service);
+      }
+      await options.transactionHooks?.afterAction(service, "start");
       state = result.state;
       actions.push({ action: "start", status: "completed", message: result.message });
     }

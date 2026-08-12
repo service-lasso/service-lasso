@@ -2,6 +2,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import { buildAggregateHealth, evaluateServiceHealth, evaluateServiceHealthcheck } from "./evaluateHealth.js";
+import {
+  attributeServiceReadiness,
+  type ReadinessAttributionEvidence,
+  type ReadinessAttributionOptions,
+} from "./readinessAttribution.js";
 import type { ServiceHealthcheck, ServiceHealthcheckResult, ServiceHealthResult } from "./types.js";
 
 const DEFAULT_READINESS_INTERVAL_MS = 1_000;
@@ -13,7 +18,13 @@ export interface ReadinessWaitResult {
   health: ServiceHealthResult;
   attempts: number;
   message: string;
+  attribution: ReadinessAttributionEvidence;
 }
+
+const NOT_APPLICABLE_ATTRIBUTION: ReadinessAttributionEvidence = {
+  classification: "not_applicable",
+  checkedEndpointCount: 0,
+};
 
 function resolveReadinessOptions(healthcheck?: ServiceHealthcheck): {
   enabled: boolean;
@@ -41,6 +52,7 @@ function resolveReadinessOptions(healthcheck?: ServiceHealthcheck): {
 export async function waitForServiceReadiness(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
+  attributionOptions: ReadinessAttributionOptions = {},
 ): Promise<ReadinessWaitResult> {
   if (service.manifest.healthchecks && service.manifest.healthchecks.length > 0) {
     const checks: ServiceHealthcheckResult[] = [];
@@ -91,19 +103,31 @@ export async function waitForServiceReadiness(
           message:
             `Service did not become ready because healthcheck "${lastCheck.id}" failed after ${lastCheck.attempts} readiness attempt(s)` +
             ` with interval ${intervalMs}ms and start period ${startPeriodMs}ms.`,
+          attribution: NOT_APPLICABLE_ATTRIBUTION,
         };
       }
     }
 
     const health = buildAggregateHealth(checks);
+    const attribution = health.healthy
+      ? await attributeServiceReadiness(
+          service,
+          getLifecycleState(service.manifest.id),
+          sharedGlobalEnv,
+          attributionOptions,
+        )
+      : null;
     return {
       enabled: true,
-      ready: health.healthy,
+      ready: health.healthy && (attribution?.ready ?? true),
       health,
       attempts: checks.reduce((total, check) => total + check.attempts, 0),
-      message: health.healthy
-        ? `Start completed after ${checks.length} healthcheck(s) reached required readiness.`
+      message: health.healthy && attribution && !attribution.ready
+        ? attribution.message
+        : health.healthy
+          ? `Start completed after ${checks.length} healthcheck(s) reached required readiness.`
         : `Service did not become ready: ${health.detail}`,
+      attribution: attribution?.evidence ?? NOT_APPLICABLE_ATTRIBUTION,
     };
   }
 
@@ -123,6 +147,7 @@ export async function waitForServiceReadiness(
       health: lastHealth,
       attempts: 1,
       message: "Start completed.",
+      attribution: NOT_APPLICABLE_ATTRIBUTION,
     };
   }
 
@@ -140,12 +165,21 @@ export async function waitForServiceReadiness(
     );
 
     if (lastHealth.healthy) {
+      const attribution = await attributeServiceReadiness(
+        service,
+        getLifecycleState(service.manifest.id),
+        sharedGlobalEnv,
+        attributionOptions,
+      );
       return {
         enabled: true,
-        ready: true,
+        ready: attribution.ready,
         health: lastHealth,
         attempts: attempt,
-        message: `Start completed after readiness succeeded on attempt ${attempt} of ${attempts}.`,
+        message: attribution.ready
+          ? `Start completed after readiness succeeded on attempt ${attempt} of ${attempts}.`
+          : attribution.message,
+        attribution: attribution.evidence,
       };
     }
 
@@ -162,5 +196,6 @@ export async function waitForServiceReadiness(
     message:
       `Service did not become ready after ${attempts} readiness attempt(s)` +
       ` with interval ${intervalMs}ms and start period ${startPeriodMs}ms.`,
+    attribution: NOT_APPLICABLE_ATTRIBUTION,
   };
 }

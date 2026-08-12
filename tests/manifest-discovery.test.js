@@ -1980,6 +1980,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
               },
               timeoutSeconds: 120,
               rerun: "ifMissing",
+              outputs: ["data/schema.marker"],
             },
             "load-sample": {
               description: "Load optional sample data.",
@@ -2012,6 +2013,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
       },
       timeoutSeconds: 120,
       rerun: "ifMissing",
+      outputs: ["data/schema.marker"],
     });
     assert.deepEqual(manifest.setup?.steps["load-sample"], {
       description: "Load optional sample data.",
@@ -2025,6 +2027,31 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
       timeoutSeconds: 300,
       rerun: "manual",
     });
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects setup outputs outside the service root", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "unsafe-setup-output", "service.json");
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, JSON.stringify({
+      id: "unsafe-setup-output",
+      name: "Unsafe Setup Output",
+      description: "Reject escaped transactional outputs.",
+      setup: {
+        steps: {
+          generate: {
+            executable: process.execPath,
+            args: ["-e", "process.exit(0)"],
+            outputs: ["../outside.txt"],
+          },
+        },
+      },
+    }));
+    await assert.rejects(loadServiceManifest(manifestPath), /stay inside the service root/);
   } finally {
     await rm(servicesRoot, { recursive: true, force: true });
   }

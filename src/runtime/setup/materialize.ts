@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { DiscoveredService, ServiceActionMaterialization } from "../../contracts/service.js";
 import { resolveServiceText, type ServiceTextResolutionOptions } from "../operator/variables.js";
+import type { MaterializationWriteHooks } from "../startup/materialization.js";
 
 export interface MaterializedArtifactResult {
   files: string[];
@@ -80,6 +81,7 @@ async function materializeFiles(
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
   options: ServiceTextResolutionOptions = {},
+  hooks?: MaterializationWriteHooks,
 ): Promise<MaterializedArtifactResult> {
   const files = definition?.files ?? [];
   const materializedPaths: string[] = [];
@@ -88,8 +90,10 @@ async function materializeFiles(
     const renderedRelativePath = resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts, options);
     const renderedContent = resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts, options);
     const { absolutePath, relativePath } = resolveArtifactPath(service.serviceRoot, renderedRelativePath);
+    const actionId = await hooks?.beforeWrite({ absolutePath, relativePath });
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, renderedContent, "utf8");
+    if (actionId) await hooks?.afterWrite(actionId);
     materializedPaths.push(relativePath);
   }
 
@@ -98,8 +102,10 @@ async function materializeFiles(
     const renderedRelativePath = resolveServiceText(template.target, service, sharedGlobalEnv, resolvedPorts, options);
     const renderedContent = resolveServiceText(sourceContent, service, sharedGlobalEnv, resolvedPorts, options);
     const { absolutePath, relativePath } = resolveArtifactPath(service.serviceRoot, renderedRelativePath);
+    const actionId = await hooks?.beforeWrite({ absolutePath, relativePath });
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, renderedContent, "utf8");
+    if (actionId) await hooks?.afterWrite(actionId);
     materializedPaths.push(relativePath);
   }
 
@@ -114,8 +120,9 @@ export async function materializeInstallArtifacts(
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
   options: ServiceTextResolutionOptions = {},
+  hooks?: MaterializationWriteHooks,
 ): Promise<MaterializedArtifactResult> {
-  return materializeFiles(service, service.manifest.install, sharedGlobalEnv, resolvedPorts, options);
+  return materializeFiles(service, service.manifest.install, sharedGlobalEnv, resolvedPorts, options, hooks);
 }
 
 export async function materializeConfigArtifacts(
@@ -123,6 +130,7 @@ export async function materializeConfigArtifacts(
   sharedGlobalEnv: Record<string, string> = {},
   resolvedPorts: Record<string, number> = {},
   options: ServiceTextResolutionOptions = {},
+  hooks?: MaterializationWriteHooks,
 ): Promise<MaterializedArtifactResult> {
-  return materializeFiles(service, service.manifest.config, sharedGlobalEnv, resolvedPorts, options);
+  return materializeFiles(service, service.manifest.config, sharedGlobalEnv, resolvedPorts, options, hooks);
 }

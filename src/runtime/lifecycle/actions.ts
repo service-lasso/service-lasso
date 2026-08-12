@@ -53,6 +53,7 @@ import {
   materializeConfigArtifacts,
   materializeInstallArtifacts,
 } from "../setup/materialize.js";
+import type { MaterializationWriteHooks, StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
@@ -228,6 +229,8 @@ export interface ServiceLifecycleActionOptions {
   runtimeInstanceId?: string | null;
   plannedPorts?: Record<string, number>;
   allocationRevision?: string | null;
+  materializationHooks?: MaterializationWriteHooks;
+  artifactAcquisitionHooks?: StartupArtifactAcquisitionHooks;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
     attemptNumber: number;
@@ -934,13 +937,14 @@ async function stopManagedProcessWithOverride(
 export async function installService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const acquiredArtifact = await acquireInstallArtifact(service);
-  const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv);
+  const acquiredArtifact = await acquireInstallArtifact(service, options.artifactAcquisitionHooks);
+  const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv, {}, {}, options.materializationHooks);
 
   return applyState(serviceId, "install", (current) => ({
     nextState: {
@@ -986,6 +990,8 @@ export async function configService(
     service,
     sharedGlobalEnv,
     resolvedPorts,
+    {},
+    options.materializationHooks,
   );
 
   return applyState(serviceId, "config", (state) => ({
@@ -1299,13 +1305,22 @@ export async function startService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
+  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+    workspaceRoot: options.workspaceRoot,
+    generationId: options.runtimeGenerationId,
+    allocationRevision,
+    expectedPorts: resolvedPorts,
+  });
   recordStartTraceEvent(
     serviceId,
     trace,
     "health_check",
     readiness.ready ? "completed" : "failed",
     readiness.message,
+    {
+      readinessAttribution: readiness.attribution.classification,
+      attributedEndpointCount: readiness.attribution.checkedEndpointCount,
+    },
   );
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
@@ -1521,7 +1536,12 @@ export async function restartService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
+  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+    workspaceRoot: options.workspaceRoot,
+    generationId: options.runtimeGenerationId,
+    allocationRevision,
+    expectedPorts: resolvedPorts,
+  });
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
