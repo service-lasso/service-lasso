@@ -4,6 +4,7 @@ import {
   classifyProcessIdentity,
   inspectProcess,
   type ProcessFingerprint,
+  type ProcessInspection,
 } from "./identity.js";
 import type { ProcessOwnershipEntry } from "./registry.js";
 
@@ -14,10 +15,18 @@ export interface OwnedProcessTreeTarget {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessTreeGroup;
   knownMembers?: ProcessFingerprint[];
+  rootExitObserved?: boolean;
 }
 
 export interface ProcessTreeTerminationResult {
   forced: boolean;
+}
+
+export interface ProcessTreeControlDependencies {
+  platform?: NodeJS.Platform;
+  inspectProcess?: (pid: number) => Promise<ProcessInspection>;
+  killProcess?: (pid: number, signal: NodeJS.Signals | 0) => void;
+  readFile?: (filePath: string, encoding: BufferEncoding) => Promise<string>;
 }
 
 interface PosixProcessRow {
@@ -63,7 +72,56 @@ export function createSpawnProcessGroup(
 }
 
 function isMissingProcessError(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException)?.code === "ESRCH";
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code === "ENOENT" || code === "ESRCH";
+}
+
+function processInspector(dependencies: ProcessTreeControlDependencies): (pid: number) => Promise<ProcessInspection> {
+  return dependencies.inspectProcess ?? inspectProcess;
+}
+
+function processKiller(dependencies: ProcessTreeControlDependencies): (pid: number, signal: NodeJS.Signals | 0) => void {
+  return dependencies.killProcess ?? ((pid, signal) => {
+    process.kill(pid, signal);
+  });
+}
+
+async function verifyPostSignalExit(
+  pid: number,
+  dependencies: ProcessTreeControlDependencies,
+): Promise<boolean> {
+  const probePresence = (): "present" | "absent" | "unknown" => {
+    try {
+      processKiller(dependencies)(pid, 0);
+      return "present";
+    } catch (error) {
+      return isMissingProcessError(error) ? "absent" : "unknown";
+    }
+  };
+  const initialPresence = probePresence();
+  if (initialPresence === "absent") {
+    return true;
+  }
+  if (initialPresence === "unknown") {
+    return false;
+  }
+
+  const platform = dependencies.platform ?? process.platform;
+  if (platform === "linux") {
+    const readProcessFile = dependencies.readFile ?? ((filePath, encoding) => readFile(filePath, encoding));
+    try {
+      const stat = await readProcessFile(`/proc/${pid}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      if (commandEnd < 0) {
+        return false;
+      }
+      const state = stat.slice(commandEnd + 2).trim().split(/\s+/)[0];
+      return state?.toUpperCase().startsWith("Z") === true;
+    } catch (error) {
+      return isMissingProcessError(error) && probePresence() === "absent";
+    }
+  }
+  return false;
 }
 
 async function waitForCommandExit(command: string, args: string[]): Promise<boolean> {
@@ -255,32 +313,58 @@ function collectDescendantRows<T extends { pid: number; parentPid: number }>(row
   return descendants;
 }
 
-async function requireOwnedIdentity(identity: ProcessFingerprint): Promise<"owned" | "exited"> {
-  const classification = classifyProcessIdentity(identity, await inspectProcess(identity.pid));
+async function requireOwnedIdentity(
+  identity: ProcessFingerprint,
+  dependencies: ProcessTreeControlDependencies = {},
+): Promise<"owned" | "exited"> {
+  const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
   if (classification === "owned") {
     return "owned";
   }
-  if (classification === "not_running" || classification === "identity_mismatch") {
+  if (classification === "not_running") {
     return "exited";
   }
   throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
 }
 
-async function captureVerifiedMembers(target: OwnedProcessTreeTarget): Promise<ProcessFingerprint[]> {
+async function requirePostSignalIdentity(
+  identity: ProcessFingerprint,
+  dependencies: ProcessTreeControlDependencies,
+): Promise<"owned" | "exited" | "unverifiable"> {
+  const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
+  if (classification === "owned") {
+    return "owned";
+  }
+  if (classification === "not_running") {
+    return "exited";
+  }
+  if (classification === "unknown_owner" && await verifyPostSignalExit(identity.pid, dependencies)) {
+    return "exited";
+  }
+  if (classification === "unknown_owner") {
+    return "unverifiable";
+  }
+  throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
+}
+
+async function captureVerifiedMembers(
+  target: OwnedProcessTreeTarget,
+  dependencies: ProcessTreeControlDependencies = {},
+): Promise<ProcessFingerprint[]> {
   if (!target.rootIdentity) {
     throw new Error(`Cannot control legacy process tree ${target.rootPid} without verified root identity.`);
   }
-  if (await requireOwnedIdentity(target.rootIdentity) === "exited") {
+  if (await requireOwnedIdentity(target.rootIdentity, dependencies) === "exited") {
     return [];
   }
 
-  const rows = process.platform === "win32"
+  const rows = (dependencies.platform ?? process.platform) === "win32"
     ? await readWindowsProcessTable()
     : activeRows(await readPosixProcessTable());
   const descendantRows = collectDescendantRows(rows, target.rootPid);
   const descendants: ProcessFingerprint[] = [];
   for (const row of descendantRows) {
-    const inspection = await inspectProcess(row.pid);
+    const inspection = await processInspector(dependencies)(row.pid);
     if (inspection.status === "running") {
       descendants.push(inspection.identity);
       continue;
@@ -294,9 +378,10 @@ async function captureVerifiedMembers(target: OwnedProcessTreeTarget): Promise<P
 
 export async function captureOwnedProcessTreeMembers(
   target: OwnedProcessTreeTarget,
+  dependencies: ProcessTreeControlDependencies = {},
 ): Promise<ProcessFingerprint[]> {
-  if (process.platform === "win32") {
-    return await captureVerifiedMembers(target);
+  if ((dependencies.platform ?? process.platform) === "win32") {
+    return await captureVerifiedMembers(target, dependencies);
   }
 
   const processGroupId = target.processGroup.kind === "posix"
@@ -307,7 +392,7 @@ export async function captureOwnedProcessTreeMembers(
       .filter((row) => row.processGroupId === processGroupId);
     const members: ProcessFingerprint[] = [];
     for (const row of rows) {
-      const inspection = await inspectProcess(row.pid);
+      const inspection = await processInspector(dependencies)(row.pid);
       if (inspection.status === "running") {
         members.push(inspection.identity);
       } else if (inspection.status === "unknown") {
@@ -317,19 +402,27 @@ export async function captureOwnedProcessTreeMembers(
     return members;
   }
 
-  return await captureVerifiedMembers(target);
+  return await captureVerifiedMembers(target, dependencies);
 }
 
 async function signalVerifiedMembers(
   members: ProcessFingerprint[],
   signal: "SIGTERM" | "SIGKILL",
+  dependencies: ProcessTreeControlDependencies,
+  signalAlreadyAuthorized = false,
 ): Promise<void> {
   for (const member of members) {
-    if (await requireOwnedIdentity(member) !== "owned") {
+    const identityState = signalAlreadyAuthorized
+      ? await requirePostSignalIdentity(member, dependencies)
+      : await requireOwnedIdentity(member, dependencies);
+    if (identityState === "unverifiable") {
+      throw new Error(`Cannot verify process ${member.pid} while controlling its process tree.`);
+    }
+    if (identityState !== "owned") {
       continue;
     }
     try {
-      process.kill(member.pid, signal);
+      processKiller(dependencies)(member.pid, signal);
     } catch (error) {
       if (!isMissingProcessError(error)) {
         throw error;
@@ -341,18 +434,21 @@ async function signalVerifiedMembers(
 async function signalOwnedProcessTree(
   target: OwnedProcessTreeTarget,
   signal: "SIGTERM" | "SIGKILL",
+  dependencies: ProcessTreeControlDependencies,
 ): Promise<ProcessTreeSignalEvidence> {
-  if (process.platform === "win32") {
-    const rootStatus = target.rootIdentity
-      ? await requireOwnedIdentity(target.rootIdentity)
+  if ((dependencies.platform ?? process.platform) === "win32") {
+    const rootStatus = target.rootExitObserved
+      ? "exited"
+      : target.rootIdentity
+      ? await requireOwnedIdentity(target.rootIdentity, dependencies)
       : "owned";
     const members = target.knownMembers && target.knownMembers.length > 0
-      ? target.knownMembers
+      ? target.knownMembers.filter((member) => !target.rootExitObserved || member.pid !== target.rootPid)
       : target.rootIdentity && rootStatus === "owned"
-        ? await captureVerifiedMembers(target)
+        ? await captureVerifiedMembers(target, dependencies)
         : [];
     if (rootStatus === "exited") {
-      await signalVerifiedMembers(members, signal);
+      await signalVerifiedMembers(members, signal, dependencies);
       return {
         kind: "verified-members",
         rootPid: target.rootPid,
@@ -377,7 +473,7 @@ async function signalOwnedProcessTree(
     : Number.NaN;
   if (Number.isInteger(processGroupId) && processGroupId > 0 && processGroupId === target.rootPid) {
     try {
-      process.kill(-processGroupId, signal);
+      processKiller(dependencies)(-processGroupId, signal);
     } catch (error) {
       if (!isMissingProcessError(error)) {
         throw error;
@@ -388,12 +484,15 @@ async function signalOwnedProcessTree(
 
   const members = target.knownMembers && target.knownMembers.length > 0
     ? target.knownMembers
-    : await captureVerifiedMembers(target);
-  await signalVerifiedMembers(members, signal);
+    : await captureVerifiedMembers(target, dependencies);
+  await signalVerifiedMembers(members, signal, dependencies);
   return { kind: "verified-members", rootPid: target.rootPid, members };
 }
 
-async function hasRunningEvidence(evidence: ProcessTreeSignalEvidence): Promise<boolean> {
+async function hasRunningEvidence(
+  evidence: ProcessTreeSignalEvidence,
+  dependencies: ProcessTreeControlDependencies,
+): Promise<boolean> {
   if (evidence.kind === "posix-group") {
     const rows = activeRows(await readPosixProcessTable());
     return rows.some((row) => row.processGroupId === evidence.processGroupId);
@@ -404,7 +503,7 @@ async function hasRunningEvidence(evidence: ProcessTreeSignalEvidence): Promise<
       return !evidence.commandSucceeded;
     }
     for (const member of evidence.members) {
-      if (await requireOwnedIdentity(member) === "owned") {
+      if (await requirePostSignalIdentity(member, dependencies) !== "exited") {
         return true;
       }
     }
@@ -412,7 +511,7 @@ async function hasRunningEvidence(evidence: ProcessTreeSignalEvidence): Promise<
   }
 
   for (const member of evidence.members) {
-    if (await requireOwnedIdentity(member) === "owned") {
+    if (await requirePostSignalIdentity(member, dependencies) !== "exited") {
       return true;
     }
   }
@@ -422,10 +521,11 @@ async function hasRunningEvidence(evidence: ProcessTreeSignalEvidence): Promise<
 async function waitForProcessTreeExit(
   evidence: ProcessTreeSignalEvidence,
   timeoutMs: number,
+  dependencies: ProcessTreeControlDependencies,
 ): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs);
   while (true) {
-    if (!await hasRunningEvidence(evidence)) {
+    if (!await hasRunningEvidence(evidence, dependencies)) {
       return true;
     }
     if (Date.now() >= deadline) {
@@ -435,10 +535,13 @@ async function waitForProcessTreeExit(
   }
 }
 
-async function forceSignaledProcessTree(evidence: ProcessTreeSignalEvidence): Promise<ProcessTreeSignalEvidence> {
+async function forceSignaledProcessTree(
+  evidence: ProcessTreeSignalEvidence,
+  dependencies: ProcessTreeControlDependencies,
+): Promise<ProcessTreeSignalEvidence> {
   if (evidence.kind === "posix-group") {
     try {
-      process.kill(-evidence.processGroupId, "SIGKILL");
+      processKiller(dependencies)(-evidence.processGroupId, "SIGKILL");
     } catch (error) {
       if (!isMissingProcessError(error)) {
         throw error;
@@ -448,34 +551,39 @@ async function forceSignaledProcessTree(evidence: ProcessTreeSignalEvidence): Pr
   }
 
   if (evidence.kind === "windows-taskkill") {
-    const rootStillOwned = evidence.rootIdentity
-      ? await requireOwnedIdentity(evidence.rootIdentity) === "owned"
-      : true;
+    const rootState = evidence.rootIdentity
+      ? await requirePostSignalIdentity(evidence.rootIdentity, dependencies)
+      : "owned";
+    if (rootState === "unverifiable") {
+      throw new Error(`Cannot verify process ${evidence.rootPid} while controlling its process tree.`);
+    }
+    const rootStillOwned = rootState === "owned";
     const commandSucceeded = rootStillOwned
       ? await waitForCommandExit("taskkill", ["/pid", String(evidence.rootPid), "/t", "/f"])
       : evidence.commandSucceeded;
-    await signalVerifiedMembers(evidence.members, "SIGKILL");
+    await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true);
     return {
       ...evidence,
       commandSucceeded,
     };
   }
 
-  await signalVerifiedMembers(evidence.members, "SIGKILL");
+  await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true);
   return evidence;
 }
 
 export async function terminateOwnedProcessTree(
   target: OwnedProcessTreeTarget,
   timeoutMs: number,
+  dependencies: ProcessTreeControlDependencies = {},
 ): Promise<ProcessTreeTerminationResult> {
-  const gracefulEvidence = await signalOwnedProcessTree(target, "SIGTERM");
-  if (await waitForProcessTreeExit(gracefulEvidence, timeoutMs)) {
+  const gracefulEvidence = await signalOwnedProcessTree(target, "SIGTERM", dependencies);
+  if (await waitForProcessTreeExit(gracefulEvidence, timeoutMs, dependencies)) {
     return { forced: false };
   }
 
-  const forcedEvidence = await forceSignaledProcessTree(gracefulEvidence);
-  if (!await waitForProcessTreeExit(forcedEvidence, timeoutMs)) {
+  const forcedEvidence = await forceSignaledProcessTree(gracefulEvidence, dependencies);
+  if (!await waitForProcessTreeExit(forcedEvidence, timeoutMs, dependencies)) {
     throw new Error(`Process tree rooted at PID ${target.rootPid} did not stop after forced termination.`);
   }
   return { forced: true };

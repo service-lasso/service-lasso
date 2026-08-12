@@ -17,6 +17,7 @@ import {
   hasManagedProcess,
   startManagedProcess,
   stopManagedProcess,
+  waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
@@ -155,14 +156,10 @@ test("lifecycle actions execute in the expected bounded order", async () => {
     assert.equal(stop.body.state.running, false);
     assert.equal(stop.body.state.runtime.pid, null);
 
-    let detailBody;
-    await waitFor(async () => {
-      const detailResponse = await fetch(
-        `${apiServer.url}/api/services/echo-service`,
-      );
-      detailBody = await detailResponse.json();
-      return detailBody.service.lifecycle.runtime.exitCode === 0;
-    });
+    const detailResponse = await fetch(
+      `${apiServer.url}/api/services/echo-service`,
+    );
+    const detailBody = await detailResponse.json();
 
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, [
       "install",
@@ -172,7 +169,8 @@ test("lifecycle actions execute in the expected bounded order", async () => {
       "stop",
     ]);
     assert.equal(detailBody.service.lifecycle.lastAction, "stop");
-    assert.equal(detailBody.service.lifecycle.runtime.exitCode, 0);
+    assert.equal(detailBody.service.lifecycle.runtime.exitCode, stop.body.state.runtime.exitCode);
+    assert.equal(detailBody.service.lifecycle.runtime.lastTermination, "stopped");
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -728,10 +726,7 @@ test("unexpected crash without restartPolicy records no automatic restart", asyn
     await configService(service);
     await startService(service);
 
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    await waitForManagedProcessFinalization("no-policy-crash");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "crashed");
@@ -812,15 +807,13 @@ test("disabled restartPolicy records no automatic restart after crash", async ()
     await configService(service);
     await startService(service);
 
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    await waitForManagedProcessFinalization("disabled-policy-crash");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "crashed");
     assert.equal(stored.runtime.supervision.lastRestartResult, "blocked");
     assert.equal(stored.runtime.supervision.restartAttempts, 0);
+    assert.equal(hasManagedProcess("disabled-policy-crash"), false);
   } finally {
     await stopManagedProcess("disabled-policy-crash", 100).catch(() => null);
     resetLifecycleState();
@@ -968,11 +961,7 @@ test("clean unexpected exit does not restart under crash policy", async () => {
     await installService(service);
     await configService(service);
     await startService(service);
-
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    await waitForManagedProcessFinalization("clean-exit-service");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "exited");
