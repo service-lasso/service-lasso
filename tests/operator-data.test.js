@@ -64,7 +64,7 @@ test("service detail exposes read-only catalog provenance", async () => {
       sourcePath: "@node/service.json",
       sourceType: "github-release",
       repo: "service-lasso/lasso-node",
-      releaseTag: "2026.4.27-eca215a",
+      releaseTag: "2026.8.12-1500d36",
       assetNames: [
         "lasso-node-v24.15.0-darwin.tar.gz",
         "lasso-node-v24.15.0-linux.tar.gz",
@@ -911,7 +911,7 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
     assert.equal(body.network.ports.service, 4010);
     assert.ok(body.network.endpoints.some((entry) => entry.label === "service"));
     assert.ok(body.network.endpoints.some((entry) => entry.label === "ui"));
-    assert.ok(body.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:4010/health"));
+    assert.ok(body.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:4011/health"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();

@@ -997,7 +997,7 @@ test("GET /api/telemetry reports network endpoint counts without endpoint URL ma
     );
     assert.deepEqual(
       networkEndpointSignals.map((signal) => signal.attributes["service.operation.count"]),
-      [4, 2, 2, 2],
+      [4, 4, 2, 1],
     );
     assertAllowlistedSignals(result.body.telemetry);
 

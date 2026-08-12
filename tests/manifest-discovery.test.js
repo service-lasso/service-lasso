@@ -195,13 +195,13 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@node")?.executable, "node");
   assert.equal(byId.get("@node")?.role, "provider");
   assert.equal(byId.get("@node")?.artifact?.source.repo, "service-lasso/lasso-node");
-  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.4.27-eca215a");
+  assert.equal(byId.get("@node")?.artifact?.source.tag, "2026.8.12-1500d36");
   assert.equal(byId.get("@node")?.artifact?.platforms.win32?.assetName, "lasso-node-v24.15.0-win32.zip");
   assert.deepEqual(byServiceId.get("@node")?.catalogProvenance, {
     sourcePath: "@node/service.json",
     sourceType: "github-release",
     repo: "service-lasso/lasso-node",
-    releaseTag: "2026.4.27-eca215a",
+    releaseTag: "2026.8.12-1500d36",
     assetNames: [
       "lasso-node-v24.15.0-darwin.tar.gz",
       "lasso-node-v24.15.0-linux.tar.gz",
@@ -217,7 +217,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@java")?.executable, "java");
   assert.equal(byId.get("@java")?.role, "provider");
   assert.equal(byId.get("@java")?.artifact?.source.repo, "service-lasso/lasso-java");
-  assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.4.27-b313cb0");
+  assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.8.12-d5765f1");
   assert.equal(byId.get("@python")?.role, "provider");
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
@@ -235,7 +235,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
-  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.6.26-bb4449c");
+  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.12-9be43fc");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
   assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{endpoint\.mongo\.port\}"/);
@@ -296,8 +296,8 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
     SERVICE_HOST: "0.0.0.0",
     SERVICE_PORT: "${UI_PORT}",
-    SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
-    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
+    SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
+    SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",
   });
 });
 
@@ -1133,6 +1133,7 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
           ref: "database.PASSWORD",
           as: "DB_PASSWORD",
           required: true,
+          onChange: undefined,
         },
       ],
       exports: [
