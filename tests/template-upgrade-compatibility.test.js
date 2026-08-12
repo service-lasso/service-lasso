@@ -92,6 +92,7 @@ test("template upgrade report accepts matching provider inventory", async () => 
       id: "reference-app",
       name: "Reference App",
       description: "Template-style app using the node provider.",
+      depend_on: ["@node"],
       execservice: "@node",
     });
 
@@ -123,6 +124,7 @@ test("template upgrade report warns for missing optional providers and stale pin
       id: "reference-app",
       name: "Reference App",
       description: "Template-style app using the node provider.",
+      depend_on: ["@node"],
       execservice: "@node",
     });
 
@@ -176,10 +178,12 @@ test("template upgrade report blocks when referenced provider is missing or inco
       id: "reference-app",
       name: "Reference App",
       description: "Template-style app using missing provider.",
+      depend_on: ["@python"],
       execservice: "@python",
       setup: {
         steps: {
           seed: {
+            depend_on: ["@unknown"],
             execservice: "@unknown",
             args: ["seed.js"],
           },

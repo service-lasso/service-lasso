@@ -246,6 +246,11 @@ const sidebars = {
           id: "development/new-lasso-service-guide",
           label: "Service Repo Handoff",
         },
+        {
+          type: "doc",
+          id: "development/dependency-security",
+          label: "Dependency Security Boundaries",
+        },
       ],
     },
     {

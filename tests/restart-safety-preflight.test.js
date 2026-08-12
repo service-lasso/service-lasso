@@ -26,7 +26,7 @@ test("restart safety preflight reports ready dependencies, provider ref, doctor 
     await writeExecutableFixtureService(servicesRoot, "@node", { role: "provider" });
     await writeExecutableFixtureService(servicesRoot, "database");
     await writeExecutableFixtureService(servicesRoot, "api", {
-      depend_on: ["database"],
+      depend_on: ["@node", "database"],
       execservice: "@node",
       doctor: {
         enabled: true,
@@ -68,8 +68,8 @@ test("restart safety preflight reports ready dependencies, provider ref, doctor 
     assert.equal(report.status, "warning");
     assert.equal(report.dryRun, true);
     assert.equal(report.mutated, false);
-    assert.deepEqual(report.dependencyGraph.dependencies, ["database"]);
-    assert.deepEqual(report.dependencyGraph.startupOrder, ["database"]);
+    assert.deepEqual(report.dependencyGraph.dependencies, ["@node", "database"]);
+    assert.deepEqual(report.dependencyGraph.startupOrder, ["@node", "database"]);
     assert.equal(report.providerRef.serviceId, "@node");
     assert.equal(report.providerRef.status, "available");
     assert.equal(report.doctorRequirement.required, true);
@@ -89,7 +89,7 @@ test("restart safety preflight blocks missing dependencies and provider refs", a
 
   try {
     await writeExecutableFixtureService(servicesRoot, "blocked-api", {
-      depend_on: ["missing-database"],
+      depend_on: ["missing-database", "missing-provider"],
       execservice: "missing-provider",
     });
     const discovered = await discoverServices(servicesRoot);
@@ -104,7 +104,7 @@ test("restart safety preflight blocks missing dependencies and provider refs", a
     assert.equal(report.ok, false);
     assert.equal(report.status, "blocked");
     assert.equal(report.restartOrderRisk.level, "blocked");
-    assert.deepEqual(report.dependencyGraph.missingDependencies, ["missing-database"]);
+    assert.deepEqual(report.dependencyGraph.missingDependencies, ["missing-database", "missing-provider"]);
     assert.ok(blockerCodes.includes("dependency_missing"));
     assert.ok(blockerCodes.includes("provider_missing"));
     assert.ok(blockerCodes.includes("service_not_installed"));

@@ -70,7 +70,7 @@ Keep each setup step visible in `service.json`, even when the implementation liv
 }
 ```
 
-Use `execservice: "@node"` when Service Lasso should run the helper through the Node provider. The manifest must declare the provider dependency in the same way it would for any other provider-backed command. Do not assume `node`, `NODE_HOME`, or other provider paths are present unless the manifest depends on the provider that exports them.
+Use `execservice: "@node"` when Service Lasso should run the helper through the Node provider. Declare that provider in the service-level `depend_on` array or the setup step's own `depend_on` array. Provider-backed setup fails closed until the provider is installed and configured, and a release-backed provider must have its installed artifact command/root; Service Lasso does not fall back to ambient `node`, `NODE_HOME`, or other host runtime paths.
 
 Use direct commands only when the service repo owns the executable path and does not need a provider:
 

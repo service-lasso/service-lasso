@@ -787,6 +787,13 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
         );
       }
 
+      const execservice = step.execservice;
+      if (execservice !== undefined && (typeof execservice !== "string" || execservice.trim().length === 0)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.execservice" to be a non-empty string.`,
+        );
+      }
+
       const cwd = step.cwd;
       if (cwd !== undefined && (typeof cwd !== "string" || cwd.trim().length === 0)) {
         throw new Error(
@@ -806,7 +813,7 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
         {
           description: typeof step.description === "string" ? step.description.trim() : undefined,
           depend_on: Array.isArray(dependOn) ? dependOn.map((dependency) => (dependency as string).trim()) : undefined,
-          execservice: typeof step.execservice === "string" ? step.execservice.trim() : undefined,
+          execservice: typeof execservice === "string" ? execservice.trim() : undefined,
           executable: typeof step.executable === "string" ? step.executable.trim() : undefined,
           args: Array.isArray(args) ? args.map((entry) => entry.trim()) : undefined,
           commandline: readStringMap(step.commandline, `setup.steps.${normalizedStepId}.commandline`, manifestPath),
@@ -2183,6 +2190,28 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const setup = readSetupPolicy(record.setup, manifestPath);
   const files = readFilesPolicy(record.files, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
+  const normalizedDependOn = dependOn?.map((dependency) => dependency.trim());
+  const execservice = typeof rawExecservice === "string" ? rawExecservice.trim() : undefined;
+  const declaredDependencies = new Set(normalizedDependOn ?? []);
+
+  if (execservice && !declaredDependencies.has(execservice)) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: "execservice" provider "${execservice}" must be declared in "depend_on".`,
+    );
+  }
+
+  for (const [stepId, step] of Object.entries(setup?.steps ?? {})) {
+    if (
+      step.execservice &&
+      !declaredDependencies.has(step.execservice) &&
+      !(step.depend_on ?? []).includes(step.execservice)
+    ) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: "setup.steps.${stepId}.execservice" provider "${step.execservice}" must be declared in service "depend_on" or "setup.steps.${stepId}.depend_on".`,
+      );
+    }
+  }
+
   return {
     id: serviceId,
     name: expectNonEmptyString(record.name, "name", manifestPath),
@@ -2193,7 +2222,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     autostart: typeof record.autostart === "boolean" ? record.autostart : undefined,
     serviceorder,
     execconfig,
-    depend_on: dependOn?.map((dependency) => dependency.trim()),
+    depend_on: normalizedDependOn,
     requires,
     provides,
     healthcheck,
@@ -2231,7 +2260,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     artifact,
     install,
     config,
-    execservice: typeof rawExecservice === "string" ? rawExecservice.trim() : undefined,
+    execservice,
     executable: typeof rawExecutable === "string" ? rawExecutable.trim() : undefined,
     args: rawArgs?.map((entry) => entry.trim()),
     commandline: rawCommandline

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   appendAuditEvent,
@@ -116,6 +116,108 @@ test("audit verifier reports legacy files as unavailable and read API surfaces c
 
     assert.equal(verification.chainStatus, "unavailable");
     assert.equal(response.events[0].chainStatus, "unavailable");
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("service audit chains continue across date buckets and legacy single-file storage", async () => {
+  const workspaceRoot = await makeWorkspace();
+  const serviceRoot = path.join(workspaceRoot, "services", "bucketed-service");
+  const auditDir = path.join(serviceRoot, ".state", "audit");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const first = await appendAuditEvent({
+      serviceRoot,
+      serviceId: "bucketed-service",
+      source: "service",
+      action: "service.first",
+      actor: "operator-ui",
+      outcome: "success",
+      statusCode: 200,
+      summary: "first bucketed service event",
+    });
+    const currentFile = path.join(auditDir, `${first.timestamp.slice(0, 10)}.jsonl`);
+    await rename(currentFile, path.join(auditDir, "events.jsonl"));
+
+    const second = await appendAuditEvent({
+      serviceRoot,
+      serviceId: "bucketed-service",
+      source: "service",
+      action: "service.second",
+      actor: "operator-ui",
+      outcome: "success",
+      statusCode: 200,
+      summary: "second bucketed service event",
+    });
+    const response = await readAuditEvents({ serviceRoots: [serviceRoot] });
+
+    assert.equal(second.sequence, 2);
+    assert.equal(second.previousHash, first.eventHash);
+    assert.equal(response.chainStatus, "verified");
+    assert.equal(response.pagination.total, 2);
+    assert.deepEqual(response.events.map((event) => event.sequence), [2, 1]);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("audit directory verification reports corrupt rows without discarding prior valid events", async () => {
+  const workspaceRoot = await makeWorkspace();
+  const serviceRoot = path.join(workspaceRoot, "services", "corrupt-service");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const event = await appendAuditEvent({
+      serviceRoot,
+      serviceId: "corrupt-service",
+      source: "service",
+      action: "service.valid",
+      actor: "operator-ui",
+      outcome: "success",
+      statusCode: 200,
+      summary: "valid event before corruption",
+    });
+    const filePath = path.join(serviceRoot, ".state", "audit", `${event.timestamp.slice(0, 10)}.jsonl`);
+    await writeFile(filePath, `${await readFile(filePath, "utf8")}{not-json}\n`, "utf8");
+
+    const response = await readAuditEvents({ serviceRoots: [serviceRoot] });
+
+    assert.equal(response.chainStatus, "broken");
+    assert.equal(response.pagination.total, 1);
+    assert.equal(response.events[0].id, event.id);
+    assert.equal(response.events[0].chainStatus, "broken");
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("concurrent service audit appends remain a single verified sequence", async () => {
+  const workspaceRoot = await makeWorkspace();
+  const serviceRoot = path.join(workspaceRoot, "services", "concurrent-service");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const events = await Promise.all(Array.from({ length: 20 }, async (_, index) => appendAuditEvent({
+      serviceRoot,
+      serviceId: "concurrent-service",
+      source: "service",
+      action: `service.concurrent.${index}`,
+      actor: "operator-ui",
+      outcome: "success",
+      statusCode: 200,
+      summary: `concurrent service event ${index}`,
+    })));
+    const response = await readAuditEvents({ serviceRoots: [serviceRoot] });
+
+    assert.deepEqual(events.map((event) => event.sequence), Array.from({ length: 20 }, (_, index) => index + 1));
+    assert.equal(response.chainStatus, "verified");
+    assert.equal(response.pagination.total, 20);
+    assert.deepEqual(
+      [...response.events].sort((left, right) => left.sequence - right.sequence).map((event) => event.sequence),
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    );
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
