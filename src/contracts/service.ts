@@ -210,6 +210,7 @@ export interface ServiceSetupStep {
   env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;
+  outputs?: string[];
 }
 
 export interface ServiceSetupPolicy {

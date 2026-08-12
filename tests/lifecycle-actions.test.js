@@ -904,6 +904,7 @@ test("enabled crash restart policy starts service again through readiness", asyn
     );
   } finally {
     await stopManagedProcess("crash-once-service", 100).catch(() => null);
+    await waitForManagedProcessFinalization("crash-once-service").catch(() => undefined);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

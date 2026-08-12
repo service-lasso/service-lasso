@@ -1,11 +1,12 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
 import { getLockedServiceEntry, readServiceLockfile, type ServiceLockfileEntry } from "../lockfile/service-lockfile.js";
 import { getServiceStatePaths } from "../state/paths.js";
+import type { StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 
 export interface AcquiredArtifactState {
   sourceType: "github-release";
@@ -160,7 +161,7 @@ async function resolveGitHubReleaseDownload(
   };
 }
 
-async function downloadToFile(assetUrl: string, destinationPath: string): Promise<void> {
+async function downloadToFile(assetUrl: string, destinationPath: string, exclusive = false): Promise<void> {
   const response = await fetch(assetUrl);
   if (!response.ok) {
     throw new Error(`Failed to download service artifact from "${assetUrl}": ${response.status} ${response.statusText}`);
@@ -168,7 +169,27 @@ async function downloadToFile(assetUrl: string, destinationPath: string): Promis
 
   const bytes = Buffer.from(await response.arrayBuffer());
   await mkdir(path.dirname(destinationPath), { recursive: true });
-  await writeFile(destinationPath, bytes);
+  if (!exclusive) {
+    await writeFile(destinationPath, bytes);
+    return;
+  }
+  const handle = await open(destinationPath, "wx", 0o600);
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function syncDirectoryOnPosix(directoryPath: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const directory = await open(directoryPath, "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
 }
 
 async function downloadText(assetUrl: string): Promise<string> {
@@ -221,11 +242,12 @@ async function verifyArchiveChecksum(
   assetName: string,
   checksum: ServiceArtifactPlatform["checksum"],
   resolved: ResolvedArtifactDownload,
+  verifiedActualSha256?: string,
 ): Promise<AcquiredArtifactChecksumState | null> {
   if (!checksum) {
     if (resolved.checksumSha256) {
       const expected = normalizeSha256(resolved.checksumSha256, `artifact "${assetName}"`);
-      const actual = createHash("sha256").update(await readFile(archivePath)).digest("hex");
+      const actual = verifiedActualSha256 ?? createHash("sha256").update(await readFile(archivePath)).digest("hex");
       if (actual !== expected) {
         throw new Error(`Service artifact "${assetName}" checksum did not match expected SHA-256.`);
       }
@@ -273,7 +295,7 @@ async function verifyArchiveChecksum(
     source = "release-asset";
   }
 
-  const actual = createHash("sha256").update(await readFile(archivePath)).digest("hex");
+  const actual = verifiedActualSha256 ?? createHash("sha256").update(await readFile(archivePath)).digest("hex");
   if (actual !== expected) {
     throw new Error(`Checksum mismatch for service artifact "${assetName}".`);
   }
@@ -293,9 +315,12 @@ async function extractArchive(
   archivePath: string,
   archiveType: ServiceArtifactPlatform["archiveType"],
   destinationPath: string,
+  destinationPrepared = false,
 ): Promise<void> {
-  await rm(destinationPath, { recursive: true, force: true });
-  await mkdir(destinationPath, { recursive: true });
+  if (!destinationPrepared) {
+    await rm(destinationPath, { recursive: true, force: true });
+    await mkdir(destinationPath, { recursive: true });
+  }
 
   if (archiveType === "zip") {
     const archive = new AdmZip(archivePath);
@@ -318,7 +343,10 @@ async function fileExists(targetPath: string): Promise<boolean> {
   }
 }
 
-export async function acquireInstallArtifact(service: DiscoveredService): Promise<AcquiredArtifactState | null> {
+export async function acquireInstallArtifact(
+  service: DiscoveredService,
+  hooks?: StartupArtifactAcquisitionHooks,
+): Promise<AcquiredArtifactState | null> {
   const artifact = service.manifest.artifact;
   if (!artifact) {
     return null;
@@ -334,14 +362,66 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
   const archivePath = path.join(paths.artifacts, releaseSegment, resolved.assetName);
   const extractedPath = path.join(paths.extracted, "current");
 
-  await mkdir(path.dirname(archivePath), { recursive: true });
-  if (!(await fileExists(archivePath))) {
-    await downloadToFile(resolved.assetUrl, archivePath);
+  const plan = hooks ? await hooks.prepare({ archivePath }) : null;
+  let checksum: AcquiredArtifactChecksumState | null;
+  let selectedExtractedPath = extractedPath;
+  if (plan) {
+    const transactionHooks = hooks!;
+    if (!(await fileExists(archivePath))) {
+      await transactionHooks.prepareArchiveDownload(plan.actionId);
+      await downloadToFile(resolved.assetUrl, plan.archiveTempPath, true);
+      let archiveEvidence = await transactionHooks.recordArchive(plan.actionId, plan.archiveTempPath);
+      checksum = await verifyArchiveChecksum(
+        plan.archiveTempPath,
+        resolved.assetName,
+        definition.checksum,
+        resolved,
+        archiveEvidence.digest,
+      );
+      try {
+        await link(plan.archiveTempPath, archivePath);
+        await syncDirectoryOnPosix(path.dirname(archivePath));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        archiveEvidence = await transactionHooks.recordArchive(plan.actionId, archivePath);
+        checksum = await verifyArchiveChecksum(
+          archivePath,
+          resolved.assetName,
+          definition.checksum,
+          resolved,
+          archiveEvidence.digest,
+        );
+      } finally {
+        await unlink(plan.archiveTempPath).catch(() => undefined);
+        await syncDirectoryOnPosix(path.dirname(archivePath));
+      }
+    } else {
+      const archiveEvidence = await transactionHooks.recordArchive(plan.actionId, archivePath);
+      checksum = await verifyArchiveChecksum(
+        archivePath,
+        resolved.assetName,
+        definition.checksum,
+        resolved,
+        archiveEvidence.digest,
+      );
+    }
+    await transactionHooks.prepareExtraction(plan.actionId);
+    await extractArchive(archivePath, definition.archiveType, plan.extractionStagingPath, true);
+    await transactionHooks.recordArchive(plan.actionId, archivePath);
+    await transactionHooks.beforeExtractionPublish(plan.actionId);
+    await rename(plan.extractionStagingPath, plan.extractionPath);
+    await transactionHooks.afterExtractionPublish(plan.actionId);
+    selectedExtractedPath = plan.extractionPath;
+  } else {
+    await mkdir(path.dirname(archivePath), { recursive: true });
+    if (!(await fileExists(archivePath))) {
+      await downloadToFile(resolved.assetUrl, archivePath);
+    }
+    checksum = await verifyArchiveChecksum(archivePath, resolved.assetName, definition.checksum, resolved);
+    await extractArchive(archivePath, definition.archiveType, extractedPath);
   }
-  const checksum = await verifyArchiveChecksum(archivePath, resolved.assetName, definition.checksum, resolved);
-  await extractArchive(archivePath, definition.archiveType, extractedPath);
 
-  return {
+  const acquired: AcquiredArtifactState = {
     sourceType: artifact.source.type,
     repo: artifact.source.repo,
     channel: artifact.source.channel ?? null,
@@ -350,10 +430,12 @@ export async function acquireInstallArtifact(service: DiscoveredService): Promis
     assetUrl: resolved.assetUrl,
     archiveType: definition.archiveType,
     archivePath,
-    extractedPath,
+    extractedPath: selectedExtractedPath,
     checksumSha256: resolved.checksumSha256,
     command: definition.command ?? null,
     args: definition.args ?? [],
     checksum,
   };
+  if (plan) await hooks!.complete(plan.actionId, acquired);
+  return acquired;
 }

@@ -27,6 +27,9 @@ export interface RehydrateProcessOwnershipOptions {
   workspaceRoot?: string;
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
+  allocationRevision?: string | null;
+  adoptServiceIds?: ReadonlySet<string>;
+  excludeAdoptServiceIds?: ReadonlySet<string>;
   processInspectorDependencies?: ProcessInspectorDependencies;
 }
 
@@ -647,6 +650,8 @@ export async function rehydrateLifecycleState(
     const legacyRuntime = snapshot.runtime as StoredRuntimeState | null;
     if (
       options.workspaceRoot &&
+      (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
+      !options.excludeAdoptServiceIds?.has(serviceId) &&
       !hasManagedProcess(serviceId) &&
       legacyRuntime?.running === true &&
       typeof legacyRuntime.pid === "number" &&
@@ -670,6 +675,7 @@ export async function rehydrateLifecycleState(
         serviceId,
         generationId: options.runtimeGenerationId,
         runtimeInstanceId: options.runtimeInstanceId,
+        allocationRevision: options.allocationRevision,
         pid: legacyRuntime.pid,
         startedAt: legacyRuntime.startedAt,
         command: legacyRuntime.command,

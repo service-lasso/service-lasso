@@ -161,6 +161,13 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import {
+  bootstrapBaselineServices,
+  DEFAULT_BASELINE_SERVICE_IDS,
+  type BootstrapBaselineResult,
+} from "../runtime/cli/bootstrap.js";
+import type { LifecycleAction } from "../runtime/lifecycle/types.js";
+import {
+  claimRuntimeEndpointAllocation,
   planAndReserveRuntimeEndpoints,
   readRuntimeEndpointAllocationPlan,
   releaseRuntimeEndpointAllocation,
@@ -169,7 +176,12 @@ import {
   type RuntimeEndpointAllocationPolicy,
   type RuntimeEndpointAllocationPlan,
 } from "../runtime/ports/allocation.js";
-import { recordProcessOwnership, transitionProcessOwnership } from "../runtime/process/registry.js";
+import {
+  classifyRegisteredProcess,
+  findProcessOwnership,
+  recordProcessOwnership,
+  transitionProcessOwnership,
+} from "../runtime/process/registry.js";
 import { explainPortConflict } from "../runtime/ports/conflicts.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
@@ -189,13 +201,41 @@ import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../ru
 import {
   DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS,
   beginRuntimeGeneration,
+  createRuntimeGenerationId,
   createRuntimeInstanceSnapshot,
   markRuntimeInstanceStopped,
   publishRuntimeGeneration,
+  recoverRuntimeGeneration,
   refreshRuntimeInstanceLease,
   registerRuntimeInstance,
   resolveRuntimeInstanceId,
 } from "../runtime/instance/registry.js";
+import {
+  STARTUP_TRANSACTION_PHASES,
+  StartupTransactionRecoveryRequiredError,
+  activateStartupTransactionRecovery,
+  advanceStartupTransaction,
+  beginStartupTransaction,
+  settleStartupTransaction,
+  type StartupTransactionJournal,
+  type StartupTransactionPhase,
+} from "../runtime/startup/transaction.js";
+import { inspectStartupRecovery, type StartupRecoveryInspection } from "../runtime/startup/recovery.js";
+import { rebindCommittedServiceAdoption } from "../runtime/startup/committed-adoption.js";
+import {
+  completeCommittedStartupMaterializationCleanup,
+  createStartupArtifactAcquisitionHooks,
+  createStartupMaterializationHooks,
+  createStartupSetupTransactionHooks,
+  discardStartupMaterializationSidecar,
+  reconcileStartupMaterializationLifecycleState,
+  rollbackStartupArtifactAcquisitions,
+  rollbackStartupMaterializations,
+  type MaterializationWriteHooks,
+  type StartupArtifactAcquisitionHooks,
+  type StartupMaterializationKind,
+} from "../runtime/startup/materialization.js";
+import type { SetupTransactionHooks } from "../runtime/setup/steps.js";
 import {
   exampleWorkflowPackageCatalog,
   listWorkflowPackagesSecretSafe,
@@ -266,6 +306,9 @@ export interface ApiServerOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
   autostart?: boolean;
+  baselineBootstrap?: {
+    serviceIds?: readonly string[];
+  };
   monitor?: boolean;
   monitorIntervalMs?: number;
   updateScheduler?: boolean;
@@ -281,6 +324,18 @@ export interface ApiServerOptions {
       attempt: number;
       allocationPlan: RuntimeEndpointAllocationPlan;
       endpoint: ReturnType<typeof runtimeApiEndpointFromAllocation>;
+    }) => Promise<void>;
+  };
+  startupTransactionTestHooks?: {
+    beforeRecoveryGeneration?: (context: { journal: StartupTransactionJournal }) => Promise<void>;
+    afterPhase?: (context: {
+      phase: StartupTransactionPhase;
+      journal: StartupTransactionJournal;
+    }) => Promise<void>;
+    afterBaselineAction?: (context: {
+      serviceId: string;
+      action: LifecycleAction;
+      journal: StartupTransactionJournal;
     }) => Promise<void>;
   };
   runtimeGenerationId?: string | null;
@@ -312,6 +367,7 @@ export interface RunningApiServer {
   generationId: string;
   ownerPid: number;
   endpointAllocationPlan: RuntimeEndpointAllocationPlan;
+  baselineBootstrap: BootstrapBaselineResult | null;
   monitor: RuntimeServiceMonitor | null;
   updateScheduler: RuntimeUpdateScheduler | null;
   telemetryExportScheduler: RuntimeTelemetryExportScheduler | null;
@@ -1293,6 +1349,7 @@ async function materializeRuntimeEndpointAllocation(
   runtimeModel: RuntimeModel,
   workspaceRoot: string,
   allocationPlan: RuntimeEndpointAllocationPlan,
+  transaction?: StartupTransactionContext,
 ): Promise<void> {
   const plannedPortsByService = servicePortsFromEndpointAllocation(allocationPlan);
   for (const service of runtimeModel.discovered) {
@@ -1312,6 +1369,9 @@ async function materializeRuntimeEndpointAllocation(
         workspaceRoot,
         plannedPorts,
         allocationRevision: allocationPlan.allocationId,
+        materializationHooks: transaction
+          ? createStartupMaterializationHooks({ transaction, service, kind: "config" })
+          : undefined,
       });
       await writeServiceState(service, configured.state);
       continue;
@@ -1526,6 +1586,14 @@ async function executeRuntimeOrchestrationAction(
   allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
+  onServiceStarted?: (service: DiscoveredService) => Promise<void>,
+  onServiceStarting?: (service: DiscoveredService) => Promise<void>,
+  materializationHooksFor?: (
+    service: DiscoveredService,
+    kind: StartupMaterializationKind,
+  ) => MaterializationWriteHooks,
+  artifactAcquisitionHooksFor?: (service: DiscoveredService) => StartupArtifactAcquisitionHooks,
+  setupTransactionHooks?: SetupTransactionHooks,
 ): Promise<RuntimeOrchestrationResponse> {
   const plannedPortsByService = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined;
   const preparedStartOptions = {
@@ -1534,6 +1602,15 @@ async function executeRuntimeOrchestrationAction(
     runtimeInstanceId,
     allocationRevision: allocationPlan?.allocationId,
     plannedPortsByService,
+    materializationHooksFor,
+    artifactAcquisitionHooksFor,
+    setupTransactionHooks,
+    onServiceStarting: async (service: DiscoveredService) => {
+      await onServiceStarting?.(service);
+    },
+    onServiceStarted: async (service: DiscoveredService) => {
+      await onServiceStarted?.(service);
+    },
   };
   if (action === "reload") {
     const stopped: LifecycleActionResponse[] = [];
@@ -1642,6 +1719,11 @@ async function executeRuntimeOrchestrationAction(
       const prepared = await prepareAndStartService(service, runtimeModel.registry, preparedStartOptions);
       if (prepared.result) {
         results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result));
+        if (onServiceStarted && !prepared.result.ok) {
+          throw new LifecycleStateError(
+            `Transactional startup failed for service "${serviceId}": ${prepared.result.message}`,
+          );
+        }
       } else {
         skipped.push({ serviceId, reason: prepared.skippedReason ?? "not_started" });
       }
@@ -1663,6 +1745,335 @@ async function executeRuntimeOrchestrationAction(
     results,
     skipped,
   };
+}
+
+async function compensateTransactionStartedServices(
+  runtimeModel: RuntimeModel,
+  serviceIds: ReadonlySet<string>,
+  generationId: string,
+  workspaceRoot: string,
+  transaction: StartupTransactionContext,
+): Promise<string[]> {
+  const failures: string[] = [];
+  const shutdownOrder = runtimeModel.graph
+    .getGlobalShutdownOrder()
+    .filter((serviceId) => serviceIds.has(serviceId));
+
+  for (const serviceId of shutdownOrder) {
+    const compensation = `stop_service:${serviceId}`;
+    const service = runtimeModel.registry.getById(serviceId);
+    const state = getLifecycleState(serviceId);
+    if (!service) {
+      failures.push(`missing_service:${serviceId}`);
+      continue;
+    }
+    const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
+    if (state.running && state.runtime.generationId !== generationId) {
+      failures.push(`generation_mismatch:${serviceId}`);
+      continue;
+    }
+    try {
+      if (state.running) {
+        if (!ownership) {
+          failures.push(`ownership_missing:${serviceId}`);
+          continue;
+        } else {
+          if (ownership.generationId !== generationId) {
+            failures.push(`ownership_generation_mismatch:${serviceId}`);
+            continue;
+          }
+          const ownershipStatus = await classifyRegisteredProcess(ownership);
+          if (ownershipStatus === "unknown_owner") {
+            failures.push(`ownership_unverifiable:${serviceId}`);
+            continue;
+          }
+          if (ownershipStatus === "owned") {
+            const stopped = await stopService(service);
+            await writeServiceState(service, stopped.state);
+          } else {
+            const stoppedState = setLifecycleState(serviceId, {
+              ...state,
+              running: false,
+              runtime: {
+                ...state.runtime,
+                pid: null,
+                finishedAt: new Date().toISOString(),
+                lastTermination: "exited",
+              },
+            });
+            await writeServiceState(service, stoppedState);
+            await transitionProcessOwnership(
+              workspaceRoot,
+              "service",
+              serviceId,
+              "stopped",
+              ownershipStatus,
+              ownership.pid ?? undefined,
+            );
+          }
+        }
+      }
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: [`service_stopped:${serviceId}`],
+          removeCompensations: [compensation],
+        },
+      );
+    } catch {
+      failures.push(`stop_failed:${serviceId}`);
+    }
+  }
+  return failures;
+}
+
+async function compensateStartupMaterializations(
+  transaction: StartupTransactionContext,
+  discovered: DiscoveredService[],
+): Promise<string[]> {
+  const failures: string[] = [];
+  const materializationRollback = await rollbackStartupMaterializations(transaction.journal);
+  const stateReconciliationRequired = new Set(
+    materializationRollback.stateReconciliationRequiredActionIds,
+  );
+  for (const actionId of materializationRollback.completedActionIds) {
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      transaction.journal.phase,
+      {
+        completedActions: [`materialization_restored:${actionId}`],
+        removeCompensations: [`restore_materialization:${actionId}`],
+        addCompensations: stateReconciliationRequired.has(actionId)
+          ? [`reconcile_materialization_state:${actionId}`]
+          : [],
+      },
+    );
+  }
+  for (const actionId of materializationRollback.blockedActionIds) {
+    failures.push(`materialization_restore_blocked:${actionId}`);
+  }
+  const reconciliation = await reconcileStartupMaterializationLifecycleState({
+    journal: transaction.journal,
+    discovered,
+  });
+  transaction.journal = reconciliation.journal;
+  for (const actionId of reconciliation.blockedActionIds) {
+    failures.push(`materialization_state_reconciliation_blocked:${actionId}`);
+  }
+  const artifactRollback = await rollbackStartupArtifactAcquisitions({
+    journal: transaction.journal,
+    discovered,
+  });
+  transaction.journal = artifactRollback.journal;
+  for (const actionId of artifactRollback.blockedActionIds) {
+    failures.push(`artifact_rollback_blocked:${actionId}`);
+  }
+  const materializationRestoresRemain = transaction.journal.pendingCompensations.some(
+    (compensation) => compensation.startsWith("restore_materialization:"),
+  );
+  const materializationStateReconciliationRemains = transaction.journal.pendingCompensations.some(
+    (compensation) => compensation.startsWith("reconcile_materialization_state:"),
+  );
+  const artifactRollbackRemains = transaction.journal.pendingCompensations.some(
+    (compensation) => compensation.startsWith("rollback_artifact:"),
+  );
+  if (
+    !materializationRestoresRemain &&
+    !materializationStateReconciliationRemains &&
+    !artifactRollbackRemains &&
+    transaction.journal.pendingCompensations.includes("discard_materialization_sidecar")
+  ) {
+    try {
+      await discardStartupMaterializationSidecar(transaction.journal);
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["materialization_sidecar_discarded"],
+          removeCompensations: ["discard_materialization_sidecar"],
+        },
+      );
+    } catch {
+      failures.push("materialization_sidecar_discard_failed");
+    }
+  }
+  for (const compensation of transaction.journal.pendingCompensations) {
+    if (compensation.startsWith("verify_setup_output:")) {
+      failures.push(`setup_output_unverifiable:${compensation.slice("verify_setup_output:".length)}`);
+    }
+    if (compensation.startsWith("reconcile_materialization_state:")) {
+      failures.push(`materialization_state_reconciliation_required:${compensation.slice("reconcile_materialization_state:".length)}`);
+    }
+  }
+  return failures;
+}
+
+async function compensateRuntimeStartupResources(input: {
+  config: RuntimeConfig;
+  runtimeModel: RuntimeModel;
+  generationId: string;
+  instanceId: string;
+  transaction: StartupTransactionContext;
+  startedServiceIds: ReadonlySet<string>;
+  allocationPlan?: RuntimeEndpointAllocationPlan;
+  server?: Server;
+  monitor?: RuntimeServiceMonitor | null;
+  updateScheduler?: RuntimeUpdateScheduler | null;
+  telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
+}): Promise<string[]> {
+  const failures: string[] = [];
+  // Quiesce every transaction-started scheduler before stopping services or
+  // restoring generated files. A failed quiescence attempt leaves all later
+  // compensations pending rather than racing monitor-driven restarts/writes.
+  if (input.transaction.journal.pendingCompensations.includes("stop_schedulers")) {
+    try {
+      await input.monitor?.stop();
+      await input.updateScheduler?.stop();
+      await input.telemetryExportScheduler?.stop();
+      input.transaction.journal = await advanceStartupTransaction(
+        input.transaction.journal,
+        input.transaction.journal.phase,
+        { completedActions: ["schedulers_stopped"], removeCompensations: ["stop_schedulers"] },
+      );
+    } catch {
+      failures.push("scheduler_stop_failed");
+      return failures;
+    }
+  }
+
+  failures.push(...await compensateTransactionStartedServices(
+    input.runtimeModel,
+    input.startedServiceIds,
+    input.generationId,
+    input.config.workspaceRoot,
+    input.transaction,
+  ));
+
+  failures.push(...await compensateStartupMaterializations(input.transaction, input.runtimeModel.discovered));
+
+  if (input.transaction.journal.pendingCompensations.includes("stop_runtime_instance")) {
+    try {
+      await markRuntimeInstanceStopped(input.config, input.generationId);
+      input.transaction.journal = await advanceStartupTransaction(
+        input.transaction.journal,
+        input.transaction.journal.phase,
+        { completedActions: ["runtime_instance_stopped"], removeCompensations: ["stop_runtime_instance"] },
+      );
+    } catch {
+      failures.push("runtime_instance_stop_failed");
+    }
+  }
+
+  if (input.transaction.journal.pendingCompensations.includes("close_runtime_api")) {
+    try {
+      if (input.server?.listening) await closeApiServer(input.server);
+      input.transaction.journal = await advanceStartupTransaction(
+        input.transaction.journal,
+        input.transaction.journal.phase,
+        { completedActions: ["runtime_api_closed"], removeCompensations: ["close_runtime_api"] },
+      );
+    } catch {
+      failures.push("runtime_api_close_failed");
+    }
+  }
+
+  if (input.transaction.journal.pendingCompensations.includes("clear_runtime_ownership")) {
+    try {
+      const ownership = await findProcessOwnership(input.config.workspaceRoot, "runtime", input.instanceId);
+      if (ownership && ownership.generationId !== input.generationId) {
+        failures.push("runtime_ownership_generation_mismatch");
+      } else {
+        if (ownership) {
+          await transitionProcessOwnership(
+            input.config.workspaceRoot,
+            "runtime",
+            input.instanceId,
+            "stopped",
+            "not_running",
+            ownership.pid ?? undefined,
+          );
+        }
+        input.transaction.journal = await advanceStartupTransaction(
+          input.transaction.journal,
+          input.transaction.journal.phase,
+          { completedActions: ["runtime_ownership_cleared"], removeCompensations: ["clear_runtime_ownership"] },
+        );
+      }
+    } catch {
+      failures.push("runtime_ownership_clear_failed");
+    }
+  }
+
+  if (input.allocationPlan) {
+    const compensation = `release_allocation:${input.allocationPlan.allocationId}`;
+    if (input.transaction.journal.pendingCompensations.includes(compensation)) {
+      try {
+        await releaseRuntimeEndpointAllocation(input.allocationPlan);
+        input.transaction.journal = await advanceStartupTransaction(
+          input.transaction.journal,
+          input.transaction.journal.phase,
+          {
+            completedActions: [`allocation_released:${input.allocationPlan.allocationId}`],
+            removeCompensations: [compensation],
+          },
+        );
+      } catch {
+        failures.push("allocation_release_failed");
+      }
+    }
+  }
+  return failures;
+}
+
+async function rollbackInterruptedStartup(
+  config: RuntimeConfig,
+  runtimeModel: RuntimeModel,
+  recovery: StartupRecoveryInspection,
+  transaction: StartupTransactionContext,
+): Promise<void> {
+  await rehydrateDiscoveredServices(runtimeModel.discovered, {
+    workspaceRoot: config.workspaceRoot,
+    runtimeGenerationId: recovery.journal!.generationId,
+    runtimeInstanceId: recovery.journal!.instanceId,
+    allocationRevision: recovery.journal!.allocationRevision,
+    adoptServiceIds: new Set(
+      recovery.services.filter((service) => service.ownership === "owned").map((service) => service.serviceId),
+    ),
+  });
+  const failures = await compensateRuntimeStartupResources({
+    config,
+    runtimeModel,
+    generationId: recovery.journal!.generationId,
+    instanceId: recovery.journal!.instanceId,
+    transaction,
+    startedServiceIds: new Set(recovery.journal!.startedServiceIds),
+    allocationPlan: recovery.allocationPlan ?? undefined,
+  });
+  if (transaction.journal.pendingCompensations.includes("mark_generation_failed")) {
+    try {
+      await publishRuntimeGeneration(config, transaction.journal.generationId, { phase: "failed" });
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["generation_failed"],
+          removeCompensations: ["mark_generation_failed"],
+        },
+      );
+    } catch {
+      failures.push("generation_failure_publication_failed");
+    }
+  }
+  if (failures.length > 0 || transaction.journal.pendingCompensations.length > 0) {
+    transaction.journal = await settleStartupTransaction(transaction.journal, "blocked", {
+      failureCode: failures[0] ?? "startup_recovery_incomplete",
+    });
+    throw new StartupTransactionRecoveryRequiredError(transaction.journal);
+  }
+  transaction.journal = await settleStartupTransaction(transaction.journal, "rolled_back", {
+    completedActions: ["recovery_rollback_completed"],
+  });
 }
 
 async function routeWorkflowFacadeRequest(
@@ -4000,21 +4411,299 @@ function isAddressInUse(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE");
 }
 
+const BASELINE_BOOTSTRAP_INTENT_ACTION = "baseline_bootstrap_intended";
+const BASELINE_SERVICE_INTENT_PREFIX = "baseline_service_requested:";
+const COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX = "committed_service_adoption_intended:";
+const COMMITTED_SERVICE_ADOPTION_COMPLETE_PREFIX = "committed_service_adoption_completed:";
+
+function requestedBaselineServiceIds(options: ApiServerOptions): string[] | null {
+  if (!options.baselineBootstrap) return null;
+  return [...new Set(options.baselineBootstrap.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)];
+}
+
+function journalBaselineServiceIds(journal: StartupTransactionJournal): string[] | null {
+  if (!journal.completedActions.includes(BASELINE_BOOTSTRAP_INTENT_ACTION)) return null;
+  return journal.completedActions
+    .filter((action) => action.startsWith(BASELINE_SERVICE_INTENT_PREFIX))
+    .map((action) => action.slice(BASELINE_SERVICE_INTENT_PREFIX.length));
+}
+
+function baselineIntentMatches(journal: StartupTransactionJournal, requestedServiceIds: readonly string[] | null): boolean {
+  return JSON.stringify(journalBaselineServiceIds(journal)) === JSON.stringify(requestedServiceIds);
+}
+
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
+  return await startApiServerInternal(options);
+}
+
+function journalCommittedServiceAdoptionIds(journal: StartupTransactionJournal): string[] {
+  return journal.completedActions
+    .filter((action) => action.startsWith(COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX))
+    .map((action) => action.slice(COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX.length));
+}
+
+async function verifiedCommittedServiceAdoptionIds(
+  journal: StartupTransactionJournal,
+  discovered: DiscoveredService[],
+  workspaceRoot: string,
+): Promise<Set<string>> {
+  const discoveredIds = new Set(discovered.map((service) => service.manifest.id));
+  const verified = new Set<string>();
+  for (const serviceId of journal.startedServiceIds) {
+    if (!discoveredIds.has(serviceId) || !journal.completedActions.includes(`service_started:${serviceId}`)) continue;
+    const owner = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    const state = getLifecycleState(serviceId);
+    if (
+      owner?.pid &&
+      owner.generationId === journal.generationId &&
+      owner.allocation.revision === journal.allocationRevision &&
+      state.running &&
+      state.runtime.pid === owner.pid &&
+      state.runtime.generationId === journal.generationId &&
+      state.runtime.allocationRevision === journal.allocationRevision &&
+      await classifyRegisteredProcess(owner) === "owned"
+    ) {
+      verified.add(serviceId);
+    }
+  }
+  return verified;
+}
+
+async function startApiServerInternal(
+  options: ApiServerOptions,
+  inheritedCommittedServiceAdoptionIds: ReadonlySet<string> = new Set(),
+): Promise<RunningApiServer> {
+  if (options.autostart && options.baselineBootstrap) {
+    throw new Error("Runtime startup cannot combine manifest autostart and CLI baseline bootstrap modes.");
+  }
+  const baselineServiceIds = requestedBaselineServiceIds(options);
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
-  const generation = await beginRuntimeGeneration(config);
+  const recoveryModel = await loadRuntimeModel(config.servicesRoot);
+  const recovery = await inspectStartupRecovery(config, recoveryModel.discovered);
+  let recoveryClassification = recovery.classification;
+  if (
+    recoveryClassification === "resume" &&
+    recovery.journal &&
+    !baselineIntentMatches(recovery.journal, baselineServiceIds)
+  ) {
+    recoveryClassification = "rollback";
+  }
+  let recoveryAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
+  let recoveryAdoptServiceIds: ReadonlySet<string> | undefined;
+  const committedServiceAdoptionIds = new Set(inheritedCommittedServiceAdoptionIds);
+  if (recovery.journal) {
+    for (const serviceId of journalCommittedServiceAdoptionIds(recovery.journal)) {
+      committedServiceAdoptionIds.add(serviceId);
+    }
+  }
+  let generationId = createRuntimeGenerationId();
+  let journal: StartupTransactionJournal;
+  let recoveredGeneration: Awaited<ReturnType<typeof recoverRuntimeGeneration>> | null = null;
+
+  if (recoveryClassification === "blocked") {
+    throw new StartupTransactionRecoveryRequiredError(recovery.journal!);
+  }
+  if (recoveryClassification === "commit_cleanup") {
+    const committed = {
+      journal: await activateStartupTransactionRecovery(recovery.journal!, "resume"),
+    };
+    let verifiedServiceIds = new Set<string>();
+    try {
+      await rehydrateDiscoveredServices(recoveryModel.discovered, {
+        workspaceRoot: config.workspaceRoot,
+        runtimeGenerationId: recovery.journal!.generationId,
+        runtimeInstanceId: recovery.journal!.instanceId,
+        allocationRevision: recovery.journal!.allocationRevision,
+        adoptServiceIds: new Set(recovery.journal!.startedServiceIds),
+      });
+      verifiedServiceIds = await verifiedCommittedServiceAdoptionIds(
+        recovery.journal!,
+        recoveryModel.discovered,
+        config.workspaceRoot,
+      );
+      committed.journal = await completeCommittedStartupMaterializationCleanup(committed.journal);
+      committed.journal = await settleStartupTransaction(committed.journal, "committed", {
+        completedActions: ["recovery_commit_cleanup_completed"],
+        removeCompensations: [...committed.journal.pendingCompensations],
+      });
+    } catch {
+      committed.journal = await settleStartupTransaction(committed.journal, "blocked", {
+        failureCode: "materialization_commit_cleanup_failed",
+      }).catch(() => committed.journal);
+      throw new StartupTransactionRecoveryRequiredError(committed.journal);
+    }
+    return await startApiServerInternal(options, verifiedServiceIds);
+  }
+  if (recoveryClassification === "resume") {
+    generationId = recovery.journal!.generationId;
+    journal = recovery.journal!;
+    recoveryAllocationPlan = recovery.allocationPlan;
+    recoveryAdoptServiceIds = new Set(
+      recovery.services.filter((service) => service.ownership === "owned").map((service) => service.serviceId),
+    );
+  } else if (recoveryClassification === "rollback") {
+    const interrupted = { journal: await activateStartupTransactionRecovery(recovery.journal!, "rollback") };
+    await rollbackInterruptedStartup(config, recoveryModel, recovery, interrupted);
+    journal = await beginStartupTransaction({
+      generationId,
+      instanceId: resolveRuntimeInstanceId(config),
+      servicesRoot: config.servicesRoot,
+      workspaceRoot: config.workspaceRoot,
+      recoveredFromTransactionId: interrupted.journal.transactionId,
+    });
+  } else {
+    journal = await beginStartupTransaction({
+      generationId,
+      instanceId: resolveRuntimeInstanceId(config),
+      servicesRoot: config.servicesRoot,
+      workspaceRoot: config.workspaceRoot,
+    });
+  }
+  const transaction = { journal };
+  let generation: Awaited<ReturnType<typeof beginRuntimeGeneration>> | null = null;
   try {
-    return await startApiServerGeneration(options, config, generation);
+    if (committedServiceAdoptionIds.size > 0) {
+      transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
+        completedActions: [...committedServiceAdoptionIds]
+          .sort()
+          .map((serviceId) => `${COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX}${serviceId}`),
+      });
+    }
+    if (recoveryClassification !== "resume" && baselineServiceIds) {
+      transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
+        completedActions: [
+          BASELINE_BOOTSTRAP_INTENT_ACTION,
+          ...baselineServiceIds.map((serviceId) => `${BASELINE_SERVICE_INTENT_PREFIX}${serviceId}`),
+        ],
+      });
+    }
+    if (recoveryClassification === "resume") {
+      transaction.journal = await activateStartupTransactionRecovery(transaction.journal, "resume");
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["recovery_preparation_started"],
+          addCompensations: ["mark_generation_failed"],
+        },
+      );
+      if (options.startupTransactionTestHooks?.beforeRecoveryGeneration) {
+        if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+          throw new Error("Startup transaction test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+        }
+        await options.startupTransactionTestHooks.beforeRecoveryGeneration({ journal: transaction.journal });
+      }
+      recoveredGeneration = await recoverRuntimeGeneration(config, generationId);
+    }
+    if (!recoveredGeneration) {
+      await runStartupTransactionPhaseHook(options, transaction.journal);
+      generation = await beginRuntimeGeneration(config, { generationId });
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        "preflight_reconciliation",
+        {
+          completedActions: ["generation_started"],
+          addCompensations: ["mark_generation_failed"],
+        },
+      );
+    } else {
+      generation = recoveredGeneration;
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["generation_recovered"],
+        },
+      );
+    }
+    return await startApiServerGeneration(options, config, generation, transaction, {
+      allocationPlan: recoveryAllocationPlan,
+      adoptServiceIds: recoveryAdoptServiceIds,
+      committedServiceAdoptionIds,
+    });
   } catch (error) {
-    await publishRuntimeGeneration(config, generation.generationId, { phase: "failed" }).catch(() => undefined);
+    if (generation && transaction.journal.pendingCompensations.includes("mark_generation_failed")) {
+      try {
+        await publishRuntimeGeneration(config, generation.generationId, { phase: "failed" });
+        transaction.journal = await advanceStartupTransaction(
+          transaction.journal,
+          transaction.journal.phase,
+          {
+            completedActions: ["generation_failed"],
+            removeCompensations: ["mark_generation_failed"],
+          },
+        );
+      } catch {
+        // Preserve the compensation in the blocked journal for operator recovery.
+      }
+    }
+    const status = committedServiceAdoptionIds.size > 0 || transaction.journal.pendingCompensations.length > 0
+      ? "blocked"
+      : "rolled_back";
+    transaction.journal = await settleStartupTransaction(transaction.journal, status, {
+      failureCode: startupFailureCode(error),
+    }).catch(() => transaction.journal);
     throw error;
   }
+}
+
+interface StartupTransactionContext {
+  journal: StartupTransactionJournal;
+}
+
+function nextStartupPhase(
+  current: StartupTransactionPhase,
+  requested: StartupTransactionPhase,
+): StartupTransactionPhase {
+  return STARTUP_TRANSACTION_PHASES.indexOf(requested) > STARTUP_TRANSACTION_PHASES.indexOf(current)
+    ? requested
+    : current;
+}
+
+function startupFailureCode(error: unknown): string {
+  const candidate = error && typeof error === "object" && "code" in error
+    ? String(error.code)
+    : error instanceof Error
+      ? error.name
+      : "startup_failure";
+  const normalized = candidate.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").slice(0, 100);
+  return normalized || "startup_failure";
+}
+
+async function runStartupTransactionPhaseHook(
+  options: ApiServerOptions,
+  journal: StartupTransactionJournal,
+): Promise<void> {
+  if (!options.startupTransactionTestHooks?.afterPhase) return;
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Startup transaction test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  await options.startupTransactionTestHooks.afterPhase({ phase: journal.phase, journal });
+}
+
+async function runStartupBaselineActionHook(
+  options: ApiServerOptions,
+  serviceId: string,
+  action: LifecycleAction,
+  journal: StartupTransactionJournal,
+): Promise<void> {
+  if (!options.startupTransactionTestHooks?.afterBaselineAction) return;
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Startup transaction test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  await options.startupTransactionTestHooks.afterBaselineAction({ serviceId, action, journal });
 }
 
 async function startApiServerGeneration(
   options: ApiServerOptions,
   config: RuntimeConfig,
   generation: Awaited<ReturnType<typeof beginRuntimeGeneration>>,
+  transaction: StartupTransactionContext,
+  recovery: {
+    allocationPlan?: RuntimeEndpointAllocationPlan | null;
+    adoptServiceIds?: ReadonlySet<string>;
+    committedServiceAdoptionIds?: ReadonlySet<string>;
+  } = {},
 ): Promise<RunningApiServer> {
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
@@ -4025,6 +4714,9 @@ async function startApiServerGeneration(
     workspaceRoot: config.workspaceRoot,
     runtimeGenerationId,
     runtimeInstanceId,
+    allocationRevision: recovery.allocationPlan?.allocationId,
+    adoptServiceIds: recovery.adoptServiceIds,
+    excludeAdoptServiceIds: recovery.committedServiceAdoptionIds,
   });
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
@@ -4054,25 +4746,60 @@ async function startApiServerGeneration(
   let allocationPlan!: RuntimeEndpointAllocationPlan;
   let apiEndpoint!: ReturnType<typeof runtimeApiEndpointFromAllocation>;
   let server!: Server;
+  // Services proven owned by the interrupted transaction remain transaction
+  // resources after adoption. Include them in readiness and compensation so a
+  // resumed attempt cannot strand an adopted process if a later phase fails.
+  const transactionStartedServiceIds = new Set<string>(recovery.adoptServiceIds ?? []);
+  const reboundCommittedServiceIds = new Set<string>();
+  let baselineBootstrap: BootstrapBaselineResult | null = null;
+  const priorRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+  let baselineRuntimeApiPublished = false;
+  const restorePriorRuntimeApiBaseUrl = () => {
+    if (!baselineRuntimeApiPublished) return;
+    if (priorRuntimeApiBaseUrl === undefined) delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+    else process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = priorRuntimeApiBaseUrl;
+    baselineRuntimeApiPublished = false;
+  };
   for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
-    allocationPlan = await planAndReserveRuntimeEndpoints({
-      laneId: runtimeInstanceId,
-      servicesRoot: config.servicesRoot,
-      workspaceRoot: config.workspaceRoot,
-      api: {
-        host: bindHost,
-        advertiseHost: publicHost,
-        port: requestedPort,
-        policy: apiPortPolicy,
-      },
-      services: bootModel.discovered,
-      attempt,
-    });
-    apiEndpoint = runtimeApiEndpointFromAllocation(allocationPlan);
+    let attemptAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
     let candidateServer: Server | null = null;
     let ownershipRecorded = false;
     try {
-      await materializeRuntimeEndpointAllocation(bootModel, config.workspaceRoot, allocationPlan);
+      attemptAllocationPlan = attempt === 1 && recovery.allocationPlan
+        ? await claimRuntimeEndpointAllocation(recovery.allocationPlan)
+        : await planAndReserveRuntimeEndpoints({
+          laneId: runtimeInstanceId,
+          servicesRoot: config.servicesRoot,
+          workspaceRoot: config.workspaceRoot,
+          api: {
+            host: bindHost,
+            advertiseHost: publicHost,
+            port: requestedPort,
+            policy: apiPortPolicy,
+          },
+          services: bootModel.discovered,
+          generationId: runtimeGenerationId,
+          attempt,
+        });
+      allocationPlan = attemptAllocationPlan;
+      apiEndpoint = runtimeApiEndpointFromAllocation(allocationPlan);
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        nextStartupPhase(transaction.journal.phase, "allocation_reserved"),
+        {
+          allocationRevision: allocationPlan.allocationId,
+          completedActions: [`allocation_reserved:${allocationPlan.allocationId}`],
+          addCompensations: [`release_allocation:${allocationPlan.allocationId}`],
+        },
+      );
+      await runStartupTransactionPhaseHook(options, transaction.journal);
+      await materializeRuntimeEndpointAllocation(bootModel, config.workspaceRoot, allocationPlan, transaction);
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        nextStartupPhase(transaction.journal.phase, "configuration_materialized"),
+        { completedActions: [`configuration_materialized:${allocationPlan.allocationId}`] },
+      );
+      await runStartupTransactionPhaseHook(options, transaction.journal);
       candidateServer = createApiServer({
         ...config,
         host: bindHost,
@@ -4109,10 +4836,35 @@ async function startApiServerGeneration(
       }
       candidateServer.listen(apiEndpoint.port, bindHost);
       await once(candidateServer, "listening");
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        nextStartupPhase(transaction.journal.phase, "process_spawned"),
+        {
+          completedActions: ["runtime_api_bound"],
+          addCompensations: ["close_runtime_api"],
+        },
+      );
+      await runStartupTransactionPhaseHook(options, transaction.journal);
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        nextStartupPhase(transaction.journal.phase, "ownership_persisted"),
+        {
+          completedActions: ["runtime_ownership_persisted"],
+          addCompensations: ["clear_runtime_ownership"],
+        },
+      );
+      await runStartupTransactionPhaseHook(options, transaction.journal);
       server = candidateServer;
       break;
     } catch (error) {
-      if (candidateServer?.listening) await closeApiServer(candidateServer);
+      if (candidateServer?.listening) {
+        await closeApiServer(candidateServer);
+        transaction.journal = await advanceStartupTransaction(
+          transaction.journal,
+          transaction.journal.phase,
+          { completedActions: ["runtime_api_closed"], removeCompensations: ["close_runtime_api"] },
+        );
+      }
       if (ownershipRecorded) {
         await transitionProcessOwnership(
           config.workspaceRoot,
@@ -4122,13 +4874,94 @@ async function startApiServerGeneration(
           "not_running",
           process.pid,
         );
+        transaction.journal = await advanceStartupTransaction(
+          transaction.journal,
+          transaction.journal.phase,
+          { completedActions: ["runtime_ownership_cleared"], removeCompensations: ["clear_runtime_ownership"] },
+        );
       }
-      await releaseRuntimeEndpointAllocation(allocationPlan);
+      if (attemptAllocationPlan) {
+        await releaseRuntimeEndpointAllocation(attemptAllocationPlan);
+        transaction.journal = await advanceStartupTransaction(
+          transaction.journal,
+          transaction.journal.phase,
+          {
+            completedActions: [`allocation_released:${attemptAllocationPlan.allocationId}`],
+            removeCompensations: [`release_allocation:${attemptAllocationPlan.allocationId}`],
+          },
+        );
+      }
+      const materializationFailures = await compensateStartupMaterializations(transaction, bootModel.discovered);
+      if (materializationFailures.length > 0) throw error;
+      if (recovery.allocationPlan) throw error;
       if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
     }
   }
   try {
-    if (options.autostart) {
+    const discoveredById = new Map(bootModel.discovered.map((service) => [service.manifest.id, service]));
+    for (const serviceId of [...recovery.committedServiceAdoptionIds ?? []].sort()) {
+      const service = discoveredById.get(serviceId);
+      if (!service) {
+        throw new Error(`Committed service "${serviceId}" is no longer discovered.`);
+      }
+      await rebindCommittedServiceAdoption(service, {
+        workspaceRoot: config.workspaceRoot,
+        runtimeGenerationId,
+        runtimeInstanceId,
+        allocationPlan,
+      });
+      reboundCommittedServiceIds.add(serviceId);
+      transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
+        completedActions: [`${COMMITTED_SERVICE_ADOPTION_COMPLETE_PREFIX}${serviceId}`],
+      });
+    }
+    if (options.baselineBootstrap) {
+      process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiEndpoint.selectors.url.replace(/\/$/, "");
+      baselineRuntimeApiPublished = true;
+      baselineBootstrap = await bootstrapBaselineServices({
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
+        version: config.version,
+        serviceIds: requestedBaselineServiceIds(options) ?? undefined,
+        endpointAllocationPlan: allocationPlan,
+        transactionHooks: {
+          runtimeGenerationId,
+          runtimeInstanceId,
+          materializationHooksFor: (service, kind) => createStartupMaterializationHooks({ transaction, service, kind }),
+          artifactAcquisitionHooksFor: (service) => createStartupArtifactAcquisitionHooks({ transaction, service }),
+          setupTransactionHooks: createStartupSetupTransactionHooks(transaction),
+          beforeServiceStart: async (service) => {
+            const serviceId = service.manifest.id;
+            transactionStartedServiceIds.add(serviceId);
+            transaction.journal = await advanceStartupTransaction(
+              transaction.journal,
+              transaction.journal.phase,
+              {
+                completedActions: [`service_start_intended:${serviceId}`],
+                addCompensations: [`stop_service:${serviceId}`],
+                startedServiceIds: [serviceId],
+              },
+            );
+          },
+          afterServiceStart: async (service) => {
+            transaction.journal = await advanceStartupTransaction(
+              transaction.journal,
+              transaction.journal.phase,
+              { completedActions: [`service_started:${service.manifest.id}`] },
+            );
+          },
+          afterAction: async (service, action) => {
+            const serviceId = service.manifest.id;
+            transaction.journal = await advanceStartupTransaction(
+              transaction.journal,
+              transaction.journal.phase,
+              { completedActions: [`baseline_action_completed:${serviceId}:${action}`] },
+            );
+            await runStartupBaselineActionHook(options, serviceId, action, transaction.journal);
+          },
+        },
+      });
+    } else if (options.autostart) {
       await executeRuntimeOrchestrationAction(
         "autostart",
         bootModel,
@@ -4136,37 +4969,82 @@ async function startApiServerGeneration(
         allocationPlan,
         runtimeGenerationId,
         runtimeInstanceId,
+        async (service) => {
+          transaction.journal = await advanceStartupTransaction(
+            transaction.journal,
+            transaction.journal.phase,
+            {
+              completedActions: [`service_started:${service.manifest.id}`],
+            },
+          );
+        },
+        async (service) => {
+          const serviceId = service.manifest.id;
+          transactionStartedServiceIds.add(serviceId);
+          transaction.journal = await advanceStartupTransaction(
+            transaction.journal,
+            transaction.journal.phase,
+            {
+              completedActions: [`service_start_intended:${serviceId}`],
+              addCompensations: [`stop_service:${serviceId}`],
+              startedServiceIds: [serviceId],
+            },
+          );
+        },
+        (service, kind) => createStartupMaterializationHooks({ transaction, service, kind }),
+        (service) => createStartupArtifactAcquisitionHooks({ transaction, service }),
+        createStartupSetupTransactionHooks(transaction),
       );
     }
   } catch (error) {
-    await stopAllManagedProcesses();
-    await closeApiServer(server);
-    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
-    await releaseRuntimeEndpointAllocation(allocationPlan);
+    restorePriorRuntimeApiBaseUrl();
+    await compensateRuntimeStartupResources({
+      config,
+      runtimeModel: bootModel,
+      generationId: runtimeGenerationId,
+      instanceId: runtimeInstanceId,
+      transaction,
+      startedServiceIds: transactionStartedServiceIds,
+      allocationPlan,
+      server,
+    });
     throw error;
   }
-  monitor?.start();
-  updateScheduler?.start();
-  telemetryExportScheduler.start();
-
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    await closeApiServer(server);
-    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
-    await releaseRuntimeEndpointAllocation(allocationPlan);
-    throw new Error("API server failed to expose a TCP address.");
-  }
-
-  const resolvedPort = address.port;
-  if (resolvedPort !== apiEndpoint.port) {
-    await closeApiServer(server);
-    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
-    await releaseRuntimeEndpointAllocation(allocationPlan);
-    throw new Error(`Runtime API bound unexpected port ${resolvedPort}; reserved ${apiEndpoint.port}.`);
-  }
-  const resolvedApiUrl = apiEndpoint.selectors.url.replace(/\/$/, "");
-  let instance: Awaited<ReturnType<typeof registerRuntimeInstance>>;
+  let instance: Awaited<ReturnType<typeof registerRuntimeInstance>> | null = null;
+  let leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
+  let resolvedPort = 0;
   try {
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      transaction.journal.phase,
+      {
+        completedActions: ["runtime_schedulers_starting"],
+        addCompensations: ["stop_schedulers"],
+      },
+    );
+    monitor?.start();
+    updateScheduler?.start();
+    telemetryExportScheduler.start();
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      transaction.journal.phase,
+      {
+        completedActions: ["runtime_schedulers_started"],
+      },
+    );
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("API server failed to expose a TCP address.");
+    }
+    resolvedPort = address.port;
+    if (resolvedPort !== apiEndpoint.port) {
+      throw new Error(`Runtime API bound unexpected port ${resolvedPort}; reserved ${apiEndpoint.port}.`);
+    }
+    if (allocationPlan.generationId !== runtimeGenerationId) {
+      throw new Error("Runtime endpoint allocation does not belong to the selected generation.");
+    }
+    const resolvedApiUrl = apiEndpoint.selectors.url.replace(/\/$/, "");
     instance = await registerRuntimeInstance(config, {
       apiPort: resolvedPort,
       apiUrl: resolvedApiUrl,
@@ -4175,18 +5053,18 @@ async function startApiServerGeneration(
       source: generation.source,
       phase: "running",
     });
-  } catch (error) {
-    await stopAllManagedProcesses();
-    await closeApiServer(server);
-    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
-    await releaseRuntimeEndpointAllocation(allocationPlan);
-    throw error;
-  }
-  const leaseHeartbeat = setInterval(() => {
-    void refreshRuntimeInstanceLease(config, { generationId: runtimeGenerationId }).catch(() => undefined);
-  }, DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS);
-  leaseHeartbeat.unref?.();
-  try {
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      transaction.journal.phase,
+      {
+        completedActions: ["runtime_instance_registered"],
+        addCompensations: ["stop_runtime_instance"],
+      },
+    );
+    leaseHeartbeat = setInterval(() => {
+      void refreshRuntimeInstanceLease(config, { generationId: runtimeGenerationId }).catch(() => undefined);
+    }, DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS);
+    leaseHeartbeat.unref?.();
     await recordProcessOwnership(config.workspaceRoot, {
       ownerType: "runtime",
       ownerId: instance.instanceId,
@@ -4200,28 +5078,71 @@ async function startApiServerGeneration(
       lifecycleState: "running",
       source: "runtime",
     });
+    const runtimeOwnership = await findProcessOwnership(config.workspaceRoot, "runtime", instance.instanceId);
+    const runtimeOwnershipStatus = runtimeOwnership ? await classifyRegisteredProcess(runtimeOwnership) : "not_running";
+    if (
+      runtimeOwnershipStatus !== "owned" ||
+      runtimeOwnership?.generationId !== runtimeGenerationId ||
+      runtimeOwnership.allocation.revision !== allocationPlan.allocationId
+    ) {
+      throw new Error(`Runtime owned readiness failed with ownership status ${runtimeOwnershipStatus}.`);
+    }
+    for (const serviceId of new Set([...transactionStartedServiceIds, ...reboundCommittedServiceIds])) {
+      const state = getLifecycleState(serviceId);
+      if (!state.running || state.runtime.generationId !== runtimeGenerationId) {
+        throw new Error(`Service "${serviceId}" readiness does not belong to generation ${runtimeGenerationId}.`);
+      }
+    }
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      "owned_readiness_proven",
+      { completedActions: ["owned_readiness_proven"] },
+    );
+    await runStartupTransactionPhaseHook(options, transaction.journal);
     await publishRuntimeGeneration(config, runtimeGenerationId, {
       phase: "running",
       allocationRevision: allocationPlan.allocationId,
       endpoints: [{ name: "api", url: instance.apiUrl }],
     });
-  } catch (error) {
-    clearInterval(leaseHeartbeat);
-    await monitor?.stop();
-    await updateScheduler?.stop();
-    await telemetryExportScheduler.stop();
-    await markRuntimeInstanceStopped(config, runtimeGenerationId);
-    await closeApiServer(server);
-    await transitionProcessOwnership(
-      config.workspaceRoot,
-      "runtime",
-      instance.instanceId,
-      "stopped",
-      "not_running",
-      process.pid,
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      "generation_committed",
+      { completedActions: ["generation_committed"] },
     );
-    await releaseRuntimeEndpointAllocation(allocationPlan);
-    throw error;
+    await runStartupTransactionPhaseHook(options, transaction.journal);
+    transaction.journal = await completeCommittedStartupMaterializationCleanup(transaction.journal);
+    transaction.journal = await settleStartupTransaction(transaction.journal, "committed", {
+      removeCompensations: [...transaction.journal.pendingCompensations],
+    });
+  } catch (error) {
+    const generationCommitted = transaction.journal.phase === "generation_committed" &&
+      transaction.journal.completedActions.includes("generation_committed");
+    if (generationCommitted) {
+      transaction.journal = await settleStartupTransaction(transaction.journal, "blocked", {
+        failureCode: "materialization_commit_cleanup_failed",
+      }).catch(() => transaction.journal);
+    } else {
+      if (leaseHeartbeat) clearInterval(leaseHeartbeat);
+      restorePriorRuntimeApiBaseUrl();
+      await compensateRuntimeStartupResources({
+        config,
+        runtimeModel: bootModel,
+        generationId: runtimeGenerationId,
+        instanceId: runtimeInstanceId,
+        transaction,
+        startedServiceIds: transactionStartedServiceIds,
+        allocationPlan,
+        server,
+        monitor,
+        updateScheduler,
+        telemetryExportScheduler,
+      });
+      throw error;
+    }
+  }
+
+  if (!instance || !leaseHeartbeat) {
+    throw new Error("Runtime startup committed without an instance lease.");
   }
 
   return {
@@ -4232,6 +5153,7 @@ async function startApiServerGeneration(
     generationId: instance.generationId,
     ownerPid: instance.pid,
     endpointAllocationPlan: allocationPlan,
+    baselineBootstrap,
     monitor,
     updateScheduler,
     telemetryExportScheduler,

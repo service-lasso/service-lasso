@@ -27,6 +27,7 @@ export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<R
     portPolicy: options.portPolicy,
     host: bindHost,
     version: serviceRoot.version,
+    baselineBootstrap: options.baselineBootstrap,
   });
   process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiServer.url;
 

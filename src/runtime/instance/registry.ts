@@ -404,7 +404,13 @@ async function resolveRuntimeSourceIdentity(recordRuntimeRoot: string): Promise<
   return await pending;
 }
 
-export async function beginRuntimeGeneration(config: RuntimeConfig): Promise<RuntimeGenerationRecord> {
+export async function beginRuntimeGeneration(
+  config: RuntimeConfig,
+  options: { generationId?: string } = {},
+): Promise<RuntimeGenerationRecord> {
+  if (options.generationId !== undefined && !UUID_PATTERN.test(options.generationId)) {
+    throw new Error("Runtime generation id must be a UUID.");
+  }
   const instanceId = resolveRuntimeInstanceId(config);
   const source = await resolveRuntimeSourceIdentity(runtimeRoot);
   return await withWorkspaceLifecycleLock(config.workspaceRoot, async () => {
@@ -444,7 +450,7 @@ export async function beginRuntimeGeneration(config: RuntimeConfig): Promise<Run
         : entry,
     );
     const record: RuntimeGenerationRecord = {
-      generationId: createRuntimeGenerationId(),
+      generationId: options.generationId ?? createRuntimeGenerationId(),
       instanceId,
       servicesRoot: path.resolve(config.servicesRoot),
       workspaceRoot: path.resolve(config.workspaceRoot),
@@ -466,6 +472,68 @@ export async function beginRuntimeGeneration(config: RuntimeConfig): Promise<Run
       generations,
     } satisfies RuntimeGenerationRegistryFile);
     return record;
+  });
+}
+
+export async function recoverRuntimeGeneration(
+  config: RuntimeConfig,
+  generationId: string,
+): Promise<RuntimeGenerationRecord> {
+  if (!UUID_PATTERN.test(generationId)) {
+    throw new Error("Runtime generation id must be a UUID.");
+  }
+  const instanceId = resolveRuntimeInstanceId(config);
+  const source = await resolveRuntimeSourceIdentity(runtimeRoot);
+  return await withWorkspaceLifecycleLock(config.workspaceRoot, async () => {
+    const registry = await readGenerationRegistryFile(config.workspaceRoot);
+    const current = registry.generations.find((entry) => entry.generationId === generationId);
+    if (!current || registry.activeGenerationId !== generationId) {
+      throw new Error(`Interrupted runtime generation ${generationId} is not authoritative for this workspace.`);
+    }
+    if (
+      current.instanceId !== instanceId ||
+      !samePath(current.servicesRoot, config.servicesRoot) ||
+      !samePath(current.workspaceRoot, config.workspaceRoot)
+    ) {
+      throw new Error(`Interrupted runtime generation ${generationId} does not match the selected runtime lane.`);
+    }
+    if (current.pid !== process.pid && processPresence(current.pid) !== "not_running") {
+      throw new RuntimeGenerationConflictError(
+        "runtime_generation_owner_unknown",
+        `Interrupted runtime generation ${generationId} process owner cannot be verified.`,
+      );
+    }
+    const ownership = await findProcessOwnership(config.workspaceRoot, "runtime", instanceId);
+    if (ownership && ownership.lifecycleState !== "stopped") {
+      if (ownership.generationId !== generationId) {
+        throw new Error("Runtime ownership belongs to a different generation; refusing recovery.");
+      }
+      const status = await classifyRegisteredProcess(ownership);
+      if (status === "owned" || status === "unknown_owner") {
+        throw new RuntimeGenerationConflictError(
+          status === "owned" ? "runtime_generation_active" : "runtime_generation_owner_unknown",
+          status === "owned"
+            ? `Workspace already has active runtime generation ${generationId}.`
+            : `Workspace generation ${generationId} owner cannot be verified.`,
+        );
+      }
+    }
+    const now = new Date().toISOString();
+    const recovered: RuntimeGenerationRecord = {
+      ...current,
+      pid: process.pid,
+      phase: "starting",
+      updatedAt: now,
+      finishedAt: null,
+      source,
+    };
+    await atomicWriteJson(getRuntimeGenerationRegistryPath(config.workspaceRoot), {
+      version: 1,
+      updatedAt: now,
+      activeGenerationId: generationId,
+      generations: registry.generations.map((entry) => entry.generationId === generationId ? recovered : entry),
+    } satisfies RuntimeGenerationRegistryFile);
+    return recovered;
   });
 }
 

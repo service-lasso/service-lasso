@@ -37,6 +37,11 @@ export interface SetupServiceResult {
   message: string;
 }
 
+export interface SetupTransactionHooks {
+  beforeStep(service: DiscoveredService, stepId: string, outputs: string[] | undefined): Promise<void>;
+  afterStep(service: DiscoveredService, stepId: string, outputs: string[] | undefined): Promise<void>;
+}
+
 export function listSetupStepIds(service: DiscoveredService): string[] {
   return Object.keys(service.manifest.setup?.steps ?? {}).sort((left, right) => left.localeCompare(right));
 }
@@ -401,6 +406,7 @@ async function ensureSetupDependencies(
   step: ServiceSetupStep,
   registry: ServiceRegistry,
   visiting: Set<string>,
+  transactionHooks?: SetupTransactionHooks,
 ): Promise<void> {
   for (const dependencyId of step.depend_on ?? []) {
     const setupDependency = dependencyId.match(/^(.+):([^:]+)$/);
@@ -410,7 +416,7 @@ async function ensureSetupDependencies(
       if (!dependencyService) {
         throw new Error(`Setup step "${service.manifest.id}:${stepId}" depends on unknown setup service "${dependencyServiceId}".`);
       }
-      await runSetupStep(dependencyService, registry, dependencyStepId, { visiting });
+      await runSetupStep(dependencyService, registry, dependencyStepId, { visiting, transactionHooks });
       continue;
     }
 
@@ -422,7 +428,7 @@ export async function runSetupStep(
   service: DiscoveredService,
   registry: ServiceRegistry,
   stepId: string,
-  options: { force?: boolean; visiting?: Set<string> } = {},
+  options: { force?: boolean; visiting?: Set<string>; transactionHooks?: SetupTransactionHooks } = {},
 ): Promise<SetupStepRunResult> {
   const serviceId = service.manifest.id;
   const step = service.manifest.setup?.steps?.[stepId];
@@ -477,7 +483,7 @@ export async function runSetupStep(
     };
   }
 
-  await ensureSetupDependencies(service, stepId, step, registry, visiting);
+  await ensureSetupDependencies(service, stepId, step, registry, visiting, options.transactionHooks);
 
   const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
@@ -509,6 +515,7 @@ export async function runSetupStep(
       message,
     };
   }
+  await options.transactionHooks?.beforeStep(service, stepId, step.outputs);
   const startedAt = new Date().toISOString();
   const runId = buildRunId(stepId);
   const logs = getSetupRunLogPaths(service.serviceRoot, stepId, runId);
@@ -541,6 +548,7 @@ export async function runSetupStep(
   clearTimeout(timeout);
   await Promise.all([stdoutDone, stderrDone]);
   await Promise.all([closeWriteStream(combined), closeWriteStream(stdout), closeWriteStream(stderr)]);
+  await options.transactionHooks?.afterStep(service, stepId, step.outputs);
 
   const finishedAt = new Date().toISOString();
   const durationMs = Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt));
@@ -623,7 +631,7 @@ function resolveSetupOrder(service: DiscoveredService, selectedStepId?: string):
 export async function runServiceSetup(
   service: DiscoveredService,
   registry: ServiceRegistry,
-  options: { stepId?: string; force?: boolean; includeManual?: boolean } = {},
+  options: { stepId?: string; force?: boolean; includeManual?: boolean; transactionHooks?: SetupTransactionHooks } = {},
 ): Promise<SetupServiceResult> {
   const stepIds = resolveSetupOrder(service, options.stepId);
   const runs: ServiceSetupStepRunState[] = [];
@@ -640,7 +648,10 @@ export async function runServiceSetup(
       continue;
     }
 
-    const result = await runSetupStep(service, registry, stepId, { force: options.force });
+    const result = await runSetupStep(service, registry, stepId, {
+      force: options.force,
+      transactionHooks: options.transactionHooks,
+    });
     if (result.run.status === "skipped") {
       skipped.push({ stepId, reason: result.run.message });
       continue;

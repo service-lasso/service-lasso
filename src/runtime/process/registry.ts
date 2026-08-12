@@ -74,6 +74,12 @@ export interface RecordProcessOwnershipInput {
   lifecycleState: "launching" | "running";
   source: ProcessOwnershipEntry["source"];
   processGroup?: ProcessOwnershipEntry["processGroup"];
+  expectedPrior?: {
+    generationId: string | null;
+    allocationRevision: string | null;
+    pid: number;
+    identity: ProcessFingerprint;
+  };
 }
 
 export interface LegacyProcessOwnershipInput {
@@ -440,12 +446,28 @@ export async function recordProcessOwnership(
   if (inspection.status !== "running") {
     throw new Error(`Cannot persist process ownership for ${input.ownerType} "${input.ownerId}": ${inspection.reason}.`);
   }
+  if (
+    input.expectedPrior &&
+    classifyProcessIdentity(input.expectedPrior.identity, inspection, inspectorDependencies.platform) !== "owned"
+  ) {
+    throw new Error(`Cannot replace process ownership for ${input.ownerType} "${input.ownerId}": live identity changed.`);
+  }
 
   let recorded!: ProcessOwnershipEntry;
   await mutateRegistry(workspaceRoot, (registry, now) => {
     const prior = registry.entries.find(
       (entry) => entry.ownerType === input.ownerType && entry.ownerId === input.ownerId,
     );
+    if (input.expectedPrior && (
+      !prior ||
+      prior.generationId !== input.expectedPrior.generationId ||
+      prior.allocation.revision !== input.expectedPrior.allocationRevision ||
+      prior.pid !== input.expectedPrior.pid ||
+      !prior.identity ||
+      classifyProcessIdentity(input.expectedPrior.identity, { status: "running", identity: prior.identity }) !== "owned"
+    )) {
+      throw new Error(`Cannot replace process ownership for ${input.ownerType} "${input.ownerId}": prior evidence changed.`);
+    }
     recorded = {
       ownerType: input.ownerType,
       ownerId: input.ownerId,
@@ -470,6 +492,9 @@ export async function recordProcessOwnership(
     };
     return replaceEntry(registry, recorded, now);
   });
+  if (input.expectedPrior && await classifyRegisteredProcess(recorded, inspectorDependencies) !== "owned") {
+    throw new Error(`Cannot replace process ownership for ${input.ownerType} "${input.ownerId}": rebound identity changed.`);
+  }
   return recorded;
 }
 
