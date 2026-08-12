@@ -156,6 +156,7 @@ test("lifecycle actions execute in the expected bounded order", async () => {
     assert.equal(stop.body.state.running, false);
     assert.equal(stop.body.state.runtime.pid, null);
 
+    await waitForManagedProcessFinalization("echo-service");
     let detailBody;
     await waitFor(async () => {
       const detailResponse = await fetch(
@@ -163,7 +164,7 @@ test("lifecycle actions execute in the expected bounded order", async () => {
       );
       detailBody = await detailResponse.json();
       return detailBody.service.lifecycle.runtime.exitCode === 0;
-    });
+    }, process.platform === "win32" ? 15_000 : 3_000);
 
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, [
       "install",
