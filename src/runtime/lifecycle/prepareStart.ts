@@ -4,11 +4,12 @@ import { hasManagedProcess } from "../execution/supervisor.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import { isProviderRole } from "../roles.js";
-import { listSetupStepIds, runServiceSetup } from "../setup/steps.js";
+import { listSetupStepIds, runServiceSetup, type SetupTransactionHooks } from "../setup/steps.js";
 import { writeServiceState } from "../state/writeState.js";
 import { configService, installService, startService, type ServiceLifecycleActionOptions } from "./actions.js";
 import { getLifecycleState } from "./store.js";
 import type { LifecycleActionResult, ServiceLifecycleState } from "./types.js";
+import type { MaterializationWriteHooks, StartupMaterializationKind } from "../startup/materialization.js";
 
 export type PreparedStartSkipReason = "already_running" | "provider_role" | "not_startable";
 
@@ -34,19 +35,25 @@ async function prepareServicePrerequisites(
   let state = getLifecycleState(service.manifest.id);
 
   if (!state.installed) {
-    const result = await installService(service, registry);
+    const result = await installService(service, registry, {
+      ...serviceActionOptions(service.manifest.id, options),
+      materializationHooks: options.materializationHooksFor?.(service, "install"),
+    });
     await persistResult(service, result);
     state = result.state;
   }
 
   if (!state.configured) {
-    const result = await configService(service, registry, serviceActionOptions(service.manifest.id, options));
+    const result = await configService(service, registry, {
+      ...serviceActionOptions(service.manifest.id, options),
+      materializationHooks: options.materializationHooksFor?.(service, "config"),
+    });
     await persistResult(service, result);
     state = result.state;
   }
 
   if (listSetupStepIds(service).length > 0) {
-    const result = await runServiceSetup(service, registry);
+    const result = await runServiceSetup(service, registry, { transactionHooks: options.setupTransactionHooks });
     await writeServiceState(service, result.state);
     state = result.state;
 
@@ -63,6 +70,11 @@ export interface PreparedStartOptions extends Pick<
   "workspaceRoot" | "runtimeGenerationId" | "runtimeInstanceId" | "allocationRevision"
 > {
   plannedPortsByService?: Record<string, Record<string, number>>;
+  materializationHooksFor?: (
+    service: DiscoveredService,
+    kind: StartupMaterializationKind,
+  ) => MaterializationWriteHooks;
+  setupTransactionHooks?: SetupTransactionHooks;
   onServiceStarting?: (service: DiscoveredService) => Promise<void>;
   onServiceStarted?: (service: DiscoveredService, result: LifecycleActionResult) => Promise<void>;
 }

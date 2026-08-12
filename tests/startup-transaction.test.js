@@ -126,8 +126,8 @@ test("AC-4BJ.3 successful startup crosses every phase and seals one owned genera
   });
 });
 
-test("AC-4BJ.2 injected failure after every phase rolls back deterministically", async () => {
-  for (const injectedPhase of STARTUP_TRANSACTION_PHASES) {
+test("AC-4BJ.2 injected failure before generation commit rolls back deterministically", async () => {
+  for (const injectedPhase of STARTUP_TRANSACTION_PHASES.filter((phase) => phase !== "generation_committed")) {
     await withStartupEnvironment(`service-lasso-startup-fault-${injectedPhase}-`, async (fixture) => {
       await assert.rejects(
         startApiServer({

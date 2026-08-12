@@ -1179,7 +1179,8 @@ Examples:
         "default": "pip install --user -r \"${SERVICE_ROOT}/requirements.txt\""
       },
       "timeoutSeconds": 120,
-      "rerun": "ifMissing"
+      "rerun": "ifMissing",
+      "outputs": ["data/dependencies.marker"]
     },
     "load-sample": {
       "description": "Load sample data through Python.",
@@ -1207,6 +1208,7 @@ Runtime behavior:
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
 - `rerun` supports `ifMissing`, `manual`, and `always`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+- Optional `outputs` lists at most 32 service-root-relative regular files that the step may create or replace. Transactional runtime startup records bounded private preimages before execution and restores/removes only unchanged transaction postimages on rollback. An executed step without `outputs` remains backward-compatible, but a later startup rollback fails closed because its filesystem side effects cannot be verified.
 
 CLI:
 

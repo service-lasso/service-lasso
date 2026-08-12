@@ -60,6 +60,7 @@ Common fields:
 - `env`: setup-step environment additions.
 - `timeoutSeconds`: maximum runtime before the step is failed.
 - `rerun`: `ifMissing`, `manual`, or `always`.
+- `outputs`: optional bounded service-root-relative file paths created or replaced by the step. Declaring outputs lets transactional runtime startup restore pre-existing content or remove transaction-created files safely; undeclared command side effects are never guessed or deleted.
 
 ## Runtime Behavior
 

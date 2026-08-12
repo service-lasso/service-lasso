@@ -31,6 +31,7 @@ export interface StartupTransactionJournal {
   completedActions: string[];
   pendingCompensations: string[];
   startedServiceIds: string[];
+  materializationDigests: Record<string, string>;
   failureCode: string | null;
   recoveredFromTransactionId: string | null;
 }
@@ -41,6 +42,7 @@ export interface StartupTransactionUpdate {
   addCompensations?: string[];
   removeCompensations?: string[];
   startedServiceIds?: string[];
+  materializationDigests?: Record<string, string>;
   failureCode?: string | null;
 }
 
@@ -93,6 +95,20 @@ function strings(value: unknown): string[] {
     : [];
 }
 
+function digests(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [actionId, candidate] of Object.entries(value).slice(0, 128)) {
+    if (
+      /^[a-f0-9]{24}$/.test(actionId) && typeof candidate === "string" &&
+      (candidate === "missing" || /^[a-f0-9]{64}$/.test(candidate))
+    ) {
+      result[actionId] = candidate;
+    }
+  }
+  return result;
+}
+
 function normalizeJournal(value: unknown): StartupTransactionJournal | null {
   if (!isRecord(value) || value.version !== 1 || !isPhase(value.phase) || !isStatus(value.status)) return null;
   const requiredStrings = [
@@ -121,6 +137,7 @@ function normalizeJournal(value: unknown): StartupTransactionJournal | null {
     completedActions: strings(value.completedActions),
     pendingCompensations: strings(value.pendingCompensations),
     startedServiceIds: strings(value.startedServiceIds),
+    materializationDigests: digests(value.materializationDigests),
     failureCode: typeof value.failureCode === "string" ? value.failureCode : null,
     recoveredFromTransactionId: typeof value.recoveredFromTransactionId === "string"
       ? value.recoveredFromTransactionId
@@ -200,6 +217,7 @@ export async function beginStartupTransaction(input: {
     completedActions: ["preflight_reconciliation"],
     pendingCompensations: [],
     startedServiceIds: [],
+    materializationDigests: {},
     failureCode: null,
     recoveredFromTransactionId: input.recoveredFromTransactionId ?? null,
   };
@@ -244,6 +262,10 @@ function applyUpdate(
       ...(update.addCompensations ?? []),
     ]),
     startedServiceIds: unique([...journal.startedServiceIds, ...(update.startedServiceIds ?? [])]),
+    materializationDigests: {
+      ...journal.materializationDigests,
+      ...(update.materializationDigests ?? {}),
+    },
     failureCode: update.failureCode === undefined ? journal.failureCode : update.failureCode,
   };
 }

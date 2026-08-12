@@ -53,6 +53,7 @@ import {
   materializeConfigArtifacts,
   materializeInstallArtifacts,
 } from "../setup/materialize.js";
+import type { MaterializationWriteHooks } from "../startup/materialization.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
@@ -228,6 +229,7 @@ export interface ServiceLifecycleActionOptions {
   runtimeInstanceId?: string | null;
   plannedPorts?: Record<string, number>;
   allocationRevision?: string | null;
+  materializationHooks?: MaterializationWriteHooks;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
     attemptNumber: number;
@@ -934,13 +936,14 @@ async function stopManagedProcessWithOverride(
 export async function installService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
   const acquiredArtifact = await acquireInstallArtifact(service);
-  const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv);
+  const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv, {}, {}, options.materializationHooks);
 
   return applyState(serviceId, "install", (current) => ({
     nextState: {
@@ -986,6 +989,8 @@ export async function configService(
     service,
     sharedGlobalEnv,
     resolvedPorts,
+    {},
+    options.materializationHooks,
   );
 
   return applyState(serviceId, "config", (state) => ({

@@ -17,9 +17,13 @@ import {
 import { classifyRegisteredProcess, findProcessOwnership } from "../process/registry.js";
 import { inspectProcess, type ProcessIdentityClassification } from "../process/identity.js";
 import { readStoredState } from "../state/readState.js";
+import {
+  inspectStartupMaterializations,
+  type StartupMaterializationInspection,
+} from "./materialization.js";
 import { readStartupTransactionJournal, type StartupTransactionJournal } from "./transaction.js";
 
-export type StartupRecoveryClassification = "none" | "resume" | "rollback" | "blocked";
+export type StartupRecoveryClassification = "none" | "resume" | "rollback" | "blocked" | "commit_cleanup";
 
 export interface StartupServiceRecoveryEvidence {
   serviceId: string;
@@ -37,6 +41,7 @@ export interface StartupRecoveryInspection {
   runtimeOwnership: ProcessIdentityClassification | "missing" | "mismatch";
   allocationPlan: RuntimeEndpointAllocationPlan | null;
   allocation: RuntimeEndpointAllocationRecoveryInspection | null;
+  materialization: StartupMaterializationInspection | null;
   services: StartupServiceRecoveryEvidence[];
 }
 
@@ -91,6 +96,7 @@ export async function inspectStartupRecovery(
     runtimeOwnership: "missing" as const,
     allocationPlan: null,
     allocation: null,
+    materialization: null,
     services: [],
   };
   if (!journal || (journal.status !== "active" && journal.status !== "blocked")) {
@@ -102,6 +108,11 @@ export async function inspectStartupRecovery(
     journal.instanceId !== resolveRuntimeInstanceId(config)
   ) {
     return result("blocked", "journal_lane_mismatch", emptyEvidence);
+  }
+  const materialization = await inspectStartupMaterializations(journal);
+  const materializationEvidence = { ...emptyEvidence, materialization };
+  if (materialization.status === "blocked") {
+    return result("blocked", materialization.reason, materializationEvidence);
   }
 
   const [workspaceInstance, hostRegistry] = await Promise.all([
@@ -115,7 +126,7 @@ export async function inspectStartupRecovery(
   );
   const hostInstances = laneHostInstances.filter((entry) => entry.generationId === journal.generationId);
   const instanceEvidence = {
-    ...emptyEvidence,
+    ...materializationEvidence,
     workspaceInstance,
     hostInstance: hostInstances.length === 1 ? hostInstances[0] : null,
   };
@@ -172,6 +183,65 @@ export async function inspectStartupRecovery(
     if (generationProcess.status !== "not_running") {
       return result("blocked", "generation_process_unverifiable_without_runtime_ownership", runtimeEvidence);
     }
+  }
+
+  if (materialization.status === "commit_cleanup") {
+    if (journal.status === "blocked" && journal.failureCode !== "materialization_commit_cleanup_failed") {
+      return result("blocked", "committed_transaction_blocked_for_unrelated_failure", runtimeEvidence);
+    }
+    if (generation.phase !== "running") {
+      return result("blocked", "committed_generation_not_running", runtimeEvidence);
+    }
+    let allocationPlan: RuntimeEndpointAllocationPlan | null = null;
+    let allocation: RuntimeEndpointAllocationRecoveryInspection | null = null;
+    if (journal.allocationRevision) {
+      allocationPlan = await readRuntimeEndpointAllocationPlan(config.workspaceRoot);
+      if (
+        !allocationPlan || allocationPlan.allocationId !== journal.allocationRevision ||
+        allocationPlan.generationId !== journal.generationId || allocationPlan.laneId !== journal.instanceId ||
+        !samePath(allocationPlan.servicesRoot, config.servicesRoot) ||
+        !samePath(allocationPlan.workspaceRoot, config.workspaceRoot)
+      ) {
+        return result("blocked", "committed_allocation_plan_missing_or_mismatched", {
+          ...runtimeEvidence,
+          allocationPlan,
+          allocation,
+        });
+      }
+      allocation = await inspectRuntimeEndpointAllocationRecovery(allocationPlan);
+    }
+    const expectsRuntimeInstance = journal.completedActions.includes("runtime_instance_registered") ||
+      journal.pendingCompensations.includes("stop_runtime_instance");
+    const exactWorkspaceInstance = workspaceInstance && instanceMatchesJournal(workspaceInstance, journal)
+      ? workspaceInstance
+      : null;
+    const exactHostInstance = hostInstances.length === 1 ? hostInstances[0] : null;
+    if (expectsRuntimeInstance || exactWorkspaceInstance || hostInstances.length > 0) {
+      const committedEvidence = {
+        ...runtimeEvidence,
+        workspaceInstance,
+        hostInstance: exactHostInstance,
+        allocationPlan,
+        allocation,
+      };
+      if (!exactWorkspaceInstance || !exactHostInstance || hostInstances.length !== 1) {
+        return result("blocked", "committed_runtime_instance_workspace_host_mismatch", committedEvidence);
+      }
+      if (!instancesAgree(exactWorkspaceInstance, exactHostInstance)) {
+        return result("blocked", "committed_runtime_instance_records_disagree", committedEvidence);
+      }
+      const runtimeEndpoint = allocationPlan?.endpoints.find((endpoint) =>
+        endpoint.ownerType === "runtime" && endpoint.ownerId === journal.instanceId,
+      );
+      if (!runtimeEndpoint || runtimeEndpoint.port !== exactWorkspaceInstance.apiPort) {
+        return result("blocked", "committed_runtime_instance_allocation_mismatch", committedEvidence);
+      }
+    }
+    return result("commit_cleanup", "generation_committed_cleanup_only", {
+      ...runtimeEvidence,
+      allocationPlan,
+      allocation,
+    });
   }
 
   let allocationPlan: RuntimeEndpointAllocationPlan | null = null;
@@ -249,7 +319,8 @@ export async function inspectStartupRecovery(
 
   const discoveredById = new Map(discovered.map((service) => [service.manifest.id, service]));
   const services: StartupServiceRecoveryEvidence[] = [];
-  let requiresRollback = journal.status === "blocked" || generation.phase === "stopping" || failedGenerationRollback;
+  let requiresRollback = journal.status === "blocked" || generation.phase === "stopping" ||
+    failedGenerationRollback || materialization.status === "rollback";
   for (const serviceId of journal.startedServiceIds) {
     const service = discoveredById.get(serviceId);
     if (!service) {

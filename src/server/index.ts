@@ -216,6 +216,16 @@ import {
 } from "../runtime/startup/transaction.js";
 import { inspectStartupRecovery, type StartupRecoveryInspection } from "../runtime/startup/recovery.js";
 import {
+  completeCommittedStartupMaterializationCleanup,
+  createStartupMaterializationHooks,
+  createStartupSetupTransactionHooks,
+  discardStartupMaterializationSidecar,
+  rollbackStartupMaterializations,
+  type MaterializationWriteHooks,
+  type StartupMaterializationKind,
+} from "../runtime/startup/materialization.js";
+import type { SetupTransactionHooks } from "../runtime/setup/steps.js";
+import {
   exampleWorkflowPackageCatalog,
   listWorkflowPackagesSecretSafe,
   loadWorkflowCatalogFromDirectories,
@@ -1316,6 +1326,7 @@ async function materializeRuntimeEndpointAllocation(
   runtimeModel: RuntimeModel,
   workspaceRoot: string,
   allocationPlan: RuntimeEndpointAllocationPlan,
+  transaction?: StartupTransactionContext,
 ): Promise<void> {
   const plannedPortsByService = servicePortsFromEndpointAllocation(allocationPlan);
   for (const service of runtimeModel.discovered) {
@@ -1335,6 +1346,9 @@ async function materializeRuntimeEndpointAllocation(
         workspaceRoot,
         plannedPorts,
         allocationRevision: allocationPlan.allocationId,
+        materializationHooks: transaction
+          ? createStartupMaterializationHooks({ transaction, service, kind: "config" })
+          : undefined,
       });
       await writeServiceState(service, configured.state);
       continue;
@@ -1537,6 +1551,11 @@ async function executeRuntimeOrchestrationAction(
   runtimeInstanceId?: string | null,
   onServiceStarted?: (service: DiscoveredService) => Promise<void>,
   onServiceStarting?: (service: DiscoveredService) => Promise<void>,
+  materializationHooksFor?: (
+    service: DiscoveredService,
+    kind: StartupMaterializationKind,
+  ) => MaterializationWriteHooks,
+  setupTransactionHooks?: SetupTransactionHooks,
 ): Promise<RuntimeOrchestrationResponse> {
   const plannedPortsByService = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined;
   const preparedStartOptions = {
@@ -1545,6 +1564,8 @@ async function executeRuntimeOrchestrationAction(
     runtimeInstanceId,
     allocationRevision: allocationPlan?.allocationId,
     plannedPortsByService,
+    materializationHooksFor,
+    setupTransactionHooks,
     onServiceStarting: async (service: DiscoveredService) => {
       await onServiceStarting?.(service);
     },
@@ -1768,6 +1789,64 @@ async function compensateTransactionStartedServices(
   return failures;
 }
 
+async function compensateStartupMaterializations(transaction: StartupTransactionContext): Promise<string[]> {
+  const failures: string[] = [];
+  const materializationRollback = await rollbackStartupMaterializations(transaction.journal);
+  const stateReconciliationRequired = new Set(
+    materializationRollback.stateReconciliationRequiredActionIds,
+  );
+  for (const actionId of materializationRollback.completedActionIds) {
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      transaction.journal.phase,
+      {
+        completedActions: [`materialization_restored:${actionId}`],
+        removeCompensations: [`restore_materialization:${actionId}`],
+        addCompensations: stateReconciliationRequired.has(actionId)
+          ? [`reconcile_materialization_state:${actionId}`]
+          : [],
+      },
+    );
+  }
+  for (const actionId of materializationRollback.blockedActionIds) {
+    failures.push(`materialization_restore_blocked:${actionId}`);
+  }
+  const materializationRestoresRemain = transaction.journal.pendingCompensations.some(
+    (compensation) => compensation.startsWith("restore_materialization:"),
+  );
+  const materializationStateReconciliationRemains = transaction.journal.pendingCompensations.some(
+    (compensation) => compensation.startsWith("reconcile_materialization_state:"),
+  );
+  if (
+    !materializationRestoresRemain &&
+    !materializationStateReconciliationRemains &&
+    transaction.journal.pendingCompensations.includes("discard_materialization_sidecar")
+  ) {
+    try {
+      await discardStartupMaterializationSidecar(transaction.journal);
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["materialization_sidecar_discarded"],
+          removeCompensations: ["discard_materialization_sidecar"],
+        },
+      );
+    } catch {
+      failures.push("materialization_sidecar_discard_failed");
+    }
+  }
+  for (const compensation of transaction.journal.pendingCompensations) {
+    if (compensation.startsWith("verify_setup_output:")) {
+      failures.push(`setup_output_unverifiable:${compensation.slice("verify_setup_output:".length)}`);
+    }
+    if (compensation.startsWith("reconcile_materialization_state:")) {
+      failures.push(`materialization_state_reconciliation_required:${compensation.slice("reconcile_materialization_state:".length)}`);
+    }
+  }
+  return failures;
+}
+
 async function compensateRuntimeStartupResources(input: {
   config: RuntimeConfig;
   runtimeModel: RuntimeModel;
@@ -1781,14 +1860,10 @@ async function compensateRuntimeStartupResources(input: {
   updateScheduler?: RuntimeUpdateScheduler | null;
   telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
 }): Promise<string[]> {
-  const failures = await compensateTransactionStartedServices(
-    input.runtimeModel,
-    input.startedServiceIds,
-    input.generationId,
-    input.config.workspaceRoot,
-    input.transaction,
-  );
-
+  const failures: string[] = [];
+  // Quiesce every transaction-started scheduler before stopping services or
+  // restoring generated files. A failed quiescence attempt leaves all later
+  // compensations pending rather than racing monitor-driven restarts/writes.
   if (input.transaction.journal.pendingCompensations.includes("stop_schedulers")) {
     try {
       await input.monitor?.stop();
@@ -1801,8 +1876,19 @@ async function compensateRuntimeStartupResources(input: {
       );
     } catch {
       failures.push("scheduler_stop_failed");
+      return failures;
     }
   }
+
+  failures.push(...await compensateTransactionStartedServices(
+    input.runtimeModel,
+    input.startedServiceIds,
+    input.generationId,
+    input.config.workspaceRoot,
+    input.transaction,
+  ));
+
+  failures.push(...await compensateStartupMaterializations(input.transaction));
 
   if (input.transaction.journal.pendingCompensations.includes("stop_runtime_instance")) {
     try {
@@ -4276,6 +4362,24 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   if (recovery.classification === "blocked") {
     throw new StartupTransactionRecoveryRequiredError(recovery.journal!);
   }
+  if (recovery.classification === "commit_cleanup") {
+    const committed = {
+      journal: await activateStartupTransactionRecovery(recovery.journal!, "resume"),
+    };
+    try {
+      committed.journal = await completeCommittedStartupMaterializationCleanup(committed.journal);
+      committed.journal = await settleStartupTransaction(committed.journal, "committed", {
+        completedActions: ["recovery_commit_cleanup_completed"],
+        removeCompensations: [...committed.journal.pendingCompensations],
+      });
+    } catch {
+      committed.journal = await settleStartupTransaction(committed.journal, "blocked", {
+        failureCode: "materialization_commit_cleanup_failed",
+      }).catch(() => committed.journal);
+      throw new StartupTransactionRecoveryRequiredError(committed.journal);
+    }
+    return await startApiServer(options);
+  }
   if (recovery.classification === "resume") {
     generationId = recovery.journal!.generationId;
     journal = recovery.journal!;
@@ -4364,9 +4468,9 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       }
     }
     const status = transaction.journal.pendingCompensations.length === 0 ? "rolled_back" : "blocked";
-    await settleStartupTransaction(transaction.journal, status, {
+    transaction.journal = await settleStartupTransaction(transaction.journal, status, {
       failureCode: startupFailureCode(error),
-    }).catch(() => undefined);
+    }).catch(() => transaction.journal);
     throw error;
   }
 }
@@ -4492,7 +4596,7 @@ async function startApiServerGeneration(
         },
       );
       await runStartupTransactionPhaseHook(options, transaction.journal);
-      await materializeRuntimeEndpointAllocation(bootModel, config.workspaceRoot, allocationPlan);
+      await materializeRuntimeEndpointAllocation(bootModel, config.workspaceRoot, allocationPlan, transaction);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
         nextStartupPhase(transaction.journal.phase, "configuration_materialized"),
@@ -4590,6 +4694,9 @@ async function startApiServerGeneration(
           },
         );
       }
+      const materializationFailures = await compensateStartupMaterializations(transaction);
+      if (materializationFailures.length > 0) throw error;
+      if (recovery.allocationPlan) throw error;
       if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
     }
   }
@@ -4624,6 +4731,8 @@ async function startApiServerGeneration(
             },
           );
         },
+        (service, kind) => createStartupMaterializationHooks({ transaction, service, kind }),
+        createStartupSetupTransactionHooks(transaction),
       );
     }
   } catch (error) {
@@ -4643,6 +4752,14 @@ async function startApiServerGeneration(
   let leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
   let resolvedPort = 0;
   try {
+    transaction.journal = await advanceStartupTransaction(
+      transaction.journal,
+      transaction.journal.phase,
+      {
+        completedActions: ["runtime_schedulers_starting"],
+        addCompensations: ["stop_schedulers"],
+      },
+    );
     monitor?.start();
     updateScheduler?.start();
     telemetryExportScheduler.start();
@@ -4651,7 +4768,6 @@ async function startApiServerGeneration(
       transaction.journal.phase,
       {
         completedActions: ["runtime_schedulers_started"],
-        addCompensations: ["stop_schedulers"],
       },
     );
 
@@ -4732,25 +4848,34 @@ async function startApiServerGeneration(
       { completedActions: ["generation_committed"] },
     );
     await runStartupTransactionPhaseHook(options, transaction.journal);
+    transaction.journal = await completeCommittedStartupMaterializationCleanup(transaction.journal);
     transaction.journal = await settleStartupTransaction(transaction.journal, "committed", {
       removeCompensations: [...transaction.journal.pendingCompensations],
     });
   } catch (error) {
-    if (leaseHeartbeat) clearInterval(leaseHeartbeat);
-    await compensateRuntimeStartupResources({
-      config,
-      runtimeModel: bootModel,
-      generationId: runtimeGenerationId,
-      instanceId: runtimeInstanceId,
-      transaction,
-      startedServiceIds: transactionStartedServiceIds,
-      allocationPlan,
-      server,
-      monitor,
-      updateScheduler,
-      telemetryExportScheduler,
-    });
-    throw error;
+    const generationCommitted = transaction.journal.phase === "generation_committed" &&
+      transaction.journal.completedActions.includes("generation_committed");
+    if (generationCommitted) {
+      transaction.journal = await settleStartupTransaction(transaction.journal, "blocked", {
+        failureCode: "materialization_commit_cleanup_failed",
+      }).catch(() => transaction.journal);
+    } else {
+      if (leaseHeartbeat) clearInterval(leaseHeartbeat);
+      await compensateRuntimeStartupResources({
+        config,
+        runtimeModel: bootModel,
+        generationId: runtimeGenerationId,
+        instanceId: runtimeInstanceId,
+        transaction,
+        startedServiceIds: transactionStartedServiceIds,
+        allocationPlan,
+        server,
+        monitor,
+        updateScheduler,
+        telemetryExportScheduler,
+      });
+      throw error;
+    }
   }
 
   if (!instance || !leaseHeartbeat) {
