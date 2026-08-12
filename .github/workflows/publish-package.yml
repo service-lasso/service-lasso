@@ -72,7 +72,7 @@ jobs:
         working-directory: artifacts/npm/${{ steps.publish_version.outputs.artifact_name }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --tag latest
 
       - name: Verify published package from npm
         env:
