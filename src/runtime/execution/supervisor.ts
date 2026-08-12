@@ -40,6 +40,7 @@ interface ManagedProcessRecord {
   startedAt: string;
   command: string;
   stopping: boolean;
+  stoppingPersisted: boolean;
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
   logs: ServiceRuntimeLogPaths;
@@ -66,10 +67,32 @@ interface AdoptedProcessRecord {
   startedAt: string;
   command: string;
   stopping: boolean;
+  stoppingPersisted: boolean;
   workspaceRoot: string;
   rootIdentity: ProcessFingerprint;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+}
+
+export type ManagedProcessFinalizationPhase = "stop" | "finalize";
+
+export interface ManagedProcessFinalizationFailure {
+  serviceId: string;
+  pid: number | null;
+  phase: ManagedProcessFinalizationPhase;
+  code: string;
+}
+
+export class ManagedProcessFinalizationError extends Error {
+  readonly failures: ManagedProcessFinalizationFailure[];
+
+  constructor(failures: ManagedProcessFinalizationFailure[]) {
+    super(`Managed process finalization failed: ${failures.map((failure) => (
+      `service "${failure.serviceId}" (pid ${failure.pid ?? "unknown"}, phase ${failure.phase}, code ${failure.code})`
+    )).join("; ")}.`);
+    this.name = "ManagedProcessFinalizationError";
+    this.failures = failures;
+  }
 }
 
 interface StartProcessOptions {
@@ -100,9 +123,79 @@ interface AdoptManagedProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
-const managedProcessFinalizers = new Map<string, Promise<void>>();
+const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void> }>();
 const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
+const workspaceFinalizationTails = new Map<string, Promise<void>>();
 const ADOPTED_PROCESS_POLL_INTERVAL_MS = 250;
+
+function safeFinalizationErrorCode(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    const normalized = error.code.trim().toUpperCase();
+    if (/^[A-Z0-9_]{1,64}$/.test(normalized)) {
+      return normalized;
+    }
+  }
+  if (error instanceof Error && error.message.startsWith("Timed out waiting for workspace lifecycle lock:")) {
+    return "WORKSPACE_LOCK_TIMEOUT";
+  }
+  return fallback;
+}
+
+async function withSerializedWorkspaceFinalization<T>(workspaceRoot: string, action: () => Promise<T>): Promise<T> {
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const key = process.platform === "win32" ? resolvedRoot.toLowerCase() : resolvedRoot;
+  const prior = workspaceFinalizationTails.get(key) ?? Promise.resolve();
+  let releaseTurn!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    releaseTurn = resolve;
+  });
+  const tail = prior.catch(() => undefined).then(() => turn);
+  workspaceFinalizationTails.set(key, tail);
+
+  await prior.catch(() => undefined);
+  try {
+    return await action();
+  } finally {
+    releaseTurn();
+    if (workspaceFinalizationTails.get(key) === tail) {
+      workspaceFinalizationTails.delete(key);
+    }
+  }
+}
+
+function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>): void {
+  const tracked = { pid, promise };
+  managedProcessFinalizers.set(serviceId, tracked);
+  const clearFinalizer = () => {
+    if (managedProcessFinalizers.get(serviceId) === tracked) {
+      managedProcessFinalizers.delete(serviceId);
+    }
+  };
+  // Successful finalizers need no further observation. Failed finalizers stay
+  // registered until a shutdown/start boundary consumes their safe failure.
+  void promise.then(clearFinalizer, () => undefined);
+}
+
+export async function waitForManagedProcessFinalization(serviceId: string): Promise<void> {
+  const finalizer = managedProcessFinalizers.get(serviceId);
+  if (!finalizer) {
+    return;
+  }
+
+  try {
+    await finalizer.promise;
+  } catch (error) {
+    if (managedProcessFinalizers.get(serviceId) === finalizer) {
+      managedProcessFinalizers.delete(serviceId);
+    }
+    throw new ManagedProcessFinalizationError([{
+      serviceId,
+      pid: finalizer.pid,
+      phase: "finalize",
+      code: safeFinalizationErrorCode(error, "FINALIZER_FAILED"),
+    }]);
+  }
+}
 
 async function prepareRuntimeLogStreams(serviceRoot: string, startedAt: string): Promise<{
   paths: ServiceRuntimeLogPaths;
@@ -362,7 +455,7 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
   }
 
   const serviceId = record.service.manifest.id;
-  while (managedProcesses.get(serviceId) === record && !record.treeTerminationPromise) {
+  while (managedProcesses.get(serviceId) === record && !record.stopping && !record.treeTerminationPromise) {
     try {
       const members = await captureOwnedProcessTreeMembers(managedProcessTreeTarget(record));
       if (members.length > 0) {
@@ -391,35 +484,37 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
     record.stopping = false;
     throw error;
   }
-  adoptedProcesses.delete(serviceId);
-  await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
+  await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
+    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
 
-  const current = getLifecycleState(serviceId);
-  if (current.running && current.runtime.pid === record.pid) {
-    const finishedAt = new Date().toISOString();
-    const startedAtMs = current.runtime.startedAt ? Date.parse(current.runtime.startedAt) : Number.NaN;
-    const durationMs = Number.isFinite(startedAtMs)
-      ? Math.max(0, Date.parse(finishedAt) - startedAtMs)
-      : 0;
-    const next = setLifecycleState(serviceId, {
-      ...current,
-      running: false,
-      runtime: {
-        ...current.runtime,
-        pid: null,
-        finishedAt,
-        exitCode: null,
-        lastTermination: "exited",
-        metrics: {
-          ...current.runtime.metrics,
-          exitCount: current.runtime.metrics.exitCount + 1,
-          totalRunDurationMs: current.runtime.metrics.totalRunDurationMs + durationMs,
-          lastRunDurationMs: durationMs,
+    const current = getLifecycleState(serviceId);
+    if (current.running && current.runtime.pid === record.pid) {
+      const finishedAt = new Date().toISOString();
+      const startedAtMs = current.runtime.startedAt ? Date.parse(current.runtime.startedAt) : Number.NaN;
+      const durationMs = Number.isFinite(startedAtMs)
+        ? Math.max(0, Date.parse(finishedAt) - startedAtMs)
+        : 0;
+      const next = setLifecycleState(serviceId, {
+        ...current,
+        running: false,
+        runtime: {
+          ...current.runtime,
+          pid: null,
+          finishedAt,
+          exitCode: null,
+          lastTermination: "exited",
+          metrics: {
+            ...current.runtime.metrics,
+            exitCount: current.runtime.metrics.exitCount + 1,
+            totalRunDurationMs: current.runtime.metrics.totalRunDurationMs + durationMs,
+            lastRunDurationMs: durationMs,
+          },
         },
-      },
-    });
-    await writeServiceState(record.service, next);
-  }
+      });
+      await writeServiceState(record.service, next);
+    }
+    adoptedProcesses.delete(serviceId);
+  });
 }
 
 async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void> {
@@ -430,22 +525,29 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
       return;
     }
 
+    let status: Awaited<ReturnType<typeof classifyRegisteredProcess>>;
     try {
       const ownership = await findProcessOwnership(record.workspaceRoot, "service", serviceId);
       if (!ownership) {
-        return;
+        throw new Error(`Process ownership is missing for adopted service "${serviceId}".`);
       }
-      const status = await classifyRegisteredProcess(ownership);
-      if (status === "owned") {
-        await refreshAdoptedProcessTreeMembers(record);
-        continue;
-      }
-      if (status === "not_running" || status === "identity_mismatch") {
-        await finalizeAdoptedProcessExit(record);
-        return;
-      }
+      status = await classifyRegisteredProcess(ownership);
     } catch {
       // Process inspection can fail transiently; retain durable ownership and retry.
+      continue;
+    }
+
+    if (status === "owned") {
+      try {
+        await refreshAdoptedProcessTreeMembers(record);
+      } catch {
+        // Retain the last verified tree snapshot and retry process inspection.
+      }
+      continue;
+    }
+    if (status === "not_running" || status === "identity_mismatch") {
+      await finalizeAdoptedProcessExit(record);
+      return;
     }
   }
 }
@@ -454,8 +556,9 @@ export async function beginManagedProcessStop(serviceId: string): Promise<boolea
   const record = managedProcesses.get(serviceId);
   if (record) {
     record.stopping = true;
-    if (record.workspaceRoot) {
+    if (record.workspaceRoot && !record.stoppingPersisted) {
       await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+      record.stoppingPersisted = true;
     }
     return true;
   }
@@ -463,7 +566,10 @@ export async function beginManagedProcessStop(serviceId: string): Promise<boolea
   const adopted = adoptedProcesses.get(serviceId);
   if (adopted) {
     adopted.stopping = true;
-    await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopping", undefined, adopted.pid);
+    if (!adopted.stoppingPersisted) {
+      await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopping", undefined, adopted.pid);
+      adopted.stoppingPersisted = true;
+    }
     return true;
   }
 
@@ -476,7 +582,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
   if (priorFinalizer) {
-    await priorFinalizer;
+    await waitForManagedProcessFinalization(serviceId);
   }
 
   if (managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId)) {
@@ -498,6 +604,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
     startedAt,
     command,
     stopping: false,
+    stoppingPersisted: false,
     workspaceRoot,
     rootIdentity: ownership.identity,
     processGroup: ownership.processGroup,
@@ -505,7 +612,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
   };
   await refreshAdoptedProcessTreeMembers(record);
   adoptedProcesses.set(serviceId, record);
-  void monitorAdoptedProcess(record).catch(() => undefined);
+  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record));
 
   return {
     pid,
@@ -533,7 +640,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const priorFinalizer = managedProcessFinalizers.get(serviceId);
   if (priorFinalizer) {
-    await priorFinalizer;
+    await waitForManagedProcessFinalization(serviceId);
   }
 
   if (managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId)) {
@@ -600,6 +707,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     startedAt,
     command,
     stopping: false,
+    stoppingPersisted: false,
     exitCode: null,
     exitSignal: null,
     logs: logPaths,
@@ -657,43 +765,43 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     record.exitCode = exitCode;
     record.exitSignal = signal;
 
+    const finalizeLifecycle = async () => {
+      if (record.workspaceRoot) {
+        await transitionProcessOwnership(
+          record.workspaceRoot,
+          "service",
+          serviceId,
+          "stopped",
+          "not_running",
+          child.pid,
+        );
+      }
+
+      const current = managedProcesses.get(serviceId);
+      if (current?.child === child) {
+        managedProcesses.delete(serviceId);
+      }
+
+      if (onExit) {
+        await onExit({
+          service,
+          exitCode,
+          signal,
+          wasStopping: record.stopping,
+        });
+      }
+    };
     if (record.workspaceRoot) {
-      await transitionProcessOwnership(
-        record.workspaceRoot,
-        "service",
-        serviceId,
-        "stopped",
-        "not_running",
-        child.pid,
-      );
-    }
-
-    const current = managedProcesses.get(serviceId);
-    if (current?.child === child) {
-      managedProcesses.delete(serviceId);
-    }
-
-    if (onExit) {
-      await onExit({
-        service,
-        exitCode,
-        signal,
-        wasStopping: record.stopping,
-      });
+      await withSerializedWorkspaceFinalization(record.workspaceRoot, finalizeLifecycle);
+    } else {
+      await finalizeLifecycle();
     }
   });
   record.finalizePromise = Promise.all([
     logFinalizePromise,
     lifecycleFinalizePromise,
   ]).then(() => undefined);
-  managedProcessFinalizers.set(serviceId, record.finalizePromise);
-
-  const clearFinalizer = () => {
-    if (managedProcessFinalizers.get(serviceId) === record.finalizePromise) {
-      managedProcessFinalizers.delete(serviceId);
-    }
-  };
-  void record.finalizePromise.then(clearFinalizer, clearFinalizer);
+  trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise);
 
   return {
     pid: child.pid ?? 0,
@@ -716,10 +824,7 @@ export async function stopManagedProcess(
   record.treeTerminationPromise ??= terminateOwnedProcessTree(managedProcessTreeTarget(record), timeoutMs);
   await record.treeTerminationPromise;
   const result = await record.exitPromise;
-  const finalizer = managedProcessFinalizers.get(serviceId);
-  if (finalizer) {
-    await finalizer;
-  }
+  await waitForManagedProcessFinalization(serviceId);
 
   return result;
 }
@@ -755,6 +860,7 @@ async function stopAdoptedProcess(
     return null;
   }
 
+  const finalizer = managedProcessFinalizers.get(serviceId);
   await beginManagedProcessStop(serviceId);
   const ownership = await findProcessOwnership(record.workspaceRoot, "service", serviceId);
   const status = ownership ? await classifyRegisteredProcess(ownership) : "not_running";
@@ -769,8 +875,13 @@ async function stopAdoptedProcess(
       };
   const termination = await terminateOwnedProcessTree(terminationTarget, timeoutMs);
 
-  adoptedProcesses.delete(serviceId);
-  await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
+  await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
+    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
+    adoptedProcesses.delete(serviceId);
+  });
+  if (finalizer) {
+    await waitForManagedProcessFinalization(serviceId);
+  }
   return termination.forced
     ? { exitCode: null, signal: "SIGKILL" }
     : { exitCode: 0, signal: null };
@@ -786,6 +897,7 @@ export async function waitForManagedProcessExit(
     if (!adopted) {
       return null;
     }
+    const finalizer = managedProcessFinalizers.get(serviceId);
     await beginManagedProcessStop(serviceId);
     const exited = await waitForAdoptedProcessExit(adopted, timeoutMs);
     if (!exited) {
@@ -795,8 +907,13 @@ export async function waitForManagedProcessExit(
       ...adoptedProcessTreeTarget(adopted),
       processGroup: { kind: "none", id: null },
     }, timeoutMs);
-    adoptedProcesses.delete(serviceId);
-    await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopped", "not_running", adopted.pid);
+    await withSerializedWorkspaceFinalization(adopted.workspaceRoot, async () => {
+      await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopped", "not_running", adopted.pid);
+      adoptedProcesses.delete(serviceId);
+    });
+    if (finalizer) {
+      await waitForManagedProcessFinalization(serviceId);
+    }
     return termination.forced
       ? { exitCode: null, signal: "SIGKILL" }
       : { exitCode: 0, signal: null };
@@ -818,10 +935,7 @@ export async function waitForManagedProcessExit(
     return null;
   }
 
-  const finalizer = managedProcessFinalizers.get(serviceId);
-  if (finalizer) {
-    await finalizer;
-  }
+  await waitForManagedProcessFinalization(serviceId);
   if (record.workspaceRoot) {
     await transitionProcessOwnership(
       record.workspaceRoot,
@@ -837,6 +951,60 @@ export async function waitForManagedProcessExit(
 }
 
 export async function stopAllManagedProcesses(): Promise<void> {
-  const serviceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])];
-  await Promise.all(serviceIds.map((serviceId) => stopManagedProcess(serviceId).catch(() => null)));
+  const activeServiceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])].reverse();
+  const serviceIds = [
+    ...activeServiceIds,
+    ...[...managedProcessFinalizers.keys()].filter((serviceId) => !activeServiceIds.includes(serviceId)),
+  ];
+  // Quiesce every monitor synchronously before any tree termination starts.
+  // Persist the shared ownership-registry transitions serially so concurrent
+  // atomic writes cannot race each other on Windows. Tree termination and each
+  // service's independent finalizer remain parallel below.
+  for (const serviceId of activeServiceIds) {
+    const record = managedProcesses.get(serviceId) ?? adoptedProcesses.get(serviceId);
+    if (record) {
+      record.stopping = true;
+    }
+  }
+  for (const serviceId of activeServiceIds) {
+    try {
+      await beginManagedProcessStop(serviceId);
+    } catch {
+      // The stop phase retries and reports this service with safe diagnostics.
+    }
+  }
+
+  const failures = (await Promise.all(serviceIds.map(async (serviceId): Promise<ManagedProcessFinalizationFailure[]> => {
+    const pid = managedProcesses.get(serviceId)?.child.pid
+      ?? adoptedProcesses.get(serviceId)?.pid
+      ?? managedProcessFinalizers.get(serviceId)?.pid
+      ?? null;
+    try {
+      await stopManagedProcess(serviceId);
+      await waitForManagedProcessFinalization(serviceId);
+      return [];
+    } catch (error) {
+      if (error instanceof ManagedProcessFinalizationError) {
+        if (error.failures.length > 0) {
+          return error.failures;
+        }
+        return [{
+          serviceId,
+          pid,
+          phase: "finalize",
+          code: "FINALIZER_FAILED",
+        }];
+      }
+      return [{
+        serviceId,
+        pid,
+        phase: "stop",
+        code: safeFinalizationErrorCode(error, "STOP_FAILED"),
+      }];
+    }
+  }))).flat();
+
+  if (failures.length > 0) {
+    throw new ManagedProcessFinalizationError(failures);
+  }
 }
