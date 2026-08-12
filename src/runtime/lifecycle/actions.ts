@@ -1304,13 +1304,22 @@ export async function startService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
+  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+    workspaceRoot: options.workspaceRoot,
+    generationId: options.runtimeGenerationId,
+    allocationRevision,
+    expectedPorts: resolvedPorts,
+  });
   recordStartTraceEvent(
     serviceId,
     trace,
     "health_check",
     readiness.ready ? "completed" : "failed",
     readiness.message,
+    {
+      readinessAttribution: readiness.attribution.classification,
+      attributedEndpointCount: readiness.attribution.checkedEndpointCount,
+    },
   );
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
@@ -1526,7 +1535,12 @@ export async function restartService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv);
+  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+    workspaceRoot: options.workspaceRoot,
+    generationId: options.runtimeGenerationId,
+    allocationRevision,
+    expectedPorts: resolvedPorts,
+  });
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
