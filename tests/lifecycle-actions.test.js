@@ -1346,6 +1346,62 @@ test("managed process captures outputvarregex matches into runtime state", async
   }
 });
 
+test("start waits for variable readiness captured from stdout", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-variable-readiness-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "filebeat-style-service",
+    {
+      stdoutLines: [
+        "Loading and starting Inputs completed. Enabled inputs: 3",
+      ],
+      outputvarregex: {
+        FILEBEAT_ENABLED_INPUTS: ".*Enabled inputs: (\\d+).*",
+      },
+      healthcheck: {
+        type: "variable",
+        variable: "FILEBEAT_ENABLED_INPUTS",
+        retries: 20,
+        interval: 25,
+      },
+    },
+  );
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+    try {
+      await postJson(`${apiServer.url}/api/services/filebeat-style-service/install`);
+      await postJson(`${apiServer.url}/api/services/filebeat-style-service/config`);
+      const start = await postJson(`${apiServer.url}/api/services/filebeat-style-service/start`);
+      const stored = await readStoredState(serviceRoot);
+
+      assert.equal(start.status, 200);
+      assert.equal(start.body.ok, true);
+      assert.equal(start.body.state.running, true);
+      assert.equal(start.body.health.type, "variable");
+      assert.equal(start.body.health.healthy, true);
+      assert.match(start.body.message, /readiness succeeded/i);
+      assert.equal(stored.runtime.variables.FILEBEAT_ENABLED_INPUTS.value, "3");
+      assert.deepEqual(resolveServiceVariable(service, "FILEBEAT_ENABLED_INPUTS"), {
+        key: "FILEBEAT_ENABLED_INPUTS",
+        value: "3",
+        scope: "runtime",
+      });
+    } finally {
+      await apiServer.stop();
+    }
+  } finally {
+    await stopManagedProcess("filebeat-style-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("managed process spawn resolves path-list env to strings with secure env precedence", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
