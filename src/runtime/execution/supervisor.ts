@@ -413,12 +413,13 @@ export function hasManagedProcess(serviceId: string): boolean {
   return managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId);
 }
 
-function managedProcessTreeTarget(record: ManagedProcessRecord): OwnedProcessTreeTarget {
+function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
     rootIdentity: record.rootIdentity,
     processGroup: record.processGroup,
     knownMembers: record.knownTreeMembers,
+    rootExitObserved,
   };
 }
 
@@ -759,7 +760,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   void monitorManagedProcessTree(record).catch(() => undefined);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
-    record.treeTerminationPromise ??= terminateOwnedProcessTree(managedProcessTreeTarget(record), 5_000);
+    record.treeTerminationPromise ??= terminateOwnedProcessTree(managedProcessTreeTarget(record, true), 5_000);
     await record.treeTerminationPromise;
     await new Promise<void>((resolve) => setImmediate(resolve));
     record.exitCode = exitCode;
