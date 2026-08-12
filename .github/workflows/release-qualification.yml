@@ -1,0 +1,88 @@
+name: Release Qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: release-qualification-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute candidate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          date_utc="$(date -u +%Y.%-m.%-d)"
+          echo "SERVICE_LASSO_RELEASE_VERSION=${date_utc}-${short_sha}" >> "$GITHUB_ENV"
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
+      - name: Audit tooling dependencies
+        run: npm run audit:tooling
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Verify release artifacts
+        run: npm run release:verify
+
+      - name: Verify publishable package
+        run: npm run package:verify
+
+      - name: Validate release asset policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$SERVICE_LASSO_RELEASE_VERSION"
+          asset_names=(
+            "service-lasso-${version}.tar.gz"
+            "service-lasso-bundled-${version}.tar.gz"
+            "service-lasso-${version}-win32.zip"
+            "service-lasso-${version}-linux.tar.gz"
+            "service-lasso-${version}-darwin.tar.gz"
+            "service-lasso-bundled-${version}-win32.zip"
+            "service-lasso-bundled-${version}-linux.tar.gz"
+            "service-lasso-bundled-${version}-darwin.tar.gz"
+          )
+          for asset_name in "${asset_names[@]}"; do
+            test -f "artifacts/${asset_name}"
+          done
+          node scripts/check-release-assets.mjs "$version" "${asset_names[@]}"
+
+      - name: Upload qualification manifests
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/service-lasso-*/release-artifact.json
+            artifacts/npm/service-lasso-package-*/publish-artifact.json
+          if-no-files-found: warn
+          retention-days: 14

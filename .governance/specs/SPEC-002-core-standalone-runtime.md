@@ -146,6 +146,7 @@ Required evidence for this spec:
 - explicit documentation that each sibling starter repo's first meaningful POC remains clonable/executable, shows host-owned output, and can surface `lasso-@serviceadmin` against a real `lasso-echoservice`-backed runtime
 - direct proof that the remediation execution list, backlog, and package/reference docs all agree on the four active workstreams around naming, manifest ownership, bundled semantics, and release versioning
 - direct proof that core release/package workflows create timestamped `yyyy.m.d-<shortsha>` release versions from protected-branch pushes without requiring manual tag creation
+- direct proof that pull requests and `develop` run the complete tests, production/tooling audits, release artifact verification, package-consumer verification, and release asset policy without creating a tag, GitHub release, or npm publication before explicit promotion
 - direct proof that the core runtime can install/acquire a service from manifest-owned release metadata without starting it, including a supported CLI path in addition to the bounded runtime/API flow
 - direct proof that the canonical sibling app repos and packaging-target repos exist with the expected names, while deprecated/vague starter repos are retired or archived explicitly
 - direct proof that clean consumer installs and release artifacts work end to end across `@service-lasso/service-lasso`, Echo Service, Service Admin, and the canonical reference-app repos, including source/template, bootstrap-download, and bundled/no-download modes
