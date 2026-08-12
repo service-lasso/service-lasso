@@ -17,6 +17,7 @@ import {
   hasManagedProcess,
   startManagedProcess,
   stopManagedProcess,
+  waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
@@ -968,11 +969,7 @@ test("clean unexpected exit does not restart under crash policy", async () => {
     await installService(service);
     await configService(service);
     await startService(service);
-
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return stored.runtime?.running === false;
-    }, 1_500);
+    await waitForManagedProcessFinalization("clean-exit-service");
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.lastTermination, "exited");
