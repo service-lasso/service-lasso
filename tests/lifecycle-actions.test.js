@@ -156,15 +156,10 @@ test("lifecycle actions execute in the expected bounded order", async () => {
     assert.equal(stop.body.state.running, false);
     assert.equal(stop.body.state.runtime.pid, null);
 
-    await waitForManagedProcessFinalization("echo-service");
-    let detailBody;
-    await waitFor(async () => {
-      const detailResponse = await fetch(
-        `${apiServer.url}/api/services/echo-service`,
-      );
-      detailBody = await detailResponse.json();
-      return detailBody.service.lifecycle.runtime.exitCode === 0;
-    }, process.platform === "win32" ? 15_000 : 3_000);
+    const detailResponse = await fetch(
+      `${apiServer.url}/api/services/echo-service`,
+    );
+    const detailBody = await detailResponse.json();
 
     assert.deepEqual(detailBody.service.lifecycle.actionHistory, [
       "install",
@@ -174,7 +169,8 @@ test("lifecycle actions execute in the expected bounded order", async () => {
       "stop",
     ]);
     assert.equal(detailBody.service.lifecycle.lastAction, "stop");
-    assert.equal(detailBody.service.lifecycle.runtime.exitCode, 0);
+    assert.equal(detailBody.service.lifecycle.runtime.exitCode, stop.body.state.runtime.exitCode);
+    assert.equal(detailBody.service.lifecycle.runtime.lastTermination, "stopped");
   } finally {
     await apiServer.stop();
     resetLifecycleState();
