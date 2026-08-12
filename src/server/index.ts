@@ -221,6 +221,7 @@ import {
   type StartupTransactionPhase,
 } from "../runtime/startup/transaction.js";
 import { inspectStartupRecovery, type StartupRecoveryInspection } from "../runtime/startup/recovery.js";
+import { rebindCommittedServiceAdoption } from "../runtime/startup/committed-adoption.js";
 import {
   completeCommittedStartupMaterializationCleanup,
   createStartupArtifactAcquisitionHooks,
@@ -4412,6 +4413,8 @@ function isAddressInUse(error: unknown): boolean {
 
 const BASELINE_BOOTSTRAP_INTENT_ACTION = "baseline_bootstrap_intended";
 const BASELINE_SERVICE_INTENT_PREFIX = "baseline_service_requested:";
+const COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX = "committed_service_adoption_intended:";
+const COMMITTED_SERVICE_ADOPTION_COMPLETE_PREFIX = "committed_service_adoption_completed:";
 
 function requestedBaselineServiceIds(options: ApiServerOptions): string[] | null {
   if (!options.baselineBootstrap) return null;
@@ -4430,6 +4433,46 @@ function baselineIntentMatches(journal: StartupTransactionJournal, requestedServ
 }
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
+  return await startApiServerInternal(options);
+}
+
+function journalCommittedServiceAdoptionIds(journal: StartupTransactionJournal): string[] {
+  return journal.completedActions
+    .filter((action) => action.startsWith(COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX))
+    .map((action) => action.slice(COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX.length));
+}
+
+async function verifiedCommittedServiceAdoptionIds(
+  journal: StartupTransactionJournal,
+  discovered: DiscoveredService[],
+  workspaceRoot: string,
+): Promise<Set<string>> {
+  const discoveredIds = new Set(discovered.map((service) => service.manifest.id));
+  const verified = new Set<string>();
+  for (const serviceId of journal.startedServiceIds) {
+    if (!discoveredIds.has(serviceId) || !journal.completedActions.includes(`service_started:${serviceId}`)) continue;
+    const owner = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    const state = getLifecycleState(serviceId);
+    if (
+      owner?.pid &&
+      owner.generationId === journal.generationId &&
+      owner.allocation.revision === journal.allocationRevision &&
+      state.running &&
+      state.runtime.pid === owner.pid &&
+      state.runtime.generationId === journal.generationId &&
+      state.runtime.allocationRevision === journal.allocationRevision &&
+      await classifyRegisteredProcess(owner) === "owned"
+    ) {
+      verified.add(serviceId);
+    }
+  }
+  return verified;
+}
+
+async function startApiServerInternal(
+  options: ApiServerOptions,
+  inheritedCommittedServiceAdoptionIds: ReadonlySet<string> = new Set(),
+): Promise<RunningApiServer> {
   if (options.autostart && options.baselineBootstrap) {
     throw new Error("Runtime startup cannot combine manifest autostart and CLI baseline bootstrap modes.");
   }
@@ -4447,6 +4490,12 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   }
   let recoveryAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
   let recoveryAdoptServiceIds: ReadonlySet<string> | undefined;
+  const committedServiceAdoptionIds = new Set(inheritedCommittedServiceAdoptionIds);
+  if (recovery.journal) {
+    for (const serviceId of journalCommittedServiceAdoptionIds(recovery.journal)) {
+      committedServiceAdoptionIds.add(serviceId);
+    }
+  }
   let generationId = createRuntimeGenerationId();
   let journal: StartupTransactionJournal;
   let recoveredGeneration: Awaited<ReturnType<typeof recoverRuntimeGeneration>> | null = null;
@@ -4458,13 +4507,20 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     const committed = {
       journal: await activateStartupTransactionRecovery(recovery.journal!, "resume"),
     };
+    let verifiedServiceIds = new Set<string>();
     try {
       await rehydrateDiscoveredServices(recoveryModel.discovered, {
         workspaceRoot: config.workspaceRoot,
         runtimeGenerationId: recovery.journal!.generationId,
         runtimeInstanceId: recovery.journal!.instanceId,
         allocationRevision: recovery.journal!.allocationRevision,
+        adoptServiceIds: new Set(recovery.journal!.startedServiceIds),
       });
+      verifiedServiceIds = await verifiedCommittedServiceAdoptionIds(
+        recovery.journal!,
+        recoveryModel.discovered,
+        config.workspaceRoot,
+      );
       committed.journal = await completeCommittedStartupMaterializationCleanup(committed.journal);
       committed.journal = await settleStartupTransaction(committed.journal, "committed", {
         completedActions: ["recovery_commit_cleanup_completed"],
@@ -4476,7 +4532,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       }).catch(() => committed.journal);
       throw new StartupTransactionRecoveryRequiredError(committed.journal);
     }
-    return await startApiServer(options);
+    return await startApiServerInternal(options, verifiedServiceIds);
   }
   if (recoveryClassification === "resume") {
     generationId = recovery.journal!.generationId;
@@ -4506,6 +4562,13 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const transaction = { journal };
   let generation: Awaited<ReturnType<typeof beginRuntimeGeneration>> | null = null;
   try {
+    if (committedServiceAdoptionIds.size > 0) {
+      transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
+        completedActions: [...committedServiceAdoptionIds]
+          .sort()
+          .map((serviceId) => `${COMMITTED_SERVICE_ADOPTION_INTENT_PREFIX}${serviceId}`),
+      });
+    }
     if (recoveryClassification !== "resume" && baselineServiceIds) {
       transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
         completedActions: [
@@ -4556,6 +4619,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     return await startApiServerGeneration(options, config, generation, transaction, {
       allocationPlan: recoveryAllocationPlan,
       adoptServiceIds: recoveryAdoptServiceIds,
+      committedServiceAdoptionIds,
     });
   } catch (error) {
     if (generation && transaction.journal.pendingCompensations.includes("mark_generation_failed")) {
@@ -4573,7 +4637,9 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         // Preserve the compensation in the blocked journal for operator recovery.
       }
     }
-    const status = transaction.journal.pendingCompensations.length === 0 ? "rolled_back" : "blocked";
+    const status = committedServiceAdoptionIds.size > 0 || transaction.journal.pendingCompensations.length > 0
+      ? "blocked"
+      : "rolled_back";
     transaction.journal = await settleStartupTransaction(transaction.journal, status, {
       failureCode: startupFailureCode(error),
     }).catch(() => transaction.journal);
@@ -4636,6 +4702,7 @@ async function startApiServerGeneration(
   recovery: {
     allocationPlan?: RuntimeEndpointAllocationPlan | null;
     adoptServiceIds?: ReadonlySet<string>;
+    committedServiceAdoptionIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RunningApiServer> {
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
@@ -4649,6 +4716,7 @@ async function startApiServerGeneration(
     runtimeInstanceId,
     allocationRevision: recovery.allocationPlan?.allocationId,
     adoptServiceIds: recovery.adoptServiceIds,
+    excludeAdoptServiceIds: recovery.committedServiceAdoptionIds,
   });
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
@@ -4682,6 +4750,7 @@ async function startApiServerGeneration(
   // resources after adoption. Include them in readiness and compensation so a
   // resumed attempt cannot strand an adopted process if a later phase fails.
   const transactionStartedServiceIds = new Set<string>(recovery.adoptServiceIds ?? []);
+  const reboundCommittedServiceIds = new Set<string>();
   let baselineBootstrap: BootstrapBaselineResult | null = null;
   const priorRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
   let baselineRuntimeApiPublished = false;
@@ -4829,6 +4898,23 @@ async function startApiServerGeneration(
     }
   }
   try {
+    const discoveredById = new Map(bootModel.discovered.map((service) => [service.manifest.id, service]));
+    for (const serviceId of [...recovery.committedServiceAdoptionIds ?? []].sort()) {
+      const service = discoveredById.get(serviceId);
+      if (!service) {
+        throw new Error(`Committed service "${serviceId}" is no longer discovered.`);
+      }
+      await rebindCommittedServiceAdoption(service, {
+        workspaceRoot: config.workspaceRoot,
+        runtimeGenerationId,
+        runtimeInstanceId,
+        allocationPlan,
+      });
+      reboundCommittedServiceIds.add(serviceId);
+      transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
+        completedActions: [`${COMMITTED_SERVICE_ADOPTION_COMPLETE_PREFIX}${serviceId}`],
+      });
+    }
     if (options.baselineBootstrap) {
       process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiEndpoint.selectors.url.replace(/\/$/, "");
       baselineRuntimeApiPublished = true;
@@ -5001,7 +5087,7 @@ async function startApiServerGeneration(
     ) {
       throw new Error(`Runtime owned readiness failed with ownership status ${runtimeOwnershipStatus}.`);
     }
-    for (const serviceId of transactionStartedServiceIds) {
+    for (const serviceId of new Set([...transactionStartedServiceIds, ...reboundCommittedServiceIds])) {
       const state = getLifecycleState(serviceId);
       if (!state.running || state.runtime.generationId !== runtimeGenerationId) {
         throw new Error(`Service "${serviceId}" readiness does not belong to generation ${runtimeGenerationId}.`);

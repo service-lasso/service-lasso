@@ -29,6 +29,7 @@ export interface RehydrateProcessOwnershipOptions {
   runtimeInstanceId?: string | null;
   allocationRevision?: string | null;
   adoptServiceIds?: ReadonlySet<string>;
+  excludeAdoptServiceIds?: ReadonlySet<string>;
   processInspectorDependencies?: ProcessInspectorDependencies;
 }
 
@@ -650,6 +651,7 @@ export async function rehydrateLifecycleState(
     if (
       options.workspaceRoot &&
       (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
+      !options.excludeAdoptServiceIds?.has(serviceId) &&
       !hasManagedProcess(serviceId) &&
       legacyRuntime?.running === true &&
       typeof legacyRuntime.pid === "number" &&
