@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +15,8 @@ export const RELEASE_FILES = [
   "dist",
   "packages/core",
 ];
+
+const RELEASE_CORE_PACKAGE_FILES = ["README.md", "package.json", "index.js", "index.d.ts", "cli.js"];
 
 export const DEFAULT_BUNDLED_SERVICE_IDS = [
   "@java",
@@ -257,13 +259,92 @@ export async function createReleaseArchive(outputRoot, artifactName, archiveName
 
 export async function createReleaseZipArchive(outputRoot, artifactName, archiveName = `${artifactName}.zip`) {
   const archivePath = path.join(outputRoot, archiveName);
+  const artifactRoot = path.join(outputRoot, artifactName);
   await rm(archivePath, { force: true });
 
   const archive = new AdmZip();
-  archive.addLocalFolder(path.join(outputRoot, artifactName), artifactName);
+  const topLevelEntries = await readdir(artifactRoot, { withFileTypes: true });
+  for (const entry of topLevelEntries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const sourcePath = path.join(artifactRoot, entry.name);
+    const zipPath = `${artifactName}/${entry.name}`;
+
+    if (entry.isDirectory()) {
+      // Use a separate walk for each canonical top-level tree. npm workspaces
+      // create links under node_modules that can resolve back into packages/;
+      // one whole-root AdmZip walk de-duplicates those realpaths and can omit
+      // the later canonical directory contents from the ZIP.
+      archive.addLocalFolder(sourcePath, zipPath);
+      continue;
+    }
+
+    if (entry.isFile()) {
+      archive.addLocalFile(sourcePath, artifactName);
+      continue;
+    }
+
+    throw new Error(`Unsupported top-level release artifact entry: ${entry.name}`);
+  }
   archive.writeZip(archivePath);
 
   return archivePath;
+}
+
+export async function verifyReleaseZipArchive({ archivePath, artifactName }) {
+  const extractionRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-release-zip-"));
+
+  try {
+    new AdmZip(archivePath).extractAllTo(extractionRoot, true);
+    const extractedRoot = path.join(extractionRoot, artifactName);
+    const manifest = JSON.parse(await readFile(path.join(extractedRoot, "release-artifact.json"), "utf8"));
+    if (manifest.artifactName !== artifactName) {
+      throw new Error(`Release ZIP manifest artifact ${manifest.artifactName} did not match ${artifactName}.`);
+    }
+    const verifiedEntrypoints = {};
+
+    for (const [name, relativePath] of Object.entries(manifest.entrypoints ?? {})) {
+      if (typeof relativePath !== "string" || !relativePath) {
+        throw new Error(`Release ZIP manifest entrypoint ${name} is not a non-empty relative path.`);
+      }
+
+      const entrypointPath = path.resolve(extractedRoot, relativePath);
+      const relativeEntrypointPath = path.relative(extractedRoot, entrypointPath);
+      if (
+        !relativeEntrypointPath
+        || relativeEntrypointPath === ".."
+        || relativeEntrypointPath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativeEntrypointPath)
+      ) {
+        throw new Error(`Release ZIP manifest entrypoint ${name} escapes the artifact root.`);
+      }
+
+      const entrypointStat = await stat(entrypointPath);
+      if (!entrypointStat.isFile()) {
+        throw new Error(`Release ZIP manifest entrypoint ${name} is not a regular file.`);
+      }
+      verifiedEntrypoints[name] = relativePath;
+    }
+
+    for (const relativePath of RELEASE_CORE_PACKAGE_FILES) {
+      const packageFileStat = await stat(path.join(extractedRoot, "packages", "core", relativePath));
+      if (!packageFileStat.isFile()) {
+        throw new Error(`Release ZIP core wrapper path ${relativePath} is not a regular file.`);
+      }
+    }
+    const cli = await runCommand(process.execPath, [path.join(extractedRoot, manifest.entrypoints.cli), "--help"], {
+      cwd: extractedRoot,
+    });
+
+    return {
+      archivePath,
+      artifactName,
+      manifest,
+      verifiedEntrypoints,
+      verifiedCorePackageFiles: RELEASE_CORE_PACKAGE_FILES,
+      cli,
+    };
+  } finally {
+    await rm(extractionRoot, { recursive: true, force: true });
+  }
 }
 
 export async function createPlatformReleaseArchives(outputRoot, artifactName) {
@@ -397,6 +478,11 @@ export async function verifyStagedArtifact({
   await stat(path.join(stagedRoot, "packages", "core", "index.js"));
   await stat(path.join(stagedRoot, "packages", "core", "cli.js"));
 
+  const zipVerification = await verifyReleaseZipArchive({
+    archivePath: path.join(path.dirname(stagedArchivePath), `${artifactName}-win32.zip`),
+    artifactName,
+  });
+
   const coreModule = await import(pathToFileURL(path.join(stagedRoot, "packages", "core", "index.js")).href);
   if (typeof coreModule.createRuntime !== "function") {
     throw new Error("staged core wrapper does not expose createRuntime()");
@@ -462,6 +548,7 @@ export async function verifyStagedArtifact({
       stagedArchivePath,
       booted,
       health,
+      zipVerification,
     };
   } finally {
     child.kill("SIGTERM");
