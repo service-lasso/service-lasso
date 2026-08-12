@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const workflowUrl = new URL("../.github/workflows/publish-package.yml", import.meta.url);
 
-test("AC-4S publish workflow preserves OIDC, token fallback, and exact-version idempotency", async () => {
+test("AC-4S publish workflow preserves OIDC, token fallback, exact-version idempotency, and the stable dist-tag", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
 
   assert.match(workflow, /permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/);
@@ -18,7 +18,8 @@ test("AC-4S publish workflow preserves OIDC, token fallback, and exact-version i
   );
   assert.match(
     workflow,
-    /- name: Publish package to npm\s*\n\s+if: steps\.package_exists\.outputs\.exists != 'true'[\s\S]*?NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}[\s\S]*?run: npm publish --access public/,
+    /- name: Publish package to npm\s*\n\s+if: steps\.package_exists\.outputs\.exists != 'true'[\s\S]*?NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}[\s\S]*?run: npm publish --access public --tag latest[ \t]*$/m,
   );
+  assert.doesNotMatch(workflow, /run: npm publish --access public\s*$/m);
   assert.doesNotMatch(workflow, /Check npm token is configured|NPM_TOKEN repository secret is required/);
 });
