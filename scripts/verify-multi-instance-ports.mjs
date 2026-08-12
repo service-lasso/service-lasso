@@ -3,6 +3,12 @@ import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  discoverOwningRuntime,
+  observeBoundedJsonObject,
+  RuntimeOwnerFailure,
+  waitForBaselineCompletion,
+} from "./runtime-owner.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
@@ -89,11 +95,6 @@ async function postJson(url) {
   return body;
 }
 
-function appendCapped(existing, chunk, maxLength = 200_000) {
-  const next = existing + chunk.toString();
-  return next.length > maxLength ? next.slice(next.length - maxLength) : next;
-}
-
 function startInstance({ servicesRoot, workspaceRoot, apiPort, servicePortStart, servicePortEnd }) {
   const child = spawn(process.execPath, [
     cliPath,
@@ -116,12 +117,23 @@ function startInstance({ servicesRoot, workspaceRoot, apiPort, servicePortStart,
     windowsHide: true,
   });
 
-  let stdout = "";
-  let stderr = "";
-  child.stdout?.on("data", (chunk) => { stdout = appendCapped(stdout, chunk); });
-  child.stderr?.on("data", (chunk) => { stderr = appendCapped(stderr, chunk); });
-  const closed = new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal })));
-  return { child, closed, get stdout() { return stdout; }, get stderr() { return stderr; } };
+  const bootstrapOutput = observeBoundedJsonObject(child.stdout);
+  let stderrBytes = 0;
+  child.stderr?.on("data", (chunk) => { stderrBytes += chunk.length; });
+  let exit = null;
+  const closed = new Promise((resolve) => child.once("close", (code, signal) => {
+    exit = { code, signal };
+    resolve(exit);
+  }));
+  return {
+    child,
+    closed,
+    pid: child.pid,
+    bootstrapOutput,
+    get exit() { return exit; },
+    get stdoutBytes() { return bootstrapOutput.bytes; },
+    get stderrBytes() { return stderrBytes; },
+  };
 }
 
 async function stopInstance(instance, apiUrl) {
@@ -185,6 +197,23 @@ assertServiceRangesExcludeApiPorts(instances, apiPorts);
 try {
   console.error(`[service-lasso multi-instance] reserved API ports ${apiPorts.join(", ")}; service port ranges ${instances.map((instance) => `${instance.label}:${instance.servicePortStart}-${instance.servicePortEnd}`).join(", ")}`);
   for (const instance of instances) instance.process = startInstance(instance);
+  for (const instance of instances) {
+    const runtime = await discoverOwningRuntime({
+      owner: instance.process,
+      servicesRoot: instance.servicesRoot,
+      workspaceRoot: instance.workspaceRoot,
+    });
+    await waitForBaselineCompletion({
+      owner: instance.process,
+      runtime,
+      output: instance.process.bootstrapOutput,
+      servicesRoot: instance.servicesRoot,
+      workspaceRoot: instance.workspaceRoot,
+    });
+    instance.apiUrl = runtime.apiUrl;
+    instance.apiPort = Number(new URL(runtime.apiUrl).port);
+    console.error(`[service-lasso multi-instance] ${instance.label} owns generation ${runtime.generationId} API port ${instance.apiPort}`);
+  }
   for (const instance of instances) await verifyInstance(instance);
 
   const usedPorts = [];
@@ -212,14 +241,19 @@ try {
 
   console.log(`[service-lasso multi-instance] two instances passed in ${portStart}-${portEnd}`);
 } catch (error) {
-  for (const instance of instances) {
-    if (instance.process) {
-      console.error(`[${instance.label}] stdout:`);
-      console.error(instance.process.stdout);
-      console.error(`[${instance.label}] stderr:`);
-      console.error(instance.process.stderr);
-    }
-  }
+  console.error(`[service-lasso multi-instance] ${JSON.stringify({
+    schema: "service-lasso.multi-instance-failure.v1",
+    code: error instanceof RuntimeOwnerFailure ? error.code : "multi_instance_verification_failed",
+    owners: instances.map((instance) => ({
+      label: instance.label,
+      pid: instance.process?.pid ?? null,
+      exitCode: instance.process?.exit?.code ?? null,
+      signal: instance.process?.exit?.signal ?? null,
+      stdoutBytes: instance.process?.stdoutBytes ?? 0,
+      stderrBytes: instance.process?.stderrBytes ?? 0,
+      apiPort: instance.apiPort,
+    })),
+  })}`);
   throw error;
 } finally {
   for (const instance of instances) {
