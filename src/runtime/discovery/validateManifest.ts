@@ -67,6 +67,25 @@ const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const logSourceIdPattern = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+const serviceIdPattern = /^@?[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const windowsReservedServiceIdPattern = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
+
+export function validateServiceId(value: unknown, manifestPath: string): string {
+  const serviceId = expectNonEmptyString(value, "id", manifestPath);
+  const filesystemName = serviceId.startsWith("@") ? serviceId.slice(1) : serviceId;
+  if (
+    serviceId.length > 128 ||
+    !serviceIdPattern.test(serviceId) ||
+    serviceId.endsWith(".") ||
+    windowsReservedServiceIdPattern.test(filesystemName)
+  ) {
+    throw new Error(
+      `Invalid service manifest at ${manifestPath}: expected "id" to be a portable direct-child service identifier.`,
+    );
+  }
+
+  return serviceId;
+}
 
 function expectNonEmptyString(value: unknown, field: string, manifestPath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -1991,7 +2010,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   }
 
   const record = input as Record<string, unknown>;
-  const serviceId = expectNonEmptyString(record.id, "id", manifestPath);
+  const serviceId = validateServiceId(record.id, manifestPath);
 
   if (record.schedules !== undefined) {
     throw new Error(
