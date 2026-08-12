@@ -404,7 +404,13 @@ async function resolveRuntimeSourceIdentity(recordRuntimeRoot: string): Promise<
   return await pending;
 }
 
-export async function beginRuntimeGeneration(config: RuntimeConfig): Promise<RuntimeGenerationRecord> {
+export async function beginRuntimeGeneration(
+  config: RuntimeConfig,
+  options: { generationId?: string } = {},
+): Promise<RuntimeGenerationRecord> {
+  if (options.generationId !== undefined && !UUID_PATTERN.test(options.generationId)) {
+    throw new Error("Runtime generation id must be a UUID.");
+  }
   const instanceId = resolveRuntimeInstanceId(config);
   const source = await resolveRuntimeSourceIdentity(runtimeRoot);
   return await withWorkspaceLifecycleLock(config.workspaceRoot, async () => {
@@ -444,7 +450,7 @@ export async function beginRuntimeGeneration(config: RuntimeConfig): Promise<Run
         : entry,
     );
     const record: RuntimeGenerationRecord = {
-      generationId: createRuntimeGenerationId(),
+      generationId: options.generationId ?? createRuntimeGenerationId(),
       instanceId,
       servicesRoot: path.resolve(config.servicesRoot),
       workspaceRoot: path.resolve(config.workspaceRoot),
