@@ -53,7 +53,7 @@ import {
   materializeConfigArtifacts,
   materializeInstallArtifacts,
 } from "../setup/materialize.js";
-import type { MaterializationWriteHooks } from "../startup/materialization.js";
+import type { MaterializationWriteHooks, StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
@@ -230,6 +230,7 @@ export interface ServiceLifecycleActionOptions {
   plannedPorts?: Record<string, number>;
   allocationRevision?: string | null;
   materializationHooks?: MaterializationWriteHooks;
+  artifactAcquisitionHooks?: StartupArtifactAcquisitionHooks;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
     attemptNumber: number;
@@ -942,7 +943,7 @@ export async function installService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const acquiredArtifact = await acquireInstallArtifact(service);
+  const acquiredArtifact = await acquireInstallArtifact(service, options.artifactAcquisitionHooks);
   const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv, {}, {}, options.materializationHooks);
 
   return applyState(serviceId, "install", (current) => ({

@@ -9,7 +9,11 @@ import { writeServiceState } from "../state/writeState.js";
 import { configService, installService, startService, type ServiceLifecycleActionOptions } from "./actions.js";
 import { getLifecycleState } from "./store.js";
 import type { LifecycleActionResult, ServiceLifecycleState } from "./types.js";
-import type { MaterializationWriteHooks, StartupMaterializationKind } from "../startup/materialization.js";
+import type {
+  MaterializationWriteHooks,
+  StartupArtifactAcquisitionHooks,
+  StartupMaterializationKind,
+} from "../startup/materialization.js";
 
 export type PreparedStartSkipReason = "already_running" | "provider_role" | "not_startable";
 
@@ -38,6 +42,7 @@ async function prepareServicePrerequisites(
     const result = await installService(service, registry, {
       ...serviceActionOptions(service.manifest.id, options),
       materializationHooks: options.materializationHooksFor?.(service, "install"),
+      artifactAcquisitionHooks: options.artifactAcquisitionHooksFor?.(service),
     });
     await persistResult(service, result);
     state = result.state;
@@ -74,6 +79,7 @@ export interface PreparedStartOptions extends Pick<
     service: DiscoveredService,
     kind: StartupMaterializationKind,
   ) => MaterializationWriteHooks;
+  artifactAcquisitionHooksFor?: (service: DiscoveredService) => StartupArtifactAcquisitionHooks;
   setupTransactionHooks?: SetupTransactionHooks;
   onServiceStarting?: (service: DiscoveredService) => Promise<void>;
   onServiceStarted?: (service: DiscoveredService, result: LifecycleActionResult) => Promise<void>;

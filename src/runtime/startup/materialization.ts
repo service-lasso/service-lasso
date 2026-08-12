@@ -1,13 +1,14 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, lstat, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, rename, rm, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
 import type { SetupTransactionHooks } from "../setup/steps.js";
 import { writeServiceState } from "../state/writeState.js";
+import { readStoredState } from "../state/readState.js";
 import {
   advanceStartupTransaction,
   type StartupTransactionJournal,
@@ -18,6 +19,8 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TOTAL_PREIMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_SIDECAR_BYTES = MAX_TOTAL_PREIMAGE_BYTES * 2;
 const MAX_EVIDENCE_TEXT_LENGTH = 2048;
+const MAX_ARTIFACT_TREE_FILES = 100_000;
+const MAX_ARTIFACT_TREE_BYTES = 8 * 1024 * 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const ACTION_ID_PATTERN = /^[a-f0-9]{24}$/;
 const windowsSidecarKeys = new Map<string, { key: Buffer; wrappedKey: string }>();
@@ -50,6 +53,37 @@ interface MaterializationSidecar {
   workspaceRoot: string;
   servicesRoot: string;
   entries: MaterializationEntry[];
+  artifactEntries?: ArtifactAcquisitionEntry[];
+}
+
+type InstalledArtifactEvidence = ServiceLifecycleState["installArtifacts"]["artifact"];
+
+interface ArtifactTreeEvidence {
+  digest: string;
+  files: number;
+  bytes: number;
+}
+
+export interface StartupArtifactArchiveEvidence {
+  digest: string;
+  size: number;
+}
+type ArtifactFileEvidence = StartupArtifactArchiveEvidence;
+
+interface ArtifactAcquisitionEntry {
+  actionId: string;
+  serviceId: string;
+  serviceRelativeRoot: string;
+  archiveRelativePath: string;
+  archiveTempRelativePath: string;
+  extractionStagingRelativePath: string;
+  extractionRelativePath: string;
+  priorInstalled: boolean;
+  priorArtifact: InstalledArtifactEvidence | null;
+  expectedArtifact: InstalledArtifactEvidence | null;
+  expectedArchive: ArtifactFileEvidence | null;
+  expectedTree: ArtifactTreeEvidence | null;
+  extractionPublished: boolean;
 }
 
 interface WindowsProtectedSidecarEnvelope {
@@ -81,6 +115,29 @@ export interface StartupMaterializationInspection {
 export interface StartupMaterializationStateReconciliationResult {
   journal: StartupTransactionJournal;
   reconciledActionIds: string[];
+  blockedActionIds: string[];
+}
+
+export interface StartupArtifactAcquisitionPlan {
+  actionId: string;
+  archiveTempPath: string;
+  extractionStagingPath: string;
+  extractionPath: string;
+}
+
+export interface StartupArtifactAcquisitionHooks {
+  prepare(input: { archivePath: string }): Promise<StartupArtifactAcquisitionPlan>;
+  prepareArchiveDownload(actionId: string): Promise<void>;
+  recordArchive(actionId: string, archivePath: string): Promise<StartupArtifactArchiveEvidence>;
+  prepareExtraction(actionId: string): Promise<void>;
+  beforeExtractionPublish(actionId: string): Promise<void>;
+  afterExtractionPublish(actionId: string): Promise<void>;
+  complete(actionId: string, artifact: NonNullable<InstalledArtifactEvidence>): Promise<void>;
+}
+
+export interface StartupArtifactRollbackResult {
+  journal: StartupTransactionJournal;
+  completedActionIds: string[];
   blockedActionIds: string[];
 }
 
@@ -455,6 +512,71 @@ function parseImage(value: unknown, includeContent: boolean): MaterializationIma
   return { ...image, contentBase64: value.contentBase64 };
 }
 
+function nullableEvidenceString(value: unknown, label: string): string | null {
+  return value === null ? null : boundedString(value, label);
+}
+
+function parseInstalledArtifactEvidence(value: unknown): InstalledArtifactEvidence | null {
+  if (value === null) return null;
+  if (!isRecord(value) || (value.sourceType !== null && value.sourceType !== "github-release") ||
+    (value.archiveType !== null && value.archiveType !== "zip" && value.archiveType !== "tar.gz" && value.archiveType !== "tgz") ||
+    !Array.isArray(value.args) || value.args.length > 128 || value.args.some((arg) => typeof arg !== "string" || arg.length > MAX_EVIDENCE_TEXT_LENGTH)) {
+    throw new Error("Startup artifact lifecycle evidence is invalid.");
+  }
+  const checksum = value.checksum === null
+    ? null
+    : (() => {
+        if (!isRecord(value.checksum) || value.checksum.algorithm !== "sha256" ||
+          (value.checksum.source !== "manifest" && value.checksum.source !== "release-asset") ||
+          typeof value.checksum.expected !== "string" || !SHA256_PATTERN.test(value.checksum.expected) ||
+          typeof value.checksum.actual !== "string" || !SHA256_PATTERN.test(value.checksum.actual)) {
+          throw new Error("Startup artifact checksum evidence is invalid.");
+        }
+        return {
+          algorithm: "sha256" as const,
+          source: value.checksum.source as "manifest" | "release-asset",
+          expected: value.checksum.expected,
+          actual: value.checksum.actual,
+          assetName: boundedString(value.checksum.assetName, "checksum asset name"),
+          checksumAssetName: nullableEvidenceString(value.checksum.checksumAssetName, "checksum filename"),
+          verifiedAt: boundedString(value.checksum.verifiedAt, "checksum time"),
+        };
+      })();
+  return {
+    sourceType: value.sourceType,
+    repo: nullableEvidenceString(value.repo, "artifact repo"),
+    channel: nullableEvidenceString(value.channel, "artifact channel"),
+    tag: nullableEvidenceString(value.tag, "artifact tag"),
+    assetName: nullableEvidenceString(value.assetName, "artifact asset name"),
+    assetUrl: nullableEvidenceString(value.assetUrl, "artifact asset URL"),
+    archiveType: value.archiveType,
+    archivePath: nullableEvidenceString(value.archivePath, "artifact archive path"),
+    extractedPath: nullableEvidenceString(value.extractedPath, "artifact extraction path"),
+    command: nullableEvidenceString(value.command, "artifact command"),
+    args: [...value.args] as string[],
+    checksum,
+  };
+}
+
+function parseArtifactTreeEvidence(value: unknown): ArtifactTreeEvidence | null {
+  if (value === null) return null;
+  if (!isRecord(value) || typeof value.digest !== "string" || !SHA256_PATTERN.test(value.digest) ||
+    typeof value.files !== "number" || !Number.isSafeInteger(value.files) || value.files < 0 || value.files > MAX_ARTIFACT_TREE_FILES ||
+    typeof value.bytes !== "number" || !Number.isSafeInteger(value.bytes) || value.bytes < 0 || value.bytes > MAX_ARTIFACT_TREE_BYTES) {
+    throw new Error("Startup artifact tree evidence is invalid.");
+  }
+  return { digest: value.digest, files: value.files, bytes: value.bytes };
+}
+
+function parseArtifactFileEvidence(value: unknown): ArtifactFileEvidence | null {
+  if (value === null) return null;
+  if (!isRecord(value) || typeof value.digest !== "string" || !SHA256_PATTERN.test(value.digest) ||
+    typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0 || value.size > MAX_ARTIFACT_TREE_BYTES) {
+    throw new Error("Startup artifact archive evidence is invalid.");
+  }
+  return { digest: value.digest, size: value.size };
+}
+
 function parseSidecar(value: unknown, journal: StartupTransactionJournal): MaterializationSidecar {
   if (!isRecord(value) || value.version !== 1 || value.transactionId !== journal.transactionId ||
     typeof value.workspaceRoot !== "string" || typeof value.servicesRoot !== "string" ||
@@ -503,12 +625,47 @@ function parseSidecar(value: unknown, journal: StartupTransactionJournal): Mater
       expectedPostimage,
     };
   });
+  const artifactValues = value.artifactEntries === undefined ? [] : value.artifactEntries;
+  if (!Array.isArray(artifactValues) || artifactValues.length > MAX_ENTRIES) {
+    throw new Error("Startup artifact acquisition evidence is invalid.");
+  }
+  const artifactEntries = artifactValues.map((candidate): ArtifactAcquisitionEntry => {
+    if (!isRecord(candidate)) throw new Error("Startup artifact acquisition entry is invalid.");
+    const actionId = boundedString(candidate.actionId, "artifact action id");
+    if (!ACTION_ID_PATTERN.test(actionId) || actionIds.has(actionId)) {
+      throw new Error("Startup artifact action id is invalid or duplicated.");
+    }
+    actionIds.add(actionId);
+    if (typeof candidate.priorInstalled !== "boolean" || typeof candidate.extractionPublished !== "boolean") {
+      throw new Error("Startup artifact acquisition completion evidence is invalid.");
+    }
+    const expectedTree = parseArtifactTreeEvidence(candidate.expectedTree);
+    if (candidate.extractionPublished && expectedTree === null) {
+      throw new Error("Published startup artifact extraction lacks digest evidence.");
+    }
+    return {
+      actionId,
+      serviceId: boundedString(candidate.serviceId, "artifact service id"),
+      serviceRelativeRoot: relativeEvidence(candidate.serviceRelativeRoot, "artifact service root"),
+      archiveRelativePath: relativeEvidence(candidate.archiveRelativePath, "artifact archive path"),
+      archiveTempRelativePath: relativeEvidence(candidate.archiveTempRelativePath, "artifact archive temp path"),
+      extractionStagingRelativePath: relativeEvidence(candidate.extractionStagingRelativePath, "artifact extraction staging path"),
+      extractionRelativePath: relativeEvidence(candidate.extractionRelativePath, "artifact extraction path"),
+      priorInstalled: candidate.priorInstalled,
+      priorArtifact: parseInstalledArtifactEvidence(candidate.priorArtifact),
+      expectedArtifact: parseInstalledArtifactEvidence(candidate.expectedArtifact),
+      expectedArchive: parseArtifactFileEvidence(candidate.expectedArchive),
+      expectedTree,
+      extractionPublished: candidate.extractionPublished,
+    };
+  });
   return {
     version: 1,
     transactionId: value.transactionId,
     workspaceRoot: value.workspaceRoot,
     servicesRoot: value.servicesRoot,
     entries,
+    artifactEntries,
   };
 }
 
@@ -535,6 +692,166 @@ async function readImage(base: string, target: string): Promise<MaterializationI
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function readArtifactTreeEvidence(base: string, root: string): Promise<ArtifactTreeEvidence | null> {
+  const relative = assertContained(base, root);
+  let current = path.resolve(base);
+  const baseStat = await lstat(current);
+  if (!baseStat.isDirectory() || baseStat.isSymbolicLink()) {
+    throw new Error("Startup artifact service root is not a real directory.");
+  }
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      const stat = await lstat(current);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error("Startup artifact extraction path contains an unsafe object.");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  let rootStat;
+  try {
+    rootStat = await lstat(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("Startup artifact extraction root is not a real directory.");
+  }
+  const hash = createHash("sha256");
+  let files = 0;
+  let bytes = 0;
+  const walk = async (directory: string): Promise<void> => {
+    const entries = (await readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = assertContained(root, absolutePath).replaceAll("\\", "/");
+      const stat = await lstat(absolutePath);
+      if (stat.isSymbolicLink()) throw new Error("Startup artifact extraction contains a redirected object.");
+      if (stat.isDirectory()) {
+        hash.update(`d\0${relativePath}\0`);
+        await walk(absolutePath);
+        continue;
+      }
+      if (!stat.isFile()) throw new Error("Startup artifact extraction contains an unsupported object.");
+      files += 1;
+      bytes += stat.size;
+      if (files > MAX_ARTIFACT_TREE_FILES || bytes > MAX_ARTIFACT_TREE_BYTES) {
+        throw new Error("Startup artifact extraction exceeds its verification bound.");
+      }
+      hash.update(`f\0${relativePath}\0${stat.size}\0`);
+      const handle = await open(absolutePath, "r");
+      try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino || opened.size !== stat.size) {
+          throw new Error("Startup artifact file identity changed during verification.");
+        }
+        const buffer = Buffer.allocUnsafe(64 * 1024);
+        let offset = 0;
+        while (offset < opened.size) {
+          const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, opened.size - offset), offset);
+          if (bytesRead === 0) throw new Error("Startup artifact file truncated during verification.");
+          hash.update(buffer.subarray(0, bytesRead));
+          offset += bytesRead;
+        }
+        const after = await handle.stat();
+        if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size) {
+          throw new Error("Startup artifact file changed during verification.");
+        }
+      } finally {
+        await handle.close();
+      }
+    }
+  };
+  await walk(root);
+  const afterRoot = await lstat(root);
+  if (!afterRoot.isDirectory() || afterRoot.isSymbolicLink() ||
+    afterRoot.dev !== rootStat.dev || afterRoot.ino !== rootStat.ino) {
+    throw new Error("Startup artifact extraction root changed during verification.");
+  }
+  return { digest: hash.digest("hex"), files, bytes };
+}
+
+async function readArtifactFileEvidence(base: string, target: string): Promise<ArtifactFileEvidence | null> {
+  try {
+    await assertSafePath(base, target, false);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const before = await lstat(target);
+  if (!before.isFile() || before.isSymbolicLink() || before.size > MAX_ARTIFACT_TREE_BYTES) {
+    throw new Error("Startup artifact archive is not a bounded regular file.");
+  }
+  const handle = await open(target, "r");
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) {
+      throw new Error("Startup artifact archive identity changed during verification.");
+    }
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let offset = 0;
+    while (offset < opened.size) {
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, opened.size - offset), offset);
+      if (bytesRead === 0) throw new Error("Startup artifact archive truncated during verification.");
+      hash.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    const after = await handle.stat();
+    await assertSafePath(base, target, false);
+    const pathAfter = await lstat(target);
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size ||
+      pathAfter.dev !== opened.dev || pathAfter.ino !== opened.ino || pathAfter.size !== opened.size) {
+      throw new Error("Startup artifact archive changed during verification.");
+    }
+    return { digest: hash.digest("hex"), size: opened.size };
+  } finally {
+    await handle.close();
+  }
+}
+
+function artifactFileMatches(left: ArtifactFileEvidence | null, right: ArtifactFileEvidence | null): boolean {
+  return left === null ? right === null : right !== null && left.digest === right.digest && left.size === right.size;
+}
+
+function artifactTreeMatches(left: ArtifactTreeEvidence | null, right: ArtifactTreeEvidence | null): boolean {
+  return left === null ? right === null : right !== null && left.digest === right.digest &&
+    left.files === right.files && left.bytes === right.bytes;
+}
+
+async function removeTransactionArtifactTree(base: string, target: string, expected?: ArtifactTreeEvidence): Promise<void> {
+  const current = await readArtifactTreeEvidence(base, target);
+  if (current === null) return;
+  if (expected && !artifactTreeMatches(current, expected)) {
+    throw new Error("Startup artifact extraction changed after transaction publication.");
+  }
+  const quarantine = `${target}.${process.pid}.${randomUUID()}.rollback`;
+  await rename(target, quarantine);
+  try {
+    const quarantined = await readArtifactTreeEvidence(base, quarantine);
+    if (expected && !artifactTreeMatches(quarantined, expected)) {
+      await rename(quarantine, target);
+      throw new Error("Startup artifact extraction identity changed during rollback.");
+    }
+    await rm(quarantine, { recursive: true, force: false });
+    await syncDirectoryOnPosix(path.dirname(target));
+  } catch (error) {
+    try {
+      await lstat(target);
+    } catch (targetError) {
+      if ((targetError as NodeJS.ErrnoException).code === "ENOENT") {
+        await rename(quarantine, target).catch(() => undefined);
+      }
+    }
     throw error;
   }
 }
@@ -692,6 +1009,275 @@ export function createStartupMaterializationHooks(input: {
       input.transaction.journal = await completeEntry(input.transaction.journal, actionId);
     },
   };
+}
+
+function artifactEvidenceAgrees(left: InstalledArtifactEvidence | null | undefined, right: InstalledArtifactEvidence | null): boolean {
+  const normalizedLeft = left ? parseInstalledArtifactEvidence(left) : null;
+  const normalizedRight = right ? parseInstalledArtifactEvidence(right) : null;
+  return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
+}
+
+function withoutInstalledArtifact(
+  artifacts: ServiceLifecycleState["installArtifacts"],
+): ServiceLifecycleState["installArtifacts"] {
+  const { artifact: _artifact, ...rest } = artifacts;
+  return rest;
+}
+
+export function createStartupArtifactAcquisitionHooks(input: {
+  transaction: { journal: StartupTransactionJournal };
+  service: DiscoveredService;
+}): StartupArtifactAcquisitionHooks {
+  return {
+    prepare: async ({ archivePath }) => {
+      if (normalize(path.resolve(archivePath)) !== normalize(archivePath)) {
+        throw new Error("Startup artifact archive path evidence does not agree.");
+      }
+      await assertSafePath(input.service.serviceRoot, archivePath, true);
+      let journal = input.transaction.journal;
+      if (!journal.pendingCompensations.includes("discard_materialization_sidecar")) {
+        journal = await advanceStartupTransaction(journal, journal.phase, {
+          completedActions: ["materialization_sidecar_intended"],
+          addCompensations: ["discard_materialization_sidecar"],
+        });
+        input.transaction.journal = journal;
+      }
+      const sidecar = await readSidecar(journal).catch((error): MaterializationSidecar => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return {
+            version: 1,
+            transactionId: journal.transactionId,
+            workspaceRoot: journal.workspaceRoot,
+            servicesRoot: journal.servicesRoot,
+            entries: [],
+            artifactEntries: [],
+          };
+        }
+        throw error;
+      });
+      sidecar.artifactEntries ??= [];
+      if (sidecar.artifactEntries.length >= MAX_ENTRIES) {
+        throw new Error("Startup artifact acquisition entry limit exceeded.");
+      }
+      const serviceRelativeRoot = assertContained(journal.servicesRoot, input.service.serviceRoot);
+      const actionId = createHash("sha256")
+        .update(`${journal.transactionId}\0${input.service.manifest.id}\0artifact\0${archivePath}\0${sidecar.artifactEntries.length}`)
+        .digest("hex")
+        .slice(0, 24);
+      const archiveRelativePath = assertContained(input.service.serviceRoot, archivePath);
+      const archiveTempRelativePath = `${archiveRelativePath}.startup-${actionId}.tmp`;
+      const extractionRelativePath = path.join(".state", "extracted", `startup-${actionId}`);
+      const extractionStagingRelativePath = `${extractionRelativePath}.staging`;
+      const archiveTempPath = path.resolve(input.service.serviceRoot, archiveTempRelativePath);
+      const extractionPath = path.resolve(input.service.serviceRoot, extractionRelativePath);
+      const extractionStagingPath = path.resolve(input.service.serviceRoot, extractionStagingRelativePath);
+      await assertSafePath(input.service.serviceRoot, archiveTempPath, true);
+      if (await readArtifactTreeEvidence(input.service.serviceRoot, extractionPath) !== null ||
+        await readArtifactTreeEvidence(input.service.serviceRoot, extractionStagingPath) !== null) {
+        throw new Error("Startup artifact transaction path already exists.");
+      }
+      const current = getLifecycleState(input.service.manifest.id);
+      sidecar.artifactEntries.push({
+        actionId,
+        serviceId: input.service.manifest.id,
+        serviceRelativeRoot,
+        archiveRelativePath,
+        archiveTempRelativePath,
+        extractionStagingRelativePath,
+        extractionRelativePath,
+        priorInstalled: current.installed,
+        priorArtifact: current.installArtifacts.artifact ?? null,
+        expectedArtifact: null,
+        expectedArchive: null,
+        expectedTree: null,
+        extractionPublished: false,
+      });
+      await atomicWriteSidecar(sidecarPath(journal), sidecar);
+      journal = await advanceStartupTransaction(journal, journal.phase, {
+        completedActions: [`artifact_acquisition_intended:${actionId}`],
+        addCompensations: [`rollback_artifact:${actionId}`],
+      });
+      input.transaction.journal = journal;
+      return { actionId, archiveTempPath, extractionStagingPath, extractionPath };
+    },
+    prepareArchiveDownload: async (actionId) => {
+      const sidecar = await readSidecar(input.transaction.journal);
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry) throw new Error("Startup artifact acquisition preparation is missing.");
+      const serviceRoot = path.resolve(input.transaction.journal.servicesRoot, entry.serviceRelativeRoot);
+      const archiveTempPath = path.resolve(serviceRoot, entry.archiveTempRelativePath);
+      await ensureSafeDirectoryTree(serviceRoot, path.dirname(archiveTempPath));
+      await assertSafePath(serviceRoot, archiveTempPath, true);
+    },
+    recordArchive: async (actionId, archivePath) => {
+      const sidecar = await readSidecar(input.transaction.journal);
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry) throw new Error("Startup artifact acquisition preparation is missing.");
+      const serviceRoot = path.resolve(input.transaction.journal.servicesRoot, entry.serviceRelativeRoot);
+      const expectedPath = [
+        path.resolve(serviceRoot, entry.archiveRelativePath),
+        path.resolve(serviceRoot, entry.archiveTempRelativePath),
+      ];
+      if (!expectedPath.some((candidate) => normalize(candidate) === normalize(archivePath))) {
+        throw new Error("Startup artifact archive digest path does not match transaction evidence.");
+      }
+      const evidence = await readArtifactFileEvidence(serviceRoot, archivePath);
+      if (!evidence) throw new Error("Startup artifact archive is missing before publication.");
+      if (entry.expectedArchive && !artifactFileMatches(entry.expectedArchive, evidence)) {
+        throw new Error("Startup artifact archive changed during publication.");
+      }
+      entry.expectedArchive = evidence;
+      await atomicWriteSidecar(sidecarPath(input.transaction.journal), sidecar);
+      input.transaction.journal = await advanceStartupTransaction(input.transaction.journal, input.transaction.journal.phase, {
+        completedActions: [`artifact_archive_digest_recorded:${actionId}`],
+      });
+      return evidence;
+    },
+    prepareExtraction: async (actionId) => {
+      const sidecar = await readSidecar(input.transaction.journal);
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry?.expectedArchive) throw new Error("Startup artifact archive evidence is missing before extraction.");
+      const serviceRoot = path.resolve(input.transaction.journal.servicesRoot, entry.serviceRelativeRoot);
+      const stagingPath = path.resolve(serviceRoot, entry.extractionStagingRelativePath);
+      const extractionPath = path.resolve(serviceRoot, entry.extractionRelativePath);
+      await ensureSafeDirectoryTree(serviceRoot, path.dirname(stagingPath));
+      if (await readArtifactTreeEvidence(serviceRoot, stagingPath) !== null ||
+        await readArtifactTreeEvidence(serviceRoot, extractionPath) !== null) {
+        throw new Error("Startup artifact transaction extraction path already exists.");
+      }
+      await mkdir(stagingPath, { mode: 0o700 });
+      const created = await lstat(stagingPath);
+      if (!created.isDirectory() || created.isSymbolicLink()) {
+        throw new Error("Startup artifact extraction staging path is unsafe.");
+      }
+    },
+    beforeExtractionPublish: async (actionId) => {
+      const sidecar = await readSidecar(input.transaction.journal);
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry || entry.expectedTree) throw new Error("Startup artifact acquisition preparation is missing or completed.");
+      const serviceRoot = path.resolve(input.transaction.journal.servicesRoot, entry.serviceRelativeRoot);
+      const stagingPath = path.resolve(serviceRoot, entry.extractionStagingRelativePath);
+      const tree = await readArtifactTreeEvidence(serviceRoot, stagingPath);
+      if (!tree) throw new Error("Startup artifact extraction staging tree is missing.");
+      entry.expectedTree = tree;
+      await atomicWriteSidecar(sidecarPath(input.transaction.journal), sidecar);
+      input.transaction.journal = await advanceStartupTransaction(input.transaction.journal, input.transaction.journal.phase, {
+        completedActions: [`artifact_extraction_digest:${actionId}`],
+        materializationDigests: { [actionId]: tree.digest },
+      });
+    },
+    afterExtractionPublish: async (actionId) => {
+      const sidecar = await readSidecar(input.transaction.journal);
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry?.expectedTree || entry.extractionPublished) {
+        throw new Error("Startup artifact extraction publication evidence is missing or completed.");
+      }
+      const serviceRoot = path.resolve(input.transaction.journal.servicesRoot, entry.serviceRelativeRoot);
+      const extractionPath = path.resolve(serviceRoot, entry.extractionRelativePath);
+      const tree = await readArtifactTreeEvidence(serviceRoot, extractionPath);
+      if (!artifactTreeMatches(tree, entry.expectedTree)) {
+        throw new Error("Startup artifact published extraction does not match its staged digest.");
+      }
+      entry.extractionPublished = true;
+      await atomicWriteSidecar(sidecarPath(input.transaction.journal), sidecar);
+      input.transaction.journal = await advanceStartupTransaction(input.transaction.journal, input.transaction.journal.phase, {
+        completedActions: [`artifact_extraction_published:${actionId}`],
+      });
+    },
+    complete: async (actionId, artifact) => {
+      const sidecar = await readSidecar(input.transaction.journal);
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry?.extractionPublished || entry.expectedArtifact) {
+        throw new Error("Startup artifact acquisition publication is missing or completed.");
+      }
+      const serviceRoot = path.resolve(input.transaction.journal.servicesRoot, entry.serviceRelativeRoot);
+      if (normalize(artifact.archivePath ?? "") !== normalize(path.resolve(serviceRoot, entry.archiveRelativePath)) ||
+        normalize(artifact.extractedPath ?? "") !== normalize(path.resolve(serviceRoot, entry.extractionRelativePath))) {
+        throw new Error("Startup artifact lifecycle metadata does not match transaction paths.");
+      }
+      entry.expectedArtifact = parseInstalledArtifactEvidence(artifact);
+      await atomicWriteSidecar(sidecarPath(input.transaction.journal), sidecar);
+      input.transaction.journal = await advanceStartupTransaction(input.transaction.journal, input.transaction.journal.phase, {
+        completedActions: [`artifact_acquired:${actionId}`],
+      });
+    },
+  };
+}
+
+export async function rollbackStartupArtifactAcquisitions(input: {
+  journal: StartupTransactionJournal;
+  discovered: DiscoveredService[];
+}): Promise<StartupArtifactRollbackResult> {
+  let journal = input.journal;
+  const pending = journal.pendingCompensations
+    .filter((action) => action.startsWith("rollback_artifact:"))
+    .map((action) => action.slice("rollback_artifact:".length));
+  if (pending.length === 0) return { journal, completedActionIds: [], blockedActionIds: [] };
+  let sidecar: MaterializationSidecar;
+  try {
+    sidecar = await readSidecar(journal);
+  } catch {
+    return { journal, completedActionIds: [], blockedActionIds: pending };
+  }
+  const discoveredById = new Map(input.discovered.map((service) => [service.manifest.id, service]));
+  const completedActionIds: string[] = [];
+  const blockedActionIds: string[] = [];
+  for (const actionId of [...pending].reverse()) {
+    const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+    const service = entry ? discoveredById.get(entry.serviceId) : undefined;
+    if (!entry || !service ||
+      normalize(service.serviceRoot) !== normalize(path.resolve(journal.servicesRoot, entry.serviceRelativeRoot))) {
+      blockedActionIds.push(actionId);
+      continue;
+    }
+    try {
+      const serviceRoot = service.serviceRoot;
+      const archiveTempPath = path.resolve(serviceRoot, entry.archiveTempRelativePath);
+      const archivePath = path.resolve(serviceRoot, entry.archiveRelativePath);
+      const stagingPath = path.resolve(serviceRoot, entry.extractionStagingRelativePath);
+      const extractionPath = path.resolve(serviceRoot, entry.extractionRelativePath);
+      const currentTree = await readArtifactTreeEvidence(serviceRoot, extractionPath);
+      const stagingTree = await readArtifactTreeEvidence(serviceRoot, stagingPath);
+      const archiveTemp = await readArtifactFileEvidence(serviceRoot, archiveTempPath);
+      const archive = await readArtifactFileEvidence(serviceRoot, archivePath);
+      if (archiveTemp && entry.expectedArchive && (!artifactFileMatches(archiveTemp, entry.expectedArchive) ||
+        (archive && !artifactFileMatches(archive, entry.expectedArchive)))) {
+        throw new Error("Startup artifact cache publish evidence changed while its hard-link temp remained.");
+      }
+      if (currentTree && (!entry.expectedTree || !artifactTreeMatches(currentTree, entry.expectedTree))) {
+        throw new Error("Startup artifact extraction is not attributable to the transaction.");
+      }
+      if (stagingTree && entry.expectedTree && !artifactTreeMatches(stagingTree, entry.expectedTree)) {
+        throw new Error("Startup artifact staging tree changed after digest capture.");
+      }
+      const current = getLifecycleState(entry.serviceId);
+      const currentArtifact = current.installArtifacts.artifact ?? null;
+      const stateIsPrior = artifactEvidenceAgrees(currentArtifact, entry.priorArtifact) && current.installed === entry.priorInstalled;
+      const stateIsExpected = entry.expectedArtifact !== null && artifactEvidenceAgrees(currentArtifact, entry.expectedArtifact);
+      if (!stateIsPrior && !stateIsExpected) {
+        throw new Error("Startup artifact lifecycle state changed outside the transaction.");
+      }
+      if (stateIsExpected) {
+        const installArtifacts = entry.priorArtifact
+          ? { ...current.installArtifacts, artifact: entry.priorArtifact }
+          : withoutInstalledArtifact(current.installArtifacts);
+        const nextState = { ...current, installed: entry.priorInstalled, installArtifacts };
+        await writeServiceState(service, nextState);
+        setLifecycleState(entry.serviceId, nextState);
+      }
+      if (currentTree) await removeTransactionArtifactTree(serviceRoot, extractionPath, entry.expectedTree ?? undefined);
+      if (stagingTree) await removeTransactionArtifactTree(serviceRoot, stagingPath, entry.expectedTree ?? undefined);
+      if (archiveTemp) await unlink(archiveTempPath);
+      journal = await advanceStartupTransaction(journal, journal.phase, {
+        completedActions: [`artifact_rolled_back:${actionId}`],
+        removeCompensations: [`rollback_artifact:${actionId}`],
+      });
+      completedActionIds.push(actionId);
+    } catch {
+      blockedActionIds.push(actionId);
+    }
+  }
+  return { journal, completedActionIds, blockedActionIds };
 }
 
 export function createStartupSetupTransactionHooks(
@@ -946,10 +1532,58 @@ export async function inspectStartupMaterializations(
       actionIds: reconciliationActionIds,
     };
   }
+  const artifactActionIds = journal.pendingCompensations
+    .filter((action) => action.startsWith("rollback_artifact:"))
+    .map((action) => action.slice("rollback_artifact:".length));
+  if (artifactActionIds.length > 0) {
+    let sidecar: MaterializationSidecar;
+    try {
+      sidecar = await readSidecar(journal);
+    } catch {
+      return { status: "blocked", reason: "artifact_sidecar_missing_or_invalid", actionIds: artifactActionIds };
+    }
+    for (const actionId of artifactActionIds) {
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry) return { status: "blocked", reason: "artifact_entry_missing", actionIds: artifactActionIds };
+      try {
+        const serviceRoot = path.resolve(journal.servicesRoot, entry.serviceRelativeRoot);
+        const extractionPath = path.resolve(serviceRoot, entry.extractionRelativePath);
+        const stagingPath = path.resolve(serviceRoot, entry.extractionStagingRelativePath);
+        const archiveTempPath = path.resolve(serviceRoot, entry.archiveTempRelativePath);
+        const archivePath = path.resolve(serviceRoot, entry.archiveRelativePath);
+        const extractionTree = await readArtifactTreeEvidence(serviceRoot, extractionPath);
+        const stagingTree = await readArtifactTreeEvidence(serviceRoot, stagingPath);
+        const archiveTemp = await readArtifactFileEvidence(serviceRoot, archiveTempPath);
+        const archive = await readArtifactFileEvidence(serviceRoot, archivePath);
+        if (archiveTemp && entry.expectedArchive && (!artifactFileMatches(archiveTemp, entry.expectedArchive) ||
+          (archive && !artifactFileMatches(archive, entry.expectedArchive)))) {
+          return { status: "blocked", reason: "artifact_cache_publish_changed", actionIds: artifactActionIds };
+        }
+        if (extractionTree && (!entry.expectedTree || !artifactTreeMatches(extractionTree, entry.expectedTree))) {
+          return { status: "blocked", reason: "artifact_extraction_changed", actionIds: artifactActionIds };
+        }
+        if (stagingTree && entry.expectedTree && !artifactTreeMatches(stagingTree, entry.expectedTree)) {
+          return { status: "blocked", reason: "artifact_staging_changed", actionIds: artifactActionIds };
+        }
+        if (archiveTemp || stagingTree || !entry.extractionPublished || !entry.expectedArtifact || !extractionTree) {
+          return { status: "rollback", reason: "artifact_acquisition_incomplete", actionIds: artifactActionIds };
+        }
+        const expectedTree = entry.expectedTree;
+        if (!expectedTree || journal.materializationDigests[actionId] !== expectedTree.digest) {
+          return { status: "blocked", reason: "artifact_journal_digest_mismatch", actionIds: artifactActionIds };
+        }
+      } catch {
+        return { status: "blocked", reason: "artifact_evidence_unverifiable", actionIds: artifactActionIds };
+      }
+    }
+  }
   const actionIds = journal.pendingCompensations
     .filter((action) => action.startsWith("restore_materialization:"))
     .map((action) => action.slice("restore_materialization:".length));
   if (actionIds.length === 0) {
+    if (artifactActionIds.length > 0) {
+      return { status: "agree", reason: "artifact_evidence_agrees", actionIds: artifactActionIds };
+    }
     return journal.pendingCompensations.includes("discard_materialization_sidecar")
       ? { status: "rollback", reason: "materialization_cleanup_pending", actionIds }
       : { status: "agree", reason: "no_materialization_compensations", actionIds };
@@ -1010,11 +1644,13 @@ export async function completeCommittedStartupMaterializationCleanup(
   const hasMaterializationEvidence = journal.pendingCompensations.some((compensation) =>
     compensation === "discard_materialization_sidecar" ||
     compensation.startsWith("restore_materialization:") ||
+    compensation.startsWith("rollback_artifact:") ||
     compensation.startsWith("verify_setup_output:"),
   ) || journal.completedActions.some((action) =>
     action === "materialization_sidecar_intended" ||
     action === "materialization_commit_cleanup_intended" ||
-    action.startsWith("materialization_preimage:"),
+    action.startsWith("materialization_preimage:") ||
+    action.startsWith("artifact_acquisition_intended:"),
   );
   if (!hasMaterializationEvidence) return journal;
   const rollbackCompensations = journal.pendingCompensations.filter((compensation) =>
@@ -1028,6 +1664,58 @@ export async function completeCommittedStartupMaterializationCleanup(
       completedActions: ["materialization_commit_cleanup_intended"],
       removeCompensations: rollbackCompensations,
     });
+  }
+  const artifactActionIds = journal.pendingCompensations
+    .filter((compensation) => compensation.startsWith("rollback_artifact:"))
+    .map((compensation) => compensation.slice("rollback_artifact:".length));
+  if (artifactActionIds.length > 0) {
+    const sidecar = await readSidecar(journal);
+    for (const actionId of artifactActionIds) {
+      const entry = sidecar.artifactEntries?.find((candidate) => candidate.actionId === actionId);
+      if (!entry) throw new Error("Committed startup artifact evidence is missing.");
+      const serviceRoot = path.resolve(journal.servicesRoot, entry.serviceRelativeRoot);
+      const extractionPath = path.resolve(serviceRoot, entry.extractionRelativePath);
+      const stagingPath = path.resolve(serviceRoot, entry.extractionStagingRelativePath);
+      const archiveTempPath = path.resolve(serviceRoot, entry.archiveTempRelativePath);
+      const archivePath = path.resolve(serviceRoot, entry.archiveRelativePath);
+      const stored = await readStoredState(serviceRoot);
+      if (!isRecord(stored.install) || typeof stored.install.installed !== "boolean") {
+        throw new Error("Committed startup artifact persisted lifecycle evidence is missing.");
+      }
+      const persistedArtifact = parseInstalledArtifactEvidence(stored.install.artifact ?? null);
+      const committedExtraction = stored.install.installed && entry.expectedArtifact !== null &&
+        artifactEvidenceAgrees(persistedArtifact, entry.expectedArtifact);
+      const persistedArtifactIsKnown = artifactEvidenceAgrees(persistedArtifact, entry.priorArtifact) ||
+        (sidecar.artifactEntries ?? []).some((candidate) =>
+          candidate.expectedArtifact !== null && artifactEvidenceAgrees(persistedArtifact, candidate.expectedArtifact));
+      if (!persistedArtifactIsKnown) {
+        throw new Error("Committed startup artifact persisted lifecycle evidence is contradictory.");
+      }
+      const extractionTree = await readArtifactTreeEvidence(serviceRoot, extractionPath);
+      if (extractionTree && (!entry.expectedTree || !artifactTreeMatches(extractionTree, entry.expectedTree))) {
+        throw new Error("Committed startup artifact extraction changed before cleanup.");
+      }
+      if (committedExtraction) {
+        if (!entry.extractionPublished || !entry.expectedTree || !extractionTree) {
+          throw new Error("Committed startup artifact lifecycle state references incomplete extraction evidence.");
+        }
+      } else if (extractionTree) {
+        await removeTransactionArtifactTree(serviceRoot, extractionPath, entry.expectedTree ?? undefined);
+      }
+      const stagingTree = await readArtifactTreeEvidence(serviceRoot, stagingPath);
+      if (stagingTree) await removeTransactionArtifactTree(serviceRoot, stagingPath, entry.expectedTree ?? undefined);
+      const archiveTemp = await readArtifactFileEvidence(serviceRoot, archiveTempPath);
+      const archive = await readArtifactFileEvidence(serviceRoot, archivePath);
+      if (archiveTemp && entry.expectedArchive && (!artifactFileMatches(archiveTemp, entry.expectedArchive) ||
+        (archive && !artifactFileMatches(archive, entry.expectedArchive)))) {
+        throw new Error("Committed startup artifact cache hard-link evidence changed.");
+      }
+      if (archiveTemp) await unlink(archiveTempPath);
+      journal = await advanceStartupTransaction(journal, journal.phase, {
+        completedActions: [`artifact_committed:${actionId}`],
+        removeCompensations: [`rollback_artifact:${actionId}`],
+      });
+    }
   }
   if (journal.pendingCompensations.includes("discard_materialization_sidecar")) {
     await discardStartupMaterializationSidecar(journal);

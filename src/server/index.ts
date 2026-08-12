@@ -217,12 +217,15 @@ import {
 import { inspectStartupRecovery, type StartupRecoveryInspection } from "../runtime/startup/recovery.js";
 import {
   completeCommittedStartupMaterializationCleanup,
+  createStartupArtifactAcquisitionHooks,
   createStartupMaterializationHooks,
   createStartupSetupTransactionHooks,
   discardStartupMaterializationSidecar,
   reconcileStartupMaterializationLifecycleState,
+  rollbackStartupArtifactAcquisitions,
   rollbackStartupMaterializations,
   type MaterializationWriteHooks,
+  type StartupArtifactAcquisitionHooks,
   type StartupMaterializationKind,
 } from "../runtime/startup/materialization.js";
 import type { SetupTransactionHooks } from "../runtime/setup/steps.js";
@@ -1559,6 +1562,7 @@ async function executeRuntimeOrchestrationAction(
     service: DiscoveredService,
     kind: StartupMaterializationKind,
   ) => MaterializationWriteHooks,
+  artifactAcquisitionHooksFor?: (service: DiscoveredService) => StartupArtifactAcquisitionHooks,
   setupTransactionHooks?: SetupTransactionHooks,
 ): Promise<RuntimeOrchestrationResponse> {
   const plannedPortsByService = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined;
@@ -1569,6 +1573,7 @@ async function executeRuntimeOrchestrationAction(
     allocationRevision: allocationPlan?.allocationId,
     plannedPortsByService,
     materializationHooksFor,
+    artifactAcquisitionHooksFor,
     setupTransactionHooks,
     onServiceStarting: async (service: DiscoveredService) => {
       await onServiceStarting?.(service);
@@ -1826,15 +1831,27 @@ async function compensateStartupMaterializations(
   for (const actionId of reconciliation.blockedActionIds) {
     failures.push(`materialization_state_reconciliation_blocked:${actionId}`);
   }
+  const artifactRollback = await rollbackStartupArtifactAcquisitions({
+    journal: transaction.journal,
+    discovered,
+  });
+  transaction.journal = artifactRollback.journal;
+  for (const actionId of artifactRollback.blockedActionIds) {
+    failures.push(`artifact_rollback_blocked:${actionId}`);
+  }
   const materializationRestoresRemain = transaction.journal.pendingCompensations.some(
     (compensation) => compensation.startsWith("restore_materialization:"),
   );
   const materializationStateReconciliationRemains = transaction.journal.pendingCompensations.some(
     (compensation) => compensation.startsWith("reconcile_materialization_state:"),
   );
+  const artifactRollbackRemains = transaction.journal.pendingCompensations.some(
+    (compensation) => compensation.startsWith("rollback_artifact:"),
+  );
   if (
     !materializationRestoresRemain &&
     !materializationStateReconciliationRemains &&
+    !artifactRollbackRemains &&
     transaction.journal.pendingCompensations.includes("discard_materialization_sidecar")
   ) {
     try {
@@ -4382,6 +4399,12 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       journal: await activateStartupTransactionRecovery(recovery.journal!, "resume"),
     };
     try {
+      await rehydrateDiscoveredServices(recoveryModel.discovered, {
+        workspaceRoot: config.workspaceRoot,
+        runtimeGenerationId: recovery.journal!.generationId,
+        runtimeInstanceId: recovery.journal!.instanceId,
+        allocationRevision: recovery.journal!.allocationRevision,
+      });
       committed.journal = await completeCommittedStartupMaterializationCleanup(committed.journal);
       committed.journal = await settleStartupTransaction(committed.journal, "committed", {
         completedActions: ["recovery_commit_cleanup_completed"],
@@ -4747,6 +4770,7 @@ async function startApiServerGeneration(
           );
         },
         (service, kind) => createStartupMaterializationHooks({ transaction, service, kind }),
+        (service) => createStartupArtifactAcquisitionHooks({ transaction, service }),
         createStartupSetupTransactionHooks(transaction),
       );
     }
