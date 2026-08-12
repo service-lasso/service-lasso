@@ -308,6 +308,9 @@ export interface RunningApiServer {
   server: Server;
   port: number;
   url: string;
+  instanceId: string;
+  generationId: string;
+  ownerPid: number;
   endpointAllocationPlan: RuntimeEndpointAllocationPlan;
   monitor: RuntimeServiceMonitor | null;
   updateScheduler: RuntimeUpdateScheduler | null;
@@ -4225,6 +4228,9 @@ async function startApiServerGeneration(
     server,
     port: resolvedPort,
     url: instance.apiUrl,
+    instanceId: instance.instanceId,
+    generationId: instance.generationId,
+    ownerPid: instance.pid,
     endpointAllocationPlan: allocationPlan,
     monitor,
     updateScheduler,
