@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - name: Check out repo
@@ -22,6 +23,9 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
+
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.18.0
 
       - name: Install dependencies
         run: npm ci
@@ -62,16 +66,6 @@ jobs:
         with:
           name: ${{ steps.publish_version.outputs.artifact_name }}
           path: artifacts/npm/${{ steps.publish_version.outputs.artifact_name }}
-
-      - name: Check npm token is configured
-        if: steps.package_exists.outputs.exists != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN repository secret is required to publish @service-lasso/service-lasso to npm." >&2
-            exit 1
-          fi
 
       - name: Publish package to npm
         if: steps.package_exists.outputs.exists != 'true'
