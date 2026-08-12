@@ -3,7 +3,13 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildReachabilityTargets } from "./demo-verify-canonical.mjs";
-import { discoverOwningRuntime, ownerExitFailure, RuntimeOwnerFailure } from "./runtime-owner.mjs";
+import {
+  discoverOwningRuntime,
+  observeBoundedJsonObject,
+  ownerExitFailure,
+  RuntimeOwnerFailure,
+  waitForBaselineCompletion,
+} from "./runtime-owner.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
@@ -168,11 +174,8 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
     },
   );
 
-  let stdoutBytes = 0;
+  const bootstrapOutput = observeBoundedJsonObject(child.stdout);
   let stderrBytes = 0;
-  child.stdout?.on("data", (chunk) => {
-    stdoutBytes += chunk.length;
-  });
   child.stderr?.on("data", (chunk) => {
     stderrBytes += chunk.length;
   });
@@ -190,7 +193,8 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
     closed,
     pid: child.pid,
     get exit() { return exit; },
-    get stdoutBytes() { return stdoutBytes; },
+    bootstrapOutput,
+    get stdoutBytes() { return bootstrapOutput.bytes; },
     get stderrBytes() { return stderrBytes; },
   };
 }
@@ -390,6 +394,14 @@ try {
   const health = activeRuntimeIdentity.health;
   console.error(`[service-lasso e2e] owning runtime generation ${activeRuntimeIdentity.generationId} pid ${activeRuntimeIdentity.ownerPid} selected API port ${new URL(apiUrl).port}`);
   assert(health.status === "ok" && health.api?.status === "up", "Core API health did not report ok/up.");
+  verificationStep = "baseline_completion";
+  await waitForBaselineCompletion({
+    owner: cli,
+    runtime: activeRuntimeIdentity,
+    output: cli.bootstrapOutput,
+    servicesRoot,
+    workspaceRoot,
+  });
 
   verificationStep = "service_catalog";
   const services = await waitForJson(`${apiUrl}/api/services`);

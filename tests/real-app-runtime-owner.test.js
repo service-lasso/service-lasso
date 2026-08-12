@@ -5,7 +5,13 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { discoverOwningRuntime, RuntimeOwnerFailure } from "../scripts/runtime-owner.mjs";
+import { PassThrough } from "node:stream";
+import {
+  discoverOwningRuntime,
+  observeBoundedJsonObject,
+  RuntimeOwnerFailure,
+  waitForBaselineCompletion,
+} from "../scripts/runtime-owner.mjs";
 
 const fixtureSource = String.raw`
   import { mkdir, writeFile } from "node:fs/promises";
@@ -39,6 +45,21 @@ const fixtureSource = String.raw`
       status: "active"
     }));
     process.send({ type: "ready", port });
+    if (mode === "delayed-bootstrap") {
+      setTimeout(() => console.log(JSON.stringify({
+        schema: "service-lasso.baseline-start.v1",
+        status: "completed",
+        instanceId: "fixture-instance",
+        generationId: "fixture-generation",
+        ownerPid: process.pid,
+        apiUrl: "http://127.0.0.1:" + port,
+        servicesRoot,
+        workspaceRoot,
+        requestedServiceIds: ["fixture-service"],
+        serviceOrder: ["fixture-service"],
+        services: [{ serviceId: "fixture-service", status: "completed" }]
+      })), 300);
+    }
     if (mode === "exit") {
       process.on("message", (message) => {
         if (message === "exit") process.exit(23);
@@ -141,6 +162,45 @@ test("real-app owner discovery reports a prompt typed redacted subprocess exit",
   }
 });
 
+test("real-app verification waits for owner-bound baseline completion after API health", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-delayed-bootstrap-"));
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const servicesRoot = path.join(tempRoot, "services");
+  await Promise.all([mkdir(workspaceRoot, { recursive: true }), mkdir(servicesRoot, { recursive: true })]);
+  const child = spawn(process.execPath, ["--input-type=module", "-e", fixtureSource], {
+    env: { ...process.env, FIXTURE_WORKSPACE_ROOT: workspaceRoot, FIXTURE_SERVICES_ROOT: servicesRoot, FIXTURE_MODE: "delayed-bootstrap" },
+    stdio: ["ignore", "pipe", "ignore", "ipc"],
+    windowsHide: true,
+  });
+  const owner = ownerFor(child);
+  const output = observeBoundedJsonObject(child.stdout);
+  let runtimePort = null;
+
+  try {
+    const ready = await waitForReady(child);
+    runtimePort = ready.port;
+    const runtime = await discoverOwningRuntime({ owner, servicesRoot, workspaceRoot, publishTimeoutMs: 2_000, healthTimeoutMs: 2_000 });
+    assert.equal(output.bytes, 0, "API health must become available before the delayed bootstrap result");
+    const startedAt = Date.now();
+    const completion = await waitForBaselineCompletion({
+      owner,
+      runtime,
+      output,
+      servicesRoot,
+      workspaceRoot,
+      timeoutMs: 2_000,
+    });
+    assert.equal(completion.status, "completed");
+    assert.equal(completion.ownerPid, child.pid);
+    assert.ok(Date.now() - startedAt >= 150, "verification must not treat API health as baseline completion");
+  } finally {
+    child.kill("SIGTERM");
+    await owner.closed;
+    assert.equal(await hasListener(runtimePort), false);
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("real-app owner discovery classifies resource-exhaustion exits without raw process output", async () => {
   const owner = {
     pid: 4242,
@@ -164,4 +224,79 @@ test("real-app owner discovery classifies resource-exhaustion exits without raw 
       return true;
     },
   );
+});
+
+test("baseline completion contract mismatch emits metadata-only diagnostics", async () => {
+  const servicesRoot = path.join(os.tmpdir(), "services-contract-secret");
+  const workspaceRoot = path.join(os.tmpdir(), "workspace-contract-secret");
+  const owner = { pid: 4343, exit: null, closed: new Promise(() => {}) };
+  const runtime = {
+    apiUrl: "http://127.0.0.1:18123",
+    instanceId: "fixture-instance",
+    generationId: "fixture-generation",
+    record: {
+      instanceId: "fixture-instance",
+      generationId: "fixture-generation",
+      pid: owner.pid,
+      apiPort: 18123,
+      phase: "running",
+      status: "active",
+      servicesRoot,
+      workspaceRoot,
+    },
+  };
+
+  await assert.rejects(
+    waitForBaselineCompletion({
+      owner,
+      runtime,
+      output: { value: Promise.resolve({ schema: "wrong-contract", secret: "value-sentinel" }), bytes: 55 },
+      servicesRoot,
+      workspaceRoot,
+      timeoutMs: 100,
+    }),
+    (error) => {
+      assert.ok(error instanceof RuntimeOwnerFailure);
+      assert.equal(error.code, "baseline_output_invalid");
+      assert.equal(error.diagnostic.causeClass, "contract_mismatch");
+      const serialized = JSON.stringify(error.diagnostic);
+      assert.doesNotMatch(serialized, /contract-secret|value-sentinel|servicesRoot|workspaceRoot|apiUrl/i);
+      return true;
+    },
+  );
+});
+
+test("ended incomplete baseline output fails promptly instead of waiting for completion timeout", async () => {
+  const servicesRoot = path.join(os.tmpdir(), "ended-services");
+  const workspaceRoot = path.join(os.tmpdir(), "ended-workspace");
+  const owner = { pid: 4444, exit: null, closed: new Promise(() => {}) };
+  const runtime = {
+    apiUrl: "http://127.0.0.1:18124",
+    instanceId: "fixture-instance",
+    generationId: "fixture-generation",
+    record: {
+      instanceId: "fixture-instance",
+      generationId: "fixture-generation",
+      pid: owner.pid,
+      apiPort: 18124,
+      phase: "running",
+      status: "active",
+    },
+  };
+  const stdout = new PassThrough();
+  const output = observeBoundedJsonObject(stdout);
+  stdout.end('{"schema":"service-lasso.baseline-start.v1"');
+  const startedAt = Date.now();
+
+  await assert.rejects(
+    waitForBaselineCompletion({ owner, runtime, output, servicesRoot, workspaceRoot, timeoutMs: 10_000 }),
+    (error) => {
+      assert.ok(error instanceof RuntimeOwnerFailure);
+      assert.equal(error.code, "baseline_output_invalid");
+      assert.equal(error.diagnostic.causeClass, "output_stream_ended");
+      assert.ok(error.diagnostic.outputBytes > 0);
+      return true;
+    },
+  );
+  assert.ok(Date.now() - startedAt < 1_000, "incomplete closed stdout must fail promptly");
 });

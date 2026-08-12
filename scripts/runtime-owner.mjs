@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 const DIAGNOSTIC_SCHEMA = "service-lasso.runtime-owner-failure.v1";
+const BASELINE_START_SCHEMA = "service-lasso.baseline-start.v1";
 const ACTIVE_PHASES = new Set(["starting", "running"]);
 
 function sleep(ms) {
@@ -61,6 +63,68 @@ export class RuntimeOwnerFailure extends Error {
     this.diagnostic = details;
     this.cleanupApiUrl = cleanupApiUrl;
   }
+}
+
+export function observeBoundedJsonObject(stream, maxBytes = 2 * 1024 * 1024) {
+  let bytes = 0;
+  let buffer = "";
+  let settled = false;
+  const decoder = new StringDecoder("utf8");
+  let resolveValue;
+  let rejectValue;
+  const value = new Promise((resolve, reject) => {
+    resolveValue = resolve;
+    rejectValue = reject;
+  });
+
+  stream.on("data", (chunk) => {
+    if (settled) return;
+    bytes += chunk.length;
+    if (bytes > maxBytes) {
+      settled = true;
+      buffer = "";
+      rejectValue(new Error("bounded_output_limit"));
+      return;
+    }
+    buffer += decoder.write(chunk);
+    try {
+      const parsed = JSON.parse(buffer);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        settled = true;
+        buffer = "";
+        resolveValue(parsed);
+      }
+    } catch {
+      // Pretty-printed JSON is incomplete until the final chunk arrives.
+    }
+  });
+
+  const rejectStream = (code) => {
+    if (!settled) {
+      settled = true;
+      buffer = "";
+      rejectValue(new Error(code));
+    }
+  };
+  const finishStream = () => {
+    if (settled) return;
+    buffer += decoder.end();
+    try {
+      const parsed = JSON.parse(buffer);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        settled = true;
+        buffer = "";
+        resolveValue(parsed);
+        return;
+      }
+    } catch {}
+    rejectStream("output_stream_ended");
+  };
+  stream.once("error", () => rejectStream("output_stream_error"));
+  stream.once("end", finishStream);
+  stream.once("close", finishStream);
+
+  return { value, get bytes() { return bytes; } };
 }
 
 export function ownerExitFailure(owner, record = null) {
@@ -195,4 +259,86 @@ export async function discoverOwningRuntime({
     diagnostic("owning_api_unreachable", owner, validated.record, { causeClass: "health_timeout" }),
     validated.apiUrl,
   );
+}
+
+export async function waitForBaselineCompletion({
+  owner,
+  runtime,
+  output,
+  servicesRoot,
+  workspaceRoot,
+  timeoutMs = 10 * 60_000,
+}) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+    timer.unref?.();
+  });
+  const outcome = await Promise.race([
+    output.value.then(
+      (payload) => ({ kind: "payload", payload }),
+      (error) => ({ kind: "output_error", error }),
+    ),
+    owner.closed.then(() => ({ kind: "owner_exit" })),
+    timeout,
+  ]);
+  clearTimeout(timer);
+
+  if (outcome.kind === "owner_exit" || owner.exit) {
+    throw ownerExitFailure(owner, runtime.record);
+  }
+  if (outcome.kind === "timeout") {
+    throw new RuntimeOwnerFailure(
+      diagnostic("baseline_completion_timeout", owner, runtime.record, {
+        causeClass: "completion_timeout",
+        outputBytes: output.bytes,
+      }),
+      runtime.apiUrl,
+    );
+  }
+  if (outcome.kind === "output_error") {
+    const causeClass = outcome.error?.message === "bounded_output_limit"
+      ? "output_limit"
+      : outcome.error?.message === "output_stream_ended"
+        ? "output_stream_ended"
+        : "output_stream_error";
+    throw new RuntimeOwnerFailure(
+      diagnostic("baseline_output_invalid", owner, runtime.record, {
+        causeClass,
+        outputBytes: output.bytes,
+      }),
+      runtime.apiUrl,
+    );
+  }
+
+  const payload = outcome.payload;
+  const valid =
+    payload.schema === BASELINE_START_SCHEMA &&
+    payload.status === "completed" &&
+    payload.ownerPid === owner.pid &&
+    payload.instanceId === runtime.instanceId &&
+    payload.generationId === runtime.generationId &&
+    payload.apiUrl === runtime.apiUrl &&
+    samePath(payload.servicesRoot, servicesRoot) &&
+    samePath(payload.workspaceRoot, workspaceRoot) &&
+    Array.isArray(payload.requestedServiceIds) &&
+    payload.requestedServiceIds.every((entry) => typeof entry === "string") &&
+    Array.isArray(payload.serviceOrder) &&
+    payload.serviceOrder.every((entry) => typeof entry === "string") &&
+    Array.isArray(payload.services) &&
+    payload.services.every((entry) =>
+      entry && typeof entry === "object" && typeof entry.serviceId === "string" &&
+      (entry.status === "completed" || entry.status === "skipped")
+    );
+  if (!valid) {
+    throw new RuntimeOwnerFailure(
+      diagnostic("baseline_output_invalid", owner, runtime.record, {
+        causeClass: "contract_mismatch",
+        outputBytes: output.bytes,
+      }),
+      runtime.apiUrl,
+    );
+  }
+
+  return payload;
 }
