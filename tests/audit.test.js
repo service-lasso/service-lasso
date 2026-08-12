@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { createServer } from "node:http";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { appendAuditEvent, readAuditEvents } from "../dist/runtime/audit/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 async function getJson(url) {
@@ -131,6 +132,18 @@ function createAuditUpdateManifest(releaseServer) {
       mode: "notify",
       track: "latest",
     },
+  };
+}
+
+function createAuditInput(overrides = {}) {
+  return {
+    source: "runtime",
+    action: "runtime.test",
+    actor: "operator:test",
+    outcome: "success",
+    statusCode: 200,
+    summary: "Runtime test completed",
+    ...overrides,
   };
 }
 
@@ -397,7 +410,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(workflowParamSearch.body.pagination.total, 0);
     assert.equal(JSON.stringify(audit.body).includes("SUPER_SECRET_VALUE"), false);
 
-    const serviceAuditFile = path.join(serviceRoot, ".state", "audit", "events.jsonl");
+    const serviceAuditFile = path.join(serviceRoot, ".state", "audit", `${new Date().toISOString().slice(0, 10)}.jsonl`);
     const runtimeAuditFile = path.join(workspaceRoot, ".service-lasso", "audit", "runtime", `${new Date().toISOString().slice(0, 10)}.jsonl`);
     assert.doesNotMatch(await readFile(serviceAuditFile, "utf8"), /SUPER_SECRET_VALUE/u);
     assert.doesNotMatch(await readFile(serviceAuditFile, "utf8"), /AUDIT_SECRET_OUTPUT/u);
@@ -407,6 +420,40 @@ test("audit API returns durable safe service and runtime mutation events after r
     await apiServer.stop().catch(() => undefined);
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
+  }
+});
+
+test("audit store keeps service events in portable date-bucket JSONL files", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-portable-");
+  const serviceRoot = path.join(servicesRoot, "portable-service");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const event = await appendAuditEvent(createAuditInput({
+      serviceRoot,
+      serviceId: "portable-service",
+      source: "service",
+      action: "service.lifecycle.install",
+      summary: "Service portable-service installed",
+    }));
+    const auditFile = path.join(serviceRoot, ".state", "audit", `${event.timestamp.slice(0, 10)}.jsonl`);
+    const raw = await readFile(auditFile, "utf8");
+
+    assert.equal(raw.trim().split(/\r?\n/u).length, 1);
+    assert.match(raw, /service\.lifecycle\.install/u);
+
+    const movedRoot = path.join(servicesRoot, "portable-service-copy");
+    await rename(serviceRoot, movedRoot);
+    const result = await readAuditEvents({
+      serviceRoots: [movedRoot],
+      query: { serviceId: "portable-service" },
+    });
+
+    assert.equal(result.chainStatus, "verified");
+    assert.equal(result.pagination.total, 1);
+    assert.equal(result.events[0].id, event.id);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
