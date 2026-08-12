@@ -15,6 +15,7 @@ import {
   classifyProcessIdentity,
   inspectProcess,
   type ProcessFingerprint,
+  type ProcessIdentityClassification,
 } from "../process/identity.js";
 import {
   readPortReservationLedger,
@@ -83,6 +84,21 @@ export interface RuntimeEndpointAllocationPlan {
   endpoints: RuntimeResolvedEndpointAllocation[];
 }
 
+export type RuntimeEndpointAllocationRecoveryStatus =
+  | "recoverable"
+  | "active_owner"
+  | "unknown_owner"
+  | "missing"
+  | "mismatch"
+  | "released";
+
+export interface RuntimeEndpointAllocationRecoveryInspection {
+  status: RuntimeEndpointAllocationRecoveryStatus;
+  reason: string;
+  allocationId: string;
+  ownerStatuses: ProcessIdentityClassification[];
+}
+
 interface HostEndpointAllocation extends RuntimeResolvedEndpointAllocation {
   allocationId: string;
   laneId: string;
@@ -145,6 +161,14 @@ export class RuntimeEndpointAllocationError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function samePath(left: string, right: string): boolean {
+  const normalize = (value: string) => {
+    const resolved = path.resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  return normalize(left) === normalize(right);
 }
 
 function isUsablePort(value: unknown): value is number {
@@ -460,6 +484,130 @@ async function activeHostAllocations(registry: HostEndpointAllocationRegistry): 
     }
   }
   return active;
+}
+
+function hostAllocationMatchesPlan(
+  entry: HostEndpointAllocation,
+  endpoint: RuntimeResolvedEndpointAllocation,
+  plan: RuntimeEndpointAllocationPlan,
+): boolean {
+  return entry.allocationId === plan.allocationId &&
+    entry.laneId === plan.laneId &&
+    entry.generationId === plan.generationId &&
+    samePath(entry.workspaceRoot, plan.workspaceRoot) &&
+    entry.ownerType === endpoint.ownerType &&
+    entry.ownerId === endpoint.ownerId &&
+    entry.endpointId === endpoint.endpointId &&
+    entry.host === endpoint.host &&
+    entry.transport === endpoint.transport &&
+    entry.port === endpoint.port;
+}
+
+async function inspectAllocationRecoveryInRegistry(
+  registry: HostEndpointAllocationRegistry,
+  plan: RuntimeEndpointAllocationPlan,
+): Promise<RuntimeEndpointAllocationRecoveryInspection> {
+  if (plan.phase === "released") {
+    return {
+      status: "released",
+      reason: "workspace_allocation_released",
+      allocationId: plan.allocationId,
+      ownerStatuses: [],
+    };
+  }
+  const entries = registry.allocations.filter((entry) => entry.allocationId === plan.allocationId);
+  if (entries.length === 0) {
+    return {
+      status: "missing",
+      reason: "host_allocation_missing",
+      allocationId: plan.allocationId,
+      ownerStatuses: [],
+    };
+  }
+  const exact = plan.endpoints.every((endpoint) =>
+    entries.some((entry) => hostAllocationMatchesPlan(entry, endpoint, plan)),
+  ) && entries.length === plan.endpoints.length;
+  if (!exact) {
+    return {
+      status: "mismatch",
+      reason: "host_allocation_does_not_match_workspace_plan",
+      allocationId: plan.allocationId,
+      ownerStatuses: [],
+    };
+  }
+
+  const inspections = new Map<number, Awaited<ReturnType<typeof inspectProcess>>>();
+  const ownerStatuses: ProcessIdentityClassification[] = [];
+  for (const entry of entries) {
+    let inspection = inspections.get(entry.reservationIdentity.pid);
+    if (!inspection) {
+      inspection = await inspectProcess(entry.reservationIdentity.pid);
+      inspections.set(entry.reservationIdentity.pid, inspection);
+    }
+    ownerStatuses.push(classifyProcessIdentity(entry.reservationIdentity, inspection));
+  }
+  if (ownerStatuses.includes("unknown_owner")) {
+    return {
+      status: "unknown_owner",
+      reason: "host_allocation_owner_unverifiable",
+      allocationId: plan.allocationId,
+      ownerStatuses,
+    };
+  }
+  if (ownerStatuses.includes("owned")) {
+    return {
+      status: "active_owner",
+      reason: "host_allocation_owner_still_running",
+      allocationId: plan.allocationId,
+      ownerStatuses,
+    };
+  }
+  return {
+    status: "recoverable",
+    reason: "host_allocation_owner_ended",
+    allocationId: plan.allocationId,
+    ownerStatuses,
+  };
+}
+
+export async function inspectRuntimeEndpointAllocationRecovery(
+  plan: RuntimeEndpointAllocationPlan,
+): Promise<RuntimeEndpointAllocationRecoveryInspection> {
+  return await inspectAllocationRecoveryInRegistry(await readHostRegistry(), plan);
+}
+
+export async function claimRuntimeEndpointAllocation(
+  plan: RuntimeEndpointAllocationPlan,
+): Promise<RuntimeEndpointAllocationPlan> {
+  const release = await acquireHostAllocationLock();
+  try {
+    const registry = await readHostRegistry();
+    const inspection = await inspectAllocationRecoveryInRegistry(registry, plan);
+    if (inspection.status !== "recoverable") {
+      throw new Error(
+        `Cannot claim runtime endpoint allocation ${plan.allocationId}: ${inspection.reason}.`,
+      );
+    }
+    const current = await inspectProcess(process.pid);
+    if (current.status !== "running") {
+      throw new Error(`Cannot verify recovering endpoint allocation owner: ${current.reason}.`);
+    }
+    const now = new Date().toISOString();
+    const claimed = { ...plan, updatedAt: now } satisfies RuntimeEndpointAllocationPlan;
+    // Updating the workspace timestamp is non-authoritative. Persist it before
+    // the host owner swap so any write failure leaves the host claim untouched.
+    await atomicWriteJson(getRuntimeEndpointAllocationPlanPath(plan.workspaceRoot), claimed);
+    await atomicWriteJson(getHostEndpointAllocationRegistryPath(), {
+      version: 1,
+      updatedAt: now,
+      allocations: registry.allocations.map((entry) => entry.allocationId === plan.allocationId
+        ? { ...entry, reservationIdentity: current.identity, updatedAt: now }
+        : entry),
+    } satisfies HostEndpointAllocationRegistry);
+    return claimed;
+  } finally {
+    await release();
+  }
 }
 
 async function probeTcpPort(port: number, host: string): Promise<boolean> {

@@ -63,6 +63,7 @@ export interface PreparedStartOptions extends Pick<
   "workspaceRoot" | "runtimeGenerationId" | "runtimeInstanceId" | "allocationRevision"
 > {
   plannedPortsByService?: Record<string, Record<string, number>>;
+  onServiceStarting?: (service: DiscoveredService) => Promise<void>;
   onServiceStarted?: (service: DiscoveredService, result: LifecycleActionResult) => Promise<void>;
 }
 
@@ -109,6 +110,7 @@ export async function prepareAndStartService(
     return { result: null, skippedReason: "not_startable", state };
   }
 
+  await options.onServiceStarting?.(service);
   const result = await startService(service, registry, serviceActionOptions(serviceId, options));
   await writeServiceState(service, result.state);
   state = result.state;

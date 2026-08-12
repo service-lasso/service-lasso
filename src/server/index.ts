@@ -161,6 +161,7 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import {
+  claimRuntimeEndpointAllocation,
   planAndReserveRuntimeEndpoints,
   readRuntimeEndpointAllocationPlan,
   releaseRuntimeEndpointAllocation,
@@ -198,18 +199,22 @@ import {
   createRuntimeInstanceSnapshot,
   markRuntimeInstanceStopped,
   publishRuntimeGeneration,
+  recoverRuntimeGeneration,
   refreshRuntimeInstanceLease,
   registerRuntimeInstance,
   resolveRuntimeInstanceId,
 } from "../runtime/instance/registry.js";
 import {
   STARTUP_TRANSACTION_PHASES,
+  StartupTransactionRecoveryRequiredError,
+  activateStartupTransactionRecovery,
   advanceStartupTransaction,
   beginStartupTransaction,
   settleStartupTransaction,
   type StartupTransactionJournal,
   type StartupTransactionPhase,
 } from "../runtime/startup/transaction.js";
+import { inspectStartupRecovery, type StartupRecoveryInspection } from "../runtime/startup/recovery.js";
 import {
   exampleWorkflowPackageCatalog,
   listWorkflowPackagesSecretSafe,
@@ -298,6 +303,7 @@ export interface ApiServerOptions {
     }) => Promise<void>;
   };
   startupTransactionTestHooks?: {
+    beforeRecoveryGeneration?: (context: { journal: StartupTransactionJournal }) => Promise<void>;
     afterPhase?: (context: {
       phase: StartupTransactionPhase;
       journal: StartupTransactionJournal;
@@ -1530,6 +1536,7 @@ async function executeRuntimeOrchestrationAction(
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
   onServiceStarted?: (service: DiscoveredService) => Promise<void>,
+  onServiceStarting?: (service: DiscoveredService) => Promise<void>,
 ): Promise<RuntimeOrchestrationResponse> {
   const plannedPortsByService = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined;
   const preparedStartOptions = {
@@ -1538,6 +1545,9 @@ async function executeRuntimeOrchestrationAction(
     runtimeInstanceId,
     allocationRevision: allocationPlan?.allocationId,
     plannedPortsByService,
+    onServiceStarting: async (service: DiscoveredService) => {
+      await onServiceStarting?.(service);
+    },
     onServiceStarted: async (service: DiscoveredService) => {
       await onServiceStarted?.(service);
     },
@@ -1681,6 +1691,7 @@ async function compensateTransactionStartedServices(
   runtimeModel: RuntimeModel,
   serviceIds: ReadonlySet<string>,
   generationId: string,
+  workspaceRoot: string,
   transaction: StartupTransactionContext,
 ): Promise<string[]> {
   const failures: string[] = [];
@@ -1696,14 +1707,51 @@ async function compensateTransactionStartedServices(
       failures.push(`missing_service:${serviceId}`);
       continue;
     }
+    const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
     if (state.running && state.runtime.generationId !== generationId) {
       failures.push(`generation_mismatch:${serviceId}`);
       continue;
     }
     try {
       if (state.running) {
-        const stopped = await stopService(service);
-        await writeServiceState(service, stopped.state);
+        if (!ownership) {
+          failures.push(`ownership_missing:${serviceId}`);
+          continue;
+        } else {
+          if (ownership.generationId !== generationId) {
+            failures.push(`ownership_generation_mismatch:${serviceId}`);
+            continue;
+          }
+          const ownershipStatus = await classifyRegisteredProcess(ownership);
+          if (ownershipStatus === "unknown_owner") {
+            failures.push(`ownership_unverifiable:${serviceId}`);
+            continue;
+          }
+          if (ownershipStatus === "owned") {
+            const stopped = await stopService(service);
+            await writeServiceState(service, stopped.state);
+          } else {
+            const stoppedState = setLifecycleState(serviceId, {
+              ...state,
+              running: false,
+              runtime: {
+                ...state.runtime,
+                pid: null,
+                finishedAt: new Date().toISOString(),
+                lastTermination: "exited",
+              },
+            });
+            await writeServiceState(service, stoppedState);
+            await transitionProcessOwnership(
+              workspaceRoot,
+              "service",
+              serviceId,
+              "stopped",
+              ownershipStatus,
+              ownership.pid ?? undefined,
+            );
+          }
+        }
       }
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
@@ -1729,7 +1777,6 @@ async function compensateRuntimeStartupResources(input: {
   startedServiceIds: ReadonlySet<string>;
   allocationPlan?: RuntimeEndpointAllocationPlan;
   server?: Server;
-  instanceRegistered?: boolean;
   monitor?: RuntimeServiceMonitor | null;
   updateScheduler?: RuntimeUpdateScheduler | null;
   telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
@@ -1738,6 +1785,7 @@ async function compensateRuntimeStartupResources(input: {
     input.runtimeModel,
     input.startedServiceIds,
     input.generationId,
+    input.config.workspaceRoot,
     input.transaction,
   );
 
@@ -1756,7 +1804,7 @@ async function compensateRuntimeStartupResources(input: {
     }
   }
 
-  if (input.instanceRegistered && input.transaction.journal.pendingCompensations.includes("stop_runtime_instance")) {
+  if (input.transaction.journal.pendingCompensations.includes("stop_runtime_instance")) {
     try {
       await markRuntimeInstanceStopped(input.config, input.generationId);
       input.transaction.journal = await advanceStartupTransaction(
@@ -1795,7 +1843,7 @@ async function compensateRuntimeStartupResources(input: {
             input.instanceId,
             "stopped",
             "not_running",
-            process.pid,
+            ownership.pid ?? undefined,
           );
         }
         input.transaction.journal = await advanceStartupTransaction(
@@ -1828,6 +1876,56 @@ async function compensateRuntimeStartupResources(input: {
     }
   }
   return failures;
+}
+
+async function rollbackInterruptedStartup(
+  config: RuntimeConfig,
+  runtimeModel: RuntimeModel,
+  recovery: StartupRecoveryInspection,
+  transaction: StartupTransactionContext,
+): Promise<void> {
+  await rehydrateDiscoveredServices(runtimeModel.discovered, {
+    workspaceRoot: config.workspaceRoot,
+    runtimeGenerationId: recovery.journal!.generationId,
+    runtimeInstanceId: recovery.journal!.instanceId,
+    allocationRevision: recovery.journal!.allocationRevision,
+    adoptServiceIds: new Set(
+      recovery.services.filter((service) => service.ownership === "owned").map((service) => service.serviceId),
+    ),
+  });
+  const failures = await compensateRuntimeStartupResources({
+    config,
+    runtimeModel,
+    generationId: recovery.journal!.generationId,
+    instanceId: recovery.journal!.instanceId,
+    transaction,
+    startedServiceIds: new Set(recovery.journal!.startedServiceIds),
+    allocationPlan: recovery.allocationPlan ?? undefined,
+  });
+  if (transaction.journal.pendingCompensations.includes("mark_generation_failed")) {
+    try {
+      await publishRuntimeGeneration(config, transaction.journal.generationId, { phase: "failed" });
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["generation_failed"],
+          removeCompensations: ["mark_generation_failed"],
+        },
+      );
+    } catch {
+      failures.push("generation_failure_publication_failed");
+    }
+  }
+  if (failures.length > 0 || transaction.journal.pendingCompensations.length > 0) {
+    transaction.journal = await settleStartupTransaction(transaction.journal, "blocked", {
+      failureCode: failures[0] ?? "startup_recovery_incomplete",
+    });
+    throw new StartupTransactionRecoveryRequiredError(transaction.journal);
+  }
+  transaction.journal = await settleStartupTransaction(transaction.journal, "rolled_back", {
+    completedActions: ["recovery_rollback_completed"],
+  });
 }
 
 async function routeWorkflowFacadeRequest(
@@ -4167,28 +4265,88 @@ function isAddressInUse(error: unknown): boolean {
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
-  const generationId = createRuntimeGenerationId();
-  const transaction = {
-    journal: await beginStartupTransaction({
+  const recoveryModel = await loadRuntimeModel(config.servicesRoot);
+  const recovery = await inspectStartupRecovery(config, recoveryModel.discovered);
+  let recoveryAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
+  let recoveryAdoptServiceIds: ReadonlySet<string> | undefined;
+  let generationId = createRuntimeGenerationId();
+  let journal: StartupTransactionJournal;
+  let recoveredGeneration: Awaited<ReturnType<typeof recoverRuntimeGeneration>> | null = null;
+
+  if (recovery.classification === "blocked") {
+    throw new StartupTransactionRecoveryRequiredError(recovery.journal!);
+  }
+  if (recovery.classification === "resume") {
+    generationId = recovery.journal!.generationId;
+    journal = recovery.journal!;
+    recoveryAllocationPlan = recovery.allocationPlan;
+    recoveryAdoptServiceIds = new Set(
+      recovery.services.filter((service) => service.ownership === "owned").map((service) => service.serviceId),
+    );
+  } else if (recovery.classification === "rollback") {
+    const interrupted = { journal: await activateStartupTransactionRecovery(recovery.journal!, "rollback") };
+    await rollbackInterruptedStartup(config, recoveryModel, recovery, interrupted);
+    journal = await beginStartupTransaction({
       generationId,
       instanceId: resolveRuntimeInstanceId(config),
       servicesRoot: config.servicesRoot,
       workspaceRoot: config.workspaceRoot,
-    }),
-  };
+      recoveredFromTransactionId: interrupted.journal.transactionId,
+    });
+  } else {
+    journal = await beginStartupTransaction({
+      generationId,
+      instanceId: resolveRuntimeInstanceId(config),
+      servicesRoot: config.servicesRoot,
+      workspaceRoot: config.workspaceRoot,
+    });
+  }
+  const transaction = { journal };
   let generation: Awaited<ReturnType<typeof beginRuntimeGeneration>> | null = null;
   try {
-    await runStartupTransactionPhaseHook(options, transaction.journal);
-    generation = await beginRuntimeGeneration(config, { generationId });
-    transaction.journal = await advanceStartupTransaction(
-      transaction.journal,
-      "preflight_reconciliation",
-      {
-        completedActions: ["generation_started"],
-        addCompensations: ["mark_generation_failed"],
-      },
-    );
-    return await startApiServerGeneration(options, config, generation, transaction);
+    if (recovery.classification === "resume") {
+      transaction.journal = await activateStartupTransactionRecovery(transaction.journal, "resume");
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["recovery_preparation_started"],
+          addCompensations: ["mark_generation_failed"],
+        },
+      );
+      if (options.startupTransactionTestHooks?.beforeRecoveryGeneration) {
+        if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+          throw new Error("Startup transaction test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+        }
+        await options.startupTransactionTestHooks.beforeRecoveryGeneration({ journal: transaction.journal });
+      }
+      recoveredGeneration = await recoverRuntimeGeneration(config, generationId);
+    }
+    if (!recoveredGeneration) {
+      await runStartupTransactionPhaseHook(options, transaction.journal);
+      generation = await beginRuntimeGeneration(config, { generationId });
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        "preflight_reconciliation",
+        {
+          completedActions: ["generation_started"],
+          addCompensations: ["mark_generation_failed"],
+        },
+      );
+    } else {
+      generation = recoveredGeneration;
+      transaction.journal = await advanceStartupTransaction(
+        transaction.journal,
+        transaction.journal.phase,
+        {
+          completedActions: ["generation_recovered"],
+        },
+      );
+    }
+    return await startApiServerGeneration(options, config, generation, transaction, {
+      allocationPlan: recoveryAllocationPlan,
+      adoptServiceIds: recoveryAdoptServiceIds,
+    });
   } catch (error) {
     if (generation && transaction.journal.pendingCompensations.includes("mark_generation_failed")) {
       try {
@@ -4252,6 +4410,10 @@ async function startApiServerGeneration(
   config: RuntimeConfig,
   generation: Awaited<ReturnType<typeof beginRuntimeGeneration>>,
   transaction: StartupTransactionContext,
+  recovery: {
+    allocationPlan?: RuntimeEndpointAllocationPlan | null;
+    adoptServiceIds?: ReadonlySet<string>;
+  } = {},
 ): Promise<RunningApiServer> {
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
@@ -4262,6 +4424,8 @@ async function startApiServerGeneration(
     workspaceRoot: config.workspaceRoot,
     runtimeGenerationId,
     runtimeInstanceId,
+    allocationRevision: recovery.allocationPlan?.allocationId,
+    adoptServiceIds: recovery.adoptServiceIds,
   });
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
@@ -4291,26 +4455,33 @@ async function startApiServerGeneration(
   let allocationPlan!: RuntimeEndpointAllocationPlan;
   let apiEndpoint!: ReturnType<typeof runtimeApiEndpointFromAllocation>;
   let server!: Server;
-  const transactionStartedServiceIds = new Set<string>();
+  // Services proven owned by the interrupted transaction remain transaction
+  // resources after adoption. Include them in readiness and compensation so a
+  // resumed attempt cannot strand an adopted process if a later phase fails.
+  const transactionStartedServiceIds = new Set<string>(recovery.adoptServiceIds ?? []);
   for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
-    allocationPlan = await planAndReserveRuntimeEndpoints({
-      laneId: runtimeInstanceId,
-      servicesRoot: config.servicesRoot,
-      workspaceRoot: config.workspaceRoot,
-      api: {
-        host: bindHost,
-        advertiseHost: publicHost,
-        port: requestedPort,
-        policy: apiPortPolicy,
-      },
-      services: bootModel.discovered,
-      generationId: runtimeGenerationId,
-      attempt,
-    });
-    apiEndpoint = runtimeApiEndpointFromAllocation(allocationPlan);
+    let attemptAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
     let candidateServer: Server | null = null;
     let ownershipRecorded = false;
     try {
+      attemptAllocationPlan = attempt === 1 && recovery.allocationPlan
+        ? await claimRuntimeEndpointAllocation(recovery.allocationPlan)
+        : await planAndReserveRuntimeEndpoints({
+          laneId: runtimeInstanceId,
+          servicesRoot: config.servicesRoot,
+          workspaceRoot: config.workspaceRoot,
+          api: {
+            host: bindHost,
+            advertiseHost: publicHost,
+            port: requestedPort,
+            policy: apiPortPolicy,
+          },
+          services: bootModel.discovered,
+          generationId: runtimeGenerationId,
+          attempt,
+        });
+      allocationPlan = attemptAllocationPlan;
+      apiEndpoint = runtimeApiEndpointFromAllocation(allocationPlan);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
         nextStartupPhase(transaction.journal.phase, "allocation_reserved"),
@@ -4408,15 +4579,17 @@ async function startApiServerGeneration(
           { completedActions: ["runtime_ownership_cleared"], removeCompensations: ["clear_runtime_ownership"] },
         );
       }
-      await releaseRuntimeEndpointAllocation(allocationPlan);
-      transaction.journal = await advanceStartupTransaction(
-        transaction.journal,
-        transaction.journal.phase,
-        {
-          completedActions: [`allocation_released:${allocationPlan.allocationId}`],
-          removeCompensations: [`release_allocation:${allocationPlan.allocationId}`],
-        },
-      );
+      if (attemptAllocationPlan) {
+        await releaseRuntimeEndpointAllocation(attemptAllocationPlan);
+        transaction.journal = await advanceStartupTransaction(
+          transaction.journal,
+          transaction.journal.phase,
+          {
+            completedActions: [`allocation_released:${attemptAllocationPlan.allocationId}`],
+            removeCompensations: [`release_allocation:${attemptAllocationPlan.allocationId}`],
+          },
+        );
+      }
       if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
     }
   }
@@ -4430,13 +4603,22 @@ async function startApiServerGeneration(
         runtimeGenerationId,
         runtimeInstanceId,
         async (service) => {
+          transaction.journal = await advanceStartupTransaction(
+            transaction.journal,
+            transaction.journal.phase,
+            {
+              completedActions: [`service_started:${service.manifest.id}`],
+            },
+          );
+        },
+        async (service) => {
           const serviceId = service.manifest.id;
           transactionStartedServiceIds.add(serviceId);
           transaction.journal = await advanceStartupTransaction(
             transaction.journal,
             transaction.journal.phase,
             {
-              completedActions: [`service_started:${serviceId}`],
+              completedActions: [`service_start_intended:${serviceId}`],
               addCompensations: [`stop_service:${serviceId}`],
               startedServiceIds: [serviceId],
             },
@@ -4459,7 +4641,6 @@ async function startApiServerGeneration(
   }
   let instance: Awaited<ReturnType<typeof registerRuntimeInstance>> | null = null;
   let leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
-  let instanceRegistered = false;
   let resolvedPort = 0;
   try {
     monitor?.start();
@@ -4494,7 +4675,6 @@ async function startApiServerGeneration(
       source: generation.source,
       phase: "running",
     });
-    instanceRegistered = true;
     transaction.journal = await advanceStartupTransaction(
       transaction.journal,
       transaction.journal.phase,
@@ -4566,7 +4746,6 @@ async function startApiServerGeneration(
       startedServiceIds: transactionStartedServiceIds,
       allocationPlan,
       server,
-      instanceRegistered,
       monitor,
       updateScheduler,
       telemetryExportScheduler,

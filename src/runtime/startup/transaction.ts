@@ -32,6 +32,7 @@ export interface StartupTransactionJournal {
   pendingCompensations: string[];
   startedServiceIds: string[];
   failureCode: string | null;
+  recoveredFromTransactionId: string | null;
 }
 
 export interface StartupTransactionUpdate {
@@ -68,6 +69,14 @@ function unique(values: string[]): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function samePath(left: string, right: string): boolean {
+  const normalize = (value: string) => {
+    const resolved = path.resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  return normalize(left) === normalize(right);
 }
 
 function isPhase(value: unknown): value is StartupTransactionPhase {
@@ -113,6 +122,9 @@ function normalizeJournal(value: unknown): StartupTransactionJournal | null {
     pendingCompensations: strings(value.pendingCompensations),
     startedServiceIds: strings(value.startedServiceIds),
     failureCode: typeof value.failureCode === "string" ? value.failureCode : null,
+    recoveredFromTransactionId: typeof value.recoveredFromTransactionId === "string"
+      ? value.recoveredFromTransactionId
+      : null,
   };
 }
 
@@ -151,7 +163,7 @@ export async function readStartupTransactionJournal(workspaceRoot: string): Prom
   for (const candidate of [filePath, `${filePath}.bak`]) {
     try {
       const normalized = normalizeJournal(JSON.parse(await readFile(candidate, "utf8")) as unknown);
-      if (normalized && path.resolve(normalized.workspaceRoot) === path.resolve(workspaceRoot)) return normalized;
+      if (normalized && samePath(normalized.workspaceRoot, workspaceRoot)) return normalized;
     } catch {
       // Fall through to the crash-recovery backup.
     }
@@ -164,6 +176,7 @@ export async function beginStartupTransaction(input: {
   instanceId: string;
   servicesRoot: string;
   workspaceRoot: string;
+  recoveredFromTransactionId?: string | null;
   now?: Date;
 }): Promise<StartupTransactionJournal> {
   const prior = await readStartupTransactionJournal(input.workspaceRoot);
@@ -188,9 +201,31 @@ export async function beginStartupTransaction(input: {
     pendingCompensations: [],
     startedServiceIds: [],
     failureCode: null,
+    recoveredFromTransactionId: input.recoveredFromTransactionId ?? null,
   };
   await atomicWriteJournal(journal);
   return journal;
+}
+
+export async function activateStartupTransactionRecovery(
+  journal: StartupTransactionJournal,
+  action: "resume" | "rollback",
+  now = new Date(),
+): Promise<StartupTransactionJournal> {
+  if (journal.status !== "active" && journal.status !== "blocked") {
+    throw new Error(`Cannot recover ${journal.status} startup transaction.`);
+  }
+  const timestamp = now.toISOString();
+  const next: StartupTransactionJournal = {
+    ...journal,
+    status: "active",
+    updatedAt: timestamp,
+    finishedAt: null,
+    failureCode: action === "resume" ? null : journal.failureCode,
+    completedActions: unique([...journal.completedActions, `recovery_${action}_started`]),
+  };
+  await atomicWriteJournal(next);
+  return next;
 }
 
 function applyUpdate(
