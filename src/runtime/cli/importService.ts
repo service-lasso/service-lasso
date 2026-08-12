@@ -1,4 +1,4 @@
-import { access, cp, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, lstat, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
@@ -77,6 +77,47 @@ async function pathExists(targetPath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function resolveDirectServiceRoot(servicesRoot: string, serviceId: string): string {
+  const resolvedRoot = path.resolve(servicesRoot);
+  const serviceRoot = path.resolve(resolvedRoot, serviceId);
+  if (path.dirname(serviceRoot) !== resolvedRoot || path.basename(serviceRoot) !== serviceId) {
+    throw new Error(`Service id "${serviceId}" does not resolve to a direct child of the configured services root.`);
+  }
+  return serviceRoot;
+}
+
+async function lstatIfPresent(targetPath: string) {
+  try {
+    return await lstat(targetPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function assertSafeImportDestination(servicesRoot: string, serviceRoot: string): Promise<void> {
+  const rootStat = await lstatIfPresent(servicesRoot);
+  if (!rootStat) return;
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("Configured services root must be a real directory for service import.");
+  }
+  const canonicalRoot = await realpath(servicesRoot);
+  const serviceStat = await lstatIfPresent(serviceRoot);
+  if (!serviceStat) return;
+  if (!serviceStat.isDirectory() || serviceStat.isSymbolicLink()) {
+    throw new Error("Service import destination must be a real direct-child directory.");
+  }
+  if (path.dirname(await realpath(serviceRoot)) !== canonicalRoot) {
+    throw new Error("Service import destination escapes the configured services root.");
+  }
+
+  const manifestPath = path.join(serviceRoot, "service.json");
+  const manifestStat = await lstatIfPresent(manifestPath);
+  if (manifestStat && (manifestStat.isSymbolicLink() || !manifestStat.isFile())) {
+    throw new Error("Service import destination manifest must be a regular file.");
   }
 }
 
@@ -230,8 +271,9 @@ export async function importServiceManifestFromCli(
     try {
       await extractZipSafely(sourceArchivePath, stagingRoot);
       const { manifest, contentRoot } = await readArchiveManifest(stagingRoot, sourceArchivePath);
-      const serviceRoot = path.join(servicesRoot, manifest.id);
+      const serviceRoot = resolveDirectServiceRoot(servicesRoot, manifest.id);
       const targetPath = path.join(serviceRoot, "service.json");
+      await assertSafeImportDestination(servicesRoot, serviceRoot);
       const targetManifestExists = await pathExists(targetPath);
       const targetRootExists = await pathExists(serviceRoot);
       const conflict = targetManifestExists
@@ -267,6 +309,7 @@ export async function importServiceManifestFromCli(
 
       if (!options.dryRun) {
         await mkdir(path.dirname(serviceRoot), { recursive: true });
+        await assertSafeImportDestination(servicesRoot, serviceRoot);
         await cp(contentRoot, serviceRoot, { recursive: true, errorOnExist: true, force: false });
         const discovered = await discoverServices(servicesRoot);
         if (!discovered.some((service) => service.manifest.id === manifest.id && service.manifestPath === targetPath)) {
@@ -311,8 +354,9 @@ export async function importServiceManifestFromCli(
     tag: options.tag,
     apiBaseUrl: options.apiBaseUrl,
   });
-  const serviceRoot = path.join(servicesRoot, manifest.id);
+  const serviceRoot = resolveDirectServiceRoot(servicesRoot, manifest.id);
   const targetPath = path.join(serviceRoot, "service.json");
+  await assertSafeImportDestination(servicesRoot, serviceRoot);
   const exists = await pathExists(targetPath);
 
   if (exists && !options.force) {
@@ -323,6 +367,7 @@ export async function importServiceManifestFromCli(
 
   if (!options.dryRun) {
     await mkdir(serviceRoot, { recursive: true });
+    await assertSafeImportDestination(servicesRoot, serviceRoot);
     await writeFile(targetPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     const discovered = await discoverServices(servicesRoot);
     if (!discovered.some((service) => service.manifest.id === manifest.id && service.manifestPath === targetPath)) {

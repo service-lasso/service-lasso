@@ -975,7 +975,7 @@ export async function stopAllManagedProcesses(): Promise<void> {
     }
   }
 
-  const failures = (await Promise.all(serviceIds.map(async (serviceId): Promise<ManagedProcessFinalizationFailure[]> => {
+  const stopOne = async (serviceId: string): Promise<ManagedProcessFinalizationFailure[]> => {
     const pid = managedProcesses.get(serviceId)?.child.pid
       ?? adoptedProcesses.get(serviceId)?.pid
       ?? managedProcessFinalizers.get(serviceId)?.pid
@@ -1003,7 +1003,23 @@ export async function stopAllManagedProcesses(): Promise<void> {
         code: safeFinalizationErrorCode(error, "STOP_FAILED"),
       }];
     }
-  }))).flat();
+  };
+
+  // Windows process-tree ownership inspection uses CIM/WMI. Running one
+  // inspection/termination pipeline per service concurrently can exhaust that
+  // provider and turn otherwise verified exits into a burst of unverifiable
+  // STOP_FAILED results. Every service is already durably marked stopping
+  // above, so serialize the bounded Windows pipelines while retaining parallel
+  // termination on platforms whose process inspection is filesystem/native.
+  const failureGroups: ManagedProcessFinalizationFailure[][] = [];
+  if (process.platform === "win32") {
+    for (const serviceId of serviceIds) {
+      failureGroups.push(await stopOne(serviceId));
+    }
+  } else {
+    failureGroups.push(...await Promise.all(serviceIds.map(stopOne)));
+  }
+  const failures = failureGroups.flat();
 
   if (failures.length > 0) {
     throw new ManagedProcessFinalizationError(failures);
