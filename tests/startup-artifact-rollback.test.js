@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
+import * as tar from "tar";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { installService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
@@ -16,6 +17,7 @@ import {
   createStartupArtifactAcquisitionHooks,
   completeCommittedStartupMaterializationCleanup,
   discardStartupMaterializationSidecar,
+  inspectStartupArtifactTree,
   inspectStartupMaterializations,
   rollbackStartupArtifactAcquisitions,
 } from "../dist/runtime/startup/materialization.js";
@@ -60,10 +62,25 @@ async function exists(target) {
   }
 }
 
-async function withArtifactFixture(prefix, action) {
+async function tarArtifact(fixture, linkTarget) {
+  const sourceRoot = path.join(fixture.tempRoot, "tar-source");
+  const runtimeRoot = path.join(sourceRoot, "runtime");
+  await mkdir(runtimeRoot, { recursive: true });
+  await writeFile(path.join(runtimeRoot, "service.mjs"), "console.log('artifact');\n", "utf8");
+  await symlink(linkTarget, path.join(runtimeRoot, "service-link.mjs"), "file");
+  const chunks = [];
+  for await (const chunk of tar.c({ cwd: sourceRoot, gzip: true }, ["runtime"])) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function withArtifactFixture(prefix, action, archiveOptions = {}) {
   resetLifecycleState();
   const fixture = await makeTempServicesRoot(prefix);
-  const archiveBytes = artifactZip();
+  const archiveBytes = archiveOptions.createBytes
+    ? await archiveOptions.createBytes(fixture)
+    : artifactZip();
   const release = await startArtifactServer(archiveBytes);
   const serviceRoot = path.join(fixture.servicesRoot, "artifact-service");
   await mkdir(serviceRoot, { recursive: true });
@@ -76,9 +93,9 @@ async function withArtifactFixture(prefix, action) {
       source: { type: "github-release", repo: "service-lasso/fixture", channel: "latest" },
       platforms: {
         default: {
-          assetName: "artifact.zip",
+          assetName: archiveOptions.assetName ?? "artifact.zip",
           assetUrl: release.url,
-          archiveType: "zip",
+          archiveType: archiveOptions.archiveType ?? "zip",
           sha256: createHash("sha256").update(archiveBytes).digest("hex"),
           command: process.execPath,
           args: ["runtime/service.mjs"],
@@ -109,6 +126,30 @@ async function withArtifactFixture(prefix, action) {
     await rm(fixture.tempRoot, { recursive: true, force: true });
   }
 }
+
+test("AC-4BJ.2 transaction evidence accepts only extraction-internal relative symlinks", {
+  skip: process.platform === "win32" ? "Creating file symlinks requires elevated Windows privileges." : false,
+}, async () => {
+  await withArtifactFixture("service-lasso-startup-artifact-internal-link-", async (fixture) => {
+    const artifact = await acquireFixtureArtifact(fixture);
+    assert.equal(await readFile(path.join(artifact.extractedPath, "runtime", "service-link.mjs"), "utf8"), "console.log('artifact');\n");
+  }, {
+    assetName: "artifact.tgz",
+    archiveType: "tgz",
+    createBytes: (fixture) => tarArtifact(fixture, "service.mjs"),
+  });
+
+  const fixture = await makeTempServicesRoot("service-lasso-startup-artifact-escaping-link-");
+  try {
+    const extractionRoot = path.join(fixture.tempRoot, "extraction");
+    const runtimeRoot = path.join(extractionRoot, "runtime");
+    await mkdir(runtimeRoot, { recursive: true });
+    await symlink("../../outside.mjs", path.join(runtimeRoot, "escape.mjs"), "file");
+    await assert.rejects(inspectStartupArtifactTree(fixture.tempRoot, extractionRoot), /escapes its governed root/i);
+  } finally {
+    await rm(fixture.tempRoot, { recursive: true, force: true });
+  }
+});
 
 async function acquireFixtureArtifact(fixture, hooks = createStartupArtifactAcquisitionHooks({
   transaction: fixture.transaction,

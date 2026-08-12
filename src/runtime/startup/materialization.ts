@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, lstat, mkdir, open, readdir, rename, rm, unlink, type FileHandle } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readlink, rename, rm, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
@@ -735,7 +735,21 @@ async function readArtifactTreeEvidence(base: string, root: string): Promise<Art
       const absolutePath = path.join(directory, entry.name);
       const relativePath = assertContained(root, absolutePath).replaceAll("\\", "/");
       const stat = await lstat(absolutePath);
-      if (stat.isSymbolicLink()) throw new Error("Startup artifact extraction contains a redirected object.");
+      if (stat.isSymbolicLink()) {
+        const linkTarget = await readlink(absolutePath);
+        if (path.isAbsolute(linkTarget)) {
+          throw new Error("Startup artifact extraction contains an absolute redirected object.");
+        }
+        const resolvedTarget = path.resolve(path.dirname(absolutePath), linkTarget);
+        assertContained(root, resolvedTarget);
+        files += 1;
+        bytes += Buffer.byteLength(linkTarget);
+        if (files > MAX_ARTIFACT_TREE_FILES || bytes > MAX_ARTIFACT_TREE_BYTES) {
+          throw new Error("Startup artifact extraction exceeds its verification bound.");
+        }
+        hash.update(`l\0${relativePath}\0${linkTarget}\0`);
+        continue;
+      }
       if (stat.isDirectory()) {
         hash.update(`d\0${relativePath}\0`);
         await walk(absolutePath);
@@ -778,6 +792,13 @@ async function readArtifactTreeEvidence(base: string, root: string): Promise<Art
     throw new Error("Startup artifact extraction root changed during verification.");
   }
   return { digest: hash.digest("hex"), files, bytes };
+}
+
+// Exported for direct security-boundary verification. Callers receive only
+// bounded counts and a digest; paths, file contents, and link targets remain
+// private to the inspection boundary.
+export async function inspectStartupArtifactTree(base: string, root: string): Promise<ArtifactTreeEvidence | null> {
+  return await readArtifactTreeEvidence(base, root);
 }
 
 async function readArtifactFileEvidence(base: string, target: string): Promise<ArtifactFileEvidence | null> {
