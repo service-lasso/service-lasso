@@ -9,6 +9,7 @@ import { LifecycleStateError } from "../../server/errors.js";
 import {
   beginManagedProcessStop,
   hasManagedProcess,
+  registerManagedProcessShutdownQuiescer,
   startManagedProcess,
   stopManagedProcess,
   waitForManagedProcessExit,
@@ -79,6 +80,21 @@ const SECRET_LIKE_VALUE_PATTERN =
   /(BEGIN PRIVATE KEY|access_token\s*[:=]\s*[^\s,;}]+|refresh_token\s*[:=]\s*[^\s,;}]+|id_token\s*[:=]\s*[^\s,;}]+|session_cookie\s*[:=]\s*[^\s,;}]+|client_secret\s*[:=]\s*[^\s,;}]+|provider_credential\s*[:=]\s*[^\s,;}]+|raw_secret\s*[:=]\s*[^\s,;}]+|password\s*[:=]\s*[^\s,;}]+|token\s*[:=]\s*[^\s,;}]+|Bearer\s+[A-Za-z0-9._~+/-]{12,})/gi;
 const SECRET_LIKE_KEY_PATTERN = /(secret|token|password|credential|private|cookie|key)/i;
 const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeout>>();
+const activeSupervisionRestarts = new Map<string, Promise<void>>();
+const shutdownRequestedServiceIds = new Set<string>();
+
+registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
+  const serviceIds = new Set([
+    ...managedServiceIds,
+    ...scheduledSupervisionRestarts.keys(),
+    ...activeSupervisionRestarts.keys(),
+  ]);
+  for (const serviceId of serviceIds) {
+    shutdownRequestedServiceIds.add(serviceId);
+    cancelScheduledSupervisionRestart(serviceId);
+  }
+  await Promise.allSettled([...activeSupervisionRestarts.values()]);
+});
 
 function createEmptySupervisionState(): ServiceLifecycleState["runtime"]["supervision"] {
   return {
@@ -615,6 +631,11 @@ async function runScheduledSupervisionRestart(
   const targetService = registry?.getById(serviceId) ?? service;
   const current = getLifecycleState(serviceId);
 
+  if (shutdownRequestedServiceIds.has(serviceId)) {
+    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because runtime shutdown was requested.`);
+    return;
+  }
+
   if (registry && !registry.getById(serviceId)) {
     await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because it is no longer present in the registry.`);
     return;
@@ -686,6 +707,11 @@ async function superviseUnexpectedProcessExit(
   const reason: ServiceRuntimeSupervisionRestartReason = "crash";
   const policy = service.manifest.restartPolicy;
 
+  if (shutdownRequestedServiceIds.has(serviceId)) {
+    await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because runtime shutdown was requested.`);
+    return;
+  }
+
   if (!policy || policy.enabled !== true) {
     await blockSupervisionRestart(service, reason, `Automatic restart skipped for "${serviceId}" because restartPolicy is not enabled.`);
     return;
@@ -735,7 +761,17 @@ async function superviseUnexpectedProcessExit(
   );
 
   const timer = setTimeout(() => {
-    void runScheduledSupervisionRestart(service, registry, options, reason, attemptNumber);
+    const restart = runScheduledSupervisionRestart(service, registry, options, reason, attemptNumber);
+    activeSupervisionRestarts.set(serviceId, restart);
+    void restart.then(() => {
+      if (activeSupervisionRestarts.get(serviceId) === restart) {
+        activeSupervisionRestarts.delete(serviceId);
+      }
+    }, () => {
+      if (activeSupervisionRestarts.get(serviceId) === restart) {
+        activeSupervisionRestarts.delete(serviceId);
+      }
+    });
   }, backoffSeconds * 1000);
   timer.unref?.();
   scheduledSupervisionRestarts.set(serviceId, timer);
@@ -1017,6 +1053,7 @@ export async function startService(
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   if (!options.supervisionRestart) {
+    shutdownRequestedServiceIds.delete(serviceId);
     cancelScheduledSupervisionRestart(serviceId);
   }
   const trace = beginStartTrace(serviceId, "start");
@@ -1432,6 +1469,7 @@ export async function restartService(
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
+  shutdownRequestedServiceIds.delete(serviceId);
   cancelScheduledSupervisionRestart(serviceId);
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
