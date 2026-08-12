@@ -14,6 +14,7 @@ export interface OwnedProcessTreeTarget {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessTreeGroup;
   knownMembers?: ProcessFingerprint[];
+  rootExitObserved?: boolean;
 }
 
 export interface ProcessTreeTerminationResult {
@@ -343,11 +344,13 @@ async function signalOwnedProcessTree(
   signal: "SIGTERM" | "SIGKILL",
 ): Promise<ProcessTreeSignalEvidence> {
   if (process.platform === "win32") {
-    const rootStatus = target.rootIdentity
+    const rootStatus = target.rootExitObserved
+      ? "exited"
+      : target.rootIdentity
       ? await requireOwnedIdentity(target.rootIdentity)
       : "owned";
     const members = target.knownMembers && target.knownMembers.length > 0
-      ? target.knownMembers
+      ? target.knownMembers.filter((member) => !target.rootExitObserved || member.pid !== target.rootPid)
       : target.rootIdentity && rootStatus === "owned"
         ? await captureVerifiedMembers(target)
         : [];
