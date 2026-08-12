@@ -126,7 +126,17 @@ const managedProcesses = new Map<string, ManagedProcessRecord>();
 const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void> }>();
 const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
+const managedProcessShutdownQuiescers = new Set<(
+  serviceIds: ReadonlySet<string>,
+) => Promise<void> | void>();
 const ADOPTED_PROCESS_POLL_INTERVAL_MS = 250;
+
+export function registerManagedProcessShutdownQuiescer(
+  quiescer: (serviceIds: ReadonlySet<string>) => Promise<void> | void,
+): () => void {
+  managedProcessShutdownQuiescers.add(quiescer);
+  return () => managedProcessShutdownQuiescers.delete(quiescer);
+}
 
 function safeFinalizationErrorCode(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
@@ -952,29 +962,11 @@ export async function waitForManagedProcessExit(
 }
 
 export async function stopAllManagedProcesses(): Promise<void> {
-  const activeServiceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])].reverse();
-  const serviceIds = [
-    ...activeServiceIds,
-    ...[...managedProcessFinalizers.keys()].filter((serviceId) => !activeServiceIds.includes(serviceId)),
-  ];
+  const MAX_FINALIZATION_PASSES = 8;
   // Quiesce every monitor synchronously before any tree termination starts.
   // Persist the shared ownership-registry transitions serially so concurrent
   // atomic writes cannot race each other on Windows. Tree termination and each
   // service's independent finalizer remain parallel below.
-  for (const serviceId of activeServiceIds) {
-    const record = managedProcesses.get(serviceId) ?? adoptedProcesses.get(serviceId);
-    if (record) {
-      record.stopping = true;
-    }
-  }
-  for (const serviceId of activeServiceIds) {
-    try {
-      await beginManagedProcessStop(serviceId);
-    } catch {
-      // The stop phase retries and reports this service with safe diagnostics.
-    }
-  }
-
   const stopOne = async (serviceId: string): Promise<ManagedProcessFinalizationFailure[]> => {
     const pid = managedProcesses.get(serviceId)?.child.pid
       ?? adoptedProcesses.get(serviceId)?.pid
@@ -1005,19 +997,65 @@ export async function stopAllManagedProcesses(): Promise<void> {
     }
   };
 
-  // Windows process-tree ownership inspection uses CIM/WMI. Running one
-  // inspection/termination pipeline per service concurrently can exhaust that
-  // provider and turn otherwise verified exits into a burst of unverifiable
-  // STOP_FAILED results. Every service is already durably marked stopping
-  // above, so serialize the bounded Windows pipelines while retaining parallel
-  // termination on platforms whose process inspection is filesystem/native.
   const failureGroups: ManagedProcessFinalizationFailure[][] = [];
-  if (process.platform === "win32") {
-    for (const serviceId of serviceIds) {
-      failureGroups.push(await stopOne(serviceId));
+  for (let pass = 1; pass <= MAX_FINALIZATION_PASSES; pass += 1) {
+    const activeServiceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])].reverse();
+    const serviceIds = [
+      ...activeServiceIds,
+      ...[...managedProcessFinalizers.keys()].filter((serviceId) => !activeServiceIds.includes(serviceId)),
+    ];
+    await Promise.all([...managedProcessShutdownQuiescers].map((quiescer) => (
+      quiescer(new Set(serviceIds))
+    )));
+    if (serviceIds.length === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      if (managedProcesses.size === 0 && adoptedProcesses.size === 0 && managedProcessFinalizers.size === 0) {
+        break;
+      }
+      continue;
     }
-  } else {
-    failureGroups.push(...await Promise.all(serviceIds.map(stopOne)));
+
+    for (const serviceId of activeServiceIds) {
+      const record = managedProcesses.get(serviceId) ?? adoptedProcesses.get(serviceId);
+      if (record) record.stopping = true;
+    }
+    for (const serviceId of activeServiceIds) {
+      try {
+        await beginManagedProcessStop(serviceId);
+      } catch {
+        // The stop phase retries and reports this service with safe diagnostics.
+      }
+    }
+
+    // Windows process-tree ownership inspection uses CIM/WMI. Running one
+    // pipeline per service concurrently can exhaust that provider, so keep
+    // each bounded convergence pass serialized on Windows.
+    if (process.platform === "win32") {
+      for (const serviceId of serviceIds) failureGroups.push(await stopOne(serviceId));
+    } else {
+      failureGroups.push(...await Promise.all(serviceIds.map(stopOne)));
+    }
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (pass === MAX_FINALIZATION_PASSES && (
+      managedProcesses.size > 0 || adoptedProcesses.size > 0 || managedProcessFinalizers.size > 0
+    )) {
+      for (const serviceId of new Set([
+        ...managedProcesses.keys(),
+        ...adoptedProcesses.keys(),
+        ...managedProcessFinalizers.keys(),
+      ])) {
+        failureGroups.push([{
+          serviceId,
+          pid: managedProcesses.get(serviceId)?.child.pid
+            ?? adoptedProcesses.get(serviceId)?.pid
+            ?? managedProcessFinalizers.get(serviceId)?.pid
+            ?? null,
+          phase: "finalize",
+          code: "FINALIZATION_DID_NOT_CONVERGE",
+        }]);
+      }
+    }
   }
   const failures = failureGroups.flat();
 
