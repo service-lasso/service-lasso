@@ -5,10 +5,11 @@ import type { RuntimeInstanceResponse } from "../../contracts/api.js";
 export interface RuntimeInstanceCliOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
+  generationId?: string;
   version?: string;
 }
 
 export async function readRuntimeInstanceForCli(options: RuntimeInstanceCliOptions = {}): Promise<RuntimeInstanceResponse> {
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
-  return await createRuntimeInstanceSnapshot(config);
+  return await createRuntimeInstanceSnapshot(config, { generationId: options.generationId });
 }

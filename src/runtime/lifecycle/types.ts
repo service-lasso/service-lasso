@@ -127,6 +127,7 @@ export interface ServiceRuntimeSupervisionState {
 }
 
 export interface ServiceRuntimeState {
+  generationId: string | null;
   pid: number | null;
   startedAt: string | null;
   finishedAt: string | null;

@@ -250,11 +250,8 @@ export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), en
     canonicalServiceAdminPort,
   );
 
-  const runtimeUrl = normalizeUrlBase(
-    parseFlag(args, "runtime-url")
-      ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL
-      ?? `http://127.0.0.1:${runtimePort}`,
-  );
+  const explicitRuntimeUrl = parseFlag(args, "runtime-url") ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL;
+  const runtimeUrl = normalizeUrlBase(explicitRuntimeUrl ?? `http://127.0.0.1:${runtimePort}`);
   const serviceAdminUrl =
     parseFlag(args, "service-admin-url")
     ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL
@@ -265,6 +262,8 @@ export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), en
     runtimePort,
     serviceAdminPort,
     runtimeUrl,
+    runtimeUrlExplicit: Boolean(explicitRuntimeUrl),
+    generationId: parseFlag(args, "generation") ?? env.SERVICE_LASSO_DEMO_GENERATION_ID ?? null,
     serviceAdminUrl,
     runtimeHealthUrl: `${runtimeUrl}/api/health`,
     runtimeSummaryUrl: `${runtimeUrl}/api/runtime`,
@@ -321,10 +320,57 @@ function isSourceServiceAdminState(service) {
 }
 
 export async function verifyCanonicalDemo(options = {}, deps = {}) {
-  const resolved = {
+  let resolved = {
     ...resolveCanonicalVerifierOptions([], {}),
     ...options,
   };
+  const runtimeUrlExplicit = typeof options.runtimeUrlExplicit === "boolean"
+    ? options.runtimeUrlExplicit
+    : options.runtimeUrl !== undefined;
+  let workspaceDiscovery = null;
+  let workspaceDiscoveryMatchesRoots = false;
+  let workspaceDiscoveryIsActive = false;
+  const stateDirectory = path.join(resolved.workspaceRoot, ".service-lasso");
+  const [workspaceInstance, generationRegistry] = await Promise.all([
+    readJson(path.join(stateDirectory, "runtime-instance.json")).catch(() => null),
+    readJson(path.join(stateDirectory, "runtime-generations.json")).catch(() => null),
+  ]);
+  if (workspaceInstance || generationRegistry) {
+    const selectedGenerationId = resolved.generationId ?? generationRegistry?.activeGenerationId ?? null;
+    const generation = Array.isArray(generationRegistry?.generations)
+      ? generationRegistry.generations.find((entry) => entry.generationId === selectedGenerationId) ?? null
+      : null;
+    const apiEndpoint = generation?.endpoints?.find((entry) => entry.name === "api")?.url ?? null;
+    workspaceDiscovery = { instance: workspaceInstance, generation, activeGenerationId: generationRegistry?.activeGenerationId ?? null };
+    workspaceDiscoveryMatchesRoots = Boolean(
+      workspaceInstance
+      && generation
+      && normalizePathForCompare(workspaceInstance.workspaceRoot) === normalizePathForCompare(resolved.workspaceRoot)
+      && normalizePathForCompare(workspaceInstance.servicesRoot) === normalizePathForCompare(resolved.servicesRoot)
+      && normalizePathForCompare(generation.workspaceRoot) === normalizePathForCompare(resolved.workspaceRoot)
+      && normalizePathForCompare(generation.servicesRoot) === normalizePathForCompare(resolved.servicesRoot)
+      && workspaceInstance.generationId === generation.generationId,
+    );
+    workspaceDiscoveryIsActive = Boolean(
+      workspaceDiscoveryMatchesRoots
+      && generationRegistry?.activeGenerationId === generation?.generationId
+      && generation?.phase === "running"
+      && workspaceInstance?.phase === "running"
+      && workspaceInstance?.status !== "stale"
+      && apiEndpoint,
+    );
+    if (workspaceDiscoveryIsActive) {
+      const discoveredRuntimeUrl = normalizeUrlBase(apiEndpoint);
+      resolved = {
+        ...resolved,
+        generationId: resolved.generationId ?? generation.generationId,
+        runtimeUrl: runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl,
+        runtimeHealthUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/health`,
+        runtimeSummaryUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/runtime`,
+        runtimeServicesUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/services`,
+      };
+    }
+  }
   const fetchImpl = deps.fetch ?? fetch;
   const checks = [];
   const expectedServices = await readExpectedDemoServices(resolved.servicesRoot, resolved.serviceIds);
@@ -345,13 +391,14 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   );
 
   const serviceAdminApiBase = normalizeUrlBase(resolved.serviceAdminUrl);
-  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices] = await Promise.all([
+  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices, runtimeInstance] = await Promise.all([
     fetchText(resolved.serviceAdminUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(`${serviceAdminApiBase}/api/dashboard`, fetchImpl, resolved.timeoutMs),
     fetchJson(`${serviceAdminApiBase}/api/services`, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeHealthUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${resolved.runtimeUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
   ]);
 
   check(
@@ -384,6 +431,63 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     "missing_runtime_services",
     runtimeServices.ok ? `HTTP ${runtimeServices.status}` : `${resolved.runtimeServicesUrl}: ${runtimeServices.error ?? `HTTP ${runtimeServices.status}`}`,
   );
+  check(
+    checks,
+    "runtime generation discovery reachable",
+    Boolean(runtimeInstance.ok && runtimeInstance.body?.instance),
+    "missing_runtime_generation",
+    runtimeInstance.ok ? `HTTP ${runtimeInstance.status}` : `${resolved.runtimeUrl}/api/runtime/instance: ${runtimeInstance.error ?? `HTTP ${runtimeInstance.status}`}`,
+  );
+  if (workspaceDiscovery) {
+    check(checks, "workspace generation roots match selector", workspaceDiscoveryMatchesRoots, "wrong_lane");
+    check(checks, "workspace generation is active with a published endpoint", workspaceDiscoveryIsActive, "stale_runtime_generation");
+    checkEqual(
+      checks,
+      "workspace generation matches selected runtime",
+      runtimeInstance.body?.instance?.generationId ?? null,
+      workspaceDiscovery.generation?.generationId ?? null,
+      "wrong_lane",
+    );
+  }
+  if (resolved.generationId) {
+    checkEqual(
+      checks,
+      "runtime generation matches explicit selector",
+      runtimeInstance.body?.instance?.generationId ?? null,
+      resolved.generationId,
+      "wrong_lane",
+    );
+  }
+  checkEqual(
+    checks,
+    "runtime generation selection is verified",
+    runtimeInstance.body?.selection?.classification ?? null,
+    "selected",
+    runtimeInstance.body?.selection?.classification === "ambiguous" ? "ambiguous_runtime" : "wrong_lane",
+  );
+  if (runtimeInstance.body?.instance) {
+    checkEqual(
+      checks,
+      "runtime instance services root matches canonical repo",
+      normalizePathForCompare(runtimeInstance.body.instance.servicesRoot),
+      normalizePathForCompare(resolved.servicesRoot),
+      "wrong_lane",
+    );
+    checkEqual(
+      checks,
+      "runtime instance workspace root matches canonical demo",
+      normalizePathForCompare(runtimeInstance.body.instance.workspaceRoot),
+      normalizePathForCompare(resolved.workspaceRoot),
+      "wrong_lane",
+    );
+    checkEqual(
+      checks,
+      "runtime endpoint belongs to selected generation",
+      normalizeUrlBase(runtimeInstance.body.instance.apiUrl),
+      normalizeUrlBase(resolved.runtimeUrl),
+      "wrong_lane",
+    );
+  }
   check(
     checks,
     "Service Admin same-origin dashboard reachable",
@@ -521,6 +625,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       serviceAdminUrl: resolved.serviceAdminUrl,
       servicesRoot: resolved.servicesRoot,
       workspaceRoot: resolved.workspaceRoot,
+      generationId: runtimeInstance.body?.instance?.generationId ?? resolved.generationId ?? null,
       services: serviceSummaries,
     },
   };

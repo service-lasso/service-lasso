@@ -179,8 +179,10 @@ import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
 import {
   DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS,
+  beginRuntimeGeneration,
   createRuntimeInstanceSnapshot,
   markRuntimeInstanceStopped,
+  publishRuntimeGeneration,
   refreshRuntimeInstanceLease,
   registerRuntimeInstance,
   resolveRuntimeInstanceId,
@@ -263,6 +265,7 @@ export interface ApiServerOptions {
   workflowRunFacadeState?: WorkflowRunFacadeState;
   telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
   apiRequestTelemetryState?: ApiRequestTelemetryState;
+  runtimeGenerationId?: string | null;
 }
 
 interface ApiRequestTelemetryState {
@@ -279,6 +282,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   };
   serviceCatalogUrl?: string;
   serviceCatalogGithubApiBaseUrl?: string;
+  runtimeGenerationId?: string | null;
 }
 
 export interface RunningApiServer {
@@ -1344,6 +1348,8 @@ async function executeLifecycleAction(
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
   workspaceRoot?: string,
+  runtimeGenerationId?: string | null,
+  runtimeInstanceId?: string | null,
 ): Promise<LifecycleActionResponse> {
   const result = await (async () => {
     switch (action) {
@@ -1352,11 +1358,11 @@ async function executeLifecycleAction(
       case "config":
         return await configService(service, registry, { workspaceRoot });
       case "start":
-        return await executePreparedServiceStart(service, registry, workspaceRoot);
+        return await executePreparedServiceStart(service, registry, workspaceRoot, runtimeGenerationId, runtimeInstanceId);
       case "stop":
         return await stopService(service);
       case "restart":
-        return await restartService(service, registry, { workspaceRoot });
+        return await restartService(service, registry, { workspaceRoot, runtimeGenerationId, runtimeInstanceId });
       default:
         throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
     }
@@ -1369,8 +1375,14 @@ async function executePreparedServiceStart(
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
   workspaceRoot?: string,
+  runtimeGenerationId?: string | null,
+  runtimeInstanceId?: string | null,
 ): Promise<Awaited<ReturnType<typeof startService>>> {
-  const prepared = await prepareAndStartService(service, registry, { workspaceRoot });
+  const prepared = await prepareAndStartService(service, registry, {
+    workspaceRoot,
+    runtimeGenerationId,
+    runtimeInstanceId,
+  });
 
   if (prepared.result) {
     return prepared.result;
@@ -1436,6 +1448,8 @@ async function executeRuntimeOrchestrationAction(
   action: "startAll" | "stopAll" | "autostart" | "reload",
   runtimeModel: RuntimeModel,
   workspaceRoot?: string,
+  runtimeGenerationId?: string | null,
+  runtimeInstanceId?: string | null,
 ): Promise<RuntimeOrchestrationResponse> {
   if (action === "reload") {
     const stopped: LifecycleActionResponse[] = [];
@@ -1491,7 +1505,11 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      const result = await startService(service, reloadedModel.registry, { workspaceRoot });
+      const result = await startService(service, reloadedModel.registry, {
+        workspaceRoot,
+        runtimeGenerationId,
+        runtimeInstanceId,
+      });
       results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result));
     }
 
@@ -1535,7 +1553,11 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      const prepared = await prepareAndStartService(service, runtimeModel.registry, { workspaceRoot });
+      const prepared = await prepareAndStartService(service, runtimeModel.registry, {
+        workspaceRoot,
+        runtimeGenerationId,
+        runtimeInstanceId,
+      });
       if (prepared.result) {
         results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result));
       } else {
@@ -2294,7 +2316,14 @@ async function routeRequest(
           if (!service) {
             throw new ApiError("service_not_found", 404, `Unknown service id: ${record.targetServiceId}.`);
           }
-          return await executeLifecycleAction(record.command, service, runtimeModel.registry, config.workspaceRoot);
+          return await executeLifecycleAction(
+            record.command,
+            service,
+            runtimeModel.registry,
+            config.workspaceRoot,
+            config.runtimeGenerationId,
+            resolveRuntimeInstanceId(config),
+          );
         },
       );
       const statusCode = executionResponse.action.ok ? 200 : 409;
@@ -3408,7 +3437,14 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length === 4) {
       const action = pathParts[3];
       try {
-        const result = await executeLifecycleAction(action, service, runtimeModel.registry, config.workspaceRoot);
+        const result = await executeLifecycleAction(
+          action,
+          service,
+          runtimeModel.registry,
+          config.workspaceRoot,
+          config.runtimeGenerationId,
+          resolveRuntimeInstanceId(config),
+        );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -3472,7 +3508,9 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/runtime/instance") {
-    writeJson(response, 200, await createRuntimeInstanceSnapshot(config));
+    writeJson(response, 200, await createRuntimeInstanceSnapshot(config, {
+      generationId: config.runtimeGenerationId,
+    }));
     return;
   }
 
@@ -3524,7 +3562,13 @@ async function routeRequest(
 
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     try {
-      const result = await executeRuntimeOrchestrationAction(action, runtimeModel, config.workspaceRoot);
+      const result = await executeRuntimeOrchestrationAction(
+        action,
+        runtimeModel,
+        config.workspaceRoot,
+        config.runtimeGenerationId,
+        resolveRuntimeInstanceId(config),
+      );
       await appendAuditEvent({
         workspaceRoot: config.workspaceRoot,
         source: "runtime-api",
@@ -3785,6 +3829,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     },
     serviceCatalogUrl: options.serviceCatalogUrl,
     serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
+    runtimeGenerationId: options.runtimeGenerationId ?? null,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -3840,13 +3885,29 @@ async function closeApiServer(server: Server): Promise<void> {
 }
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
+  const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
+  const generation = await beginRuntimeGeneration(config);
+  try {
+    return await startApiServerGeneration(options, config, generation);
+  } catch (error) {
+    await publishRuntimeGeneration(config, generation.generationId, { phase: "failed" }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function startApiServerGeneration(
+  options: ApiServerOptions,
+  config: RuntimeConfig,
+  generation: Awaited<ReturnType<typeof beginRuntimeGeneration>>,
+): Promise<RunningApiServer> {
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost;
-  const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const bootModel = await loadRuntimeModel(config.servicesRoot);
-  const runtimeInstanceId = resolveRuntimeInstanceId(config);
+  const runtimeInstanceId = generation.instanceId;
+  const runtimeGenerationId = generation.generationId;
   await rehydrateDiscoveredServices(bootModel.discovered, {
     workspaceRoot: config.workspaceRoot,
+    runtimeGenerationId,
     runtimeInstanceId,
   });
   const requestedPort = options.port ?? 18080;
@@ -3861,7 +3922,13 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     "not present in rehydrated runtime state",
   )).updatedAt;
   if (options.autostart) {
-    await executeRuntimeOrchestrationAction("autostart", bootModel, config.workspaceRoot);
+    await executeRuntimeOrchestrationAction(
+      "autostart",
+      bootModel,
+      config.workspaceRoot,
+      runtimeGenerationId,
+      runtimeInstanceId,
+    );
   }
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
@@ -3897,12 +3964,14 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     telemetryExportScheduler,
     apiRequestTelemetryState,
     workflowRunFacadeState: options.workflowRunFacadeState,
+    runtimeGenerationId,
   });
   const port = requestedPort;
 
   await recordProcessOwnership(config.workspaceRoot, {
     ownerType: "runtime",
     ownerId: runtimeInstanceId,
+    generationId: runtimeGenerationId,
     runtimeInstanceId,
     pid: process.pid,
     ownerRoot: config.servicesRoot,
@@ -3941,9 +4010,13 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const instance = await registerRuntimeInstance(config, {
     apiPort: resolvedPort,
     apiUrl: "http://" + publicHost + ":" + resolvedPort,
+    generationId: runtimeGenerationId,
+    runtimeRoot: generation.runtimeRoot,
+    source: generation.source,
+    phase: "running",
   });
   const leaseHeartbeat = setInterval(() => {
-    void refreshRuntimeInstanceLease(config).catch(() => undefined);
+    void refreshRuntimeInstanceLease(config, { generationId: runtimeGenerationId }).catch(() => undefined);
   }, DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS);
   leaseHeartbeat.unref?.();
   if (requestedPort === 0) {
@@ -3956,6 +4029,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     await recordProcessOwnership(config.workspaceRoot, {
       ownerType: "runtime",
       ownerId: instance.instanceId,
+      generationId: instance.generationId,
       runtimeInstanceId: instance.instanceId,
       pid: process.pid,
       ownerRoot: config.servicesRoot,
@@ -3965,12 +4039,17 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       lifecycleState: "running",
       source: "runtime",
     });
+    await publishRuntimeGeneration(config, runtimeGenerationId, {
+      phase: "running",
+      allocationRevision: apiAllocationRevision,
+      endpoints: [{ name: "api", url: instance.apiUrl }],
+    });
   } catch (error) {
     clearInterval(leaseHeartbeat);
     await monitor?.stop();
     await updateScheduler?.stop();
     await telemetryExportScheduler.stop();
-    await markRuntimeInstanceStopped(config);
+    await markRuntimeInstanceStopped(config, runtimeGenerationId);
     await closeApiServer(server);
     await transitionProcessOwnership(
       config.workspaceRoot,
@@ -3991,6 +4070,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     updateScheduler,
     telemetryExportScheduler,
     stop: async () => {
+      await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopping" });
       clearInterval(leaseHeartbeat);
       await transitionProcessOwnership(
         config.workspaceRoot,
@@ -4004,7 +4084,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
       await updateScheduler?.stop();
       await telemetryExportScheduler?.stop();
       await stopAllManagedProcesses();
-      await markRuntimeInstanceStopped(config);
+      await markRuntimeInstanceStopped(config, runtimeGenerationId);
       await closeApiServer(server);
       await transitionProcessOwnership(
         config.workspaceRoot,
@@ -4014,6 +4094,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
         "not_running",
         process.pid,
       );
+      await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopped" });
     },
   };
 }
