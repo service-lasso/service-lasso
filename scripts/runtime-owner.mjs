@@ -6,6 +6,15 @@ const DIAGNOSTIC_SCHEMA = "service-lasso.runtime-owner-failure.v1";
 const BASELINE_START_SCHEMA = "service-lasso.baseline-start.v1";
 const ACTIVE_PHASES = new Set(["starting", "running"]);
 
+export function requireRuntimeServicePort(service, portName) {
+  const port = service?.lifecycle?.runtime?.ports?.[portName];
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    const serviceId = typeof service?.id === "string" ? service.id : "unknown";
+    throw new Error(`Authoritative runtime port is unavailable for service ${serviceId} port ${portName}.`);
+  }
+  return port;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

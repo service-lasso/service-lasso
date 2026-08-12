@@ -7,6 +7,7 @@ import {
   discoverOwningRuntime,
   observeBoundedJsonObject,
   ownerExitFailure,
+  requireRuntimeServicePort,
   RuntimeOwnerFailure,
   waitForBaselineCompletion,
 } from "./runtime-owner.mjs";
@@ -259,18 +260,6 @@ async function rebaseManifestPorts(targetServicesRoot) {
   }
 }
 
-function manifestPort(manifest, name) {
-  const legacyPort = manifest.ports?.[name];
-  if (Number.isInteger(legacyPort)) {
-    return legacyPort;
-  }
-  const endpointPort = manifest.endpoints?.find((endpoint) => endpoint.id === name && endpoint.kind === "network")?.port?.default;
-  if (Number.isInteger(endpointPort)) {
-    return endpointPort;
-  }
-  throw new Error(`Manifest ${manifest.id ?? "<unknown>"} does not declare port ${name}.`);
-}
-
 async function waitForHealthyHttp(url, label, timeoutMs = 300_000) {
   const startedAt = Date.now();
   let lastError = null;
@@ -380,12 +369,6 @@ try {
   await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
   await copyCheckedInServices(servicesRoot);
   await rebaseManifestPorts(servicesRoot);
-  const serviceAdminManifest = await readJson(path.join(servicesRoot, "@serviceadmin", "service.json"));
-  const secretsBrokerManifest = await readJson(path.join(servicesRoot, "@secretsbroker", "service.json"));
-  const nginxManifest = await readJson(path.join(servicesRoot, "@nginx", "service.json"));
-  const traefikManifest = await readJson(path.join(servicesRoot, "@traefik", "service.json"));
-  const echoManifest = await readJson(path.join(servicesRoot, "echo-service", "service.json"));
-
   verificationStep = "start_runtime";
   cli = startCli({ servicesRoot, workspaceRoot, port: apiPort, servicePortStart: apiPort + 1 });
   activeRuntimeIdentity = await discoverOwningRuntime({ owner: cli, servicesRoot, workspaceRoot });
@@ -414,9 +397,13 @@ try {
     await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
   }
 
+  const liveServices = new Map();
   for (const serviceId of baselineServiceIds) {
     const isProvider = providerServiceIds.has(serviceId);
-    await waitForServiceState(apiUrl, serviceId, { running: !isProvider, healthy: isProvider ? undefined : true });
+    liveServices.set(
+      serviceId,
+      await waitForServiceState(apiUrl, serviceId, { running: !isProvider, healthy: isProvider ? undefined : true }),
+    );
   }
 
   verificationStep = "dashboard_summary";
@@ -438,12 +425,14 @@ try {
   }
 
   verificationStep = "baseline_reachability";
-  await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/`, "Service Admin UI");
-  await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/health`, "Service Admin health");
-  await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerManifest.ports.service}/health`, "Secrets Broker health");
-  await waitForHealthyHttp(`http://127.0.0.1:${nginxManifest.ports.http}/health`, "NGINX health");
-  await waitForHealthyHttp(`http://127.0.0.1:${echoManifest.ports.health}/health`, "Echo Service health");
-  await waitForHealthyHttp(`http://127.0.0.1:${manifestPort(traefikManifest, "admin")}/ping`, "Traefik ping");
+  const serviceAdminPort = requireRuntimeServicePort(liveServices.get("@serviceadmin"), "ui");
+  const secretsBrokerPort = requireRuntimeServicePort(liveServices.get("@secretsbroker"), "service");
+  await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminPort}/`, "Service Admin UI");
+  await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminPort}/health`, "Service Admin health");
+  await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerPort}/health`, "Secrets Broker health");
+  await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("@nginx"), "http")}/health`, "NGINX health");
+  await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("echo-service"), "health")}/health`, "Echo Service health");
+  await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("@traefik"), "admin")}/ping`, "Traefik ping");
 
   verificationStep = "advertised_reachability";
   const liveAfterStart = await waitForJson(`${apiUrl}/api/services`);
@@ -452,7 +441,7 @@ try {
   }
 
   verificationStep = "service_admin_content";
-  const serviceAdminHtml = await waitForText(`http://127.0.0.1:${serviceAdminManifest.ports.ui}/`);
+  const serviceAdminHtml = await waitForText(`http://127.0.0.1:${serviceAdminPort}/`);
   assert(/Service Lasso|service-lasso|root/i.test(serviceAdminHtml), "Service Admin UI root did not return recognizable app content.");
 
   verificationStep = "secrets_broker_restart";
@@ -462,8 +451,11 @@ try {
 
   const startBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/start`);
   assert(startBroker.ok === true, "Starting @secretsbroker did not return ok=true.");
-  await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
-  await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerManifest.ports.service}/health`, "Secrets Broker health after restart");
+  const restartedBroker = await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
+  await waitForHealthyHttp(
+    `http://127.0.0.1:${requireRuntimeServicePort(restartedBroker, "service")}/health`,
+    "Secrets Broker health after restart",
+  );
 
   verificationStep = "reverse_cleanup";
   await postJson(`${apiUrl}/api/runtime/actions/stopAll`);

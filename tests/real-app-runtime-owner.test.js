@@ -9,9 +9,22 @@ import { PassThrough } from "node:stream";
 import {
   discoverOwningRuntime,
   observeBoundedJsonObject,
+  requireRuntimeServicePort,
   RuntimeOwnerFailure,
   waitForBaselineCompletion,
 } from "../scripts/runtime-owner.mjs";
+
+test("real-app reachability uses authoritative negotiated service ports", () => {
+  const service = {
+    id: "fixture-service",
+    lifecycle: { runtime: { ports: { service: 18181 } } },
+  };
+  assert.equal(requireRuntimeServicePort(service, "service"), 18181);
+  assert.throws(
+    () => requireRuntimeServicePort({ id: "fixture-service", lifecycle: { runtime: { ports: {} } } }, "service"),
+    /authoritative runtime port is unavailable/i,
+  );
+});
 
 const fixtureSource = String.raw`
   import { mkdir, writeFile } from "node:fs/promises";
