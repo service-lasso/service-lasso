@@ -71,7 +71,7 @@ test("recovery API exposes read-only restart safety preflight", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-api-restart-preflight-");
   await writeExecutableFixtureService(servicesRoot, "api", {
-    depend_on: ["missing-database"],
+    depend_on: ["missing-database", "missing-provider"],
     execservice: "missing-provider",
   });
   const apiServer = await startApiServer({ port: 0, servicesRoot });
@@ -85,7 +85,7 @@ test("recovery API exposes read-only restart safety preflight", async () => {
     assert.equal(preflight.body.preflight.ok, false);
     assert.equal(preflight.body.preflight.dryRun, true);
     assert.equal(preflight.body.preflight.mutated, false);
-    assert.deepEqual(preflight.body.preflight.dependencyGraph.missingDependencies, ["missing-database"]);
+    assert.deepEqual(preflight.body.preflight.dependencyGraph.missingDependencies, ["missing-database", "missing-provider"]);
     assert.ok(preflight.body.preflight.blockers.some((blocker) => blocker.code === "provider_missing"));
   } finally {
     await apiServer.stop();

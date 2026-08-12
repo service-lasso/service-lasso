@@ -7,6 +7,7 @@ import { discoverServices } from "../dist/runtime/discovery/discoverServices.js"
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { buildServiceCompatibilityReport } from "../dist/runtime/operator/catalog-compatibility.js";
 import { startApiServer } from "../dist/server/index.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 async function writeManifest(servicesRoot, serviceId, body) {
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -34,6 +35,7 @@ function createUpdateState(serviceId, lastCheck) {
 }
 
 test("service compatibility report classifies supported platform providers and ports", async () => {
+  resetLifecycleState();
   const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-ok-"));
 
   try {
@@ -47,6 +49,7 @@ test("service compatibility report classifies supported platform providers and p
       id: "web-service",
       name: "Web Service",
       description: "Service with declared runtime requirements.",
+      depend_on: ["@node"],
       execservice: "@node",
       ports: {
         service: 43100,
@@ -68,6 +71,8 @@ test("service compatibility report classifies supported platform providers and p
     });
     const { services, registry } = await loadRegistry(servicesRoot);
     const service = services.find((candidate) => candidate.manifest.id === "web-service");
+    const providerState = getLifecycleState("@node");
+    setLifecycleState("@node", { ...providerState, installed: true, configured: true });
 
     const report = buildServiceCompatibilityReport(service, registry, { hostPlatform: "linux" });
 
@@ -79,6 +84,7 @@ test("service compatibility report classifies supported platform providers and p
       report.requirements.some((requirement) => requirement.kind === "provider" && requirement.status === "satisfied"),
     );
   } finally {
+    resetLifecycleState();
     await rm(servicesRoot, { recursive: true, force: true });
   }
 });
@@ -91,6 +97,7 @@ test("service compatibility report identifies platform mismatch and missing prov
       id: "blocked-service",
       name: "Blocked Service",
       description: "Service with unsupported host and missing provider.",
+      depend_on: ["@python"],
       execservice: "@python",
       artifact: {
         kind: "archive",
@@ -116,6 +123,72 @@ test("service compatibility report identifies platform mismatch and missing prov
     assert.ok(report.blockers.some((blocker) => blocker.includes("@python")));
     assert.ok(report.requirements.some((requirement) => requirement.kind === "provider" && requirement.status === "missing"));
   } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("service compatibility report identifies a discovered but unready release-backed provider", async () => {
+  resetLifecycleState();
+  const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-provider-unready-"));
+
+  try {
+    await writeManifest(servicesRoot, "@node", {
+      id: "@node",
+      name: "Node Runtime",
+      description: "Release-backed runtime provider.",
+      role: "provider",
+      executable: "node",
+      artifact: {
+        kind: "archive",
+        source: { type: "github-release", repo: "service-lasso/lasso-node", tag: "2026.1.1-test" },
+        platforms: { default: { assetName: "node.zip", archiveType: "zip", command: "./node" } },
+      },
+    });
+    await writeManifest(servicesRoot, "web-service", {
+      id: "web-service",
+      name: "Web Service",
+      description: "Provider readiness fixture.",
+      depend_on: ["@node"],
+      execservice: "@node",
+      args: ["app.js"],
+    });
+    const { services, registry } = await loadRegistry(servicesRoot);
+    const service = services.find((candidate) => candidate.manifest.id === "web-service");
+
+    const report = buildServiceCompatibilityReport(service, registry);
+
+    assert.equal(report.status, "missing-requirements");
+    assert.ok(report.requirements.some(
+      (requirement) => requirement.kind === "provider" && requirement.id === "@node" && requirement.status === "not-ready",
+    ));
+    assert.ok(report.blockers.some((blocker) => blocker.includes('Required provider "@node" is not ready')));
+  } finally {
+    resetLifecycleState();
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("service compatibility preserves intentional direct ambient executables without execservice", async () => {
+  resetLifecycleState();
+  const servicesRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-compat-direct-"));
+
+  try {
+    await writeManifest(servicesRoot, "direct-tool", {
+      id: "direct-tool",
+      name: "Direct Tool",
+      description: "Intentional direct host executable fixture.",
+      executable: "host-tool",
+      args: ["--version"],
+    });
+    const { services, registry } = await loadRegistry(servicesRoot);
+
+    const report = buildServiceCompatibilityReport(services[0], registry);
+
+    assert.equal(report.status, "compatible");
+    assert.deepEqual(report.requiredProviders, []);
+    assert.deepEqual(report.blockers, []);
+  } finally {
+    resetLifecycleState();
     await rm(servicesRoot, { recursive: true, force: true });
   }
 });

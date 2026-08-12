@@ -140,7 +140,7 @@ export interface ServiceCompatibilityPortRequirement {
 export interface ServiceCompatibilityRequirementStatus {
   kind: "dependency" | "provider" | "port";
   id: string;
-  status: "satisfied" | "missing" | "declared";
+  status: "satisfied" | "missing" | "not-ready" | "declared";
   detail?: string;
 }
 
