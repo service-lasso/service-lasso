@@ -196,6 +196,22 @@ function isLifecycleState(value: unknown): value is ProcessOwnershipLifecycleSta
   return value === "launching" || value === "running" || value === "stopping" || value === "stopped";
 }
 
+function normalizeProcessGroup(value: unknown, pid: number | null): ProcessOwnershipEntry["processGroup"] {
+  if (!isRecord(value)) {
+    return { kind: "none", id: null };
+  }
+  if (value.kind === "posix" && typeof value.id === "string" && /^\d+$/.test(value.id)) {
+    const processGroupId = Number(value.id);
+    if (processGroupId > 0 && (pid === null || processGroupId === pid)) {
+      return { kind: "posix", id: value.id };
+    }
+  }
+  if (value.kind === "windows-job" && typeof value.id === "string" && value.id.trim()) {
+    return { kind: "windows-job", id: value.id };
+  }
+  return { kind: "none", id: null };
+}
+
 function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
   if (!isRecord(value)) {
     return null;
@@ -224,8 +240,6 @@ function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
   }
 
   const allocation = isRecord(value.allocation) ? value.allocation : {};
-  const processGroup = isRecord(value.processGroup) ? value.processGroup : {};
-  const groupKind = processGroup.kind === "posix" || processGroup.kind === "windows-job" ? processGroup.kind : "none";
   return {
     ownerType,
     ownerId: value.ownerId,
@@ -235,10 +249,7 @@ function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
     pid,
     identity,
     ownerRoot: path.resolve(value.ownerRoot),
-    processGroup: {
-      kind: groupKind,
-      id: typeof processGroup.id === "string" ? processGroup.id : null,
-    },
+    processGroup: normalizeProcessGroup(value.processGroup, pid),
     allocation: {
       revision: typeof allocation.revision === "string" ? allocation.revision : null,
       ports: normalizePorts(allocation.ports),
@@ -431,7 +442,7 @@ export async function recordProcessOwnership(
       pid: input.pid,
       identity: inspection.identity,
       ownerRoot: path.resolve(input.ownerRoot),
-      processGroup: input.processGroup ?? { kind: "none", id: null },
+      processGroup: normalizeProcessGroup(input.processGroup, input.pid),
       allocation: {
         revision: input.allocationRevision ?? null,
         ports: normalizePorts(input.ports),
@@ -575,6 +586,12 @@ export async function migrateLegacyProcessOwnership(
     };
   }
 
+  const prior = await findProcessOwnership(workspaceRoot, "service", input.ownerId);
+  const preservedProcessGroup = prior?.pid === input.pid && prior.identity &&
+    classifyProcessIdentity(prior.identity, inspection, platform) === "owned"
+    ? prior.processGroup
+    : undefined;
+
   await recordProcessOwnership(
     workspaceRoot,
     {
@@ -589,6 +606,7 @@ export async function migrateLegacyProcessOwnership(
       endpoints: input.endpoints,
       lifecycleState: "running",
       source: "legacy-verified",
+      processGroup: preservedProcessGroup,
     },
     input.inspectorDependencies,
   );

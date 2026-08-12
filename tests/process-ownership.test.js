@@ -21,10 +21,12 @@ import { startApiServer } from "../dist/server/index.js";
 import {
   adoptManagedProcess,
   hasManagedProcess,
+  startManagedProcess,
   stopManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
+import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
@@ -49,6 +51,101 @@ function windowsInspector(identity) {
     platform: "win32",
     runCommand: async () => ({ stdout: JSON.stringify(identity) }),
   };
+}
+
+async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options = {}) {
+  const { rootAutoExitMs = null } = options;
+  const childScriptPath = path.join(serviceRoot, "runtime", "fixture-child.mjs");
+  const grandchildScriptPath = path.join(serviceRoot, "runtime", "fixture-grandchild.mjs");
+  const pidFilePath = path.join(serviceRoot, "runtime", "process-tree.json");
+
+  await writeFile(
+    grandchildScriptPath,
+    `
+const heartbeat = setInterval(() => {}, 1000);
+process.on("SIGTERM", () => {});
+process.on("SIGINT", () => {});
+void heartbeat;
+`.trim(),
+    "utf8",
+  );
+  await writeFile(
+    childScriptPath,
+    `
+import { spawn } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+
+const grandchild = spawn(process.execPath, [${JSON.stringify(grandchildScriptPath)}], {
+  stdio: "ignore",
+  windowsHide: true,
+});
+await new Promise((resolve, reject) => {
+  grandchild.once("spawn", resolve);
+  grandchild.once("error", reject);
+});
+await writeFile(${JSON.stringify(pidFilePath)}, JSON.stringify({
+  childPid: process.pid,
+  grandchildPid: grandchild.pid,
+}));
+const heartbeat = setInterval(() => {}, 1000);
+process.on("SIGTERM", () => {});
+process.on("SIGINT", () => {});
+void heartbeat;
+`.trim(),
+    "utf8",
+  );
+  await writeFile(
+    scriptPath,
+    `
+import { spawn } from "node:child_process";
+
+const child = spawn(process.execPath, [${JSON.stringify(childScriptPath)}], {
+  stdio: "ignore",
+  windowsHide: true,
+});
+await new Promise((resolve, reject) => {
+  child.once("spawn", resolve);
+  child.once("error", reject);
+});
+const heartbeat = setInterval(() => {}, 1000);
+process.on("SIGTERM", () => {});
+process.on("SIGINT", () => {});
+${rootAutoExitMs === null ? "" : `setTimeout(() => process.exit(0), ${rootAutoExitMs});`}
+void heartbeat;
+`.trim(),
+    "utf8",
+  );
+
+  return pidFilePath;
+}
+
+async function readProcessTreePids(pidFilePath) {
+  return await waitFor(async () => {
+    try {
+      return JSON.parse(await readFile(pidFilePath, "utf8"));
+    } catch {
+      return null;
+    }
+  });
+}
+
+async function waitForProcessesStopped(pids, timeoutMs = 3_000) {
+  await waitFor(async () => {
+    const inspections = await Promise.all(pids.map((pid) => inspectProcess(pid)));
+    return inspections.every((inspection) => inspection.status === "not_running");
+  }, timeoutMs);
+}
+
+function forceCleanupProcesses(pids) {
+  for (const pid of pids) {
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // The process may already be gone.
+      }
+    }
+  }
 }
 
 test("process identity classifies the active host process without PID-only trust", async () => {
@@ -570,29 +667,35 @@ test("API restart replaces an adopted persisted process and keeps retained ports
   }
 });
 
-test("adopted process ownership can be stopped without a ChildProcess handle", async () => {
+test("legacy adopted ownership verifies and stops descendants without a persisted process group", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-stop-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-stop-service");
-  const child = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], {
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath);
+  const root = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], {
     cwd: serviceRoot,
     stdio: "ignore",
     windowsHide: true,
   });
+  let childPid = null;
+  let grandchildPid = null;
 
   try {
     await new Promise((resolve, reject) => {
-      child.once("spawn", resolve);
-      child.once("error", reject);
+      root.once("spawn", resolve);
+      root.once("error", reject);
     });
-    const inspection = await inspectProcess(child.pid);
+    const inspection = await inspectProcess(root.pid);
     assert.equal(inspection.status, "running");
+    const pids = await readProcessTreePids(pidFilePath);
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
     const [service] = await discoverServices(servicesRoot);
     await recordProcessOwnership(workspaceRoot, {
       ownerType: "service",
       ownerId: "adopted-stop-service",
       serviceId: "adopted-stop-service",
-      pid: child.pid,
+      pid: root.pid,
       ownerRoot: serviceRoot,
       lifecycleState: "running",
       source: "legacy-verified",
@@ -600,23 +703,266 @@ test("adopted process ownership can be stopped without a ChildProcess handle", a
 
     const handle = await adoptManagedProcess({
       service,
-      pid: child.pid,
+      pid: root.pid,
       startedAt: inspection.identity.createdAt,
       command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`,
       workspaceRoot,
     });
 
-    assert.equal(handle.pid, child.pid);
+    assert.equal(handle.pid, root.pid);
     assert.equal(hasManagedProcess("adopted-stop-service"), true);
+    const runningOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
+    assert.deepEqual(runningOwnership.processGroup, { kind: "none", id: null });
 
-    const stopped = await stopManagedProcess("adopted-stop-service", 500);
+    const stopped = await stopManagedProcess("adopted-stop-service", 100);
     assert.ok(stopped);
+    await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
     assert.equal(hasManagedProcess("adopted-stop-service"), false);
     const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
     assert.equal(ownership.lifecycleState, "stopped");
     assert.equal(ownership.pid, null);
   } finally {
-    child.kill("SIGKILL");
+    await stopManagedProcess("adopted-stop-service", 100).catch(() => null);
+    forceCleanupProcesses([root.pid, childPid, grandchildPid]);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed stop owns and terminates the complete child and grandchild process tree", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-process-tree-stop-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "process-tree-service");
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath);
+  let handle;
+  let childPid = null;
+  let grandchildPid = null;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+
+    const pids = await readProcessTreePids(pidFilePath);
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
+
+    const runningOwnership = await findProcessOwnership(workspaceRoot, "service", "process-tree-service");
+    if (process.platform === "win32") {
+      assert.equal(runningOwnership.processGroup.kind === "windows-job" || runningOwnership.processGroup.kind === "none", true);
+    } else {
+      assert.deepEqual(runningOwnership.processGroup, { kind: "posix", id: String(handle.pid) });
+    }
+
+    const stopped = await stopManagedProcess("process-tree-service", 100);
+
+    assert.ok(stopped);
+    await waitForProcessesStopped([handle.pid, childPid, grandchildPid]);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "process-tree-service");
+    assert.equal(stoppedOwnership.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership.pid, null);
+  } finally {
+    await stopManagedProcess("process-tree-service", 100).catch(() => null);
+    forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed unexpected root exit terminates the remaining verified process tree", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-root-exit-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-root-exit-service");
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 750 });
+  let handle;
+  let childPid = null;
+  let grandchildPid = null;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    const pids = await readProcessTreePids(pidFilePath);
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
+
+    await waitForProcessesStopped([handle.pid, childPid, grandchildPid], 12_000);
+    await waitFor(() => !hasManagedProcess("managed-root-exit-service"), 12_000);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-exit-service");
+    assert.equal(stoppedOwnership.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership.pid, null);
+  } finally {
+    await stopManagedProcess("managed-root-exit-service", 100).catch(() => null);
+    forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("rehydrated adopted ownership retains and stops the complete persisted process tree", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-tree-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-process-tree-service");
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath);
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const root = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    detached: process.platform !== "win32",
+    windowsHide: true,
+  });
+  let childPid = null;
+  let grandchildPid = null;
+
+  try {
+    await new Promise((resolve, reject) => {
+      root.once("spawn", resolve);
+      root.once("error", reject);
+    });
+    const rootInspection = await inspectProcess(root.pid);
+    assert.equal(rootInspection.status, "running");
+    const pids = await readProcessTreePids(pidFilePath);
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
+    const processGroup = process.platform === "win32"
+      ? { kind: "none", id: null }
+      : { kind: "posix", id: String(root.pid) };
+
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "adopted-process-tree-service",
+      serviceId: "adopted-process-tree-service",
+      pid: root.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "spawn",
+      processGroup,
+    });
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: root.pid,
+        startedAt: rootInspection.identity.createdAt,
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18102 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, { workspaceRoot });
+    assert.equal(rehydrated.running, true);
+    assert.equal(rehydrated.runtime.pid, root.pid);
+    const adoptedOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-process-tree-service");
+    assert.deepEqual(adoptedOwnership.processGroup, processGroup);
+
+    const stopped = await stopManagedProcess("adopted-process-tree-service", 100);
+
+    assert.ok(stopped);
+    await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-process-tree-service");
+    assert.equal(stoppedOwnership.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership.pid, null);
+  } finally {
+    await stopManagedProcess("adopted-process-tree-service", 100).catch(() => null);
+    forceCleanupProcesses([root.pid, childPid, grandchildPid]);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("adopted process monitoring clears durable running state after the root exits", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-monitor-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-monitor-service");
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 750 });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const root = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    detached: process.platform !== "win32",
+    windowsHide: true,
+  });
+  let childPid = null;
+  let grandchildPid = null;
+
+  try {
+    await new Promise((resolve, reject) => {
+      root.once("spawn", resolve);
+      root.once("error", reject);
+    });
+    const rootInspection = await inspectProcess(root.pid);
+    assert.equal(rootInspection.status, "running");
+    const pids = await readProcessTreePids(pidFilePath);
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
+    const processGroup = process.platform === "win32"
+      ? { kind: "none", id: null }
+      : { kind: "posix", id: String(root.pid) };
+
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "adopted-monitor-service",
+      serviceId: "adopted-monitor-service",
+      pid: root.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "spawn",
+      processGroup,
+    });
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid: root.pid,
+        startedAt: rootInspection.identity.createdAt,
+        command: `${process.execPath} ${relativeScriptPath}`,
+        ports: { service: 18103 },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, { workspaceRoot });
+    assert.equal(rehydrated.running, true);
+    assert.equal(hasManagedProcess("adopted-monitor-service"), true);
+
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return !hasManagedProcess("adopted-monitor-service") && stored.runtime?.running === false;
+    }, 8_000);
+    await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
+
+    const stored = await readStoredState(serviceRoot);
+    assert.equal(stored.runtime.running, false);
+    assert.equal(stored.runtime.pid, null);
+    assert.equal(stored.runtime.lastTermination, "exited");
+    assert.equal(stored.runtime.metrics.exitCount, 1);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-monitor-service");
+    assert.equal(ownership.lifecycleState, "stopped");
+    assert.equal(ownership.pid, null);
+  } finally {
+    await stopManagedProcess("adopted-monitor-service", 100).catch(() => null);
+    forceCleanupProcesses([root.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
