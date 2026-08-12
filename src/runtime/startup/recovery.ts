@@ -231,7 +231,7 @@ export async function inspectStartupRecovery(
         return result("blocked", "committed_runtime_instance_records_disagree", committedEvidence);
       }
       const runtimeEndpoint = allocationPlan?.endpoints.find((endpoint) =>
-        endpoint.ownerType === "runtime" && endpoint.ownerId === journal.instanceId,
+        endpoint.ownerType === "runtime" && endpoint.ownerId === "runtime-api",
       );
       if (!runtimeEndpoint || runtimeEndpoint.port !== exactWorkspaceInstance.apiPort) {
         return result("blocked", "committed_runtime_instance_allocation_mismatch", committedEvidence);
@@ -310,7 +310,7 @@ export async function inspectStartupRecovery(
       return result("blocked", "runtime_instance_allocation_missing", instanceRecoveryEvidence);
     }
     const runtimeEndpoint = allocationPlan.endpoints.find((endpoint) =>
-      endpoint.ownerType === "runtime" && endpoint.ownerId === journal.instanceId,
+      endpoint.ownerType === "runtime" && endpoint.ownerId === "runtime-api",
     );
     if (!runtimeEndpoint || runtimeEndpoint.port !== exactWorkspaceInstance.apiPort) {
       return result("blocked", "runtime_instance_allocation_mismatch", instanceRecoveryEvidence);
