@@ -40,6 +40,11 @@ export async function discoverServices(servicesRoot: string): Promise<Discovered
     const serviceRoot = path.join(servicesRoot, entry.name);
     const manifestPath = path.join(serviceRoot, "service.json");
     const manifest = await loadServiceManifest(manifestPath);
+    if (manifest.id !== entry.name) {
+      throw new Error(
+        `Invalid service manifest at ${manifestPath}: service id "${manifest.id}" must match its direct service directory "${entry.name}".`,
+      );
+    }
 
     discovered.push({
       manifest,
