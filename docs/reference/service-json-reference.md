@@ -1100,7 +1100,7 @@ Example:
 
 ```json
 "outputvarregex": {
-  "FILEBEAT_ENABLED_INPUTS": ".*Enabled inputs: (\\d+).*"
+  "FILEBEAT_ENABLED_INPUTS": ".*Loading and starting Inputs completed. Enabled inputs: (\\d+).*"
 },
 "healthchecks": [
   {
