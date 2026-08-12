@@ -64,7 +64,7 @@ test("service detail exposes read-only catalog provenance", async () => {
       sourcePath: "@node/service.json",
       sourceType: "github-release",
       repo: "service-lasso/lasso-node",
-      releaseTag: "2026.4.27-eca215a",
+      releaseTag: "2026.8.12-1500d36",
       assetNames: [
         "lasso-node-v24.15.0-darwin.tar.gz",
         "lasso-node-v24.15.0-linux.tar.gz",
