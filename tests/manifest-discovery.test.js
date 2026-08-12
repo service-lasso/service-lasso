@@ -2225,3 +2225,38 @@ test("runtime startup fails explicitly when a manifest is malformed", async () =
   await assert.rejects(() => startApiServer({ port: 0, servicesRoot }), /expected non-empty string for "name"/i);
   await rm(servicesRoot, { recursive: true, force: true });
 });
+
+test("manifest ids are portable direct-child service identifiers", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const validIds = ["echo-service", "@serviceadmin", "service.v2", "service_name"];
+  const invalidIds = ["../escaped-service", "nested/service", "nested\\service", ".", "..", "C:drive", "/absolute", "CON", "service."];
+
+  try {
+    for (const [index, id] of validIds.entries()) {
+      const manifestPath = path.join(servicesRoot, `valid-${index}.json`);
+      await writeFile(manifestPath, JSON.stringify({ id, name: id, description: "valid" }));
+      assert.equal((await loadServiceManifest(manifestPath)).id, id);
+    }
+    for (const [index, id] of invalidIds.entries()) {
+      const manifestPath = path.join(servicesRoot, `invalid-${index}.json`);
+      await writeFile(manifestPath, JSON.stringify({ id, name: id, description: "invalid" }));
+      await assert.rejects(() => loadServiceManifest(manifestPath), /portable direct-child service identifier/i);
+    }
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("discovery rejects a manifest whose id does not match its direct service directory", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  try {
+    await writeManifest(servicesRoot, "directory-name", {
+      id: "different-name",
+      name: "Different name",
+      description: "Directory and manifest mismatch.",
+    });
+    await assert.rejects(() => discoverServices(servicesRoot), /must match its direct service directory/i);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});

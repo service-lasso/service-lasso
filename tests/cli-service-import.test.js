@@ -5,15 +5,15 @@ import path from "node:path";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import AdmZip from "adm-zip";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 
 const execFile = promisify(execFileCallback);
 
-function releasedManifest(name = "Imported Dagu") {
+function releasedManifest(name = "Imported Dagu", id = "dagu") {
   return {
-    id: "dagu",
+    id,
     name,
     description: "App-owned Dagu workflow service manifest.",
     artifact: {
@@ -368,6 +368,82 @@ test("services import --archive rejects unsafe archive traversal entries", async
       /Unsafe archive entry/,
     );
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import --archive rejects an escaping manifest id before writing outside services root", async () => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const archivePath = await writeServiceArchive(root, {
+    "package/service.json": JSON.stringify(archivedManifest("../escaped-service"), null, 2),
+    "package/payload.txt": "must-not-escape",
+  });
+  const escapedRoot = path.join(root, "escaped-service");
+
+  try {
+    await mkdir(servicesRoot, { recursive: true });
+    await assert.rejects(
+      runCli(["services", "import", "--archive", archivePath, "--services-root", servicesRoot, "--json"]),
+      /portable direct-child service identifier/i,
+    );
+    assert.equal(await exists(escapedRoot), false);
+    assert.deepEqual(await readdir(servicesRoot), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import rejects an escaping release manifest id before creating the services root", async () => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer(releasedManifest("Escaping service", "../escaped-service"));
+  const escapedRoot = path.join(root, "escaped-service");
+
+  try {
+    await assert.rejects(
+      runCli([
+        "services", "import", "service-lasso/lasso-dagu", "--tag", "2026.5.22-fixture",
+        "--services-root", servicesRoot, "--api-base-url", releaseServer.baseUrl, "--force", "--json",
+      ]),
+      /portable direct-child service identifier/i,
+    );
+    assert.equal(await exists(servicesRoot), false);
+    assert.equal(await exists(escapedRoot), false);
+  } finally {
+    await releaseServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("services import refuses a symlinked direct-child destination without changing its target", async (t) => {
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const outsideRoot = path.join(root, "outside-target");
+  const sentinelPath = path.join(outsideRoot, "service.json");
+  const releaseServer = await startFakeGitHubReleaseServer(releasedManifest("Replacement Dagu"));
+
+  try {
+    await mkdir(servicesRoot, { recursive: true });
+    await mkdir(outsideRoot, { recursive: true });
+    await writeFile(sentinelPath, "sentinel", "utf8");
+    try {
+      await symlink(outsideRoot, path.join(servicesRoot, "dagu"), process.platform === "win32" ? "junction" : "dir");
+    } catch (error) {
+      if (error?.code === "EPERM" || error?.code === "EACCES") {
+        t.skip("Host does not permit creating a directory symlink fixture.");
+        return;
+      }
+      throw error;
+    }
+
+    await assert.rejects(
+      runCli([
+        "services", "import", "service-lasso/lasso-dagu", "--tag", "2026.5.22-fixture",
+        "--services-root", servicesRoot, "--api-base-url", releaseServer.baseUrl, "--force", "--json",
+      ]),
+      /real direct-child directory/i,
+    );
+    assert.equal(await readFile(sentinelPath, "utf8"), "sentinel");
+  } finally {
+    await releaseServer.stop();
     await rm(root, { recursive: true, force: true });
   }
 });
