@@ -57,6 +57,55 @@ test("audit appends include verified hash-chain metadata", async () => {
   }
 });
 
+test("audit chain identity follows the durable destination instead of service metadata", async () => {
+  const workspaceRoot = await makeWorkspace();
+  const serviceRoot = path.join(workspaceRoot, "services", "alpha-service");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const relatedServiceEvent = await appendAuditEvent({
+      workspaceRoot,
+      serviceId: "alpha-service",
+      source: "runtime-api",
+      action: "operator.confirmation.confirm",
+      actor: "operator-ui",
+      subject: "alpha-service",
+      outcome: "failure",
+      statusCode: 403,
+      summary: "runtime denial with related service metadata",
+      reason: "actor_mismatch",
+    });
+    const runtimeEvent = await appendRuntimeEvent(workspaceRoot, "runtime.second", 2);
+    const serviceEvent = await appendAuditEvent({
+      serviceRoot,
+      serviceId: "alpha-service",
+      source: "service",
+      action: "service.config",
+      actor: "operator-ui",
+      subject: "alpha-service",
+      outcome: "success",
+      statusCode: 200,
+      summary: "service-root event",
+    });
+    const runtimeResponse = await readAuditEvents({ workspaceRoot });
+    const serviceResponse = await readAuditEvents({ serviceRoots: [serviceRoot] });
+
+    assert.equal(relatedServiceEvent.chainId, "runtime");
+    assert.equal(relatedServiceEvent.serviceId, "alpha-service");
+    assert.equal(runtimeEvent.chainId, "runtime");
+    assert.equal(runtimeEvent.sequence, 2);
+    assert.equal(runtimeEvent.previousHash, relatedServiceEvent.eventHash);
+    assert.equal(runtimeResponse.chainStatus, "verified");
+    assert.equal(runtimeResponse.pagination.total, 2);
+    assert.deepEqual(runtimeResponse.events.map((event) => event.chainId), ["runtime", "runtime"]);
+    assert.equal(serviceEvent.chainId, "service:alpha-service");
+    assert.equal(serviceResponse.chainStatus, "verified");
+    assert.equal(serviceResponse.pagination.total, 1);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("audit verifier detects modified, deleted, and reordered chain lines", async () => {
   const workspaceRoot = await makeWorkspace();
 
