@@ -161,6 +161,12 @@ import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import {
+  bootstrapBaselineServices,
+  DEFAULT_BASELINE_SERVICE_IDS,
+  type BootstrapBaselineResult,
+} from "../runtime/cli/bootstrap.js";
+import type { LifecycleAction } from "../runtime/lifecycle/types.js";
+import {
   claimRuntimeEndpointAllocation,
   planAndReserveRuntimeEndpoints,
   readRuntimeEndpointAllocationPlan,
@@ -299,6 +305,9 @@ export interface ApiServerOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
   autostart?: boolean;
+  baselineBootstrap?: {
+    serviceIds?: readonly string[];
+  };
   monitor?: boolean;
   monitorIntervalMs?: number;
   updateScheduler?: boolean;
@@ -320,6 +329,11 @@ export interface ApiServerOptions {
     beforeRecoveryGeneration?: (context: { journal: StartupTransactionJournal }) => Promise<void>;
     afterPhase?: (context: {
       phase: StartupTransactionPhase;
+      journal: StartupTransactionJournal;
+    }) => Promise<void>;
+    afterBaselineAction?: (context: {
+      serviceId: string;
+      action: LifecycleAction;
       journal: StartupTransactionJournal;
     }) => Promise<void>;
   };
@@ -352,6 +366,7 @@ export interface RunningApiServer {
   generationId: string;
   ownerPid: number;
   endpointAllocationPlan: RuntimeEndpointAllocationPlan;
+  baselineBootstrap: BootstrapBaselineResult | null;
   monitor: RuntimeServiceMonitor | null;
   updateScheduler: RuntimeUpdateScheduler | null;
   telemetryExportScheduler: RuntimeTelemetryExportScheduler | null;
@@ -4381,20 +4396,51 @@ function isAddressInUse(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE");
 }
 
+const BASELINE_BOOTSTRAP_INTENT_ACTION = "baseline_bootstrap_intended";
+const BASELINE_SERVICE_INTENT_PREFIX = "baseline_service_requested:";
+
+function requestedBaselineServiceIds(options: ApiServerOptions): string[] | null {
+  if (!options.baselineBootstrap) return null;
+  return [...new Set(options.baselineBootstrap.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)];
+}
+
+function journalBaselineServiceIds(journal: StartupTransactionJournal): string[] | null {
+  if (!journal.completedActions.includes(BASELINE_BOOTSTRAP_INTENT_ACTION)) return null;
+  return journal.completedActions
+    .filter((action) => action.startsWith(BASELINE_SERVICE_INTENT_PREFIX))
+    .map((action) => action.slice(BASELINE_SERVICE_INTENT_PREFIX.length));
+}
+
+function baselineIntentMatches(journal: StartupTransactionJournal, requestedServiceIds: readonly string[] | null): boolean {
+  return JSON.stringify(journalBaselineServiceIds(journal)) === JSON.stringify(requestedServiceIds);
+}
+
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
+  if (options.autostart && options.baselineBootstrap) {
+    throw new Error("Runtime startup cannot combine manifest autostart and CLI baseline bootstrap modes.");
+  }
+  const baselineServiceIds = requestedBaselineServiceIds(options);
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const recoveryModel = await loadRuntimeModel(config.servicesRoot);
   const recovery = await inspectStartupRecovery(config, recoveryModel.discovered);
+  let recoveryClassification = recovery.classification;
+  if (
+    recoveryClassification === "resume" &&
+    recovery.journal &&
+    !baselineIntentMatches(recovery.journal, baselineServiceIds)
+  ) {
+    recoveryClassification = "rollback";
+  }
   let recoveryAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
   let recoveryAdoptServiceIds: ReadonlySet<string> | undefined;
   let generationId = createRuntimeGenerationId();
   let journal: StartupTransactionJournal;
   let recoveredGeneration: Awaited<ReturnType<typeof recoverRuntimeGeneration>> | null = null;
 
-  if (recovery.classification === "blocked") {
+  if (recoveryClassification === "blocked") {
     throw new StartupTransactionRecoveryRequiredError(recovery.journal!);
   }
-  if (recovery.classification === "commit_cleanup") {
+  if (recoveryClassification === "commit_cleanup") {
     const committed = {
       journal: await activateStartupTransactionRecovery(recovery.journal!, "resume"),
     };
@@ -4418,14 +4464,14 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
     }
     return await startApiServer(options);
   }
-  if (recovery.classification === "resume") {
+  if (recoveryClassification === "resume") {
     generationId = recovery.journal!.generationId;
     journal = recovery.journal!;
     recoveryAllocationPlan = recovery.allocationPlan;
     recoveryAdoptServiceIds = new Set(
       recovery.services.filter((service) => service.ownership === "owned").map((service) => service.serviceId),
     );
-  } else if (recovery.classification === "rollback") {
+  } else if (recoveryClassification === "rollback") {
     const interrupted = { journal: await activateStartupTransactionRecovery(recovery.journal!, "rollback") };
     await rollbackInterruptedStartup(config, recoveryModel, recovery, interrupted);
     journal = await beginStartupTransaction({
@@ -4446,7 +4492,15 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   const transaction = { journal };
   let generation: Awaited<ReturnType<typeof beginRuntimeGeneration>> | null = null;
   try {
-    if (recovery.classification === "resume") {
+    if (recoveryClassification !== "resume" && baselineServiceIds) {
+      transaction.journal = await advanceStartupTransaction(transaction.journal, transaction.journal.phase, {
+        completedActions: [
+          BASELINE_BOOTSTRAP_INTENT_ACTION,
+          ...baselineServiceIds.map((serviceId) => `${BASELINE_SERVICE_INTENT_PREFIX}${serviceId}`),
+        ],
+      });
+    }
+    if (recoveryClassification === "resume") {
       transaction.journal = await activateStartupTransactionRecovery(transaction.journal, "resume");
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
@@ -4547,6 +4601,19 @@ async function runStartupTransactionPhaseHook(
   await options.startupTransactionTestHooks.afterPhase({ phase: journal.phase, journal });
 }
 
+async function runStartupBaselineActionHook(
+  options: ApiServerOptions,
+  serviceId: string,
+  action: LifecycleAction,
+  journal: StartupTransactionJournal,
+): Promise<void> {
+  if (!options.startupTransactionTestHooks?.afterBaselineAction) return;
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Startup transaction test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  await options.startupTransactionTestHooks.afterBaselineAction({ serviceId, action, journal });
+}
+
 async function startApiServerGeneration(
   options: ApiServerOptions,
   config: RuntimeConfig,
@@ -4601,6 +4668,15 @@ async function startApiServerGeneration(
   // resources after adoption. Include them in readiness and compensation so a
   // resumed attempt cannot strand an adopted process if a later phase fails.
   const transactionStartedServiceIds = new Set<string>(recovery.adoptServiceIds ?? []);
+  let baselineBootstrap: BootstrapBaselineResult | null = null;
+  const priorRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+  let baselineRuntimeApiPublished = false;
+  const restorePriorRuntimeApiBaseUrl = () => {
+    if (!baselineRuntimeApiPublished) return;
+    if (priorRuntimeApiBaseUrl === undefined) delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
+    else process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = priorRuntimeApiBaseUrl;
+    baselineRuntimeApiPublished = false;
+  };
   for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
     let attemptAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
     let candidateServer: Server | null = null;
@@ -4739,7 +4815,53 @@ async function startApiServerGeneration(
     }
   }
   try {
-    if (options.autostart) {
+    if (options.baselineBootstrap) {
+      process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiEndpoint.selectors.url.replace(/\/$/, "");
+      baselineRuntimeApiPublished = true;
+      baselineBootstrap = await bootstrapBaselineServices({
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
+        version: config.version,
+        serviceIds: requestedBaselineServiceIds(options) ?? undefined,
+        endpointAllocationPlan: allocationPlan,
+        transactionHooks: {
+          runtimeGenerationId,
+          runtimeInstanceId,
+          materializationHooksFor: (service, kind) => createStartupMaterializationHooks({ transaction, service, kind }),
+          artifactAcquisitionHooksFor: (service) => createStartupArtifactAcquisitionHooks({ transaction, service }),
+          setupTransactionHooks: createStartupSetupTransactionHooks(transaction),
+          beforeServiceStart: async (service) => {
+            const serviceId = service.manifest.id;
+            transactionStartedServiceIds.add(serviceId);
+            transaction.journal = await advanceStartupTransaction(
+              transaction.journal,
+              transaction.journal.phase,
+              {
+                completedActions: [`service_start_intended:${serviceId}`],
+                addCompensations: [`stop_service:${serviceId}`],
+                startedServiceIds: [serviceId],
+              },
+            );
+          },
+          afterServiceStart: async (service) => {
+            transaction.journal = await advanceStartupTransaction(
+              transaction.journal,
+              transaction.journal.phase,
+              { completedActions: [`service_started:${service.manifest.id}`] },
+            );
+          },
+          afterAction: async (service, action) => {
+            const serviceId = service.manifest.id;
+            transaction.journal = await advanceStartupTransaction(
+              transaction.journal,
+              transaction.journal.phase,
+              { completedActions: [`baseline_action_completed:${serviceId}:${action}`] },
+            );
+            await runStartupBaselineActionHook(options, serviceId, action, transaction.journal);
+          },
+        },
+      });
+    } else if (options.autostart) {
       await executeRuntimeOrchestrationAction(
         "autostart",
         bootModel,
@@ -4775,6 +4897,7 @@ async function startApiServerGeneration(
       );
     }
   } catch (error) {
+    restorePriorRuntimeApiBaseUrl();
     await compensateRuntimeStartupResources({
       config,
       runtimeModel: bootModel,
@@ -4900,6 +5023,7 @@ async function startApiServerGeneration(
       }).catch(() => transaction.journal);
     } else {
       if (leaseHeartbeat) clearInterval(leaseHeartbeat);
+      restorePriorRuntimeApiBaseUrl();
       await compensateRuntimeStartupResources({
         config,
         runtimeModel: bootModel,
@@ -4929,6 +5053,7 @@ async function startApiServerGeneration(
     generationId: instance.generationId,
     ownerPid: instance.pid,
     endpointAllocationPlan: allocationPlan,
+    baselineBootstrap,
     monitor,
     updateScheduler,
     telemetryExportScheduler,

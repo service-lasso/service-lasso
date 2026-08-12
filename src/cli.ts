@@ -1,5 +1,5 @@
 import { startRuntimeApp } from "./runtime/app.js";
-import { bootstrapBaselineServices, type BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
+import type { BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
 import { importServiceManifestFromCli, type ImportServiceManifestCliResult } from "./runtime/cli/importService.js";
@@ -1537,20 +1537,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,
+      baselineBootstrap: {},
     });
-    let bootstrap: Awaited<ReturnType<typeof bootstrapBaselineServices>>;
-    try {
-      bootstrap = await bootstrapBaselineServices({
-        servicesRoot: parsed.servicesRoot,
-        workspaceRoot: parsed.workspaceRoot,
-        version: runtimeVersion,
-        endpointAllocationPlan: app.apiServer.endpointAllocationPlan,
-      });
-    } catch (error) {
-      await app.apiServer.stop();
-      throw error;
-    }
-    printBootstrapResult(bootstrap, app, parsed.json);
+    printBootstrapResult(app.apiServer.baselineBootstrap!, app, parsed.json);
     return;
   }
 
