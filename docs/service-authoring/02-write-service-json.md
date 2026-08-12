@@ -30,7 +30,8 @@ Use [service.json Reference](../reference/service-json-reference.md) for field-l
 
 Managed services usually also need:
 
-- `ports` for named service ports
+- `endpoints[]` for named network interfaces and their
+  `automatic`/`preferred`/`fixed` port policies
 - `urls` for operator-facing links
 - `healthchecks[]` for process, HTTP, TCP, file, or variable readiness
 - `env` for service-local runtime values
@@ -52,6 +53,10 @@ Provider services usually need:
 Use `setup.steps` for work that must execute locally after install/config but should not be supervised as a long-running daemon. Common examples include generating local certificates, installing service-local Python dependencies, creating a database schema, or loading sample data.
 
 This is Service Lasso's first-class one-shot job contract. Use [One-shot Jobs](../reference/one-shot-jobs.md) for CLI/API behavior, dependency ordering, provider-backed execution, rerun policy, and persisted setup history.
+Use [Startup Endpoint Allocation](../reference/startup-endpoint-allocation.md)
+to distinguish author proposals from resolved runtime selectors. Generated
+files, command lines, URLs, and health checks should reference
+`${endpoint.<id>.<field>}` instead of copying numeric defaults.
 Use [Setup Helper Conventions](setup-helper-conventions.md) when a setup step is better maintained as service-owned helper code instead of a long inline command.
 Use [Legacy Setup Migration](../reference/legacy-setup-migration.md) when
 converting donor-era `execconfig.setup` arrays or punctuation-prefixed setup

@@ -2,7 +2,9 @@
 
 Service Lasso persists runtime port reservations under `workspaceRoot/runtime/port-reservations.json`.
 
-The ledger is separate from service manifests. It records the ports the current runtime considers reserved before install/config/start state is mutated, so a restarted API instance can rehydrate prior allocations and avoid assigning a service port over another runtime or service listener.
+The ledger is a workspace projection of the authoritative
+[startup-wide endpoint allocation](startup-endpoint-allocation.md). It is
+separate from service manifests and retains historical reservation evidence.
 
 ## Reservation records
 
@@ -16,15 +18,20 @@ Each reservation contains:
 - `createdAt` and `updatedAt`: ISO timestamps
 - `stale` and `staleReason`: optional reconciliation evidence when a previous reservation is no longer present in rehydrated runtime state
 
-Reservation writes fail closed when a live, non-stale `host:port` is already owned by a different API/service reservation.
+Reservation writes fail closed when a live, non-stale binding is already owned
+by a different API/service reservation. Wildcard bindings overlap loopback and
+specific bindings on the same transport/port.
 
 ## Reconciliation model
 
-At runtime startup, callers should build the active set from:
+At runtime startup, the allocation engine builds the active set from:
 
 - the API listener port
 - service-declared fixed ports
 - service runtime ports rehydrated from `.state/runtime.json`
+
+It also verifies adopted process ownership, other host-lane allocations and OS
+listeners. Stopped-service ports are proposals, not permanent ownership.
 
 Reconciliation keeps active reservations fresh and marks missing historical entries stale instead of deleting them. Stale evidence gives operators a safe recovery path without silently forgetting why a port was previously considered unavailable.
 

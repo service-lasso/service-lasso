@@ -1,5 +1,6 @@
 import net from "node:net";
 import { readPortReservationLedger, type PortReservation } from "./reservations.js";
+import { endpointHostsOverlap } from "./allocation.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 
@@ -48,12 +49,8 @@ function normalizeHost(host: string | null | undefined): string {
   return typeof host === "string" && host.trim().length > 0 ? host.trim() : DEFAULT_HOST;
 }
 
-function hostMatches(left: string, right: string): boolean {
-  return left === right || left === "0.0.0.0" || right === "0.0.0.0";
-}
-
 function sameRequestedPort(reservation: PortReservation, host: string, port: number): boolean {
-  return reservation.port === port && hostMatches(reservation.host, host);
+  return reservation.port === port && endpointHostsOverlap(reservation.host, host);
 }
 
 async function canBindPort(port: number, host: string): Promise<boolean> {

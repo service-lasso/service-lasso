@@ -24,4 +24,8 @@ Each trace is ordered by event `order` and uses these phases:
 
 Trace metadata is diagnostic metadata only. Environment values, broker payloads, provider credentials, tokens, passwords, private keys, cookies, recovery material, and raw secret values must not be emitted. Environment-related trace events expose key names and counts only.
 
+The `port_selection` event reports the safe allocation revision plus endpoint
+names/count. It refers to the startup-wide resolved plan; it never returns
+rendered configuration or environment values.
+
 Blocked starts are represented as a completed trace with status `blocked`. Health-check failures are represented as status `failed`. Successful starts are represented as status `succeeded`.

@@ -64,6 +64,12 @@ function reservationKey(host: string, port: number): string {
   return `${host}:${port}`;
 }
 
+function hostsOverlap(left: string, right: string): boolean {
+  if (left === right) return true;
+  if (left === "::" || right === "::") return true;
+  return left === "0.0.0.0" || right === "0.0.0.0";
+}
+
 function ownerKey(reservation: Pick<PortReservation, "ownerId" | "portName" | "kind">): string {
   return `${reservation.kind}:${reservation.ownerId}:${reservation.portName}`;
 }
@@ -179,7 +185,9 @@ export async function reservePorts(
 
   for (const input of inputs) {
     const next = normalizeInput(input, now);
-    const existingPortOwner = byPort.get(reservationKey(next.host, next.port));
+    const existingPortOwner = [...byPort.values()].find((reservation) =>
+      reservation.port === next.port && hostsOverlap(reservation.host, next.host),
+    );
     if (existingPortOwner && ownerKey(existingPortOwner) !== ownerKey(next) && existingPortOwner.stale !== true) {
       throw new PortReservationConflictError(
         `Port ${next.host}:${next.port} is already reserved by "${existingPortOwner.ownerId}" "${existingPortOwner.portName}".`,

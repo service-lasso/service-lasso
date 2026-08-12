@@ -226,6 +226,8 @@ export interface ServiceLifecycleActionOptions {
   workspaceRoot?: string;
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
+  plannedPorts?: Record<string, number>;
+  allocationRevision?: string | null;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
     attemptNumber: number;
@@ -973,10 +975,10 @@ export async function configService(
     );
   }
 
-  const resolvedPorts = registry
+  const resolvedPorts = options.plannedPorts ?? (registry
     ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
-    : current.runtime.ports;
-  await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
+    : current.runtime.ports);
+  const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
@@ -993,6 +995,7 @@ export async function configService(
       configArtifacts: artifacts,
       runtime: {
         ...state.runtime,
+        allocationRevision,
         ports: resolvedPorts,
         endpoints: resolveServiceEndpoints(service, resolvedPorts),
       },
@@ -1128,13 +1131,14 @@ export async function startService(
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
     launchLeaseIssuer: resolveSecretsBrokerLaunchLeaseIssuer(registry),
   });
-  const resolvedPorts =
+  const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
       : registry
         ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
-        : {};
-  const allocationRevision = await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
+        : {}
+  );
+  const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   recordStartTraceEvent(
     serviceId,
     trace,
@@ -1142,6 +1146,7 @@ export async function startService(
     "completed",
     "Runtime ports selected and reserved where a workspace ledger is available.",
     {
+      allocationRevision,
       portNames: Object.keys(resolvedPorts).sort(),
       portCount: Object.keys(resolvedPorts).length,
     },
@@ -1280,6 +1285,7 @@ export async function startService(
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
+      allocationRevision,
       ports: resolvedPorts,
       endpoints: resolveServiceEndpoints(service, resolvedPorts),
       logs: {
@@ -1354,6 +1360,7 @@ export async function startService(
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
         lastTermination: processStillManaged ? null : state.runtime.lastTermination,
+        allocationRevision,
         brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
         supervision: options.supervisionRestart
           ? state.runtime.supervision
@@ -1449,13 +1456,14 @@ export async function restartService(
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
     launchLeaseIssuer: resolveSecretsBrokerLaunchLeaseIssuer(registry),
   });
-  const resolvedPorts =
+  const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
       : registry
         ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
-        : {};
-  const allocationRevision = await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
+        : {}
+  );
+  const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const variableResolution = await resolveLaunchVariableResolution(
     service,
     options,
@@ -1499,6 +1507,7 @@ export async function restartService(
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       lastTermination: null,
+      allocationRevision,
       ports: resolvedPorts,
       endpoints: resolveServiceEndpoints(service, resolvedPorts),
       logs: {
@@ -1573,6 +1582,7 @@ export async function restartService(
         provider: executionPlan.provider,
         providerServiceId: executionPlan.providerServiceId,
         lastTermination: null,
+        allocationRevision,
         brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
         supervision: createEmptySupervisionState(),
       },

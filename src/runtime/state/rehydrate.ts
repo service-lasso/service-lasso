@@ -75,6 +75,7 @@ interface StoredRuntimeState {
   provider?: ProviderKind | null;
   providerServiceId?: string | null;
   lastTermination?: "stopped" | "exited" | "crashed" | null;
+  allocationRevision?: string | null;
   ports?: Record<string, number>;
   logs?: {
     runId?: string | null;
@@ -538,6 +539,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
         runtime?.lastTermination === "stopped" || runtime?.lastTermination === "exited" || runtime?.lastTermination === "crashed"
           ? runtime.lastTermination
           : null,
+      allocationRevision: typeof runtime?.allocationRevision === "string" ? runtime.allocationRevision : null,
       ports,
       endpoints: resolveServiceEndpoints(service, ports),
       logs: {

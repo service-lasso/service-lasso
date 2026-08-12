@@ -12,6 +12,7 @@ import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { isProviderRole } from "../roles.js";
 import { readRuntimeSetupStatus, shouldBlockNormalAutostart, type RuntimeSetupStatus } from "../setup/first-run.js";
+import { servicePortsFromEndpointAllocation, type RuntimeEndpointAllocationPlan } from "../ports/allocation.js";
 
 export const DEFAULT_BASELINE_SERVICE_IDS = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"] as const;
 
@@ -34,6 +35,7 @@ export interface BaselineServiceSummary {
 
 export interface BootstrapBaselineOptions extends RuntimeConfigOptions {
   serviceIds?: readonly string[];
+  endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
 }
 
 export interface BootstrapBaselineResult {
@@ -77,18 +79,26 @@ async function runLifecycleAction(
   registry: ServiceRegistry,
   action: LifecycleAction,
   workspaceRoot?: string,
+  endpointAllocationPlan?: RuntimeEndpointAllocationPlan,
 ): Promise<LifecycleActionResult> {
+  const allocationOptions = {
+    workspaceRoot,
+    plannedPorts: endpointAllocationPlan
+      ? servicePortsFromEndpointAllocation(endpointAllocationPlan)[service.manifest.id]
+      : undefined,
+    allocationRevision: endpointAllocationPlan?.allocationId,
+  };
   try {
     if (action === "install") {
       return await installService(service, registry);
     }
 
     if (action === "config") {
-      return await configService(service, registry, { workspaceRoot });
+      return await configService(service, registry, allocationOptions);
     }
 
     if (action === "start") {
-      return await startService(service, registry, { workspaceRoot });
+      return await startService(service, registry, allocationOptions);
     }
   } catch (error) {
     throw formatActionFailure(service.manifest.id, action, error);
@@ -161,7 +171,13 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
     if (state.installed) {
       actions.push({ action: "install", status: "skipped", message: "Already installed." });
     } else {
-      const result = await runLifecycleAction(service, registry, "install", runtimeConfig.workspaceRoot);
+      const result = await runLifecycleAction(
+        service,
+        registry,
+        "install",
+        runtimeConfig.workspaceRoot,
+        options.endpointAllocationPlan,
+      );
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "install", status: "completed", message: result.message });
@@ -170,7 +186,13 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
     if (state.configured) {
       actions.push({ action: "config", status: "skipped", message: "Already configured." });
     } else {
-      const result = await runLifecycleAction(service, registry, "config", runtimeConfig.workspaceRoot);
+      const result = await runLifecycleAction(
+        service,
+        registry,
+        "config",
+        runtimeConfig.workspaceRoot,
+        options.endpointAllocationPlan,
+      );
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "config", status: "completed", message: result.message });
@@ -207,7 +229,13 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
           : "No executable or artifact command is configured.",
       });
     } else {
-      const result = await runLifecycleAction(service, registry, "start", runtimeConfig.workspaceRoot);
+      const result = await runLifecycleAction(
+        service,
+        registry,
+        "start",
+        runtimeConfig.workspaceRoot,
+        options.endpointAllocationPlan,
+      );
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({ action: "start", status: "completed", message: result.message });

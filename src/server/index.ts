@@ -41,7 +41,7 @@ import {
   stopService,
 } from "../runtime/lifecycle/actions.js";
 import { prepareAndStartService, type PreparedStartSkipReason } from "../runtime/lifecycle/prepareStart.js";
-import { getLifecycleState } from "../runtime/lifecycle/store.js";
+import { getLifecycleState, setLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import type { ServiceHealthResult } from "../runtime/health/types.js";
 import { readServiceHealthHistory, recordServiceHealthTransition } from "../runtime/health/history.js";
@@ -65,6 +65,7 @@ import {
 import { buildBaselineDependencyDiagnostics } from "../runtime/operator/dependencyDiagnostics.js";
 import { buildOperatorNotifications } from "../runtime/operator/notifications.js";
 import { buildServiceMetrics } from "../runtime/operator/metrics.js";
+import { resolveServiceEndpoints } from "../runtime/operator/endpoints.js";
 import {
   buildApiRequestTelemetryPreview,
   createApiRequestTelemetryIdentity,
@@ -159,7 +160,15 @@ import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from ".
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
-import { reconcilePortReservationLedger, reservePorts, type PortReservationInput } from "../runtime/ports/reservations.js";
+import {
+  planAndReserveRuntimeEndpoints,
+  readRuntimeEndpointAllocationPlan,
+  releaseRuntimeEndpointAllocation,
+  runtimeApiEndpointFromAllocation,
+  servicePortsFromEndpointAllocation,
+  type RuntimeEndpointAllocationPolicy,
+  type RuntimeEndpointAllocationPlan,
+} from "../runtime/ports/allocation.js";
 import { recordProcessOwnership, transitionProcessOwnership } from "../runtime/process/registry.js";
 import { explainPortConflict } from "../runtime/ports/conflicts.js";
 import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
@@ -251,6 +260,7 @@ import type {
 
 export interface ApiServerOptions {
   port?: number;
+  portPolicy?: RuntimeEndpointAllocationPolicy;
   host?: string;
   version?: string;
   servicesRoot?: string;
@@ -265,6 +275,14 @@ export interface ApiServerOptions {
   workflowRunFacadeState?: WorkflowRunFacadeState;
   telemetryExportScheduler?: RuntimeTelemetryExportScheduler | null;
   apiRequestTelemetryState?: ApiRequestTelemetryState;
+  endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
+  endpointAllocationTestHooks?: {
+    beforeApiBind?: (context: {
+      attempt: number;
+      allocationPlan: RuntimeEndpointAllocationPlan;
+      endpoint: ReturnType<typeof runtimeApiEndpointFromAllocation>;
+    }) => Promise<void>;
+  };
   runtimeGenerationId?: string | null;
 }
 
@@ -282,6 +300,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   };
   serviceCatalogUrl?: string;
   serviceCatalogGithubApiBaseUrl?: string;
+  endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
   runtimeGenerationId?: string | null;
 }
 
@@ -289,6 +308,7 @@ export interface RunningApiServer {
   server: Server;
   port: number;
   url: string;
+  endpointAllocationPlan: RuntimeEndpointAllocationPlan;
   monitor: RuntimeServiceMonitor | null;
   updateScheduler: RuntimeUpdateScheduler | null;
   telemetryExportScheduler: RuntimeTelemetryExportScheduler | null;
@@ -1260,31 +1280,50 @@ function isUsablePort(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535;
 }
 
-function toServicePortReservations(runtimeModel: RuntimeModel): PortReservationInput[] {
-  return runtimeModel.discovered.flatMap((service) => {
-    const state = getLifecycleState(service.manifest.id);
-    return Object.entries(state.runtime.ports)
-      .filter(([, port]) => isUsablePort(port))
-      .map(([portName, port]) => {
-        const desiredPort = service.manifest.ports?.[portName];
-        return {
-          kind: desiredPort === port && desiredPort !== 0 ? "service-fixed" : "service-negotiated",
-          ownerId: service.manifest.id,
-          portName,
-          port,
-        };
-      });
-  });
+function portsMatch(left: Record<string, number>, right: Record<string, number>): boolean {
+  const leftEntries = Object.entries(left).sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+  const rightEntries = Object.entries(right).sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+  return JSON.stringify(leftEntries) === JSON.stringify(rightEntries);
 }
 
-function toApiPortReservation(port: number, bindHost: string): PortReservationInput {
-  return {
-    host: bindHost,
-    kind: "api",
-    ownerId: "runtime-api",
-    portName: "http",
-    port,
-  };
+async function materializeRuntimeEndpointAllocation(
+  runtimeModel: RuntimeModel,
+  workspaceRoot: string,
+  allocationPlan: RuntimeEndpointAllocationPlan,
+): Promise<void> {
+  const plannedPortsByService = servicePortsFromEndpointAllocation(allocationPlan);
+  for (const service of runtimeModel.discovered) {
+    const plannedPorts = plannedPortsByService[service.manifest.id];
+    if (!plannedPorts) continue;
+    const current = getLifecycleState(service.manifest.id);
+    if (current.running && !portsMatch(current.runtime.ports, plannedPorts)) {
+      throw new Error(
+        `Running service "${service.manifest.id}" allocation changed instead of remaining pinned.`,
+      );
+    }
+    if (!current.running && (!current.installed || !current.configured)) {
+      continue;
+    }
+    if (current.installed && current.configured && !current.running && !portsMatch(current.runtime.ports, plannedPorts)) {
+      const configured = await configService(service, runtimeModel.registry, {
+        workspaceRoot,
+        plannedPorts,
+        allocationRevision: allocationPlan.allocationId,
+      });
+      await writeServiceState(service, configured.state);
+      continue;
+    }
+    const next = setLifecycleState(service.manifest.id, {
+      ...current,
+      runtime: {
+        ...current.runtime,
+        allocationRevision: allocationPlan.allocationId,
+        ports: { ...plannedPorts },
+        endpoints: resolveServiceEndpoints(service, plannedPorts),
+      },
+    });
+    await writeServiceState(service, next);
+  }
 }
 
 async function createServiceSummary(
@@ -1348,21 +1387,37 @@ async function executeLifecycleAction(
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
   workspaceRoot?: string,
+  allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
 ): Promise<LifecycleActionResponse> {
+  const plannedPorts = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan)[service.manifest.id] : undefined;
+  const allocationOptions = {
+    workspaceRoot,
+    runtimeGenerationId,
+    runtimeInstanceId,
+    plannedPorts,
+    allocationRevision: allocationPlan?.allocationId,
+  };
   const result = await (async () => {
     switch (action) {
       case "install":
         return await installService(service, registry);
       case "config":
-        return await configService(service, registry, { workspaceRoot });
+        return await configService(service, registry, allocationOptions);
       case "start":
-        return await executePreparedServiceStart(service, registry, workspaceRoot, runtimeGenerationId, runtimeInstanceId);
+        return await executePreparedServiceStart(
+          service,
+          registry,
+          workspaceRoot,
+          allocationPlan,
+          runtimeGenerationId,
+          runtimeInstanceId,
+        );
       case "stop":
         return await stopService(service);
       case "restart":
-        return await restartService(service, registry, { workspaceRoot, runtimeGenerationId, runtimeInstanceId });
+        return await restartService(service, registry, allocationOptions);
       default:
         throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
     }
@@ -1375,6 +1430,7 @@ async function executePreparedServiceStart(
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
   workspaceRoot?: string,
+  allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
 ): Promise<Awaited<ReturnType<typeof startService>>> {
@@ -1382,6 +1438,8 @@ async function executePreparedServiceStart(
     workspaceRoot,
     runtimeGenerationId,
     runtimeInstanceId,
+    allocationRevision: allocationPlan?.allocationId,
+    plannedPortsByService: allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined,
   });
 
   if (prepared.result) {
@@ -1448,9 +1506,18 @@ async function executeRuntimeOrchestrationAction(
   action: "startAll" | "stopAll" | "autostart" | "reload",
   runtimeModel: RuntimeModel,
   workspaceRoot?: string,
+  allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
 ): Promise<RuntimeOrchestrationResponse> {
+  const plannedPortsByService = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined;
+  const preparedStartOptions = {
+    workspaceRoot,
+    runtimeGenerationId,
+    runtimeInstanceId,
+    allocationRevision: allocationPlan?.allocationId,
+    plannedPortsByService,
+  };
   if (action === "reload") {
     const stopped: LifecycleActionResponse[] = [];
     const skipped: RuntimeOrchestrationResponse["skipped"] = [];
@@ -1509,6 +1576,8 @@ async function executeRuntimeOrchestrationAction(
         workspaceRoot,
         runtimeGenerationId,
         runtimeInstanceId,
+        allocationRevision: allocationPlan?.allocationId,
+        plannedPorts: plannedPortsByService?.[serviceId],
       });
       results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result));
     }
@@ -1553,11 +1622,7 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      const prepared = await prepareAndStartService(service, runtimeModel.registry, {
-        workspaceRoot,
-        runtimeGenerationId,
-        runtimeInstanceId,
-      });
+      const prepared = await prepareAndStartService(service, runtimeModel.registry, preparedStartOptions);
       if (prepared.result) {
         results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result));
       } else {
@@ -2321,6 +2386,7 @@ async function routeRequest(
             service,
             runtimeModel.registry,
             config.workspaceRoot,
+            config.endpointAllocationPlan,
             config.runtimeGenerationId,
             resolveRuntimeInstanceId(config),
           );
@@ -3442,6 +3508,7 @@ async function routeRequest(
           service,
           runtimeModel.registry,
           config.workspaceRoot,
+          config.endpointAllocationPlan,
           config.runtimeGenerationId,
           resolveRuntimeInstanceId(config),
         );
@@ -3533,6 +3600,13 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/endpoints/allocation") {
+    writeJson(response, 200, {
+      allocation: await readRuntimeEndpointAllocationPlan(config.workspaceRoot),
+    });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/runtime/ports/conflict") {
     const port = parseOptionalInteger(url.searchParams.get("port"));
     if (!isUsablePort(port)) {
@@ -3566,6 +3640,7 @@ async function routeRequest(
         action,
         runtimeModel,
         config.workspaceRoot,
+        config.endpointAllocationPlan,
         config.runtimeGenerationId,
         resolveRuntimeInstanceId(config),
       );
@@ -3829,6 +3904,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     },
     serviceCatalogUrl: options.serviceCatalogUrl,
     serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
+    endpointAllocationPlan: options.endpointAllocationPlan,
     runtimeGenerationId: options.runtimeGenerationId ?? null,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
@@ -3884,6 +3960,29 @@ async function closeApiServer(server: Server): Promise<void> {
   await once(server, "close");
 }
 
+function runtimeApiPortPolicy(options: ApiServerOptions, requestedPort: number): RuntimeEndpointAllocationPolicy {
+  const configured = options.portPolicy ?? process.env.SERVICE_LASSO_API_PORT_POLICY;
+  if (configured === "automatic" || configured === "preferred" || configured === "fixed") return configured;
+  if (configured !== undefined) {
+    throw new Error(`Invalid SERVICE_LASSO_API_PORT_POLICY: ${configured}.`);
+  }
+  return requestedPort === 0 ? "automatic" : "preferred";
+}
+
+function runtimeBindRetryLimit(): number {
+  const configured = process.env.SERVICE_LASSO_BIND_RETRY_LIMIT;
+  if (configured === undefined) return 2;
+  const parsed = Number(configured);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 10) {
+    throw new Error(`Invalid SERVICE_LASSO_BIND_RETRY_LIMIT: ${configured}.`);
+  }
+  return parsed;
+}
+
+function isAddressInUse(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE");
+}
+
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
   const generation = await beginRuntimeGeneration(config);
@@ -3901,7 +4000,7 @@ async function startApiServerGeneration(
   generation: Awaited<ReturnType<typeof beginRuntimeGeneration>>,
 ): Promise<RunningApiServer> {
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
-  const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost;
+  const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const bootModel = await loadRuntimeModel(config.servicesRoot);
   const runtimeInstanceId = generation.instanceId;
   const runtimeGenerationId = generation.generationId;
@@ -3911,25 +4010,8 @@ async function startApiServerGeneration(
     runtimeInstanceId,
   });
   const requestedPort = options.port ?? 18080;
-  const activeReservations = [...toServicePortReservations(bootModel)];
-  if (requestedPort !== 0) {
-    activeReservations.push(toApiPortReservation(requestedPort, bindHost));
-    await reservePorts(config.workspaceRoot, [toApiPortReservation(requestedPort, bindHost)]);
-  }
-  let apiAllocationRevision = (await reconcilePortReservationLedger(
-    config.workspaceRoot,
-    activeReservations,
-    "not present in rehydrated runtime state",
-  )).updatedAt;
-  if (options.autostart) {
-    await executeRuntimeOrchestrationAction(
-      "autostart",
-      bootModel,
-      config.workspaceRoot,
-      runtimeGenerationId,
-      runtimeInstanceId,
-    );
-  }
+  const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
+  const bindRetryLimit = runtimeBindRetryLimit();
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
         registry: bootModel.registry,
@@ -3943,8 +4025,7 @@ async function startApiServerGeneration(
       })
     : null;
   const apiRequestTelemetryState: ApiRequestTelemetryState = { requests: [], droppedCount: 0 };
-  let telemetryExportScheduler: RuntimeTelemetryExportScheduler | null = null;
-  telemetryExportScheduler = createRuntimeTelemetryExportScheduler({
+  const telemetryExportScheduler = createRuntimeTelemetryExportScheduler({
     collectTelemetry: (status) =>
       buildRuntimeTelemetrySnapshot(
         config,
@@ -3953,48 +4034,98 @@ async function startApiServerGeneration(
         status,
       ),
   });
-  const server = createApiServer({
-    ...config,
-    host: bindHost,
-    autostart: options.autostart,
-    monitor: options.monitor,
-    updateScheduler: options.updateScheduler,
-    serviceCatalogUrl: options.serviceCatalogUrl,
-    serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
-    telemetryExportScheduler,
-    apiRequestTelemetryState,
-    workflowRunFacadeState: options.workflowRunFacadeState,
-    runtimeGenerationId,
-  });
-  const port = requestedPort;
-
-  await recordProcessOwnership(config.workspaceRoot, {
-    ownerType: "runtime",
-    ownerId: runtimeInstanceId,
-    generationId: runtimeGenerationId,
-    runtimeInstanceId,
-    pid: process.pid,
-    ownerRoot: config.servicesRoot,
-    allocationRevision: apiAllocationRevision,
-    ports: requestedPort === 0 ? {} : { api: requestedPort },
-    endpoints: requestedPort === 0
-      ? []
-      : [{ name: "api", url: "http://" + publicHost + ":" + requestedPort }],
-    lifecycleState: "launching",
-    source: "runtime",
-  });
+  let allocationPlan!: RuntimeEndpointAllocationPlan;
+  let apiEndpoint!: ReturnType<typeof runtimeApiEndpointFromAllocation>;
+  let server!: Server;
+  for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
+    allocationPlan = await planAndReserveRuntimeEndpoints({
+      laneId: runtimeInstanceId,
+      servicesRoot: config.servicesRoot,
+      workspaceRoot: config.workspaceRoot,
+      api: {
+        host: bindHost,
+        advertiseHost: publicHost,
+        port: requestedPort,
+        policy: apiPortPolicy,
+      },
+      services: bootModel.discovered,
+      attempt,
+    });
+    apiEndpoint = runtimeApiEndpointFromAllocation(allocationPlan);
+    let candidateServer: Server | null = null;
+    let ownershipRecorded = false;
+    try {
+      await materializeRuntimeEndpointAllocation(bootModel, config.workspaceRoot, allocationPlan);
+      candidateServer = createApiServer({
+        ...config,
+        host: bindHost,
+        autostart: options.autostart,
+        monitor: options.monitor,
+        updateScheduler: options.updateScheduler,
+        serviceCatalogUrl: options.serviceCatalogUrl,
+        serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
+        telemetryExportScheduler,
+        apiRequestTelemetryState,
+        workflowRunFacadeState: options.workflowRunFacadeState,
+        endpointAllocationPlan: allocationPlan,
+        runtimeGenerationId,
+      });
+      await recordProcessOwnership(config.workspaceRoot, {
+        ownerType: "runtime",
+        ownerId: runtimeInstanceId,
+        generationId: runtimeGenerationId,
+        runtimeInstanceId,
+        pid: process.pid,
+        ownerRoot: config.servicesRoot,
+        allocationRevision: allocationPlan.allocationId,
+        ports: { api: apiEndpoint.port },
+        endpoints: [{ name: "api", url: apiEndpoint.selectors.url }],
+        lifecycleState: "launching",
+        source: "runtime",
+      });
+      ownershipRecorded = true;
+      if (options.endpointAllocationTestHooks?.beforeApiBind) {
+        if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+          throw new Error("Endpoint allocation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+        }
+        await options.endpointAllocationTestHooks.beforeApiBind({ attempt, allocationPlan, endpoint: apiEndpoint });
+      }
+      candidateServer.listen(apiEndpoint.port, bindHost);
+      await once(candidateServer, "listening");
+      server = candidateServer;
+      break;
+    } catch (error) {
+      if (candidateServer?.listening) await closeApiServer(candidateServer);
+      if (ownershipRecorded) {
+        await transitionProcessOwnership(
+          config.workspaceRoot,
+          "runtime",
+          runtimeInstanceId,
+          "stopped",
+          "not_running",
+          process.pid,
+        );
+      }
+      await releaseRuntimeEndpointAllocation(allocationPlan);
+      if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
+    }
+  }
   try {
-    server.listen(port, bindHost);
-    await once(server, "listening");
+    if (options.autostart) {
+      await executeRuntimeOrchestrationAction(
+        "autostart",
+        bootModel,
+        config.workspaceRoot,
+        allocationPlan,
+        runtimeGenerationId,
+        runtimeInstanceId,
+      );
+    }
   } catch (error) {
-    await transitionProcessOwnership(
-      config.workspaceRoot,
-      "runtime",
-      runtimeInstanceId,
-      "stopped",
-      "not_running",
-      process.pid,
-    );
+    await stopAllManagedProcesses();
+    await closeApiServer(server);
+    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
+    await releaseRuntimeEndpointAllocation(allocationPlan);
     throw error;
   }
   monitor?.start();
@@ -4003,28 +4134,41 @@ async function startApiServerGeneration(
 
   const address = server.address();
   if (!address || typeof address === "string") {
+    await closeApiServer(server);
+    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
+    await releaseRuntimeEndpointAllocation(allocationPlan);
     throw new Error("API server failed to expose a TCP address.");
   }
 
   const resolvedPort = address.port;
-  const instance = await registerRuntimeInstance(config, {
-    apiPort: resolvedPort,
-    apiUrl: "http://" + publicHost + ":" + resolvedPort,
-    generationId: runtimeGenerationId,
-    runtimeRoot: generation.runtimeRoot,
-    source: generation.source,
-    phase: "running",
-  });
+  if (resolvedPort !== apiEndpoint.port) {
+    await closeApiServer(server);
+    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
+    await releaseRuntimeEndpointAllocation(allocationPlan);
+    throw new Error(`Runtime API bound unexpected port ${resolvedPort}; reserved ${apiEndpoint.port}.`);
+  }
+  const resolvedApiUrl = apiEndpoint.selectors.url.replace(/\/$/, "");
+  let instance: Awaited<ReturnType<typeof registerRuntimeInstance>>;
+  try {
+    instance = await registerRuntimeInstance(config, {
+      apiPort: resolvedPort,
+      apiUrl: resolvedApiUrl,
+      generationId: runtimeGenerationId,
+      runtimeRoot: generation.runtimeRoot,
+      source: generation.source,
+      phase: "running",
+    });
+  } catch (error) {
+    await stopAllManagedProcesses();
+    await closeApiServer(server);
+    await transitionProcessOwnership(config.workspaceRoot, "runtime", runtimeInstanceId, "stopped", "not_running", process.pid);
+    await releaseRuntimeEndpointAllocation(allocationPlan);
+    throw error;
+  }
   const leaseHeartbeat = setInterval(() => {
     void refreshRuntimeInstanceLease(config, { generationId: runtimeGenerationId }).catch(() => undefined);
   }, DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS);
   leaseHeartbeat.unref?.();
-  if (requestedPort === 0) {
-    apiAllocationRevision = (await reservePorts(
-      config.workspaceRoot,
-      [toApiPortReservation(resolvedPort, bindHost)],
-    )).updatedAt;
-  }
   try {
     await recordProcessOwnership(config.workspaceRoot, {
       ownerType: "runtime",
@@ -4033,7 +4177,7 @@ async function startApiServerGeneration(
       runtimeInstanceId: instance.instanceId,
       pid: process.pid,
       ownerRoot: config.servicesRoot,
-      allocationRevision: apiAllocationRevision,
+      allocationRevision: allocationPlan.allocationId,
       ports: { api: resolvedPort },
       endpoints: [{ name: "api", url: instance.apiUrl }],
       lifecycleState: "running",
@@ -4041,7 +4185,7 @@ async function startApiServerGeneration(
     });
     await publishRuntimeGeneration(config, runtimeGenerationId, {
       phase: "running",
-      allocationRevision: apiAllocationRevision,
+      allocationRevision: allocationPlan.allocationId,
       endpoints: [{ name: "api", url: instance.apiUrl }],
     });
   } catch (error) {
@@ -4059,6 +4203,7 @@ async function startApiServerGeneration(
       "not_running",
       process.pid,
     );
+    await releaseRuntimeEndpointAllocation(allocationPlan);
     throw error;
   }
 
@@ -4066,6 +4211,7 @@ async function startApiServerGeneration(
     server,
     port: resolvedPort,
     url: instance.apiUrl,
+    endpointAllocationPlan: allocationPlan,
     monitor,
     updateScheduler,
     telemetryExportScheduler,
@@ -4095,6 +4241,7 @@ async function startApiServerGeneration(
         process.pid,
       );
       await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopped" });
+      await releaseRuntimeEndpointAllocation(allocationPlan);
     },
   };
 }

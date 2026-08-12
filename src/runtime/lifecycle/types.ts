@@ -136,6 +136,7 @@ export interface ServiceRuntimeState {
   provider: ProviderKind | null;
   providerServiceId: string | null;
   lastTermination: "stopped" | "exited" | "crashed" | null;
+  allocationRevision: string | null;
   ports: Record<string, number>;
   endpoints: ResolvedServiceEndpoint[];
   logs: {

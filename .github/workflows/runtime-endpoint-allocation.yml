@@ -1,0 +1,43 @@
+name: Runtime endpoint allocation
+
+on:
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint-allocation:
+    name: endpoint-allocation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build runtime
+        run: npm run build
+
+      - name: Verify host-locked endpoint planning and startup consumption
+        env:
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-test-instances.json
+        run: node --test --test-concurrency=1 --test-force-exit tests/endpoint-allocation.test.js tests/port-reservations.test.js tests/api-port-conflicts.test.js tests/bootstrap-start.test.js

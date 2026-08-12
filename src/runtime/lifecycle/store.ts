@@ -99,6 +99,7 @@ function createInitialState(): ServiceLifecycleState {
       provider: null,
       providerServiceId: null,
       lastTermination: null,
+      allocationRevision: null,
       ports: {},
       endpoints: [],
       logs: {
@@ -191,6 +192,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       provider: current.runtime.provider,
       providerServiceId: current.runtime.providerServiceId,
       lastTermination: current.runtime.lastTermination,
+      allocationRevision: current.runtime.allocationRevision,
       ports: { ...current.runtime.ports },
       endpoints: current.runtime.endpoints.map((endpoint) => ({ ...endpoint })),
       logs: {
@@ -281,6 +283,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       provider: nextState.runtime.provider,
       providerServiceId: nextState.runtime.providerServiceId,
       lastTermination: nextState.runtime.lastTermination,
+      allocationRevision: nextState.runtime.allocationRevision,
       ports: { ...nextState.runtime.ports },
       endpoints: nextState.runtime.endpoints.map((endpoint) => ({ ...endpoint })),
       logs: {
