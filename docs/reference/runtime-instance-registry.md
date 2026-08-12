@@ -7,6 +7,12 @@ Service Lasso records read-only runtime identity so operators and tools can dist
 GET /api/runtime/instance returns the current instance, host registry, workspace
 generation history, and a stable lane-selection result.
 
+`GET /api/runtime/endpoints/allocation` returns the runtime API and service
+endpoints selected for this lane, including the allocation revision, attempt,
+policy, resolution, bind, port, and safe URL selector. Endpoint allocation is
+published separately from the instance lease because proposal ports can be
+renegotiated before bind.
+
 The current instance includes:
 
 - instanceId: stable id derived from the resolved servicesRoot and workspaceRoot.

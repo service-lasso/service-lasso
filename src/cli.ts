@@ -56,6 +56,7 @@ interface ParsedCliOptions {
   archivePath?: string;
   snapshotPath?: string;
   port?: number;
+  portPolicy?: "automatic" | "preferred" | "fixed";
   servicesRoot?: string;
   targetServicesRoot?: string;
   coreServicesRoot?: string;
@@ -74,8 +75,8 @@ function usageText(): string {
     "",
     "Usage:",
     "  service-lasso",
-    "  service-lasso serve [--port <number>] [--services-root <path>] [--workspace-root <path>]",
-    "  service-lasso start [--port <number>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso serve [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>]",
+    "  service-lasso start [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso install <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup list [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup run <serviceId> [stepId] [--services-root <path>] [--workspace-root <path>] [--force] [--include-manual] [--json]",
@@ -494,6 +495,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --port.");
         }
         parsed.port = parsePort(value);
+        break;
+      }
+      case "--port-policy": {
+        if (command !== "serve" && command !== "start") {
+          throw new Error("--port-policy is only supported for the serve and start commands.");
+        }
+        const value = remaining.shift();
+        if (value !== "automatic" && value !== "preferred" && value !== "fixed") {
+          throw new Error("--port-policy must be one of: automatic, preferred, fixed.");
+        }
+        parsed.portPolicy = value;
         break;
       }
       case "--json": {
@@ -1514,25 +1526,32 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
   if (parsed.command === "start") {
     const runtimePort = parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
-    process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = `http://127.0.0.1:${runtimePort}`;
-
-    const bootstrap = await bootstrapBaselineServices({
-      servicesRoot: parsed.servicesRoot,
-      workspaceRoot: parsed.workspaceRoot,
-      version: runtimeVersion,
-    });
     const app = await startRuntimeApp({
       port: runtimePort,
+      portPolicy: parsed.portPolicy,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,
     });
+    let bootstrap: Awaited<ReturnType<typeof bootstrapBaselineServices>>;
+    try {
+      bootstrap = await bootstrapBaselineServices({
+        servicesRoot: parsed.servicesRoot,
+        workspaceRoot: parsed.workspaceRoot,
+        version: runtimeVersion,
+        endpointAllocationPlan: app.apiServer.endpointAllocationPlan,
+      });
+    } catch (error) {
+      await app.apiServer.stop();
+      throw error;
+    }
     printBootstrapResult(bootstrap, app, parsed.json);
     return;
   }
 
   const app = await startRuntimeApp({
     port: parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080),
+    portPolicy: parsed.portPolicy,
     servicesRoot: parsed.servicesRoot,
     workspaceRoot: parsed.workspaceRoot,
     version: runtimeVersion,

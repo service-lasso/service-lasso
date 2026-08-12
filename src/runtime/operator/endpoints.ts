@@ -19,6 +19,7 @@ export interface ResolvedServiceEndpoint {
   port?: number;
   portDefault?: number;
   portStrategy?: ServiceEndpointPortStrategy;
+  portRange?: { start: number; end: number };
   target?: string;
   url?: string;
   exposure?: ServiceEndpointExposure;
@@ -168,6 +169,7 @@ function endpointFromManifest(entry: ServiceManifestEndpoint): ResolvedServiceEn
     bind: entry.bind,
     portDefault: entry.port?.default,
     portStrategy: strategy,
+    portRange: entry.port?.range ? { ...entry.port.range } : undefined,
     target: entry.target,
     url: entry.url,
     exposure: entry.exposure,

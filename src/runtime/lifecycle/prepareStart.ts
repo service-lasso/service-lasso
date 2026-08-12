@@ -6,7 +6,7 @@ import { DependencyGraph } from "../manager/DependencyGraph.js";
 import { isProviderRole } from "../roles.js";
 import { listSetupStepIds, runServiceSetup } from "../setup/steps.js";
 import { writeServiceState } from "../state/writeState.js";
-import { configService, installService, startService } from "./actions.js";
+import { configService, installService, startService, type ServiceLifecycleActionOptions } from "./actions.js";
 import { getLifecycleState } from "./store.js";
 import type { LifecycleActionResult, ServiceLifecycleState } from "./types.js";
 
@@ -29,7 +29,7 @@ async function persistResult(service: DiscoveredService, result: Pick<LifecycleA
 async function prepareServicePrerequisites(
   service: DiscoveredService,
   registry: ServiceRegistry,
-  workspaceRoot?: string,
+  options: PreparedStartOptions,
 ): Promise<ServiceLifecycleState> {
   let state = getLifecycleState(service.manifest.id);
 
@@ -40,7 +40,7 @@ async function prepareServicePrerequisites(
   }
 
   if (!state.configured) {
-    const result = await configService(service, registry, { workspaceRoot });
+    const result = await configService(service, registry, serviceActionOptions(service.manifest.id, options));
     await persistResult(service, result);
     state = result.state;
   }
@@ -58,10 +58,27 @@ async function prepareServicePrerequisites(
   return state;
 }
 
+export interface PreparedStartOptions extends Pick<
+  ServiceLifecycleActionOptions,
+  "workspaceRoot" | "runtimeGenerationId" | "runtimeInstanceId" | "allocationRevision"
+> {
+  plannedPortsByService?: Record<string, Record<string, number>>;
+}
+
+function serviceActionOptions(serviceId: string, options: PreparedStartOptions): ServiceLifecycleActionOptions {
+  return {
+    workspaceRoot: options.workspaceRoot,
+    runtimeGenerationId: options.runtimeGenerationId,
+    runtimeInstanceId: options.runtimeInstanceId,
+    allocationRevision: options.allocationRevision,
+    plannedPorts: options.plannedPortsByService?.[serviceId],
+  };
+}
+
 export async function prepareAndStartService(
   service: DiscoveredService,
   registry: ServiceRegistry,
-  options: { workspaceRoot?: string; runtimeGenerationId?: string | null; runtimeInstanceId?: string | null } = {},
+  options: PreparedStartOptions = {},
 ): Promise<PreparedStartResult> {
   const serviceId = service.manifest.id;
   const graph = new DependencyGraph(registry);
@@ -77,7 +94,7 @@ export async function prepareAndStartService(
     await prepareAndStartService(dependency, registry, options);
   }
 
-  let state = await prepareServicePrerequisites(service, registry, options.workspaceRoot);
+  let state = await prepareServicePrerequisites(service, registry, options);
 
   if (state.running || hasManagedProcess(serviceId)) {
     return { result: null, skippedReason: "already_running", state };
@@ -91,7 +108,7 @@ export async function prepareAndStartService(
     return { result: null, skippedReason: "not_startable", state };
   }
 
-  const result = await startService(service, registry, options);
+  const result = await startService(service, registry, serviceActionOptions(serviceId, options));
   await writeServiceState(service, result.state);
   state = result.state;
 

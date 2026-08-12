@@ -12,6 +12,12 @@ The report includes:
 
 The command does not render secret values, provider credentials, tokens, private keys, cookies, passwords, raw environment values, or recovery material. Paths, service ids, provider ids, manifest metadata, and git status counts are safe to include in logs and support bundles.
 
+The gate validates manifest discovery but does not reserve ports. Author port
+values remain proposals until startup acquires the host-wide allocation lock.
+Startup retains free preferred ports, renegotiates occupied preferred ports,
+and reports fixed conflicts before any listener starts. Inspect the resolved
+plan through `GET /api/runtime/endpoints/allocation`.
+
 Example:
 
 ```bash

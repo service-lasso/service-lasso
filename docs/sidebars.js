@@ -158,6 +158,11 @@ const sidebars = {
         },
         {
           type: "doc",
+          id: "reference/startup-endpoint-allocation",
+          label: "Startup Endpoint Allocation",
+        },
+        {
+          type: "doc",
           id: "reference/runtime-instance-registry",
           label: "Runtime Instance Registry",
         },

@@ -2,7 +2,7 @@
 
 `endpoints[]` is the canonical manifest surface for service interfaces and resources. It replaces authoring against top-level `ports`, `portmapping`, and `urls`, while the runtime still normalizes those legacy fields for compatibility.
 
-This document is the implementation reference for [#811](https://github.com/service-lasso/service-lasso/issues/811), [#810](https://github.com/service-lasso/service-lasso/issues/810), and package migration issues. Startup-wide allocation, reservation, renegotiation, and rematerialization semantics are owned by [#869](https://github.com/service-lasso/service-lasso/issues/869).
+This document is the implementation reference for [#811](https://github.com/service-lasso/service-lasso/issues/811), [#810](https://github.com/service-lasso/service-lasso/issues/810), and package migration issues. Startup-wide allocation, reservation, renegotiation, and rematerialization semantics are defined by the [startup endpoint allocation reference](startup-endpoint-allocation.md).
 
 ## Mental model
 
@@ -166,3 +166,9 @@ Healthcheck:
 - Legacy `serviceport`, `serviceportsecondary`, `serviceportconsole`, and `serviceportdebug` style fields should migrate to named network endpoints such as `service`, `secondary`, `console`, or `debug`.
 
 During compatibility, runtime APIs expose resolved endpoints as the primary operational state and continue returning `ports` and `portmapping` where existing callers require them.
+
+Manifest endpoint ports are proposals. Before binding, the runtime resolves one
+plan for the API and every inbound service endpoint. `fixed` must retain the
+declared port, `preferred` may move after a conflict, and `automatic` may use
+any allowed candidate. Consumers must use resolved selectors and runtime state,
+not assume `port.default` remains the live value.

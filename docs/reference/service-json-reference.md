@@ -438,6 +438,13 @@ Primary service port.
 
 In the sample, `0` is being used as a simple first-pass placeholder/default meaning “no fixed service port required by this sample”.
 
+New manifests should use canonical `endpoints[]` declarations. A non-zero
+legacy numeric port is a `preferred` proposal, not a fixed binding. Declare
+`"port": { "default": 18080, "strategy": "fixed" }` only when the service
+cannot run on another port. See
+[Startup Endpoint Allocation](startup-endpoint-allocation.md) for proposal,
+reservation, wildcard-overlap, and resolved-selector semantics.
+
 ### `execcwd`
 
 Execution working directory.
