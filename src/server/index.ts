@@ -220,6 +220,7 @@ import {
   createStartupMaterializationHooks,
   createStartupSetupTransactionHooks,
   discardStartupMaterializationSidecar,
+  reconcileStartupMaterializationLifecycleState,
   rollbackStartupMaterializations,
   type MaterializationWriteHooks,
   type StartupMaterializationKind,
@@ -1792,7 +1793,10 @@ async function compensateTransactionStartedServices(
   return failures;
 }
 
-async function compensateStartupMaterializations(transaction: StartupTransactionContext): Promise<string[]> {
+async function compensateStartupMaterializations(
+  transaction: StartupTransactionContext,
+  discovered: DiscoveredService[],
+): Promise<string[]> {
   const failures: string[] = [];
   const materializationRollback = await rollbackStartupMaterializations(transaction.journal);
   const stateReconciliationRequired = new Set(
@@ -1813,6 +1817,14 @@ async function compensateStartupMaterializations(transaction: StartupTransaction
   }
   for (const actionId of materializationRollback.blockedActionIds) {
     failures.push(`materialization_restore_blocked:${actionId}`);
+  }
+  const reconciliation = await reconcileStartupMaterializationLifecycleState({
+    journal: transaction.journal,
+    discovered,
+  });
+  transaction.journal = reconciliation.journal;
+  for (const actionId of reconciliation.blockedActionIds) {
+    failures.push(`materialization_state_reconciliation_blocked:${actionId}`);
   }
   const materializationRestoresRemain = transaction.journal.pendingCompensations.some(
     (compensation) => compensation.startsWith("restore_materialization:"),
@@ -1891,7 +1903,7 @@ async function compensateRuntimeStartupResources(input: {
     input.transaction,
   ));
 
-  failures.push(...await compensateStartupMaterializations(input.transaction));
+  failures.push(...await compensateStartupMaterializations(input.transaction, input.runtimeModel.discovered));
 
   if (input.transaction.journal.pendingCompensations.includes("stop_runtime_instance")) {
     try {
@@ -4697,7 +4709,7 @@ async function startApiServerGeneration(
           },
         );
       }
-      const materializationFailures = await compensateStartupMaterializations(transaction);
+      const materializationFailures = await compensateStartupMaterializations(transaction, bootModel.discovered);
       if (materializationFailures.length > 0) throw error;
       if (recovery.allocationPlan) throw error;
       if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;

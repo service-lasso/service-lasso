@@ -4,7 +4,10 @@ import { promisify } from "node:util";
 import { chmod, lstat, mkdir, open, readdir, rename, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
+import type { ServiceLifecycleState } from "../lifecycle/types.js";
 import type { SetupTransactionHooks } from "../setup/steps.js";
+import { writeServiceState } from "../state/writeState.js";
 import {
   advanceStartupTransaction,
   type StartupTransactionJournal,
@@ -73,6 +76,12 @@ export interface StartupMaterializationInspection {
   status: "agree" | "rollback" | "blocked" | "commit_cleanup";
   reason: string;
   actionIds: string[];
+}
+
+export interface StartupMaterializationStateReconciliationResult {
+  journal: StartupTransactionJournal;
+  reconciledActionIds: string[];
+  blockedActionIds: string[];
 }
 
 function digest(content: Buffer): string {
@@ -554,6 +563,38 @@ function sameEntryTarget(left: MaterializationEntry, right: MaterializationEntry
     normalizeEvidence(left.targetRelativePath) === normalizeEvidence(right.targetRelativePath);
 }
 
+function setupStepIdsForEntry(service: DiscoveredService, entry: MaterializationEntry): string[] {
+  if (entry.kind !== "setup") return [];
+  const normalizedTarget = entry.targetRelativePath.replaceAll("\\", "/");
+  return Object.entries(service.manifest.setup?.steps ?? {})
+    .filter(([, step]) => step.outputs?.some((output) => output.replaceAll("\\", "/") === normalizedTarget))
+    .map(([stepId]) => stepId)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function reconcileLifecycleState(
+  current: ServiceLifecycleState,
+  kinds: ReadonlySet<StartupMaterializationKind>,
+  setupStepIds: ReadonlySet<string>,
+): ServiceLifecycleState {
+  const setupSteps = { ...current.setup.steps };
+  for (const stepId of setupStepIds) delete setupSteps[stepId];
+  return {
+    ...current,
+    installed: kinds.has("install") ? false : current.installed,
+    configured: kinds.has("config") ? false : current.configured,
+    installArtifacts: kinds.has("install")
+      ? { ...current.installArtifacts, files: [], updatedAt: null }
+      : current.installArtifacts,
+    configArtifacts: kinds.has("config")
+      ? { ...current.configArtifacts, files: [], updatedAt: null }
+      : current.configArtifacts,
+    setup: setupStepIds.size > 0
+      ? { ...current.setup, updatedAt: new Date().toISOString(), steps: setupSteps }
+      : current.setup,
+  };
+}
+
 async function prepareEntry(input: {
   transaction: { journal: StartupTransactionJournal };
   service: DiscoveredService;
@@ -778,6 +819,92 @@ export async function rollbackStartupMaterializations(
   return { completedActionIds, blockedActionIds, stateReconciliationRequiredActionIds };
 }
 
+export async function reconcileStartupMaterializationLifecycleState(input: {
+  journal: StartupTransactionJournal;
+  discovered: DiscoveredService[];
+  testHooks?: {
+    afterPersist?: (service: DiscoveredService, journal: StartupTransactionJournal) => Promise<void>;
+  };
+}): Promise<StartupMaterializationStateReconciliationResult> {
+  if (input.testHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Startup materialization test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  let journal = input.journal;
+  const pending = journal.pendingCompensations
+    .filter((action) => action.startsWith("reconcile_materialization_state:"))
+    .map((action) => action.slice("reconcile_materialization_state:".length));
+  if (pending.length === 0) return { journal, reconciledActionIds: [], blockedActionIds: [] };
+
+  let sidecar: MaterializationSidecar;
+  try {
+    sidecar = await readSidecar(journal);
+  } catch {
+    return { journal, reconciledActionIds: [], blockedActionIds: pending };
+  }
+  const discoveredById = new Map(input.discovered.map((service) => [service.manifest.id, service]));
+  const grouped = new Map<string, {
+    service: DiscoveredService;
+    actionIds: string[];
+    kinds: Set<StartupMaterializationKind>;
+    setupStepIds: Set<string>;
+  }>();
+  const blockedActionIds: string[] = [];
+  for (const actionId of pending) {
+    const entry = sidecar.entries.find((candidate) => candidate.actionId === actionId);
+    const service = entry ? discoveredById.get(entry.serviceId) : undefined;
+    if (!entry || !service ||
+      normalize(service.serviceRoot) !== normalize(path.resolve(journal.servicesRoot, entry.serviceRelativeRoot))) {
+      blockedActionIds.push(actionId);
+      continue;
+    }
+    const setupStepIds = setupStepIdsForEntry(service, entry);
+    if (entry.kind === "setup" && setupStepIds.length !== 1) {
+      blockedActionIds.push(actionId);
+      continue;
+    }
+    const record = grouped.get(service.manifest.id) ?? {
+      service,
+      actionIds: [],
+      kinds: new Set<StartupMaterializationKind>(),
+      setupStepIds: new Set<string>(),
+    };
+    record.actionIds.push(actionId);
+    record.kinds.add(entry.kind);
+    for (const stepId of setupStepIds) record.setupStepIds.add(stepId);
+    grouped.set(service.manifest.id, record);
+  }
+
+  const reconciledActionIds: string[] = [];
+  for (const serviceId of [...grouped.keys()].sort((left, right) => left.localeCompare(right))) {
+    const record = grouped.get(serviceId)!;
+    const intentActions = record.actionIds.map((actionId) => `materialization_state_reconcile_intended:${actionId}`);
+    const missingIntentActions = intentActions.filter((action) => !journal.completedActions.includes(action));
+    if (missingIntentActions.length > 0) {
+      journal = await advanceStartupTransaction(journal, journal.phase, { completedActions: missingIntentActions });
+    }
+    try {
+      const nextState = reconcileLifecycleState(
+        getLifecycleState(serviceId),
+        record.kinds,
+        record.setupStepIds,
+      );
+      // Persist first. A crash before the journal completion is safe: the
+      // pending compensation causes recovery to repeat the idempotent write.
+      await writeServiceState(record.service, nextState);
+      setLifecycleState(serviceId, nextState);
+      await input.testHooks?.afterPersist?.(record.service, journal);
+      journal = await advanceStartupTransaction(journal, journal.phase, {
+        completedActions: record.actionIds.map((actionId) => `materialization_state_reconciled:${actionId}`),
+        removeCompensations: record.actionIds.map((actionId) => `reconcile_materialization_state:${actionId}`),
+      });
+      reconciledActionIds.push(...record.actionIds);
+    } catch {
+      blockedActionIds.push(...record.actionIds);
+    }
+  }
+  return { journal, reconciledActionIds, blockedActionIds: [...new Set(blockedActionIds)] };
+}
+
 export async function inspectStartupMaterializations(
   journal: StartupTransactionJournal,
 ): Promise<StartupMaterializationInspection> {
@@ -797,9 +924,25 @@ export async function inspectStartupMaterializations(
     .filter((action) => action.startsWith("reconcile_materialization_state:"))
     .map((action) => action.slice("reconcile_materialization_state:".length));
   if (reconciliationActionIds.length > 0) {
+    try {
+      const sidecar = await readSidecar(journal);
+      if (reconciliationActionIds.some((actionId) => !sidecar.entries.some((entry) => entry.actionId === actionId))) {
+        return {
+          status: "blocked",
+          reason: "materialization_state_reconciliation_entry_missing",
+          actionIds: reconciliationActionIds,
+        };
+      }
+    } catch {
+      return {
+        status: "blocked",
+        reason: "materialization_state_reconciliation_sidecar_invalid",
+        actionIds: reconciliationActionIds,
+      };
+    }
     return {
-      status: "blocked",
-      reason: "materialization_lifecycle_state_incoherent",
+      status: "rollback",
+      reason: "materialization_state_reconciliation_pending",
       actionIds: reconciliationActionIds,
     };
   }
