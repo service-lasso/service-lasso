@@ -119,7 +119,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | Service | Role | Source |
 | --- | --- | --- |
 | `@archive` | optional release-backed 7-Zip archive utility provider | acquired from [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive) release `2026.5.2-a223a48`; installed/configured as a provider and skipped for daemon launch |
-| `@java` | release-backed Java runtime provider | acquired from [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) release `2026.4.27-b313cb0`; installed/configured but not launched as a daemon |
+| `@java` | release-backed Java runtime provider | acquired from [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) release `2026.8.12-d5765f1`; installed/configured but not launched as a daemon |
 | `@localcert` | release-backed core local certificate utility for Traefik | acquired from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.5.2-24e7d2f`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
 | `@nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
 | `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.7.26-f13b89c` |

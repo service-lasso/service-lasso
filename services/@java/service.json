@@ -27,7 +27,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-java",
-      "tag": "2026.4.27-b313cb0"
+      "tag": "2026.8.12-d5765f1"
     },
     "platforms": {
       "win32": {

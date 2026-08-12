@@ -217,7 +217,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@java")?.executable, "java");
   assert.equal(byId.get("@java")?.role, "provider");
   assert.equal(byId.get("@java")?.artifact?.source.repo, "service-lasso/lasso-java");
-  assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.4.27-b313cb0");
+  assert.equal(byId.get("@java")?.artifact?.source.tag, "2026.8.12-d5765f1");
   assert.equal(byId.get("@python")?.role, "provider");
   assert.equal(byId.get("@python")?.artifact?.source.repo, "service-lasso/lasso-python");
   assert.equal(byId.get("@python")?.artifact?.source.tag, "2026.4.27-63f915c");
