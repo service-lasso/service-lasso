@@ -22,7 +22,9 @@ import {
   adoptManagedProcess,
   hasManagedProcess,
   startManagedProcess,
+  stopAllManagedProcesses,
   stopManagedProcess,
+  waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
@@ -809,6 +811,116 @@ test("managed unexpected root exit terminates the remaining verified process tre
   }
 });
 
+test("whole-runtime shutdown waits for a pending managed finalizer before cleanup", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-boundary-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "finalizer-boundary-service");
+  let releaseFinalizer;
+  const finalizerGate = new Promise((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  let reportFinalizerStarted;
+  const finalizerStarted = new Promise((resolve) => {
+    reportFinalizerStarted = resolve;
+  });
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => {
+        reportFinalizerStarted();
+        await finalizerGate;
+      },
+    });
+
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
+    await finalizerStarted;
+    assert.equal(hasManagedProcess("finalizer-boundary-service"), false);
+
+    const shutdown = stopAllManagedProcesses();
+    const immediateOutcome = await Promise.race([
+      shutdown.then(() => "settled", () => "rejected"),
+      new Promise((resolve) => setImmediate(() => resolve("pending"))),
+    ]);
+    assert.equal(immediateOutcome, "pending");
+
+    releaseFinalizer();
+    await shutdown;
+    await rm(serviceRoot, { recursive: true, force: true });
+  } finally {
+    releaseFinalizer?.();
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("whole-runtime shutdown reports safe service, pid, and finalization phase on failure", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-diagnostic-");
+  await writeExecutableFixtureService(servicesRoot, "finalizer-diagnostic-service");
+  let releaseFinalizer;
+  const finalizerGate = new Promise((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  let reportFinalizerStarted;
+  const finalizerStarted = new Promise((resolve) => {
+    reportFinalizerStarted = resolve;
+  });
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => {
+        reportFinalizerStarted();
+        await finalizerGate;
+        const error = new Error("sensitive command material must not escape");
+        error.code = "EFINALIZE_TEST";
+        throw error;
+      },
+    });
+
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
+    await finalizerStarted;
+    releaseFinalizer();
+    // Let the finalizer reject before shutdown begins. The failure must remain
+    // observable at the cleanup boundary rather than being silently discarded.
+    await new Promise((resolve) => setImmediate(resolve));
+    const shutdown = stopAllManagedProcesses();
+
+    await assert.rejects(shutdown, (error) => {
+      assert.equal(error.name, "ManagedProcessFinalizationError");
+      assert.equal(error.failures.length, 1);
+      assert.deepEqual(error.failures[0], {
+        serviceId: "finalizer-diagnostic-service",
+        pid: handle.pid,
+        phase: "finalize",
+        code: "EFINALIZE_TEST",
+      });
+      assert.match(error.message, /finalizer-diagnostic-service/);
+      assert.match(error.message, new RegExp(`pid ${handle.pid}`));
+      assert.match(error.message, /phase finalize/);
+      assert.equal(error.message.includes("sensitive command material"), false);
+      return true;
+    });
+  } finally {
+    releaseFinalizer?.();
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("rehydrated adopted ownership retains and stops the complete persisted process tree", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-tree-");
@@ -892,7 +1004,7 @@ test("adopted process monitoring clears durable running state after the root exi
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-monitor-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "adopted-monitor-service");
-  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 750 });
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath);
   const relativeScriptPath = path.relative(serviceRoot, scriptPath);
   const root = spawn(process.execPath, [relativeScriptPath], {
     cwd: serviceRoot,
@@ -950,12 +1062,13 @@ test("adopted process monitoring clears durable running state after the root exi
     assert.equal(rehydrated.running, true);
     assert.equal(hasManagedProcess("adopted-monitor-service"), true);
 
-    await waitFor(async () => {
-      const stored = await readStoredState(serviceRoot);
-      return !hasManagedProcess("adopted-monitor-service") && stored.runtime?.running === false;
-    }, 8_000);
+    const rootExit = new Promise((resolve) => root.once("close", resolve));
+    assert.equal(root.kill("SIGKILL"), true);
+    await rootExit;
+    await waitForManagedProcessFinalization("adopted-monitor-service");
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
 
+    assert.equal(hasManagedProcess("adopted-monitor-service"), false);
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
     assert.equal(stored.runtime.pid, null);
