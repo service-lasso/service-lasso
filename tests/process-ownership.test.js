@@ -933,6 +933,7 @@ test("rehydrated adopted ownership retains and stops the complete persisted proc
     detached: process.platform !== "win32",
     windowsHide: true,
   });
+  const rootClosed = new Promise((resolve) => root.once("close", resolve));
   let childPid = null;
   let grandchildPid = null;
 
@@ -989,6 +990,7 @@ test("rehydrated adopted ownership retains and stops the complete persisted proc
 
     assert.ok(stopped);
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
+    await rootClosed;
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-process-tree-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
