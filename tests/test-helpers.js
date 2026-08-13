@@ -74,7 +74,6 @@ export async function writeExecutableFixtureService(
     doctor = undefined,
     endpoints = undefined,
     ports = undefined,
-    endpoints = undefined,
     serviceorder = undefined,
     execconfig = undefined,
     depend_on = undefined,

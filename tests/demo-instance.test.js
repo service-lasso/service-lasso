@@ -11,6 +11,7 @@ import {
   assertDemoPortsAvailable,
   assertDemoRecycleOwnership,
   applyDemoServiceAdminRuntimeApiUrl,
+  canonicalDemoRequiredServiceIds,
   demoProviderServiceIds,
   demoRequiredServiceIds,
   getDemoStatus,
@@ -171,6 +172,19 @@ const canonicalFixtureServices = [
     role: undefined,
     ports: { ui: 17700 },
     urls: [{ label: "ui", url: "http://127.0.0.1:${UI_PORT}/", kind: "local" }],
+  },
+  {
+    id: "openobserve",
+    repo: "service-lasso/lasso-openobserve",
+    tag: "2026.8.13-f908994",
+    assetName: "lasso-openobserve-v0.10.8-rc4-win32.zip",
+    role: undefined,
+    ports: { service: 5080, grpc: 5081 },
+    urls: [
+      { label: "ui", url: "http://127.0.0.1:${SERVICE_PORT}/", kind: "local" },
+      { label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/healthz", kind: "local" },
+    ],
+    healthcheck: { type: "http", url: "http://127.0.0.1:${SERVICE_PORT}/healthz", expected_status: 200 },
   },
 ];
 
@@ -590,6 +604,9 @@ function canonicalFetch({
     if (parsed.pathname === "/health") {
       return textResponse(200, "ok");
     }
+    if (parsed.pathname === "/healthz") {
+      return textResponse(200, "ok");
+    }
     if (parsed.pathname === "/dashboard/") {
       return textResponse(200, "<html>Traefik dashboard</html>");
     }
@@ -978,7 +995,7 @@ test("detached demo recycle skips lock acquisition when watchdog already owns it
 test("detached demo recycle service readiness waits after ownership handoff", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
-  const readyServices = demoRequiredServiceIds.map((serviceId) => ({
+  const readyServices = canonicalDemoRequiredServiceIds.map((serviceId) => ({
     id: serviceId,
     lifecycle: {
       installed: true,
@@ -993,7 +1010,7 @@ test("detached demo recycle service readiness waits after ownership handoff", as
       calls += 1;
       if (calls < 3) {
         return jsonResponse(200, {
-          services: demoRequiredServiceIds.map((serviceId) => ({
+          services: canonicalDemoRequiredServiceIds.map((serviceId) => ({
             id: serviceId,
             lifecycle: { installed: false, configured: false, running: false },
             health: { healthy: false },

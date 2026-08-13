@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  canonicalDemoRequiredServiceIds,
   defaultDemoServicesRoot,
   defaultDemoWorkspaceRoot,
 } from "./demo-instance-lib.mjs";
@@ -11,7 +12,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 export const canonicalDemoHost = "192.168.1.53";
 export const canonicalRuntimePort = 17883;
 export const canonicalServiceAdminPort = 17700;
-export const canonicalServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const canonicalServiceIds = [...canonicalDemoRequiredServiceIds];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
