@@ -1,4 +1,5 @@
 import type { DiscoveredService } from "../../contracts/service.js";
+import { compileServiceSelectorPlan, type ServiceSelectorRef } from "../operator/variables.js";
 import { ServiceRegistry } from "./ServiceRegistry.js";
 
 export interface DependencyNode {
@@ -52,6 +53,42 @@ export interface ReverseDependencyLookup {
     transitive: number;
     missingTarget: boolean;
   };
+}
+
+export type EndpointCutoverArtifact =
+  | "env"
+  | "globalenv"
+  | "commandline"
+  | "args"
+  | "urls"
+  | "healthchecks"
+  | "install"
+  | "config"
+  | "setup"
+  | "actions";
+
+export interface EndpointSelectorUse {
+  selector: string;
+  endpointId: string;
+  field: string;
+  artifacts: EndpointCutoverArtifact[];
+}
+
+export interface EndpointCutoverImpactedService {
+  id: string;
+  name: string;
+  relation: "direct" | "transitive";
+  depth: number;
+  path: string[];
+  selectorUses: EndpointSelectorUse[];
+}
+
+export interface EndpointCutoverImpact {
+  providerServiceId: string;
+  changedEndpointIds: string[];
+  impactedServices: EndpointCutoverImpactedService[];
+  restartOrder: string[];
+  selectorConsumerIds: string[];
 }
 
 export class DependencyGraph {
@@ -268,6 +305,70 @@ export class DependencyGraph {
     return [...this.getGlobalStartupOrder()].reverse();
   }
 
+  getEndpointCutoverImpact(
+    providerServiceId: string,
+    changedEndpointIds: string[] = [],
+  ): EndpointCutoverImpact {
+    const normalizedChangedEndpointIds = [...new Set(changedEndpointIds.map((id) => id.trim()).filter(Boolean))].sort();
+    const reverse = this.getReverseDependencies(providerServiceId);
+    const selectorConsumers = new Map<string, EndpointSelectorUse[]>();
+
+    for (const dependent of reverse.dependents) {
+      const service = this.#registry.getById(dependent.id);
+      if (!service) {
+        continue;
+      }
+
+      const selectorUses = collectEndpointSelectorUses(service, normalizedChangedEndpointIds);
+      if (selectorUses.length > 0) {
+        selectorConsumers.set(dependent.id, selectorUses);
+      }
+    }
+
+    const impactedIds = new Set(selectorConsumers.keys());
+    for (const selectorConsumerId of selectorConsumers.keys()) {
+      for (const downstream of this.getReverseDependencies(selectorConsumerId).dependents) {
+        impactedIds.add(downstream.id);
+      }
+    }
+
+    let globalStartupOrder: string[];
+    try {
+      globalStartupOrder = this.getGlobalStartupOrder();
+    } catch (error) {
+      throw new Error(
+        `Dependency cycle detected while resolving endpoint cutover impact for "${providerServiceId}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    const orderIndex = new Map(globalStartupOrder.map((serviceId, index) => [serviceId, index]));
+    const impactedServices = reverse.dependents
+      .filter((dependent) => impactedIds.has(dependent.id))
+      .sort(
+        (left, right) =>
+          (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+            (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+          left.depth - right.depth ||
+          left.id.localeCompare(right.id),
+      )
+      .map((dependent) => ({
+        id: dependent.id,
+        name: dependent.name,
+        relation: dependent.relation,
+        depth: dependent.depth,
+        path: dependent.path,
+        selectorUses: selectorConsumers.get(dependent.id) ?? [],
+      }));
+
+    return {
+      providerServiceId,
+      changedEndpointIds: normalizedChangedEndpointIds,
+      impactedServices,
+      restartOrder: impactedServices.map((service) => service.id),
+      selectorConsumerIds: [...selectorConsumers.keys()].sort(),
+    };
+  }
+
   #sortServiceIds(serviceIds: string[]): string[] {
     return [...serviceIds].sort((left, right) => this.#compareServiceIds(left, right));
   }
@@ -344,6 +445,120 @@ export class DependencyGraph {
     const service = this.#registry.getById(serviceId);
     return service?.manifest.serviceorder ?? service?.manifest.execconfig?.serviceorder ?? Number.MAX_SAFE_INTEGER;
   }
+}
+
+function serviceSelectorValuesByArtifact(service: DiscoveredService): Array<{ artifact: EndpointCutoverArtifact; values: string[] }> {
+  const manifest = service.manifest;
+  const healthchecks = manifest.healthchecks ?? (manifest.healthcheck ? [manifest.healthcheck] : []);
+  const setupSteps = Object.values(manifest.setup?.steps ?? {});
+  const actions = Object.values(manifest.actions ?? {});
+
+  return [
+    { artifact: "env", values: selectorValuesFromRecord(manifest.env) },
+    { artifact: "globalenv", values: selectorValuesFromRecord(manifest.globalenv) },
+    { artifact: "commandline", values: selectorValuesFromRecord(manifest.commandline) },
+    { artifact: "args", values: manifest.args ?? [] },
+    { artifact: "urls", values: (manifest.urls ?? []).map((entry) => entry.url) },
+    {
+      artifact: "healthchecks",
+      values: healthchecks.flatMap((entry) => selectorValuesFromUnknown(entry)),
+    },
+    {
+      artifact: "install",
+      values: [
+        ...(manifest.install?.files ?? []).flatMap((file) => [file.path, file.content]),
+        ...(manifest.install?.templates ?? []).map((template) => template.target),
+      ],
+    },
+    {
+      artifact: "config",
+      values: [
+        ...(manifest.config?.files ?? []).flatMap((file) => [file.path, file.content]),
+        ...(manifest.config?.templates ?? []).map((template) => template.target),
+      ],
+    },
+    {
+      artifact: "setup",
+      values: setupSteps.flatMap((step) => [
+        ...(step.args ?? []),
+        ...selectorValuesFromRecord(step.commandline),
+        ...selectorValuesFromRecord(step.env),
+      ]),
+    },
+    {
+      artifact: "actions",
+      values: actions.flatMap((action) => [
+        action.command ?? "",
+        ...(action.args ?? []),
+        ...selectorValuesFromRecord(action.commandline),
+        ...selectorValuesFromRecord(action.env),
+      ]),
+    },
+  ];
+}
+
+function selectorValuesFromRecord(record: Record<string, string | string[]> | undefined): string[] {
+  return Object.values(record ?? {}).flatMap((value) => (Array.isArray(value) ? value : [value]));
+}
+
+function selectorValuesFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => selectorValuesFromUnknown(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap((entry) => selectorValuesFromUnknown(entry));
+  }
+
+  return [];
+}
+
+function parseEndpointSelector(ref: ServiceSelectorRef): { endpointId: string; field: string } | null {
+  const match = /^endpoint\.([A-Za-z][A-Za-z0-9_:-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/.exec(ref.selector);
+  if (!match) {
+    return null;
+  }
+
+  return { endpointId: match[1], field: match[2] };
+}
+
+function collectEndpointSelectorUses(
+  service: DiscoveredService,
+  changedEndpointIds: string[],
+): EndpointSelectorUse[] {
+  const changedEndpointSet = new Set(changedEndpointIds);
+  const bySelector = new Map<string, EndpointSelectorUse>();
+
+  for (const { artifact, values } of serviceSelectorValuesByArtifact(service)) {
+    const nonEmptyValues = values.filter((value) => value.trim().length > 0);
+    if (nonEmptyValues.length === 0) {
+      continue;
+    }
+
+    for (const ref of compileServiceSelectorPlan(nonEmptyValues).selectors) {
+      const endpoint = parseEndpointSelector(ref);
+      if (!endpoint || (changedEndpointSet.size > 0 && !changedEndpointSet.has(endpoint.endpointId))) {
+        continue;
+      }
+
+      const current = bySelector.get(ref.selector) ?? {
+        selector: ref.selector,
+        endpointId: endpoint.endpointId,
+        field: endpoint.field,
+        artifacts: [],
+      };
+      if (!current.artifacts.includes(artifact)) {
+        current.artifacts.push(artifact);
+      }
+      bySelector.set(ref.selector, current);
+    }
+  }
+
+  return [...bySelector.values()].sort((left, right) => left.selector.localeCompare(right.selector));
 }
 
 export function createServiceRegistry(services: DiscoveredService[]): ServiceRegistry {
