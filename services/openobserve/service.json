@@ -1,0 +1,140 @@
+{
+  "id": "openobserve",
+  "name": "OpenObserve",
+  "description": "Release-backed OpenObserve observability service for app-owned logs, metrics, and traces.",
+  "version": "v0.10.8-rc4",
+  "enabled": true,
+  "endpoints": [
+    {
+      "id": "service",
+      "kind": "network",
+      "label": "OpenObserve HTTP",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "http",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 5080,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "primary": true
+    },
+    {
+      "id": "grpc",
+      "kind": "network",
+      "label": "OpenObserve gRPC",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "tcp",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 5081,
+        "strategy": "preferred"
+      },
+      "exposure": "local"
+    },
+    {
+      "id": "ui",
+      "kind": "url",
+      "label": "OpenObserve UI",
+      "target": "service",
+      "url": "http://${endpoint.service.bind}:${endpoint.service.port}",
+      "exposure": "local",
+      "primary": true
+    },
+    {
+      "id": "health",
+      "kind": "url",
+      "label": "health",
+      "target": "service",
+      "url": "http://${endpoint.service.bind}:${endpoint.service.port}/healthz",
+      "exposure": "local"
+    }
+  ],
+  "env": {
+    "ZO_HTTP_ADDR": "${endpoint.service.bind}",
+    "ZO_HTTP_PORT": "${endpoint.service.port}",
+    "ZO_GRPC_ADDR": "${endpoint.grpc.bind}",
+    "ZO_GRPC_PORT": "${endpoint.grpc.port}",
+    "ZO_DATA_DIR": "${SERVICE_DATA_PATH}",
+    "ZO_LOCAL_MODE": "true",
+    "ZO_LOCAL_MODE_STORAGE": "disk",
+    "ZO_ROOT_USER_EMAIL": "root@service-lasso.local",
+    "ZO_ROOT_USER_PASSWORD": "service-lasso-openobserve",
+    "ZO_HEALTH_CHECK_ENABLED": "true"
+  },
+  "globalenv": {
+    "OPENOBSERVE_URL": "${endpoint.ui.url}",
+    "OPENOBSERVE_PORT": "${endpoint.service.port}",
+    "OPENOBSERVE_GRPC_PORT": "${endpoint.grpc.port}"
+  },
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-openobserve",
+      "tag": "2026.8.13-f908994"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-openobserve-v0.10.8-rc4-win32.zip",
+        "archiveType": "zip",
+        "command": "./openobserve.exe",
+        "args": []
+      },
+      "linux": {
+        "assetName": "lasso-openobserve-v0.10.8-rc4-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./openobserve",
+        "args": []
+      },
+      "darwin": {
+        "assetName": "lasso-openobserve-v0.10.8-rc4-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./openobserve",
+        "args": []
+      }
+    }
+  },
+  "install": {
+    "files": [
+      {
+        "path": "./runtime/data/.keep",
+        "content": ""
+      }
+    ]
+  },
+  "healthchecks": [
+    {
+      "id": "openobserve-http-ready",
+      "type": "http",
+      "url": "${endpoint.health.url}",
+      "expected_status": 200,
+      "retries": 180,
+      "interval": 500
+    }
+  ],
+  "updates": {
+    "enabled": true,
+    "mode": "notify",
+    "track": "latest",
+    "checkIntervalSeconds": 86400
+  },
+  "meta": {
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/service-lasso/lasso-openobserve.git"
+    },
+    "documentationUrl": "https://github.com/service-lasso/lasso-openobserve/blob/main/README.md",
+    "issuesUrl": "https://github.com/service-lasso/lasso-openobserve/issues",
+    "tags": [
+      "service-lasso",
+      "openobserve",
+      "observability",
+      "logs",
+      "metrics",
+      "traces"
+    ]
+  }
+}

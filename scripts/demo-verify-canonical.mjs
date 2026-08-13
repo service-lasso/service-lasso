@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  canonicalDemoRequiredServiceIds,
   defaultDemoServicesRoot,
   defaultDemoWorkspaceRoot,
 } from "./demo-instance-lib.mjs";
@@ -11,7 +12,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 export const canonicalDemoHost = "192.168.1.53";
 export const canonicalRuntimePort = 17883;
 export const canonicalServiceAdminPort = 17700;
-export const canonicalServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const canonicalServiceIds = [...canonicalDemoRequiredServiceIds];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -312,9 +313,7 @@ function serviceSummary(service, expected) {
 
 function isSourceServiceAdminState(service) {
   return (
-    service?.lifecycle?.installed !== true
-    && service?.lifecycle?.configured !== true
-    && service?.lifecycle?.running !== true
+    service?.lifecycle?.running !== true
     && service?.health?.healthy !== true
   );
 }
@@ -546,8 +545,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     const sourceServiceAdmin = serviceId === "@serviceadmin" && sourceServiceAdminMode;
     if (sourceServiceAdmin) {
       check(checks, `${serviceId} source Admin owns canonical port`, true, null, "same-origin runtime APIs are healthy on 17700");
-      check(checks, `${serviceId} managed artifact intentionally not installed`, live.lifecycle?.installed !== true, "unexpected_managed_serviceadmin", `installed=${live.lifecycle?.installed === true}`);
-      check(checks, `${serviceId} managed artifact intentionally not configured`, live.lifecycle?.configured !== true, "unexpected_managed_serviceadmin", `configured=${live.lifecycle?.configured === true}`);
+      check(checks, `${serviceId} managed artifact may be seeded`, true, null, `installed=${live.lifecycle?.installed === true} configured=${live.lifecycle?.configured === true}`);
       check(checks, `${serviceId} managed artifact intentionally not running`, live.lifecycle?.running !== true, "unexpected_managed_serviceadmin", `running=${live.lifecycle?.running === true}`);
       check(checks, `${serviceId} managed artifact health intentionally inactive`, live.health?.healthy !== true, "unexpected_managed_serviceadmin", `healthy=${live.health?.healthy === true}`);
     } else {

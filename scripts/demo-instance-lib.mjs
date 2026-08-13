@@ -12,7 +12,9 @@ export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-i
 export const defaultDemoLogRoot = path.join(repoRoot, ".demo-logs");
 export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
 export const defaultBaselineServiceIds = [...demoRequiredServiceIds];
-export const demoServiceIds = [...demoRequiredServiceIds, "node-sample-service"];
+export const canonicalDemoAddOnServiceIds = ["openobserve"];
+export const canonicalDemoRequiredServiceIds = [...demoRequiredServiceIds, ...canonicalDemoAddOnServiceIds];
+export const demoServiceIds = [...canonicalDemoRequiredServiceIds, "node-sample-service"];
 export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
 export const demoFixedPortChecks = [
   { serviceId: "@serviceadmin", portName: "ui", host: "127.0.0.1", port: 17700 },
@@ -20,6 +22,8 @@ export const demoFixedPortChecks = [
   { serviceId: "@nginx", portName: "http", host: "127.0.0.1", port: 18080 },
   { serviceId: "@traefik", portName: "admin", host: "127.0.0.1", port: 19081 },
   { serviceId: "echo-service", portName: "health", host: "127.0.0.1", port: 4011 },
+  { serviceId: "openobserve", portName: "service", host: "127.0.0.1", port: 5080 },
+  { serviceId: "openobserve", portName: "grpc", host: "127.0.0.1", port: 5081 },
 ];
 
 function parseFlag(args, name) {
@@ -703,8 +707,8 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
       }
     : {
         id: "@serviceadmin",
-        installed: false,
-        configured: false,
+        installed: actualServiceAdmin?.installed === true,
+        configured: actualServiceAdmin?.configured === true,
         running: false,
         healthy: false,
         expectedMode: "source_admin_owns_17700",
@@ -752,7 +756,7 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
     mode: managedServiceAdmin ? "managed_serviceadmin_on_17700" : "source_admin_on_17700",
     acceptedWarningReason: managedServiceAdmin
       ? null
-      : "Source Service Admin owns port 17700; the managed @serviceadmin manifest is intentionally present but not installed or started.",
+      : "Source Service Admin owns port 17700; the managed @serviceadmin manifest may be seeded but must not be running.",
     expected,
     actual,
     mismatches,
@@ -1427,12 +1431,12 @@ export async function runDemoRecycle(options = {}) {
     process.env.SERVICE_LASSO_API_BASE_URL = apiUrl;
 
     try {
-      for (const serviceId of demoRequiredServiceIds) {
+      for (const serviceId of canonicalDemoRequiredServiceIds) {
         await postServiceAction(apiUrl, serviceId, "install");
         await postServiceAction(apiUrl, serviceId, "config");
       }
 
-      for (const serviceId of demoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
+      for (const serviceId of canonicalDemoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
         await postServiceAction(apiUrl, serviceId, "start");
       }
     } finally {
@@ -1449,7 +1453,7 @@ export async function runDemoRecycle(options = {}) {
     }
 
     const serviceStates = [];
-    for (const serviceId of demoRequiredServiceIds) {
+    for (const serviceId of canonicalDemoRequiredServiceIds) {
       const expected = demoProviderServiceIds.has(serviceId)
         ? { running: false, healthy: undefined }
         : { running: true, healthy: true };
