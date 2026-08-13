@@ -162,6 +162,45 @@ workspace as the requested broker namespace. Workflow/run resolution requires
 `workflow:run`; if a workflow uses provider connection metadata, it also
 requires `secrets-broker-source:use` for each referenced Secrets Broker source metadata record.
 
+### Permission catalogue and access groups
+
+The durable security model is owned by Service Lasso, not by a single identity
+provider. Core exposes a permission catalogue and maps actors into Service
+Lasso access groups. Identity-provider claims are inputs to explicit mappings;
+they are not executable permissions by themselves.
+
+The first setup seed must create these built-in groups:
+
+- Owner: all permissions.
+- Security Admin: users, groups, mappings, local tokens, provider auth, audit/security settings.
+- Service Admin: service install/config/start/stop/restart/update and service configuration.
+- Operator: start/stop/restart, validate, diagnose, backup.
+- Viewer: read-only runtime/service visibility.
+- Backup Operator: create backups and view backup history.
+- Restore Operator: restore backups with confirmation/elevated checks.
+- File Export Operator: browse, archive and export files.
+- Scheduler: run approved scheduled actions only.
+- Service Identity: scoped service/broker access only.
+
+Built-in groups are viewable and resettable. Custom groups contain only
+permission keys from the Service Lasso catalogue, optional safe scope rules,
+assigned actors/mappings, and audit history. Unknown provider-specific strings
+must not be accepted as ad hoc permission names.
+
+Provider mappings are generic. A mapping records provider, claim type, claim
+value, and target Service Lasso group. For example, `provider: "zitadel"`,
+`claimType: "group"`, and `claimValue: "service-lasso-admins"` can map to
+Security Admin, while a future `custom-oidc` role can map to Operator through
+the same model.
+
+Safety rules:
+
+- Seed local-root/root owner into Owner group during vault bootstrap.
+- Never allow deleting/removing the last Owner-capable actor.
+- Never allow removing your own final security access without strong confirmation.
+- Permission catalogue changes are code/schema-owned, not ad hoc UI strings.
+- Group/mapping changes are audited.
+
 ### `zitadel_role_mappings`
 
 ZITADEL claims are inputs to an explicit Service Lasso mapping, not direct
