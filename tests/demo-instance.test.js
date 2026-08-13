@@ -564,6 +564,7 @@ function canonicalFetch({
   workspaceRoot,
   serviceAdminTag = "2026.6.6-good",
   sourceServiceAdmin = false,
+  sourceServiceAdminSeeded = false,
   generationId = "11111111-1111-4111-8111-111111111111",
 }) {
   const services = canonicalFixtureServices.map((service) => {
@@ -574,11 +575,19 @@ function canonicalFetch({
       id: service.id,
       serviceRoot: path.join(servicesRoot, service.id),
       lifecycle: {
-        installed: !sourceAdminService,
-        configured: !sourceAdminService,
+        installed: sourceAdminService ? sourceServiceAdminSeeded : true,
+        configured: sourceAdminService ? sourceServiceAdminSeeded : true,
         running: sourceAdminService ? false : !providerRole,
         installArtifacts: sourceAdminService
-          ? null
+          ? (sourceServiceAdminSeeded
+            ? {
+              artifact: {
+                repo: service.repo,
+                tag,
+                assetName: service.assetName,
+              },
+            }
+            : null)
           : {
             artifact: {
               repo: service.repo,
@@ -723,9 +732,9 @@ test("demo gate status accepts the source Admin service-state contract", async (
   }
 });
 
-test("demo gate status rejects source Admin drift with installed managed artifact state", async () => {
+test("demo gate status accepts seeded source Admin manifest state", async () => {
   const originalFetch = globalThis.fetch;
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-mismatch-"));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-seeded-"));
   const servicesRoot = path.join(tempDir, "services");
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
   const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true });
@@ -748,15 +757,19 @@ test("demo gate status rejects source Admin drift with installed managed artifac
       timeoutMs: 100,
     });
 
-    assert.equal(result.ok, false);
-    assert.equal(result.classification, "canonical_service_state_mismatch");
+    assert.equal(result.ok, true);
+    assert.equal(result.classification, "healthy");
     assert.equal(result.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
     assert.deepEqual(
-      result.endpoints.serviceAdmin.serviceState.mismatches.filter((entry) => entry.id === "@serviceadmin"),
-      [
-        { id: "@serviceadmin", field: "installed", expected: false, actual: true },
-        { id: "@serviceadmin", field: "configured", expected: false, actual: true },
-      ],
+      result.endpoints.serviceAdmin.serviceState.actual.find((service) => service.id === "@serviceadmin"),
+      {
+        id: "@serviceadmin",
+        installed: true,
+        configured: true,
+        running: false,
+        healthy: false,
+        expectedMode: "source_admin_owns_17700",
+      },
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -1147,6 +1160,33 @@ test("canonical demo verifier accepts source Admin owning the canonical Service 
     assert.equal(result.failures.length, 0);
     assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin source Admin owns canonical port" && entry.ok));
     assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin advertised ui reachable through source Admin" && entry.ok));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier accepts seeded source Admin manifest state", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-seeded-admin-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true, sourceServiceAdminSeeded: true }) },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.failures.length, 0);
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin managed artifact may be seeded" && entry.ok));
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin managed artifact intentionally not running" && entry.ok));
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

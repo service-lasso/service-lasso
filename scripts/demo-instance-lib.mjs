@@ -707,8 +707,8 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
       }
     : {
         id: "@serviceadmin",
-        installed: false,
-        configured: false,
+        installed: actualServiceAdmin?.installed === true,
+        configured: actualServiceAdmin?.configured === true,
         running: false,
         healthy: false,
         expectedMode: "source_admin_owns_17700",
@@ -756,7 +756,7 @@ function createExpectedServiceStateCheck(serviceAdminServicesProbe) {
     mode: managedServiceAdmin ? "managed_serviceadmin_on_17700" : "source_admin_on_17700",
     acceptedWarningReason: managedServiceAdmin
       ? null
-      : "Source Service Admin owns port 17700; the managed @serviceadmin manifest is intentionally present but not installed or started.",
+      : "Source Service Admin owns port 17700; the managed @serviceadmin manifest may be seeded but must not be running.",
     expected,
     actual,
     mismatches,

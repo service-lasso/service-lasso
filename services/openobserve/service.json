@@ -97,11 +97,6 @@
       }
     }
   },
-  "commandline": {
-    "win32": "${SERVICE_ARTIFACT_ROOT}/openobserve.exe",
-    "linux": "${SERVICE_ARTIFACT_ROOT}/openobserve",
-    "darwin": "${SERVICE_ARTIFACT_ROOT}/openobserve"
-  },
   "install": {
     "files": [
       {
