@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
 import {
+  emitOperatorInboxServiceEvent,
+  emitOperatorInboxSystemEvent,
+  emitOperatorInboxUpdateEvent,
+  emitOperatorInboxWorkflowEvent,
   readOperatorInbox,
   upsertOperatorInboxItem,
 } from "../dist/runtime/operator/inbox.js";
@@ -123,7 +127,7 @@ test("operator inbox API lists filters counts and persists mutations across rest
       observedAt: "2026-08-01T00:10:00.000Z",
     });
     assert.equal(updateRecord.status, 200);
-    const updateId = updateRecord.body.inbox.items[0].id;
+    const updateId = updateRecord.body.inbox.items.find((item) => item.dedupeKey === "update:core:available").id;
 
     const securityRecord = await postJson(apiServer.url + "/api/operator/inbox/record", {
       dedupeKey: "security:remote-auth-required",
@@ -139,12 +143,12 @@ test("operator inbox API lists filters counts and persists mutations across rest
       observedAt: "2026-08-01T00:11:00.000Z",
     });
     assert.equal(securityRecord.status, 200);
-    const securityId = securityRecord.body.inbox.items[0].id;
+    const securityId = securityRecord.body.inbox.items.find((item) => item.dedupeKey === "security:remote-auth-required").id;
 
     let response = await getJson(apiServer.url + "/api/operator/inbox?filter=unread&limit=1");
     assert.equal(response.status, 200);
     assert.equal(response.body.inbox.items.length, 1);
-    assert.equal(response.body.inbox.pagination.total, 2);
+    assert.equal(response.body.inbox.pagination.total, 3);
     assert.equal(response.body.inbox.pagination.nextCursor, "1");
 
     response = await getJson(apiServer.url + "/api/operator/inbox?filter=updates");
@@ -153,8 +157,8 @@ test("operator inbox API lists filters counts and persists mutations across rest
 
     response = await getJson(apiServer.url + "/api/operator/inbox/counts");
     assert.equal(response.status, 200);
-    assert.equal(response.body.inbox.counts.total, 2);
-    assert.equal(response.body.inbox.counts.unread, 2);
+    assert.equal(response.body.inbox.counts.total, 3);
+    assert.equal(response.body.inbox.counts.unread, 3);
     assert.equal(response.body.inbox.counts.byFilter.updates, 1);
     assert.equal(response.body.inbox.counts.byFilter.errors, 1);
 
@@ -201,6 +205,73 @@ test("operator inbox API lists filters counts and persists mutations across rest
     assert.equal(response.body.inbox.items.find((item) => item.id === updateId).state, "unread");
   } finally {
     await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("operator inbox producers cover system service workflow and update events without duplicate storms", async () => {
+  const { tempRoot } = await makeTempServicesRoot("service-lasso-operator-inbox-producers-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await emitOperatorInboxSystemEvent(workspaceRoot, {
+      kind: "runtime.startup",
+      status: "success",
+      summary: "Runtime started with two discovered services.",
+      route: "/api/dashboard",
+      correlationKey: "generation-1",
+      observedAt: "2026-08-13T00:00:00.000Z",
+    });
+
+    await emitOperatorInboxServiceEvent(workspaceRoot, {
+      serviceId: "alpha-service",
+      kind: "health.unhealthy",
+      summary: "Service alpha-service healthcheck is unhealthy.",
+      route: "/services/alpha-service",
+      correlationKey: "current",
+      observedAt: "2026-08-13T00:01:00.000Z",
+    });
+
+    await emitOperatorInboxWorkflowEvent(workspaceRoot, {
+      workflowId: "nightly-backup",
+      status: "failed",
+      summary: "Scheduled action failed for service alpha-service.",
+      serviceId: "alpha-service",
+      actionId: "backup",
+      runId: "run-1",
+      scheduleId: "nightly",
+      route: "/services/alpha-service/actions/backup",
+      observedAt: "2026-08-13T00:02:00.000Z",
+    });
+
+    await emitOperatorInboxUpdateEvent(workspaceRoot, {
+      serviceId: "alpha-service",
+      status: "available",
+      summary: "Update 2026.8.13-new is available.",
+      updateId: "2026.8.13-new",
+      route: "/services/alpha-service/updates",
+      observedAt: "2026-08-13T00:03:00.000Z",
+    });
+    await emitOperatorInboxUpdateEvent(workspaceRoot, {
+      serviceId: "alpha-service",
+      status: "available",
+      summary: "Update 2026.8.13-new remains available.",
+      updateId: "2026.8.13-new",
+      route: "/services/alpha-service/updates",
+      observedAt: "2026-08-13T00:04:00.000Z",
+    });
+
+    const inbox = await readOperatorInbox(workspaceRoot);
+    assert.equal(inbox.items.length, 4);
+    const byKey = new Map(inbox.items.map((item) => [item.dedupeKey, item]));
+
+    assert.equal(byKey.get("system:runtime.startup:generation-1").type, "system");
+    assert.equal(byKey.get("service:health.unhealthy:alpha-service:current").type, "error");
+    assert.equal(byKey.get("workflow:nightly-backup:run-1").source, "workflow");
+    assert.equal(byKey.get("update:available:alpha-service:2026.8.13-new").summary, "Update 2026.8.13-new remains available.");
+    assert.equal(byKey.get("update:available:alpha-service:2026.8.13-new").createdAt, "2026-08-13T00:03:00.000Z");
+    assert.equal(byKey.get("update:available:alpha-service:2026.8.13-new").updatedAt, "2026-08-13T00:04:00.000Z");
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

@@ -139,6 +139,11 @@ import {
 import {
   bulkMutateOperatorInboxItems,
   countOperatorInboxItems,
+  emitOperatorInboxDiagnosticsEvent,
+  emitOperatorInboxServiceEvent,
+  emitOperatorInboxSystemEvent,
+  emitOperatorInboxUpdateEvent,
+  emitOperatorInboxWorkflowEvent,
   listOperatorInboxItems,
   mutateOperatorInboxItem,
   readOperatorInbox,
@@ -1500,7 +1505,7 @@ async function executeLifecycleAction(
     }
   })();
 
-  return await buildLifecycleActionResponse(service, registry, result);
+  return await buildLifecycleActionResponse(service, registry, result, workspaceRoot);
 }
 
 async function executePreparedServiceStart(
@@ -1552,6 +1557,7 @@ async function buildLifecycleActionResponse(
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
   result: Awaited<ReturnType<typeof installService>>,
+  workspaceRoot?: string,
 ): Promise<LifecycleActionResponse> {
   const latestState = getLifecycleState(service.manifest.id);
   const persisted = await writeServiceState(service, latestState);
@@ -1565,6 +1571,28 @@ async function buildLifecycleActionResponse(
   );
   const healthHistory = await recordServiceHealthTransition(service, health);
   const provider = resolveReadyProviderForResponse(service, registry);
+  if (workspaceRoot) {
+    const recovered = result.ok && result.action === "start" && latestState.runtime.lastTermination !== "crashed";
+    if (!result.ok || recovered || !health.healthy) {
+      await emitOperatorInboxServiceEvent(workspaceRoot, {
+        serviceId: service.manifest.id,
+        kind: !result.ok
+          ? "lifecycle.failed"
+          : !health.healthy
+            ? "health.unhealthy"
+            : "lifecycle.recovered",
+        summary: result.ok
+          ? health.healthy
+            ? `Service "${service.manifest.id}" is running.`
+            : `Service "${service.manifest.id}" reported unhealthy after ${result.action}.`
+          : result.message,
+        severity: !result.ok ? "error" : !health.healthy ? "warning" : "success",
+        route: "/services/" + encodeURIComponent(service.manifest.id),
+        correlationKey: result.action,
+        observedAt: latestState.runtime.finishedAt ?? latestState.runtime.startedAt ?? undefined,
+      });
+    }
+  }
 
   return {
     action: result.action,
@@ -1627,7 +1655,7 @@ async function executeRuntimeOrchestrationAction(
       }
 
       const result = await stopService(service);
-      stopped.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+      stopped.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
     }
 
     const reloadedModel = await loadRuntimeModel(runtimeModel.servicesRoot);
@@ -1673,7 +1701,7 @@ async function executeRuntimeOrchestrationAction(
         allocationRevision: allocationPlan?.allocationId,
         plannedPorts: plannedPortsByService?.[serviceId],
       });
-      results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result));
+      results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result, workspaceRoot));
     }
 
     return {
@@ -1718,7 +1746,7 @@ async function executeRuntimeOrchestrationAction(
 
       const prepared = await prepareAndStartService(service, runtimeModel.registry, preparedStartOptions);
       if (prepared.result) {
-        results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result));
+        results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result, workspaceRoot));
         if (onServiceStarted && !prepared.result.ok) {
           throw new LifecycleStateError(
             `Transactional startup failed for service "${serviceId}": ${prepared.result.message}`,
@@ -1736,7 +1764,7 @@ async function executeRuntimeOrchestrationAction(
     }
 
     const result = await stopService(service);
-    results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+    results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
   }
 
   return {
@@ -2520,6 +2548,13 @@ async function routeRequest(
         workspaceRoot: config.workspaceRoot,
         request: parsedRequest,
       });
+      await emitOperatorInboxDiagnosticsEvent(config.workspaceRoot, {
+        kind: "archive.completed",
+        summary: `Archived ${payload.export.selectedPaths.length} file selection item(s) through @archive.`,
+        serviceId: payload.export.serviceId,
+        backupExportId: payload.export.artifactId,
+        route: payload.export.artifact.downloadUrl,
+      });
       await appendAuditEvent({
         serviceRoot: service?.serviceRoot,
         workspaceRoot: service ? undefined : config.workspaceRoot,
@@ -3204,6 +3239,19 @@ async function routeRequest(
       if (!service) {
         return;
       }
+      if (checked.result.status === "update_available" || checked.result.status === "check_failed" || checked.result.status === "unavailable") {
+        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
+          serviceId: checked.serviceId,
+          status: checked.result.status === "update_available" ? "available" : "failed",
+          summary: checked.result.status === "update_available"
+            ? `Update ${checked.result.available?.tag ?? "candidate"} is available for service "${checked.serviceId}".`
+            : `Update check failed for service "${checked.serviceId}": ${checked.result.reason}`,
+          details: checked.result.provenance.releaseUrl ?? checked.result.reason,
+          updateId: checked.result.available?.tag ?? checked.result.provenance.tag,
+          route: "/services/" + encodeURIComponent(checked.serviceId) + "/updates",
+          observedAt: checked.result.checkedAt,
+        });
+      }
 
       await appendAuditEvent({
         serviceRoot: service.serviceRoot,
@@ -3708,6 +3756,19 @@ async function routeRequest(
           actionId,
           runRequest,
         );
+        if (payload.run.metadata.source === "scheduler" || payload.run.metadata.source === "dagu") {
+          await emitOperatorInboxWorkflowEvent(config.workspaceRoot, {
+            workflowId: payload.run.metadata.workflowId ?? payload.run.metadata.scheduleId ?? actionId,
+            status: payload.run.status,
+            summary: `Scheduled action "${actionId}" ${payload.run.status} for service "${serviceId}".`,
+            serviceId,
+            actionId,
+            runId: payload.run.runId,
+            scheduleId: payload.run.metadata.scheduleId,
+            route: "/services/" + encodeURIComponent(serviceId) + "/actions/" + encodeURIComponent(actionId),
+            observedAt: payload.run.finishedAt,
+          });
+        }
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -3838,6 +3899,14 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "download") {
       try {
         const result = await downloadServiceUpdateCandidate(service);
+        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
+          serviceId,
+          status: "downloaded",
+          summary: `Update candidate ${result.update.downloadedCandidate?.tag ?? result.result.available?.tag ?? "current"} downloaded for service "${serviceId}".`,
+          updateId: result.update.downloadedCandidate?.tag ?? result.result.available?.tag,
+          route: "/services/" + encodeURIComponent(serviceId) + "/updates",
+          observedAt: result.update.downloadedCandidate?.downloadedAt ?? result.update.updatedAt,
+        });
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -3877,6 +3946,14 @@ async function routeRequest(
       try {
         const body = parseUpdateInstallBody(await readJsonBody(request));
         const result = await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry });
+        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
+          serviceId,
+          status: "installed",
+          summary: `Update candidate installed for service "${serviceId}".`,
+          updateId: result.state.installArtifacts.artifact?.tag ?? result.update.provenance?.tag,
+          route: "/services/" + encodeURIComponent(serviceId) + "/updates",
+          observedAt: result.update.updatedAt,
+        });
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -4174,12 +4251,21 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/diagnostics/bundle") {
     const serviceId = url.searchParams.get("serviceId") ?? undefined;
-    writeJson(response, 200, await buildDiagnosticsBundle({
+    const bundle = await buildDiagnosticsBundle({
       servicesRoot: config.servicesRoot,
       workspaceRoot: config.workspaceRoot,
       version: config.version,
       serviceId,
-    }));
+    });
+    await emitOperatorInboxDiagnosticsEvent(config.workspaceRoot, {
+      kind: "diagnostics.completed",
+      summary: `Diagnostics bundle prepared for ${serviceId ? `service "${serviceId}"` : "runtime"}.`,
+      serviceId: serviceId ?? null,
+      backupExportId: "diagnostics:" + bundle.generatedAt,
+      route: "/api/diagnostics/bundle" + (serviceId ? "?serviceId=" + encodeURIComponent(serviceId) : ""),
+      observedAt: bundle.generatedAt,
+    });
+    writeJson(response, 200, bundle);
     return;
   }
 
@@ -4382,10 +4468,11 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
 }
 
 async function closeApiServer(server: Server): Promise<void> {
+  const closed = once(server, "close");
   server.close();
   server.closeIdleConnections?.();
   server.closeAllConnections?.();
-  await once(server, "close");
+  await closed;
 }
 
 function runtimeApiPortPolicy(options: ApiServerOptions, requestedPort: number): RuntimeEndpointAllocationPolicy {
@@ -5116,6 +5203,13 @@ async function startApiServerGeneration(
     transaction.journal = await completeCommittedStartupMaterializationCleanup(transaction.journal);
     transaction.journal = await settleStartupTransaction(transaction.journal, "committed", {
       removeCompensations: [...transaction.journal.pendingCompensations],
+    });
+    await emitOperatorInboxSystemEvent(config.workspaceRoot, {
+      kind: "runtime.startup",
+      status: "success",
+      summary: `Runtime started on ${resolvedApiUrl} with ${bootModel.discovered.length} discovered service(s).`,
+      route: "/api/dashboard",
+      correlationKey: runtimeGenerationId,
     });
   } catch (error) {
     const generationCommitted = transaction.journal.phase === "generation_committed" &&

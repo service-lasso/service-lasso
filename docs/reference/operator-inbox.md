@@ -60,6 +60,18 @@ Supported `filter` values are:
 
 Bulk mutation is intentionally limited to `read` and `hide`, so broad UI actions cannot accidentally restore or unread important records.
 
+## Runtime Producers
+
+Runtime code should prefer the shared producer helpers instead of hand-building Inbox item payloads. The helpers generate stable dedupe keys and safe related-target metadata:
+
+- `emitOperatorInboxSystemEvent` for runtime startup, first-run setup, and authentication/session notices
+- `emitOperatorInboxServiceEvent` for lifecycle failures/recoveries and health degraded/unhealthy/recovered transitions
+- `emitOperatorInboxWorkflowEvent` for scheduled workflow/action run outcomes
+- `emitOperatorInboxUpdateEvent` for update available, downloaded, installed, failed, deferred, and restart-required notices
+- `emitOperatorInboxDiagnosticsEvent` for diagnostics bundle, export, and archive completion notices
+
+The runtime currently records durable Inbox items when startup completes, service lifecycle actions produce meaningful state, scheduled service actions finish, update check/download/install actions produce operator-facing update state, archive exports complete, and diagnostics bundles are prepared. Producers must keep correlation keys stable for recurring conditions and should emit a new item only for meaningful state transitions.
+
 ## Service Admin Contract
 
 Service Admin should use:
