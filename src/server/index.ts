@@ -268,6 +268,7 @@ import {
   listServiceCatalogPackageReleases,
   listServiceCatalogPackages,
 } from "../runtime/catalog/service-catalog.js";
+import { installServiceCatalogSelections } from "../runtime/catalog/service-install.js";
 import {
   assertWorkflowRunFacadeSecretSafe,
   cancelWorkflowFacadeRun,
@@ -295,6 +296,7 @@ import type {
   OperatorCommandRequest,
   AuditQuery,
   RuntimeAuthStatusResponse,
+  ServiceCatalogInstallRequest,
   ServiceActionRunResponse,
   ServiceActionRunsResponse,
   ServiceDetailResponse,
@@ -2469,6 +2471,28 @@ async function routeRequest(
         "catalog_unavailable",
         502,
         error instanceof Error ? error.message : "Service catalog could not be loaded.",
+      );
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/catalog/install") {
+    const requestBody = await readJsonBody(request);
+    const auditActor = getAuditActor(requestBody);
+    try {
+      writeJson(response, 200, await installServiceCatalogSelections({
+        catalogUrl: config.serviceCatalogUrl,
+        githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
+        actor: auditActor,
+        request: requestBody as ServiceCatalogInstallRequest,
+      }));
+    } catch (error) {
+      throw new ApiError(
+        "catalog_install_unavailable",
+        502,
+        error instanceof Error ? error.message : "Catalog service install could not be completed.",
       );
     }
     return;

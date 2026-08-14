@@ -1391,3 +1391,60 @@ export interface ServiceCatalogPackageReleasesResponse {
     drafts: number;
   };
 }
+
+export interface ServiceCatalogInstallSelection {
+  packageId: string;
+  version?: string;
+  assetName?: string;
+}
+
+export interface ServiceCatalogInstallRequest extends Partial<ServiceCatalogInstallSelection> {
+  selections?: ServiceCatalogInstallSelection[];
+  actor?: string;
+}
+
+export type ServiceCatalogInstallResultState =
+  | "registered"
+  | "failed"
+  | "skipped/conflict";
+
+export type ServiceCatalogInstallProgressState =
+  | "pending"
+  | "downloading"
+  | "validating"
+  | "copying"
+  | "registered"
+  | "failed"
+  | "skipped/conflict";
+
+export interface ServiceCatalogInstallResult {
+  packageId: string;
+  version: string | null;
+  assetName: string | null;
+  serviceId: string | null;
+  serviceVersion: string | null;
+  state: ServiceCatalogInstallResultState;
+  ok: boolean;
+  progress: ServiceCatalogInstallProgressState[];
+  targetPath: string | null;
+  conflict: {
+    kind: "target_manifest_exists" | "target_directory_exists";
+    path: string;
+  } | null;
+  reason: string | null;
+  auditId?: string | null;
+}
+
+export interface ServiceCatalogInstallResponse {
+  install: {
+    ok: boolean;
+    state: "completed" | "partial" | "failed";
+    results: ServiceCatalogInstallResult[];
+    summary: {
+      total: number;
+      registered: number;
+      failed: number;
+      conflicts: number;
+    };
+  };
+}
