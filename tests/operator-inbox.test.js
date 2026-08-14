@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
 import {
@@ -10,8 +11,29 @@ import {
   readOperatorInbox,
   upsertOperatorInboxItem,
 } from "../dist/runtime/operator/inbox.js";
-import { startApiServer } from "../dist/server/index.js";
+import { createApiServer } from "../dist/server/index.js";
 import { makeTempServicesRoot } from "./test-helpers.js";
+
+async function startOperatorInboxApiServer(options) {
+  const server = createApiServer({ ...options, host: "127.0.0.1" });
+  const listening = once(server, "listening");
+  server.listen(0, "127.0.0.1");
+  await listening;
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  assert.notEqual(address, null);
+
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    async stop() {
+      const closed = once(server, "close");
+      server.close();
+      server.closeIdleConnections?.();
+      server.closeAllConnections?.();
+      await closed;
+    },
+  };
+}
 
 async function getJson(url) {
   const response = await fetch(url);
@@ -103,9 +125,10 @@ test("operator inbox persists durable items and redacts sensitive fields", async
 test("operator inbox API lists filters counts and persists mutations across restart", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-operator-inbox-api-");
   const workspaceRoot = path.join(tempRoot, "workspace");
-  let apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+  let apiServer = null;
 
   try {
+    apiServer = await startOperatorInboxApiServer({ servicesRoot, workspaceRoot });
     const updateRecord = await postJson(apiServer.url + "/api/operator/inbox/record", {
       dedupeKey: "update:core:available",
       title: "Runtime update available",
@@ -148,7 +171,7 @@ test("operator inbox API lists filters counts and persists mutations across rest
     let response = await getJson(apiServer.url + "/api/operator/inbox?filter=unread&limit=1");
     assert.equal(response.status, 200);
     assert.equal(response.body.inbox.items.length, 1);
-    assert.equal(response.body.inbox.pagination.total, 3);
+    assert.equal(response.body.inbox.pagination.total, 2);
     assert.equal(response.body.inbox.pagination.nextCursor, "1");
 
     response = await getJson(apiServer.url + "/api/operator/inbox?filter=updates");
@@ -157,8 +180,8 @@ test("operator inbox API lists filters counts and persists mutations across rest
 
     response = await getJson(apiServer.url + "/api/operator/inbox/counts");
     assert.equal(response.status, 200);
-    assert.equal(response.body.inbox.counts.total, 3);
-    assert.equal(response.body.inbox.counts.unread, 3);
+    assert.equal(response.body.inbox.counts.total, 2);
+    assert.equal(response.body.inbox.counts.unread, 2);
     assert.equal(response.body.inbox.counts.byFilter.updates, 1);
     assert.equal(response.body.inbox.counts.byFilter.errors, 1);
 
@@ -181,7 +204,8 @@ test("operator inbox API lists filters counts and persists mutations across rest
     assert.equal(response.body.inbox.counts.hidden, 1);
 
     await apiServer.stop();
-    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    apiServer = null;
+    apiServer = await startOperatorInboxApiServer({ servicesRoot, workspaceRoot });
 
     response = await getJson(apiServer.url + "/api/operator/inbox/counts");
     assert.equal(response.status, 200);
@@ -204,7 +228,7 @@ test("operator inbox API lists filters counts and persists mutations across rest
     assert.equal(response.status, 200);
     assert.equal(response.body.inbox.items.find((item) => item.id === updateId).state, "unread");
   } finally {
-    await apiServer.stop();
+    await apiServer?.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

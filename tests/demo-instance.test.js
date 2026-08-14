@@ -1138,6 +1138,64 @@ test("canonical demo verifier discovers only the active workspace generation end
   }
 });
 
+test("canonical demo verifier uses selected loopback metadata when LAN runtime API is protected", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-lan-auth-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const stateDirectory = path.join(workspaceRoot, ".service-lasso");
+  const generationId = "22222222-2222-4222-8222-222222222222";
+  const loopbackRuntimeUrl = "http://127.0.0.1:17883";
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(path.join(stateDirectory, "runtime-instance.json"), `${JSON.stringify({
+      generationId,
+      servicesRoot,
+      workspaceRoot,
+      phase: "running",
+      status: "active",
+      apiUrl: loopbackRuntimeUrl,
+    }, null, 2)}\n`);
+    await writeFile(path.join(stateDirectory, "runtime-generations.json"), `${JSON.stringify({
+      version: 1,
+      activeGenerationId: generationId,
+      generations: [{
+        generationId,
+        servicesRoot,
+        workspaceRoot,
+        phase: "running",
+        endpoints: [{ name: "api", url: loopbackRuntimeUrl }],
+      }],
+    }, null, 2)}\n`);
+
+    const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, generationId });
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      {
+        fetch: async (url, options) => {
+          const parsed = new URL(url);
+          if (parsed.hostname === "192.168.1.53" && parsed.port === "17883" && ["/api/runtime", "/api/runtime/instance", "/api/services"].includes(parsed.pathname)) {
+            return jsonResponse(401, { error: "remote_auth_required" });
+          }
+          return baseFetch(url, options);
+        },
+      },
+    );
+
+    assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
+    assert.equal(result.summary.runtimeUrl, "http://192.168.1.53:17883");
+    assert.equal(result.summary.generationId, generationId);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("canonical demo verifier accepts source Admin owning the canonical Service Admin port", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
   const servicesRoot = path.join(tempDir, "services");
