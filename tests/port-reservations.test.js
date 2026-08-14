@@ -78,6 +78,33 @@ test("port reservation ledger fails closed when a live port is already owned", a
   }
 });
 
+test("port reservation ledger lets a service reclaim its own fixed port aliases", async () => {
+  const workspaceRoot = await makeWorkspaceRoot();
+  try {
+    await reservePorts(
+      workspaceRoot,
+      [{ kind: "service-fixed", ownerId: "@secretsbroker", portName: "service", port: 17890 }],
+      "2026-05-20T00:00:00.000Z",
+    );
+
+    const ledger = await reservePorts(
+      workspaceRoot,
+      [{ kind: "service-fixed", ownerId: "@secretsbroker", portName: "health", port: 17890 }],
+      "2026-05-20T00:01:00.000Z",
+    );
+
+    assert.deepEqual(
+      ledger.reservations.map((reservation) => [reservation.kind, reservation.ownerId, reservation.portName, reservation.port]),
+      [
+        ["service-fixed", "@secretsbroker", "service", 17890],
+        ["service-fixed", "@secretsbroker", "health", 17890],
+      ],
+    );
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("port reservation ledger marks missing active reservations stale during reconciliation", async () => {
   const workspaceRoot = await makeWorkspaceRoot();
   try {
