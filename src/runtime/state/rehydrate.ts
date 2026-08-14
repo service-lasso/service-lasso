@@ -737,5 +737,7 @@ export async function rehydrateDiscoveredServices(
   services: DiscoveredService[],
   options: RehydrateProcessOwnershipOptions = {},
 ): Promise<void> {
-  await Promise.all(services.map((service) => rehydrateLifecycleState(service, options)));
+  for (const service of services) {
+    await rehydrateLifecycleState(service, options);
+  }
 }

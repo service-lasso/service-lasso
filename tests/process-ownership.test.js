@@ -412,6 +412,62 @@ test("rehydration clears a reused PID without terminating the unrelated live pro
   }
 });
 
+test("rehydration serializes legacy process ownership migration for one workspace", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-serial-");
+  const first = await writeExecutableFixtureService(servicesRoot, "serial-rehydrate-one");
+  const second = await writeExecutableFixtureService(servicesRoot, "serial-rehydrate-two");
+  const startedAt = new Date().toISOString();
+  let activeInspections = 0;
+  let maxActiveInspections = 0;
+
+  async function writeLegacyRuntime(serviceRoot, pid, port) {
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    await writeFile(
+      path.join(stateRoot, "runtime.json"),
+      JSON.stringify({
+        running: true,
+        pid,
+        startedAt,
+        command: `${process.execPath} serial-rehydrate-fixture.mjs`,
+        ports: { service: port },
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      }),
+      "utf8",
+    );
+  }
+
+  const processInspectorDependencies = {
+    platform: "win32",
+    runCommand: async () => {
+      activeInspections += 1;
+      maxActiveInspections = Math.max(maxActiveInspections, activeInspections);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      activeInspections -= 1;
+      return { stdout: "" };
+    },
+  };
+
+  try {
+    await writeLegacyRuntime(first.serviceRoot, 41001, 18101);
+    await writeLegacyRuntime(second.serviceRoot, 41002, 18102);
+
+    const discovered = await discoverServices(servicesRoot);
+    await rehydrateDiscoveredServices(discovered, { workspaceRoot, processInspectorDependencies });
+
+    assert.equal(maxActiveInspections, 1);
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "serial-rehydrate-one"), null);
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "serial-rehydrate-two"), null);
+  } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("API startup clears a reused PID and starts a replacement without touching the unrelated process", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-api-reused-pid-");

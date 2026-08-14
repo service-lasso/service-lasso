@@ -188,7 +188,12 @@ export async function reservePorts(
     const existingPortOwner = [...byPort.values()].find((reservation) =>
       reservation.port === next.port && hostsOverlap(reservation.host, next.host),
     );
-    if (existingPortOwner && ownerKey(existingPortOwner) !== ownerKey(next) && existingPortOwner.stale !== true) {
+    if (
+      existingPortOwner &&
+      existingPortOwner.ownerId !== next.ownerId &&
+      ownerKey(existingPortOwner) !== ownerKey(next) &&
+      existingPortOwner.stale !== true
+    ) {
       throw new PortReservationConflictError(
         `Port ${next.host}:${next.port} is already reserved by "${existingPortOwner.ownerId}" "${existingPortOwner.portName}".`,
       );

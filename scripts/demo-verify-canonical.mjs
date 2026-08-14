@@ -329,6 +329,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   let workspaceDiscovery = null;
   let workspaceDiscoveryMatchesRoots = false;
   let workspaceDiscoveryIsActive = false;
+  let runtimeMetadataUrl = resolved.runtimeUrl;
   const stateDirectory = path.join(resolved.workspaceRoot, ".service-lasso");
   const [workspaceInstance, generationRegistry] = await Promise.all([
     readJson(path.join(stateDirectory, "runtime-instance.json")).catch(() => null),
@@ -360,13 +361,14 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     );
     if (workspaceDiscoveryIsActive) {
       const discoveredRuntimeUrl = normalizeUrlBase(apiEndpoint);
+      runtimeMetadataUrl = discoveredRuntimeUrl;
       resolved = {
         ...resolved,
         generationId: resolved.generationId ?? generation.generationId,
         runtimeUrl: runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl,
         runtimeHealthUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/health`,
-        runtimeSummaryUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/runtime`,
-        runtimeServicesUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/services`,
+        runtimeSummaryUrl: `${discoveredRuntimeUrl}/api/runtime`,
+        runtimeServicesUrl: `${discoveredRuntimeUrl}/api/services`,
       };
     }
   }
@@ -397,7 +399,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     fetchJson(resolved.runtimeHealthUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
-    fetchJson(`${resolved.runtimeUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${runtimeMetadataUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
   ]);
 
   check(
@@ -435,7 +437,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     "runtime generation discovery reachable",
     Boolean(runtimeInstance.ok && runtimeInstance.body?.instance),
     "missing_runtime_generation",
-    runtimeInstance.ok ? `HTTP ${runtimeInstance.status}` : `${resolved.runtimeUrl}/api/runtime/instance: ${runtimeInstance.error ?? `HTTP ${runtimeInstance.status}`}`,
+    runtimeInstance.ok ? `HTTP ${runtimeInstance.status}` : `${runtimeMetadataUrl}/api/runtime/instance: ${runtimeInstance.error ?? `HTTP ${runtimeInstance.status}`}`,
   );
   if (workspaceDiscovery) {
     check(checks, "workspace generation roots match selector", workspaceDiscoveryMatchesRoots, "wrong_lane");
@@ -483,7 +485,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       checks,
       "runtime endpoint belongs to selected generation",
       normalizeUrlBase(runtimeInstance.body.instance.apiUrl),
-      normalizeUrlBase(resolved.runtimeUrl),
+      normalizeUrlBase(runtimeMetadataUrl),
       "wrong_lane",
     );
   }
