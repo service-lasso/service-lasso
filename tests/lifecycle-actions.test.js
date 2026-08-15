@@ -66,6 +66,8 @@ async function waitFor(predicate, timeoutMs = 1_000) {
   throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
+const SUPERVISION_SETTLE_TIMEOUT_MS = process.platform === "win32" ? 10_000 : 2_000;
+
 async function writeCrashOnceService(servicesRoot, serviceId, restartPolicy) {
   const serviceRoot = path.join(servicesRoot, serviceId);
   const runtimeRoot = path.join(serviceRoot, "runtime");
@@ -79,6 +81,7 @@ import path from "node:path";
 const runtimeRoot = path.resolve(process.cwd(), "runtime");
 const markerPath = path.join(runtimeRoot, "crashed-once.txt");
 const readyPath = path.join(runtimeRoot, "ready.txt");
+const crashTriggerPath = path.join(runtimeRoot, "crash-now.txt");
 await mkdir(runtimeRoot, { recursive: true });
 
 try {
@@ -90,9 +93,20 @@ try {
 } catch {
   await writeFile(readyPath, "ready");
   await writeFile(markerPath, "yes");
-  setTimeout(() => {
-    void rm(readyPath, { force: true }).finally(() => process.exit(7));
-  }, 50);
+  let crashing = false;
+  const crashWatcher = setInterval(async () => {
+    if (crashing) return;
+    try {
+      await access(crashTriggerPath);
+    } catch {
+      return;
+    }
+    crashing = true;
+    clearInterval(crashWatcher);
+    await rm(crashTriggerPath, { force: true });
+    await rm(readyPath, { force: true });
+    process.exit(7);
+  }, 20);
 }
 `.trim(),
   );
@@ -111,7 +125,7 @@ try {
       start_period: 0,
     },
   });
-  return { serviceRoot };
+  return { serviceRoot, crashTriggerPath: path.join(runtimeRoot, "crash-now.txt") };
 }
 
 test("lifecycle actions execute in the expected bounded order", async () => {
@@ -945,7 +959,7 @@ test("enabled crash restart policy starts service again through readiness", asyn
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-supervision-crash-restart-",
   );
-  const { serviceRoot } = await writeCrashOnceService(servicesRoot, "crash-once-service", {
+  const { serviceRoot, crashTriggerPath } = await writeCrashOnceService(servicesRoot, "crash-once-service", {
     enabled: true,
     onCrash: true,
     maxAttempts: 2,
@@ -957,6 +971,8 @@ test("enabled crash restart policy starts service again through readiness", asyn
     await installService(service);
     await configService(service);
     const firstStart = await startService(service);
+    assert.equal(firstStart.ok, true);
+    await writeFile(crashTriggerPath, "crash");
 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
@@ -965,10 +981,9 @@ test("enabled crash restart policy starts service again through readiness", asyn
         stored.runtime?.metrics?.launchCount >= 2 &&
         stored.runtime?.supervision?.lastRestartResult === "started"
       );
-    }, 2_000);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
-    assert.equal(firstStart.ok, true);
     assert.equal(stored.runtime.running, true);
     assert.notEqual(stored.runtime.pid, firstStart.state.runtime.pid);
     assert.equal(stored.runtime.supervision.restartAttempts, 0);
@@ -1078,7 +1093,7 @@ test("maxAttempts blocks crash restart attempts at the configured limit", async 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
       return stored.runtime?.supervision?.lastRestartResult === "blocked";
-    }, 1_500);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
@@ -1096,7 +1111,7 @@ test("backoff records the next restart time before launching again", async () =>
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-supervision-backoff-",
   );
-  const { serviceRoot } = await writeCrashOnceService(servicesRoot, "backoff-service", {
+  const { serviceRoot, crashTriggerPath } = await writeCrashOnceService(servicesRoot, "backoff-service", {
     enabled: true,
     onCrash: true,
     maxAttempts: 1,
@@ -1107,12 +1122,14 @@ test("backoff records the next restart time before launching again", async () =>
     const [service] = await discoverServices(servicesRoot);
     await installService(service);
     await configService(service);
-    await startService(service);
+    const firstStart = await startService(service);
+    assert.equal(firstStart.ok, true);
+    await writeFile(crashTriggerPath, "crash");
 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
       return stored.runtime?.supervision?.lastRestartResult === "scheduled";
-    }, 1_500);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
@@ -1153,7 +1170,7 @@ test("disabled service is not automatically restarted after crash", async () => 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
       return stored.runtime?.supervision?.lastRestartResult === "blocked";
-    }, 1_500);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);

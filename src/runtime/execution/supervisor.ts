@@ -548,7 +548,9 @@ async function terminateManagedProcessTree(
     }
 
     const attempt = (async () => {
-      await record.treeMonitorPromise;
+      if (record.stopping) {
+        await record.treeMonitorPromise;
+      }
       return await managedProcessTreeTerminator(
         managedProcessTreeTarget(record, rootExitObserved),
         timeoutMs,
