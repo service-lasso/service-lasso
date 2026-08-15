@@ -15,10 +15,12 @@ import {
 } from "../dist/runtime/lifecycle/actions.js";
 import {
   hasManagedProcess,
+  setManagedProcessTreeTerminatorForTests,
   startManagedProcess,
   stopManagedProcess,
   waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
+import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -696,6 +698,49 @@ test("runtime summary reflects running services after lifecycle actions", async 
     assert.equal(runtimeBody.runtime.runningServices, 1);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime shutdown retries a transient owned-tree termination failure and clears recovered diagnostics", async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-stop-retry-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "stop-retry-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  let stopCompleted = false;
+  let terminationAttempts = 0;
+
+  setManagedProcessTreeTerminatorForTests(async (...args) => {
+    terminationAttempts += 1;
+    if (terminationAttempts === 1) {
+      const error = new Error("Injected transient owned-tree control failure.");
+      error.code = "TRANSIENT_TREE_CONTROL";
+      throw error;
+    }
+    return await terminateOwnedProcessTree(...args);
+  });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/stop-retry-service/install`);
+    await postJson(`${apiServer.url}/api/services/stop-retry-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/stop-retry-service/start`);
+    assert.equal(start.body.ok, true);
+
+    await apiServer.stop();
+    stopCompleted = true;
+
+    assert.equal(terminationAttempts >= 2, true);
+    assert.equal(hasManagedProcess("stop-retry-service"), false);
+  } finally {
+    setManagedProcessTreeTerminatorForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (!stopCompleted) await apiServer.stop().catch(() => undefined);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
