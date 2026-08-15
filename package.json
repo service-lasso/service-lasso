@@ -58,8 +58,10 @@
     "test:local-sso-loop": "npm run build && node --test --test-concurrency=1 tests/local-sso-loop-smoke.test.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "adm-zip": "0.6.0",
-    "tar": "7.5.22"
+    "tar": "7.5.22",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@docusaurus/core": "3.10.2",
