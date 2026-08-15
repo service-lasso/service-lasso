@@ -168,8 +168,6 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
       servicesRoot,
       "--workspace-root",
       workspaceRoot,
-      "--host",
-      "127.0.0.1",
       "--port",
       String(port),
       "--json",
@@ -178,6 +176,7 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
       cwd: repoRoot,
       env: {
         ...process.env,
+        SERVICE_LASSO_HOST: "127.0.0.1",
         SERVICE_LASSO_PORT_RANGE_START: String(servicePortStart),
         SERVICE_LASSO_PORT_RANGE_END: String(testPortEnd),
       },
