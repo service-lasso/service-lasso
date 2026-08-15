@@ -437,11 +437,13 @@ try {
   }
 
   const liveServices = new Map();
+  const platformSupportByService = new Map();
   for (const serviceId of baselineServiceIds) {
     const isProvider = providerServiceIds.has(serviceId);
     const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
     const platforms = manifest.artifact?.platforms;
     const platformSupported = !platforms || Boolean(platforms[process.platform] ?? platforms.default);
+    platformSupportByService.set(serviceId, platformSupported);
     liveServices.set(
       serviceId,
       await waitForServiceState(apiUrl, serviceId, {
@@ -467,8 +469,16 @@ try {
   }
   for (const serviceId of providerServiceIds) {
     const service = dashboardServices.services.find((entry) => entry.id === serviceId);
-    assert(service?.status === "available", `${serviceId} provider utility did not report Available status.`);
-    assert(service?.runtimeHealth?.state === "available", `${serviceId} provider runtime state did not report Available.`);
+    const platformSupported = platformSupportByService.get(serviceId) === true;
+    const expectedStatus = platformSupported ? "available" : "stopped";
+    assert(
+      service?.status === expectedStatus,
+      `${serviceId} provider utility did not report its platform-correct ${expectedStatus} status.`,
+    );
+    assert(
+      service?.runtimeHealth?.state === expectedStatus,
+      `${serviceId} provider runtime state did not report its platform-correct ${expectedStatus} state.`,
+    );
   }
 
   verificationStep = "baseline_reachability";

@@ -40,6 +40,7 @@ let adminProcess = null
 let vaultServer = null
 let brokerRuntimeCredentials = null
 let shuttingDown = false
+const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 })
 
 function safeFailureCode(error) {
   if (error && typeof error === 'object' && typeof error.code === 'string' && /^[a-z0-9_]{1,64}$/i.test(error.code)) {
@@ -87,6 +88,7 @@ function requestBrokerWithToken(credentials, token) {
       method: 'GET',
       path: '/v1/management/lifecycle/status',
       socketPath: credentials.transport.socketPath,
+      agent: brokerIPCClient,
       headers: { 'X-SecretsBroker-Token': token },
     }, (response) => {
       const chunks = []
@@ -128,6 +130,7 @@ async function shutdown(exitCode = 0) {
   }
   await apiServer?.stop().catch(() => undefined)
   await stopAllManagedProcesses().catch(() => undefined)
+  brokerIPCClient.destroy()
   if (vaultServer) {
     const closing = new Promise((resolve) => vaultServer.close(() => resolve()))
     vaultServer.closeAllConnections?.()
