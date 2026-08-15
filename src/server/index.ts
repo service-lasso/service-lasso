@@ -110,6 +110,7 @@ import {
 import {
   loadSecretsBrokerRuntimeContext,
   provisionFirstRunGeneratedSecrets,
+  SecretsBrokerBootstrapError,
 } from "../runtime/broker/runtime.js";
 import { buildBrokerDecommissionDependencyEvidence } from "../runtime/broker/decommission.js";
 import {
@@ -3419,7 +3420,19 @@ async function routeRequest(
       const stopped = await stopService(broker);
       await writeServiceState(broker, stopped.state);
     }
-    const bootstrap = await bootstrapLocalVault(config.workspaceRoot, runtimeModel.registry);
+    let bootstrap;
+    try {
+      bootstrap = await bootstrapLocalVault(config.workspaceRoot, runtimeModel.registry);
+    } catch (error) {
+      if (error instanceof SecretsBrokerBootstrapError) {
+        throw new ApiError(
+          error.code,
+          503,
+          "Secrets Broker key bootstrap did not complete.",
+        );
+      }
+      throw error;
+    }
     const started = await startService(broker, runtimeModel.registry, {
       workspaceRoot: config.workspaceRoot,
       runtimeGenerationId: config.runtimeGenerationId,
@@ -3450,10 +3463,19 @@ async function routeRequest(
         "Secrets Broker did not prove authenticated IPC readiness after vault bootstrap.",
       );
     }
-    const provisionedSecrets = await provisionFirstRunGeneratedSecrets(
-      runtimeModel.registry,
-      brokerRuntime!,
-    );
+    let provisionedSecrets;
+    try {
+      provisionedSecrets = await provisionFirstRunGeneratedSecrets(
+        runtimeModel.registry,
+        brokerRuntime!,
+      );
+    } catch {
+      throw new ApiError(
+        "secrets_broker_provisioning_failed",
+        503,
+        "Secrets Broker could not provision the declared first-run secrets.",
+      );
+    }
     await appendAuditEvent({
       workspaceRoot: config.workspaceRoot,
       source: "runtime",

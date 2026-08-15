@@ -148,7 +148,7 @@ async function postJson(url) {
     error.verificationEvidence = {
       httpStatus: response.status,
       errorCode:
-        [body?.error?.code, body?.code].find(
+        [body?.error?.code, body?.error, body?.code].find(
           (code) => typeof code === "string" && /^[a-z0-9_]+$/u.test(code),
         ) ?? "unclassified_error",
     };

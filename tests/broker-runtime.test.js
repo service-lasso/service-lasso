@@ -8,6 +8,7 @@ import {
   bootstrapSecretsBrokerVault,
   loadSecretsBrokerRuntimeContext,
   readSecretsBrokerRuntimeCredentials,
+  SecretsBrokerBootstrapError,
   secretsBrokerCredentialsPath,
   secretsBrokerUnixSocketPath,
 } from "../dist/runtime/broker/runtime.js";
@@ -20,6 +21,28 @@ test("broker Unix socket paths remain below the macOS sockaddr limit", () => {
   const bounded = secretsBrokerUnixSocketPath(workspaceId, `/var/folders/${"long-segment/".repeat(8)}T`);
   assert.equal(bounded, `/tmp/service-lasso-sb-${workspaceId}.sock`);
   assert.equal(Buffer.byteLength(bounded, "utf8") <= 100, true);
+});
+
+test("broker bootstrap command failures expose only a stable stage code", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-stage-failure-"));
+  const fakeCommand = path.join(workspaceRoot, "broker-fixture");
+  try {
+    await writeFile(fakeCommand, "fixture");
+    const registry = { getById: () => ({ manifest: { id: "@secretsbroker" } }) };
+    const failure = await bootstrapSecretsBrokerVault(workspaceRoot, registry, {
+      brokerCommand: { command: fakeCommand, cwd: workspaceRoot },
+      runCommand: async () => {
+        throw new Error("sensitive provider output must not escape");
+      },
+    }).catch((error) => error);
+
+    assert.ok(failure instanceof SecretsBrokerBootstrapError);
+    assert.equal(failure.code, "secrets_broker_key_initialize_failed");
+    assert.equal(failure.message, "Secrets Broker bootstrap stage failed.");
+    assert.equal(JSON.stringify(failure).includes("sensitive provider output"), false);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });
 
 test("broker bootstrap creates protected credentials and invokes only metadata-safe command arguments", async () => {

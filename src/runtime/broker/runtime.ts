@@ -68,6 +68,20 @@ export interface SecretsBrokerBootstrapResult {
   transportKind: SecretsBrokerClientTransport["kind"];
 }
 
+export type SecretsBrokerBootstrapErrorCode =
+  | "secrets_broker_key_initialize_failed"
+  | "secrets_broker_key_import_failed"
+  | "secrets_broker_key_status_failed"
+  | "secrets_broker_key_status_invalid"
+  | "secrets_broker_key_not_ready";
+
+export class SecretsBrokerBootstrapError extends Error {
+  constructor(readonly code: SecretsBrokerBootstrapErrorCode) {
+    super("Secrets Broker bootstrap stage failed.");
+    this.name = "SecretsBrokerBootstrapError";
+  }
+}
+
 export interface SecretsBrokerProvisioningResult {
   serviceId: string;
   ref: string;
@@ -268,6 +282,21 @@ function brokerBaseEnvironment(credentials: SecretsBrokerRuntimeCredentials): Re
   };
 }
 
+async function runBootstrapStage(
+  execute: NonNullable<SecretsBrokerBootstrapOptions["runCommand"]>,
+  command: string,
+  cwd: string,
+  args: string[],
+  environment: Record<string, string>,
+  code: SecretsBrokerBootstrapErrorCode,
+): Promise<string> {
+  try {
+    return await execute(command, cwd, args, environment);
+  } catch {
+    throw new SecretsBrokerBootstrapError(code);
+  }
+}
+
 export async function bootstrapSecretsBrokerVault(
   workspaceRoot: string,
   registry: ServiceRegistry,
@@ -288,33 +317,49 @@ export async function bootstrapSecretsBrokerVault(
     storeExists = false;
   }
   if (!storeExists) {
-    await execute(command, cwd, ["key", "initialize", "--store", credentials.storePath, "--audit", credentials.auditPath], masterKeyEnvironment);
+    await runBootstrapStage(
+      execute,
+      command,
+      cwd,
+      ["key", "initialize", "--store", credentials.storePath, "--audit", credentials.auditPath],
+      masterKeyEnvironment,
+      "secrets_broker_key_initialize_failed",
+    );
   }
   if (process.platform === "win32") {
-    await execute(command, cwd, ["key", "import", "--store", credentials.storePath, "--audit", credentials.auditPath, "--wrapper", credentials.wrapperPath], masterKeyEnvironment);
+    await runBootstrapStage(
+      execute,
+      command,
+      cwd,
+      ["key", "import", "--store", credentials.storePath, "--audit", credentials.auditPath, "--wrapper", credentials.wrapperPath],
+      masterKeyEnvironment,
+      "secrets_broker_key_import_failed",
+    );
   }
   const statusEnvironment = process.platform === "win32"
     ? brokerBaseEnvironment(credentials)
     : masterKeyEnvironment;
-  const statusText = await execute(
+  const statusText = await runBootstrapStage(
+    execute,
     command,
     cwd,
     process.platform === "win32"
       ? ["key", "wrapper-status", "--wrapper", credentials.wrapperPath]
       : ["key", "status"],
     statusEnvironment,
+    "secrets_broker_key_status_failed",
   );
   let status: BrokerKeyStatus;
   try {
     status = JSON.parse(statusText) as BrokerKeyStatus;
   } catch {
-    throw new Error("Secrets Broker key status contract is invalid.");
+    throw new SecretsBrokerBootstrapError("secrets_broker_key_status_invalid");
   }
   const keyId = status.keyId ?? status.wrapper?.keyId;
   const keyVersion = status.keyVersion ?? status.wrapper?.keyVersion;
   const available = status.available ?? (status.state === "ready");
   if (available !== true || status.state !== "ready" || typeof keyId !== "string" || typeof keyVersion !== "string") {
-    throw new Error("Secrets Broker vault did not become ready.");
+    throw new SecretsBrokerBootstrapError("secrets_broker_key_not_ready");
   }
   return {
     ok: true,
