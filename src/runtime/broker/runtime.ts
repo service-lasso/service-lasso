@@ -30,6 +30,9 @@ const CREDENTIALS_VERSION = 1;
 const BROKER_SERVICE_ID = "@secretsbroker";
 const TOKEN_BYTES = 32;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+// Darwin's sockaddr_un.sun_path is 104 bytes (including the terminator), while
+// Linux allows 108. Keep generated paths below the stricter portable bound.
+const MAX_PORTABLE_UNIX_SOCKET_PATH_BYTES = 100;
 
 interface SecretsBrokerRuntimeCredentials {
   version: 1;
@@ -109,11 +112,20 @@ function randomSecret(): string {
   return randomBytes(TOKEN_BYTES).toString("base64url");
 }
 
+export function secretsBrokerUnixSocketPath(workspaceId: string, tempRoot = os.tmpdir()): string {
+  const fileName = `service-lasso-secretsbroker-${workspaceId}.sock`;
+  const candidate = path.join(tempRoot, fileName);
+  if (Buffer.byteLength(candidate, "utf8") <= MAX_PORTABLE_UNIX_SOCKET_PATH_BYTES) {
+    return candidate;
+  }
+  return path.posix.join("/tmp", `service-lasso-sb-${workspaceId}.sock`);
+}
+
 function runtimePaths(workspaceRoot: string, workspaceId: string) {
   const root = path.join(privateStateRoot(workspaceRoot), "secretsbroker");
   const transport: SecretsBrokerClientTransport = process.platform === "win32"
     ? { kind: "windows-named-pipe", socketPath: `\\\\.\\pipe\\service-lasso-secretsbroker-${workspaceId}` }
-    : { kind: "unix-socket", socketPath: path.join(os.tmpdir(), `service-lasso-secretsbroker-${workspaceId}.sock`) };
+    : { kind: "unix-socket", socketPath: secretsBrokerUnixSocketPath(workspaceId) };
   return {
     root,
     storePath: path.join(root, "store.json"),

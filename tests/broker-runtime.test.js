@@ -9,7 +9,18 @@ import {
   loadSecretsBrokerRuntimeContext,
   readSecretsBrokerRuntimeCredentials,
   secretsBrokerCredentialsPath,
+  secretsBrokerUnixSocketPath,
 } from "../dist/runtime/broker/runtime.js";
+
+test("broker Unix socket paths remain below the macOS sockaddr limit", () => {
+  const workspaceId = `slw_${"a".repeat(24)}`;
+  const ordinary = secretsBrokerUnixSocketPath(workspaceId, "/tmp");
+  assert.equal(path.basename(ordinary), `service-lasso-secretsbroker-${workspaceId}.sock`);
+
+  const bounded = secretsBrokerUnixSocketPath(workspaceId, `/var/folders/${"long-segment/".repeat(8)}T`);
+  assert.equal(bounded, `/tmp/service-lasso-sb-${workspaceId}.sock`);
+  assert.equal(Buffer.byteLength(bounded, "utf8") <= 100, true);
+});
 
 test("broker bootstrap creates protected credentials and invokes only metadata-safe command arguments", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-runtime-"));
