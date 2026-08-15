@@ -56,6 +56,7 @@ interface ManagedProcessRecord {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  treeMonitorPromise: Promise<void>;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
@@ -546,10 +547,13 @@ async function terminateManagedProcessTree(
       }
     }
 
-    const attempt = managedProcessTreeTerminator(
-      managedProcessTreeTarget(record, rootExitObserved),
-      timeoutMs,
-    );
+    const attempt = (async () => {
+      await record.treeMonitorPromise;
+      return await managedProcessTreeTerminator(
+        managedProcessTreeTarget(record, rootExitObserved),
+        timeoutMs,
+      );
+    })();
     record.treeTerminationPromise = attempt;
     try {
       return await attempt;
@@ -699,6 +703,7 @@ export async function beginManagedProcessStop(serviceId: string): Promise<boolea
   const record = managedProcesses.get(serviceId);
   if (record) {
     record.stopping = true;
+    await record.treeMonitorPromise;
     if (record.workspaceRoot && !record.stoppingPersisted) {
       await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
       record.stoppingPersisted = true;
@@ -863,6 +868,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     rootIdentity,
     processGroup,
     knownTreeMembers: [],
+    treeMonitorPromise: Promise.resolve(),
     treeTerminationPromise: null,
     exitPromise,
     finalizePromise: Promise.resolve(),
@@ -900,7 +906,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   }
 
   managedProcesses.set(serviceId, record);
-  void monitorManagedProcessTree(record).catch(() => undefined);
+  record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
     await terminateManagedProcessTree(record, 5_000, true, true);
