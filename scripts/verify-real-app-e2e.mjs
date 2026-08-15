@@ -144,7 +144,15 @@ async function postJson(url) {
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(`POST ${url} failed with ${response.status}: ${JSON.stringify(body)}`);
+    const error = new Error(`POST request failed with HTTP ${response.status}.`);
+    error.verificationEvidence = {
+      httpStatus: response.status,
+      errorCode:
+        [body?.error?.code, body?.code].find(
+          (code) => typeof code === "string" && /^[a-z0-9_]+$/u.test(code),
+        ) ?? "unclassified_error",
+    };
+    throw error;
   }
 
   return body;
@@ -160,6 +168,8 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
       servicesRoot,
       "--workspace-root",
       workspaceRoot,
+      "--host",
+      "127.0.0.1",
       "--port",
       String(port),
       "--json",
@@ -476,6 +486,9 @@ try {
   servicesStopped = true;
   console.log("[service-lasso e2e] real app baseline state gate passed");
 } catch (error) {
+  if (error instanceof Error && error.verificationEvidence) {
+    verificationEvidence = error.verificationEvidence;
+  }
   if (!apiUrl && error instanceof RuntimeOwnerFailure && error.cleanupApiUrl) {
     apiUrl = error.cleanupApiUrl;
   }
