@@ -846,7 +846,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-root-exit-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-root-exit-service");
-  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 750 });
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath);
   let handle;
   let childPid = null;
   let grandchildPid = null;
@@ -862,6 +862,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
     childPid = pids.childPid;
     grandchildPid = pids.grandchildPid;
 
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
     await waitForProcessesStopped([handle.pid, childPid, grandchildPid], 12_000);
     await waitFor(() => !hasManagedProcess("managed-root-exit-service"), 12_000);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-exit-service");

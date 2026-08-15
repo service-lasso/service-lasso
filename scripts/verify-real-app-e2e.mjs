@@ -332,9 +332,9 @@ async function verifyAdvertisedReachability(servicesRoot, service) {
 }
 
 async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_000) {
-  const { running } = expected;
+  const { running, installed = true, configured = true } = expected;
   const healthy = Object.hasOwn(expected, "healthy") ? expected.healthy : true;
-  console.error(`[service-lasso e2e] waiting for ${serviceId} running=${running} healthy=${healthy ?? "any"}`);
+  console.error(`[service-lasso e2e] waiting for ${serviceId} installed=${installed} configured=${configured} running=${running} healthy=${healthy ?? "any"}`);
   const startedAt = Date.now();
   let lastService = null;
 
@@ -345,8 +345,8 @@ async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_
     lastService = service;
 
     if (
-      service.lifecycle?.installed === true &&
-      service.lifecycle?.configured === true &&
+      service.lifecycle?.installed === installed &&
+      service.lifecycle?.configured === configured &&
       service.lifecycle?.running === running &&
       (healthy === undefined || service.health?.healthy === healthy)
     ) {
@@ -357,7 +357,17 @@ async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_
     await sleep(500);
   }
 
-  throw new Error(`${serviceId} did not reach installed/configured/running=${running}/healthy=${healthy ?? "any"}. Last service state: ${JSON.stringify(lastService)}`);
+  verificationEvidence = {
+    serviceId,
+    expected: { installed, configured, running, healthy: healthy ?? null },
+    observed: {
+      installed: lastService?.lifecycle?.installed ?? null,
+      configured: lastService?.lifecycle?.configured ?? null,
+      running: lastService?.lifecycle?.running ?? null,
+      healthy: lastService?.health?.healthy ?? null,
+    },
+  };
+  throw new Error(`${serviceId} did not reach its expected lifecycle state.`);
 }
 
 const e2eTempParent = path.join(repoRoot, ".tmp", "e2e");
@@ -429,9 +439,17 @@ try {
   const liveServices = new Map();
   for (const serviceId of baselineServiceIds) {
     const isProvider = providerServiceIds.has(serviceId);
+    const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
+    const platforms = manifest.artifact?.platforms;
+    const platformSupported = !platforms || Boolean(platforms[process.platform] ?? platforms.default);
     liveServices.set(
       serviceId,
-      await waitForServiceState(apiUrl, serviceId, { running: !isProvider, healthy: isProvider ? undefined : true }),
+      await waitForServiceState(apiUrl, serviceId, {
+        installed: platformSupported,
+        configured: platformSupported,
+        running: !isProvider && platformSupported,
+        healthy: isProvider || !platformSupported ? undefined : true,
+      }),
     );
   }
 
