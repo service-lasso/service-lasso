@@ -15,8 +15,9 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
 const sourceServicesRoot = path.join(repoRoot, "services");
-const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
-const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node"]);
+const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
+const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service"];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -366,8 +367,6 @@ let verificationEvidence = null;
 
 try {
   console.error(`[service-lasso e2e] temp root ${tempRoot}`);
-  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
-  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
   await copyCheckedInServices(servicesRoot);
   await rebaseManifestPorts(servicesRoot);
   verificationStep = "start_runtime";
@@ -387,6 +386,17 @@ try {
     workspaceRoot,
   });
 
+  verificationStep = "first_run_bootstrap";
+  const setupBootstrap = await postJson(`${apiUrl}/api/setup/bootstrap`);
+  assert(
+    setupBootstrap.bootstrap?.ok === true && setupBootstrap.bootstrap?.state === "setup_complete",
+    "First-run Secrets Broker bootstrap did not reach setup_complete.",
+  );
+  assert(
+    Number.isInteger(setupBootstrap.bootstrap?.provisionedSecretCount) && setupBootstrap.bootstrap.provisionedSecretCount > 0,
+    "First-run Secrets Broker bootstrap did not provision declared generated secrets.",
+  );
+
   verificationStep = "service_catalog";
   const services = await waitForJson(`${apiUrl}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
@@ -397,7 +407,13 @@ try {
   }
   verificationEvidence = null;
 
+  for (const serviceId of baselineDaemonServiceIds) {
+    verificationStep = `baseline_start_${serviceId.replace(/[^a-z0-9]+/giu, "_")}`;
+    await postJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}/start`);
+  }
+
   for (const action of ["install", "config", "start"]) {
+    verificationStep = `node_sample_${action}`;
     await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
   }
 
