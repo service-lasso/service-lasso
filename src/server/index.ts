@@ -2689,6 +2689,29 @@ async function buildRuntimeTelemetrySnapshot(
   }, process.env, continuousExportState);
 }
 
+async function runSecretsBrokerBootstrapStage<T>(
+  errorCode: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (error instanceof SecretsBrokerBootstrapError) {
+      throw new ApiError(
+        error.code,
+        503,
+        "Secrets Broker key bootstrap did not complete.",
+      );
+    }
+    throw new ApiError(
+      errorCode,
+      503,
+      "Secrets Broker first-run bootstrap stage did not complete.",
+    );
+  }
+}
+
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -3354,10 +3377,13 @@ async function routeRequest(
 
   if (request.method === "POST" && url.pathname === "/api/setup/bootstrap") {
     const body = await readJsonBody(request);
-    const setup = await readRuntimeSetupStatus({
-      workspaceRoot: config.workspaceRoot,
-      bindHost: config.bindHost,
-    });
+    const setup = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_setup_status_failed",
+      async () => await readRuntimeSetupStatus({
+        workspaceRoot: config.workspaceRoot,
+        bindHost: config.bindHost,
+      }),
+    );
     const tokenAccepted = isSetupTokenAccepted(getSetupBootstrapToken(request, body));
     const actor = auth.actor.authenticated && auth.actor.actorId
       ? auth.actor.actorId
@@ -3388,18 +3414,24 @@ async function routeRequest(
       );
     }
 
-    await appendAuditEvent({
-      workspaceRoot: config.workspaceRoot,
-      source: "runtime",
-      action: "setup.bootstrap.started",
-      actor,
-      method: "POST",
-      routeTemplate: "/api/setup/bootstrap",
-      outcome: "success",
-      statusCode: 202,
-      summary: "First-run setup bootstrap started.",
-    });
-    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    await runSecretsBrokerBootstrapStage(
+      "secrets_broker_bootstrap_audit_unavailable",
+      async () => await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime",
+        action: "setup.bootstrap.started",
+        actor,
+        method: "POST",
+        routeTemplate: "/api/setup/bootstrap",
+        outcome: "success",
+        statusCode: 202,
+        summary: "First-run setup bootstrap started.",
+      }),
+    );
+    const runtimeModel = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_registry_load_failed",
+      async () => await loadRuntimeModel(config.servicesRoot),
+    );
     const broker = runtimeModel.registry.getById("@secretsbroker");
     if (!broker) {
       throw new ApiError(
@@ -3417,32 +3449,35 @@ async function routeRequest(
       );
     }
     if (currentBrokerState.running) {
-      const stopped = await stopService(broker);
-      await writeServiceState(broker, stopped.state);
+      const stopped = await runSecretsBrokerBootstrapStage(
+        "secrets_broker_existing_process_stop_failed",
+        async () => await stopService(broker),
+      );
+      await runSecretsBrokerBootstrapStage(
+        "secrets_broker_stopped_state_persist_failed",
+        async () => await writeServiceState(broker, stopped.state),
+      );
     }
-    let bootstrap;
-    try {
-      bootstrap = await bootstrapLocalVault(config.workspaceRoot, runtimeModel.registry);
-    } catch (error) {
-      if (error instanceof SecretsBrokerBootstrapError) {
-        throw new ApiError(
-          error.code,
-          503,
-          "Secrets Broker key bootstrap did not complete.",
-        );
-      }
-      throw error;
-    }
-    const started = await startService(broker, runtimeModel.registry, {
-      workspaceRoot: config.workspaceRoot,
-      runtimeGenerationId: config.runtimeGenerationId,
-      runtimeInstanceId: resolveRuntimeInstanceId(config),
-      allocationRevision: config.endpointAllocationPlan?.allocationId,
-      plannedPorts: config.endpointAllocationPlan
-        ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[broker.manifest.id]
-        : undefined,
-    });
-    await writeServiceState(broker, started.state);
+    const bootstrap = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_key_bootstrap_failed",
+      async () => await bootstrapLocalVault(config.workspaceRoot, runtimeModel.registry),
+    );
+    const started = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_process_start_failed",
+      async () => await startService(broker, runtimeModel.registry, {
+        workspaceRoot: config.workspaceRoot,
+        runtimeGenerationId: config.runtimeGenerationId,
+        runtimeInstanceId: resolveRuntimeInstanceId(config),
+        allocationRevision: config.endpointAllocationPlan?.allocationId,
+        plannedPorts: config.endpointAllocationPlan
+          ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[broker.manifest.id]
+          : undefined,
+      }),
+    );
+    await runSecretsBrokerBootstrapStage(
+      "secrets_broker_running_state_persist_failed",
+      async () => await writeServiceState(broker, started.state),
+    );
     if (!started.ok || !started.state.running) {
       throw new ApiError(
         "secrets_broker_start_failed",
@@ -3450,12 +3485,21 @@ async function routeRequest(
         "Secrets Broker did not start after vault bootstrap.",
       );
     }
-    const brokerRuntime = await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry);
-    let brokerReady = false;
-    for (let attempt = 0; attempt < 20 && !brokerReady; attempt += 1) {
-      brokerReady = (await brokerRuntime?.probe())?.ready === true;
-      if (!brokerReady) await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+    const brokerRuntime = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_runtime_context_failed",
+      async () => await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry),
+    );
+    const brokerReady = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_readiness_probe_failed",
+      async () => {
+        let ready = false;
+        for (let attempt = 0; attempt < 20 && !ready; attempt += 1) {
+          ready = (await brokerRuntime?.probe())?.ready === true;
+          if (!ready) await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return ready;
+      },
+    );
     if (!brokerReady) {
       throw new ApiError(
         "secrets_broker_not_ready",
@@ -3463,52 +3507,51 @@ async function routeRequest(
         "Secrets Broker did not prove authenticated IPC readiness after vault bootstrap.",
       );
     }
-    let provisionedSecrets;
-    try {
-      provisionedSecrets = await provisionFirstRunGeneratedSecrets(
+    const provisionedSecrets = await runSecretsBrokerBootstrapStage(
+      "secrets_broker_provisioning_failed",
+      async () => await provisionFirstRunGeneratedSecrets(
         runtimeModel.registry,
         brokerRuntime!,
-      );
-    } catch {
-      throw new ApiError(
-        "secrets_broker_provisioning_failed",
-        503,
-        "Secrets Broker could not provision the declared first-run secrets.",
-      );
-    }
-    await appendAuditEvent({
-      workspaceRoot: config.workspaceRoot,
-      source: "runtime",
-      action: "setup.vault.created",
-      actor,
-      method: "POST",
-      routeTemplate: "/api/setup/bootstrap",
-      outcome: "success",
-      statusCode: 201,
-      summary: "Encrypted Service Lasso vault initialized and protected for the current operator.",
-    });
-    await appendAuditEvent({
-      workspaceRoot: config.workspaceRoot,
-      source: "runtime",
-      action: "setup.root_identity.created",
-      actor,
-      method: "POST",
-      routeTemplate: "/api/setup/bootstrap",
-      outcome: "success",
-      statusCode: 201,
-      summary: "Root identity bootstrap was recorded for the local vault.",
-    });
-    await appendAuditEvent({
-      workspaceRoot: config.workspaceRoot,
-      source: "runtime",
-      action: "setup.bootstrap.completed",
-      actor,
-      method: "POST",
-      routeTemplate: "/api/setup/bootstrap",
-      outcome: "success",
-      statusCode: 201,
-      summary: "First-run setup bootstrap completed.",
-    });
+      ),
+    );
+    await runSecretsBrokerBootstrapStage(
+      "secrets_broker_bootstrap_audit_unavailable",
+      async () => {
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          source: "runtime",
+          action: "setup.vault.created",
+          actor,
+          method: "POST",
+          routeTemplate: "/api/setup/bootstrap",
+          outcome: "success",
+          statusCode: 201,
+          summary: "Encrypted Service Lasso vault initialized and protected for the current operator.",
+        });
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          source: "runtime",
+          action: "setup.root_identity.created",
+          actor,
+          method: "POST",
+          routeTemplate: "/api/setup/bootstrap",
+          outcome: "success",
+          statusCode: 201,
+          summary: "Root identity bootstrap was recorded for the local vault.",
+        });
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          source: "runtime",
+          action: "setup.bootstrap.completed",
+          actor,
+          method: "POST",
+          routeTemplate: "/api/setup/bootstrap",
+          outcome: "success",
+          statusCode: 201,
+          summary: "First-run setup bootstrap completed.",
+        });
+      },
+    );
 
     writeJson(response, 201, {
       bootstrap: {
