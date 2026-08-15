@@ -43,19 +43,31 @@
         "assetName": "secretsbroker-win32.zip",
         "archiveType": "zip",
         "command": ".\\secretsbroker.exe",
-        "args": ["serve"]
+        "args": ["serve"],
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
       },
       "linux": {
         "assetName": "secretsbroker-linux.tar.gz",
         "archiveType": "tar.gz",
         "command": "./secretsbroker",
-        "args": ["serve"]
+        "args": ["serve"],
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
       },
       "darwin": {
         "assetName": "secretsbroker-darwin.tar.gz",
         "archiveType": "tar.gz",
         "command": "./secretsbroker",
-        "args": ["serve"]
+        "args": ["serve"],
+        "checksum": {
+          "algorithm": "sha256",
+          "assetName": "SHA256SUMS.txt"
+        }
       }
     }
   },
