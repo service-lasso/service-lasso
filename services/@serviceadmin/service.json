@@ -37,11 +37,7 @@
         "command": "node",
         "args": [
           "runtime/server.js"
-        ],
-        "checksum": {
-          "algorithm": "sha256",
-          "assetName": "SHA256SUMS.txt"
-        }
+        ]
       },
       "linux": {
         "assetName": "@serviceadmin-linux.tar.gz",
@@ -49,11 +45,7 @@
         "command": "node",
         "args": [
           "runtime/server.js"
-        ],
-        "checksum": {
-          "algorithm": "sha256",
-          "assetName": "SHA256SUMS.txt"
-        }
+        ]
       },
       "darwin": {
         "assetName": "@serviceadmin-darwin.tar.gz",
@@ -61,12 +53,12 @@
         "command": "node",
         "args": [
           "runtime/server.js"
-        ],
-        "checksum": {
-          "algorithm": "sha256",
-          "assetName": "SHA256SUMS.txt"
-        }
+        ]
       }
+    },
+    "checksum": {
+      "algorithm": "sha256",
+      "assetName": "SHA256SUMS.txt"
     }
   },
   "healthchecks": [
