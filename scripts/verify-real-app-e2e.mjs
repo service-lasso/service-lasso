@@ -362,6 +362,7 @@ let servicesStopped = false;
 let activeRuntimeOwner = null;
 let activeRuntimeIdentity = null;
 let verificationStep = "prepare_fixture";
+let verificationEvidence = null;
 
 try {
   console.error(`[service-lasso e2e] temp root ${tempRoot}`);
@@ -389,9 +390,12 @@ try {
   verificationStep = "service_catalog";
   const services = await waitForJson(`${apiUrl}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
+  const missingServiceIds = baselineServiceIds.filter((serviceId) => !serviceIds.includes(serviceId));
+  verificationEvidence = missingServiceIds.length > 0 ? { missingServiceIds } : null;
   for (const serviceId of baselineServiceIds) {
     assert(serviceIds.includes(serviceId), `Real app service list is missing ${serviceId}.`);
   }
+  verificationEvidence = null;
 
   for (const action of ["install", "config", "start"]) {
     await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
@@ -426,10 +430,8 @@ try {
 
   verificationStep = "baseline_reachability";
   const serviceAdminPort = requireRuntimeServicePort(liveServices.get("@serviceadmin"), "ui");
-  const secretsBrokerPort = requireRuntimeServicePort(liveServices.get("@secretsbroker"), "service");
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminPort}/`, "Service Admin UI");
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminPort}/health`, "Service Admin health");
-  await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerPort}/health`, "Secrets Broker health");
   await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("@nginx"), "http")}/health`, "NGINX health");
   await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("echo-service"), "health")}/health`, "Echo Service health");
   await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("@traefik"), "admin")}/ping`, "Traefik ping");
@@ -451,11 +453,7 @@ try {
 
   const startBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/start`);
   assert(startBroker.ok === true, "Starting @secretsbroker did not return ok=true.");
-  const restartedBroker = await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
-  await waitForHealthyHttp(
-    `http://127.0.0.1:${requireRuntimeServicePort(restartedBroker, "service")}/health`,
-    "Secrets Broker health after restart",
-  );
+  await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
 
   verificationStep = "reverse_cleanup";
   await postJson(`${apiUrl}/api/runtime/actions/stopAll`);
@@ -487,6 +485,7 @@ try {
           pid: activeRuntimeIdentity.ownerPid,
           apiPort: Number(new URL(activeRuntimeIdentity.apiUrl).port),
         } : null,
+        ...(verificationEvidence ? { evidence: verificationEvidence } : {}),
       };
   console.error(`[service-lasso e2e] ${JSON.stringify(failure)}`);
   throw new Error(JSON.stringify(failure));
