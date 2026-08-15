@@ -10,6 +10,14 @@ const MAX_PRIVATE_JSON_BYTES = 64 * 1024;
 const MAX_PROTECTED_TEXT_BYTES = 256 * 1024;
 let currentWindowsSid: Promise<string> | null = null;
 
+function windowsSystemExecutable(...segments: string[]): string {
+  const root = process.env.SystemRoot ?? process.env.WINDIR;
+  if (!root || !path.win32.isAbsolute(root)) {
+    throw new Error("Windows system utilities are unavailable.");
+  }
+  return path.win32.join(path.win32.normalize(root), ...segments);
+}
+
 interface WindowsPrivateEnvelope {
   version: 1;
   protection: "windows-dpapi-current-user";
@@ -52,7 +60,7 @@ async function assertNoRedirectedAncestors(rootPath: string, targetPath: string)
 
 async function runPowerShellProtection(script: string, input: string): Promise<string> {
   return await new Promise((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+    const child = spawn(windowsSystemExecutable("System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -113,7 +121,7 @@ async function unprotectWindows(ciphertext: string): Promise<Buffer> {
 }
 
 async function windowsSid(): Promise<string> {
-  currentWindowsSid ??= execFileAsync("whoami.exe", ["/user", "/fo", "csv", "/nh"], {
+  currentWindowsSid ??= execFileAsync(windowsSystemExecutable("System32", "whoami.exe"), ["/user", "/fo", "csv", "/nh"], {
     windowsHide: true,
     maxBuffer: 16 * 1024,
   }).then(({ stdout }) => {
@@ -128,7 +136,7 @@ async function enforcePrivatePermissions(filePath: string): Promise<void> {
   await chmod(filePath, 0o600);
   if (process.platform !== "win32") return;
   const sid = await windowsSid();
-  await execFileAsync("icacls.exe", [
+  await execFileAsync(windowsSystemExecutable("System32", "icacls.exe"), [
     filePath,
     "/inheritance:r",
     "/grant:r",

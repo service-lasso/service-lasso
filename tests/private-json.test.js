@@ -75,3 +75,27 @@ test("private JSON rejects redirected ancestors, corrupt envelopes, and oversize
     await rm(outside, { recursive: true, force: true });
   }
 });
+
+test("Windows private JSON resolves security utilities outside untrusted PATH", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-json-path-"));
+  const trap = path.join(root, "path-trap");
+  const target = path.join(root, "private", "state.json");
+  const originalPath = process.env.PATH;
+  try {
+    await mkdir(trap);
+    for (const executable of ["whoami.exe", "icacls.exe", "powershell.exe"]) {
+      await writeFile(path.join(trap, executable), "untrusted path executable");
+    }
+    process.env.PATH = trap;
+    await writePrivateJson(root, target, { purpose: "path-independent-security" });
+    assert.deepEqual(await readPrivateJson(root, target), {
+      purpose: "path-independent-security",
+    });
+    assert.ok(await resolveCurrentWindowsSid());
+  } finally {
+    process.env.PATH = originalPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
