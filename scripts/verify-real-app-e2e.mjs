@@ -135,11 +135,11 @@ async function waitForText(url, timeoutMs = 300_000) {
   throw lastError ?? new Error(`Timed out waiting for ${url}`);
 }
 
-async function postJson(url) {
+async function postJson(url, payload = {}) {
   const response = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => null);
 
@@ -500,11 +500,17 @@ try {
   assert(/Service Lasso|service-lasso|root/i.test(serviceAdminHtml), "Service Admin UI root did not return recognizable app content.");
 
   verificationStep = "secrets_broker_restart";
-  const stopBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/stop`);
+  const stopBroker = await postJson(
+    `${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/stop`,
+    { confirm: true },
+  );
   assert(stopBroker.ok === true, "Stopping @secretsbroker did not return ok=true.");
   await waitForServiceState(apiUrl, "@secretsbroker", { running: false, healthy: undefined });
 
-  const startBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/start`);
+  const startBroker = await postJson(
+    `${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/start`,
+    { confirm: true },
+  );
   assert(startBroker.ok === true, "Starting @secretsbroker did not return ok=true.");
   await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
 
