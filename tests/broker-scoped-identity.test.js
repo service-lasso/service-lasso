@@ -39,8 +39,16 @@ function fixtureService() {
   };
 }
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -227,7 +235,7 @@ test("runtime injects scoped broker credential without persisting or logging raw
     assert.equal(JSON.stringify(start.body).includes(env[BROKER_CREDENTIAL_ENV]), false);
     assert.equal(JSON.stringify(storedRunning.runtime).includes(env[BROKER_CREDENTIAL_ENV]), false);
 
-    const stop = await postJson(`${apiServer.url}/api/services/writer/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/writer/stop`, { confirm: true });
     assert.equal(stop.status, 200);
     assert.equal(stop.body.state.running, false);
     assert.equal(typeof stop.body.state.runtime.brokerIdentity.revokedAt, "string");
@@ -286,13 +294,6 @@ process.stdout.write(JSON.stringify({ serviceId: "@secretsbroker", apiVersion: "
   const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "writer", {
     captureEnvKeys: [BROKER_IDENTITY_ID_ENV, BROKER_CREDENTIAL_ENV, BROKER_IDENTITY_LEASE_ENV],
     broker: {
-      imports: [
-        {
-          namespace: "shared/writer",
-          ref: "writer.API_TOKEN",
-          required: false,
-        },
-      ],
       writeback: {
         allowedNamespaces: ["services/writer"],
         allowedOperations: ["create", "rotate"],
@@ -337,9 +338,8 @@ process.stdout.write(JSON.stringify({ serviceId: "@secretsbroker", apiVersion: "
       kind: "windows-sid",
       subject: "S-1-5-21-lease-test",
     });
-    assert.deepEqual(lease.allowedNamespaces, ["services/writer", "shared/writer"]);
-    assert.deepEqual(lease.allowedOperations, ["create", "resolve", "rotate"]);
-    assert.equal(lease.allowedRefs.includes("shared/writer/writer.API_TOKEN"), true);
+    assert.deepEqual(lease.allowedNamespaces, ["services/writer"]);
+    assert.deepEqual(lease.allowedOperations, ["create", "rotate"]);
     assert.equal(lease.allowedRefs.includes("services/writer/writer.GENERATED_TOKEN"), true);
 
     const storedRunning = await readStoredState(serviceRoot);
@@ -347,7 +347,7 @@ process.stdout.write(JSON.stringify({ serviceId: "@secretsbroker", apiVersion: "
     assert.equal(JSON.stringify(storedRunning.runtime).includes("SERVICE_LASSO_FAKE_SIGNING_KEY_DO_NOT_USE"), false);
     assert.equal(JSON.stringify(storedRunning.runtime).includes("hmac-sha256:test-signature"), false);
 
-    await postJson(`${apiServer.url}/api/services/writer/stop`);
+    await postJson(`${apiServer.url}/api/services/writer/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     if (priorCommand === undefined) {

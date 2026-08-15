@@ -79,7 +79,7 @@ function shouldStartService(service: DiscoveredService, state: ServiceLifecycleS
 }
 
 function isSetupBootstrapService(serviceId: string): boolean {
-  return serviceId === "@node" || serviceId === "@secretsbroker" || serviceId === "@serviceadmin";
+  return serviceId === "@node" || serviceId === "@serviceadmin";
 }
 
 function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform = process.platform): boolean {
@@ -239,6 +239,12 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
     if (listSetupStepIds(service).length > 0) {
       const result = await runServiceSetup(service, registry, {
         transactionHooks: options.transactionHooks?.setupTransactionHooks,
+        lifecycleOptions: {
+          workspaceRoot: runtimeConfig.workspaceRoot,
+          runtimeGenerationId: options.transactionHooks?.runtimeGenerationId,
+          runtimeInstanceId: options.transactionHooks?.runtimeInstanceId,
+          allocationRevision: options.endpointAllocationPlan?.allocationId,
+        },
       });
       await writeServiceState(service, result.state);
       state = result.state;

@@ -46,6 +46,24 @@ test("post-signal process absence settles adopted restart tree control", async (
   assert.deepEqual(signals, [{ pid: identity.pid, signal: "SIGTERM" }]);
 });
 
+test("transient pre-signal inspection failure is retried without weakening identity verification", async () => {
+  const signals = [];
+  const result = await terminateOwnedProcessTree(target, 0, {
+    platform: "linux",
+    inspectProcess: sequencedInspector(
+      { status: "unknown", reason: "windows_process_inspection_failed:transient" },
+      { status: "running", identity },
+      { status: "not_running", reason: "process_not_running" },
+    ),
+    killProcess: (pid, signal) => {
+      if (signal !== 0) signals.push({ pid, signal });
+    },
+  });
+
+  assert.deepEqual(result, { forced: false });
+  assert.deepEqual(signals, [{ pid: identity.pid, signal: "SIGTERM" }]);
+});
+
 test("post-signal zombie settles legacy verified-member stop", async () => {
   const signals = [];
   const result = await terminateOwnedProcessTree(target, 0, {

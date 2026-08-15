@@ -61,6 +61,7 @@ type ProcessTreeSignalEvidence =
     };
 
 const PROCESS_TREE_POLL_INTERVAL_MS = 25;
+const PRE_SIGNAL_IDENTITY_ATTEMPTS = 3;
 
 export function createSpawnProcessGroup(
   pid: number,
@@ -317,12 +318,20 @@ async function requireOwnedIdentity(
   identity: ProcessFingerprint,
   dependencies: ProcessTreeControlDependencies = {},
 ): Promise<"owned" | "exited"> {
-  const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
-  if (classification === "owned") {
-    return "owned";
-  }
-  if (classification === "not_running") {
-    return "exited";
+  for (let attempt = 0; attempt < PRE_SIGNAL_IDENTITY_ATTEMPTS; attempt += 1) {
+    const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
+    if (classification === "owned") {
+      return "owned";
+    }
+    if (classification === "not_running") {
+      return "exited";
+    }
+    if (classification === "identity_mismatch") {
+      break;
+    }
+    if (attempt + 1 < PRE_SIGNAL_IDENTITY_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, PROCESS_TREE_POLL_INTERVAL_MS));
+    }
   }
   throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
 }

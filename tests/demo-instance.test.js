@@ -1465,6 +1465,7 @@ test("demo smoke script validates the bounded demo instance end to end", async (
     assert.equal(result.code, 0, `Expected demo smoke to pass.\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
     assert.match(result.stdout, /\[service-lasso demo] smoke passed/);
     assert.match(result.stdout, /echo-service, @node, node-sample-service/);
+    assert.match(result.stdout, /setup-required: node-sample-service/);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

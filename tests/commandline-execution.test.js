@@ -7,8 +7,16 @@ import { parseCommandlineArgs } from "../dist/runtime/execution/commandline.js";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -126,7 +134,7 @@ test("start uses installed artifact commands from the service root working direc
       assert.equal(start.body.state.runtime.command.includes(path.join(artifactRoot, "runtime", "artifact-cwd-fixture.mjs")), true);
       assert.equal(start.body.state.runtime.command.includes("--configFile=runtime/config.yml"), true);
       assert.equal(start.body.state.runtime.command.includes(path.join(artifactRoot, "runtime", "config.yml")), false);
-      assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/stop`)).status, 200);
+      assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/stop`, { confirm: true })).status, 200);
     } finally {
       await apiServer.stop();
     }
@@ -206,7 +214,7 @@ test("start uses manifest commandline with resolved service variables instead of
 
       assert.deepEqual(output.argv, ["--port=43175", "--message=hello command line"]);
       assert.equal(output.servicePort, "43175");
-      assert.equal((await postJson(`${apiServer.url}/api/services/commandline-service/stop`)).status, 200);
+      assert.equal((await postJson(`${apiServer.url}/api/services/commandline-service/stop`, { confirm: true })).status, 200);
     } finally {
       await apiServer.stop();
     }

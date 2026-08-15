@@ -58,7 +58,10 @@ async function prepareServicePrerequisites(
   }
 
   if (listSetupStepIds(service).length > 0) {
-    const result = await runServiceSetup(service, registry, { transactionHooks: options.setupTransactionHooks });
+    const result = await runServiceSetup(service, registry, {
+      transactionHooks: options.setupTransactionHooks,
+      lifecycleOptions: serviceActionOptions(service.manifest.id, options),
+    });
     await writeServiceState(service, result.state);
     state = result.state;
 

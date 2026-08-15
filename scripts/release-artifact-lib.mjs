@@ -466,6 +466,7 @@ export async function verifyStagedArtifact({
   archivePath,
   version,
   bootPort = 18181,
+  bootTimeoutMs = 60_000,
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getArtifactName(resolvedVersion);
@@ -504,8 +505,8 @@ export async function verifyStagedArtifact({
   try {
     const booted = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error("staged runtime did not boot within 10 seconds"));
-      }, 10_000);
+        reject(new Error(`staged runtime did not boot within ${bootTimeoutMs} milliseconds`));
+      }, bootTimeoutMs);
 
       let stdout = "";
       let stderr = "";

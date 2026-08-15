@@ -19,6 +19,8 @@ import { buildServiceVariables } from "./variables.js";
 import { readServiceMeta } from "../state/meta.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import { isProviderRole } from "../roles.js";
+import { actorHasPermission, type PermissionActor } from "../permissions/enforcement.js";
+import { getServiceLifecycleActionPolicy } from "../permissions/lifecycle.js";
 
 type DashboardServiceStatus = DashboardServiceResponse["status"];
 
@@ -311,26 +313,61 @@ async function buildRelatedServices(
   );
 }
 
-function buildDashboardActions(service: DashboardServiceResponse, manifestRole: DiscoveredService["manifest"]["role"]): DashboardActionResponse[] {
+function buildDashboardAction(
+  id: DashboardActionResponse["id"],
+  label: string,
+  kind: DashboardActionResponse["kind"],
+  permission: string,
+  requiresConfirmation: boolean,
+  actor: PermissionActor,
+): DashboardActionResponse {
+  const granted = actorHasPermission(actor, permission);
+  return {
+    id,
+    label,
+    kind,
+    permission,
+    granted,
+    requiresConfirmation,
+    unavailableReason: granted ? null : "permission_not_granted",
+    actor: actor.id,
+    mode: actor.type === "local-root" ? "local-root" : "signed-in",
+  };
+}
+
+function buildDashboardLifecycleAction(
+  id: "install" | "start" | "stop" | "restart",
+  label: string,
+  actor: PermissionActor,
+): DashboardActionResponse {
+  const policy = getServiceLifecycleActionPolicy(id);
+  if (!policy) throw new Error(`Missing lifecycle permission policy for ${id}.`);
+  return buildDashboardAction(id, label, id, policy.permission, policy.sensitive, actor);
+}
+
+function buildDashboardActions(
+  service: DashboardServiceResponse,
+  manifestRole: DiscoveredService["manifest"]["role"],
+  actor: PermissionActor,
+): DashboardActionResponse[] {
   const actions: DashboardActionResponse[] = [
-    { id: "install", label: "Install service", kind: "install" },
-    { id: "reload", label: "Reload service", kind: "reload" },
-    { id: "open_logs", label: "Open logs", kind: "open_logs" },
-    { id: "open_config", label: "Open config", kind: "open_config" },
+    buildDashboardLifecycleAction("install", "Install service", actor),
+    buildDashboardAction("open_logs", "Open logs", "open_logs", "service:diagnose", false, actor),
+    buildDashboardAction("open_config", "Open config", "open_config", "service:configure", false, actor),
   ];
 
   if (manifestRole !== "provider") {
     actions.splice(
       1,
       0,
-      { id: "start", label: "Start service", kind: "start" },
-      { id: "stop", label: "Stop service", kind: "stop" },
-      { id: "restart", label: "Restart service", kind: "restart" },
+      buildDashboardLifecycleAction("start", "Start service", actor),
+      buildDashboardLifecycleAction("stop", "Stop service", actor),
+      buildDashboardLifecycleAction("restart", "Restart service", actor),
     );
   }
 
   if (service.links.length > 0) {
-    actions.push({ id: "open_admin", label: "Open endpoint", kind: "open_admin" });
+    actions.push(buildDashboardAction("open_admin", "Open endpoint", "open_admin", "workspace:read", false, actor));
   }
 
   return actions;
@@ -341,6 +378,7 @@ export async function buildDashboardService(
   registry: ServiceRegistry,
   graph: DependencyGraph,
   sharedGlobalEnv: Record<string, string>,
+  actor: PermissionActor,
   nowIso = new Date().toISOString(),
 ): Promise<DashboardServiceResponse> {
   const lifecycle = getLifecycleState(service.manifest.id);
@@ -425,7 +463,7 @@ export async function buildDashboardService(
     actions: [],
   };
 
-  dashboardService.actions = buildDashboardActions(dashboardService, service.manifest.role);
+  dashboardService.actions = buildDashboardActions(dashboardService, service.manifest.role, actor);
   return dashboardService;
 }
 

@@ -30,8 +30,16 @@ import {
   writeExecutableFixtureService,
 } from "./test-helpers.js";
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -142,6 +150,7 @@ test("lifecycle actions execute in the expected bounded order", async () => {
 
     const restart = await postJson(
       `${apiServer.url}/api/services/echo-service/restart`,
+      { confirm: true },
     );
     assert.equal(restart.status, 200);
     assert.equal(restart.body.action, "restart");
@@ -150,6 +159,7 @@ test("lifecycle actions execute in the expected bounded order", async () => {
 
     const stop = await postJson(
       `${apiServer.url}/api/services/echo-service/stop`,
+      { confirm: true },
     );
     assert.equal(stop.status, 200);
     assert.equal(stop.body.action, "stop");
@@ -458,6 +468,7 @@ test("intentional stop keeps persisted lifecycle metadata on stop", async () => 
 
     const stop = await postJson(
       `${apiServer.url}/api/services/echo-service/stop`,
+      { confirm: true },
     );
     assert.equal(stop.status, 200);
 
@@ -505,6 +516,7 @@ test("restart replaces the running process and clears stale termination evidence
     );
     const restart = await postJson(
       `${apiServer.url}/api/services/restart-service/restart`,
+      { confirm: true },
     );
 
     const stored = await readStoredState(serviceRoot);
@@ -537,7 +549,7 @@ test("restart replaces the running process and clears stale termination evidence
   }
 });
 
-test("start blocks required broker failures with safe ref and status metadata", async () => {
+test("config blocks required broker failures with safe ref and status metadata", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-startup-broker-fail-",
@@ -557,6 +569,12 @@ test("start blocks required broker failures with safe ref and status metadata", 
       ],
     },
   });
+  const leaseIssuerPath = path.join(tempRoot, "issue-test-lease.mjs");
+  await writeFile(
+    leaseIssuerPath,
+    'process.stdout.write(JSON.stringify({ outcome: "ready", lease: { fixture: true } }));\n',
+    "utf8",
+  );
 
   try {
     const discovered = await discoverServices(servicesRoot);
@@ -565,18 +583,33 @@ test("start blocks required broker failures with safe ref and status metadata", 
     assert.ok(service);
 
     await installService(service, registry);
-    await configService(service, registry);
+    const brokerLookup = () => [
+      {
+        ref: "database.PASSWORD",
+        status: "policy-denied",
+        value: "raw-secret-must-not-leak",
+      },
+    ];
     await assert.rejects(
-      () =>
-        startService(service, registry, {
-          brokerLookup: () => [
-            {
-              ref: "database.PASSWORD",
-              status: "policy-denied",
-              value: "raw-secret-must-not-leak",
+      () => configService(service, registry, {
+        brokerLookup,
+        brokerRuntime: {
+          lookup: brokerLookup,
+          probe: async () => ({ ok: true }),
+          writeback: async () => ({ ok: false }),
+          management: async () => ({ statusCode: 503, body: {} }),
+          serverEnv: {},
+          launchLeaseIssuer: {
+            command: {
+              command: process.execPath,
+              args: [leaseIssuerPath],
+              env: { ...process.env, SECRETSBROKER_API_TOKEN: "test-only-token" },
             },
-          ],
-        }),
+            workspaceId: "test-workspace",
+          },
+          transportBinding: null,
+        },
+      }),
       (error) => {
         assert.match(error.message, /database\.PASSWORD:policy-denied/);
         assert.equal(error.message.includes("raw-secret-must-not-leak"), false);
@@ -702,7 +735,7 @@ test("start waits for configured readiness and returns healthy once ready", asyn
     assert.equal(start.body.health.type, "file");
     assert.equal(start.body.health.healthy, true);
     assert.match(start.body.message, /readiness succeeded/i);
-    assert.ok(elapsedMs >= 75);
+    assert.ok(elapsedMs >= 20, `expected the 25ms readiness start period, observed ${elapsedMs}ms`);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

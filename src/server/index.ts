@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { cp, readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
@@ -105,7 +105,16 @@ import {
   bootstrapLocalVault,
   isSetupBootstrapAllowed,
   readRuntimeSetupStatus,
+  toPublicRuntimeSetupStatus,
 } from "../runtime/setup/first-run.js";
+import {
+  loadSecretsBrokerRuntimeContext,
+  provisionFirstRunGeneratedSecrets,
+} from "../runtime/broker/runtime.js";
+import { buildBrokerDecommissionDependencyEvidence } from "../runtime/broker/decommission.js";
+import {
+  SecretsBrokerManagementError,
+} from "../runtime/broker/client.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { buildEffectiveRouteMetadata } from "../runtime/operator/endpoints.js";
 import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
@@ -132,6 +141,10 @@ import {
   buildServiceSecretRotationReadinessReport,
 } from "../runtime/operator/secret-audit.js";
 import { buildSecretRotationImpactPlan } from "../runtime/operator/secret-rotation-plan.js";
+import {
+  executeSecretRotation,
+  readSecretRotationExecutionState,
+} from "../runtime/operator/secret-rotation-execution.js";
 import {
   getServiceLassoMcpCapabilities,
   handleServiceLassoMcpJsonRpcRequest,
@@ -204,7 +217,8 @@ import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
-import { enforcePermission } from "../runtime/permissions/enforcement.js";
+import { enforcePermission, permissionActorFromRuntimeAuth } from "../runtime/permissions/enforcement.js";
+import { getServiceLifecycleActionPolicy } from "../runtime/permissions/lifecycle.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
 import {
@@ -764,6 +778,217 @@ function createRuntimeAuthResponse(auth: RuntimeAuthPolicyStatus): RuntimeAuthSt
   };
 }
 
+export interface BrokerManagementProxyRoute {
+  brokerPath: string;
+  auditAction: string;
+  revealBoundary: boolean;
+  permission: "workspace:read" | "security:manage" | "backup:read" | "backup:create" | "backup:restore";
+  sensitive: boolean;
+}
+
+interface BrokerManagementRouteDefinition {
+  method: "GET" | "POST";
+  brokerPath: string;
+  permission: "workspace:read" | "security:manage" | "backup:read" | "backup:create" | "backup:restore";
+  sensitive: boolean;
+}
+
+const BROKER_SECRET_PROXY_PATHS = new Map<string, BrokerManagementRouteDefinition>([
+  ["management", { method: "GET", brokerPath: "/v1/management/secrets", permission: "workspace:read", sensitive: false }],
+  ["value-search", { method: "GET", brokerPath: "/v1/management/secrets/value-search", permission: "security:manage", sensitive: false }],
+  ["reveal", { method: "POST", brokerPath: "/v1/management/secrets/reveal", permission: "security:manage", sensitive: true }],
+  ["create/dry-run", { method: "POST", brokerPath: "/v1/management/secrets/create/dry-run", permission: "security:manage", sensitive: false }],
+  ["create/apply", { method: "POST", brokerPath: "/v1/management/secrets/create/apply", permission: "security:manage", sensitive: true }],
+  ["edit/dry-run", { method: "POST", brokerPath: "/v1/management/secrets/edit/dry-run", permission: "security:manage", sensitive: false }],
+  ["edit/apply", { method: "POST", brokerPath: "/v1/management/secrets/edit/apply", permission: "security:manage", sensitive: true }],
+  ["reset/dry-run", { method: "POST", brokerPath: "/v1/management/secrets/reset/dry-run", permission: "security:manage", sensitive: false }],
+  ["reset/apply", { method: "POST", brokerPath: "/v1/management/secrets/reset/apply", permission: "security:manage", sensitive: true }],
+  ["decommission/dry-run", { method: "POST", brokerPath: "/v1/management/secrets/decommission/dry-run", permission: "security:manage", sensitive: false }],
+  ["decommission/apply", { method: "POST", brokerPath: "/v1/management/secrets/decommission/apply", permission: "security:manage", sensitive: true }],
+  ["decommission/restore", { method: "POST", brokerPath: "/v1/management/secrets/decommission/restore", permission: "security:manage", sensitive: true }],
+  ["rotation/dry-run", { method: "POST", brokerPath: "/v1/management/secrets/rotation/dry-run", permission: "security:manage", sensitive: false }],
+  ["rotation/status", { method: "POST", brokerPath: "/v1/management/secrets/rotation/status", permission: "workspace:read", sensitive: false }],
+  ["rotation/stage", { method: "POST", brokerPath: "/v1/management/secrets/rotation/stage", permission: "security:manage", sensitive: true }],
+  ["rotation/activate", { method: "POST", brokerPath: "/v1/management/secrets/rotation/activate", permission: "security:manage", sensitive: true }],
+  ["rotation/rollback", { method: "POST", brokerPath: "/v1/management/secrets/rotation/rollback", permission: "security:manage", sensitive: true }],
+  ["rotation/retire", { method: "POST", brokerPath: "/v1/management/secrets/rotation/retire", permission: "security:manage", sensitive: true }],
+  ["campaigns/create", { method: "POST", brokerPath: "/v1/management/secrets/campaigns/create", permission: "security:manage", sensitive: false }],
+  ["campaigns/revalidate", { method: "POST", brokerPath: "/v1/management/secrets/campaigns/revalidate", permission: "security:manage", sensitive: false }],
+  ["campaigns/apply", { method: "POST", brokerPath: "/v1/management/secrets/campaigns/apply", permission: "security:manage", sensitive: true }],
+  ["campaigns/status", { method: "POST", brokerPath: "/v1/management/secrets/campaigns/status", permission: "workspace:read", sensitive: false }],
+  ["sync/dry-run", { method: "POST", brokerPath: "/v1/management/secrets/sync/dry-run", permission: "security:manage", sensitive: false }],
+  ["policy/preview", { method: "POST", brokerPath: "/v1/management/secrets/policy/preview", permission: "security:manage", sensitive: false }],
+  ["policy/apply", { method: "POST", brokerPath: "/v1/management/secrets/policy/apply", permission: "security:manage", sensitive: true }],
+  ["lockouts/clear", { method: "POST", brokerPath: "/v1/management/lockouts/clear", permission: "security:manage", sensitive: true }],
+]);
+
+const BROKER_PROVIDER_PROXY_PATHS = new Map<string, BrokerManagementRouteDefinition>([
+  ["capabilities", { method: "GET", brokerPath: "/v1/providers/capabilities", permission: "workspace:read", sensitive: false }],
+  ["config/status", { method: "GET", brokerPath: "/v1/providers/config/status", permission: "workspace:read", sensitive: false }],
+  ["config/validate", { method: "POST", brokerPath: "/v1/providers/config/validate", permission: "security:manage", sensitive: false }],
+  ["config/apply", { method: "POST", brokerPath: "/v1/providers/config/apply", permission: "security:manage", sensitive: true }],
+  ["migration/dry-run", { method: "POST", brokerPath: "/v1/providers/migration/dry-run", permission: "security:manage", sensitive: false }],
+  ["migration/apply", { method: "POST", brokerPath: "/v1/providers/migration/apply", permission: "security:manage", sensitive: true }],
+]);
+
+const BROKER_LIFECYCLE_PROXY_PATHS = new Map<string, BrokerManagementRouteDefinition>([
+  ["status", { method: "GET", brokerPath: "/v1/management/lifecycle/status", permission: "security:manage", sensitive: false }],
+  ["backups", { method: "GET", brokerPath: "/v1/management/lifecycle/backups", permission: "backup:read", sensitive: false }],
+  ["backups/create", { method: "POST", brokerPath: "/v1/management/lifecycle/backups", permission: "backup:create", sensitive: false }],
+  ["backups/verify", { method: "POST", brokerPath: "/v1/management/lifecycle/backups/verify", permission: "backup:read", sensitive: false }],
+  ["restore/dry-run", { method: "POST", brokerPath: "/v1/management/lifecycle/restore/dry-run", permission: "backup:restore", sensitive: false }],
+  ["restore/apply", { method: "POST", brokerPath: "/v1/management/lifecycle/restore/apply", permission: "backup:restore", sensitive: true }],
+  ["key/rotate", { method: "POST", brokerPath: "/v1/management/lifecycle/key/rotate", permission: "security:manage", sensitive: true }],
+]);
+
+const BROKER_OPERATIONS_PROXY_PATHS = new Map<string, BrokerManagementRouteDefinition>([
+  ["telemetry", { method: "GET", brokerPath: "/v1/telemetry", permission: "workspace:read", sensitive: false }],
+  ["events", { method: "GET", brokerPath: "/v1/events", permission: "workspace:read", sensitive: false }],
+]);
+
+const BROKER_EVENT_QUERY_FIELDS = new Set([
+  "since",
+  "until",
+  "serviceId",
+  "providerId",
+  "sourceId",
+  "operation",
+  "outcome",
+  "severity",
+  "family",
+  "refPrefix",
+  "refHash",
+  "limit",
+  "cursor",
+]);
+
+function containsUnsafeBrokerQueryCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
+const DIRECT_BROKER_ROTATION_MUTATION_PATHS = new Set([
+  "/v1/management/secrets/rotation/stage",
+  "/v1/management/secrets/rotation/activate",
+  "/v1/management/secrets/rotation/rollback",
+  "/v1/management/secrets/rotation/retire",
+]);
+
+export function brokerRotationMutationRequiresOrchestration(
+  brokerPath: string,
+  plan: ReturnType<typeof buildSecretRotationImpactPlan>,
+): boolean {
+  return DIRECT_BROKER_ROTATION_MUTATION_PATHS.has(brokerPath) && plan.services.length > 0;
+}
+
+export function matchBrokerManagementProxyRoute(method: string, url: URL): BrokerManagementProxyRoute | null {
+  const parts = url.pathname.split("/").filter(Boolean).map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return "";
+    }
+  });
+  if (parts[0] !== "api" || parts[1] !== "services" || parts[2] !== "@secretsbroker") return null;
+  const family = parts[3];
+  const suffix = parts.slice(4).join("/");
+  const mapping = family === "secrets"
+    ? BROKER_SECRET_PROXY_PATHS.get(suffix)
+    : family === "providers"
+      ? BROKER_PROVIDER_PROXY_PATHS.get(suffix)
+      : family === "lifecycle"
+        ? BROKER_LIFECYCLE_PROXY_PATHS.get(suffix)
+        : family === "operations"
+          ? BROKER_OPERATIONS_PROXY_PATHS.get(suffix)
+      : undefined;
+  if (!mapping || mapping.method !== method) return null;
+
+  const params = new URLSearchParams();
+  if (mapping.brokerPath === "/v1/management/secrets" && url.searchParams.has("search")) {
+    params.set("search", (url.searchParams.get("search") ?? "").slice(0, 256));
+  }
+  if (mapping.brokerPath === "/v1/management/secrets/value-search" && url.searchParams.has("query")) {
+    params.set("query", (url.searchParams.get("query") ?? "").slice(0, 256));
+  }
+  if (mapping.brokerPath === "/v1/events") {
+    for (const name of BROKER_EVENT_QUERY_FIELDS) {
+      const value = url.searchParams.get(name);
+      if (value === null) continue;
+      const bounded = value.slice(0, 256);
+      if ((name === "limit" || name === "cursor") && !/^\d{1,10}$/u.test(bounded)) {
+        continue;
+      }
+      if (!containsUnsafeBrokerQueryCharacter(bounded)) params.set(name, bounded);
+    }
+  }
+
+  return {
+    brokerPath: `${mapping.brokerPath}${params.size > 0 ? `?${params}` : ""}`,
+    auditAction: `secretsbroker.proxy.${family}.${suffix.replaceAll("/", ".")}`,
+    revealBoundary: mapping.brokerPath === "/v1/management/secrets/reveal",
+    permission: mapping.permission,
+    sensitive: mapping.sensitive,
+  };
+}
+
+export function responseContainsForbiddenBrokerMaterial(value: unknown, revealBoundary: boolean, depth = 0): boolean {
+  if (depth > 16 || value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((item) => responseContainsForbiddenBrokerMaterial(item, revealBoundary, depth + 1));
+  }
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.toLowerCase().replaceAll("_", "").replaceAll("-", "");
+    if ([
+      "token",
+      "apitoken",
+      "password",
+      "passphrase",
+      "masterkey",
+      "privatekey",
+      "credential",
+      "credentialvalue",
+      "secret",
+      "secretvalue",
+      "recoveryshare",
+      "recoveryshares",
+      "ciphertext",
+      "payload",
+      "nonce",
+    ].includes(normalized)) {
+      return true;
+    }
+    if (normalized === "value" && !revealBoundary) return true;
+    if (responseContainsForbiddenBrokerMaterial(nested, revealBoundary, depth + 1)) return true;
+  }
+  return false;
+}
+
+function validateBrokerRevealResponse(value: unknown, requestId: string, ref: string): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("broker_contract_invalid", 502, "Secrets Broker reveal response was invalid.");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    record.serviceId !== "@secretsbroker" ||
+    record.requestId !== requestId ||
+    record.ref !== ref ||
+    record.operation !== "reveal" ||
+    record.outcome !== "ready" ||
+    typeof record.value !== "string" ||
+    record.value.length === 0 ||
+    Buffer.byteLength(record.value) > 64 * 1024 ||
+    typeof record.ttlSeconds !== "number" ||
+    !Number.isInteger(record.ttlSeconds) ||
+    record.ttlSeconds < 1 ||
+    record.ttlSeconds > 300 ||
+    record.auditStatus !== "audit_recorded"
+  ) {
+    throw new ApiError("broker_contract_invalid", 502, "Secrets Broker reveal response failed correlation validation.");
+  }
+}
+
 function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolean {
   if (method === "GET" && pathname === "/api/health") return true;
   if (method === "GET" && pathname === "/api/runtime/capabilities") return true;
@@ -1148,6 +1373,21 @@ function parseUpdateInstallBody(input: unknown): { force?: boolean } {
   return {
     force: typeof candidate.force === "boolean" ? candidate.force : undefined,
   };
+}
+
+function parseLifecycleActionBody(input: unknown): { confirm: boolean } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Lifecycle action body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  const unknownFields = Object.keys(candidate).filter((key) => key !== "confirm");
+  if (unknownFields.length > 0) {
+    throw new ApiError("invalid_body", 400, "Lifecycle action body accepts only the explicit confirmation field.");
+  }
+  if (candidate.confirm !== undefined && typeof candidate.confirm !== "boolean") {
+    throw new ApiError("invalid_body", 400, '"confirm" must be a boolean when present.');
+  }
+  return { confirm: candidate.confirm === true };
 }
 
 function parseServiceConfigSaveBody(input: unknown): { content: string; actor?: string; reason?: string | null } {
@@ -3098,12 +3338,13 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/setup/status") {
+    const setupStatus = await readRuntimeSetupStatus({
+      workspaceRoot: config.workspaceRoot,
+      bindHost: config.bindHost,
+    });
     writeJson(response, 200, {
       setup: {
-        ...(await readRuntimeSetupStatus({
-          workspaceRoot: config.workspaceRoot,
-          bindHost: config.bindHost,
-        })),
+        ...toPublicRuntimeSetupStatus(setupStatus),
         auth,
       },
     });
@@ -3117,7 +3358,9 @@ async function routeRequest(
       bindHost: config.bindHost,
     });
     const tokenAccepted = isSetupTokenAccepted(getSetupBootstrapToken(request, body));
-    const actor = getAuditActor(body);
+    const actor = auth.actor.authenticated && auth.actor.actorId
+      ? auth.actor.actorId
+      : setup.operator.osUsername;
 
     if (!isSetupBootstrapAllowed(setup, tokenAccepted)) {
       await appendAuditEvent({
@@ -3155,7 +3398,62 @@ async function routeRequest(
       statusCode: 202,
       summary: "First-run setup bootstrap started.",
     });
-    const bootstrap = await bootstrapLocalVault(config.workspaceRoot);
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const broker = runtimeModel.registry.getById("@secretsbroker");
+    if (!broker) {
+      throw new ApiError(
+        "secrets_broker_unavailable",
+        409,
+        "Secrets Broker is not installed in the current service registry.",
+      );
+    }
+    const currentBrokerState = getLifecycleState(broker.manifest.id);
+    if (!currentBrokerState.installed || !currentBrokerState.configured) {
+      throw new ApiError(
+        "secrets_broker_not_prepared",
+        409,
+        "Secrets Broker must be installed and configured before setup bootstrap.",
+      );
+    }
+    if (currentBrokerState.running) {
+      const stopped = await stopService(broker);
+      await writeServiceState(broker, stopped.state);
+    }
+    const bootstrap = await bootstrapLocalVault(config.workspaceRoot, runtimeModel.registry);
+    const started = await startService(broker, runtimeModel.registry, {
+      workspaceRoot: config.workspaceRoot,
+      runtimeGenerationId: config.runtimeGenerationId,
+      runtimeInstanceId: resolveRuntimeInstanceId(config),
+      allocationRevision: config.endpointAllocationPlan?.allocationId,
+      plannedPorts: config.endpointAllocationPlan
+        ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[broker.manifest.id]
+        : undefined,
+    });
+    await writeServiceState(broker, started.state);
+    if (!started.ok || !started.state.running) {
+      throw new ApiError(
+        "secrets_broker_start_failed",
+        503,
+        "Secrets Broker did not start after vault bootstrap.",
+      );
+    }
+    const brokerRuntime = await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry);
+    let brokerReady = false;
+    for (let attempt = 0; attempt < 20 && !brokerReady; attempt += 1) {
+      brokerReady = (await brokerRuntime?.probe())?.ready === true;
+      if (!brokerReady) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (!brokerReady) {
+      throw new ApiError(
+        "secrets_broker_not_ready",
+        503,
+        "Secrets Broker did not prove authenticated IPC readiness after vault bootstrap.",
+      );
+    }
+    const provisionedSecrets = await provisionFirstRunGeneratedSecrets(
+      runtimeModel.registry,
+      brokerRuntime!,
+    );
     await appendAuditEvent({
       workspaceRoot: config.workspaceRoot,
       source: "runtime",
@@ -3165,7 +3463,7 @@ async function routeRequest(
       routeTemplate: "/api/setup/bootstrap",
       outcome: "success",
       statusCode: 201,
-      summary: "Local Service Lasso vault marker created.",
+      summary: "Encrypted Service Lasso vault initialized and protected for the current operator.",
     });
     await appendAuditEvent({
       workspaceRoot: config.workspaceRoot,
@@ -3194,9 +3492,10 @@ async function routeRequest(
       bootstrap: {
         ok: bootstrap.ok,
         state: bootstrap.state,
+        provisionedSecretCount: provisionedSecrets.length,
       },
       setup: {
-        ...(await readRuntimeSetupStatus({
+        ...toPublicRuntimeSetupStatus(await readRuntimeSetupStatus({
           workspaceRoot: config.workspaceRoot,
           bindHost: config.bindHost,
         })),
@@ -3404,7 +3703,7 @@ async function routeRequest(
     const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
     const services = await Promise.all(
       runtimeModel.discovered.map((service) =>
-        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv, permissionActorFromRuntimeAuth(auth)),
       ),
     );
 
@@ -3417,7 +3716,7 @@ async function routeRequest(
     const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
     const services: DashboardServiceResponse[] = await Promise.all(
       runtimeModel.discovered.map((service) =>
-        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+        buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv, permissionActorFromRuntimeAuth(auth)),
       ),
     );
 
@@ -3440,7 +3739,7 @@ async function routeRequest(
       response,
       200,
       createDashboardServiceDetailResponse(
-        await buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv),
+        await buildDashboardService(service, runtimeModel.registry, runtimeModel.graph, sharedGlobalEnv, permissionActorFromRuntimeAuth(auth)),
       ),
     );
     return;
@@ -3539,6 +3838,159 @@ async function routeRequest(
       200,
       createServiceLogSearchResponse(await searchServiceLogs(service, query, { cursor, includeArchives, limit, type })),
     );
+    return;
+  }
+
+  const brokerProxyRoute = matchBrokerManagementProxyRoute(method, url);
+  if (brokerProxyRoute) {
+    const input = method === "POST" ? await readJsonBody(request) : undefined;
+    if (method === "POST" && (!input || typeof input !== "object" || Array.isArray(input))) {
+      throw new ApiError("invalid_request", 400, "Secrets Broker management request must be a JSON object.");
+    }
+    const inputRecord = (input ?? {}) as Record<string, unknown>;
+    const ref = typeof inputRecord.ref === "string" ? inputRecord.ref : null;
+    await enforcePermission({
+      workspaceRoot: config.workspaceRoot,
+      serviceId: "@secretsbroker",
+      actor: permissionActorFromRuntimeAuth(auth),
+      permission: brokerProxyRoute.permission,
+      sensitive: brokerProxyRoute.sensitive,
+      confirmed: inputRecord.confirm === true,
+      method,
+      routeTemplate: url.pathname,
+      subject: brokerProxyRoute.brokerPath,
+    });
+
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const rotationImpactPlan = ref && DIRECT_BROKER_ROTATION_MUTATION_PATHS.has(brokerProxyRoute.brokerPath)
+      ? buildSecretRotationImpactPlan(runtimeModel.discovered, ref)
+      : null;
+    if (rotationImpactPlan && brokerRotationMutationRequiresOrchestration(brokerProxyRoute.brokerPath, rotationImpactPlan)) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "secretsbroker.rotation.direct.denied",
+        actor: auth.actor.actorId ?? "unknown",
+        subject: safeAuditText(ref) ?? undefined,
+        serviceId: "@secretsbroker",
+        method,
+        routeTemplate: "/api/services/@secretsbroker/secrets/rotation/:operation",
+        outcome: "failure",
+        statusCode: 409,
+        summary: "Direct Broker rotation mutation denied because linked services require Core orchestration.",
+        reason: "rotation_orchestration_required",
+        metadata: {
+          impactedServiceCount: rotationImpactPlan.services.length,
+          blockerCount: rotationImpactPlan.blockers.length,
+        },
+      });
+      throw new ApiError(
+        "rotation_orchestration_required",
+        409,
+        "This secret is linked to managed services and must be rotated through the Service Lasso orchestration API.",
+      );
+    }
+    const broker = runtimeModel.registry.getById("@secretsbroker");
+    const lifecycle = broker ? getLifecycleState(broker.manifest.id) : null;
+    if (!broker || !lifecycle?.running || !lifecycle.installed || !lifecycle.configured) {
+      throw new ApiError(
+        "secrets_broker_not_ready",
+        503,
+        "Secrets Broker management is unavailable until the prepared broker is running.",
+      );
+    }
+    const brokerRuntime = await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry);
+    if (!brokerRuntime) {
+      throw new ApiError(
+        "secrets_broker_not_ready",
+        503,
+        "Secrets Broker protected runtime credentials are unavailable.",
+      );
+    }
+
+    const requestId = randomUUID();
+    const actorId = auth.actor.actorId ?? "unknown";
+    const decommissionEvidence = brokerProxyRoute.brokerPath === "/v1/management/secrets/decommission/dry-run"
+      ? buildBrokerDecommissionDependencyEvidence(runtimeModel.discovered, ref ?? "")
+      : null;
+    const brokerBody = method === "POST"
+      ? {
+          ...inputRecord,
+          ...(decommissionEvidence ?? {}),
+          requestId,
+          serviceId: "@serviceadmin",
+          actor: {
+            actorId,
+            actorKind: auth.actor.kind,
+          },
+        }
+      : undefined;
+
+    try {
+      const result = await brokerRuntime.management({
+        method: method as "GET" | "POST",
+        path: brokerProxyRoute.brokerPath,
+        body: brokerBody,
+      });
+      const successfulReveal = brokerProxyRoute.revealBoundary && result.statusCode === 200;
+      if (successfulReveal) {
+        if (!ref) {
+          throw new ApiError("invalid_request", 400, "Secrets Broker reveal requires a ref.");
+        }
+        validateBrokerRevealResponse(result.body, requestId, ref);
+      }
+      if (responseContainsForbiddenBrokerMaterial(result.body, successfulReveal)) {
+        throw new ApiError(
+          "broker_contract_invalid",
+          502,
+          "Secrets Broker management response crossed the allowed value boundary.",
+        );
+      }
+
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: brokerProxyRoute.auditAction,
+        actor: actorId,
+        subject: safeAuditText(ref) ?? undefined,
+        serviceId: "@secretsbroker",
+        method,
+        routeTemplate: "/api/services/@secretsbroker/:family/:operation",
+        outcome: result.statusCode >= 200 && result.statusCode < 300 ? "success" : "failure",
+        statusCode: result.statusCode,
+        summary: "Secrets Broker management proxy returned a typed broker response.",
+        metadata: {
+          actorKind: auth.actor.kind,
+          brokerPath: brokerProxyRoute.brokerPath.split("?")[0],
+        },
+      });
+      writeJson(response, result.statusCode, result.body);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (error instanceof SecretsBrokerManagementError) {
+        const statusCode = error.code === "invalid_request" ? 400 : error.code === "broker_unavailable" ? 503 : 502;
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          source: "runtime-api",
+          action: brokerProxyRoute.auditAction,
+          actor: actorId,
+          subject: safeAuditText(ref) ?? undefined,
+          serviceId: "@secretsbroker",
+          method,
+          routeTemplate: "/api/services/@secretsbroker/:family/:operation",
+          outcome: "failure",
+          statusCode,
+          summary: "Secrets Broker management proxy failed closed.",
+          reason: error.code,
+          metadata: {
+            actorKind: auth.actor.kind,
+            brokerPath: brokerProxyRoute.brokerPath.split("?")[0],
+          },
+        });
+        throw new ApiError(error.code, statusCode, error.message);
+      }
+      throw error;
+    }
     return;
   }
 
@@ -3945,6 +4397,12 @@ async function routeRequest(
           runtimeModel.registry,
           actionId,
           runRequest,
+          {
+            workspaceRoot: config.workspaceRoot,
+            runtimeGenerationId: config.runtimeGenerationId,
+            runtimeInstanceId: resolveRuntimeInstanceId(config),
+            allocationRevision: config.endpointAllocationPlan?.allocationId,
+          },
         );
         if (payload.run.metadata.source === "scheduler" || payload.run.metadata.source === "dagu") {
           await emitOperatorInboxWorkflowEvent(config.workspaceRoot, {
@@ -4008,7 +4466,16 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length >= 5 && pathParts[3] === "setup" && pathParts[4] === "run") {
       const stepId = pathParts.length === 6 ? decodeURIComponent(pathParts[5] ?? "") : undefined;
       try {
-        const result = await runServiceSetup(service, runtimeModel.registry, { stepId, includeManual: stepId !== undefined });
+        const result = await runServiceSetup(service, runtimeModel.registry, {
+          stepId,
+          includeManual: stepId !== undefined,
+          lifecycleOptions: {
+            workspaceRoot: config.workspaceRoot,
+            runtimeGenerationId: config.runtimeGenerationId,
+            runtimeInstanceId: resolveRuntimeInstanceId(config),
+            allocationRevision: config.endpointAllocationPlan?.allocationId,
+          },
+        });
         await writeServiceState(service, result.state);
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
@@ -4135,7 +4602,11 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "install") {
       try {
         const body = parseUpdateInstallBody(await readJsonBody(request));
-        const result = await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry });
+        const result = await installServiceUpdateCandidate(service, {
+          force: body.force,
+          registry: runtimeModel.registry,
+          workspaceRoot: config.workspaceRoot,
+        });
         await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
           serviceId,
           status: "installed",
@@ -4283,7 +4754,24 @@ async function routeRequest(
 
     if (request.method === "POST" && pathParts.length === 4) {
       const action = pathParts[3];
+      const lifecyclePolicy = getServiceLifecycleActionPolicy(action);
+      if (!lifecyclePolicy) {
+        throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
+      }
+      const body = parseLifecycleActionBody(await readJsonBody(request));
+      const lifecycleActor = permissionActorFromRuntimeAuth(auth);
       try {
+        await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: lifecycleActor,
+          permission: lifecyclePolicy.permission,
+          sensitive: lifecyclePolicy.sensitive,
+          confirmed: body.confirm,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/:action",
+          subject: action,
+        });
         const result = await executeLifecycleAction(
           action,
           service,
@@ -4297,7 +4785,7 @@ async function routeRequest(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: `service.lifecycle.${action}`,
-          actor: "unknown",
+          actor: lifecycleActor.id,
           subject: "service-lifecycle",
           serviceId,
           method: "POST",
@@ -4312,7 +4800,7 @@ async function routeRequest(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: `service.lifecycle.${action}`,
-          actor: "unknown",
+          actor: lifecycleActor.id,
           subject: "service-lifecycle",
           serviceId,
           method: "POST",
@@ -4750,6 +5238,116 @@ async function routeRequest(
     }
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, buildSecretRotationImpactPlan(runtimeModel.discovered, ref));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/secrets/rotation/operations/")) {
+    const operationId = decodeURIComponent(url.pathname.split("/").filter(Boolean)[4] ?? "");
+    await enforcePermission({
+      workspaceRoot: config.workspaceRoot,
+      actor: permissionActorFromRuntimeAuth(auth),
+      permission: "workspace:read",
+      sensitive: false,
+      confirmed: false,
+      method: "GET",
+      routeTemplate: "/api/secrets/rotation/operations/:operationId",
+      subject: operationId,
+    });
+    const operation = await readSecretRotationExecutionState(config.workspaceRoot, operationId);
+    if (!operation) throw new ApiError("rotation_operation_not_found", 404, "Rotation operation was not found.");
+    writeJson(response, 200, { operation });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/secrets/rotation/execute") {
+    const body = await readJsonBody(request);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new ApiError("invalid_request", 400, "Rotation execution request must be a JSON object.");
+    }
+    const input = body as Record<string, unknown>;
+    const actorId = auth.actor.actorId ?? "unknown";
+    await enforcePermission({
+      workspaceRoot: config.workspaceRoot,
+      serviceId: "@secretsbroker",
+      actor: permissionActorFromRuntimeAuth(auth),
+      permission: "security:manage",
+      sensitive: true,
+      confirmed: input.confirm === true,
+      method: "POST",
+      routeTemplate: "/api/secrets/rotation/execute",
+      subject: typeof input.ref === "string" ? input.ref : "rotation",
+    });
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const broker = runtimeModel.registry.getById("@secretsbroker");
+    const brokerLifecycle = broker ? getLifecycleState(broker.manifest.id) : null;
+    const brokerRuntime = broker && brokerLifecycle?.running && brokerLifecycle.installed && brokerLifecycle.configured
+      ? await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry)
+      : null;
+    if (!brokerRuntime) {
+      throw new ApiError("secrets_broker_not_ready", 503, "Secrets Broker must be prepared, running, and authenticated before rotation.");
+    }
+    try {
+      const operation = await executeSecretRotation({
+        operationId: typeof input.operationId === "string" ? input.operationId : "",
+        ref: typeof input.ref === "string" ? input.ref : "",
+        planFingerprint: typeof input.planFingerprint === "string" ? input.planFingerprint : "",
+        reason: typeof input.reason === "string" ? input.reason : "",
+        confirm: input.confirm === true,
+        value: typeof input.value === "string" ? input.value : undefined,
+        actorId,
+      }, {
+        workspaceRoot: config.workspaceRoot,
+        services: runtimeModel.discovered,
+        registry: runtimeModel.registry,
+        brokerRuntime,
+        runtimeGenerationId: config.runtimeGenerationId,
+        runtimeInstanceId: resolveRuntimeInstanceId(config),
+        allocationId: config.endpointAllocationPlan?.allocationId,
+        plannedPortsByService: config.endpointAllocationPlan
+          ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)
+          : undefined,
+      });
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "secrets.rotation.execute",
+        actor: actorId,
+        subject: safeAuditText(operation.ref) ?? undefined,
+        serviceId: "@secretsbroker",
+        method: "POST",
+        routeTemplate: "/api/secrets/rotation/execute",
+        outcome: operation.outcome === "committed" ? "success" : "failure",
+        statusCode: operation.outcome === "blocked" ? 503 : 200,
+        summary: `Secret rotation transaction reached terminal outcome ${operation.outcome}.`,
+        reason: safeAuditText(typeof input.reason === "string" ? input.reason : null),
+        metadata: {
+          operationId: operation.operationId,
+          phase: operation.phase,
+          impactedServiceCount: operation.plan.services.length,
+          completedOperationCount: operation.completedOperations.length,
+        },
+      });
+      writeJson(response, operation.outcome === "blocked" ? 503 : 200, { operation });
+    } catch (error) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "secrets.rotation.execute",
+        actor: actorId,
+        subject: safeAuditText(input.ref) ?? undefined,
+        serviceId: "@secretsbroker",
+        method: "POST",
+        routeTemplate: "/api/secrets/rotation/execute",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        summary: "Secret rotation transaction failed closed.",
+        reason: getAuditFailureReason(error),
+        metadata: {
+          operationId: safeAuditText(input.operationId),
+        },
+      });
+      throw error;
+    }
     return;
   }
 
@@ -5275,12 +5873,19 @@ async function startApiServerGeneration(
     ? createRuntimeServiceMonitor({
         registry: bootModel.registry,
         intervalMs: options.monitorIntervalMs,
+        lifecycleOptions: () => ({
+          workspaceRoot: config.workspaceRoot,
+          runtimeGenerationId,
+          runtimeInstanceId,
+          allocationRevision: allocationPlan?.allocationId,
+        }),
       })
     : null;
   const updateScheduler = options.updateScheduler
     ? createRuntimeUpdateScheduler({
         registry: bootModel.registry,
         intervalMs: options.updateSchedulerIntervalMs,
+        workspaceRoot: config.workspaceRoot,
       })
     : null;
   const apiRequestTelemetryState: ApiRequestTelemetryState = { requests: [], droppedCount: 0 };

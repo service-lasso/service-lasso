@@ -1,5 +1,6 @@
 import { ApiError } from "../../server/errors.js";
 import { appendAuditEvent } from "../audit/store.js";
+import type { RuntimeAuthPolicyStatus } from "../auth/request-policy.js";
 
 export type PermissionActorType =
   | "local-root"
@@ -114,8 +115,21 @@ export function resolvePermissionActor(input: unknown): PermissionActor {
   };
 }
 
-function actorHasPermission(actor: PermissionActor, permission: string): boolean {
+export function actorHasPermission(actor: PermissionActor, permission: string): boolean {
   return actor.permissions.includes("*") || actor.permissions.includes(permission);
+}
+
+export function permissionActorFromRuntimeAuth(auth: RuntimeAuthPolicyStatus): PermissionActor {
+  if (!auth.actor.authenticated || !auth.actor.kind || !auth.actor.actorId) {
+    throw new ApiError("actor_required", 401, "Lifecycle requests require an authenticated runtime actor.");
+  }
+  return {
+    type: auth.actor.kind === "zitadel" ? "zitadel-user" : auth.actor.kind,
+    id: auth.actor.actorId,
+    permissions: auth.actor.kind === "local-root" || auth.actor.kind === "local-token"
+      ? ["*"]
+      : [...auth.actor.permissions],
+  };
 }
 
 export async function enforcePermission(input: PermissionDecisionInput): Promise<PermissionDecision> {

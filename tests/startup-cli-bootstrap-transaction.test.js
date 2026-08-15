@@ -10,12 +10,11 @@ import { stopManagedProcess } from "../dist/runtime/execution/supervisor.js";
 import { findProcessOwnership } from "../dist/runtime/process/registry.js";
 import { readRuntimeGenerationRegistry } from "../dist/runtime/instance/registry.js";
 import { readRuntimeEndpointAllocationPlan } from "../dist/runtime/ports/allocation.js";
-import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
 import {
   getStartupTransactionJournalPath,
   readStartupTransactionJournal,
 } from "../dist/runtime/startup/transaction.js";
-import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { ensureTestSecretsBrokerReady, makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 async function withStartupEnvironment(prefix, action) {
   const fixture = await makeTempServicesRoot(prefix);
@@ -66,7 +65,7 @@ async function stopExactChild(child) {
 
 test("AC-4BJ.2/.8 later CLI-baseline failure rolls back owned services and preserves an unrelated process", async () => {
   await withStartupEnvironment("service-lasso-cli-baseline-failure-", async (fixture) => {
-    await ensureLocalVaultMarker(fixture.workspaceRoot);
+    await ensureTestSecretsBrokerReady(fixture.workspaceRoot);
     await writeExecutableFixtureService(fixture.servicesRoot, "alpha-service", { serviceorder: 1 });
     await writeExecutableFixtureService(fixture.servicesRoot, "bravo-service", {
       serviceorder: 2,
@@ -127,7 +126,7 @@ test("AC-4BJ.2/.8 later CLI-baseline failure rolls back owned services and prese
 
 test("AC-4BJ.4/.5/.8 hard-crashed CLI baseline rolls back its uncommitted owner and starts a fresh generation", async () => {
   await withStartupEnvironment("service-lasso-cli-baseline-crash-", async (fixture) => {
-    await ensureLocalVaultMarker(fixture.workspaceRoot);
+    await ensureTestSecretsBrokerReady(fixture.workspaceRoot);
     await writeExecutableFixtureService(fixture.servicesRoot, "resume-service", {
       captureEnvKeys: ["SERVICE_LASSO_RUNTIME_API_BASE_URL"],
     });

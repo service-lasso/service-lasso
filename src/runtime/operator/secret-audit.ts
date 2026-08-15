@@ -158,6 +158,24 @@ interface CandidateRef {
   declared: boolean;
 }
 
+export function brokerImportMatchesReference(entry: ServiceBrokerImport, ref: string): boolean {
+  const normalized = ref.trim();
+  const canonical = typeof entry.namespace === "string" && entry.namespace.trim()
+    ? `${entry.namespace.replace(/\/+$/u, "")}/${entry.ref.replace(/^\/+|\/+$/gu, "")}`
+    : null;
+  return entry.ref === normalized || canonical === normalized;
+}
+
+export function serviceConsumesBrokerReference(service: DiscoveredService, ref: string): boolean {
+  const selectorRefs = new Set(
+    (service.manifest.broker?.imports ?? [])
+      .filter((entry) => brokerImportMatchesReference(entry, ref))
+      .map((entry) => entry.ref),
+  );
+  selectorRefs.add(ref.trim());
+  return buildServiceSecretReferenceAudit(service).findings.some((finding) => selectorRefs.has(finding.ref));
+}
+
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9_.-]+$/;
 const selectorPattern = /\$\{([^}]+)\}/g;
 
