@@ -11,11 +11,14 @@ import {
   assertDemoPortsAvailable,
   assertDemoRecycleOwnership,
   applyDemoServiceAdminRuntimeApiUrl,
+  buildDemoRuntimeAppOptions,
   canonicalDemoRequiredServiceIds,
+  canonicalDemoRuntimePort,
   demoProviderServiceIds,
   demoRequiredServiceIds,
   getDemoStatus,
   resolveDemoOptions,
+  resolveDemoRuntimePort,
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import {
@@ -1042,6 +1045,43 @@ test("detached demo recycle service readiness waits after ownership handoff", as
     assert.equal(services.some((service) => service.id === "@serviceadmin" && service.running && service.healthy), true);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("demo options default to the canonical runtime port instead of NGINX 18080", () => {
+  const previousPort = process.env.SERVICE_LASSO_PORT;
+  delete process.env.SERVICE_LASSO_PORT;
+
+  try {
+    const options = resolveDemoOptions([]);
+
+    assert.equal(options.port, canonicalDemoRuntimePort);
+    assert.equal(options.port, 17883);
+    assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
+    assert.equal(resolveDemoRuntimePort(undefined, {}), 17883);
+    assert.equal(resolveDemoRuntimePort("17883", {}), 17883);
+    assert.equal(resolveDemoRuntimePort(0, {}), 0);
+    assert.equal(resolveDemoRuntimePort("0", {}), 0);
+    assert.notEqual(options.port, 18080);
+    const runtimeAppOptions = buildDemoRuntimeAppOptions({
+      servicesRoot: path.join(os.tmpdir(), "demo-services"),
+      workspaceRoot: path.join(os.tmpdir(), "demo-workspace"),
+    });
+    assert.equal(runtimeAppOptions.port, 17883);
+    assert.equal(runtimeAppOptions.portPolicy, "fixed");
+    const automaticAppOptions = buildDemoRuntimeAppOptions({
+      servicesRoot: path.join(os.tmpdir(), "demo-services"),
+      workspaceRoot: path.join(os.tmpdir(), "demo-workspace"),
+      port: 0,
+    });
+    assert.equal(automaticAppOptions.port, 0);
+    assert.equal(automaticAppOptions.portPolicy, "automatic");
+  } finally {
+    if (previousPort === undefined) {
+      delete process.env.SERVICE_LASSO_PORT;
+    } else {
+      process.env.SERVICE_LASSO_PORT = previousPort;
+    }
   }
 });
 

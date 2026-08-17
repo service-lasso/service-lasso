@@ -862,6 +862,29 @@ export interface DashboardServiceResponse {
   actions: DashboardActionResponse[];
 }
 
+/**
+ * Packaged Service Admin dashboard cards read `messages` and crash if this object is missing.
+ */
+export interface DashboardUpdateNotificationsResponse {
+  latestCount: number;
+  availableCount: number;
+  downloadedCount: number;
+  deferredCount: number;
+  failedCount: number;
+  messages: string[];
+}
+
+/**
+ * Packaged Service Admin dashboard cards read `messages` and crash if this object is missing.
+ */
+export interface DashboardRecoveryNotificationsResponse {
+  monitorAttentionCount: number;
+  doctorBlockedCount: number;
+  hookBlockedCount: number;
+  restartFailureCount: number;
+  messages: string[];
+}
+
 export interface DashboardSummaryResponse {
   summary: {
     runtime: {
@@ -880,6 +903,8 @@ export interface DashboardSummaryResponse {
     others: DashboardServiceResponse[];
     warnings: string[];
     problemServices: DashboardServiceResponse[];
+    updateNotifications: DashboardUpdateNotificationsResponse;
+    recoveryNotifications: DashboardRecoveryNotificationsResponse;
   };
 }
 

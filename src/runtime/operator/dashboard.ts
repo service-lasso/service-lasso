@@ -427,6 +427,37 @@ export async function buildDashboardService(
   return dashboardService;
 }
 
+/**
+ * Builds the update-notification card payload expected by packaged Service Admin.
+ *
+ * @returns Empty counts and messages until per-service update state is joined into dashboard rows.
+ */
+export function buildDashboardUpdateNotifications(): DashboardSummaryResponse["summary"]["updateNotifications"] {
+  return {
+    latestCount: 0,
+    availableCount: 0,
+    downloadedCount: 0,
+    deferredCount: 0,
+    failedCount: 0,
+    messages: [],
+  };
+}
+
+/**
+ * Builds the recovery-notification card payload expected by packaged Service Admin.
+ *
+ * @returns Empty counts and messages until per-service recovery events are joined into dashboard rows.
+ */
+export function buildDashboardRecoveryNotifications(): DashboardSummaryResponse["summary"]["recoveryNotifications"] {
+  return {
+    monitorAttentionCount: 0,
+    doctorBlockedCount: 0,
+    hookBlockedCount: 0,
+    restartFailureCount: 0,
+    messages: [],
+  };
+}
+
 export function buildDashboardSummary(
   services: DashboardServiceResponse[],
   nowIso = new Date().toISOString(),
@@ -434,6 +465,8 @@ export function buildDashboardSummary(
   const favorites = services.filter((service) => service.favorite);
   const others = services.filter((service) => !service.favorite);
   const warnings: string[] = [];
+  const updateNotifications = buildDashboardUpdateNotifications();
+  const recoveryNotifications = buildDashboardRecoveryNotifications();
 
   if (services.some((service) => service.status === "degraded")) {
     warnings.push("One or more services are degraded and need attention.");
@@ -466,5 +499,7 @@ export function buildDashboardSummary(
     problemServices: services.filter(
       (service) => service.status !== "running" && service.status !== "available",
     ),
+    updateNotifications,
+    recoveryNotifications,
   };
 }

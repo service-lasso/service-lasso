@@ -147,6 +147,7 @@ import {
   listOperatorInboxItems,
   mutateOperatorInboxItem,
   readOperatorInbox,
+  toServiceAdminInboxView,
   upsertOperatorInboxItem,
   type OperatorInboxActionAvailability,
   type OperatorInboxActionKind,
@@ -707,6 +708,7 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
   if (method === "GET" && pathname === "/api/health") return true;
   if (method === "GET" && pathname === "/api/runtime/capabilities") return true;
   if (method === "GET" && pathname === "/api/runtime/security") return true;
+  if (method === "GET" && pathname === "/api/security") return true;
   if (method === "GET" && pathname === "/api/setup/status") return true;
   if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
   return false;
@@ -2696,6 +2698,14 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/inbox") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: toServiceAdminInboxView(inbox, parseOperatorInboxQuery(url.searchParams)),
+    });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/operator/inbox/counts") {
     const inbox = await readOperatorInbox(config.workspaceRoot);
     writeJson(response, 200, {
@@ -3122,6 +3132,13 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/setup") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, {
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
       services: runtimeModel.registry
         .list()
         .map((service) => ({
@@ -4112,6 +4129,13 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/runtime/security") {
     writeJson(response, 200, createRuntimeAuthResponse(auth));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/security") {
+    writeJson(response, 200, {
+      security: createRuntimeAuthResponse(auth),
+    });
     return;
   }
 

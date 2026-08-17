@@ -44,7 +44,7 @@ Open Service Admin:
 http://127.0.0.1:17700/
 ```
 
-The demo command builds the runtime, prepares the canonical demo service root, starts the demo API on port `17883`, and starts the baseline service set. Operators should not need to pass service roots, workspace roots, or ports for the normal local demo.
+The demo command builds the runtime, prepares the canonical demo service root, starts the demo API on port `17883`, and starts the baseline service set. Operators should not need to pass service roots, workspace roots, or ports for the normal local demo. `demo:start` and `demo:gate` now default to that same canonical runtime port and bind it with a fixed port policy so recovery cannot silently take NGINX's reserved `18080` lane from a leftover reservation.
 
 ### Local demo URLs
 

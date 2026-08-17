@@ -530,6 +530,126 @@ export function countOperatorInboxItems(items: OperatorInboxItem[]): OperatorInb
   return counts;
 }
 
+/**
+ * Service Admin inbox list shape expected by the packaged UI on GET `/api/inbox`.
+ */
+export interface ServiceAdminInboxMessageView {
+  id: string;
+  title: string;
+  summary: string;
+  details: string | null;
+  category: OperatorInboxType;
+  severity: OperatorInboxSeverity;
+  createdAt: string;
+  read: boolean;
+  hidden: boolean;
+  target: {
+    label: string;
+    href: string;
+    kind: string;
+  } | null;
+  actions: Array<{
+    id: string;
+    label: string;
+    kind: string;
+    target: string;
+    disabled: boolean;
+    reason?: string;
+  }>;
+}
+
+/**
+ * Service Admin inbox envelope. Missing `messages` causes the UI to throw into its 500 page.
+ */
+export interface ServiceAdminInboxView {
+  messages: ServiceAdminInboxMessageView[];
+  counts: {
+    total: number;
+    unread: number;
+    updates: number;
+    system: number;
+    workflow: number;
+    errors: number;
+    hidden: number;
+  };
+  updatedAt: string;
+}
+
+/**
+ * Maps durable operator inbox state into the Service Admin `/api/inbox` contract.
+ *
+ * @param state Persisted operator inbox file.
+ * @param query Optional list filter/pagination applied before mapping messages.
+ * @returns Admin-compatible inbox view with `messages` and summary counts.
+ */
+export function toServiceAdminInboxView(
+  state: OperatorInboxStateFile,
+  query: OperatorInboxQuery = {},
+): ServiceAdminInboxView {
+  const listed = listOperatorInboxItems(state, query);
+  const counts = countOperatorInboxItems(state.items);
+  const visible = state.items.filter((item) => item.visibility === "visible");
+
+  return {
+    messages: listed.items.map((item) => toServiceAdminInboxMessage(item)),
+    counts: {
+      total: visible.length,
+      unread: visible.filter((item) => item.state === "unread").length,
+      updates: visible.filter((item) => item.type === "update").length,
+      system: visible.filter((item) => item.type === "system").length,
+      workflow: visible.filter((item) => item.type === "workflow").length,
+      errors: visible.filter((item) => item.type === "error").length,
+      hidden: counts.hidden,
+    },
+    updatedAt: state.updatedAt,
+  };
+}
+
+/**
+ * Converts one durable inbox item into the Service Admin message row contract.
+ *
+ * @param item Durable operator inbox item.
+ * @returns Admin-compatible message row.
+ */
+function toServiceAdminInboxMessage(item: OperatorInboxItem): ServiceAdminInboxMessageView {
+  const href = item.relatedTarget?.route ?? item.action?.target ?? "";
+  const actions: ServiceAdminInboxMessageView["actions"] = [];
+  if (item.action) {
+    const actionDisabled = item.action.availability !== "available";
+    const actionView: ServiceAdminInboxMessageView["actions"][number] = {
+      id: `${item.id}:${item.action.kind}`,
+      label: item.action.label,
+      kind: item.action.kind,
+      target: item.action.target,
+      disabled: actionDisabled,
+    };
+    if (actionDisabled) {
+      actionView.reason = "Action is not currently available.";
+    }
+    actions.push(actionView);
+  }
+
+  return {
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    details: item.details,
+    category: item.type,
+    severity: item.severity,
+    createdAt: item.createdAt,
+    read: item.state === "read",
+    hidden: item.visibility === "hidden",
+    target: href
+      ? {
+          label: item.action?.label ?? item.title,
+          href,
+          kind: item.relatedTarget?.serviceId ? "service" : "route",
+        }
+      : null,
+    actions,
+  };
+}
+
 function severityFromSystemStatus(status: OperatorInboxSystemEvent["status"]): OperatorInboxSeverity {
   if (status === "error") {
     return "error";
