@@ -16,6 +16,11 @@ export const canonicalDemoAddOnServiceIds = ["openobserve"];
 export const canonicalDemoRequiredServiceIds = [...demoRequiredServiceIds, ...canonicalDemoAddOnServiceIds];
 export const demoServiceIds = [...canonicalDemoRequiredServiceIds, "node-sample-service"];
 export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+/**
+ * Canonical Service Lasso runtime/API port for local demo start, gate, and recovery.
+ * Must stay distinct from NGINX's reserved HTTP port 18080.
+ */
+export const canonicalDemoRuntimePort = 17883;
 export const demoFixedPortChecks = [
   { serviceId: "@serviceadmin", portName: "ui", host: "127.0.0.1", port: 17700 },
   { serviceId: "@secretsbroker", portName: "service", host: "127.0.0.1", port: 17890 },
@@ -36,8 +41,25 @@ function parseOption(args, name, envName) {
   return parseFlag(args, name) ?? process.env[`npm_config_${name.replaceAll("-", "_")}`] ?? process.env[envName];
 }
 
+/**
+ * Resolves the demo runtime API port, defaulting to the canonical 17883 lane.
+ * Port `0` is preserved so isolated smoke/worktree runs can allocate dynamically.
+ *
+ * @param {unknown} explicitPort Preferred numeric or string port from options/flags.
+ * @param {NodeJS.ProcessEnv} [env=process.env] Environment used for SERVICE_LASSO_PORT.
+ * @returns {number} `0` for automatic allocation, otherwise a positive integer port.
+ */
+export function resolveDemoRuntimePort(explicitPort, env = process.env) {
+  const raw = explicitPort ?? env.SERVICE_LASSO_PORT ?? canonicalDemoRuntimePort;
+  const parsed = Number(raw);
+  if (parsed === 0) {
+    return 0;
+  }
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : canonicalDemoRuntimePort;
+}
+
 export function resolveDemoOptions(args = process.argv.slice(2)) {
-  const port = Number(parseOption(args, "port", "SERVICE_LASSO_PORT") ?? 18080);
+  const port = resolveDemoRuntimePort(parseOption(args, "port", "SERVICE_LASSO_PORT"));
   const host = parseOption(args, "host", "SERVICE_LASSO_HOST") ?? "127.0.0.1";
 
   return {
@@ -373,7 +395,7 @@ function formatListeningPortEvidence(evidence) {
 export async function assertDemoRecycleOwnership(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const port = resolveDemoRuntimePort(options.port);
   const runtimeInstancePath = path.join(workspaceRoot, ".service-lasso", "runtime-instance.json");
   const runtimeInstance = await readJsonIfPresent(runtimeInstancePath);
 
@@ -954,7 +976,7 @@ export async function startDetachedDemoRuntime(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
   const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
-  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const port = resolveDemoRuntimePort(options.port);
   const runtimeEntry = path.join(repoRoot, "scripts", "demo-start.mjs");
   const logPath = path.join(demoLogRoot, `demo-runtime-${createLogTimestamp()}.log`);
 
@@ -1007,7 +1029,7 @@ export async function startDetachedDemoRuntime(options = {}) {
 export async function getDemoStatus(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const port = resolveDemoRuntimePort(options.port);
   const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
   const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
@@ -1274,12 +1296,33 @@ export function printDemoGateReport(report) {
   console.log(`- nextSafeAction: ${report.gate.nextSafeAction}`);
 }
 
+/**
+ * Builds startRuntimeApp options for a demo instance.
+ * A specific requested port is fixed so leftover reservations cannot steal NGINX's 18080.
+ * Port `0` stays automatic for isolated smoke and worktree proof runs.
+ *
+ * @param {{ servicesRoot?: string, workspaceRoot?: string, port?: unknown, host?: string, version?: string }} options
+ * Demo workspace, port, and bind inputs.
+ * @returns {{ servicesRoot: string, workspaceRoot: string, port: number, host: string, version: string, portPolicy: "fixed" | "automatic" }}
+ */
+export function buildDemoRuntimeAppOptions(options = {}) {
+  const port = resolveDemoRuntimePort(options.port);
+  return {
+    servicesRoot: path.resolve(options.servicesRoot ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot),
+    port,
+    host: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
+    version: options.version ?? process.env.npm_package_version ?? "0.1.0",
+    portPolicy: port === 0 ? "automatic" : "fixed",
+  };
+}
+
 export async function startDemoRuntime(options = {}) {
   const { startRuntimeApp } = await importDistModule(path.join("runtime", "app.js"));
   const { bootstrapBaselineServices } = await importDistModule(path.join("runtime", "cli", "bootstrap.js"));
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const port = resolveDemoRuntimePort(options.port);
   const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
   await ensureDemoServiceManifests(servicesRoot);
@@ -1296,13 +1339,18 @@ export async function startDemoRuntime(options = {}) {
       serviceIds: baselineServiceIds,
     });
   }
-  const runtime = await startRuntimeApp({
+  const runtime = await startRuntimeApp(buildDemoRuntimeAppOptions({
     servicesRoot,
     workspaceRoot,
     port,
     host,
     version: process.env.npm_package_version ?? "0.1.0",
-  });
+  }));
+  /**
+   * Patch Service Admin after bind so the UI proxies to the actual API URL, not the
+   * requested port when allocation historically preferred a leftover 18080 reservation.
+   */
+  await applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtime.apiServer.url);
   runtime.bootstrap = bootstrap;
 
   return runtime;
@@ -1403,7 +1451,7 @@ async function getGitSummary() {
 export async function runDemoRecycle(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const port = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
+  const port = resolveDemoRuntimePort(options.port);
   const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
   const serviceAdminUrl = (options.serviceAdminUrl ?? "http://127.0.0.1:17700").replace(/\/$/, "");

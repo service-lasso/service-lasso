@@ -16,6 +16,8 @@ import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { writeServiceState } from "../state/writeState.js";
+import { ensureSecretsBrokerBootstrap } from "../broker/bootstrap.js";
+import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
 
 export interface SetupStepRunResult {
   ok: boolean;
@@ -633,6 +635,10 @@ export async function runServiceSetup(
   registry: ServiceRegistry,
   options: { stepId?: string; force?: boolean; includeManual?: boolean; transactionHooks?: SetupTransactionHooks } = {},
 ): Promise<SetupServiceResult> {
+  if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
+    await ensureSecretsBrokerBootstrap(service);
+  }
+
   const stepIds = resolveSetupOrder(service, options.stepId);
   const runs: ServiceSetupStepRunState[] = [];
   const skipped: SetupServiceResult["skipped"] = [];

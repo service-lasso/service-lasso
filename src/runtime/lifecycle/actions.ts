@@ -21,8 +21,13 @@ import {
 import {
   issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
-  type SecretsBrokerLaunchLeaseIssuer,
 } from "../broker/identity.js";
+import { resolveSecretsBrokerLaunchEnv } from "../broker/bootstrap.js";
+import {
+  createSecretsBrokerLaunchLookup,
+  resolveSecretsBrokerLaunchLeaseIssuer,
+} from "../broker/launch-lookup.js";
+import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
 import {
   mergeServiceVariableResolutionOptions,
   resolveServiceStartupBrokerResolution,
@@ -71,10 +76,6 @@ import type {
 const START_TRACE_HISTORY_LIMIT = 5;
 const DEFAULT_RESTART_MAX_ATTEMPTS = 3;
 const DEFAULT_RESTART_BACKOFF_SECONDS = 5;
-const SECRETSBROKER_SERVICE_ID = "@secretsbroker";
-const LAUNCH_LEASE_COMMAND_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND";
-const LAUNCH_LEASE_ARGS_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON";
-const WORKSPACE_ID_ENV = "SERVICE_LASSO_WORKSPACE_ID";
 const DEFAULT_STOP_ACTION_TIMEOUT_SECONDS = 30;
 const SECRET_LIKE_VALUE_PATTERN =
   /(BEGIN PRIVATE KEY|access_token\s*[:=]\s*[^\s,;}]+|refresh_token\s*[:=]\s*[^\s,;}]+|id_token\s*[:=]\s*[^\s,;}]+|session_cookie\s*[:=]\s*[^\s,;}]+|client_secret\s*[:=]\s*[^\s,;}]+|provider_credential\s*[:=]\s*[^\s,;}]+|raw_secret\s*[:=]\s*[^\s,;}]+|password\s*[:=]\s*[^\s,;}]+|token\s*[:=]\s*[^\s,;}]+|Bearer\s+[A-Za-z0-9._~+/-]{12,})/gi;
@@ -154,59 +155,6 @@ function applyRunCompletionMetrics(
     totalRunDurationMs:
       current.runtime.metrics.totalRunDurationMs + (runDurationMs ?? 0),
     lastRunDurationMs: runDurationMs,
-  };
-}
-
-function parseConfiguredLaunchLeaseArgs(): string[] {
-  const raw = process.env[LAUNCH_LEASE_ARGS_ENV]?.trim();
-  if (!raw) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) && parsed.every((value) => typeof value === "string")
-      ? parsed
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function resolveInstalledCommand(extractedPath: string, command: string): string {
-  return path.isAbsolute(command) ? command : path.resolve(extractedPath, command);
-}
-
-function resolveSecretsBrokerLaunchLeaseIssuer(
-  registry?: ServiceRegistry,
-): SecretsBrokerLaunchLeaseIssuer | undefined {
-  const configuredCommand = process.env[LAUNCH_LEASE_COMMAND_ENV]?.trim();
-  if (configuredCommand) {
-    return {
-      command: {
-        command: configuredCommand,
-        args: parseConfiguredLaunchLeaseArgs(),
-        env: process.env,
-      },
-      workspaceId: process.env[WORKSPACE_ID_ENV],
-    };
-  }
-
-  if (!registry?.getById(SECRETSBROKER_SERVICE_ID)) {
-    return undefined;
-  }
-
-  const artifact = getLifecycleState(SECRETSBROKER_SERVICE_ID).installArtifacts.artifact;
-  if (!artifact?.command || !artifact.extractedPath) {
-    return undefined;
-  }
-
-  return {
-    command: {
-      command: resolveInstalledCommand(artifact.extractedPath, artifact.command),
-      cwd: artifact.extractedPath,
-      env: process.env,
-    },
-    workspaceId: process.env[WORKSPACE_ID_ENV],
   };
 }
 
@@ -516,6 +464,36 @@ async function resolveLaunchVariableResolution(
     options.variableResolution,
     resolution.variableResolution,
   );
+}
+
+async function resolveBrokerLaunchContext(
+  service: DiscoveredService,
+  registry: ServiceRegistry | undefined,
+  options: ServiceLifecycleActionOptions,
+): Promise<{
+  scopedBrokerIdentity: Awaited<ReturnType<typeof issueScopedBrokerIdentity>>;
+  variableResolution: ServiceVariableResolutionOptions | undefined;
+}> {
+  const brokerService = registry?.getById(SECRETSBROKER_SERVICE_ID);
+  const launchLeaseIssuer = await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
+  const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
+    launchLeaseIssuer,
+  });
+  const brokerLookup =
+    options.brokerLookup ??
+    createSecretsBrokerLaunchLookup({
+      brokerService,
+      launchLeaseIssuer,
+      workspaceId: launchLeaseIssuer?.workspaceId,
+    });
+
+  return {
+    scopedBrokerIdentity,
+    variableResolution: await resolveLaunchVariableResolution(service, {
+      ...options,
+      brokerLookup,
+    }),
+  };
 }
 
 function classifyUnexpectedTermination(
@@ -1171,9 +1149,15 @@ export async function startService(
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
   revokeServiceScopedBrokerIdentities(serviceId);
-  const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
-    launchLeaseIssuer: resolveSecretsBrokerLaunchLeaseIssuer(registry),
-  });
+  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+    service,
+    registry,
+    options,
+  );
+  const brokerLaunchEnv =
+    serviceId === SECRETSBROKER_SERVICE_ID
+      ? await resolveSecretsBrokerLaunchEnv(service)
+      : undefined;
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1206,10 +1190,6 @@ export async function startService(
       artifactSource: current.installArtifacts.artifact?.sourceType ?? "manifest",
       assetName: current.installArtifacts.artifact?.assetName ?? null,
     },
-  );
-  const variableResolution = await resolveLaunchVariableResolution(
-    service,
-    options,
   );
   const variablePayload = buildServiceVariables(
     service,
@@ -1272,7 +1252,10 @@ export async function startService(
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
-      secureEnv: scopedBrokerIdentity?.env,
+      secureEnv: {
+        ...(brokerLaunchEnv ?? {}),
+        ...(scopedBrokerIdentity?.env ?? {}),
+      },
       variableResolution,
       workspaceRoot: options.workspaceRoot,
       runtimeGenerationId: options.runtimeGenerationId,
@@ -1506,9 +1489,15 @@ export async function restartService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
-    launchLeaseIssuer: resolveSecretsBrokerLaunchLeaseIssuer(registry),
-  });
+  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+    service,
+    registry,
+    options,
+  );
+  const brokerLaunchEnv =
+    serviceId === SECRETSBROKER_SERVICE_ID
+      ? await resolveSecretsBrokerLaunchEnv(service)
+      : undefined;
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1517,10 +1506,6 @@ export async function restartService(
         : {}
   );
   const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
-  const variableResolution = await resolveLaunchVariableResolution(
-    service,
-    options,
-  );
   updateRuntimeState(serviceId, (state) => ({
     ...state,
     runtime: {
@@ -1533,7 +1518,10 @@ export async function restartService(
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
-    secureEnv: scopedBrokerIdentity?.env,
+    secureEnv: {
+      ...(brokerLaunchEnv ?? {}),
+      ...(scopedBrokerIdentity?.env ?? {}),
+    },
     variableResolution,
     workspaceRoot: options.workspaceRoot,
     runtimeInstanceId: options.runtimeInstanceId,

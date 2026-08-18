@@ -147,6 +147,7 @@ import {
   listOperatorInboxItems,
   mutateOperatorInboxItem,
   readOperatorInbox,
+  toServiceAdminInboxView,
   upsertOperatorInboxItem,
   type OperatorInboxActionAvailability,
   type OperatorInboxActionKind,
@@ -285,6 +286,9 @@ import {
 } from "../platform/workflowRunFacade.js";
 import type { PlatformEntitlement, PlatformRequestContext } from "../platform/facade.js";
 import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
+import { proxySecretsBrokerRequest, resolveSecretsBrokerAdminAliasPath } from "../runtime/broker/proxy.js";
+import { createSecretsBrokerBackup, restoreSecretsBrokerBackup } from "../runtime/broker/backup.js";
+import { SECRETSBROKER_SERVICE_ID } from "../runtime/broker/operator-config.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
@@ -707,6 +711,7 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
   if (method === "GET" && pathname === "/api/health") return true;
   if (method === "GET" && pathname === "/api/runtime/capabilities") return true;
   if (method === "GET" && pathname === "/api/runtime/security") return true;
+  if (method === "GET" && pathname === "/api/security") return true;
   if (method === "GET" && pathname === "/api/setup/status") return true;
   if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
   return false;
@@ -2696,6 +2701,14 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/inbox") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: toServiceAdminInboxView(inbox, parseOperatorInboxQuery(url.searchParams)),
+    });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/operator/inbox/counts") {
     const inbox = await readOperatorInbox(config.workspaceRoot);
     writeJson(response, 200, {
@@ -3122,6 +3135,13 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/setup") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, {
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
       services: runtimeModel.registry
         .list()
         .map((service) => ({
@@ -3448,6 +3468,68 @@ async function routeRequest(
     if (!service) {
       notFound(response);
       return;
+    }
+
+    if (pathParts[3] === "proxy") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Service proxy is not available for "${serviceId}".`,
+        );
+      }
+
+      const proxyPath = `/${pathParts.slice(4).join("/")}`;
+      await proxySecretsBrokerRequest(request, response, service, proxyPath, url.search);
+      return;
+    }
+
+    if (pathParts.length === 4 && pathParts[3] === "backup") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Broker backup is not available for "${serviceId}".`,
+        );
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        const outputPath =
+          body && typeof body === "object" && !Array.isArray(body) && typeof (body as { out?: unknown }).out === "string"
+            ? (body as { out: string }).out
+            : undefined;
+        writeJson(response, 200, await createSecretsBrokerBackup(service, { outputPath }));
+        return;
+      }
+    }
+
+    if (pathParts.length === 4 && pathParts[3] === "restore") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Broker restore is not available for "${serviceId}".`,
+        );
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        const archivePath =
+          body && typeof body === "object" && !Array.isArray(body) && typeof (body as { in?: unknown }).in === "string"
+            ? (body as { in: string }).in
+            : "";
+        writeJson(response, 200, await restoreSecretsBrokerBackup(service, archivePath));
+        return;
+      }
+    }
+
+    if (serviceId === SECRETSBROKER_SERVICE_ID) {
+      const aliasPath = resolveSecretsBrokerAdminAliasPath(pathParts.slice(3).join("/"));
+      if (aliasPath) {
+        await proxySecretsBrokerRequest(request, response, service, aliasPath, url.search);
+        return;
+      }
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "audit") {
@@ -4112,6 +4194,13 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/runtime/security") {
     writeJson(response, 200, createRuntimeAuthResponse(auth));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/security") {
+    writeJson(response, 200, {
+      security: createRuntimeAuthResponse(auth),
+    });
     return;
   }
 

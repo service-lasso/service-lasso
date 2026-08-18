@@ -270,6 +270,29 @@ test("GET /api/runtime/security resolves localhost requests as local-root", asyn
   }
 });
 
+test("GET /api/security wraps auth status for Service Admin", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-admin-security-alias-"));
+  await ensureLocalVaultMarker(tempDir);
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "admin-security-alias",
+  });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/security`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.security.auth.contractVersion, "service-lasso.auth-status.v1");
+    assert.equal(result.body.security.auth.actor.kind, "local-root");
+    assert.equal(result.body.security.auth.request.local, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("remote API requests cannot inherit local-root trust without auth", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-remote-denied-"));
   await ensureLocalVaultMarker(tempDir);
@@ -712,6 +735,8 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(summary.body.summary.favorites.length, 1);
     assert.equal(summary.body.summary.favorites[0].id, "alpha-service");
     assert.ok(summary.body.summary.warnings.includes("At least one managed service is currently stopped."));
+    assert.deepEqual(summary.body.summary.updateNotifications.messages, []);
+    assert.deepEqual(summary.body.summary.recoveryNotifications.messages, []);
 
     assert.equal(services.status, 200);
     assert.equal(Array.isArray(services.body.services), true);

@@ -299,3 +299,46 @@ test("operator inbox producers cover system service workflow and update events w
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("GET /api/inbox returns the Service Admin messages envelope", async () => {
+  const { tempRoot } = await makeTempServicesRoot("service-lasso-admin-inbox-alias-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const apiServer = await startOperatorInboxApiServer({
+    port: 0,
+    workspaceRoot,
+    version: "admin-inbox-alias",
+  });
+
+  try {
+    await upsertOperatorInboxItem(workspaceRoot, {
+      dedupeKey: "system:runtime.startup:admin-alias",
+      title: "Runtime startup",
+      summary: "Runtime started for Service Admin inbox alias coverage.",
+      type: "system",
+      severity: "success",
+      source: "system",
+      relatedTarget: {
+        route: "/api/dashboard",
+      },
+      action: {
+        label: "Review",
+        target: "/api/dashboard",
+        kind: "link",
+        availability: "available",
+      },
+    });
+
+    const response = await getJson(`${apiServer.url}/api/inbox`);
+    assert.equal(response.status, 200);
+    assert.equal(Array.isArray(response.body.inbox.messages), true);
+    assert.equal(response.body.inbox.messages.length >= 1, true);
+    assert.equal(typeof response.body.inbox.counts.unread, "number");
+    assert.equal(typeof response.body.inbox.updatedAt, "string");
+    const systemMessage = response.body.inbox.messages.find((item) => item.category === "system");
+    assert.equal(systemMessage?.category, "system");
+    assert.equal(systemMessage?.read, false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
