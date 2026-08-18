@@ -286,6 +286,9 @@ import {
 } from "../platform/workflowRunFacade.js";
 import type { PlatformEntitlement, PlatformRequestContext } from "../platform/facade.js";
 import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
+import { proxySecretsBrokerRequest, resolveSecretsBrokerAdminAliasPath } from "../runtime/broker/proxy.js";
+import { createSecretsBrokerBackup, restoreSecretsBrokerBackup } from "../runtime/broker/backup.js";
+import { SECRETSBROKER_SERVICE_ID } from "../runtime/broker/operator-config.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
@@ -3465,6 +3468,68 @@ async function routeRequest(
     if (!service) {
       notFound(response);
       return;
+    }
+
+    if (pathParts[3] === "proxy") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Service proxy is not available for "${serviceId}".`,
+        );
+      }
+
+      const proxyPath = `/${pathParts.slice(4).join("/")}`;
+      await proxySecretsBrokerRequest(request, response, service, proxyPath, url.search);
+      return;
+    }
+
+    if (pathParts.length === 4 && pathParts[3] === "backup") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Broker backup is not available for "${serviceId}".`,
+        );
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        const outputPath =
+          body && typeof body === "object" && !Array.isArray(body) && typeof (body as { out?: unknown }).out === "string"
+            ? (body as { out: string }).out
+            : undefined;
+        writeJson(response, 200, await createSecretsBrokerBackup(service, { outputPath }));
+        return;
+      }
+    }
+
+    if (pathParts.length === 4 && pathParts[3] === "restore") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Broker restore is not available for "${serviceId}".`,
+        );
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        const archivePath =
+          body && typeof body === "object" && !Array.isArray(body) && typeof (body as { in?: unknown }).in === "string"
+            ? (body as { in: string }).in
+            : "";
+        writeJson(response, 200, await restoreSecretsBrokerBackup(service, archivePath));
+        return;
+      }
+    }
+
+    if (serviceId === SECRETSBROKER_SERVICE_ID) {
+      const aliasPath = resolveSecretsBrokerAdminAliasPath(pathParts.slice(3).join("/"));
+      if (aliasPath) {
+        await proxySecretsBrokerRequest(request, response, service, aliasPath, url.search);
+        return;
+      }
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "audit") {

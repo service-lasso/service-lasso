@@ -2,6 +2,12 @@ import { discoverServices } from "../discovery/discoverServices.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
 import {
+  createSecretsBrokerBackup,
+  restoreSecretsBrokerBackup,
+  type SecretsBrokerBackupResult,
+} from "../broker/backup.js";
+import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
+import {
   buildSecretProviderAuthRequiredSummary,
   buildSecretReferenceAudit,
   buildSecretRotationReadinessReport,
@@ -17,12 +23,19 @@ import {
 } from "../operator/secret-audit.js";
 import { buildSecretRotationImpactPlan, type SecretRotationImpactPlan } from "../operator/secret-rotation-plan.js";
 
-export type SecretsCliAction = "audit" | "rotation-readiness" | "provider-auth-required" | "rotate-plan";
+export type SecretsCliAction =
+  | "audit"
+  | "rotation-readiness"
+  | "provider-auth-required"
+  | "rotate-plan"
+  | "broker-backup"
+  | "broker-restore";
 
 export interface SecretsCliOptions extends RuntimeConfigOptions {
   action: SecretsCliAction;
   serviceId?: string;
   ref?: string;
+  archivePath?: string;
 }
 
 export type SecretsCliResult =
@@ -60,6 +73,10 @@ export type SecretsCliResult =
       action: "rotate-plan";
       servicesRoot: string;
       workspaceRoot: string;
+    })
+  | (SecretsBrokerBackupResult & {
+      servicesRoot: string;
+      workspaceRoot: string;
     });
 
 export async function runSecretsCliAction(options: SecretsCliOptions): Promise<SecretsCliResult> {
@@ -69,6 +86,24 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
     version: options.version,
   });
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
+
+  if (options.action === "broker-backup" || options.action === "broker-restore") {
+    const registry = createServiceRegistry(discovered);
+    const broker = registry.getById(SECRETSBROKER_SERVICE_ID);
+    if (!broker) {
+      throw new Error(`Unknown service id: ${SECRETSBROKER_SERVICE_ID}.`);
+    }
+
+    const backupResult = options.action === "broker-backup"
+      ? await createSecretsBrokerBackup(broker, { outputPath: options.archivePath })
+      : await restoreSecretsBrokerBackup(broker, options.archivePath ?? "");
+
+    return {
+      ...backupResult,
+      servicesRoot: runtimeConfig.servicesRoot,
+      workspaceRoot: runtimeConfig.workspaceRoot,
+    };
+  }
 
   if (options.action === "rotate-plan") {
     const ref = options.ref?.trim();

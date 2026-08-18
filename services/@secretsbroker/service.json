@@ -2,23 +2,28 @@
   "id": "@secretsbroker",
   "name": "Service Lasso Secrets Broker",
   "description": "Release-backed local-first secrets broker for Service Lasso bootstrap, service identities, policy, audit, and secret resolution.",
-  "version": "2026.8.12-9be43fc",
+  "version": "2026.8.18-d89ed2d",
   "enabled": true,
   "ports": {
     "service": 17890
   },
   "env": {
-    "SECRETSBROKER_STATE": "setup_needed",
     "SECRETSBROKER_LISTEN": "127.0.0.1:${SERVICE_PORT}"
   },
   "globalenv": {
     "SECRETSBROKER_URL": "http://127.0.0.1:${SERVICE_PORT}",
-    "SECRETSBROKER_HEALTH_URL": "http://127.0.0.1:${SERVICE_PORT}/health"
+    "SECRETSBROKER_HEALTH_URL": "http://127.0.0.1:${SERVICE_PORT}/health",
+    "SECRETSBROKER_READY_URL": "http://127.0.0.1:${SERVICE_PORT}/ready"
   },
   "urls": [
     {
       "label": "health",
       "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "kind": "local"
+    },
+    {
+      "label": "ready",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/ready",
       "kind": "local"
     }
   ],
@@ -27,7 +32,11 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-secretsbroker",
-      "tag": "2026.8.12-9be43fc"
+      "tag": "2026.8.18-d89ed2d"
+    },
+    "checksum": {
+      "algorithm": "sha256",
+      "assetName": "SHA256SUMS.txt"
     },
     "platforms": {
       "win32": {

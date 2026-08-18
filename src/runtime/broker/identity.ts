@@ -140,7 +140,8 @@ function normalizeTransportBinding(
   return { kind, subject };
 }
 
-function namespacedRef(namespace: string, ref: string): string {
+/** Join a broker namespace and dotted ref into the path form the daemon expects. */
+export function namespacedBrokerRef(namespace: string, ref: string): string {
   const normalizedNamespace = namespace.trim().replace(/\/+$/g, "");
   const normalizedRef = ref.trim().replace(/^\/+/g, "");
   return normalizedNamespace && normalizedRef ? `${normalizedNamespace}/${normalizedRef}` : normalizedRef || normalizedNamespace;
@@ -165,7 +166,7 @@ function collectLaunchLeaseScope(service: DiscoveredService): {
   for (const entry of imports) {
     operations.add("resolve");
     namespaces.add(entry.namespace);
-    refs.push(namespacedRef(entry.namespace, entry.ref));
+    refs.push(namespacedBrokerRef(entry.namespace, entry.ref));
   }
 
   for (const namespace of writeback?.allowedNamespaces ?? []) {
@@ -176,7 +177,7 @@ function collectLaunchLeaseScope(service: DiscoveredService): {
   }
   for (const namespace of writeback?.allowedNamespaces ?? []) {
     for (const ref of writeback?.allowedRefs ?? []) {
-      refs.push(namespacedRef(namespace, ref));
+      refs.push(namespacedBrokerRef(namespace, ref));
     }
   }
 
@@ -293,10 +294,15 @@ export function resolveLauncherTransportBinding(
   return null;
 }
 
-export function mintScopedBrokerIdentity(
+function createLaunchIdentityMetadata(
   service: DiscoveredService,
-  options: { now?: Date; ttlMs?: number; transportBinding?: BrokerTransportBinding | null } = {},
-): ScopedBrokerCredential | null {
+  options: {
+    now?: Date;
+    ttlMs?: number;
+    transportBinding?: BrokerTransportBinding | null;
+    purpose?: "launch" | "resolve";
+  } = {},
+): ScopedBrokerIdentityMetadata | null {
   const writeback = service.manifest.broker?.writeback;
   if (!serviceNeedsScopedBrokerIdentity(service)) {
     return null;
@@ -307,13 +313,14 @@ export function mintScopedBrokerIdentity(
   const issuedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
   const identityId = randomUUID();
-  const token = `slb_${randomBytes(32).toString("base64url")}`;
   const leaseScope = collectLaunchLeaseScope(service);
   const transportBinding =
     options.transportBinding === undefined
       ? resolveLauncherTransportBinding()
       : normalizeTransportBinding(options.transportBinding);
-  const metadata: ScopedBrokerIdentityMetadata = {
+  const useLaunchWritebackScope = options.purpose !== "resolve" && Boolean(writeback);
+
+  return {
     id: identityId,
     serviceId: service.manifest.id,
     issuedAt,
@@ -321,9 +328,11 @@ export function mintScopedBrokerIdentity(
     revokedAt: null,
     transportBinding,
     scope: {
-      namespaces: writeback ? [...(writeback.allowedNamespaces ?? [])] : leaseScope.namespaces,
-      operations: writeback ? [...(writeback.allowedOperations ?? ["create", "update", "rotate", "delete"])] : leaseScope.operations,
-      refs: writeback ? [...(writeback.allowedRefs ?? [])] : leaseScope.refs,
+      namespaces: useLaunchWritebackScope ? [...(writeback?.allowedNamespaces ?? [])] : leaseScope.namespaces,
+      operations: useLaunchWritebackScope
+        ? [...(writeback?.allowedOperations ?? ["create", "update", "rotate", "delete"])]
+        : leaseScope.operations,
+      refs: useLaunchWritebackScope ? [...(writeback?.allowedRefs ?? [])] : leaseScope.refs,
     },
     audit: {
       serviceId: service.manifest.id,
@@ -333,28 +342,65 @@ export function mintScopedBrokerIdentity(
       reason: writeback?.auditReason ?? null,
     },
   };
+}
 
-  scopedCredentials.set(identityId, {
+export function mintScopedBrokerIdentity(
+  service: DiscoveredService,
+  options: { now?: Date; ttlMs?: number; transportBinding?: BrokerTransportBinding | null } = {},
+): ScopedBrokerCredential | null {
+  const metadata = createLaunchIdentityMetadata(service, options);
+  if (!metadata) {
+    return null;
+  }
+
+  const token = `slb_${randomBytes(32).toString("base64url")}`;
+  scopedCredentials.set(metadata.id, {
     tokenHash: hashCredential(token),
     metadata,
   });
-  rememberServiceIdentity(service.manifest.id, identityId);
+  rememberServiceIdentity(service.manifest.id, metadata.id);
 
   return {
     token,
     metadata: cloneMetadata(metadata),
     env: {
-      [BROKER_IDENTITY_ID_ENV]: identityId,
+      [BROKER_IDENTITY_ID_ENV]: metadata.id,
       [BROKER_CREDENTIAL_ENV]: token,
-      [BROKER_CREDENTIAL_EXPIRES_AT_ENV]: expiresAt,
-      ...(transportBinding
+      [BROKER_CREDENTIAL_EXPIRES_AT_ENV]: metadata.expiresAt,
+      ...(metadata.transportBinding
         ? {
-            [BROKER_TRANSPORT_BINDING_KIND_ENV]: transportBinding.kind,
-            [BROKER_TRANSPORT_BINDING_SUBJECT_ENV]: transportBinding.subject,
+            [BROKER_TRANSPORT_BINDING_KIND_ENV]: metadata.transportBinding.kind,
+            [BROKER_TRANSPORT_BINDING_SUBJECT_ENV]: metadata.transportBinding.subject,
           }
         : {}),
     },
   };
+}
+
+/**
+ * Issue a one-time broker-signed launch lease without retaining a local credential.
+ * HTTP resolve must use a lease with no transport binding because loopback rejects bound leases.
+ */
+export async function issueSecretsBrokerLaunchLease(
+  service: DiscoveredService,
+  options: {
+    now?: Date;
+    ttlMs?: number;
+    transportBinding?: BrokerTransportBinding | null;
+    launchLeaseIssuer?: SecretsBrokerLaunchLeaseIssuer;
+  } = {},
+): Promise<unknown | null> {
+  const metadata = createLaunchIdentityMetadata(service, {
+    now: options.now,
+    ttlMs: options.ttlMs,
+    transportBinding: options.transportBinding ?? null,
+    purpose: "resolve",
+  });
+  if (!metadata) {
+    return null;
+  }
+
+  return issueLaunchLease(service, metadata, options.launchLeaseIssuer);
 }
 
 export async function issueScopedBrokerIdentity(
