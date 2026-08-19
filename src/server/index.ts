@@ -412,8 +412,13 @@ function parseBooleanQuery(value: string | null): boolean {
   return value === "1" || value?.toLocaleLowerCase() === "true";
 }
 
+/**
+ * Parses the log-info / log-read / log-search `type` query.
+ * `combined` is an alias for `default` (service.log), matching the builtin
+ * combined stream that log-info advertises to Service Admin.
+ */
 function parseServiceLogReadType(value: string | null): ServiceLogReadType {
-  if (value === null || value === "default") {
+  if (value === null || value === "default" || value === "combined") {
     return "default";
   }
 
@@ -421,7 +426,11 @@ function parseServiceLogReadType(value: string | null): ServiceLogReadType {
     return value;
   }
 
-  throw new ApiError("invalid_request", 400, "Log type must be one of: default, stdout, stderr.");
+  throw new ApiError(
+    "invalid_request",
+    400,
+    "Log type must be one of: default, stdout, stderr, combined.",
+  );
 }
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {

@@ -441,7 +441,6 @@ async function buildCurrentSourceInfo(
 ): Promise<ServiceLogSourceInfo> {
   const logPath = getLogPathForType(paths, type);
   const available = await runtimeLogAvailable(logPath);
-  const id = type === "default" ? "combined" : type;
 
   return {
     kind: "current",
@@ -449,7 +448,7 @@ async function buildCurrentSourceInfo(
     runId: paths.runId,
     path: logPath,
     available,
-    id,
+    id: type,
     label: type === "default" ? "Combined runtime log" : type,
     origin: "builtin",
     type: "stream",

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, readdir, rm, unlink } from "node:fs/promises";
+import { readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -329,12 +329,12 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
 
 test("live log info and chunk routes expose runtime-owned log files for admin consumers", async () => {
   resetLifecycleState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-log-reader-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-log-reader-");
   await writeExecutableFixtureService(servicesRoot, "@reader-service", {
     stdoutLines: ["reader stdout"],
     stderrLines: ["reader stderr"],
   });
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/%40reader-service/install`);
@@ -377,6 +377,7 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(infoBody.available, true);
     assert.deepEqual(infoBody.availableTypes, ["default", "stdout", "stderr"]);
     assert.deepEqual(infoBody.sources.map((source) => source.stream), ["combined", "stdout", "stderr"]);
+    assert.deepEqual(infoBody.sources.map((source) => source.id), ["default", "stdout", "stderr"]);
     assert.equal(infoBody.sources.every((source) => source.kind === "current"), true);
     assert.equal(infoBody.sources.every((source) => typeof source.runId === "string" && source.runId.length > 0), true);
     assert.equal(infoBody.path.endsWith(path.join("reader-service", "logs", "runtime", "service.log")), true);
@@ -438,6 +439,29 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(stdoutSearchBody.matches.length, 1);
     assert.equal(stdoutSearchBody.matches[0].stream, "stdout");
 
+    const combinedInfoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=reader-service&type=combined`);
+    const combinedInfoBody = await combinedInfoResponse.json();
+    assert.equal(combinedInfoResponse.status, 200);
+    assert.equal(combinedInfoBody.type, "default");
+    assert.equal(combinedInfoBody.available, true);
+
+    const combinedChunkResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=combined&limit=50`);
+    const combinedChunkBody = await combinedChunkResponse.json();
+    assert.equal(combinedChunkResponse.status, 200);
+    assert.equal(combinedChunkBody.type, "default");
+    assert.equal(combinedChunkBody.source.id, "default");
+    assert.equal(combinedChunkBody.source.stream, "combined");
+    assert.ok(combinedChunkBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
+    assert.ok(combinedChunkBody.lines.some((line) => line.includes("\"message\":\"reader stderr\"")));
+
+    const combinedSearchResponse = await fetch(
+      `${apiServer.url}/api/logs/search?service=reader-service&type=combined&q=reader%20stdout&limit=5`,
+    );
+    const combinedSearchBody = await combinedSearchResponse.json();
+    assert.equal(combinedSearchResponse.status, 200);
+    assert.equal(combinedSearchBody.type, "default");
+    assert.equal(combinedSearchBody.matches.length, 1);
+
     await unlink(path.join(servicesRoot, "@reader-service", "logs", "runtime", "stderr.log"));
     const missingStderrResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=stderr&limit=50`);
     const missingStderrBody = await missingStderrResponse.json();
@@ -445,6 +469,28 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(missingStderrBody.type, "stderr");
     assert.equal(missingStderrBody.available, false);
     assert.deepEqual(missingStderrBody.lines, []);
+
+    const missingStderrCombinedResponse = await fetch(
+      `${apiServer.url}/api/logs/read?service=reader-service&type=combined&limit=50`,
+    );
+    const missingStderrCombinedBody = await missingStderrCombinedResponse.json();
+    assert.equal(missingStderrCombinedResponse.status, 200);
+    assert.equal(missingStderrCombinedBody.type, "default");
+    assert.ok(missingStderrCombinedBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
+
+    await writeFile(path.join(servicesRoot, "@reader-service", "logs", "runtime", "stderr.log"), "");
+    const emptyStderrCombinedResponse = await fetch(
+      `${apiServer.url}/api/logs/read?service=reader-service&type=combined&limit=50`,
+    );
+    const emptyStderrCombinedBody = await emptyStderrCombinedResponse.json();
+    assert.equal(emptyStderrCombinedResponse.status, 200);
+    assert.equal(emptyStderrCombinedBody.type, "default");
+    assert.ok(emptyStderrCombinedBody.lines.some((line) => line.includes("\"message\":\"reader stdout\"")));
+
+    const invalidTypeResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=not-a-stream&limit=50`);
+    const invalidTypeBody = await invalidTypeResponse.json();
+    assert.equal(invalidTypeResponse.status, 400);
+    assert.equal(invalidTypeBody.error, "invalid_request");
 
     assert.equal(stdoutInfoResponse.status, 200);
     assert.equal(stdoutInfoBody.type, "stdout");
