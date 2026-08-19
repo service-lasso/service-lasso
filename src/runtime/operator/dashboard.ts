@@ -460,6 +460,11 @@ export function buildDashboardRecoveryNotifications(): DashboardSummaryResponse[
   };
 }
 
+/**
+ * Builds the operator dashboard summary used by Service Admin.
+ * Runtime health warnings are operational only (`AC-4O.2`): empty favorites
+ * stay a preference grouping, not a warning that forces `runtime.status`.
+ */
 export function buildDashboardSummary(
   services: DashboardServiceResponse[],
   nowIso = new Date().toISOString(),
@@ -476,10 +481,6 @@ export function buildDashboardSummary(
 
   if (services.some((service) => service.status === "stopped")) {
     warnings.push("At least one managed service is currently stopped.");
-  }
-
-  if (favorites.length === 0) {
-    warnings.push("No favorite services are configured for quick access.");
   }
 
   return {
