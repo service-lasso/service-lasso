@@ -10,6 +10,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1055` | `in_progress` | Pin `@serviceadmin` to header-chrome master release | `SPEC-002`, `AC-4O`, `AC-4Z` | GitHub issue: `#1055`. Pin Admin `2026.8.19-ec12124` (master after `#505` / `#484`/`#485`, includes KV full-height `0612b26`). Broker stays `2026.8.18-2ee1ba5`. Demo recycle follows. |
 | `ISS-1050` | `done` | Pin `@serviceadmin` to KV full-height master release | `SPEC-002`, `AC-4O`, `AC-4Z` | GitHub issue: `#1050`. Landed on develop as `557cc7d` (PR `#1051`). Pin Admin `2026.8.19-0612b26` (master after `#504` / `#503`). Broker stays `2026.8.18-2ee1ba5`. Demo recycle deferred while keep-alive worker stays running. |
 | `ISS-1047` | `done` | Pin `@serviceadmin` to Prettier-green master release | `SPEC-002`, `AC-4O`, `AC-4Z` | GitHub issue: `#1047`. Landed on develop as `a7c8b1c` (PR `#1048`). Pin Admin `2026.8.19-043a72a` (master after `#502` / `#501`). Broker stays `2026.8.18-2ee1ba5`. Demo recycle deferred while keep-alive worker stays running. |
 | `ISS-1044` | `done` | Pin `@serviceadmin` to KV add-field-after-save master release | `SPEC-002`, `AC-4O`, `AC-4Z` | GitHub issue: `#1044`. Landed on develop as `9fed087` (PR `#1045`). Pin Admin `2026.8.19-efe1262` (master after `#500` / `#499`). Broker stays `2026.8.18-2ee1ba5`. |
