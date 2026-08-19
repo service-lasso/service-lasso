@@ -365,14 +365,16 @@ export async function buildDashboardService(
     service.manifest.execservice ??
     service.manifest.executable ??
     "direct";
-  const runtimeHealth = {
+  const runtimeHealth: DashboardServiceResponse["runtimeHealth"] = {
     state: status,
     health: mapRuntimeHealth(status),
     uptime: formatDuration(calculateRunDurationMs(lifecycle, nowIso)),
     lastCheckAt: nowIso,
     lastRestartAt: lifecycle.runtime.startedAt,
     summary: health.detail,
-  } as DashboardServiceResponse["runtimeHealth"];
+    pid: lifecycle.runtime.pid,
+    runId: lifecycle.runtime.logs.runId,
+  };
 
   const dashboardService: DashboardServiceResponse = {
     id: service.manifest.id,
