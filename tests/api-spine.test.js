@@ -746,6 +746,10 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(alphaDetail.body.service.id, "alpha-service");
     assert.equal(alphaDetail.body.service.favorite, true);
     assert.equal(alphaDetail.body.service.status, "running");
+    assert.equal(typeof alphaDetail.body.service.runtimeHealth.pid, "number");
+    assert.equal(alphaDetail.body.service.runtimeHealth.pid > 0, true);
+    assert.equal(typeof alphaDetail.body.service.runtimeHealth.runId, "string");
+    assert.equal(alphaDetail.body.service.runtimeHealth.runId.length > 0, true);
     assert.equal(alphaDetail.body.service.installed, true);
     assert.equal(alphaDetail.body.service.role.length > 0, true);
     assert.equal(alphaDetail.body.service.metadata.installPath.endsWith(path.join("services", "alpha-service")), true);
@@ -760,6 +764,7 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
 
     assert.equal(bravoDetail.status, 200);
     assert.equal(bravoDetail.body.service.status, "stopped");
+    assert.equal(bravoDetail.body.service.runtimeHealth.pid, null);
     assert.ok(bravoDetail.body.service.dependencies.some((entry) => entry.id === "alpha-service" && entry.status === "running"));
 
     assert.equal(utilityDetail.status, 200);

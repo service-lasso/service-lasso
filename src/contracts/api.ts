@@ -779,6 +779,10 @@ export interface DashboardRuntimeHealthResponse {
   lastCheckAt: string;
   lastRestartAt?: string | null;
   summary: string;
+  /** Persisted managed-process id, or null when no process is recorded. */
+  pid: number | null;
+  /** Current runtime log run id, or null when no run is recorded. */
+  runId: string | null;
 }
 
 export interface DashboardEndpointResponse {
