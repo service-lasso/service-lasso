@@ -29,6 +29,8 @@ import type {
   ServiceEnvValue,
   ServiceManifest,
   ServiceSetupRerunPolicy,
+  ServiceStdinDeclaration,
+  ServiceStdinProvider,
   ServiceUpdateInstallWindow,
   ServiceUpdateMode,
   ServiceUpdateRunningServicePolicy,
@@ -62,6 +64,7 @@ const endpointPortStrategies = new Set(["automatic", "preferred", "fixed"]);
 const filesRootModes = new Set<ServiceFilesRootMode>(["read-only", "read-write"]);
 const logSourceTypes = new Set(["file", "glob"]);
 const logSourceFormats = new Set(["text", "json", "ndjson"]);
+const stdinProviders = new Set<ServiceStdinProvider>(["direct"]);
 const brokerNamespacePattern = /^[A-Za-z][A-Za-z0-9_-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.-]*)*$/;
 const brokerRefPattern = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
@@ -574,6 +577,35 @@ function readLogSources(value: unknown, manifestPath: string): ServiceLogSourceD
       format: rawFormat as ServiceLogSourceFormat | undefined,
     };
   });
+}
+
+function readStdin(value: unknown, manifestPath: string): ServiceStdinDeclaration | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "stdin" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const enabled = expectOptionalBoolean(record.enabled, "stdin.enabled", manifestPath);
+  if (enabled === undefined) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "stdin.enabled" to be a boolean.`);
+  }
+
+  if (record.provider === undefined) {
+    return { enabled };
+  }
+
+  if (typeof record.provider !== "string" || !stdinProviders.has(record.provider as ServiceStdinProvider)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "stdin.provider" to be "direct".`);
+  }
+
+  return {
+    enabled,
+    provider: record.provider as ServiceStdinProvider,
+  };
 }
 
 function expectBrokerNamespace(value: unknown, field: string, manifestPath: string): string {
@@ -2175,6 +2207,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   }
 
   const logSources = readLogSources(record.logSources, manifestPath);
+  const stdin = readStdin(record.stdin, manifestPath);
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
   const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
@@ -2249,6 +2282,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
       kind: typeof (entry as Record<string, unknown>).kind === "string" ? ((entry as Record<string, string>).kind).trim() : undefined,
     })),
     logSources,
+    stdin,
     monitoring,
     restartPolicy,
     doctor,

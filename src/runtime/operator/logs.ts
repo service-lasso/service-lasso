@@ -43,6 +43,22 @@ export interface ServiceLogInfoPayload {
   available: boolean;
   availableTypes: ServiceLogReadType[];
   sources: ServiceLogSourceInfo[];
+  stdin?: {
+    available: boolean;
+    reason?: string;
+    auditRequired?: boolean;
+    policy?: "allowed" | "denied" | "unavailable";
+    provider?: string;
+  };
+  capabilities?: {
+    stdin?: {
+      available: boolean;
+      reason?: string;
+      auditRequired?: boolean;
+      policy?: "allowed" | "denied" | "unavailable";
+      provider?: string;
+    };
+  };
 }
 
 export interface ServiceLogChunkPayload {
