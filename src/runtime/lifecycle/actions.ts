@@ -28,6 +28,7 @@ import {
   resolveSecretsBrokerLaunchLeaseIssuer,
 } from "../broker/launch-lookup.js";
 import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
+import { onboardMissingProducerSecrets } from "../broker/onboard.js";
 import {
   mergeServiceVariableResolutionOptions,
   resolveServiceStartupBrokerResolution,
@@ -442,17 +443,37 @@ function formatStartupBrokerFailureMessage(
 
 async function resolveLaunchVariableResolution(
   service: DiscoveredService,
-  options: ServiceLifecycleActionOptions,
+  options: ServiceLifecycleActionOptions & {
+    brokerService?: DiscoveredService;
+    launchLeaseIssuer?: Awaited<ReturnType<typeof resolveSecretsBrokerLaunchLeaseIssuer>>;
+  },
 ): Promise<ServiceVariableResolutionOptions | undefined> {
   if (!options.brokerLookup) {
     return options.variableResolution;
   }
 
-  const resolution = await resolveServiceStartupBrokerResolution(
+  let resolution = await resolveServiceStartupBrokerResolution(
     service,
     options.brokerLookup,
     options.variableResolution,
   );
+
+  if (options.brokerService) {
+    const onboard = await onboardMissingProducerSecrets({
+      service,
+      resolution,
+      brokerService: options.brokerService,
+      launchLeaseIssuer: options.launchLeaseIssuer,
+    });
+    if (onboard.appliedRefs.length > 0) {
+      resolution = await resolveServiceStartupBrokerResolution(
+        service,
+        options.brokerLookup,
+        options.variableResolution,
+      );
+    }
+  }
+
   const requiredFailures = summarizeRequiredStartupBrokerFailures(resolution);
   if (requiredFailures.length > 0) {
     throw new LifecycleStateError(
@@ -492,6 +513,8 @@ async function resolveBrokerLaunchContext(
     variableResolution: await resolveLaunchVariableResolution(service, {
       ...options,
       brokerLookup,
+      brokerService,
+      launchLeaseIssuer,
     }),
   };
 }

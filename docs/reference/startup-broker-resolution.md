@@ -61,11 +61,12 @@ The runtime startup path is formalized as:
    - `policy-denied`
    - `source-unavailable`
    - `degraded`
-5. Fail closed before process spawn when any `required: true` import is unresolved.
-6. Materialize resolved values only into the launched service environment/config.
-7. Issue a scoped broker writeback identity when the service declares writeback permissions, including transport-binding metadata when available.
-8. Issue a broker-signed launch identity lease through the Secrets Broker helper when available and inject it only into the launched process environment.
-9. Emit safe metadata only: ref name, classification, `required`, `as` target, identity id, expiry, and transport-binding kind/subject when present.
+5. For each declared `broker.writeback.generatedSecrets[]` entry whose `source` is `broker:generate` and whose ref is still `missing`, call Secrets Broker `POST /v1/provisioning/operations/apply` with `generationMode: broker_generated`. This is first-run onboard only. Discovery never writes KV. Default `allowOverwrite: false` skips refs that already resolve. Then re-run the resolve lookup for those refs.
+6. Fail closed before process spawn when any `required: true` import is unresolved.
+7. Materialize resolved values only into the launched service environment/config.
+8. Issue a scoped broker writeback identity when the service declares writeback permissions, including transport-binding metadata when available.
+9. Issue a broker-signed launch identity lease through the Secrets Broker helper when available and inject it only into the launched process environment.
+10. Emit safe metadata only: ref name, classification, `required`, `as` target, identity id, expiry, and transport-binding kind/subject when present.
 
 Policy-denied refs are intentionally separate from missing refs. Operators should see that access was denied, not that config disappeared.
 
@@ -100,3 +101,23 @@ access_token=...
 client_secret=...
 raw resolved secret values
 ```
+
+## Node Sample Service rotation and update testing
+
+Git-managed source of truth: `services/node-sample-service/`. Workspace copies under `workspace/canonical-services-root` are demo runtime trees, not the authoring source.
+
+Default/canonical services do not ship live KV secrets. `node-sample-service` declares:
+
+- Non-secrets (plain env, not Broker): `NODE_SAMPLE_PUBLIC_LABEL`, `NODE_SAMPLE_FEATURE_FLAG`, `NODE_SAMPLE_PUBLIC_URL`
+- Optional consumer import: `shared/sample` / `sample.API_TOKEN` (KV path `shared/sample/sample.API_TOKEN`)
+- First-run producer: `services/node-sample-service` / `sample.GENERATED_TOKEN` (KV path `services/node-sample-service/sample.GENERATED_TOKEN`)
+
+Operator steps (path/ref names only; never print values):
+
+1. Ensure `@secretsbroker` is ready, then start `node-sample-service`. First start generates the missing producer once.
+2. Confirm KV metadata list shows `services/` (or the producer path). Admin at root previously showed empty because nothing was seeded.
+3. Open `http://127.0.0.1:<service-port>/diagnostics`. Check `secrets.generatedToken.present` and `last4` only.
+4. Rotate the producer through Secrets Broker rotation activate (or Admin KV write of a new version), then restart the sample. `last4` should change. List/metadata still must not include values.
+5. Update `NODE_SAMPLE_FEATURE_FLAG` in the service config/Variables editor and restart. Diagnostics `nonSecrets.featureFlag` should change without a Broker provisioning apply.
+
+Optional: write `sample.API_TOKEN` under `shared/sample` if you need a consumer-import path. It is not required for start.

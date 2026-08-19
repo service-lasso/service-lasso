@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
+import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 function waitForLine(lines, matcher, timeoutMs = 2_000) {
   const existing = lines.find((line) => matcher.test(line));
@@ -64,6 +65,8 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
       NODE_SAMPLE_PORT: "0",
       NODE_SAMPLE_HEARTBEAT_MS: "1000",
       NODE_SAMPLE_ENV_PATH: "./.state/provider-env.json",
+      NODE_SAMPLE_FEATURE_FLAG: "rotation-fixture",
+      NODE_SAMPLE_GENERATED_TOKEN: "kv-sentinel-alpha",
       SERVICE_PORT: "0",
     },
     stdio: ["pipe", "pipe", "pipe"],
@@ -84,6 +87,16 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     assert.equal(health.status, 200);
     assert.equal((await health.json()).rawMaterialReturned, false);
+
+    const diagnostics = await fetch(`http://127.0.0.1:${port}/diagnostics`);
+    assert.equal(diagnostics.status, 200);
+    const diagnosticBody = await diagnostics.json();
+    assert.equal(diagnosticBody.nonSecrets.featureFlag, "rotation-fixture");
+    assert.equal(diagnosticBody.secrets.apiToken.present, false);
+    assert.equal(diagnosticBody.secrets.generatedToken.present, true);
+    assert.equal(diagnosticBody.secrets.generatedToken.last4, "lpha");
+    assert.equal(diagnosticBody.rawMaterialReturned, false);
+    assert.equal(JSON.stringify(diagnosticBody).includes("kv-sentinel-alpha"), false);
 
     const logResponse = await fetch(`http://127.0.0.1:${port}/demo/log?message=${encodeURIComponent("alpha\nsecret-looking")}`);
     assert.equal(logResponse.status, 200);
@@ -114,6 +127,7 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
     assert.ok(snapshot.outputCounters.stdout >= 4);
     assert.equal(JSON.stringify(snapshot).includes("alpha"), false);
     assert.equal(JSON.stringify(snapshot).includes("beta"), false);
+    assert.equal(JSON.stringify(snapshot).includes("kv-sentinel-alpha"), false);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("close", resolve));
@@ -150,9 +164,12 @@ async function writeManifest(servicesRoot, serviceId, manifest) {
 }
 
 test("runtime log API captures node sample normal and error validation output", async () => {
+  resetLifecycleState();
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "node-sample-runtime-api-"));
   const servicesRoot = path.join(tempRoot, "services");
+  const workspaceRoot = path.join(tempRoot, "workspace");
   await mkdir(servicesRoot, { recursive: true });
+  await mkdir(workspaceRoot, { recursive: true });
 
   try {
     await writeManifest(servicesRoot, "@node", {
@@ -192,7 +209,7 @@ test("runtime log API captures node sample normal and error validation output", 
       "utf8",
     );
 
-    const apiServer = await startApiServer({ port: 0, servicesRoot });
+    const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
     try {
       await postJson(`${apiServer.url}/api/services/@node/install`);
@@ -236,6 +253,7 @@ test("runtime log API captures node sample normal and error validation output", 
       await apiServer.stop();
     }
   } finally {
+    resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

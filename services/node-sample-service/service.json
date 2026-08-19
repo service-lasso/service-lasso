@@ -1,7 +1,7 @@
 {
   "id": "node-sample-service",
   "name": "Node Sample Service",
-  "description": "Tracked provider-backed sample service used to prove real @node execution through the core runtime.",
+  "description": "Tracked provider-backed sample service used to prove real @node execution, non-secret config updates, and Secrets Broker rotation through the core runtime.",
   "version": "0.1.0",
   "enabled": true,
   "depend_on": [
@@ -14,7 +14,19 @@
   "env": {
     "NODE_SAMPLE_ENV_PATH": "./.state/provider-env.json",
     "NODE_SAMPLE_PORT": "${SERVICE_PORT}",
-    "NODE_SAMPLE_API_TOKEN": "${sample.API_TOKEN}"
+    "NODE_SAMPLE_PUBLIC_LABEL": "node-sample",
+    "NODE_SAMPLE_FEATURE_FLAG": "rotation-fixture",
+    "NODE_SAMPLE_PUBLIC_URL": "http://127.0.0.1:${SERVICE_PORT}/",
+    "NODE_SAMPLE_API_TOKEN": "${sample.API_TOKEN}",
+    "NODE_SAMPLE_GENERATED_TOKEN": "${sample.GENERATED_TOKEN}"
+  },
+  "config": {
+    "files": [
+      {
+        "path": "./runtime/sample-config.json",
+        "content": "{\n  \"publicLabel\": \"${NODE_SAMPLE_PUBLIC_LABEL}\",\n  \"featureFlag\": \"${NODE_SAMPLE_FEATURE_FLAG}\",\n  \"publicUrl\": \"${NODE_SAMPLE_PUBLIC_URL}\"\n}\n"
+      }
+    ]
   },
   "ports": {
     "service": 4020
@@ -28,6 +40,11 @@
     {
       "label": "health",
       "url": "http://127.0.0.1:${SERVICE_PORT}/health",
+      "kind": "local"
+    },
+    {
+      "label": "diagnostics",
+      "url": "http://127.0.0.1:${SERVICE_PORT}/diagnostics",
       "kind": "local"
     }
   ],
@@ -59,7 +76,21 @@
         "namespace": "shared/sample",
         "ref": "sample.API_TOKEN",
         "as": "NODE_SAMPLE_API_TOKEN",
-        "required": false
+        "required": false,
+        "onChange": {
+          "mode": "restart",
+          "reason": "reload optional sample API token after operator rotation"
+        }
+      },
+      {
+        "namespace": "services/node-sample-service",
+        "ref": "sample.GENERATED_TOKEN",
+        "as": "NODE_SAMPLE_GENERATED_TOKEN",
+        "required": true,
+        "onChange": {
+          "mode": "restart",
+          "reason": "reload generated sample token after first-run onboard or rotation"
+        }
       }
     ],
     "accessPolicy": {
@@ -71,14 +102,14 @@
           "scope": "shared",
           "refs": ["sample.API_TOKEN"],
           "operations": ["resolve"],
-          "purpose": "read sample API token metadata during runtime startup"
+          "purpose": "optionally read a shared sample API token during runtime startup"
         },
         {
           "namespace": "services/node-sample-service",
           "scope": "service",
           "refs": ["sample.GENERATED_TOKEN"],
-          "operations": ["create", "rotate"],
-          "purpose": "capture and rotate sample generated token metadata"
+          "operations": ["resolve", "create", "rotate"],
+          "purpose": "first-run generate, resolve, and rotate the sample producer token"
         }
       ]
     },
@@ -94,13 +125,13 @@
         "sample.GENERATED_TOKEN"
       ],
       "allowOverwrite": false,
-      "auditReason": "sample service generated token capture",
+      "auditReason": "first-run sample producer token onboard",
       "generatedSecrets": [
         {
           "ref": "sample.GENERATED_TOKEN",
-          "source": "${NODE_SAMPLE_API_TOKEN}",
+          "source": "broker:generate",
           "operation": "create",
-          "required": false
+          "required": true
         }
       ]
     },
@@ -108,8 +139,8 @@
       {
         "namespace": "services/node-sample-service",
         "ref": "sample.GENERATED_TOKEN",
-        "source": "${NODE_SAMPLE_API_TOKEN}",
-        "required": false
+        "source": "broker:generate",
+        "required": true
       }
     ]
   }

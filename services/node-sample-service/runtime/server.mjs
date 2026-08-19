@@ -21,6 +21,36 @@ function sanitizeMessage(value) {
   return (stripped || fallback).slice(0, 120);
 }
 
+/**
+ * Build a metadata-only secret diagnostic. Full values are never returned.
+ *
+ * @param {string | undefined} value
+ * @returns {{ present: boolean, length: number, last4: string | null }}
+ */
+function secretDiagnostic(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return { present: false, length: 0, last4: null };
+  }
+  return {
+    present: true,
+    length: value.length,
+    last4: value.length >= 4 ? value.slice(-4) : value,
+  };
+}
+
+/**
+ * Non-secret public settings the operator can update without Broker.
+ *
+ * @returns {{ publicLabel: string, featureFlag: string, publicUrl: string }}
+ */
+function nonSecretSettings() {
+  return {
+    publicLabel: process.env.NODE_SAMPLE_PUBLIC_LABEL ?? "node-sample",
+    featureFlag: process.env.NODE_SAMPLE_FEATURE_FLAG ?? "rotation-fixture",
+    publicUrl: process.env.NODE_SAMPLE_PUBLIC_URL ?? `http://127.0.0.1:${port}/`,
+  };
+}
+
 function emitStdout(message) {
   counters.stdout += 1;
   console.log(`${serviceId} ${message}`);
@@ -43,6 +73,8 @@ async function writeProviderEnvSnapshot() {
         NODE_ENV: process.env.NODE_ENV ?? null,
         SERVICE_PORT: process.env.SERVICE_PORT ?? null,
         NODE_SAMPLE_PORT: process.env.NODE_SAMPLE_PORT ?? null,
+        NODE_SAMPLE_PUBLIC_LABEL: process.env.NODE_SAMPLE_PUBLIC_LABEL ?? null,
+        NODE_SAMPLE_FEATURE_FLAG: process.env.NODE_SAMPLE_FEATURE_FLAG ?? null,
         pid: process.pid,
         port: server?.address() && typeof server.address() === "object" ? server.address().port : port,
         startedAt,
@@ -80,6 +112,19 @@ function handleRequest(request, response) {
       ok: true,
       serviceId,
       uptimeMs: Math.max(0, Math.round(process.uptime() * 1000)),
+      rawMaterialReturned: false,
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/diagnostics") {
+    sendJson(response, 200, {
+      serviceId,
+      nonSecrets: nonSecretSettings(),
+      secrets: {
+        apiToken: secretDiagnostic(process.env.NODE_SAMPLE_API_TOKEN),
+        generatedToken: secretDiagnostic(process.env.NODE_SAMPLE_GENERATED_TOKEN),
+      },
       rawMaterialReturned: false,
     });
     return;
