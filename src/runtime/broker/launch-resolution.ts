@@ -65,12 +65,27 @@ export type ServiceStartupBrokerGeneratedSecretKind =
   | "token"
   | "secret";
 
+export type ServiceStartupBrokerGenerationMode = "broker_generated" | "caller_provided";
+
+/** Manifest source marker for Broker-owned first-run generation (not a local selector). */
+export const BROKER_GENERATE_SOURCE = "broker:generate";
+
+/**
+ * True when a generated-secret source asks Broker to create the value.
+ *
+ * @param source Manifest `broker.writeback.generatedSecrets[].source`
+ */
+export function isBrokerGeneratedSecretSource(source: string): boolean {
+  return source.trim() === BROKER_GENERATE_SOURCE;
+}
+
 export interface ServiceStartupBrokerGeneratedSecretPlan {
   namespace: string | null;
   ref: string;
   operation: ServiceBrokerWritebackOperation;
   required: boolean;
   sourceRefs: string[];
+  generationMode: ServiceStartupBrokerGenerationMode;
   valuePolicy: {
     kind: ServiceStartupBrokerGeneratedSecretKind;
     bytes: number;
@@ -221,6 +236,7 @@ export function compileServiceStartupBrokerPlan(
       operation: entry.operation ?? "create",
       required: entry.required === true || exportEntry?.required === true,
       sourceRefs: unique(sourcePlan.selectors.map((selector) => selector.selector)),
+      generationMode: isBrokerGeneratedSecretSource(entry.source) ? "broker_generated" : "caller_provided",
       valuePolicy: generatedSecretPolicy(entry.ref, entry.source),
       overwrite: writeback?.allowOverwrite === true ? "allow" : "deny",
       auditReason: writeback?.auditReason ?? null,
@@ -238,6 +254,7 @@ export function compileServiceStartupBrokerPlan(
           ref: entry.ref,
           operation: entry.operation,
           required: entry.required,
+          generationMode: entry.generationMode,
           sourceRefs: entry.sourceRefs,
         })),
       ),

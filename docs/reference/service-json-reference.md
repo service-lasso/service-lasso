@@ -692,7 +692,7 @@ Fields:
 - `writeback.auditReason`: optional non-empty operator/audit reason attached to generated-secret capture.
 - `writeback.generatedSecrets`: optional array declaring generated values that may be captured from service-local variables and written back through the broker.
 - `writeback.generatedSecrets[].ref`: dotted broker ref that must also have a matching `exports[].ref`.
-- `writeback.generatedSecrets[].source`: local selector or literal source, for example `${API_TOKEN}`. Sources are resolved from service-local variables; raw secret values must not be logged.
+- `writeback.generatedSecrets[].source`: local selector such as `${API_TOKEN}` for caller-provided writeback, or `broker:generate` when first-run onboard should ask Secrets Broker to create the value. Sources are never logged as raw secret values.
 - `writeback.generatedSecrets[].operation`: optional operation for this capture: `create`, `update`, `rotate`, or `delete`.
 - `writeback.generatedSecrets[].required`: optional boolean; required captures should fail closed when the source cannot be resolved.
 

@@ -62,6 +62,8 @@ export interface SecretsBrokerLaunchLeaseCommand {
 
 export interface SecretsBrokerLaunchLeaseIssuer {
   command: SecretsBrokerLaunchLeaseCommand;
+  /** Test seam: skip the broker CLI and return this signed-lease-shaped object. */
+  cannedLease?: unknown;
   workspaceId?: string;
 }
 
@@ -244,6 +246,10 @@ async function issueLaunchLease(
   metadata: ScopedBrokerIdentityMetadata,
   issuer: SecretsBrokerLaunchLeaseIssuer | undefined,
 ): Promise<unknown | null> {
+  if (issuer?.cannedLease !== undefined) {
+    return issuer.cannedLease;
+  }
+
   if (!issuer?.command.command) {
     return null;
   }
