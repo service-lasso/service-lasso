@@ -58,6 +58,10 @@
       "interval": 250
     }
   ],
+  "stdin": {
+    "enabled": true,
+    "provider": "direct"
+  },
   "broker": {
     "enabled": true,
     "namespace": "services/node-sample-service",

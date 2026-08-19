@@ -56,6 +56,7 @@ import {
   searchServiceLogs,
   type ServiceLogReadType,
 } from "../runtime/operator/logs.js";
+import { buildServiceStdinCapability, MAX_STDIN_INPUT_LENGTH } from "../runtime/operator/stdin.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import {
   buildAppServiceImportDryRunPlan,
@@ -164,7 +165,7 @@ import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { ProviderNotReadyError, resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
-import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { stopAllManagedProcesses, writeManagedProcessStdin } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import {
   bootstrapBaselineServices,
@@ -683,6 +684,43 @@ function getAuditActor(input: unknown): string {
 
   const actor = (input as Record<string, unknown>).actor;
   return typeof actor === "string" && actor.trim().length > 0 ? actor.trim() : "unknown";
+}
+
+function parseStdinWriteBody(body: unknown): { input: string; actor: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError("invalid_body", 400, "Stdin write body must be a JSON object.");
+  }
+
+  const record = body as Record<string, unknown>;
+  if (record.stream !== undefined && record.stream !== "stdin") {
+    throw new ApiError("invalid_body", 400, '"stream" must be "stdin" when present.');
+  }
+
+  if (typeof record.input !== "string") {
+    throw new ApiError("invalid_body", 400, '"input" must be a string.');
+  }
+
+  const input = record.input;
+  if (input.trim().length === 0) {
+    throw new ApiError("invalid_body", 400, '"input" must be a non-empty string.');
+  }
+
+  if (input.length > MAX_STDIN_INPUT_LENGTH) {
+    throw new ApiError(
+      "invalid_body",
+      400,
+      `"input" must be at most ${String(MAX_STDIN_INPUT_LENGTH)} characters.`,
+    );
+  }
+
+  if (input.includes("\0")) {
+    throw new ApiError("invalid_body", 400, '"input" must not contain null bytes.');
+  }
+
+  return {
+    input,
+    actor: getAuditActor(body),
+  };
 }
 
 function redactAuditText(value: string): string {
@@ -3400,7 +3438,17 @@ async function routeRequest(
     writeJson(
       response,
       200,
-      createServiceLogInfoResponse(await buildServiceLogInfo(service, type, getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current")),
+      createServiceLogInfoResponse({
+        ...(await buildServiceLogInfo(
+          service,
+          type,
+          getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current",
+        )),
+        stdin: buildServiceStdinCapability(service),
+        capabilities: {
+          stdin: buildServiceStdinCapability(service),
+        },
+      }),
     );
     return;
   }
@@ -4117,6 +4165,92 @@ async function routeRequest(
           await createServiceSummary(service, runtimeModel.graph, runtimeModel.registry, sharedGlobalEnv),
         ),
       );
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 4 && pathParts[3] === "stdin") {
+      const stdinCapability = buildServiceStdinCapability(service);
+      const requestBody = await readJsonBody(request);
+      const parsed = parseStdinWriteBody(requestBody);
+      const actor = safeAuditText(parsed.actor, "unknown") ?? "unknown";
+
+      if (!stdinCapability.available) {
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.stdin.write",
+          actor,
+          subject: "service-stdin",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/{serviceId}/stdin",
+          outcome: "failure",
+          statusCode: 409,
+          summary: `Rejected stdin write for service "${serviceId}" because no safe stdin channel is available.`,
+          reason: stdinCapability.reason ?? "stdin_unavailable",
+          metadata: {
+            byteLength: Buffer.byteLength(parsed.input, "utf8"),
+            policy: stdinCapability.policy ?? "unavailable",
+            provider: stdinCapability.provider ?? null,
+          },
+        });
+        throw new ApiError("stdin_unavailable", 409, stdinCapability.reason ?? "No safe stdin channel is advertised.");
+      }
+
+      const writeResult = await writeManagedProcessStdin(service.manifest.id, parsed.input);
+      if (!writeResult.ok) {
+        const statusCode = writeResult.code === "not_running" ? 409 : writeResult.code === "no_pipe" ? 409 : 500;
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.stdin.write",
+          actor,
+          subject: "service-stdin",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/{serviceId}/stdin",
+          outcome: "failure",
+          statusCode,
+          summary: `Rejected stdin write for service "${serviceId}".`,
+          reason: writeResult.code,
+          metadata: {
+            byteLength: Buffer.byteLength(parsed.input, "utf8"),
+            policy: stdinCapability.policy ?? "allowed",
+            provider: stdinCapability.provider ?? "direct",
+          },
+        });
+        throw new ApiError("stdin_write_failed", statusCode, writeResult.message);
+      }
+
+      const audit = await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        serviceRoot: service.serviceRoot,
+        source: "runtime-api",
+        action: "service.stdin.write",
+        actor,
+        subject: "service-stdin",
+        serviceId,
+        method: "POST",
+        routeTemplate: "/api/services/{serviceId}/stdin",
+        outcome: "success",
+        statusCode: 200,
+        summary: `Accepted stdin write for service "${serviceId}" (${String(writeResult.byteLength)} bytes).`,
+        metadata: {
+          byteLength: writeResult.byteLength,
+          newlineAppended: writeResult.newlineAppended,
+          policy: "allowed",
+          provider: stdinCapability.provider ?? "direct",
+        },
+      });
+
+      writeJson(response, 200, {
+        serviceId: service.manifest.id,
+        accepted: true,
+        auditId: audit.id,
+        message: "Input accepted by runtime stdin.",
+      });
       return;
     }
 

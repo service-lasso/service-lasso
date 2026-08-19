@@ -13,7 +13,31 @@ Service Lasso exposes runtime-owned service logs through bounded read and search
 GET /api/services/log-info?service=<serviceId>&type=default
 ~~~
 
-Returns the current combined runtime log path and the supported log types for a service. The only supported type is default, which maps to logs/runtime/service.log.
+Returns the current combined runtime log path, supported log types, declared/discovered sources, and the fail-closed stdin advertisement for Terminal. `type=combined` is an alias for `default` (logs/runtime/service.log).
+
+`stdin` and `capabilities.stdin` are the same object. `available` is true only when `service.json` opts in with `stdin.enabled` and the live managed process still has a writable stdin pipe. Services that do not opt in, adopted processes, and ignored stdio stay `available: false`.
+
+## Safe stdin write
+
+~~~text
+POST /api/services/<serviceId>/stdin
+~~~
+
+Writes one bounded UTF-8 line to the managed process stdin pipe. This is not a PTY or shell. The body is:
+
+~~~json
+{
+  "input": "ping",
+  "stream": "stdin",
+  "actor": "service-admin-web"
+}
+~~~
+
+`input` must be a non-empty string of at most 2048 characters and must not contain null bytes. `stream`, when present, must be `stdin`. The runtime appends a trailing newline when the caller omits one.
+
+The response is `{ serviceId, accepted, auditId, message }`. Audit records byte length and outcome only; raw stdin, tokens, and secret values are never stored.
+
+`node-sample-service` opts in and accepts documented commands: `help`, `ping`, `status`, and `emit <message>`.
 
 ## Paged reads
 

@@ -190,6 +190,7 @@ process.on("SIGINT", () => void shutdown());
 if (!process.stdin.isTTY) {
   const input = readline.createInterface({ input: process.stdin });
   input.on("line", handleCommand);
+  emitStdout("stdin ready commands=help,ping,status,emit");
 }
 
 emitStdout("starting");

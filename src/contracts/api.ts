@@ -1239,6 +1239,21 @@ export interface ServiceMetricsResponse {
   };
 }
 
+export interface ServiceStdinCapabilityResponse {
+  available: boolean;
+  reason?: string;
+  auditRequired?: boolean;
+  policy?: "allowed" | "denied" | "unavailable";
+  provider?: string;
+}
+
+export interface ServiceStdinWriteResponse {
+  serviceId: string;
+  accepted: boolean;
+  auditId?: string;
+  message?: string;
+}
+
 export interface ServiceLogInfoResponse {
   serviceId: string;
   type: "default" | "stdout" | "stderr";
@@ -1246,6 +1261,10 @@ export interface ServiceLogInfoResponse {
   available: boolean;
   availableTypes: Array<"default" | "stdout" | "stderr">;
   sources: ServiceLogSourceResponse[];
+  stdin: ServiceStdinCapabilityResponse;
+  capabilities: {
+    stdin: ServiceStdinCapabilityResponse;
+  };
 }
 
 export interface ServiceLogChunkResponse {
