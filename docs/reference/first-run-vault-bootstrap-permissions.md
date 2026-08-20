@@ -218,6 +218,14 @@ Roles are workspace-scoped bundles of entitlements. Core entitlements include:
 Permission checks must fail closed when the actor, workspace, role mapping,
 entitlement, service identity, or target state is missing or inactive.
 
+Durable HTTP routes resolve the actor from the trusted request-policy identity
+(`local-root`, `local-token`, or `zitadel-user`). JSON bodies may carry
+workflow metadata, but they must not supply actor authority. Unmapped ZITADEL
+actors authenticate for reads when identity is proven, then fail closed for
+mutating action runs until workspace grant mapping is applied. In-process
+system and service-account callers pass an explicit permission actor; HTTP
+cannot spoof those kinds.
+
 Dangerous or elevated actions need confirmation even when the actor has a base
 entitlement. Examples include service restart, destructive config apply,
 restore, migration, vault rotation, provider disconnect, or service import. The

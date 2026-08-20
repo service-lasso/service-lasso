@@ -204,7 +204,7 @@ import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
-import { enforcePermission } from "../runtime/permissions/enforcement.js";
+import { enforcePermission, permissionActorFromRuntimeAuth } from "../runtime/permissions/enforcement.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
 import {
@@ -3926,12 +3926,13 @@ async function routeRequest(
       if (!actionDefinition) {
         throw new ApiError("unknown_action", 404, `Unknown action "${actionId}" for service "${service.manifest.id}".`);
       }
-      let auditActor = getAuditActor(requestBody);
+      const trustedActor = permissionActorFromRuntimeAuth(auth);
+      let auditActor = trustedActor.id;
       try {
         const permission = await enforcePermission({
           serviceRoot: service.serviceRoot,
           serviceId,
-          actor: runRequest.actor,
+          actor: trustedActor,
           permission: "service.action.run",
           sensitive: actionDefinition.requiresConfirmation === true,
           confirmed: runRequest.confirm,
@@ -3940,6 +3941,7 @@ async function routeRequest(
           subject: actionId,
         });
         auditActor = permission.actor.id;
+        runRequest.actor = permission.actor;
         const payload: ServiceActionRunResponse = await runServiceAction(
           service,
           runtimeModel.registry,

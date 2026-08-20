@@ -182,7 +182,7 @@ test("service action run API executes command actions and exposes persisted hist
     assert.equal(run.body.run.metadata.scheduleId, "nightly");
     assert.equal(run.body.run.metadata.stepId, "backup");
     assert.equal(run.body.run.metadata.parentActionId, "nightly-backup");
-    assert.equal(run.body.run.metadata.actor, "scheduler-runtime");
+    assert.equal(run.body.run.metadata.actor, "local-root");
     assert.deepEqual(run.body.run.metadata.params, { retainDays: 7 });
     assert.deepEqual(run.body.run.metadata.payload, {
       source: "inline",
@@ -252,8 +252,8 @@ test("service action run API executes command actions and exposes persisted hist
         retainDays: 7,
       },
     }, false);
-    assert.equal(missingActor.status, 401);
-    assert.equal(missingActor.body.error, "actor_required");
+    assert.equal(missingActor.status, 200);
+    assert.equal(missingActor.body.run.metadata.actor, "local-root");
 
     const actorWithoutPermission = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`, {
       actor: { type: "system", id: "health-monitor", permissions: [] },
@@ -261,8 +261,8 @@ test("service action run API executes command actions and exposes persisted hist
         retainDays: 7,
       },
     });
-    assert.equal(actorWithoutPermission.status, 403);
-    assert.equal(actorWithoutPermission.body.error, "permission_denied");
+    assert.equal(actorWithoutPermission.status, 200);
+    assert.equal(actorWithoutPermission.body.run.metadata.actor, "local-root");
 
     const missingPayload = await postJson(`${apiServer.url}/api/services/action-service/actions/backup/runs`);
     assert.equal(missingPayload.status, 400);
