@@ -53,6 +53,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Service lifecycle work should converge on explicit actions such as install, config, start, stop, and health/status reporting.
 - Dependency, env, and health semantics should remain explicit and reviewable through docs/specs as implementation hardens.
 - Product implementation should proceed through bounded specs/issues rather than undocumented chat intent.
+- Loopback operators authenticate as `local-root` without a password. Remote operators prove a Lasso-local token or credential (or later SSO). `FORCE_SSO` in Broker KV cannot disable loopback break-glass.
 
 ## Verification Expectations
 Core product work should be verified with direct runnable evidence, not only documentation updates.

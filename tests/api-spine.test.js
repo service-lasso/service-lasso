@@ -387,6 +387,59 @@ test("remote API requests can authenticate with an explicit local admin token", 
   }
 });
 
+test("Admin proxy original-client header treats LAN as remote without TRUST_PROXY_HEADERS", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-forwarded-lan-"));
+  await ensureLocalVaultMarker(tempDir);
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousLocalToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = "test-local-admin-token";
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "auth-forwarded-lan-test",
+  });
+
+  try {
+    const denied = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-client-address": "192.168.1.40",
+    });
+    assert.equal(denied.status, 200);
+    assert.equal(denied.body.auth.request.local, false);
+    assert.equal(denied.body.auth.actor.authenticated, false);
+
+    const login = await postJson(`${apiServer.url}/api/runtime/auth/local`, {
+      method: "token",
+      token: "test-local-admin-token",
+    });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.session.kind, "local-token");
+    assert.equal(typeof login.body.session.token, "string");
+    const sessionToken = login.body.session.token;
+    assert.equal(sessionToken.includes("test-local-admin-token"), false);
+
+    const authed = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-client-address": "192.168.1.40",
+      authorization: `Bearer ${sessionToken}`,
+    });
+    assert.equal(authed.body.auth.actor.kind, "local-token");
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousTrustProxy === undefined) {
+      delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    } else {
+      process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    }
+    if (previousLocalToken === undefined) {
+      delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalToken;
+    }
+  }
+});
+
 test("remote API requests can resolve a Zitadel-authenticated actor", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-zitadel-"));
   await ensureLocalVaultMarker(tempDir);

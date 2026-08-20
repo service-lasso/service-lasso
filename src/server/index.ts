@@ -91,6 +91,8 @@ import {
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { resolveRuntimeRequestAuth, type RuntimeAuthPolicyStatus } from "../runtime/auth/request-policy.js";
+import { ensureLocalOperatorAuth, loadLocalAuthMaterial } from "../runtime/auth/local-operator-onboard.js";
+import { parseLocalAuthValidateInput, validateLocalAuth } from "../runtime/auth/local-auth-validate.js";
 import {
   bootstrapLocalVault,
   isSetupBootstrapAllowed,
@@ -761,6 +763,7 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
   if (method === "GET" && pathname === "/api/security") return true;
   if (method === "GET" && pathname === "/api/setup/status") return true;
   if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
+  if (method === "POST" && pathname === "/api/runtime/auth/local") return true;
   return false;
 }
 
@@ -785,12 +788,17 @@ async function rejectUnauthorizedRemoteRequest(
       bindHost: auth.policy.bindHost,
       zitadelEnabled: auth.policy.zitadelEnabled,
       localTokenConfigured: auth.policy.localTokenConfigured,
+      forceSso: auth.policy.forceSso,
     },
   });
+  const message =
+    auth.blockers.includes("force_sso_required")
+      ? "Remote Service Lasso API access requires SSO because FORCE_SSO is enabled."
+      : "Remote Service Lasso API access requires Zitadel authentication or an explicit local operator proof.";
   throw new ApiError(
-    "remote_auth_required",
+    auth.blockers[0] ?? "remote_auth_required",
     401,
-    "Remote Service Lasso API access requires Zitadel authentication or an explicit local admin token.",
+    message,
   );
 }
 
@@ -2441,7 +2449,14 @@ async function routeRequest(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   const method = request.method ?? "GET";
-  const auth = resolveRuntimeRequestAuth(request, { bindHost: config.bindHost });
+  const localAuth = await loadLocalAuthMaterial({ workspaceRoot: config.workspaceRoot });
+  const auth = resolveRuntimeRequestAuth(request, {
+    bindHost: config.bindHost,
+    forceSso: localAuth.forceSso,
+    localTokenConfigured: localAuth.localTokenConfigured,
+    localOperatorConfigured: localAuth.localOperatorConfigured,
+    verifyLocalSecret: localAuth.verifyLocalSecret,
+  });
   if (!isUnauthenticatedRuntimeRoute(method, url.pathname) && auth.policy.remoteAuthRequired && !auth.actor.authenticated) {
     await rejectUnauthorizedRemoteRequest(request, config, auth);
   }
@@ -4340,6 +4355,65 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/runtime/auth/local") {
+    const parsed = parseLocalAuthValidateInput(await readJsonBody(request));
+    if (typeof parsed === "string") {
+      throw new ApiError("invalid_request", 400, parsed);
+    }
+    const result = validateLocalAuth(parsed, localAuth, {
+      clientAddress: auth.request.clientAddress,
+      forceSso: localAuth.forceSso,
+      local: auth.request.local,
+    });
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime-api",
+      action: result.ok ? "auth.local.accepted" : "auth.local.denied",
+      actor: result.ok ? "local-operator" : "unauthenticated",
+      method: "POST",
+      routeTemplate: "/api/runtime/auth/local",
+      outcome: result.ok ? "success" : "failure",
+      statusCode: result.ok ? 200 : result.statusCode,
+      summary: result.ok
+        ? "Local operator authentication succeeded."
+        : "Local operator authentication was rejected.",
+      reason: result.ok ? "local_auth_accepted" : result.error,
+      metadata: {
+        method: parsed.method,
+        clientAddress: auth.request.clientAddress,
+        forceSso: localAuth.forceSso,
+      },
+    });
+    if (!result.ok) {
+      throw new ApiError(
+        result.error,
+        result.statusCode,
+        result.error === "force_sso_required"
+          ? "Remote local login is disabled because FORCE_SSO is enabled."
+          : result.error === "local_auth_rate_limited"
+            ? "Too many remote local-login attempts. Retry later or use loopback break-glass."
+            : "Local operator authentication was rejected.",
+      );
+    }
+    writeJson(response, 200, {
+      auth: {
+        ...createRuntimeAuthResponse(auth).auth,
+        actor: {
+          authenticated: true,
+          kind: "local-token",
+          actorId: "local-admin-token",
+        },
+        mode: "local-token",
+        blockers: [],
+      },
+      session: {
+        kind: "local-token",
+        token: result.sessionToken,
+      },
+    });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/security") {
     writeJson(response, 200, {
       security: createRuntimeAuthResponse(auth),
@@ -5064,6 +5138,10 @@ async function startApiServerGeneration(
     adoptServiceIds: recovery.adoptServiceIds,
     excludeAdoptServiceIds: recovery.committedServiceAdoptionIds,
   });
+  void ensureLocalOperatorAuth({
+    workspaceRoot: config.workspaceRoot,
+    servicesRoot: config.servicesRoot,
+  }).catch(() => undefined);
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
   const bindRetryLimit = runtimeBindRetryLimit();
