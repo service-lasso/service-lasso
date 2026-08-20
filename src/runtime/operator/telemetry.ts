@@ -873,6 +873,14 @@ export function classifyTelemetryRoute(pathname: string): {
 
     const leaf = parts[3];
     const child = parts[4];
+    if (leaf === "stdin") {
+      return {
+        routeGroup: "services",
+        routeTemplate: "/api/services/{serviceId}/stdin",
+        mutating: true,
+      };
+    }
+
     const leafTemplates: Record<string, string> = {
       "config-drift": "/api/services/{serviceId}/config-drift",
       health: child === "history" ? "/api/services/{serviceId}/health/history" : "/api/services/{serviceId}/health",
@@ -961,12 +969,14 @@ export function classifyTelemetryRoute(pathname: string): {
     "dependencies",
     "diagnostics",
     "globalenv",
+    "inbox",
     "logs",
     "metrics",
     "mcp",
     "network",
     "operator",
     "secrets",
+    "security",
     "updates",
     "variables",
     "workflows",

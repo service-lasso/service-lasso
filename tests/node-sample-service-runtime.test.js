@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
+import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
 function waitForLine(lines, matcher, timeoutMs = 2_000) {
   const existing = lines.find((line) => matcher.test(line));
@@ -64,6 +65,8 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
       NODE_SAMPLE_PORT: "0",
       NODE_SAMPLE_HEARTBEAT_MS: "1000",
       NODE_SAMPLE_ENV_PATH: "./.state/provider-env.json",
+      NODE_SAMPLE_FEATURE_FLAG: "rotation-fixture",
+      NODE_SAMPLE_GENERATED_TOKEN: "kv-sentinel-alpha",
       SERVICE_PORT: "0",
     },
     stdio: ["pipe", "pipe", "pipe"],
@@ -85,6 +88,16 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
     assert.equal(health.status, 200);
     assert.equal((await health.json()).rawMaterialReturned, false);
 
+    const diagnostics = await fetch(`http://127.0.0.1:${port}/diagnostics`);
+    assert.equal(diagnostics.status, 200);
+    const diagnosticBody = await diagnostics.json();
+    assert.equal(diagnosticBody.nonSecrets.featureFlag, "rotation-fixture");
+    assert.equal(diagnosticBody.secrets.apiToken.present, false);
+    assert.equal(diagnosticBody.secrets.generatedToken.present, true);
+    assert.equal(diagnosticBody.secrets.generatedToken.last4, "lpha");
+    assert.equal(diagnosticBody.rawMaterialReturned, false);
+    assert.equal(JSON.stringify(diagnosticBody).includes("kv-sentinel-alpha"), false);
+
     const logResponse = await fetch(`http://127.0.0.1:${port}/demo/log?message=${encodeURIComponent("alpha\nsecret-looking")}`);
     assert.equal(logResponse.status, 200);
     assert.equal((await logResponse.json()).message, "alpha secret-looking");
@@ -97,6 +110,7 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
 
     child.stdin.write("ping\n");
     assert.match(await waitForLine(stdout, /command pong/), /command pong/);
+    assert.match(await waitForLine(stdout, /stdin ready commands=help,ping,status,emit/), /stdin ready/);
     assert.match(await waitForLine(stdout, /heartbeat count=1 uptimeMs=/, 2_500), /heartbeat count=1/);
 
     const snapshot = await waitFor(async () => {
@@ -114,6 +128,7 @@ test("node sample service emits safe stdout, stderr, health, and metadata snapsh
     assert.ok(snapshot.outputCounters.stdout >= 4);
     assert.equal(JSON.stringify(snapshot).includes("alpha"), false);
     assert.equal(JSON.stringify(snapshot).includes("beta"), false);
+    assert.equal(JSON.stringify(snapshot).includes("kv-sentinel-alpha"), false);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("close", resolve));
@@ -150,9 +165,12 @@ async function writeManifest(servicesRoot, serviceId, manifest) {
 }
 
 test("runtime log API captures node sample normal and error validation output", async () => {
+  resetLifecycleState();
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "node-sample-runtime-api-"));
   const servicesRoot = path.join(tempRoot, "services");
+  const workspaceRoot = path.join(tempRoot, "workspace");
   await mkdir(servicesRoot, { recursive: true });
+  await mkdir(workspaceRoot, { recursive: true });
 
   try {
     await writeManifest(servicesRoot, "@node", {
@@ -178,6 +196,10 @@ test("runtime log API captures node sample normal and error validation output", 
         NODE_SAMPLE_HEARTBEAT_MS: "1000",
         NODE_SAMPLE_PORT: "${SERVICE_PORT}",
       },
+      stdin: {
+        enabled: true,
+        provider: "direct",
+      },
       ports: {
         service: 0,
       },
@@ -192,7 +214,7 @@ test("runtime log API captures node sample normal and error validation output", 
       "utf8",
     );
 
-    const apiServer = await startApiServer({ port: 0, servicesRoot });
+    const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
     try {
       await postJson(`${apiServer.url}/api/services/@node/install`);
@@ -229,6 +251,78 @@ test("runtime log API captures node sample normal and error validation output", 
       assert.equal(logs.serviceId, "node-sample-service");
       assert.equal(JSON.stringify(logs).includes("ACTUAL_SECRET"), false);
 
+      const infoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=node-sample-service&type=combined`);
+      const infoBody = await infoResponse.json();
+      assert.equal(infoResponse.status, 200);
+      assert.equal(infoBody.stdin.available, true);
+      assert.equal(infoBody.stdin.provider, "direct");
+      assert.equal(infoBody.stdin.policy, "allowed");
+      assert.equal(infoBody.capabilities.stdin.available, true);
+
+      const nodeInfoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=%40node&type=default`);
+      const nodeInfoBody = await nodeInfoResponse.json();
+      assert.equal(nodeInfoResponse.status, 200);
+      assert.equal(nodeInfoBody.stdin.available, false);
+      assert.match(nodeInfoBody.stdin.reason, /has not advertised a safe stdin channel/i);
+
+      const deniedStdin = await fetch(`${apiServer.url}/api/services/%40node/stdin`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          input: "ping",
+          stream: "stdin",
+          actor: "service-admin-web",
+        }),
+      });
+      const deniedBody = await deniedStdin.json();
+      assert.equal(deniedStdin.status, 409);
+      assert.equal(JSON.stringify(deniedBody).includes("ping"), false);
+
+      const stdinWrite = await fetch(`${apiServer.url}/api/services/node-sample-service/stdin`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          input: "ping",
+          stream: "stdin",
+          actor: "service-admin-web",
+        }),
+      });
+      const stdinBody = await stdinWrite.json();
+      assert.equal(stdinWrite.status, 200);
+      assert.equal(stdinBody.accepted, true);
+      assert.equal(typeof stdinBody.auditId, "string");
+      assert.match(stdinBody.message, /accepted/i);
+      assert.equal(JSON.stringify(stdinBody).includes("ping"), false);
+
+      const emitWrite = await fetch(`${apiServer.url}/api/services/node-sample-service/stdin`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          input: "emit unique-stdin-token",
+          stream: "stdin",
+          actor: "service-admin-web",
+        }),
+      });
+      assert.equal(emitWrite.status, 200);
+
+      await waitFor(async () => {
+        const response = await fetch(`${apiServer.url}/api/logs/read?service=node-sample-service&type=combined&limit=200`);
+        const body = await response.json();
+        const messages = (body.entries ?? []).map((entry) => entry.message).join("\n");
+        if (messages.includes("command pong") && messages.includes('command emit message="unique-stdin-token"')) {
+          return body;
+        }
+        return null;
+      }, 4_000);
+
+      const auditResponse = await fetch(`${apiServer.url}/api/services/node-sample-service/audit?limit=50`);
+      if (auditResponse.ok) {
+        const auditBody = await auditResponse.json();
+        const auditText = JSON.stringify(auditBody);
+        assert.equal(auditText.includes("unique-stdin-token"), false);
+        assert.equal(auditText.includes("emit unique-stdin-token"), false);
+      }
+
       const snapshot = JSON.parse(await readFile(path.join(serviceRoot, ".state", "provider-env.json"), "utf8"));
       assert.equal(snapshot.outputCounters.stderr, 1);
     } finally {
@@ -236,6 +330,7 @@ test("runtime log API captures node sample normal and error validation output", 
       await apiServer.stop();
     }
   } finally {
+    resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

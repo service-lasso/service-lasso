@@ -47,10 +47,13 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Key Behaviors
 - The core runtime should discover canonical `service.json` manifests and treat them as operational contract files, not passive metadata.
+- First-run service start may generate missing declared Broker-produced secrets once; manifest discovery must not write KV.
+- `node-sample-service` is the tracked rotation/update fixture for non-secret env plus optional consumer and generated producer secrets.
 - The core runtime should expose a standalone execution surface independent of any app-host-specific assumptions.
 - Service lifecycle work should converge on explicit actions such as install, config, start, stop, and health/status reporting.
 - Dependency, env, and health semantics should remain explicit and reviewable through docs/specs as implementation hardens.
 - Product implementation should proceed through bounded specs/issues rather than undocumented chat intent.
+- Loopback operators authenticate as `local-root` without a password, and may still use Lasso-local password, vault token, or SSO/ZITADEL when configured. `FORCE_SSO` in Broker KV applies only to remote origins and cannot disable loopback methods.
 
 ## Verification Expectations
 Core product work should be verified with direct runnable evidence, not only documentation updates.

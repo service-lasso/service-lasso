@@ -365,14 +365,16 @@ export async function buildDashboardService(
     service.manifest.execservice ??
     service.manifest.executable ??
     "direct";
-  const runtimeHealth = {
+  const runtimeHealth: DashboardServiceResponse["runtimeHealth"] = {
     state: status,
     health: mapRuntimeHealth(status),
     uptime: formatDuration(calculateRunDurationMs(lifecycle, nowIso)),
     lastCheckAt: nowIso,
     lastRestartAt: lifecycle.runtime.startedAt,
     summary: health.detail,
-  } as DashboardServiceResponse["runtimeHealth"];
+    pid: lifecycle.runtime.pid,
+    runId: lifecycle.runtime.logs.runId,
+  };
 
   const dashboardService: DashboardServiceResponse = {
     id: service.manifest.id,
@@ -427,6 +429,42 @@ export async function buildDashboardService(
   return dashboardService;
 }
 
+/**
+ * Builds the update-notification card payload expected by packaged Service Admin.
+ *
+ * @returns Empty counts and messages until per-service update state is joined into dashboard rows.
+ */
+export function buildDashboardUpdateNotifications(): DashboardSummaryResponse["summary"]["updateNotifications"] {
+  return {
+    latestCount: 0,
+    availableCount: 0,
+    downloadedCount: 0,
+    deferredCount: 0,
+    failedCount: 0,
+    messages: [],
+  };
+}
+
+/**
+ * Builds the recovery-notification card payload expected by packaged Service Admin.
+ *
+ * @returns Empty counts and messages until per-service recovery events are joined into dashboard rows.
+ */
+export function buildDashboardRecoveryNotifications(): DashboardSummaryResponse["summary"]["recoveryNotifications"] {
+  return {
+    monitorAttentionCount: 0,
+    doctorBlockedCount: 0,
+    hookBlockedCount: 0,
+    restartFailureCount: 0,
+    messages: [],
+  };
+}
+
+/**
+ * Builds the operator dashboard summary used by Service Admin.
+ * Runtime health warnings are operational only (`AC-4O.2`): empty favorites
+ * stay a preference grouping, not a warning that forces `runtime.status`.
+ */
 export function buildDashboardSummary(
   services: DashboardServiceResponse[],
   nowIso = new Date().toISOString(),
@@ -434,6 +472,8 @@ export function buildDashboardSummary(
   const favorites = services.filter((service) => service.favorite);
   const others = services.filter((service) => !service.favorite);
   const warnings: string[] = [];
+  const updateNotifications = buildDashboardUpdateNotifications();
+  const recoveryNotifications = buildDashboardRecoveryNotifications();
 
   if (services.some((service) => service.status === "degraded")) {
     warnings.push("One or more services are degraded and need attention.");
@@ -441,10 +481,6 @@ export function buildDashboardSummary(
 
   if (services.some((service) => service.status === "stopped")) {
     warnings.push("At least one managed service is currently stopped.");
-  }
-
-  if (favorites.length === 0) {
-    warnings.push("No favorite services are configured for quick access.");
   }
 
   return {
@@ -466,5 +502,7 @@ export function buildDashboardSummary(
     problemServices: services.filter(
       (service) => service.status !== "running" && service.status !== "available",
     ),
+    updateNotifications,
+    recoveryNotifications,
   };
 }

@@ -77,6 +77,14 @@ export interface RuntimeAuthStatusResponse {
       trustProxyHeaders: boolean;
       zitadelEnabled: boolean;
       localTokenConfigured: boolean;
+      localOperatorConfigured: boolean;
+      forceSso: boolean;
+      identityProviders: Array<{
+        id: string;
+        label: string;
+        kind: "zitadel";
+        startUrl: string | null;
+      }>;
     };
     actor: {
       authenticated: boolean;
@@ -85,6 +93,14 @@ export interface RuntimeAuthStatusResponse {
     };
     mode: "local-root" | "zitadel" | "local-token" | "blocked";
     blockers: string[];
+  };
+}
+
+export interface RuntimeLocalAuthResponse {
+  auth: RuntimeAuthStatusResponse["auth"];
+  session: {
+    kind: "local-token";
+    token: string;
   };
 }
 
@@ -779,6 +795,10 @@ export interface DashboardRuntimeHealthResponse {
   lastCheckAt: string;
   lastRestartAt?: string | null;
   summary: string;
+  /** Persisted managed-process id, or null when no process is recorded. */
+  pid: number | null;
+  /** Current runtime log run id, or null when no run is recorded. */
+  runId: string | null;
 }
 
 export interface DashboardEndpointResponse {
@@ -862,6 +882,29 @@ export interface DashboardServiceResponse {
   actions: DashboardActionResponse[];
 }
 
+/**
+ * Packaged Service Admin dashboard cards read `messages` and crash if this object is missing.
+ */
+export interface DashboardUpdateNotificationsResponse {
+  latestCount: number;
+  availableCount: number;
+  downloadedCount: number;
+  deferredCount: number;
+  failedCount: number;
+  messages: string[];
+}
+
+/**
+ * Packaged Service Admin dashboard cards read `messages` and crash if this object is missing.
+ */
+export interface DashboardRecoveryNotificationsResponse {
+  monitorAttentionCount: number;
+  doctorBlockedCount: number;
+  hookBlockedCount: number;
+  restartFailureCount: number;
+  messages: string[];
+}
+
 export interface DashboardSummaryResponse {
   summary: {
     runtime: {
@@ -880,6 +923,8 @@ export interface DashboardSummaryResponse {
     others: DashboardServiceResponse[];
     warnings: string[];
     problemServices: DashboardServiceResponse[];
+    updateNotifications: DashboardUpdateNotificationsResponse;
+    recoveryNotifications: DashboardRecoveryNotificationsResponse;
   };
 }
 
@@ -1214,6 +1259,21 @@ export interface ServiceMetricsResponse {
   };
 }
 
+export interface ServiceStdinCapabilityResponse {
+  available: boolean;
+  reason?: string;
+  auditRequired?: boolean;
+  policy?: "allowed" | "denied" | "unavailable";
+  provider?: string;
+}
+
+export interface ServiceStdinWriteResponse {
+  serviceId: string;
+  accepted: boolean;
+  auditId?: string;
+  message?: string;
+}
+
 export interface ServiceLogInfoResponse {
   serviceId: string;
   type: "default" | "stdout" | "stderr";
@@ -1221,6 +1281,10 @@ export interface ServiceLogInfoResponse {
   available: boolean;
   availableTypes: Array<"default" | "stdout" | "stderr">;
   sources: ServiceLogSourceResponse[];
+  stdin: ServiceStdinCapabilityResponse;
+  capabilities: {
+    stdin: ServiceStdinCapabilityResponse;
+  };
 }
 
 export interface ServiceLogChunkResponse {
@@ -1389,5 +1453,62 @@ export interface ServiceCatalogPackageReleasesResponse {
     stable: number;
     prerelease: number;
     drafts: number;
+  };
+}
+
+export interface ServiceCatalogInstallSelection {
+  packageId: string;
+  version?: string;
+  assetName?: string;
+}
+
+export interface ServiceCatalogInstallRequest extends Partial<ServiceCatalogInstallSelection> {
+  selections?: ServiceCatalogInstallSelection[];
+  actor?: string;
+}
+
+export type ServiceCatalogInstallResultState =
+  | "registered"
+  | "failed"
+  | "skipped/conflict";
+
+export type ServiceCatalogInstallProgressState =
+  | "pending"
+  | "downloading"
+  | "validating"
+  | "copying"
+  | "registered"
+  | "failed"
+  | "skipped/conflict";
+
+export interface ServiceCatalogInstallResult {
+  packageId: string;
+  version: string | null;
+  assetName: string | null;
+  serviceId: string | null;
+  serviceVersion: string | null;
+  state: ServiceCatalogInstallResultState;
+  ok: boolean;
+  progress: ServiceCatalogInstallProgressState[];
+  targetPath: string | null;
+  conflict: {
+    kind: "target_manifest_exists" | "target_directory_exists";
+    path: string;
+  } | null;
+  reason: string | null;
+  auditId?: string | null;
+}
+
+export interface ServiceCatalogInstallResponse {
+  install: {
+    ok: boolean;
+    state: "completed" | "partial" | "failed";
+    results: ServiceCatalogInstallResult[];
+    summary: {
+      total: number;
+      registered: number;
+      failed: number;
+      conflicts: number;
+    };
   };
 }

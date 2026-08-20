@@ -161,7 +161,7 @@ Use the Node helper pattern only when the service already requires Node or can d
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-nginx",
-      "tag": "2026.4.27-712c75f"
+      "tag": "2026.8.12-f587add"
     },
     "platforms": {
       "win32": {

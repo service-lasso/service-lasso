@@ -210,6 +210,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
     doctor,
     endpoints,
     ports,
+    endpoints,
     serviceorder,
     execconfig,
     depend_on,

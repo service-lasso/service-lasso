@@ -13,6 +13,22 @@
     "linux": " -p \"${SERVICE_ROOT}\" -c \"runtime/nginx.conf\" -g \"daemon off;\"",
     "default": " -p \"${SERVICE_ROOT}\" -c \"runtime/nginx.conf\" -g \"daemon off;\""
   },
+  "actions": {
+    "stop": {
+      "label": "Stop",
+      "description": "Stop NGINX gracefully using its native quit signal before Service Lasso falls back to managed process termination.",
+      "mode": "command",
+      "requiredState": "running",
+      "timeoutSeconds": 30,
+      "cwd": "${SERVICE_ROOT}",
+      "commandline": {
+        "win32": "\"${SERVICE_ROOT}\\.state\\extracted\\current\\nginx.exe\" -p \"${SERVICE_ROOT}\" -c \"runtime\\nginx.conf\" -s quit",
+        "darwin": "\"${SERVICE_ROOT}/.state/extracted/current/sbin/nginx\" -p \"${SERVICE_ROOT}\" -c \"runtime/nginx.conf\" -s quit",
+        "linux": "\"${SERVICE_ROOT}/.state/extracted/current/sbin/nginx\" -p \"${SERVICE_ROOT}\" -c \"runtime/nginx.conf\" -s quit",
+        "default": "\"${SERVICE_ROOT}/.state/extracted/current/sbin/nginx\" -p \"${SERVICE_ROOT}\" -c \"runtime/nginx.conf\" -s quit"
+      }
+    }
+  },
   "env": {
     "NGINX_HTTP_PORT": "${HTTP_PORT}",
     "NGINX_URL": "http://127.0.0.1:${HTTP_PORT}/",
@@ -40,7 +56,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-nginx",
-      "tag": "2026.4.27-712c75f"
+      "tag": "2026.8.12-f587add"
     },
     "platforms": {
       "win32": {

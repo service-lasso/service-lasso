@@ -11,10 +11,14 @@ import {
   assertDemoPortsAvailable,
   assertDemoRecycleOwnership,
   applyDemoServiceAdminRuntimeApiUrl,
+  buildDemoRuntimeAppOptions,
+  canonicalDemoRequiredServiceIds,
+  canonicalDemoRuntimePort,
   demoProviderServiceIds,
   demoRequiredServiceIds,
   getDemoStatus,
   resolveDemoOptions,
+  resolveDemoRuntimePort,
   stopDemoManagedProcesses,
 } from "../scripts/demo-instance-lib.mjs";
 import {
@@ -171,6 +175,19 @@ const canonicalFixtureServices = [
     role: undefined,
     ports: { ui: 17700 },
     urls: [{ label: "ui", url: "http://127.0.0.1:${UI_PORT}/", kind: "local" }],
+  },
+  {
+    id: "openobserve",
+    repo: "service-lasso/lasso-openobserve",
+    tag: "2026.8.13-f908994",
+    assetName: "lasso-openobserve-v0.10.8-rc4-win32.zip",
+    role: undefined,
+    ports: { service: 5080, grpc: 5081 },
+    urls: [
+      { label: "ui", url: "http://127.0.0.1:${SERVICE_PORT}/", kind: "local" },
+      { label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/healthz", kind: "local" },
+    ],
+    healthcheck: { type: "http", url: "http://127.0.0.1:${SERVICE_PORT}/healthz", expected_status: 200 },
   },
 ];
 
@@ -550,6 +567,7 @@ function canonicalFetch({
   workspaceRoot,
   serviceAdminTag = "2026.6.6-good",
   sourceServiceAdmin = false,
+  sourceServiceAdminSeeded = false,
   generationId = "11111111-1111-4111-8111-111111111111",
 }) {
   const services = canonicalFixtureServices.map((service) => {
@@ -560,11 +578,19 @@ function canonicalFetch({
       id: service.id,
       serviceRoot: path.join(servicesRoot, service.id),
       lifecycle: {
-        installed: !sourceAdminService,
-        configured: !sourceAdminService,
+        installed: sourceAdminService ? sourceServiceAdminSeeded : true,
+        configured: sourceAdminService ? sourceServiceAdminSeeded : true,
         running: sourceAdminService ? false : !providerRole,
         installArtifacts: sourceAdminService
-          ? null
+          ? (sourceServiceAdminSeeded
+            ? {
+              artifact: {
+                repo: service.repo,
+                tag,
+                assetName: service.assetName,
+              },
+            }
+            : null)
           : {
             artifact: {
               repo: service.repo,
@@ -588,6 +614,9 @@ function canonicalFetch({
       return textResponse(200, "<html>Service Admin</html>");
     }
     if (parsed.pathname === "/health") {
+      return textResponse(200, "ok");
+    }
+    if (parsed.pathname === "/healthz") {
       return textResponse(200, "ok");
     }
     if (parsed.pathname === "/dashboard/") {
@@ -706,9 +735,9 @@ test("demo gate status accepts the source Admin service-state contract", async (
   }
 });
 
-test("demo gate status rejects source Admin drift with installed managed artifact state", async () => {
+test("demo gate status accepts seeded source Admin manifest state", async () => {
   const originalFetch = globalThis.fetch;
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-mismatch-"));
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-status-source-admin-seeded-"));
   const servicesRoot = path.join(tempDir, "services");
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
   const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true });
@@ -731,15 +760,19 @@ test("demo gate status rejects source Admin drift with installed managed artifac
       timeoutMs: 100,
     });
 
-    assert.equal(result.ok, false);
-    assert.equal(result.classification, "canonical_service_state_mismatch");
+    assert.equal(result.ok, true);
+    assert.equal(result.classification, "healthy");
     assert.equal(result.endpoints.serviceAdmin.serviceState.mode, "source_admin_on_17700");
     assert.deepEqual(
-      result.endpoints.serviceAdmin.serviceState.mismatches.filter((entry) => entry.id === "@serviceadmin"),
-      [
-        { id: "@serviceadmin", field: "installed", expected: false, actual: true },
-        { id: "@serviceadmin", field: "configured", expected: false, actual: true },
-      ],
+      result.endpoints.serviceAdmin.serviceState.actual.find((service) => service.id === "@serviceadmin"),
+      {
+        id: "@serviceadmin",
+        installed: true,
+        configured: true,
+        running: false,
+        healthy: false,
+        expectedMode: "source_admin_owns_17700",
+      },
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -978,7 +1011,7 @@ test("detached demo recycle skips lock acquisition when watchdog already owns it
 test("detached demo recycle service readiness waits after ownership handoff", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
-  const readyServices = demoRequiredServiceIds.map((serviceId) => ({
+  const readyServices = canonicalDemoRequiredServiceIds.map((serviceId) => ({
     id: serviceId,
     lifecycle: {
       installed: true,
@@ -993,7 +1026,7 @@ test("detached demo recycle service readiness waits after ownership handoff", as
       calls += 1;
       if (calls < 3) {
         return jsonResponse(200, {
-          services: demoRequiredServiceIds.map((serviceId) => ({
+          services: canonicalDemoRequiredServiceIds.map((serviceId) => ({
             id: serviceId,
             lifecycle: { installed: false, configured: false, running: false },
             health: { healthy: false },
@@ -1012,6 +1045,43 @@ test("detached demo recycle service readiness waits after ownership handoff", as
     assert.equal(services.some((service) => service.id === "@serviceadmin" && service.running && service.healthy), true);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("demo options default to the canonical runtime port instead of NGINX 18080", () => {
+  const previousPort = process.env.SERVICE_LASSO_PORT;
+  delete process.env.SERVICE_LASSO_PORT;
+
+  try {
+    const options = resolveDemoOptions([]);
+
+    assert.equal(options.port, canonicalDemoRuntimePort);
+    assert.equal(options.port, 17883);
+    assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
+    assert.equal(resolveDemoRuntimePort(undefined, {}), 17883);
+    assert.equal(resolveDemoRuntimePort("17883", {}), 17883);
+    assert.equal(resolveDemoRuntimePort(0, {}), 0);
+    assert.equal(resolveDemoRuntimePort("0", {}), 0);
+    assert.notEqual(options.port, 18080);
+    const runtimeAppOptions = buildDemoRuntimeAppOptions({
+      servicesRoot: path.join(os.tmpdir(), "demo-services"),
+      workspaceRoot: path.join(os.tmpdir(), "demo-workspace"),
+    });
+    assert.equal(runtimeAppOptions.port, 17883);
+    assert.equal(runtimeAppOptions.portPolicy, "fixed");
+    const automaticAppOptions = buildDemoRuntimeAppOptions({
+      servicesRoot: path.join(os.tmpdir(), "demo-services"),
+      workspaceRoot: path.join(os.tmpdir(), "demo-workspace"),
+      port: 0,
+    });
+    assert.equal(automaticAppOptions.port, 0);
+    assert.equal(automaticAppOptions.portPolicy, "automatic");
+  } finally {
+    if (previousPort === undefined) {
+      delete process.env.SERVICE_LASSO_PORT;
+    } else {
+      process.env.SERVICE_LASSO_PORT = previousPort;
+    }
   }
 });
 
@@ -1108,6 +1178,64 @@ test("canonical demo verifier discovers only the active workspace generation end
   }
 });
 
+test("canonical demo verifier uses selected loopback metadata when LAN runtime API is protected", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-lan-auth-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const stateDirectory = path.join(workspaceRoot, ".service-lasso");
+  const generationId = "22222222-2222-4222-8222-222222222222";
+  const loopbackRuntimeUrl = "http://127.0.0.1:17883";
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(path.join(stateDirectory, "runtime-instance.json"), `${JSON.stringify({
+      generationId,
+      servicesRoot,
+      workspaceRoot,
+      phase: "running",
+      status: "active",
+      apiUrl: loopbackRuntimeUrl,
+    }, null, 2)}\n`);
+    await writeFile(path.join(stateDirectory, "runtime-generations.json"), `${JSON.stringify({
+      version: 1,
+      activeGenerationId: generationId,
+      generations: [{
+        generationId,
+        servicesRoot,
+        workspaceRoot,
+        phase: "running",
+        endpoints: [{ name: "api", url: loopbackRuntimeUrl }],
+      }],
+    }, null, 2)}\n`);
+
+    const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot, generationId });
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      {
+        fetch: async (url, options) => {
+          const parsed = new URL(url);
+          if (parsed.hostname === "192.168.1.53" && parsed.port === "17883" && ["/api/runtime", "/api/runtime/instance", "/api/services"].includes(parsed.pathname)) {
+            return jsonResponse(401, { error: "remote_auth_required" });
+          }
+          return baseFetch(url, options);
+        },
+      },
+    );
+
+    assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
+    assert.equal(result.summary.runtimeUrl, "http://192.168.1.53:17883");
+    assert.equal(result.summary.generationId, generationId);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("canonical demo verifier accepts source Admin owning the canonical Service Admin port", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-"));
   const servicesRoot = path.join(tempDir, "services");
@@ -1130,6 +1258,33 @@ test("canonical demo verifier accepts source Admin owning the canonical Service 
     assert.equal(result.failures.length, 0);
     assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin source Admin owns canonical port" && entry.ok));
     assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin advertised ui reachable through source Admin" && entry.ok));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier accepts seeded source Admin manifest state", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-demo-seeded-admin-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://192.168.1.53:17883",
+        serviceAdminUrl: "http://192.168.1.53:17700/",
+      },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true, sourceServiceAdminSeeded: true }) },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.failures.length, 0);
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin managed artifact may be seeded" && entry.ok));
+    assert.ok(result.checks.some((entry) => entry.name === "@serviceadmin managed artifact intentionally not running" && entry.ok));
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

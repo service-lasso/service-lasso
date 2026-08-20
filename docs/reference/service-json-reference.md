@@ -50,6 +50,7 @@ This reference tracks each runtime-facing field as:
 | `execconfig.serviceorder` | compatibility | `ServiceManifest.execconfig?: ServiceExecutionConfig` with `serviceorder?: number` | Accepted for legacy manifests and normalized behind top-level `serviceorder`; top-level `serviceorder` takes precedence when both are present. Closed alignment issue: [#778](https://github.com/service-lasso/service-lasso/issues/778). |
 | `requires` | implemented | `ServiceManifest.requires?: Record<string, string>` | Validated as a capability-to-version-requirement map; dependency graph resolves each capability to exactly one enabled provider service and reports missing or ambiguous provider choices with operator-action messages. |
 | `provides` | implemented | `ServiceManifest.provides?: Record<string, string>` | Validated as provider capability metadata and surfaced in service summaries/diagnostics so consumers can see capability/version information. |
+| `stdin` | implemented | `ServiceManifest.stdin?: ServiceStdinDeclaration` with `enabled` and optional `provider: "direct"` | Opt-in only. Supervised spawn pipes stdin when enabled; log-info advertises a live writable pipe; `POST /api/services/{serviceId}/stdin` writes a bounded line. Default remains no stdin and no advertised channel. |
 
 ## Purpose of `service.json`
 
@@ -65,6 +66,7 @@ At a high level it carries:
 - explicit Secrets Broker imports/exports/write-back policy
 - dependency hints
 - health expectations
+- optional safe stdin channel (`stdin.enabled`)
 
 ## Current sample manifest
 
@@ -692,7 +694,7 @@ Fields:
 - `writeback.auditReason`: optional non-empty operator/audit reason attached to generated-secret capture.
 - `writeback.generatedSecrets`: optional array declaring generated values that may be captured from service-local variables and written back through the broker.
 - `writeback.generatedSecrets[].ref`: dotted broker ref that must also have a matching `exports[].ref`.
-- `writeback.generatedSecrets[].source`: local selector or literal source, for example `${API_TOKEN}`. Sources are resolved from service-local variables; raw secret values must not be logged.
+- `writeback.generatedSecrets[].source`: local selector such as `${API_TOKEN}` for caller-provided writeback, or `broker:generate` when first-run onboard should ask Secrets Broker to create the value. Sources are never logged as raw secret values.
 - `writeback.generatedSecrets[].operation`: optional operation for this capture: `create`, `update`, `rotate`, or `delete`.
 - `writeback.generatedSecrets[].required`: optional boolean; required captures should fail closed when the source cannot be resolved.
 

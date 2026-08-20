@@ -1,8 +1,19 @@
 import type { IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
+import {
+  LOCAL_ADMIN_TOKEN_HEADER,
+  ORIGINAL_CLIENT_ADDRESS_HEADER,
+} from "./local-auth-constants.js";
 
 export type RuntimeAuthActorKind = "local-root" | "zitadel" | "local-token";
 export type RuntimeAuthMode = RuntimeAuthActorKind | "blocked";
+
+export interface RuntimeIdentityProvider {
+  id: string;
+  label: string;
+  kind: "zitadel";
+  startUrl: string | null;
+}
 
 export interface RuntimeAuthPolicyStatus {
   contractVersion: "service-lasso.auth-status.v1";
@@ -16,6 +27,9 @@ export interface RuntimeAuthPolicyStatus {
     trustProxyHeaders: boolean;
     zitadelEnabled: boolean;
     localTokenConfigured: boolean;
+    localOperatorConfigured: boolean;
+    forceSso: boolean;
+    identityProviders: RuntimeIdentityProvider[];
   };
   actor: {
     authenticated: boolean;
@@ -29,6 +43,15 @@ export interface RuntimeAuthPolicyStatus {
 export interface RuntimeAuthPolicyOptions {
   bindHost: string;
   env?: NodeJS.ProcessEnv;
+  forceSso?: boolean;
+  localTokenConfigured?: boolean;
+  localOperatorConfigured?: boolean;
+  identityProviders?: readonly RuntimeIdentityProvider[];
+  /**
+   * Extra local-secret verifier (issued session or hashed vault token).
+   * Must not log the provided secret.
+   */
+  verifyLocalSecret?: (provided: string) => boolean;
 }
 
 const AUTH_STATUS_CONTRACT_VERSION = "service-lasso.auth-status.v1";
@@ -60,7 +83,11 @@ function extractBearerToken(value: string | undefined): string | undefined {
   return match?.[1]?.trim();
 }
 
-function isLoopbackAddress(address: string | undefined | null): boolean {
+/**
+ * True when the address is a loopback host or IPv4/IPv6 localhost.
+ * Bind addresses such as `0.0.0.0` are not loopback origins.
+ */
+export function isLoopbackAddress(address: string | undefined | null): boolean {
   if (!address) return false;
   const normalized = address.toLowerCase().replace(/^\[|\]$/g, "");
   return (
@@ -72,32 +99,57 @@ function isLoopbackAddress(address: string | undefined | null): boolean {
   );
 }
 
-function getClientAddress(request: IncomingMessage, trustProxyHeaders: boolean): string | null {
-  if (trustProxyHeaders) {
-    const forwardedFor = normalizeHeaderValue(firstHeader(request.headers["x-forwarded-for"]));
-    if (forwardedFor) {
-      return forwardedFor.split(",")[0]?.trim() || null;
-    }
-    const forwardedAddress = normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-client-address"]));
-    if (forwardedAddress) {
-      return forwardedAddress;
-    }
-  }
-
+function getImmediatePeerAddress(request: IncomingMessage): string | null {
   return request.socket.remoteAddress ?? null;
+}
+
+function getForwardedClientAddress(request: IncomingMessage): string | null {
+  const forwardedFor = normalizeHeaderValue(firstHeader(request.headers["x-forwarded-for"]));
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || null;
+  }
+  return normalizeHeaderValue(firstHeader(request.headers[ORIGINAL_CLIENT_ADDRESS_HEADER])) ?? null;
+}
+
+/**
+ * Effective client for auth: honor forwarded client only from a loopback peer
+ * (same-machine Admin proxy). Non-loopback peers cannot spoof loopback via
+ * forwarded headers unless `SERVICE_LASSO_TRUST_PROXY_HEADERS` is set.
+ */
+export function getEffectiveClientAddress(
+  request: IncomingMessage,
+  trustProxyHeaders: boolean,
+): string | null {
+  const peer = getImmediatePeerAddress(request);
+  const forwarded = getForwardedClientAddress(request);
+  if (isLoopbackAddress(peer) && forwarded) {
+    return forwarded;
+  }
+  if (trustProxyHeaders && forwarded) {
+    return forwarded;
+  }
+  return peer;
+}
+
+function presentedLocalSecret(request: IncomingMessage): string | undefined {
+  return (
+    normalizeHeaderValue(firstHeader(request.headers[LOCAL_ADMIN_TOKEN_HEADER])) ??
+    extractBearerToken(firstHeader(request.headers.authorization))
+  );
 }
 
 function resolveLocalTokenActor(
   request: IncomingMessage,
   expectedToken: string | undefined,
+  verifyLocalSecret: ((provided: string) => boolean) | undefined,
 ): RuntimeAuthPolicyStatus["actor"] | null {
-  const expected = normalizeHeaderValue(expectedToken);
-  if (!expected) return null;
+  const provided = presentedLocalSecret(request);
+  if (!provided) return null;
 
-  const provided =
-    normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-admin-token"])) ??
-    extractBearerToken(firstHeader(request.headers.authorization));
-  if (!provided || !timingSafeStringEqual(expected, provided)) {
+  const expected = normalizeHeaderValue(expectedToken);
+  const envMatches = Boolean(expected && timingSafeStringEqual(expected, provided));
+  const extraMatches = verifyLocalSecret ? verifyLocalSecret(provided) : false;
+  if (!envMatches && !extraMatches) {
     return null;
   }
 
@@ -126,6 +178,28 @@ function resolveZitadelActor(
   };
 }
 
+function identityProvidersFromEnv(
+  env: NodeJS.ProcessEnv,
+  zitadelEnabled: boolean,
+  extras: readonly RuntimeIdentityProvider[] | undefined,
+): RuntimeIdentityProvider[] {
+  if (extras && extras.length > 0) {
+    return [...extras];
+  }
+  if (!zitadelEnabled) {
+    return [];
+  }
+  const startUrl = normalizeHeaderValue(env.SERVICE_LASSO_SSO_START_URL) ?? null;
+  return [
+    {
+      id: "zitadel",
+      label: "ZITADEL",
+      kind: "zitadel",
+      startUrl,
+    },
+  ];
+}
+
 export function resolveRuntimeRequestAuth(
   request: IncomingMessage,
   options: RuntimeAuthPolicyOptions,
@@ -133,22 +207,41 @@ export function resolveRuntimeRequestAuth(
   const env = options.env ?? process.env;
   const trustProxyHeaders = truthy(env.SERVICE_LASSO_TRUST_PROXY_HEADERS);
   const zitadelEnabled = truthy(env.SERVICE_LASSO_ZITADEL_ENABLED);
-  const localTokenConfigured = Boolean(normalizeHeaderValue(env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN));
-  const clientAddress = getClientAddress(request, trustProxyHeaders);
+  const envToken = normalizeHeaderValue(env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN);
+  const localTokenConfigured = Boolean(envToken) || options.localTokenConfigured === true;
+  const localOperatorConfigured = options.localOperatorConfigured === true;
+  const forceSso = options.forceSso === true;
+  const clientAddress = getEffectiveClientAddress(request, trustProxyHeaders);
   const local = isLoopbackAddress(clientAddress);
   const remoteAuthRequired = !local;
-  const actor =
-    local
-      ? { authenticated: true, kind: "local-root" as const, actorId: "local-root" }
-      : resolveZitadelActor(request, zitadelEnabled) ??
-        resolveLocalTokenActor(request, env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN) ??
-        { authenticated: false, kind: null, actorId: null };
-  const blockers: string[] = [];
+  const tokenActor = resolveLocalTokenActor(request, envToken, options.verifyLocalSecret);
+  const zitadelActor = resolveZitadelActor(request, zitadelEnabled);
 
-  if (remoteAuthRequired && !actor.authenticated) {
-    blockers.push("remote_auth_required");
+  /**
+   * Loopback always allows local-token, ZITADEL, or implicit local-root.
+   * FORCE_SSO may require ZITADEL only for remote clients.
+   */
+  let actor: RuntimeAuthPolicyStatus["actor"];
+  if (local) {
+    actor = tokenActor ?? zitadelActor ?? {
+      authenticated: true,
+      kind: "local-root" as const,
+      actorId: "local-root",
+    };
+  } else if (forceSso) {
+    actor = zitadelActor ?? { authenticated: false, kind: null, actorId: null };
+  } else {
+    actor = zitadelActor ?? tokenActor ?? { authenticated: false, kind: null, actorId: null };
   }
-  if (remoteAuthRequired && !zitadelEnabled && !localTokenConfigured) {
+
+  const blockers: string[] = [];
+  if (remoteAuthRequired && !actor.authenticated) {
+    blockers.push(forceSso ? "force_sso_required" : "remote_auth_required");
+  }
+  if (remoteAuthRequired && forceSso && !zitadelEnabled) {
+    blockers.push("force_sso_without_provider");
+  }
+  if (remoteAuthRequired && !forceSso && !zitadelEnabled && !localTokenConfigured && !localOperatorConfigured) {
     blockers.push("remote_auth_policy_not_configured");
   }
 
@@ -164,6 +257,9 @@ export function resolveRuntimeRequestAuth(
       trustProxyHeaders,
       zitadelEnabled,
       localTokenConfigured,
+      localOperatorConfigured,
+      forceSso,
+      identityProviders: identityProvidersFromEnv(env, zitadelEnabled, options.identityProviders),
     },
     actor,
     mode: actor.kind ?? "blocked",

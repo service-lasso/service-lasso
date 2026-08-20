@@ -3,6 +3,7 @@ import { mkdir, open } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  canonicalDemoRequiredServiceIds,
   demoProviderServiceIds,
   demoRequiredServiceIds,
   resolveDemoOptions,
@@ -173,7 +174,7 @@ async function waitForCanonicalPostRecycle({ timeoutMs = 300_000, intervalMs = 5
 
 function requiredServicesReady(services) {
   const byId = new Map(services.map((service) => [service.id, service]));
-  for (const serviceId of demoRequiredServiceIds) {
+  for (const serviceId of canonicalDemoRequiredServiceIds) {
     const service = byId.get(serviceId);
     if (!service?.lifecycle?.installed || !service?.lifecycle?.configured) {
       return false;
@@ -202,7 +203,7 @@ export async function waitForLiveServices(apiUrl, { timeoutMs = 300_000, interva
       if (result.status === 200 && requiredServicesReady(services)) {
         return getLiveServiceSummary(apiUrl);
       }
-      lastError = `required services not ready (${services.filter((service) => service.lifecycle?.running).length}/${demoRequiredServiceIds.length} running)`;
+      lastError = `required services not ready (${services.filter((service) => service.lifecycle?.running).length}/${canonicalDemoRequiredServiceIds.length} running)`;
     } catch (error) {
       lastError = error.message;
     }

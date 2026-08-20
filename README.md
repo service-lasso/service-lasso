@@ -44,7 +44,7 @@ Open Service Admin:
 http://127.0.0.1:17700/
 ```
 
-The demo command builds the runtime, prepares the canonical demo service root, starts the demo API on port `17883`, and starts the baseline service set. Operators should not need to pass service roots, workspace roots, or ports for the normal local demo.
+The demo command builds the runtime, prepares the canonical demo service root, starts the demo API on port `17883`, and starts the baseline service set. Operators should not need to pass service roots, workspace roots, or ports for the normal local demo. `demo:start` and `demo:gate` now default to that same canonical runtime port and bind it with a fixed port policy so recovery cannot silently take NGINX's reserved `18080` lane from a leftover reservation.
 
 ### Local demo URLs
 
@@ -104,7 +104,7 @@ Start, gate, status, and verification commands accept `--runtime-url=...`, `--ad
 
 For ordinary issue worktree proof, prefer `npm run demo:worktree-proof -- --id=<issue-or-branch>` before touching the fixed canonical ports. The command copies the demo services into `workspace/demo-instance/worktree-proof/<id>/services`, allocates free ports, patches the copied manifests, and writes the allocated runtime/Admin URLs plus owner metadata under `.demo-logs/worktree-proof/<id>/worktree-proof-summary.json`. Developer issue comments and validator handoffs should quote the `gate`, `verify`, and `cleanup` commands from that summary so validation checks the exact worktree-owned instance. Use fixed `17883`/`17700` only for intentional shared canonical refreshes.
 
-The current canonical demo accepts the source Service Admin dev server as the visible Admin surface on port `17700`. In that mode the runtime should discover eight manifests, run `@nginx`, `@traefik`, and `echo-service`, keep provider-only services `@java`, `@localcert`, and `@node` installed/configured but not daemonized, and leave `@serviceadmin` intentionally unmanaged because the source Admin server owns `17700`. `node-sample-service` remains a manifest-only sample. `demo:verify-canonical` treats the resulting runtime warning as expected only when that service-state contract matches.
+The current canonical demo accepts the source Service Admin dev server as the visible Admin surface on port `17700`. In that mode the runtime should discover eight manifests, run `@nginx`, `@traefik`, and `echo-service`, keep provider-only services `@java`, `@localcert`, and `@node` installed/configured but not daemonized, and leave `@serviceadmin` intentionally unmanaged because the source Admin server owns `17700`. `node-sample-service` is the provider-backed rotation/update fixture; `demo:verify-canonical` treats a runtime warning as expected only when the accepted service-state contract still leaves that sample unmanaged.
 
 On npm/PowerShell combinations that do not pass script flags after the first separator, add a second separator before the script flags:
 
@@ -121,13 +121,13 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | `@archive` | optional release-backed 7-Zip archive utility provider | acquired from [`service-lasso/lasso-archive`](https://github.com/service-lasso/lasso-archive) release `2026.5.2-a223a48`; installed/configured as a provider and skipped for daemon launch |
 | `@java` | release-backed Java runtime provider | acquired from [`service-lasso/lasso-java`](https://github.com/service-lasso/lasso-java) release `2026.8.12-d5765f1`; installed/configured but not launched as a daemon |
 | `@localcert` | release-backed core local certificate utility for Traefik | acquired from [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert) release `2026.5.2-24e7d2f`; exports `CERT_FILE`, `CERT_KEY`, `CERT_PFX`, and `CAROOT_CERT`; no daemon launch |
-| `@nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.4.27-712c75f`; started as a managed daemon with HTTP `/health` |
+| `@nginx` | release-backed NGINX Open Source service for Traefik routing dependencies | acquired from [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx) release `2026.8.12-f587add`; started as a managed daemon with HTTP `/health` |
 | `@traefik` | local edge/router service depending on `@localcert` and `@nginx` | acquired from [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) release `2026.7.26-f13b89c` |
 | `@node` | release-backed Node runtime provider | acquired from [`service-lasso/lasso-node`](https://github.com/service-lasso/lasso-node) release `2026.8.12-1500d36`; installed/configured but not launched as a daemon |
 | `@python` | release-backed Python runtime provider | acquired from [`service-lasso/lasso-python`](https://github.com/service-lasso/lasso-python) release `2026.4.27-63f915c` on supported hosts; the current pinned release is Windows-only, so other platforms report an explicit unsupported-platform skip instead of a broken install; installed/configured but not launched as a daemon when supported |
-| `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.8.12-9be43fc`; started as a managed daemon with HTTP `/health` |
+| `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) release `2026.8.18-2ee1ba5`; started as a managed daemon with HTTP `/health` and store-derived `/ready` |
 | `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
-| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.7.24-db583d4` |
+| `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) release `2026.8.20-69311de` |
 
 Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage, but the canonical baseline and demo instance install the production baseline service set. `@archive` and supported `@python` artifacts are part of that baseline so archive-capable and Python-backed services can rely on prepared providers instead of fixture-only installs.
 

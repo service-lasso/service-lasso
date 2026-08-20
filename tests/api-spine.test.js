@@ -270,6 +270,29 @@ test("GET /api/runtime/security resolves localhost requests as local-root", asyn
   }
 });
 
+test("GET /api/security wraps auth status for Service Admin", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-admin-security-alias-"));
+  await ensureLocalVaultMarker(tempDir);
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "admin-security-alias",
+  });
+
+  try {
+    const result = await getJson(`${apiServer.url}/api/security`);
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.security.auth.contractVersion, "service-lasso.auth-status.v1");
+    assert.equal(result.body.security.auth.actor.kind, "local-root");
+    assert.equal(result.body.security.auth.request.local, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("remote API requests cannot inherit local-root trust without auth", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-remote-denied-"));
   await ensureLocalVaultMarker(tempDir);
@@ -348,6 +371,59 @@ test("remote API requests can authenticate with an explicit local admin token", 
     });
     assert.equal(services.status, 200);
     assert.equal(Array.isArray(services.body.services), true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousTrustProxy === undefined) {
+      delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    } else {
+      process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    }
+    if (previousLocalToken === undefined) {
+      delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalToken;
+    }
+  }
+});
+
+test("Admin proxy original-client header treats LAN as remote without TRUST_PROXY_HEADERS", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-forwarded-lan-"));
+  await ensureLocalVaultMarker(tempDir);
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousLocalToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = "test-local-admin-token";
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "auth-forwarded-lan-test",
+  });
+
+  try {
+    const denied = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-client-address": "192.168.1.40",
+    });
+    assert.equal(denied.status, 200);
+    assert.equal(denied.body.auth.request.local, false);
+    assert.equal(denied.body.auth.actor.authenticated, false);
+
+    const login = await postJson(`${apiServer.url}/api/runtime/auth/local`, {
+      method: "token",
+      token: "test-local-admin-token",
+    });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.session.kind, "local-token");
+    assert.equal(typeof login.body.session.token, "string");
+    const sessionToken = login.body.session.token;
+    assert.equal(sessionToken.includes("test-local-admin-token"), false);
+
+    const authed = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-client-address": "192.168.1.40",
+      authorization: `Bearer ${sessionToken}`,
+    });
+    assert.equal(authed.body.auth.actor.kind, "local-token");
   } finally {
     await apiServer.stop();
     await rm(tempDir, { recursive: true, force: true });
@@ -452,10 +528,10 @@ test("GET /api/services returns discovered services from the tracked services ro
 
     assert.equal(result.status, 200);
     assert.ok(Array.isArray(result.body.services));
-    assert.equal(result.body.services.length, 11);
+    assert.equal(result.body.services.length, 12);
     assert.deepEqual(
       result.body.services.map((service) => service.id),
-      ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"],
+      ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service", "openobserve"],
     );
     assert.equal(result.body.services[0].status, "discovered");
     assert.equal(result.body.services[0].source, "manifest");
@@ -712,6 +788,8 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(summary.body.summary.favorites.length, 1);
     assert.equal(summary.body.summary.favorites[0].id, "alpha-service");
     assert.ok(summary.body.summary.warnings.includes("At least one managed service is currently stopped."));
+    assert.deepEqual(summary.body.summary.updateNotifications.messages, []);
+    assert.deepEqual(summary.body.summary.recoveryNotifications.messages, []);
 
     assert.equal(services.status, 200);
     assert.equal(Array.isArray(services.body.services), true);
@@ -721,6 +799,10 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(alphaDetail.body.service.id, "alpha-service");
     assert.equal(alphaDetail.body.service.favorite, true);
     assert.equal(alphaDetail.body.service.status, "running");
+    assert.equal(typeof alphaDetail.body.service.runtimeHealth.pid, "number");
+    assert.equal(alphaDetail.body.service.runtimeHealth.pid > 0, true);
+    assert.equal(typeof alphaDetail.body.service.runtimeHealth.runId, "string");
+    assert.equal(alphaDetail.body.service.runtimeHealth.runId.length > 0, true);
     assert.equal(alphaDetail.body.service.installed, true);
     assert.equal(alphaDetail.body.service.role.length > 0, true);
     assert.equal(alphaDetail.body.service.metadata.installPath.endsWith(path.join("services", "alpha-service")), true);
@@ -735,6 +817,7 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
 
     assert.equal(bravoDetail.status, 200);
     assert.equal(bravoDetail.body.service.status, "stopped");
+    assert.equal(bravoDetail.body.service.runtimeHealth.pid, null);
     assert.ok(bravoDetail.body.service.dependencies.some((entry) => entry.id === "alpha-service" && entry.status === "running"));
 
     assert.equal(utilityDetail.status, 200);

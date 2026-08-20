@@ -56,6 +56,7 @@ import {
   searchServiceLogs,
   type ServiceLogReadType,
 } from "../runtime/operator/logs.js";
+import { buildServiceStdinCapability, MAX_STDIN_INPUT_LENGTH } from "../runtime/operator/stdin.js";
 import { buildDashboardService, buildDashboardSummary } from "../runtime/operator/dashboard.js";
 import {
   buildAppServiceImportDryRunPlan,
@@ -90,6 +91,8 @@ import {
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { resolveRuntimeRequestAuth, type RuntimeAuthPolicyStatus } from "../runtime/auth/request-policy.js";
+import { ensureLocalOperatorAuth, loadLocalAuthMaterial } from "../runtime/auth/local-operator-onboard.js";
+import { parseLocalAuthValidateInput, validateLocalAuth } from "../runtime/auth/local-auth-validate.js";
 import {
   bootstrapLocalVault,
   isSetupBootstrapAllowed,
@@ -139,9 +142,15 @@ import {
 import {
   bulkMutateOperatorInboxItems,
   countOperatorInboxItems,
+  emitOperatorInboxDiagnosticsEvent,
+  emitOperatorInboxServiceEvent,
+  emitOperatorInboxSystemEvent,
+  emitOperatorInboxUpdateEvent,
+  emitOperatorInboxWorkflowEvent,
   listOperatorInboxItems,
   mutateOperatorInboxItem,
   readOperatorInbox,
+  toServiceAdminInboxView,
   upsertOperatorInboxItem,
   type OperatorInboxActionAvailability,
   type OperatorInboxActionKind,
@@ -158,7 +167,7 @@ import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { ProviderNotReadyError, resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
-import { stopAllManagedProcesses } from "../runtime/execution/supervisor.js";
+import { stopAllManagedProcesses, writeManagedProcessStdin } from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import {
   bootstrapBaselineServices,
@@ -263,6 +272,7 @@ import {
   listServiceCatalogPackageReleases,
   listServiceCatalogPackages,
 } from "../runtime/catalog/service-catalog.js";
+import { installServiceCatalogSelections } from "../runtime/catalog/service-install.js";
 import {
   assertWorkflowRunFacadeSecretSafe,
   cancelWorkflowFacadeRun,
@@ -279,6 +289,9 @@ import {
 } from "../platform/workflowRunFacade.js";
 import type { PlatformEntitlement, PlatformRequestContext } from "../platform/facade.js";
 import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
+import { proxySecretsBrokerRequest, resolveSecretsBrokerAdminAliasPath } from "../runtime/broker/proxy.js";
+import { createSecretsBrokerBackup, restoreSecretsBrokerBackup } from "../runtime/broker/backup.js";
+import { SECRETSBROKER_SERVICE_ID } from "../runtime/broker/operator-config.js";
 import type {
   DashboardServiceResponse,
   LifecycleActionResponse,
@@ -290,6 +303,7 @@ import type {
   OperatorCommandRequest,
   AuditQuery,
   RuntimeAuthStatusResponse,
+  ServiceCatalogInstallRequest,
   ServiceActionRunResponse,
   ServiceActionRunsResponse,
   ServiceDetailResponse,
@@ -401,8 +415,13 @@ function parseBooleanQuery(value: string | null): boolean {
   return value === "1" || value?.toLocaleLowerCase() === "true";
 }
 
+/**
+ * Parses the log-info / log-read / log-search `type` query.
+ * `combined` is an alias for `default` (service.log), matching the builtin
+ * combined stream that log-info advertises to Service Admin.
+ */
 function parseServiceLogReadType(value: string | null): ServiceLogReadType {
-  if (value === null || value === "default") {
+  if (value === null || value === "default" || value === "combined") {
     return "default";
   }
 
@@ -410,7 +429,11 @@ function parseServiceLogReadType(value: string | null): ServiceLogReadType {
     return value;
   }
 
-  throw new ApiError("invalid_request", 400, "Log type must be one of: default, stdout, stderr.");
+  throw new ApiError(
+    "invalid_request",
+    400,
+    "Log type must be one of: default, stdout, stderr, combined.",
+  );
 }
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
@@ -665,6 +688,43 @@ function getAuditActor(input: unknown): string {
   return typeof actor === "string" && actor.trim().length > 0 ? actor.trim() : "unknown";
 }
 
+function parseStdinWriteBody(body: unknown): { input: string; actor: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError("invalid_body", 400, "Stdin write body must be a JSON object.");
+  }
+
+  const record = body as Record<string, unknown>;
+  if (record.stream !== undefined && record.stream !== "stdin") {
+    throw new ApiError("invalid_body", 400, '"stream" must be "stdin" when present.');
+  }
+
+  if (typeof record.input !== "string") {
+    throw new ApiError("invalid_body", 400, '"input" must be a string.');
+  }
+
+  const input = record.input;
+  if (input.trim().length === 0) {
+    throw new ApiError("invalid_body", 400, '"input" must be a non-empty string.');
+  }
+
+  if (input.length > MAX_STDIN_INPUT_LENGTH) {
+    throw new ApiError(
+      "invalid_body",
+      400,
+      `"input" must be at most ${String(MAX_STDIN_INPUT_LENGTH)} characters.`,
+    );
+  }
+
+  if (input.includes("\0")) {
+    throw new ApiError("invalid_body", 400, '"input" must not contain null bytes.');
+  }
+
+  return {
+    input,
+    actor: getAuditActor(body),
+  };
+}
+
 function redactAuditText(value: string): string {
   return value
     .replace(/([\w.-]*(?:password|passwd|secret|token|key|credential)[\w.-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
@@ -700,8 +760,10 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
   if (method === "GET" && pathname === "/api/health") return true;
   if (method === "GET" && pathname === "/api/runtime/capabilities") return true;
   if (method === "GET" && pathname === "/api/runtime/security") return true;
+  if (method === "GET" && pathname === "/api/security") return true;
   if (method === "GET" && pathname === "/api/setup/status") return true;
   if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
+  if (method === "POST" && pathname === "/api/runtime/auth/local") return true;
   return false;
 }
 
@@ -726,12 +788,17 @@ async function rejectUnauthorizedRemoteRequest(
       bindHost: auth.policy.bindHost,
       zitadelEnabled: auth.policy.zitadelEnabled,
       localTokenConfigured: auth.policy.localTokenConfigured,
+      forceSso: auth.policy.forceSso,
     },
   });
+  const message =
+    auth.blockers.includes("force_sso_required")
+      ? "Remote Service Lasso API access requires SSO because FORCE_SSO is enabled."
+      : "Remote Service Lasso API access requires Zitadel authentication or an explicit local operator proof.";
   throw new ApiError(
-    "remote_auth_required",
+    auth.blockers[0] ?? "remote_auth_required",
     401,
-    "Remote Service Lasso API access requires Zitadel authentication or an explicit local admin token.",
+    message,
   );
 }
 
@@ -1500,7 +1567,7 @@ async function executeLifecycleAction(
     }
   })();
 
-  return await buildLifecycleActionResponse(service, registry, result);
+  return await buildLifecycleActionResponse(service, registry, result, workspaceRoot);
 }
 
 async function executePreparedServiceStart(
@@ -1552,6 +1619,7 @@ async function buildLifecycleActionResponse(
   service: RuntimeModel["discovered"][number],
   registry: RuntimeModel["registry"],
   result: Awaited<ReturnType<typeof installService>>,
+  workspaceRoot?: string,
 ): Promise<LifecycleActionResponse> {
   const latestState = getLifecycleState(service.manifest.id);
   const persisted = await writeServiceState(service, latestState);
@@ -1565,6 +1633,28 @@ async function buildLifecycleActionResponse(
   );
   const healthHistory = await recordServiceHealthTransition(service, health);
   const provider = resolveReadyProviderForResponse(service, registry);
+  if (workspaceRoot) {
+    const recovered = result.ok && result.action === "start" && latestState.runtime.lastTermination !== "crashed";
+    if (!result.ok || recovered || !health.healthy) {
+      await emitOperatorInboxServiceEvent(workspaceRoot, {
+        serviceId: service.manifest.id,
+        kind: !result.ok
+          ? "lifecycle.failed"
+          : !health.healthy
+            ? "health.unhealthy"
+            : "lifecycle.recovered",
+        summary: result.ok
+          ? health.healthy
+            ? `Service "${service.manifest.id}" is running.`
+            : `Service "${service.manifest.id}" reported unhealthy after ${result.action}.`
+          : result.message,
+        severity: !result.ok ? "error" : !health.healthy ? "warning" : "success",
+        route: "/services/" + encodeURIComponent(service.manifest.id),
+        correlationKey: result.action,
+        observedAt: latestState.runtime.finishedAt ?? latestState.runtime.startedAt ?? undefined,
+      });
+    }
+  }
 
   return {
     action: result.action,
@@ -1627,7 +1717,7 @@ async function executeRuntimeOrchestrationAction(
       }
 
       const result = await stopService(service);
-      stopped.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+      stopped.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
     }
 
     const reloadedModel = await loadRuntimeModel(runtimeModel.servicesRoot);
@@ -1673,7 +1763,7 @@ async function executeRuntimeOrchestrationAction(
         allocationRevision: allocationPlan?.allocationId,
         plannedPorts: plannedPortsByService?.[serviceId],
       });
-      results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result));
+      results.push(await buildLifecycleActionResponse(service, reloadedModel.registry, result, workspaceRoot));
     }
 
     return {
@@ -1718,7 +1808,7 @@ async function executeRuntimeOrchestrationAction(
 
       const prepared = await prepareAndStartService(service, runtimeModel.registry, preparedStartOptions);
       if (prepared.result) {
-        results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result));
+        results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result, workspaceRoot));
         if (onServiceStarted && !prepared.result.ok) {
           throw new LifecycleStateError(
             `Transactional startup failed for service "${serviceId}": ${prepared.result.message}`,
@@ -1736,7 +1826,7 @@ async function executeRuntimeOrchestrationAction(
     }
 
     const result = await stopService(service);
-    results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result));
+    results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
   }
 
   return {
@@ -2359,7 +2449,14 @@ async function routeRequest(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   const method = request.method ?? "GET";
-  const auth = resolveRuntimeRequestAuth(request, { bindHost: config.bindHost });
+  const localAuth = await loadLocalAuthMaterial({ workspaceRoot: config.workspaceRoot });
+  const auth = resolveRuntimeRequestAuth(request, {
+    bindHost: config.bindHost,
+    forceSso: localAuth.forceSso,
+    localTokenConfigured: localAuth.localTokenConfigured,
+    localOperatorConfigured: localAuth.localOperatorConfigured,
+    verifyLocalSecret: localAuth.verifyLocalSecret,
+  });
   if (!isUnauthenticatedRuntimeRoute(method, url.pathname) && auth.policy.remoteAuthRequired && !auth.actor.authenticated) {
     await rejectUnauthorizedRemoteRequest(request, config, auth);
   }
@@ -2446,6 +2543,28 @@ async function routeRequest(
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/catalog/install") {
+    const requestBody = await readJsonBody(request);
+    const auditActor = getAuditActor(requestBody);
+    try {
+      writeJson(response, 200, await installServiceCatalogSelections({
+        catalogUrl: config.serviceCatalogUrl,
+        githubApiBaseUrl: config.serviceCatalogGithubApiBaseUrl,
+        servicesRoot: config.servicesRoot,
+        workspaceRoot: config.workspaceRoot,
+        actor: auditActor,
+        request: requestBody as ServiceCatalogInstallRequest,
+      }));
+    } catch (error) {
+      throw new ApiError(
+        "catalog_install_unavailable",
+        502,
+        error instanceof Error ? error.message : "Catalog service install could not be completed.",
+      );
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname.startsWith("/api/catalog/packages/")) {
     const pathParts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
     const packageId = pathParts[2] === "packages" ? pathParts[3] : "";
@@ -2519,6 +2638,13 @@ async function routeRequest(
         registry: runtimeModel.registry,
         workspaceRoot: config.workspaceRoot,
         request: parsedRequest,
+      });
+      await emitOperatorInboxDiagnosticsEvent(config.workspaceRoot, {
+        kind: "archive.completed",
+        summary: `Archived ${payload.export.selectedPaths.length} file selection item(s) through @archive.`,
+        serviceId: payload.export.serviceId,
+        backupExportId: payload.export.artifactId,
+        route: payload.export.artifact.downloadUrl,
       });
       await appendAuditEvent({
         serviceRoot: service?.serviceRoot,
@@ -2633,6 +2759,14 @@ async function routeRequest(
     const inbox = await readOperatorInbox(config.workspaceRoot);
     writeJson(response, 200, {
       inbox: listOperatorInboxItems(inbox, parseOperatorInboxQuery(url.searchParams)),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/inbox") {
+    const inbox = await readOperatorInbox(config.workspaceRoot);
+    writeJson(response, 200, {
+      inbox: toServiceAdminInboxView(inbox, parseOperatorInboxQuery(url.searchParams)),
     });
     return;
   }
@@ -3063,6 +3197,13 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/setup") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(response, 200, {
+      setup: {
+        ...(await readRuntimeSetupStatus({
+          workspaceRoot: config.workspaceRoot,
+          bindHost: config.bindHost,
+        })),
+        auth,
+      },
       services: runtimeModel.registry
         .list()
         .map((service) => ({
@@ -3204,6 +3345,19 @@ async function routeRequest(
       if (!service) {
         return;
       }
+      if (checked.result.status === "update_available" || checked.result.status === "check_failed" || checked.result.status === "unavailable") {
+        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
+          serviceId: checked.serviceId,
+          status: checked.result.status === "update_available" ? "available" : "failed",
+          summary: checked.result.status === "update_available"
+            ? `Update ${checked.result.available?.tag ?? "candidate"} is available for service "${checked.serviceId}".`
+            : `Update check failed for service "${checked.serviceId}": ${checked.result.reason}`,
+          details: checked.result.provenance.releaseUrl ?? checked.result.reason,
+          updateId: checked.result.available?.tag ?? checked.result.provenance.tag,
+          route: "/services/" + encodeURIComponent(checked.serviceId) + "/updates",
+          observedAt: checked.result.checkedAt,
+        });
+      }
 
       await appendAuditEvent({
         serviceRoot: service.serviceRoot,
@@ -3299,7 +3453,17 @@ async function routeRequest(
     writeJson(
       response,
       200,
-      createServiceLogInfoResponse(await buildServiceLogInfo(service, type, getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current")),
+      createServiceLogInfoResponse({
+        ...(await buildServiceLogInfo(
+          service,
+          type,
+          getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current",
+        )),
+        stdin: buildServiceStdinCapability(service),
+        capabilities: {
+          stdin: buildServiceStdinCapability(service),
+        },
+      }),
     );
     return;
   }
@@ -3376,6 +3540,68 @@ async function routeRequest(
     if (!service) {
       notFound(response);
       return;
+    }
+
+    if (pathParts[3] === "proxy") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Service proxy is not available for "${serviceId}".`,
+        );
+      }
+
+      const proxyPath = `/${pathParts.slice(4).join("/")}`;
+      await proxySecretsBrokerRequest(request, response, service, proxyPath, url.search);
+      return;
+    }
+
+    if (pathParts.length === 4 && pathParts[3] === "backup") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Broker backup is not available for "${serviceId}".`,
+        );
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        const outputPath =
+          body && typeof body === "object" && !Array.isArray(body) && typeof (body as { out?: unknown }).out === "string"
+            ? (body as { out: string }).out
+            : undefined;
+        writeJson(response, 200, await createSecretsBrokerBackup(service, { outputPath }));
+        return;
+      }
+    }
+
+    if (pathParts.length === 4 && pathParts[3] === "restore") {
+      if (serviceId !== SECRETSBROKER_SERVICE_ID) {
+        throw new ApiError(
+          "unsupported_service",
+          404,
+          `Broker restore is not available for "${serviceId}".`,
+        );
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        const archivePath =
+          body && typeof body === "object" && !Array.isArray(body) && typeof (body as { in?: unknown }).in === "string"
+            ? (body as { in: string }).in
+            : "";
+        writeJson(response, 200, await restoreSecretsBrokerBackup(service, archivePath));
+        return;
+      }
+    }
+
+    if (serviceId === SECRETSBROKER_SERVICE_ID) {
+      const aliasPath = resolveSecretsBrokerAdminAliasPath(pathParts.slice(3).join("/"));
+      if (aliasPath) {
+        await proxySecretsBrokerRequest(request, response, service, aliasPath, url.search);
+        return;
+      }
     }
 
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "audit") {
@@ -3708,6 +3934,19 @@ async function routeRequest(
           actionId,
           runRequest,
         );
+        if (payload.run.metadata.source === "scheduler" || payload.run.metadata.source === "dagu") {
+          await emitOperatorInboxWorkflowEvent(config.workspaceRoot, {
+            workflowId: payload.run.metadata.workflowId ?? payload.run.metadata.scheduleId ?? actionId,
+            status: payload.run.status,
+            summary: `Scheduled action "${actionId}" ${payload.run.status} for service "${serviceId}".`,
+            serviceId,
+            actionId,
+            runId: payload.run.runId,
+            scheduleId: payload.run.metadata.scheduleId,
+            route: "/services/" + encodeURIComponent(serviceId) + "/actions/" + encodeURIComponent(actionId),
+            observedAt: payload.run.finishedAt,
+          });
+        }
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -3838,6 +4077,14 @@ async function routeRequest(
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "download") {
       try {
         const result = await downloadServiceUpdateCandidate(service);
+        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
+          serviceId,
+          status: "downloaded",
+          summary: `Update candidate ${result.update.downloadedCandidate?.tag ?? result.result.available?.tag ?? "current"} downloaded for service "${serviceId}".`,
+          updateId: result.update.downloadedCandidate?.tag ?? result.result.available?.tag,
+          route: "/services/" + encodeURIComponent(serviceId) + "/updates",
+          observedAt: result.update.downloadedCandidate?.downloadedAt ?? result.update.updatedAt,
+        });
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -3877,6 +4124,14 @@ async function routeRequest(
       try {
         const body = parseUpdateInstallBody(await readJsonBody(request));
         const result = await installServiceUpdateCandidate(service, { force: body.force, registry: runtimeModel.registry });
+        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
+          serviceId,
+          status: "installed",
+          summary: `Update candidate installed for service "${serviceId}".`,
+          updateId: result.state.installArtifacts.artifact?.tag ?? result.update.provenance?.tag,
+          route: "/services/" + encodeURIComponent(serviceId) + "/updates",
+          observedAt: result.update.updatedAt,
+        });
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -3925,6 +4180,92 @@ async function routeRequest(
           await createServiceSummary(service, runtimeModel.graph, runtimeModel.registry, sharedGlobalEnv),
         ),
       );
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 4 && pathParts[3] === "stdin") {
+      const stdinCapability = buildServiceStdinCapability(service);
+      const requestBody = await readJsonBody(request);
+      const parsed = parseStdinWriteBody(requestBody);
+      const actor = safeAuditText(parsed.actor, "unknown") ?? "unknown";
+
+      if (!stdinCapability.available) {
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.stdin.write",
+          actor,
+          subject: "service-stdin",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/{serviceId}/stdin",
+          outcome: "failure",
+          statusCode: 409,
+          summary: `Rejected stdin write for service "${serviceId}" because no safe stdin channel is available.`,
+          reason: stdinCapability.reason ?? "stdin_unavailable",
+          metadata: {
+            byteLength: Buffer.byteLength(parsed.input, "utf8"),
+            policy: stdinCapability.policy ?? "unavailable",
+            provider: stdinCapability.provider ?? null,
+          },
+        });
+        throw new ApiError("stdin_unavailable", 409, stdinCapability.reason ?? "No safe stdin channel is advertised.");
+      }
+
+      const writeResult = await writeManagedProcessStdin(service.manifest.id, parsed.input);
+      if (!writeResult.ok) {
+        const statusCode = writeResult.code === "not_running" ? 409 : writeResult.code === "no_pipe" ? 409 : 500;
+        await appendAuditEvent({
+          workspaceRoot: config.workspaceRoot,
+          serviceRoot: service.serviceRoot,
+          source: "runtime-api",
+          action: "service.stdin.write",
+          actor,
+          subject: "service-stdin",
+          serviceId,
+          method: "POST",
+          routeTemplate: "/api/services/{serviceId}/stdin",
+          outcome: "failure",
+          statusCode,
+          summary: `Rejected stdin write for service "${serviceId}".`,
+          reason: writeResult.code,
+          metadata: {
+            byteLength: Buffer.byteLength(parsed.input, "utf8"),
+            policy: stdinCapability.policy ?? "allowed",
+            provider: stdinCapability.provider ?? "direct",
+          },
+        });
+        throw new ApiError("stdin_write_failed", statusCode, writeResult.message);
+      }
+
+      const audit = await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        serviceRoot: service.serviceRoot,
+        source: "runtime-api",
+        action: "service.stdin.write",
+        actor,
+        subject: "service-stdin",
+        serviceId,
+        method: "POST",
+        routeTemplate: "/api/services/{serviceId}/stdin",
+        outcome: "success",
+        statusCode: 200,
+        summary: `Accepted stdin write for service "${serviceId}" (${String(writeResult.byteLength)} bytes).`,
+        metadata: {
+          byteLength: writeResult.byteLength,
+          newlineAppended: writeResult.newlineAppended,
+          policy: "allowed",
+          provider: stdinCapability.provider ?? "direct",
+        },
+      });
+
+      writeJson(response, 200, {
+        serviceId: service.manifest.id,
+        accepted: true,
+        auditId: audit.id,
+        message: "Input accepted by runtime stdin.",
+      });
       return;
     }
 
@@ -4011,6 +4352,72 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/runtime/security") {
     writeJson(response, 200, createRuntimeAuthResponse(auth));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/runtime/auth/local") {
+    const parsed = parseLocalAuthValidateInput(await readJsonBody(request));
+    if (typeof parsed === "string") {
+      throw new ApiError("invalid_request", 400, parsed);
+    }
+    const result = validateLocalAuth(parsed, localAuth, {
+      clientAddress: auth.request.clientAddress,
+      forceSso: localAuth.forceSso,
+      local: auth.request.local,
+    });
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime-api",
+      action: result.ok ? "auth.local.accepted" : "auth.local.denied",
+      actor: result.ok ? "local-operator" : "unauthenticated",
+      method: "POST",
+      routeTemplate: "/api/runtime/auth/local",
+      outcome: result.ok ? "success" : "failure",
+      statusCode: result.ok ? 200 : result.statusCode,
+      summary: result.ok
+        ? "Local operator authentication succeeded."
+        : "Local operator authentication was rejected.",
+      reason: result.ok ? "local_auth_accepted" : result.error,
+      metadata: {
+        method: parsed.method,
+        clientAddress: auth.request.clientAddress,
+        forceSso: localAuth.forceSso,
+      },
+    });
+    if (!result.ok) {
+      throw new ApiError(
+        result.error,
+        result.statusCode,
+        result.error === "force_sso_required"
+          ? "Remote local login is disabled because FORCE_SSO is enabled."
+          : result.error === "local_auth_rate_limited"
+            ? "Too many remote local-login attempts. Retry later or use loopback break-glass."
+            : "Local operator authentication was rejected.",
+      );
+    }
+    writeJson(response, 200, {
+      auth: {
+        ...createRuntimeAuthResponse(auth).auth,
+        actor: {
+          authenticated: true,
+          kind: "local-token",
+          actorId: "local-admin-token",
+        },
+        mode: "local-token",
+        blockers: [],
+      },
+      session: {
+        kind: "local-token",
+        token: result.sessionToken,
+      },
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/security") {
+    writeJson(response, 200, {
+      security: createRuntimeAuthResponse(auth),
+    });
     return;
   }
 
@@ -4174,12 +4581,21 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/diagnostics/bundle") {
     const serviceId = url.searchParams.get("serviceId") ?? undefined;
-    writeJson(response, 200, await buildDiagnosticsBundle({
+    const bundle = await buildDiagnosticsBundle({
       servicesRoot: config.servicesRoot,
       workspaceRoot: config.workspaceRoot,
       version: config.version,
       serviceId,
-    }));
+    });
+    await emitOperatorInboxDiagnosticsEvent(config.workspaceRoot, {
+      kind: "diagnostics.completed",
+      summary: `Diagnostics bundle prepared for ${serviceId ? `service "${serviceId}"` : "runtime"}.`,
+      serviceId: serviceId ?? null,
+      backupExportId: "diagnostics:" + bundle.generatedAt,
+      route: "/api/diagnostics/bundle" + (serviceId ? "?serviceId=" + encodeURIComponent(serviceId) : ""),
+      observedAt: bundle.generatedAt,
+    });
+    writeJson(response, 200, bundle);
     return;
   }
 
@@ -4382,10 +4798,11 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
 }
 
 async function closeApiServer(server: Server): Promise<void> {
+  const closed = once(server, "close");
   server.close();
   server.closeIdleConnections?.();
   server.closeAllConnections?.();
-  await once(server, "close");
+  await closed;
 }
 
 function runtimeApiPortPolicy(options: ApiServerOptions, requestedPort: number): RuntimeEndpointAllocationPolicy {
@@ -4721,6 +5138,10 @@ async function startApiServerGeneration(
     adoptServiceIds: recovery.adoptServiceIds,
     excludeAdoptServiceIds: recovery.committedServiceAdoptionIds,
   });
+  void ensureLocalOperatorAuth({
+    workspaceRoot: config.workspaceRoot,
+    servicesRoot: config.servicesRoot,
+  }).catch(() => undefined);
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
   const bindRetryLimit = runtimeBindRetryLimit();
@@ -5116,6 +5537,13 @@ async function startApiServerGeneration(
     transaction.journal = await completeCommittedStartupMaterializationCleanup(transaction.journal);
     transaction.journal = await settleStartupTransaction(transaction.journal, "committed", {
       removeCompensations: [...transaction.journal.pendingCompensations],
+    });
+    await emitOperatorInboxSystemEvent(config.workspaceRoot, {
+      kind: "runtime.startup",
+      status: "success",
+      summary: `Runtime started on ${resolvedApiUrl} with ${bootModel.discovered.length} discovered service(s).`,
+      route: "/api/dashboard",
+      correlationKey: runtimeGenerationId,
     });
   } catch (error) {
     const generationCommitted = transaction.journal.phase === "generation_committed" &&

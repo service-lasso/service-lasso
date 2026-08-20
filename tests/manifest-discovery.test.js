@@ -180,8 +180,9 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@nginx")?.role, undefined);
   assert.equal(byId.get("@nginx")?.version, "1.30.0");
   assert.equal(byId.get("@nginx")?.artifact?.source.repo, "service-lasso/lasso-nginx");
-  assert.equal(byId.get("@nginx")?.artifact?.source.tag, "2026.4.27-712c75f");
+  assert.equal(byId.get("@nginx")?.artifact?.source.tag, "2026.8.12-f587add");
   assert.equal(byId.get("@nginx")?.artifact?.platforms.win32?.assetName, "lasso-nginx-1.30.0-win32.zip");
+  assert.equal(byId.get("@nginx")?.actions?.stop?.commandline?.win32?.includes("-s quit"), true);
   assert.deepEqual(byId.get("@nginx")?.ports, { http: 18080 });
   assert.deepEqual(byId.get("@nginx")?.healthcheck, {
     id: "nginx-http-health",
@@ -235,7 +236,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
-  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.12-9be43fc");
+  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.18-2ee1ba5");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
   assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{endpoint\.mongo\.port\}"/);
@@ -290,7 +291,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("echo-service")?.urls?.find((url) => url.label === "health")?.url, "http://127.0.0.1:${HEALTH_PORT}/health");
   assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
-  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.7.24-db583d4");
+  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.8.20-69311de");
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
   assert.deepEqual(byId.get("@serviceadmin")?.env, {

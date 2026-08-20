@@ -83,6 +83,7 @@ test("startup broker plan includes generated writeback metadata without raw valu
       operation: "create",
       required: true,
       sourceRefs: ["SESSION_SEED"],
+      generationMode: "caller_provided",
       valuePolicy: { kind: "session-secret", bytes: 32, encoding: "base64url", minEntropyBits: 256 },
       overwrite: "deny",
       auditReason: "test generated secret provisioning",

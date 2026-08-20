@@ -51,6 +51,17 @@ export interface ServiceLogSourceDeclaration {
   format?: ServiceLogSourceFormat;
 }
 
+/**
+ * Direct managed-process stdin opt-in. Default is no stdin pipe and no advertised channel.
+ * `direct` writes bounded lines to the supervised process; it is not a PTY or shell.
+ */
+export type ServiceStdinProvider = "direct";
+
+export interface ServiceStdinDeclaration {
+  enabled: boolean;
+  provider?: ServiceStdinProvider;
+}
+
 export interface ServicePortDeclaration {
   [name: string]: number;
 }
@@ -387,6 +398,7 @@ export interface ServiceManifest {
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceUrlEndpoint[];
   logSources?: ServiceLogSourceDeclaration[];
+  stdin?: ServiceStdinDeclaration;
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;

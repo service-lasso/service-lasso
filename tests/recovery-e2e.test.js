@@ -215,7 +215,7 @@ test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in 
         enabled: true,
         onCrash: true,
         maxAttempts: 1,
-        backoffSeconds: 0,
+        backoffSeconds: 1,
       },
       doctor: {
         enabled: true,

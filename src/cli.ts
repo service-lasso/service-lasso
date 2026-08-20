@@ -105,6 +105,8 @@ function usageText(): string {
     "  service-lasso secrets rotation-readiness [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets provider-auth-required [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso secrets rotate-plan <ref> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets broker-backup [archivePath] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso secrets broker-restore <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup create [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso backup restore-plan <archivePath> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso diagnostics bundle [serviceId|baseline] --preview [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -350,8 +352,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "secrets") {
     const action = remaining.shift();
-    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required" && action !== "rotate-plan") {
-      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required, rotate-plan.');
+    if (action !== "audit" && action !== "rotation-readiness" && action !== "provider-auth-required" && action !== "rotate-plan" && action !== "broker-backup" && action !== "broker-restore") {
+      throw new Error('The "secrets" command requires one of: audit, rotation-readiness, provider-auth-required, rotate-plan, broker-backup, broker-restore.');
     }
 
     parsed.secretsAction = action;
@@ -361,6 +363,16 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         throw new Error('The "secrets rotate-plan" command requires a <ref> argument.');
       }
       parsed.secretRef = ref;
+    } else if (action === "broker-restore") {
+      const archivePath = remaining.shift();
+      if (!archivePath || archivePath.startsWith("-")) {
+        throw new Error('The "secrets broker-restore" command requires an <archivePath> argument.');
+      }
+      parsed.archivePath = archivePath;
+    } else if (action === "broker-backup") {
+      if (remaining[0] && !remaining[0].startsWith("-")) {
+        parsed.archivePath = remaining.shift();
+      }
     } else if (remaining[0] && !remaining[0].startsWith("-")) {
       parsed.serviceId = remaining.shift();
     }
@@ -1016,6 +1028,17 @@ function printSecretsResult(result: SecretsCliResult, asJson: boolean): void {
     return;
   }
 
+  if (result.action === "backup" || result.action === "restore") {
+    console.log("[service-lasso] secrets broker " + result.action);
+    console.log("- archivePath: " + result.archivePath);
+    console.log("- storePath: " + result.storePath);
+    return;
+  }
+
+  if (result.action !== "audit") {
+    return;
+  }
+
   console.log("[service-lasso] secret reference audit");
   if ("services" in result) {
     console.log("- services: " + result.summary.services);
@@ -1482,6 +1505,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       action: parsed.secretsAction!,
       serviceId: parsed.serviceId,
       ref: parsed.secretRef,
+      archivePath: parsed.archivePath,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,

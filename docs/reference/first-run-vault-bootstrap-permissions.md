@@ -136,22 +136,34 @@ private keys, session cookies, passwords, or recovery material.
 
 ## Local and remote auth rules
 
-Local desktop setup is allowed only on a local bind such as `127.0.0.1`, `::1`,
-or `localhost`. Local-root mode means the operator has a direct local runtime
-channel during first-run setup; it does not mean the OS root or administrator
-account is the Service Lasso owner.
+`0.0.0.0` is a bind address, not a browser origin. Loopback origins are
+`127.0.0.1`, `::1`, and `localhost` (plus other `127.0.0.0/8` client addresses).
+Opening Admin as `http://192.168.x.x:17700` or a hostname is remote even when
+Core or Admin listen on `0.0.0.0`.
 
-Remote access must be authenticated before it can reach normal runtime
-capabilities. During setup mode on a non-local bind, bootstrap requires an
-accepted setup token. After setup, remote UI/API access must use the configured
-identity boundary, such as the Service Admin route protected by Traefik OIDC and
-ZITADEL. Remote unauthenticated access must fail closed.
+Loopback is `local-root` without a password. Loopback still allows Lasso-local
+password, vault token, and SSO/ZITADEL when configured, including when vault
+flag `runtime/auth` / `FORCE_SSO` is true, so a bad flag cannot brick the
+machine or hide break-glass methods. Flip `FORCE_SSO` from loopback via the KV
+editor.
 
-The local admin token fallback is an emergency/local integration mechanism. It
-must be explicitly configured, scoped to local or trusted automation use, and
-treated as secret material. It is not a substitute for remote user login, and it
-must not be included in audit payloads, diagnostics, telemetry, issue comments,
-or PR bodies.
+First-run seeds Lasso-local secrets into Broker KV path `runtime/local-operator`
+(`LOCAL_ADMIN_TOKEN`, `LOCAL_OPERATOR_PASSWORD`) for audited per-field reveal.
+Values are not stored in `service.json`. `operator.json` stays the Broker daemon
+token and is not the operator login token.
+
+Remote login (when `FORCE_SSO` is off) is either the vault-retrieved token,
+username `local-operator` plus the Lasso-local password via
+`POST /api/runtime/auth/local`, or SSO when configured. Service Lasso must not
+collect OS or Windows passwords in a web form. Remote failures are rate-limited;
+loopback is not.
+
+When `FORCE_SSO` is on, remote access requires a ZITADEL actor. Local and token
+proofs are disabled remotely. Loopback continues to allow every configured
+method. Traefik OIDC cutover remains a later phase.
+
+The local admin token is secret material. It must not appear in audit payloads,
+diagnostics, telemetry, issue comments, or PR bodies.
 
 ## Actor model
 

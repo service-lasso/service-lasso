@@ -113,6 +113,58 @@ export interface OperatorInboxCounts {
   byFilter: Record<OperatorInboxFilter, number>;
 }
 
+export interface OperatorInboxSystemEvent {
+  kind: "runtime.startup" | "first-run.required" | "first-run.completed" | "auth.session";
+  status: "info" | "success" | "warning" | "error";
+  summary: string;
+  details?: string | null;
+  route?: string;
+  correlationKey?: string;
+  observedAt?: string;
+}
+
+export interface OperatorInboxServiceEvent {
+  serviceId: string;
+  kind: "lifecycle.failed" | "lifecycle.recovered" | "health.degraded" | "health.unhealthy" | "health.recovered";
+  summary: string;
+  severity?: OperatorInboxSeverity;
+  details?: string | null;
+  route?: string;
+  correlationKey?: string;
+  observedAt?: string;
+}
+
+export interface OperatorInboxWorkflowEvent {
+  workflowId: string;
+  status: "succeeded" | "failed" | "timeout";
+  summary: string;
+  serviceId?: string | null;
+  actionId?: string | null;
+  runId?: string | null;
+  scheduleId?: string | null;
+  route?: string;
+  observedAt?: string;
+}
+
+export interface OperatorInboxUpdateEvent {
+  serviceId: string;
+  status: "available" | "downloaded" | "installed" | "failed" | "restart_required" | "deferred";
+  summary: string;
+  details?: string | null;
+  updateId?: string | null;
+  route?: string;
+  observedAt?: string;
+}
+
+export interface OperatorInboxDiagnosticsEvent {
+  kind: "diagnostics.completed" | "export.completed" | "archive.completed";
+  summary: string;
+  serviceId?: string | null;
+  backupExportId?: string | null;
+  route?: string;
+  observedAt?: string;
+}
+
 const inboxWriteQueues = new Map<string, Promise<void>>();
 
 const INBOX_TYPES: OperatorInboxType[] = ["system", "workflow", "service", "update", "security", "help", "error"];
@@ -476,4 +528,333 @@ export function countOperatorInboxItems(items: OperatorInboxItem[]): OperatorInb
   }
 
   return counts;
+}
+
+/**
+ * Service Admin inbox list shape expected by the packaged UI on GET `/api/inbox`.
+ */
+export interface ServiceAdminInboxMessageView {
+  id: string;
+  title: string;
+  summary: string;
+  details: string | null;
+  category: OperatorInboxType;
+  severity: OperatorInboxSeverity;
+  createdAt: string;
+  read: boolean;
+  hidden: boolean;
+  target: {
+    label: string;
+    href: string;
+    kind: string;
+  } | null;
+  actions: Array<{
+    id: string;
+    label: string;
+    kind: string;
+    target: string;
+    disabled: boolean;
+    reason?: string;
+  }>;
+}
+
+/**
+ * Service Admin inbox envelope. Missing `messages` causes the UI to throw into its 500 page.
+ */
+export interface ServiceAdminInboxView {
+  messages: ServiceAdminInboxMessageView[];
+  counts: {
+    total: number;
+    unread: number;
+    updates: number;
+    system: number;
+    workflow: number;
+    errors: number;
+    hidden: number;
+  };
+  updatedAt: string;
+}
+
+/**
+ * Maps durable operator inbox state into the Service Admin `/api/inbox` contract.
+ *
+ * @param state Persisted operator inbox file.
+ * @param query Optional list filter/pagination applied before mapping messages.
+ * @returns Admin-compatible inbox view with `messages` and summary counts.
+ */
+export function toServiceAdminInboxView(
+  state: OperatorInboxStateFile,
+  query: OperatorInboxQuery = {},
+): ServiceAdminInboxView {
+  const listed = listOperatorInboxItems(state, query);
+  const counts = countOperatorInboxItems(state.items);
+  const visible = state.items.filter((item) => item.visibility === "visible");
+
+  return {
+    messages: listed.items.map((item) => toServiceAdminInboxMessage(item)),
+    counts: {
+      total: visible.length,
+      unread: visible.filter((item) => item.state === "unread").length,
+      updates: visible.filter((item) => item.type === "update").length,
+      system: visible.filter((item) => item.type === "system").length,
+      workflow: visible.filter((item) => item.type === "workflow").length,
+      errors: visible.filter((item) => item.type === "error").length,
+      hidden: counts.hidden,
+    },
+    updatedAt: state.updatedAt,
+  };
+}
+
+/**
+ * Converts one durable inbox item into the Service Admin message row contract.
+ *
+ * @param item Durable operator inbox item.
+ * @returns Admin-compatible message row.
+ */
+function toServiceAdminInboxMessage(item: OperatorInboxItem): ServiceAdminInboxMessageView {
+  const href = item.relatedTarget?.route ?? item.action?.target ?? "";
+  const actions: ServiceAdminInboxMessageView["actions"] = [];
+  if (item.action) {
+    const actionDisabled = item.action.availability !== "available";
+    const actionView: ServiceAdminInboxMessageView["actions"][number] = {
+      id: `${item.id}:${item.action.kind}`,
+      label: item.action.label,
+      kind: item.action.kind,
+      target: item.action.target,
+      disabled: actionDisabled,
+    };
+    if (actionDisabled) {
+      actionView.reason = "Action is not currently available.";
+    }
+    actions.push(actionView);
+  }
+
+  return {
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    details: item.details,
+    category: item.type,
+    severity: item.severity,
+    createdAt: item.createdAt,
+    read: item.state === "read",
+    hidden: item.visibility === "hidden",
+    target: href
+      ? {
+          label: item.action?.label ?? item.title,
+          href,
+          kind: item.relatedTarget?.serviceId ? "service" : "route",
+        }
+      : null,
+    actions,
+  };
+}
+
+function severityFromSystemStatus(status: OperatorInboxSystemEvent["status"]): OperatorInboxSeverity {
+  if (status === "error") {
+    return "error";
+  }
+  if (status === "warning") {
+    return "warning";
+  }
+  if (status === "success") {
+    return "success";
+  }
+  return "info";
+}
+
+function serviceEventTitle(kind: OperatorInboxServiceEvent["kind"], serviceId: string): string {
+  if (kind === "lifecycle.failed") {
+    return "Service lifecycle failed: " + serviceId;
+  }
+  if (kind === "lifecycle.recovered") {
+    return "Service recovered: " + serviceId;
+  }
+  if (kind === "health.degraded") {
+    return "Service health degraded: " + serviceId;
+  }
+  if (kind === "health.recovered") {
+    return "Service health recovered: " + serviceId;
+  }
+  return "Service health unhealthy: " + serviceId;
+}
+
+function updateEventTitle(status: OperatorInboxUpdateEvent["status"], serviceId: string): string {
+  if (status === "available") {
+    return "Update available: " + serviceId;
+  }
+  if (status === "downloaded") {
+    return "Update downloaded: " + serviceId;
+  }
+  if (status === "installed") {
+    return "Update installed: " + serviceId;
+  }
+  if (status === "restart_required") {
+    return "Restart required: " + serviceId;
+  }
+  if (status === "deferred") {
+    return "Update deferred: " + serviceId;
+  }
+  return "Update failed: " + serviceId;
+}
+
+function updateEventSeverity(status: OperatorInboxUpdateEvent["status"]): OperatorInboxSeverity {
+  if (status === "failed") {
+    return "error";
+  }
+  if (status === "deferred" || status === "restart_required") {
+    return "warning";
+  }
+  if (status === "installed" || status === "downloaded") {
+    return "success";
+  }
+  return "info";
+}
+
+export async function emitOperatorInboxSystemEvent(
+  workspaceRoot: string,
+  event: OperatorInboxSystemEvent,
+): Promise<OperatorInboxStateFile> {
+  return await upsertOperatorInboxItem(workspaceRoot, {
+    dedupeKey: "system:" + event.kind + ":" + (event.correlationKey ?? "current"),
+    title: event.kind === "runtime.startup"
+      ? "Runtime startup"
+      : event.kind === "first-run.required"
+        ? "First-run setup required"
+        : event.kind === "first-run.completed"
+          ? "First-run setup completed"
+          : "Authentication notice",
+    summary: event.summary,
+    details: event.details,
+    type: event.kind === "auth.session" ? "security" : "system",
+    severity: severityFromSystemStatus(event.status),
+    source: event.kind === "auth.session" ? "runtime" : "system",
+    relatedTarget: event.route ? { route: event.route } : null,
+    action: event.route
+      ? {
+          label: "Review",
+          target: event.route,
+          kind: "link",
+          availability: "available",
+        }
+      : null,
+    observedAt: event.observedAt,
+  });
+}
+
+export async function emitOperatorInboxServiceEvent(
+  workspaceRoot: string,
+  event: OperatorInboxServiceEvent,
+): Promise<OperatorInboxStateFile> {
+  const recovered = event.kind === "lifecycle.recovered" || event.kind === "health.recovered";
+  const severity = event.severity ?? (recovered ? "success" : event.kind === "health.degraded" ? "warning" : "error");
+  return await upsertOperatorInboxItem(workspaceRoot, {
+    dedupeKey: "service:" + event.kind + ":" + event.serviceId + ":" + (event.correlationKey ?? "current"),
+    title: serviceEventTitle(event.kind, event.serviceId),
+    summary: event.summary,
+    details: event.details,
+    type: recovered ? "service" : "error",
+    severity,
+    source: "service",
+    relatedTarget: {
+      serviceId: event.serviceId,
+      route: event.route ?? "/services/" + encodeURIComponent(event.serviceId),
+    },
+    action: {
+      label: "Open service",
+      target: event.route ?? "/services/" + encodeURIComponent(event.serviceId),
+      kind: "link",
+      availability: "available",
+    },
+    observedAt: event.observedAt,
+  });
+}
+
+export async function emitOperatorInboxWorkflowEvent(
+  workspaceRoot: string,
+  event: OperatorInboxWorkflowEvent,
+): Promise<OperatorInboxStateFile> {
+  const ok = event.status === "succeeded";
+  return await upsertOperatorInboxItem(workspaceRoot, {
+    dedupeKey: "workflow:" + event.workflowId + ":" + (event.runId ?? event.scheduleId ?? event.actionId ?? event.status),
+    title: ok ? "Workflow completed: " + event.workflowId : "Workflow needs attention: " + event.workflowId,
+    summary: event.summary,
+    type: ok ? "workflow" : "error",
+    severity: ok ? "success" : "error",
+    source: "workflow",
+    relatedTarget: {
+      ...(event.serviceId ? { serviceId: event.serviceId } : {}),
+      workflowId: event.workflowId,
+      ...(event.runId ? { auditId: event.runId } : {}),
+      ...(event.route ? { route: event.route } : {}),
+    },
+    action: event.route
+      ? {
+          label: "Open workflow",
+          target: event.route,
+          kind: "link",
+          availability: "available",
+        }
+      : null,
+    observedAt: event.observedAt,
+  });
+}
+
+export async function emitOperatorInboxUpdateEvent(
+  workspaceRoot: string,
+  event: OperatorInboxUpdateEvent,
+): Promise<OperatorInboxStateFile> {
+  return await upsertOperatorInboxItem(workspaceRoot, {
+    dedupeKey: "update:" + event.status + ":" + event.serviceId + ":" + (event.updateId ?? "current"),
+    title: updateEventTitle(event.status, event.serviceId),
+    summary: event.summary,
+    details: event.details,
+    type: "update",
+    severity: updateEventSeverity(event.status),
+    source: "updater",
+    relatedTarget: {
+      serviceId: event.serviceId,
+      ...(event.updateId ? { updateId: event.updateId } : {}),
+      route: event.route ?? "/services/" + encodeURIComponent(event.serviceId) + "/updates",
+    },
+    action: {
+      label: "Review update",
+      target: event.route ?? "/services/" + encodeURIComponent(event.serviceId) + "/updates",
+      kind: "link",
+      availability: "available",
+    },
+    observedAt: event.observedAt,
+  });
+}
+
+export async function emitOperatorInboxDiagnosticsEvent(
+  workspaceRoot: string,
+  event: OperatorInboxDiagnosticsEvent,
+): Promise<OperatorInboxStateFile> {
+  return await upsertOperatorInboxItem(workspaceRoot, {
+    dedupeKey: "diagnostics:" + event.kind + ":" + (event.backupExportId ?? event.serviceId ?? "runtime"),
+    title: event.kind === "diagnostics.completed"
+      ? "Diagnostics bundle completed"
+      : event.kind === "archive.completed"
+        ? "Archive completed"
+        : "Export completed",
+    summary: event.summary,
+    type: "system",
+    severity: "success",
+    source: "runtime",
+    relatedTarget: {
+      ...(event.serviceId ? { serviceId: event.serviceId } : {}),
+      ...(event.backupExportId ? { backupExportId: event.backupExportId } : {}),
+      ...(event.route ? { route: event.route } : {}),
+    },
+    action: event.route
+      ? {
+          label: "Open",
+          target: event.route,
+          kind: "link",
+          availability: "available",
+        }
+      : null,
+    observedAt: event.observedAt,
+  });
 }

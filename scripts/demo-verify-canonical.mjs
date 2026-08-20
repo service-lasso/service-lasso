@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  canonicalDemoRequiredServiceIds,
   defaultDemoServicesRoot,
   defaultDemoWorkspaceRoot,
 } from "./demo-instance-lib.mjs";
@@ -11,7 +12,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 export const canonicalDemoHost = "192.168.1.53";
 export const canonicalRuntimePort = 17883;
 export const canonicalServiceAdminPort = 17700;
-export const canonicalServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const canonicalServiceIds = [...canonicalDemoRequiredServiceIds];
 
 function parseFlag(args, name) {
   const prefix = `--${name}=`;
@@ -312,9 +313,7 @@ function serviceSummary(service, expected) {
 
 function isSourceServiceAdminState(service) {
   return (
-    service?.lifecycle?.installed !== true
-    && service?.lifecycle?.configured !== true
-    && service?.lifecycle?.running !== true
+    service?.lifecycle?.running !== true
     && service?.health?.healthy !== true
   );
 }
@@ -330,6 +329,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   let workspaceDiscovery = null;
   let workspaceDiscoveryMatchesRoots = false;
   let workspaceDiscoveryIsActive = false;
+  let runtimeMetadataUrl = resolved.runtimeUrl;
   const stateDirectory = path.join(resolved.workspaceRoot, ".service-lasso");
   const [workspaceInstance, generationRegistry] = await Promise.all([
     readJson(path.join(stateDirectory, "runtime-instance.json")).catch(() => null),
@@ -361,13 +361,14 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     );
     if (workspaceDiscoveryIsActive) {
       const discoveredRuntimeUrl = normalizeUrlBase(apiEndpoint);
+      runtimeMetadataUrl = discoveredRuntimeUrl;
       resolved = {
         ...resolved,
         generationId: resolved.generationId ?? generation.generationId,
         runtimeUrl: runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl,
         runtimeHealthUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/health`,
-        runtimeSummaryUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/runtime`,
-        runtimeServicesUrl: `${runtimeUrlExplicit ? resolved.runtimeUrl : discoveredRuntimeUrl}/api/services`,
+        runtimeSummaryUrl: `${discoveredRuntimeUrl}/api/runtime`,
+        runtimeServicesUrl: `${discoveredRuntimeUrl}/api/services`,
       };
     }
   }
@@ -398,7 +399,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     fetchJson(resolved.runtimeHealthUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
-    fetchJson(`${resolved.runtimeUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${runtimeMetadataUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
   ]);
 
   check(
@@ -436,7 +437,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     "runtime generation discovery reachable",
     Boolean(runtimeInstance.ok && runtimeInstance.body?.instance),
     "missing_runtime_generation",
-    runtimeInstance.ok ? `HTTP ${runtimeInstance.status}` : `${resolved.runtimeUrl}/api/runtime/instance: ${runtimeInstance.error ?? `HTTP ${runtimeInstance.status}`}`,
+    runtimeInstance.ok ? `HTTP ${runtimeInstance.status}` : `${runtimeMetadataUrl}/api/runtime/instance: ${runtimeInstance.error ?? `HTTP ${runtimeInstance.status}`}`,
   );
   if (workspaceDiscovery) {
     check(checks, "workspace generation roots match selector", workspaceDiscoveryMatchesRoots, "wrong_lane");
@@ -484,7 +485,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       checks,
       "runtime endpoint belongs to selected generation",
       normalizeUrlBase(runtimeInstance.body.instance.apiUrl),
-      normalizeUrlBase(resolved.runtimeUrl),
+      normalizeUrlBase(runtimeMetadataUrl),
       "wrong_lane",
     );
   }
@@ -546,8 +547,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     const sourceServiceAdmin = serviceId === "@serviceadmin" && sourceServiceAdminMode;
     if (sourceServiceAdmin) {
       check(checks, `${serviceId} source Admin owns canonical port`, true, null, "same-origin runtime APIs are healthy on 17700");
-      check(checks, `${serviceId} managed artifact intentionally not installed`, live.lifecycle?.installed !== true, "unexpected_managed_serviceadmin", `installed=${live.lifecycle?.installed === true}`);
-      check(checks, `${serviceId} managed artifact intentionally not configured`, live.lifecycle?.configured !== true, "unexpected_managed_serviceadmin", `configured=${live.lifecycle?.configured === true}`);
+      check(checks, `${serviceId} managed artifact may be seeded`, true, null, `installed=${live.lifecycle?.installed === true} configured=${live.lifecycle?.configured === true}`);
       check(checks, `${serviceId} managed artifact intentionally not running`, live.lifecycle?.running !== true, "unexpected_managed_serviceadmin", `running=${live.lifecycle?.running === true}`);
       check(checks, `${serviceId} managed artifact health intentionally inactive`, live.health?.healthy !== true, "unexpected_managed_serviceadmin", `healthy=${live.health?.healthy === true}`);
     } else {

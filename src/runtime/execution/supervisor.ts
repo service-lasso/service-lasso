@@ -423,6 +423,85 @@ export function hasManagedProcess(serviceId: string): boolean {
   return managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId);
 }
 
+export interface ManagedStdinInspection {
+  writable: boolean;
+}
+
+export type ManagedStdinWriteResult =
+  | { ok: true; byteLength: number; newlineAppended: boolean }
+  | { ok: false; code: "not_running" | "no_pipe" | "write_failed"; message: string };
+
+/**
+ * Inspect whether the live managed process still has a writable stdin pipe.
+ * Adopted processes never expose a pipe.
+ */
+export function inspectManagedStdin(serviceId: string): ManagedStdinInspection {
+  const record = managedProcesses.get(serviceId);
+  const stdin = record?.child.stdin;
+  return {
+    writable: Boolean(record && !record.stopping && stdin && !stdin.destroyed && stdin.writable),
+  };
+}
+
+/**
+ * Write a bounded UTF-8 line to the managed process stdin pipe.
+ * Does not spawn a shell or PTY; the service owns command interpretation.
+ */
+export async function writeManagedProcessStdin(
+  serviceId: string,
+  input: string,
+): Promise<ManagedStdinWriteResult> {
+  const record = managedProcesses.get(serviceId);
+  if (!record || record.stopping) {
+    return {
+      ok: false,
+      code: "not_running",
+      message: "The managed process is not running.",
+    };
+  }
+
+  const stdin = record.child.stdin;
+  if (!stdin || stdin.destroyed || !stdin.writable) {
+    return {
+      ok: false,
+      code: "no_pipe",
+      message: "No live stdin pipe is attached to this service.",
+    };
+  }
+
+  const newlineAppended = !input.endsWith("\n");
+  const payload = newlineAppended ? `${input}\n` : input;
+  const byteLength = Buffer.byteLength(payload, "utf8");
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      stdin.write(payload, "utf8", (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  } catch {
+    return {
+      ok: false,
+      code: "write_failed",
+      message: "Runtime stdin write failed.",
+    };
+  }
+
+  return {
+    ok: true,
+    byteLength,
+    newlineAppended,
+  };
+}
+
+function serviceEnablesStdin(service: DiscoveredService): boolean {
+  return service.manifest.stdin?.enabled === true;
+}
+
 function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
@@ -677,11 +756,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
+  const stdinEnabled = serviceEnablesStdin(service);
 
   const child = spawn(executable, args, {
     cwd: workingDirectory,
     env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts, secureEnv, variableResolution),
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
     windowsHide: true,
   });
