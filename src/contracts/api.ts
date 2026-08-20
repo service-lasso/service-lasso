@@ -77,6 +77,14 @@ export interface RuntimeAuthStatusResponse {
       trustProxyHeaders: boolean;
       zitadelEnabled: boolean;
       localTokenConfigured: boolean;
+      localOperatorConfigured: boolean;
+      forceSso: boolean;
+      identityProviders: Array<{
+        id: string;
+        label: string;
+        kind: "zitadel";
+        startUrl: string | null;
+      }>;
     };
     actor: {
       authenticated: boolean;
@@ -85,6 +93,14 @@ export interface RuntimeAuthStatusResponse {
     };
     mode: "local-root" | "zitadel" | "local-token" | "blocked";
     blockers: string[];
+  };
+}
+
+export interface RuntimeLocalAuthResponse {
+  auth: RuntimeAuthStatusResponse["auth"];
+  session: {
+    kind: "local-token";
+    token: string;
   };
 }
 
