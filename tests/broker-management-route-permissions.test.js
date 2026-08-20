@@ -125,6 +125,21 @@ test("broker lifecycle response boundary rejects nested key, credential, share, 
   }
 });
 
+test("broker telemetry response boundary permits only finite numeric metric values", () => {
+  assert.equal(
+    responseContainsForbiddenBrokerMaterial({ metrics: [{ name: "broker.requests", value: 3 }] }, false, 0, true),
+    false,
+  );
+  assert.equal(
+    responseContainsForbiddenBrokerMaterial({ metrics: [{ name: "broker.requests", value: "raw" }] }, false, 0, true),
+    true,
+  );
+  assert.equal(
+    responseContainsForbiddenBrokerMaterial({ metrics: [{ name: "broker.requests", value: 3, token: "raw" }] }, false, 0, true),
+    true,
+  );
+});
+
 test("direct Broker rotation mutations fail closed when Core finds linked consumers", () => {
   const linkedPlan = { services: [{ serviceId: "api" }] };
   const unlinkedPlan = { services: [] };

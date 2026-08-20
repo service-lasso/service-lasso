@@ -88,6 +88,7 @@ export interface SecretsBrokerClientOptions {
   apiToken: string;
   workspaceId: string;
   timeoutMs?: number;
+  managementAuthMode?: "token-header" | "bearer";
 }
 
 export interface SecretsBrokerWritebackRequest {
@@ -235,6 +236,7 @@ export async function requestSecretsBrokerManagement(
   const token = validateToken(options.apiToken);
   const timeoutMs = normalizeTimeout(options.timeoutMs);
   const requestPath = validateManagementTarget(input.method, input.path);
+  const managementAuthMode = options.managementAuthMode ?? "token-header";
   const body = input.method === "POST" ? JSON.stringify(input.body ?? {}) : undefined;
   if (body !== undefined && Buffer.byteLength(body) > MAX_REQUEST_BYTES) {
     throw new SecretsBrokerManagementError("invalid_request", "Secrets Broker management request is too large.");
@@ -250,7 +252,9 @@ export async function requestSecretsBrokerManagement(
       ...connection,
       headers: {
         accept: "application/json",
-        "x-secretsbroker-token": token,
+        ...(managementAuthMode === "bearer"
+          ? { authorization: `Bearer ${token}` }
+          : { "x-secretsbroker-token": token }),
         ...(body === undefined
           ? {}
           : {

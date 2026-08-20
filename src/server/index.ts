@@ -312,7 +312,11 @@ import {
 } from "../platform/workflowRunFacade.js";
 import type { PlatformEntitlement, PlatformRequestContext } from "../platform/facade.js";
 import { ApiError, LifecycleStateError, toApiErrorBody } from "./errors.js";
-import { proxySecretsBrokerRequest, resolveSecretsBrokerAdminAliasPath } from "../runtime/broker/proxy.js";
+import {
+  proxySecretsBrokerRequest,
+  requestLegacySecretsBrokerManagement,
+  resolveSecretsBrokerAdminAliasPath,
+} from "../runtime/broker/proxy.js";
 import { createSecretsBrokerBackup, restoreSecretsBrokerBackup } from "../runtime/broker/backup.js";
 import { SECRETSBROKER_SERVICE_ID } from "../runtime/broker/operator-config.js";
 import type {
@@ -934,10 +938,20 @@ export function matchBrokerManagementProxyRoute(method: string, url: URL): Broke
   };
 }
 
-export function responseContainsForbiddenBrokerMaterial(value: unknown, revealBoundary: boolean, depth = 0): boolean {
+export function responseContainsForbiddenBrokerMaterial(
+  value: unknown,
+  revealBoundary: boolean,
+  depth = 0,
+  telemetryBoundary = false,
+): boolean {
   if (depth > 16 || value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) {
-    return value.some((item) => responseContainsForbiddenBrokerMaterial(item, revealBoundary, depth + 1));
+    return value.some((item) => responseContainsForbiddenBrokerMaterial(
+      item,
+      revealBoundary,
+      depth + 1,
+      telemetryBoundary,
+    ));
   }
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
     const normalized = key.toLowerCase().replaceAll("_", "").replaceAll("-", "");
@@ -960,8 +974,12 @@ export function responseContainsForbiddenBrokerMaterial(value: unknown, revealBo
     ].includes(normalized)) {
       return true;
     }
-    if (normalized === "value" && !revealBoundary) return true;
-    if (responseContainsForbiddenBrokerMaterial(nested, revealBoundary, depth + 1)) return true;
+    if (
+      normalized === "value" &&
+      !revealBoundary &&
+      !(telemetryBoundary && typeof nested === "number" && Number.isFinite(nested))
+    ) return true;
+    if (responseContainsForbiddenBrokerMaterial(nested, revealBoundary, depth + 1, telemetryBoundary)) return true;
   }
   return false;
 }
@@ -987,6 +1005,26 @@ function validateBrokerRevealResponse(value: unknown, requestId: string, ref: st
     record.auditStatus !== "audit_recorded"
   ) {
     throw new ApiError("broker_contract_invalid", 502, "Secrets Broker reveal response failed correlation validation.");
+  }
+}
+
+function validateLegacyBrokerRevealResponse(value: unknown, ref: string): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("broker_contract_invalid", 502, "Secrets Broker legacy reveal response was invalid.");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    record.serviceId !== "@secretsbroker" ||
+    record.ref !== ref ||
+    record.outcome !== "ready" ||
+    record.revealed !== false ||
+    record.valuePresent !== true
+  ) {
+    throw new ApiError(
+      "broker_contract_invalid",
+      502,
+      "Secrets Broker legacy reveal response failed metadata-only validation.",
+    );
   }
 }
 
@@ -3957,21 +3995,17 @@ async function routeRequest(
     }
     const broker = runtimeModel.registry.getById("@secretsbroker");
     const lifecycle = broker ? getLifecycleState(broker.manifest.id) : null;
-    if (!broker || !lifecycle?.running || !lifecycle.installed || !lifecycle.configured) {
+    if (!broker) {
       throw new ApiError(
         "secrets_broker_not_ready",
         503,
-        "Secrets Broker management is unavailable until the prepared broker is running.",
+        "Secrets Broker management is unavailable because the broker is not installed.",
       );
     }
     const brokerRuntime = await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry);
-    if (!brokerRuntime) {
-      throw new ApiError(
-        "secrets_broker_not_ready",
-        503,
-        "Secrets Broker protected runtime credentials are unavailable.",
-      );
-    }
+    const protectedRuntimeReady = Boolean(
+      brokerRuntime && lifecycle?.running && lifecycle.installed && lifecycle.configured,
+    );
 
     const requestId = randomUUID();
     const actorId = auth.actor.actorId ?? "unknown";
@@ -3992,19 +4026,38 @@ async function routeRequest(
       : undefined;
 
     try {
-      const result = await brokerRuntime.management({
+      const managementRequest = {
         method: method as "GET" | "POST",
         path: brokerProxyRoute.brokerPath,
         body: brokerBody,
-      });
+      };
+      const result = protectedRuntimeReady
+        ? await brokerRuntime!.management(managementRequest)
+        : await requestLegacySecretsBrokerManagement(broker, managementRequest);
+      if (!result) {
+        throw new ApiError(
+          "secrets_broker_not_ready",
+          503,
+          "Secrets Broker protected runtime credentials and legacy operator credentials are unavailable.",
+        );
+      }
       const successfulReveal = brokerProxyRoute.revealBoundary && result.statusCode === 200;
       if (successfulReveal) {
         if (!ref) {
           throw new ApiError("invalid_request", 400, "Secrets Broker reveal requires a ref.");
         }
-        validateBrokerRevealResponse(result.body, requestId, ref);
+        if (protectedRuntimeReady) {
+          validateBrokerRevealResponse(result.body, requestId, ref);
+        } else {
+          validateLegacyBrokerRevealResponse(result.body, ref);
+        }
       }
-      if (responseContainsForbiddenBrokerMaterial(result.body, successfulReveal)) {
+      if (responseContainsForbiddenBrokerMaterial(
+        result.body,
+        successfulReveal && protectedRuntimeReady,
+        0,
+        brokerProxyRoute.brokerPath === "/v1/telemetry",
+      )) {
         throw new ApiError(
           "broker_contract_invalid",
           502,
