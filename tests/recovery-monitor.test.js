@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { access, rm } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
-import { hasManagedProcess, stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
+import {
+  hasManagedProcess,
+  stopAllManagedProcesses,
+  waitForManagedProcessFinalization,
+} from "../dist/runtime/execution/supervisor.js";
 import { configService, installService, startService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -149,6 +153,11 @@ test("runtime monitor skips restart when maxAttempts is already exhausted", asyn
     await installConfigStart(service, registry);
 
     await waitFor(() => getLifecycleState("max-attempt-service").runtime.lastTermination === "crashed");
+    await waitForManagedProcessFinalization("max-attempt-service");
+    assert.equal(
+      getLifecycleState("max-attempt-service").runtime.supervision.lastRestartResult,
+      "blocked",
+    );
 
     const monitor = createRuntimeServiceMonitor({
       registry,
