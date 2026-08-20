@@ -217,9 +217,13 @@ export function resolveRuntimeRequestAuth(
   const tokenActor = resolveLocalTokenActor(request, envToken, options.verifyLocalSecret);
   const zitadelActor = resolveZitadelActor(request, zitadelEnabled);
 
+  /**
+   * Loopback always allows local-token, ZITADEL, or implicit local-root.
+   * FORCE_SSO may require ZITADEL only for remote clients.
+   */
   let actor: RuntimeAuthPolicyStatus["actor"];
   if (local) {
-    actor = tokenActor ?? {
+    actor = tokenActor ?? zitadelActor ?? {
       authenticated: true,
       kind: "local-root" as const,
       actorId: "local-root",

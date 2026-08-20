@@ -98,6 +98,19 @@ test("FORCE_SSO blocks remote local login but not the parse of a token body", as
       local: true,
     });
     assert.equal(loopback.ok, true);
+
+    const passwordParsed = parseLocalAuthValidateInput({
+      method: "password",
+      username: LOCAL_OPERATOR_USERNAME,
+      password: PASSWORD_SENTINEL,
+    });
+    assert.notEqual(typeof passwordParsed, "string");
+    const loopbackPassword = validateLocalAuth(passwordParsed, material, {
+      clientAddress: "::1",
+      forceSso: true,
+      local: true,
+    });
+    assert.equal(loopbackPassword.ok, true);
   } finally {
     clearLocalAuthSessions();
     clearRemoteLoginAttempts();
