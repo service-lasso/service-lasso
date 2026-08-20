@@ -4,11 +4,25 @@ import path from "node:path";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import { getServiceStatePaths } from "../state/paths.js";
+import {
+  isUnixSocketPath,
+  isWindowsNamedPipePath,
+  parseSecretsBrokerOperatorIpc,
+  type SecretsBrokerTransportTarget,
+} from "./ipc-transport.js";
 
 export const SECRETSBROKER_SERVICE_ID = "@secretsbroker";
 export const LAUNCH_LEASE_COMMAND_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND";
 export const LAUNCH_LEASE_ARGS_ENV = "SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON";
 export const WORKSPACE_ID_ENV = "SERVICE_LASSO_WORKSPACE_ID";
+export const NAMED_PIPE_ENV = "SECRETSBROKER_NAMED_PIPE";
+export const UNIX_SOCKET_ENV = "SECRETSBROKER_UNIX_SOCKET";
+
+/** Optional OS IPC metadata stored beside operator credentials. Paths are never logged. */
+export interface SecretsBrokerOperatorIpc {
+  kind: "loopback-http" | "unix-socket" | "windows-named-pipe";
+  socketPath?: string;
+}
 
 /** Persisted operator credentials and paths for the local Secrets Broker daemon. */
 export interface SecretsBrokerOperatorConfig {
@@ -18,6 +32,7 @@ export interface SecretsBrokerOperatorConfig {
   masterKeyFile: string;
   apiToken: string;
   initializedAt: string;
+  ipc?: SecretsBrokerOperatorIpc;
 }
 
 /** Resolved on-disk paths for broker bootstrap state under a service root. */
@@ -65,6 +80,47 @@ export function resolveSecretsBrokerPort(
   return null;
 }
 
+/**
+ * True when the value is a non-array object record.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Prefer configured named-pipe or Unix-socket HTTP, then operator.json ipc, then loopback TCP.
+ * Default Broker launch stays loopback HTTP so the live demo health URLs keep working.
+ */
+export function resolveSecretsBrokerTransport(
+  service: DiscoveredService,
+  env: NodeJS.ProcessEnv = process.env,
+  operatorConfig: SecretsBrokerOperatorConfig | null = null,
+): SecretsBrokerTransportTarget | null {
+  const namedPipe = env[NAMED_PIPE_ENV]?.trim() ?? "";
+  if (namedPipe.length > 0 && isWindowsNamedPipePath(namedPipe)) {
+    return { kind: "windows-named-pipe", socketPath: namedPipe };
+  }
+
+  const unixSocket = env[UNIX_SOCKET_ENV]?.trim() ?? "";
+  if (unixSocket.length > 0 && isUnixSocketPath(unixSocket)) {
+    return { kind: "unix-socket", socketPath: unixSocket };
+  }
+
+  const ipc = operatorConfig?.ipc;
+  if (ipc?.kind === "windows-named-pipe" && ipc.socketPath && isWindowsNamedPipePath(ipc.socketPath)) {
+    return { kind: "windows-named-pipe", socketPath: ipc.socketPath };
+  }
+  if (ipc?.kind === "unix-socket" && ipc.socketPath && isUnixSocketPath(ipc.socketPath)) {
+    return { kind: "unix-socket", socketPath: ipc.socketPath };
+  }
+
+  const port = resolveSecretsBrokerPort(service);
+  if (port !== null) {
+    return { kind: "loopback-http", port };
+  }
+  return null;
+}
+
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
@@ -86,25 +142,42 @@ export async function readSecretsBrokerOperatorConfig(
   }
 
   const raw = await readFile(operatorConfigPath, "utf8");
-  const parsed = JSON.parse(raw) as Partial<SecretsBrokerOperatorConfig>;
+  let parsedUnknown: unknown;
+  try {
+    parsedUnknown = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsedUnknown)) {
+    return null;
+  }
+
+  const version = parsedUnknown.version;
+  const apiToken = parsedUnknown.apiToken;
+  const storePath = parsedUnknown.storePath;
+  const auditPath = parsedUnknown.auditPath;
+  const masterKeyFile = parsedUnknown.masterKeyFile;
+  const initializedAt = parsedUnknown.initializedAt;
   if (
-    parsed.version !== 1 ||
-    typeof parsed.apiToken !== "string" ||
-    parsed.apiToken.trim().length === 0 ||
-    typeof parsed.storePath !== "string" ||
-    typeof parsed.auditPath !== "string" ||
-    typeof parsed.masterKeyFile !== "string"
+    version !== 1 ||
+    typeof apiToken !== "string" ||
+    apiToken.trim().length === 0 ||
+    typeof storePath !== "string" ||
+    typeof auditPath !== "string" ||
+    typeof masterKeyFile !== "string"
   ) {
     return null;
   }
 
+  const ipc = parseSecretsBrokerOperatorIpc(parsedUnknown.ipc);
   return {
     version: 1,
-    storePath: parsed.storePath,
-    auditPath: parsed.auditPath,
-    masterKeyFile: parsed.masterKeyFile,
-    apiToken: parsed.apiToken,
-    initializedAt: typeof parsed.initializedAt === "string" ? parsed.initializedAt : "",
+    storePath,
+    auditPath,
+    masterKeyFile,
+    apiToken,
+    initializedAt: typeof initializedAt === "string" ? initializedAt : "",
+    ...(ipc ? { ipc } : {}),
   };
 }
 
