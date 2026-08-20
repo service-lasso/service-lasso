@@ -141,16 +141,24 @@ private keys, session cookies, passwords, or recovery material.
 Opening Admin as `http://192.168.x.x:17700` or a hostname is remote even when
 Core or Admin listen on `0.0.0.0`.
 
-Loopback is `local-root` without a password. Loopback still allows Lasso-local
-password, vault token, and SSO/ZITADEL when configured, including when vault
-flag `runtime/auth` / `FORCE_SSO` is true, so a bad flag cannot brick the
-machine or hide break-glass methods. Flip `FORCE_SSO` from loopback via the KV
-editor.
+Loopback is `local-root` without a password at the Core request-policy layer.
+The first Admin visit still forces the operator to copy and save the local-admin
+token and `local-operator` password (`SPEC-005` `AC-5J`). After that
+acknowledge, later Admin visits require token or password login. Loopback keeps
+an explicit **Continue as local-root** break-glass control (session-only).
+Loopback still allows Lasso-local password, vault token, and SSO/ZITADEL when
+configured, including when vault flag `runtime/auth` / `FORCE_SSO` is true, so a
+bad flag cannot brick the machine or hide break-glass methods. Flip `FORCE_SSO`
+from loopback via the KV editor.
 
 First-run seeds Lasso-local secrets into Broker KV path `runtime/local-operator`
-(`LOCAL_ADMIN_TOKEN`, `LOCAL_OPERATOR_PASSWORD`) for audited per-field reveal.
-Values are not stored in `service.json`. `operator.json` stays the Broker daemon
-token and is not the operator login token.
+(`LOCAL_ADMIN_TOKEN`, `LOCAL_OPERATOR_PASSWORD`) for audited per-field reveal
+and into a one-time loopback envelope until acknowledge. `GET /api/runtime/security`
+reports `firstRunPending` without credential material. Values are not stored in
+`service.json`. `operator.json` stays the Broker daemon token and is not the
+operator login token. Workspaces that already have hashed local-operator state
+but no envelope default to acknowledged and cannot re-show a token that is no
+longer in plaintext.
 
 Remote login (when `FORCE_SSO` is off) is either the vault-retrieved token,
 username `local-operator` plus the Lasso-local password via
@@ -160,7 +168,9 @@ loopback is not.
 
 When `FORCE_SSO` is on, remote access requires a ZITADEL actor. Local and token
 proofs are disabled remotely. Loopback continues to allow every configured
-method. Traefik OIDC cutover remains a later phase.
+method. Traefik OIDC cutover remains a later phase. Prove this HTTP matrix with
+`npm run verify:auth-e2e` (SPEC-005 `AC-5I`, `AC-5J`). Live ZITADEL browser SSO is not
+part of that gate.
 
 The local admin token is secret material. It must not appear in audit payloads,
 diagnostics, telemetry, issue comments, or PR bodies.

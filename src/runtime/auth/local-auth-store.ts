@@ -1,9 +1,11 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  LOCAL_OPERATOR_FIRST_RUN_RELATIVE_PATH,
   LOCAL_OPERATOR_SESSION_TTL_MS,
   LOCAL_OPERATOR_STATE_RELATIVE_PATH,
+  LOCAL_OPERATOR_USERNAME,
 } from "./local-auth-constants.js";
 
 interface LocalOperatorAuthStateFile {
@@ -14,12 +16,25 @@ interface LocalOperatorAuthStateFile {
   passwordHash: string;
   forceSso: boolean;
   seededAt: string;
+  /**
+   * False until the operator copies the first-run token in Admin.
+   * Missing on older files means already in use (cannot re-show a token).
+   */
+  credentialsAcknowledged: boolean;
+}
+
+export interface LocalOperatorFirstRunSecrets {
+  username: string;
+  token: string;
+  password: string;
 }
 
 export interface LocalAuthMaterial {
   forceSso: boolean;
   localTokenConfigured: boolean;
   localOperatorConfigured: boolean;
+  credentialsAcknowledged: boolean;
+  firstRunPending: boolean;
   verifyLocalSecret: (provided: string) => boolean;
   verifyPassword: (provided: string) => boolean;
 }
@@ -37,6 +52,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readStatePath(workspaceRoot: string): string {
   return path.join(path.resolve(workspaceRoot), LOCAL_OPERATOR_STATE_RELATIVE_PATH);
+}
+
+function readFirstRunPath(workspaceRoot: string): string {
+  return path.join(path.resolve(workspaceRoot), LOCAL_OPERATOR_FIRST_RUN_RELATIVE_PATH);
 }
 
 function hashSecret(secret: string, salt: Buffer): Buffer {
@@ -69,11 +88,13 @@ function parseState(value: unknown): LocalOperatorAuthStateFile | null {
     passwordHash: value.passwordHash,
     forceSso: value.forceSso,
     seededAt: value.seededAt,
+    credentialsAcknowledged: value.credentialsAcknowledged !== false,
   };
 }
 
 /**
- * Persist hashed local-operator secrets. Never write plaintext tokens or passwords.
+ * Persist hashed local-operator secrets. Plaintext exists only in the first-run
+ * envelope until the operator acknowledges they saved the token.
  */
 export async function writeLocalOperatorAuthState(
   workspaceRoot: string,
@@ -81,10 +102,12 @@ export async function writeLocalOperatorAuthState(
     token: string;
     password: string;
     forceSso?: boolean;
+    credentialsAcknowledged?: boolean;
   },
 ): Promise<LocalOperatorAuthStateFile> {
   const tokenSalt = randomBytes(16);
   const passwordSalt = randomBytes(16);
+  const credentialsAcknowledged = input.credentialsAcknowledged === true;
   const state: LocalOperatorAuthStateFile = {
     version: 1,
     tokenSalt: tokenSalt.toString("base64url"),
@@ -93,11 +116,86 @@ export async function writeLocalOperatorAuthState(
     passwordHash: hashSecret(input.password, passwordSalt).toString("base64url"),
     forceSso: input.forceSso === true,
     seededAt: new Date().toISOString(),
+    credentialsAcknowledged,
   };
   const filePath = readStatePath(workspaceRoot);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  if (credentialsAcknowledged) {
+    await rm(readFirstRunPath(workspaceRoot), { force: true });
+  } else {
+    await writeFirstRunEnvelope(workspaceRoot, {
+      username: LOCAL_OPERATOR_USERNAME,
+      token: input.token,
+      password: input.password,
+    });
+  }
   return state;
+}
+
+async function writeFirstRunEnvelope(
+  workspaceRoot: string,
+  secrets: LocalOperatorFirstRunSecrets,
+): Promise<void> {
+  const filePath = readFirstRunPath(workspaceRoot);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(
+    filePath,
+    `${JSON.stringify({ version: 1, token: secrets.token, password: secrets.password }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+}
+
+/**
+ * Loopback first-run reveal. Returns null when already acknowledged or missing.
+ */
+export async function readFirstRunEnvelope(
+  workspaceRoot: string,
+): Promise<LocalOperatorFirstRunSecrets | null> {
+  const state = await readLocalOperatorAuthState(workspaceRoot);
+  if (!state || state.credentialsAcknowledged) {
+    return null;
+  }
+  try {
+    const raw = await readFile(readFirstRunPath(workspaceRoot), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      !isRecord(parsed) ||
+      parsed.version !== 1 ||
+      typeof parsed.token !== "string" ||
+      typeof parsed.password !== "string" ||
+      parsed.token.length === 0 ||
+      parsed.password.length === 0
+    ) {
+      return null;
+    }
+    return {
+      username: LOCAL_OPERATOR_USERNAME,
+      token: parsed.token,
+      password: parsed.password,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mark the one-time token as saved and delete the plaintext envelope.
+ * Returns false when there is no state or the operator already acknowledged.
+ */
+export async function acknowledgeLocalOperatorFirstRun(workspaceRoot: string): Promise<boolean> {
+  const existing = await readLocalOperatorAuthState(workspaceRoot);
+  if (!existing || existing.credentialsAcknowledged) {
+    return false;
+  }
+  const filePath = readStatePath(workspaceRoot);
+  await writeFile(
+    filePath,
+    `${JSON.stringify({ ...existing, credentialsAcknowledged: true }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  await rm(readFirstRunPath(workspaceRoot), { force: true });
+  return true;
 }
 
 export async function readLocalOperatorAuthState(
@@ -186,6 +284,8 @@ export function materialFromState(
     forceSso: state?.forceSso === true,
     localTokenConfigured: Boolean(normalizedEnvToken) || Boolean(state?.tokenHash),
     localOperatorConfigured: Boolean(state?.passwordHash),
+    credentialsAcknowledged: state?.credentialsAcknowledged !== false,
+    firstRunPending: false,
     verifyLocalSecret: (provided: string) => {
       if (verifyLocalAuthSession(provided)) {
         return true;

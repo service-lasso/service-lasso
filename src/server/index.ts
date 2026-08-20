@@ -91,7 +91,15 @@ import {
 import { buildRuntimeLogShippingPreview, sendRuntimeLogShippingMockExport } from "../runtime/operator/log-shipping.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv } from "../runtime/operator/variables.js";
 import { resolveRuntimeRequestAuth, type RuntimeAuthPolicyStatus } from "../runtime/auth/request-policy.js";
-import { ensureLocalOperatorAuth, loadLocalAuthMaterial } from "../runtime/auth/local-operator-onboard.js";
+import {
+  clearLocalAuthMaterialCache,
+  ensureLocalOperatorAuth,
+  loadLocalAuthMaterial,
+} from "../runtime/auth/local-operator-onboard.js";
+import {
+  acknowledgeLocalOperatorFirstRun,
+  readFirstRunEnvelope,
+} from "../runtime/auth/local-auth-store.js";
 import { parseLocalAuthValidateInput, validateLocalAuth } from "../runtime/auth/local-auth-validate.js";
 import {
   bootstrapLocalVault,
@@ -764,6 +772,8 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
   if (method === "GET" && pathname === "/api/setup/status") return true;
   if (method === "POST" && pathname === "/api/setup/bootstrap") return true;
   if (method === "POST" && pathname === "/api/runtime/auth/local") return true;
+  if (method === "GET" && pathname === "/api/runtime/auth/first-run") return true;
+  if (method === "POST" && pathname === "/api/runtime/auth/first-run/acknowledge") return true;
   return false;
 }
 
@@ -2455,6 +2465,8 @@ async function routeRequest(
     forceSso: localAuth.forceSso,
     localTokenConfigured: localAuth.localTokenConfigured,
     localOperatorConfigured: localAuth.localOperatorConfigured,
+    firstRunPending: localAuth.firstRunPending,
+    credentialsAcknowledged: localAuth.credentialsAcknowledged,
     verifyLocalSecret: localAuth.verifyLocalSecret,
   });
   if (!isUnauthenticatedRuntimeRoute(method, url.pathname) && auth.policy.remoteAuthRequired && !auth.actor.authenticated) {
@@ -4409,6 +4421,120 @@ async function routeRequest(
       session: {
         kind: "local-token",
         token: result.sessionToken,
+      },
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime/auth/first-run") {
+    if (!auth.request.local) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "auth.first-run.denied",
+        actor: "unauthenticated",
+        method: "GET",
+        routeTemplate: "/api/runtime/auth/first-run",
+        outcome: "failure",
+        statusCode: 403,
+        summary: "Remote first-run credential reveal was denied.",
+        reason: "first_run_loopback_only",
+        metadata: {
+          clientAddress: auth.request.clientAddress,
+        },
+      });
+      throw new ApiError(
+        "first_run_loopback_only",
+        403,
+        "First-run credentials are only available on loopback.",
+      );
+    }
+    const envelope = await readFirstRunEnvelope(config.workspaceRoot);
+    if (!envelope) {
+      throw new ApiError(
+        "first_run_not_pending",
+        404,
+        "First-run credentials are not pending.",
+      );
+    }
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime-api",
+      action: "auth.first-run.revealed",
+      actor: "local-root",
+      method: "GET",
+      routeTemplate: "/api/runtime/auth/first-run",
+      outcome: "success",
+      statusCode: 200,
+      summary: "Loopback first-run credentials were revealed without logging secret values.",
+      reason: "first_run_pending",
+      metadata: {
+        username: envelope.username,
+        pending: true,
+      },
+    });
+    writeJson(response, 200, {
+      firstRun: {
+        pending: true,
+        username: envelope.username,
+        token: envelope.token,
+        password: envelope.password,
+      },
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/runtime/auth/first-run/acknowledge") {
+    if (!auth.request.local) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "auth.first-run.acknowledge.denied",
+        actor: "unauthenticated",
+        method: "POST",
+        routeTemplate: "/api/runtime/auth/first-run/acknowledge",
+        outcome: "failure",
+        statusCode: 403,
+        summary: "Remote first-run acknowledge was denied.",
+        reason: "first_run_loopback_only",
+        metadata: {
+          clientAddress: auth.request.clientAddress,
+        },
+      });
+      throw new ApiError(
+        "first_run_loopback_only",
+        403,
+        "First-run acknowledge is only available on loopback.",
+      );
+    }
+    const acknowledged = await acknowledgeLocalOperatorFirstRun(config.workspaceRoot);
+    clearLocalAuthMaterialCache();
+    if (!acknowledged) {
+      throw new ApiError(
+        "first_run_not_pending",
+        404,
+        "First-run credentials are not pending.",
+      );
+    }
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime-api",
+      action: "auth.first-run.acknowledged",
+      actor: "local-root",
+      method: "POST",
+      routeTemplate: "/api/runtime/auth/first-run/acknowledge",
+      outcome: "success",
+      statusCode: 200,
+      summary: "Operator acknowledged that first-run credentials were saved.",
+      reason: "first_run_acknowledged",
+      metadata: {
+        credentialsAcknowledged: true,
+      },
+    });
+    writeJson(response, 200, {
+      firstRun: {
+        pending: false,
+        credentialsAcknowledged: true,
       },
     });
     return;

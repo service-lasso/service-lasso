@@ -9,6 +9,7 @@ import {
 import {
   materialFromState,
   patchLocalOperatorForceSso,
+  readFirstRunEnvelope,
   readLocalOperatorAuthState,
   writeLocalOperatorAuthState,
   type LocalAuthMaterial,
@@ -28,8 +29,26 @@ let cachedMaterial: {
   material: LocalAuthMaterial;
 } | null = null;
 
+/** Drop cached hashes and first-run flags after seed or acknowledge. */
+export function clearLocalAuthMaterialCache(): void {
+  cachedMaterial = null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function materialWithFirstRun(
+  state: Awaited<ReturnType<typeof readLocalOperatorAuthState>>,
+  envToken: string | undefined,
+  firstRunPending: boolean,
+): LocalAuthMaterial {
+  const material = materialFromState(state, envToken);
+  return {
+    ...material,
+    firstRunPending,
+    credentialsAcknowledged: material.credentialsAcknowledged && !firstRunPending,
+  };
 }
 
 function generateLocalSecret(): string {
@@ -153,7 +172,7 @@ export async function ensureLocalOperatorAuth(options: {
     const envToken = env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN?.trim();
     const token = envToken && envToken.length > 0 ? envToken : generateLocalSecret();
     const password = generateLocalSecret();
-    await writeLocalOperatorAuthState(options.workspaceRoot, { token, password, forceSso });
+    await writeLocalOperatorAuthState(options.workspaceRoot, { token, password, forceSso, credentialsAcknowledged: false });
     if (broker) {
       await ingestKvFields(broker, LOCAL_OPERATOR_SECRET_KV_PATH, {
         [LOCAL_ADMIN_TOKEN_FIELD]: token,
@@ -163,7 +182,8 @@ export async function ensureLocalOperatorAuth(options: {
   }
 
   const state = await readLocalOperatorAuthState(options.workspaceRoot);
-  const material = materialFromState(state, env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN);
+  const envelope = await readFirstRunEnvelope(options.workspaceRoot);
+  const material = materialWithFirstRun(state, env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN, envelope !== null);
   cachedMaterial = {
     expiresAt: Date.now() + MATERIAL_CACHE_TTL_MS,
     workspaceRoot: options.workspaceRoot,
@@ -188,9 +208,10 @@ export async function loadLocalAuthMaterial(options: {
   ) {
     return cachedMaterial.material;
   }
-  const material = materialFromState(
+  const material = materialWithFirstRun(
     await readLocalOperatorAuthState(workspaceRoot),
     env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN,
+    (await readFirstRunEnvelope(workspaceRoot)) !== null,
   );
   cachedMaterial = {
     expiresAt: Date.now() + MATERIAL_CACHE_TTL_MS,
@@ -198,8 +219,4 @@ export async function loadLocalAuthMaterial(options: {
     material,
   };
   return material;
-}
-
-export function clearLocalAuthMaterialCache(): void {
-  cachedMaterial = null;
 }

@@ -8,6 +8,7 @@ import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
+import { writeLocalOperatorAuthState } from "../dist/runtime/auth/local-auth-store.js";
 import {
   clearPersistedFixtureState,
   makeTempServicesRoot,
@@ -264,6 +265,11 @@ test("GET /api/runtime/security resolves localhost requests as local-root", asyn
     assert.equal(result.body.auth.actor.authenticated, true);
     assert.equal(result.body.auth.actor.kind, "local-root");
     assert.deepEqual(result.body.auth.blockers, []);
+    assert.equal(typeof result.body.auth.policy.firstRunPending, "boolean");
+    assert.equal(typeof result.body.auth.policy.credentialsAcknowledged, "boolean");
+    assert.equal("token" in result.body.auth.policy, false);
+    assert.equal("password" in result.body.auth.policy, false);
+    assert.equal("firstRun" in result.body, false);
   } finally {
     await apiServer.stop();
     await rm(tempDir, { recursive: true, force: true });
@@ -287,6 +293,77 @@ test("GET /api/security wraps auth status for Service Admin", async () => {
     assert.equal(result.body.security.auth.contractVersion, "service-lasso.auth-status.v1");
     assert.equal(result.body.security.auth.actor.kind, "local-root");
     assert.equal(result.body.security.auth.request.local, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loopback first-run reveal and acknowledge stay off the security contract", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-first-run-api-"));
+  await ensureLocalVaultMarker(tempDir);
+  await writeLocalOperatorAuthState(tempDir, {
+    token: "test-local-admin-token",
+    password: "test-local-operator-password",
+    credentialsAcknowledged: false,
+  });
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "auth-first-run-test",
+  });
+
+  try {
+    const security = await getJson(`${apiServer.url}/api/runtime/security`);
+    assert.equal(security.status, 200);
+    assert.equal(security.body.auth.policy.firstRunPending, true);
+    assert.equal(security.body.auth.policy.credentialsAcknowledged, false);
+    assert.equal("token" in security.body.auth.policy, false);
+    assert.equal("password" in security.body.auth.policy, false);
+    assert.equal(JSON.stringify(security.body).includes("test-local-admin-token"), false);
+    assert.equal(JSON.stringify(security.body).includes("test-local-operator-password"), false);
+
+    const firstRun = await getJson(`${apiServer.url}/api/runtime/auth/first-run`);
+    assert.equal(firstRun.status, 200);
+    assert.equal(firstRun.body.firstRun.pending, true);
+    assert.equal(firstRun.body.firstRun.username, "local-operator");
+    assert.equal(firstRun.body.firstRun.token, "test-local-admin-token");
+    assert.equal(firstRun.body.firstRun.password, "test-local-operator-password");
+
+    const remoteDenied = await getJsonWithHeaders(`${apiServer.url}/api/runtime/auth/first-run`, {
+      "x-service-lasso-client-address": "10.0.0.40",
+    });
+    assert.equal(remoteDenied.status, 403);
+    assert.equal(remoteDenied.body.error, "first_run_loopback_only");
+    assert.equal(JSON.stringify(remoteDenied.body).includes("test-local-admin-token"), false);
+
+    const remoteAck = await fetch(`${apiServer.url}/api/runtime/auth/first-run/acknowledge`, {
+      method: "POST",
+      headers: { "x-service-lasso-client-address": "10.0.0.40" },
+    });
+    const remoteAckBody = await remoteAck.json();
+    assert.equal(remoteAck.status, 403);
+    assert.equal(JSON.stringify(remoteAckBody).includes("test-local-operator-password"), false);
+
+    const ack = await fetch(`${apiServer.url}/api/runtime/auth/first-run/acknowledge`, {
+      method: "POST",
+    });
+    const ackBody = await ack.json();
+    assert.equal(ack.status, 200);
+    assert.equal(ackBody.firstRun.pending, false);
+    assert.equal(ackBody.firstRun.credentialsAcknowledged, true);
+    assert.equal("token" in ackBody.firstRun, false);
+    assert.equal("password" in ackBody.firstRun, false);
+
+    const afterAck = await getJson(`${apiServer.url}/api/runtime/auth/first-run`);
+    assert.equal(afterAck.status, 404);
+    assert.equal(afterAck.body.error, "first_run_not_pending");
+
+    const securityAfter = await getJson(`${apiServer.url}/api/runtime/security`);
+    assert.equal(securityAfter.body.auth.policy.firstRunPending, false);
+    assert.equal(securityAfter.body.auth.policy.credentialsAcknowledged, true);
+    assert.equal(JSON.stringify(securityAfter.body).includes("test-local-admin-token"), false);
   } finally {
     await apiServer.stop();
     await rm(tempDir, { recursive: true, force: true });
