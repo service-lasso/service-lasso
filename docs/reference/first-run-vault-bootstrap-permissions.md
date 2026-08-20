@@ -141,22 +141,26 @@ private keys, session cookies, passwords, or recovery material.
 Opening Admin as `http://192.168.x.x:17700` or a hostname is remote even when
 Core or Admin listen on `0.0.0.0`.
 
-Loopback is `local-root` without a password. That break-glass remains available
-when vault flag `runtime/auth` / `FORCE_SSO` is true, so a bad flag cannot brick
-the machine. Flip `FORCE_SSO` from loopback via the KV editor.
+Loopback is `local-root` without a password. Loopback still allows Lasso-local
+password, vault token, and SSO/ZITADEL when configured, including when vault
+flag `runtime/auth` / `FORCE_SSO` is true, so a bad flag cannot brick the
+machine or hide break-glass methods. Flip `FORCE_SSO` from loopback via the KV
+editor.
 
 First-run seeds Lasso-local secrets into Broker KV path `runtime/local-operator`
 (`LOCAL_ADMIN_TOKEN`, `LOCAL_OPERATOR_PASSWORD`) for audited per-field reveal.
 Values are not stored in `service.json`. `operator.json` stays the Broker daemon
 token and is not the operator login token.
 
-Remote login (when `FORCE_SSO` is off) is either the vault-retrieved token or
-username `local-operator` plus the Lasso-local password, via
-`POST /api/runtime/auth/local`. Service Lasso must not collect OS or Windows
-passwords in a web form. Remote failures are rate-limited; loopback is not.
+Remote login (when `FORCE_SSO` is off) is either the vault-retrieved token,
+username `local-operator` plus the Lasso-local password via
+`POST /api/runtime/auth/local`, or SSO when configured. Service Lasso must not
+collect OS or Windows passwords in a web form. Remote failures are rate-limited;
+loopback is not.
 
 When `FORCE_SSO` is on, remote access requires a ZITADEL actor. Local and token
-proofs are disabled remotely. Traefik OIDC cutover remains a later phase.
+proofs are disabled remotely. Loopback continues to allow every configured
+method. Traefik OIDC cutover remains a later phase.
 
 The local admin token is secret material. It must not appear in audit payloads,
 diagnostics, telemetry, issue comments, or PR bodies.
