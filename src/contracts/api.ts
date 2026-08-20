@@ -79,6 +79,8 @@ export interface RuntimeAuthStatusResponse {
       localTokenConfigured: boolean;
       localOperatorConfigured: boolean;
       forceSso: boolean;
+      firstRunPending: boolean;
+      credentialsAcknowledged: boolean;
       identityProviders: Array<{
         id: string;
         label: string;
@@ -101,6 +103,22 @@ export interface RuntimeLocalAuthResponse {
   session: {
     kind: "local-token";
     token: string;
+  };
+}
+
+export interface RuntimeLocalAuthFirstRunResponse {
+  firstRun: {
+    pending: true;
+    username: string;
+    token: string;
+    password: string;
+  };
+}
+
+export interface RuntimeLocalAuthFirstRunAcknowledgeResponse {
+  firstRun: {
+    pending: false;
+    credentialsAcknowledged: true;
   };
 }
 

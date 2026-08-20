@@ -2,13 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import {
+  acknowledgeLocalOperatorFirstRun,
   clearLocalAuthSessions,
   materialFromState,
+  readFirstRunEnvelope,
   readLocalOperatorAuthState,
   writeLocalOperatorAuthState,
 } from "../dist/runtime/auth/local-auth-store.js";
+import {
+  clearLocalAuthMaterialCache,
+  ensureLocalOperatorAuth,
+  loadLocalAuthMaterial,
+} from "../dist/runtime/auth/local-operator-onboard.js";
 import {
   clearRemoteLoginAttempts,
   parseLocalAuthValidateInput,
@@ -24,6 +31,7 @@ async function seededMaterial(workspaceRoot, forceSso = false) {
     token: TOKEN_SENTINEL,
     password: PASSWORD_SENTINEL,
     forceSso,
+    credentialsAcknowledged: true,
   });
   return materialFromState(await readLocalOperatorAuthState(workspaceRoot), undefined);
 }
@@ -153,6 +161,85 @@ test("remote local-login failures rate-limit without locking loopback", async ()
   } finally {
     clearLocalAuthSessions();
     clearRemoteLoginAttempts();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("first-run envelope is readable until acknowledge and never required after legacy state", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-first-run-"));
+  try {
+    await writeLocalOperatorAuthState(workspaceRoot, {
+      token: TOKEN_SENTINEL,
+      password: PASSWORD_SENTINEL,
+      credentialsAcknowledged: false,
+    });
+    const envelope = await readFirstRunEnvelope(workspaceRoot);
+    assert.equal(envelope?.username, LOCAL_OPERATOR_USERNAME);
+    assert.equal(envelope?.token, TOKEN_SENTINEL);
+    assert.equal(envelope?.password, PASSWORD_SENTINEL);
+
+    const pending = await loadLocalAuthMaterial({ workspaceRoot });
+    assert.equal(pending.firstRunPending, true);
+    assert.equal(pending.credentialsAcknowledged, false);
+
+    const acknowledged = await acknowledgeLocalOperatorFirstRun(workspaceRoot);
+    assert.equal(acknowledged, true);
+    clearLocalAuthMaterialCache();
+    assert.equal(await readFirstRunEnvelope(workspaceRoot), null);
+    const afterAck = await loadLocalAuthMaterial({ workspaceRoot });
+    assert.equal(afterAck.firstRunPending, false);
+    assert.equal(afterAck.credentialsAcknowledged, true);
+    assert.equal(await acknowledgeLocalOperatorFirstRun(workspaceRoot), false);
+  } finally {
+    clearLocalAuthMaterialCache();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("legacy auth state without envelope defaults to acknowledged", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-legacy-auth-"));
+  try {
+    await writeLocalOperatorAuthState(workspaceRoot, {
+      token: TOKEN_SENTINEL,
+      password: PASSWORD_SENTINEL,
+      credentialsAcknowledged: true,
+    });
+    const statePath = path.join(workspaceRoot, ".service-lasso", "local-operator-auth.json");
+    const parsed = JSON.parse(await readFile(statePath, "utf8"));
+    delete parsed.credentialsAcknowledged;
+    await writeFile(statePath, `${JSON.stringify(parsed, null, 2)}\n`);
+    const state = await readLocalOperatorAuthState(workspaceRoot);
+    assert.equal(state?.credentialsAcknowledged, true);
+    assert.equal(await readFirstRunEnvelope(workspaceRoot), null);
+    clearLocalAuthMaterialCache();
+    const material = await loadLocalAuthMaterial({ workspaceRoot });
+    assert.equal(material.credentialsAcknowledged, true);
+    assert.equal(material.firstRunPending, false);
+  } finally {
+    clearLocalAuthMaterialCache();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("first-run seed writes a pending envelope without logging sentinels", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-first-run-seed-"));
+  try {
+    const material = await ensureLocalOperatorAuth({
+      workspaceRoot,
+      servicesRoot: path.join(workspaceRoot, "services"),
+      env: { NODE_TEST_CONTEXT: "1" },
+    });
+    assert.equal(material.firstRunPending, true);
+    assert.equal(material.credentialsAcknowledged, false);
+    const envelope = await readFirstRunEnvelope(workspaceRoot);
+    assert.equal(envelope?.username, LOCAL_OPERATOR_USERNAME);
+    assert.equal(typeof envelope?.token, "string");
+    assert.equal(typeof envelope?.password, "string");
+    assert.ok((envelope?.token ?? "").length >= 32);
+    assert.ok((envelope?.password ?? "").length >= 32);
+    assert.equal((envelope?.token ?? "").includes(TOKEN_SENTINEL), false);
+  } finally {
+    clearLocalAuthMaterialCache();
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });

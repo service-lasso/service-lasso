@@ -29,11 +29,15 @@ Explicitly out of scope:
 - `AC-5F`: When KV `runtime/auth` field `FORCE_SSO` is true, remote requests accept only a ZITADEL actor. Local and token proofs are disabled remotely. Loopback continues to allow local-root, local, token, and ZITADEL.
 - `AC-5G`: `GET /api/runtime/security` reports `forceSso`, `localTokenConfigured`, `localOperatorConfigured`, and `identityProviders` without credential material. Loopback responses still advertise configured providers when `FORCE_SSO` is true and must not add `force_sso_required`.
 - `AC-5H`: Tests use fake sentinels only and never print live tokens.
+- `AC-5I`: A named HTTP e2e (`npm run verify:auth-e2e`) starts a real runtime API and proves loopback local-root (including with `FORCE_SSO` on), forwarded-LAN remote denial, remote token and `local-operator` password login, `FORCE_SSO` remote rejection of local/token proofs, and no sentinel echo. Live ZITADEL/Traefik browser SSO remains a later cutover.
+- `AC-5J`: First start keeps a one-time loopback envelope until the operator acknowledges they copied and saved the local-admin token and `local-operator` password. `GET /api/runtime/security` reports `firstRunPending` and `credentialsAcknowledged` without secrets. Loopback-only `GET /api/runtime/auth/first-run` returns those credentials while pending; remote callers receive 403/401; after acknowledge the GET is 404. `POST /api/runtime/auth/first-run/acknowledge` is loopback-only and invalidates the local-auth cache. After acknowledge, Admin must not auto-unlock as `local-root`; later visits require token or password login, with an explicit loopback **Continue as local-root** break-glass. Workspaces without an envelope default `credentialsAcknowledged` to true so a token that is no longer in plaintext cannot be re-shown. First-run secrets must never appear on `/api/runtime/security`.
 
 ## Tests and Evidence
 - Request-policy unit tests for loopback, forwarded LAN client, token, force-SSO, and spoofed forwarded headers from a non-loopback peer.
 - API tests for `POST /api/runtime/auth/local` success/failure and remote rate-limit.
-- Admin unit tests for loopback vs remote vs force-SSO login UI.
+- API tests for first-run GET/acknowledge loopback-only behavior and no secrets on `/api/runtime/security`.
+- Admin unit tests for loopback vs remote vs force-SSO login UI, first-run copy/acknowledge, and post-ack unlock policy.
+- HTTP e2e `npm run verify:auth-e2e` / `tests/auth-e2e.test.js` for AC-5I and AC-5J.
 
 ## Documentation Impact
 - `docs/reference/first-run-vault-bootstrap-permissions.md` local/remote rules
@@ -48,3 +52,5 @@ Explicitly out of scope:
 - Local secrets path: KV `runtime/local-operator` fields `LOCAL_ADMIN_TOKEN` and `LOCAL_OPERATOR_PASSWORD`.
 - Core prefers an explicit valid local-admin token or issued session as `local-token` even on loopback; otherwise a ZITADEL actor when presented; otherwise loopback is `local-root`. `FORCE_SSO` does not change that loopback order.
 - `#1025` (trusted ingress / Admin port bypass remainder) stays open: this spec covers original-client forwarding from a loopback peer plus Admin origin checks, not full Traefik header normalization.
+- `#1104` adds AC-5I: mandatory HTTP e2e for loopback vs remote local-operator auth. Live ZITADEL browser SSO is still out of scope.
+- `#1105` adds AC-5J: one-time loopback first-run envelope, dedicated first-run GET, acknowledge POST, and Admin copy/save before later token logins. Secrets stay off `/api/runtime/security` because Admin `normalizeRuntimeIdentity` rejects password/token-shaped payloads.

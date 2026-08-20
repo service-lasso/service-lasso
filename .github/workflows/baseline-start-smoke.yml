@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run local/remote auth e2e
+        run: npm run verify:auth-e2e
+
       - name: Run baseline start smoke
         run: npm run verify:baseline-start
         env:

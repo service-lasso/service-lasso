@@ -146,3 +146,34 @@ test("FORCE_SSO does not hide loopback local-token or identity providers", () =>
   assert.equal(withProvider.policy.identityProviders[0]?.id, "zitadel");
   assert.deepEqual(withProvider.blockers, []);
 });
+
+test("loopback first-run flags stay on the security contract without changing local-root", () => {
+  const pending = resolveRuntimeRequestAuth(fakeRequest("127.0.0.1"), {
+    bindHost: "127.0.0.1",
+    firstRunPending: true,
+    credentialsAcknowledged: false,
+    env: {},
+  });
+  assert.equal(pending.actor.kind, "local-root");
+  assert.equal(pending.policy.firstRunPending, true);
+  assert.equal(pending.policy.credentialsAcknowledged, false);
+
+  const remote = resolveRuntimeRequestAuth(fakeRequest("10.0.0.8"), {
+    bindHost: "0.0.0.0",
+    firstRunPending: true,
+    credentialsAcknowledged: false,
+    env: {},
+  });
+  assert.equal(remote.request.local, false);
+  assert.equal(remote.policy.firstRunPending, false);
+  assert.equal(remote.policy.credentialsAcknowledged, true);
+});
+
+test("legacy missing first-run flags default to acknowledged on loopback", () => {
+  const auth = resolveRuntimeRequestAuth(fakeRequest("127.0.0.1"), {
+    bindHost: "127.0.0.1",
+    env: {},
+  });
+  assert.equal(auth.policy.firstRunPending, false);
+  assert.equal(auth.policy.credentialsAcknowledged, true);
+});

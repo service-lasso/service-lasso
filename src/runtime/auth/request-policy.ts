@@ -29,6 +29,8 @@ export interface RuntimeAuthPolicyStatus {
     localTokenConfigured: boolean;
     localOperatorConfigured: boolean;
     forceSso: boolean;
+    firstRunPending: boolean;
+    credentialsAcknowledged: boolean;
     identityProviders: RuntimeIdentityProvider[];
   };
   actor: {
@@ -46,6 +48,8 @@ export interface RuntimeAuthPolicyOptions {
   forceSso?: boolean;
   localTokenConfigured?: boolean;
   localOperatorConfigured?: boolean;
+  firstRunPending?: boolean;
+  credentialsAcknowledged?: boolean;
   identityProviders?: readonly RuntimeIdentityProvider[];
   /**
    * Extra local-secret verifier (issued session or hashed vault token).
@@ -210,6 +214,8 @@ export function resolveRuntimeRequestAuth(
   const envToken = normalizeHeaderValue(env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN);
   const localTokenConfigured = Boolean(envToken) || options.localTokenConfigured === true;
   const localOperatorConfigured = options.localOperatorConfigured === true;
+  const firstRunPending = options.firstRunPending === true;
+  const credentialsAcknowledged = options.credentialsAcknowledged !== false;
   const forceSso = options.forceSso === true;
   const clientAddress = getEffectiveClientAddress(request, trustProxyHeaders);
   const local = isLoopbackAddress(clientAddress);
@@ -259,6 +265,8 @@ export function resolveRuntimeRequestAuth(
       localTokenConfigured,
       localOperatorConfigured,
       forceSso,
+      firstRunPending: local && firstRunPending,
+      credentialsAcknowledged: local ? credentialsAcknowledged : true,
       identityProviders: identityProvidersFromEnv(env, zitadelEnabled, options.identityProviders),
     },
     actor,
