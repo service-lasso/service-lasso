@@ -374,7 +374,7 @@ test("audit API returns durable safe service and runtime mutation events after r
       (event) => event.action === "service.action.run" && event.subject === "dangerous-audit-proof",
     );
     assert.equal(confirmationEvents.length, 2);
-    assert.deepEqual(confirmationEvents.map((event) => event.actor), ["operator-ui", "operator-ui"]);
+    assert.deepEqual(confirmationEvents.map((event) => event.actor), ["local-root", "local-root"]);
     assert.deepEqual(confirmationEvents.map((event) => event.outcome).sort(), ["failure", "success"]);
     const confirmationFailure = confirmationEvents.find((event) => event.outcome === "failure");
     assert.match(confirmationFailure.reason, /requires explicit confirmation/u);
@@ -384,7 +384,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     const scheduledEvent = audit.body.events.find(
       (event) => event.action === "service.action.run" && event.subject === "scheduled-audit-proof",
     );
-    assert.equal(scheduledEvent.actor, "workflow-engine");
+    assert.equal(scheduledEvent.actor, "local-root");
     assert.equal(scheduledEvent.outcome, "success");
     assert.equal(scheduledEvent.relatedRevisionId, scheduledAction.body.run.runId);
     assert.match(scheduledEvent.summary, /dagu/u);

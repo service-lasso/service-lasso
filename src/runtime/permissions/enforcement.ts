@@ -84,6 +84,46 @@ function normalizePermissionList(value: unknown): string[] {
     .map((entry) => entry.trim());
 }
 
+/**
+ * Maps a trusted request-policy actor onto the permission actor used by
+ * durable HTTP enforcement. JSON bodies must not supply this value.
+ *
+ * `local-root` and explicit `local-token` are owner-equivalent until workspace
+ * group assignment is wired. Unmapped ZITADEL actors fail closed with no
+ * grants. System and service-account actors are in-process only.
+ */
+export function permissionActorFromRuntimeAuth(auth: RuntimeAuthPolicyStatus): PermissionActor {
+  if (!auth.actor.authenticated || auth.actor.kind === null || auth.actor.actorId === null) {
+    throw new ApiError("actor_required", 401, "Durable action requests require an actor.");
+  }
+
+  if (auth.actor.kind === "local-root") {
+    return {
+      type: "local-root",
+      id: auth.actor.actorId,
+      permissions: ["*"],
+    };
+  }
+
+  if (auth.actor.kind === "local-token") {
+    return {
+      type: "local-token",
+      id: auth.actor.actorId,
+      permissions: ["*"],
+    };
+  }
+
+  return {
+    type: "zitadel-user",
+    id: auth.actor.actorId,
+    permissions: [],
+  };
+}
+
+/**
+ * Parses a caller-supplied actor object for in-process enforcement.
+ * HTTP durable routes must not pass JSON-body actors through this helper.
+ */
 export function resolvePermissionActor(input: unknown): PermissionActor {
   if (typeof input === "string" && input.trim().length > 0) {
     const actorId = input.trim();
@@ -119,19 +159,12 @@ export function actorHasPermission(actor: PermissionActor, permission: string): 
   return actor.permissions.includes("*") || actor.permissions.includes(permission);
 }
 
-export function permissionActorFromRuntimeAuth(auth: RuntimeAuthPolicyStatus): PermissionActor {
-  if (!auth.actor.authenticated || !auth.actor.kind || !auth.actor.actorId) {
-    throw new ApiError("actor_required", 401, "Lifecycle requests require an authenticated runtime actor.");
-  }
-  return {
-    type: auth.actor.kind === "zitadel" ? "zitadel-user" : auth.actor.kind,
-    id: auth.actor.actorId,
-    permissions: auth.actor.kind === "local-root" || auth.actor.kind === "local-token"
-      ? ["*"]
-      : [...auth.actor.permissions],
-  };
-}
-
+/**
+ * Allows or denies a durable action before execution, then records a
+ * metadata-only permission.decision audit event. Callers must pass a trusted
+ * actor: HTTP uses permissionActorFromRuntimeAuth, in-process callers pass an
+ * explicit system or service-account actor.
+ */
 export async function enforcePermission(input: PermissionDecisionInput): Promise<PermissionDecision> {
   const actor = resolvePermissionActor(input.actor);
   const sensitive = input.sensitive === true;

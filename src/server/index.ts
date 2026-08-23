@@ -4496,12 +4496,13 @@ async function routeRequest(
       if (!actionDefinition) {
         throw new ApiError("unknown_action", 404, `Unknown action "${actionId}" for service "${service.manifest.id}".`);
       }
-      let auditActor = getAuditActor(requestBody);
+      const trustedActor = permissionActorFromRuntimeAuth(auth);
+      let auditActor = trustedActor.id;
       try {
         const permission = await enforcePermission({
           serviceRoot: service.serviceRoot,
           serviceId,
-          actor: runRequest.actor,
+          actor: trustedActor,
           permission: "service.action.run",
           sensitive: actionDefinition.requiresConfirmation === true,
           confirmed: runRequest.confirm,
@@ -4510,6 +4511,7 @@ async function routeRequest(
           subject: actionId,
         });
         auditActor = permission.actor.id;
+        runRequest.actor = permission.actor;
         const payload: ServiceActionRunResponse = await runServiceAction(
           service,
           runtimeModel.registry,

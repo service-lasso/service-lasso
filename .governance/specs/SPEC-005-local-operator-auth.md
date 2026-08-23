@@ -51,6 +51,7 @@ Explicitly out of scope:
 - Vault flag path: KV `runtime/auth` field `FORCE_SSO` (`true` / `false`). Flip it from loopback via the KV editor so force-SSO cannot lock the operator out of the machine. `FORCE_SSO` applies only to remote origins.
 - Local secrets path: KV `runtime/local-operator` fields `LOCAL_ADMIN_TOKEN` and `LOCAL_OPERATOR_PASSWORD`.
 - Core prefers an explicit valid local-admin token or issued session as `local-token` even on loopback; otherwise a ZITADEL actor when presented; otherwise loopback is `local-root`. `FORCE_SSO` does not change that loopback order.
+- `#826` / SPEC-002 `AC-4BS`: durable HTTP action runs use that trusted request-policy actor and ignore JSON-body actor claims. Unmapped ZITADEL actors authenticate but fail closed for mutating actions until grant mapping is applied.
 - `#1025` (trusted ingress / Admin port bypass remainder) stays open: this spec covers original-client forwarding from a loopback peer plus Admin origin checks, not full Traefik header normalization.
 - `#1104` adds AC-5I: mandatory HTTP e2e for loopback vs remote local-operator auth. Live ZITADEL browser SSO is still out of scope.
 - `#1105` adds AC-5J: one-time loopback first-run envelope, dedicated first-run GET, acknowledge POST, and Admin copy/save before later token logins. Secrets stay off `/api/runtime/security` because Admin `normalizeRuntimeIdentity` rejects password/token-shaped payloads.
