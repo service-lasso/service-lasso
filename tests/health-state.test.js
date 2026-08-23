@@ -64,6 +64,11 @@ test("lifecycle actions write structured .state records to disk", async () => {
     assert.ok(JSON.parse(await readFile(statePaths.install, "utf8")));
     assert.ok(JSON.parse(await readFile(statePaths.config, "utf8")));
     assert.ok(JSON.parse(await readFile(statePaths.runtime, "utf8")));
+    assert.equal(stored.service.schemaVersion, "service-lasso.service-state.v1");
+    assert.equal(stored.install.schemaVersion, "service-lasso.install-state.v1");
+    assert.equal(stored.config.schemaVersion, "service-lasso.config-state.v1");
+    assert.equal(stored.setup.schemaVersion, "service-lasso.setup-state.v1");
+    assert.equal(stored.runtime.schemaVersion, "service-lasso.runtime-state.v1");
     assert.equal(stored.install.installed, true);
     assert.equal(stored.config.configured, true);
     assert.equal(stored.runtime.running, true);
@@ -1171,6 +1176,83 @@ test("startup rehydrates persisted lifecycle state from service .state files", a
     assert.equal(detailBody.service.lifecycle.runtime.command, "node runtime/fixture-service.mjs");
     assert.equal(runtimeResponse.status, 200);
     assert.equal(runtimeBody.runtime.runningServices, 0);
+  } finally {
+    await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("startup refuses unsupported future lifecycle state schema versions", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const serviceRoot = await writeManifest(servicesRoot, "future-state-service", {
+    id: "future-state-service",
+    name: "Future State Service",
+    description: "Temporary service for unsupported lifecycle-state proof.",
+    healthcheck: { type: "process" },
+  });
+
+  const statePaths = getServiceStatePaths(serviceRoot);
+  await mkdir(statePaths.stateRoot, { recursive: true });
+  await writeFile(
+    statePaths.install,
+    JSON.stringify(
+      {
+        schemaVersion: "service-lasso.install-state.v999",
+        installed: true,
+        lastAction: "install",
+        files: ["runtime/install.txt"],
+      },
+      null,
+      2,
+    ),
+  );
+  await writeFile(
+    statePaths.config,
+    JSON.stringify(
+      {
+        schemaVersion: "service-lasso.config-state.v999",
+        configured: true,
+        lastAction: "config",
+        files: ["runtime/config.json"],
+      },
+      null,
+      2,
+    ),
+  );
+  await writeFile(
+    statePaths.runtime,
+    JSON.stringify(
+      {
+        schemaVersion: "service-lasso.runtime-state.v999",
+        running: true,
+        pid: 12345,
+        startedAt: "2026-04-20T00:00:00.000Z",
+        command: "node runtime/future-state-service.mjs",
+        lastAction: "start",
+        actionHistory: ["install", "config", "start"],
+      },
+      null,
+      2,
+    ),
+  );
+
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const detailResponse = await fetch(`${apiServer.url}/api/services/future-state-service`);
+    const detailBody = await detailResponse.json();
+    const preservedRuntime = JSON.parse(await readFile(statePaths.runtime, "utf8"));
+
+    assert.equal(detailResponse.status, 200);
+    assert.equal(detailBody.service.lifecycle.installed, false);
+    assert.equal(detailBody.service.lifecycle.configured, false);
+    assert.equal(detailBody.service.lifecycle.running, false);
+    assert.equal(detailBody.service.lifecycle.runtime.pid, null);
+    assert.deepEqual(detailBody.service.lifecycle.actionHistory, []);
+    assert.equal(preservedRuntime.schemaVersion, "service-lasso.runtime-state.v999");
+    assert.equal(preservedRuntime.running, true);
   } finally {
     await apiServer.stop();
     await rm(tempRoot, { recursive: true, force: true });

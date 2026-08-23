@@ -21,7 +21,7 @@ import { migrateLegacyProcessOwnership } from "../process/registry.js";
 import type { ProcessInspectorDependencies, ProcessIdentityClassification } from "../process/identity.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
-import { writeServiceState } from "./writeState.js";
+import { SERVICE_STATE_SCHEMA_VERSIONS, writeServiceState } from "./writeState.js";
 
 export interface RehydrateProcessOwnershipOptions {
   workspaceRoot?: string;
@@ -34,6 +34,7 @@ export interface RehydrateProcessOwnershipOptions {
 }
 
 interface StoredInstallState {
+  schemaVersion?: unknown;
   installed?: boolean;
   files?: string[];
   updatedAt?: string | null;
@@ -62,6 +63,7 @@ interface StoredInstallState {
 }
 
 interface StoredConfigState {
+  schemaVersion?: unknown;
   configured?: boolean;
   files?: string[];
   updatedAt?: string | null;
@@ -69,6 +71,7 @@ interface StoredConfigState {
 
 interface StoredRuntimeState {
   generationId?: string | null;
+  schemaVersion?: unknown;
   running?: boolean;
   pid?: number | null;
   startedAt?: string | null;
@@ -104,6 +107,7 @@ interface StoredRuntimeState {
 }
 
 interface StoredSetupState {
+  schemaVersion?: unknown;
   updatedAt?: string | null;
   steps?: Record<string, {
     status?: SetupStepStatus;
@@ -116,6 +120,16 @@ function isLifecycleAction(value: unknown): value is LifecycleAction {
   return value === "install" || value === "config" || value === "setup" || value === "start" || value === "stop" || value === "restart";
 }
 
+function hasSupportedSchemaVersion(
+  state: { schemaVersion?: unknown } | null,
+  expectedSchemaVersion: string,
+): boolean {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return false;
+  }
+
+  return state.schemaVersion === undefined || state.schemaVersion === expectedSchemaVersion;
+}
 
 function isWritebackOperation(value: unknown): value is ServiceBrokerWritebackOperation {
   return value === "create" || value === "update" || value === "rotate" || value === "delete";
@@ -434,10 +448,14 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
   runtime: unknown | null;
   setup: unknown | null;
 }): ServiceLifecycleState | null {
-  const install = snapshot.install as StoredInstallState | null;
-  const config = snapshot.config as StoredConfigState | null;
-  const runtime = snapshot.runtime as StoredRuntimeState | null;
-  const setup = snapshot.setup as StoredSetupState | null;
+  const rawInstall = snapshot.install as StoredInstallState | null;
+  const rawConfig = snapshot.config as StoredConfigState | null;
+  const rawRuntime = snapshot.runtime as StoredRuntimeState | null;
+  const rawSetup = snapshot.setup as StoredSetupState | null;
+  const install = hasSupportedSchemaVersion(rawInstall, SERVICE_STATE_SCHEMA_VERSIONS.install) ? rawInstall : null;
+  const config = hasSupportedSchemaVersion(rawConfig, SERVICE_STATE_SCHEMA_VERSIONS.config) ? rawConfig : null;
+  const runtime = hasSupportedSchemaVersion(rawRuntime, SERVICE_STATE_SCHEMA_VERSIONS.runtime) ? rawRuntime : null;
+  const setup = hasSupportedSchemaVersion(rawSetup, SERVICE_STATE_SCHEMA_VERSIONS.setup) ? rawSetup : null;
 
   const installed = install?.installed === true;
   const configured = config?.configured === true;

@@ -7,6 +7,14 @@ export interface PersistedServiceState {
   paths: ServiceStatePaths;
 }
 
+export const SERVICE_STATE_SCHEMA_VERSIONS = {
+  service: "service-lasso.service-state.v1",
+  install: "service-lasso.install-state.v1",
+  config: "service-lasso.config-state.v1",
+  setup: "service-lasso.setup-state.v1",
+  runtime: "service-lasso.runtime-state.v1",
+} as const;
+
 export async function writeServiceState(
   service: DiscoveredService,
   lifecycle: ServiceLifecycleState,
@@ -20,6 +28,7 @@ export async function writeServiceState(
       paths.service,
       JSON.stringify(
         {
+          schemaVersion: SERVICE_STATE_SCHEMA_VERSIONS.service,
           id: service.manifest.id,
           name: service.manifest.name,
           description: service.manifest.description,
@@ -34,6 +43,7 @@ export async function writeServiceState(
       paths.install,
       JSON.stringify(
         {
+          schemaVersion: SERVICE_STATE_SCHEMA_VERSIONS.install,
           installed: lifecycle.installed,
           lastAction: lifecycle.lastAction,
           files: lifecycle.installArtifacts.files,
@@ -48,6 +58,7 @@ export async function writeServiceState(
       paths.config,
       JSON.stringify(
         {
+          schemaVersion: SERVICE_STATE_SCHEMA_VERSIONS.config,
           configured: lifecycle.configured,
           lastAction: lifecycle.lastAction,
           files: lifecycle.configArtifacts.files,
@@ -61,6 +72,7 @@ export async function writeServiceState(
       paths.setup,
       JSON.stringify(
         {
+          schemaVersion: SERVICE_STATE_SCHEMA_VERSIONS.setup,
           updatedAt: lifecycle.setup.updatedAt,
           steps: lifecycle.setup.steps,
         },
@@ -72,6 +84,7 @@ export async function writeServiceState(
       paths.runtime,
       JSON.stringify(
         {
+          schemaVersion: SERVICE_STATE_SCHEMA_VERSIONS.runtime,
           running: lifecycle.running,
           generationId: lifecycle.runtime.generationId,
           pid: lifecycle.runtime.pid,
