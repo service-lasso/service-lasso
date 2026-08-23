@@ -42,8 +42,9 @@ test("0.0.0.0 is not treated as a loopback origin", () => {
 test("loopback Admin proxy forwards LAN client and does not grant local-root", () => {
   const request = fakeRequest("127.0.0.1", {
     [ORIGINAL_CLIENT_ADDRESS_HEADER]: "192.168.10.20",
+    "x-service-lasso-internal-proxy": "serviceadmin",
   });
-  const effective = getEffectiveClientAddress(request, false);
+  const effective = getEffectiveClientAddress(request, true);
   assert.equal(effective, "192.168.10.20");
   const auth = resolveRuntimeRequestAuth(request, {
     bindHost: "0.0.0.0",
@@ -95,7 +96,9 @@ test("FORCE_SSO rejects remote token login and requires a ZITADEL actor", () => 
   assert.ok(denied.blockers.includes("force_sso_required"));
 
   const allowed = resolveRuntimeRequestAuth(
-    fakeRequest("10.0.0.9", {
+    fakeRequest("127.0.0.1", {
+      [ORIGINAL_CLIENT_ADDRESS_HEADER]: "10.0.0.9",
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-zitadel-user-id": "usr_fake_idp",
     }),
     {
@@ -133,6 +136,7 @@ test("FORCE_SSO does not hide loopback local-token or identity providers", () =>
 
   const withProvider = resolveRuntimeRequestAuth(
     fakeRequest("localhost", {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-zitadel-user-id": "usr_fake_idp",
     }),
     {

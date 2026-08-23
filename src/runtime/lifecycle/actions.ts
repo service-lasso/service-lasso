@@ -685,6 +685,7 @@ async function runScheduledSupervisionRestart(
   }
 
   try {
+    await assertDoctorPreflightAllowsRestart(targetService);
     const result = await startService(targetService, registry, {
       ...options,
       supervisionRestart: { reason, attemptNumber },
