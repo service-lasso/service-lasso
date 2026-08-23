@@ -104,6 +104,7 @@ test("FORCE_SSO rejects remote token login and requires a ZITADEL actor", () => 
 
   const allowed = resolveRuntimeRequestAuth(
     fakeRequest("127.0.0.1", {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-zitadel-user-id": "usr_fake_idp",
       [ORIGINAL_CLIENT_ADDRESS_HEADER]: "10.0.0.9",
       [SERVICEADMIN_PROXY_HEADER]: SERVICEADMIN_PROXY_VALUE,
@@ -144,6 +145,7 @@ test("FORCE_SSO does not hide loopback local-token or identity providers", () =>
 
   const withProvider = resolveRuntimeRequestAuth(
     fakeRequest("localhost", {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-zitadel-user-id": "usr_fake_idp",
       [TRUSTED_INGRESS_HEADER]: TRUSTED_INGRESS_VALUE,
       [SERVICEADMIN_PROXY_HEADER]: SERVICEADMIN_PROXY_VALUE,
