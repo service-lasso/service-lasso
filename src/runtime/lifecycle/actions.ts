@@ -507,12 +507,20 @@ async function resolveBrokerLaunchContext(
   variableResolution: ServiceVariableResolutionOptions | undefined;
 }> {
   const brokerService = registry?.getById(SECRETSBROKER_SERVICE_ID);
-  const launchLeaseIssuer = await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
+  // A production broker has no public loopback port. Reuse its persisted
+  // runtime context so both launch leases and reference resolution use the
+  // authenticated Unix-socket/named-pipe transport created at setup.
+  const brokerRuntime = registry && options.workspaceRoot
+    ? await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry)
+    : null;
+  const launchLeaseIssuer = brokerRuntime?.launchLeaseIssuer ??
+    await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
     launchLeaseIssuer,
   });
   const brokerLookup =
     options.brokerLookup ??
+    brokerRuntime?.lookup ??
     createSecretsBrokerLaunchLookup({
       brokerService,
       launchLeaseIssuer,
