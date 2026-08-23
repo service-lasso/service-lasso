@@ -12,6 +12,7 @@ import {
   resolveServiceStartupBrokerResolution,
 } from "../dist/runtime/broker/launch-resolution.js";
 import { onboardMissingProducerSecrets } from "../dist/runtime/broker/onboard.js";
+import { createSecretsBrokerLaunchLookup } from "../dist/runtime/broker/launch-lookup.js";
 import { loadServiceManifest } from "../dist/runtime/discovery/loadManifest.js";
 import {
   resolveSecretsBrokerDataPaths,
@@ -22,6 +23,20 @@ import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 
 const SENTINEL = "kv-sentinel-alpha";
 const ROTATED_SENTINEL = "rotated-sample-token-fixture";
+
+function createFixtureBrokerRuntime(brokerService, launchLeaseIssuer) {
+  const lookup = createSecretsBrokerLaunchLookup({ brokerService, launchLeaseIssuer });
+  assert.ok(lookup);
+  return {
+    lookup,
+    probe: async () => ({ ok: true }),
+    writeback: async () => ({ ok: false }),
+    management: async () => ({ statusCode: 503, body: {} }),
+    serverEnv: {},
+    launchLeaseIssuer,
+    transportBinding: null,
+  };
+}
 
 /**
  * Start a loopback Broker mock that records KV/provisioning/rotation without echoing values in list/metadata.
@@ -458,12 +473,22 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
     const registry = createServiceRegistry(discovered);
     const sample = registry.getById("node-sample-service");
     const nodeProvider = registry.getById("@node");
-    assert.ok(sample && nodeProvider);
+    const brokerService = registry.getById("@secretsbroker");
+    assert.ok(sample && nodeProvider && brokerService);
 
     await installService(nodeProvider, registry);
     await configService(nodeProvider, registry);
     await installService(sample, registry);
-    await configService(sample, registry);
+    await configService(sample, registry, {
+      brokerRuntime: createFixtureBrokerRuntime(brokerService, {
+        command: {
+          command: process.execPath,
+          args: [leaseHelper],
+          env: { ...process.env, SECRETSBROKER_API_TOKEN: mockBroker.expectedToken },
+        },
+        workspaceId: "local-demo",
+      }),
+    });
     const firstStart = await startService(sample, registry, { workspaceRoot });
     assert.equal(firstStart.ok, true);
     assert.equal(mockBroker.seen().applyCount, 1);

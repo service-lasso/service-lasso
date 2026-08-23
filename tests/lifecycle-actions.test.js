@@ -565,7 +565,7 @@ test("restart replaces the running process and clears stale termination evidence
   }
 });
 
-test("config does not resolve or materialize required Broker imports", async () => {
+test("config blocks required broker failures with safe ref and status metadata", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-startup-broker-fail-",
@@ -585,6 +585,12 @@ test("config does not resolve or materialize required Broker imports", async () 
       ],
     },
   });
+  const leaseIssuerPath = path.join(tempRoot, "issue-test-lease.mjs");
+  await writeFile(
+    leaseIssuerPath,
+    'process.stdout.write(JSON.stringify({ outcome: "ready", lease: { fixture: true } }));\n',
+    "utf8",
+  );
   try {
     const discovered = await discoverServices(servicesRoot);
     const registry = createServiceRegistry(discovered);
@@ -592,9 +598,39 @@ test("config does not resolve or materialize required Broker imports", async () 
     assert.ok(service);
 
     await installService(service, registry);
-    const result = await configService(service, registry);
-    assert.equal(result.ok, true);
-    assert.equal(JSON.stringify(result).includes("database.PASSWORD"), false);
+    const brokerLookup = () => [
+      {
+        ref: "database.PASSWORD",
+        status: "policy-denied",
+        value: "raw-secret-must-not-leak",
+      },
+    ];
+    await assert.rejects(
+      () => configService(service, registry, {
+        brokerLookup,
+        brokerRuntime: {
+          lookup: brokerLookup,
+          probe: async () => ({ ok: true }),
+          writeback: async () => ({ ok: false }),
+          management: async () => ({ statusCode: 503, body: {} }),
+          serverEnv: {},
+          launchLeaseIssuer: {
+            command: {
+              command: process.execPath,
+              args: [leaseIssuerPath],
+              env: { ...process.env, SECRETSBROKER_API_TOKEN: "test-only-token" },
+            },
+            workspaceId: "test-workspace",
+          },
+          transportBinding: null,
+        },
+      }),
+      (error) => {
+        assert.match(error.message, /database\.PASSWORD:policy-denied/);
+        assert.equal(error.message.includes("raw-secret-must-not-leak"), false);
+        return true;
+      },
+    );
   } finally {
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });

@@ -1095,10 +1095,9 @@ export async function configService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  // Configuration artifacts are durable on-disk files. They must not obtain or
-  // materialize Broker values: those are resolved only immediately before the
-  // managed process starts, under a short-lived scoped identity.
-  const variableResolution = options.variableResolution;
+  const variableResolution = registry
+    ? await resolveBrokerMaterializationVariables(service, registry, options)
+    : options.variableResolution;
   const artifacts = await materializeConfigArtifacts(
     service,
     sharedGlobalEnv,

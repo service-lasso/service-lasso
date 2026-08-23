@@ -10,6 +10,8 @@ import {
   summarizeRequiredStartupBrokerFailures,
   type BrokerLaunchLookup,
 } from "./launch-resolution.js";
+import { onboardMissingProducerSecrets } from "./onboard.js";
+import { SECRETSBROKER_SERVICE_ID } from "./operator-config.js";
 import { loadSecretsBrokerRuntimeContext, type SecretsBrokerRuntimeContext } from "./runtime.js";
 
 export interface BrokerMaterializationResolutionOptions {
@@ -64,12 +66,29 @@ export async function resolveBrokerMaterializationVariables(
   }
 
   try {
-    const resolution = await resolveServiceStartupBrokerResolution(
+    let resolution = await resolveServiceStartupBrokerResolution(
       service,
       brokerLookup,
       options.variableResolution,
       identityLease,
     );
+    const brokerService = registry.getById(SECRETSBROKER_SERVICE_ID);
+    if (brokerService) {
+      const onboard = await onboardMissingProducerSecrets({
+        service,
+        resolution,
+        brokerService,
+        launchLeaseIssuer: brokerRuntime.launchLeaseIssuer,
+      });
+      if (onboard.appliedRefs.length > 0) {
+        resolution = await resolveServiceStartupBrokerResolution(
+          service,
+          brokerLookup,
+          options.variableResolution,
+          identityLease,
+        );
+      }
+    }
     const failures = summarizeRequiredStartupBrokerFailures(resolution);
     if (failures.length > 0) {
       const refs = failures.map((failure) => `${failure.ref}:${failure.status}`).join(", ");

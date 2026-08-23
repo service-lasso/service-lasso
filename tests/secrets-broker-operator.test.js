@@ -19,6 +19,21 @@ import {
   writeSecretsBrokerOperatorConfig,
 } from "../dist/runtime/broker/operator-config.js";
 import { resetScopedBrokerIdentities } from "../dist/runtime/broker/identity.js";
+import { createSecretsBrokerLaunchLookup } from "../dist/runtime/broker/launch-lookup.js";
+
+function createFixtureBrokerRuntime(brokerService, launchLeaseIssuer) {
+  const lookup = createSecretsBrokerLaunchLookup({ brokerService, launchLeaseIssuer });
+  assert.ok(lookup);
+  return {
+    lookup,
+    probe: async () => ({ ok: true }),
+    writeback: async () => ({ ok: false }),
+    management: async () => ({ statusCode: 503, body: {} }),
+    serverEnv: {},
+    launchLeaseIssuer,
+    transportBinding: null,
+  };
+}
 
 async function postJson(url, body) {
   const response = await fetch(url, {
@@ -210,9 +225,19 @@ test("start resolves required broker imports through live /v1/resolve", async ()
     const discovered = await discoverServices(servicesRoot);
     const registry = createServiceRegistry(discovered);
     const consumer = registry.getById("db-consumer");
-    assert.ok(consumer);
+    const brokerService = registry.getById("@secretsbroker");
+    assert.ok(consumer && brokerService);
     await installService(consumer, registry);
-    await configService(consumer, registry);
+    await configService(consumer, registry, {
+      brokerRuntime: createFixtureBrokerRuntime(brokerService, {
+        command: {
+          command: process.execPath,
+          args: [helperPath],
+          env: { ...process.env, SECRETSBROKER_API_TOKEN: mockBroker.expectedToken },
+        },
+        workspaceId: "local-demo",
+      }),
+    });
     const started = await startService(consumer, registry);
     assert.equal(started.ok, true);
 
