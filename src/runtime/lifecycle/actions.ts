@@ -19,6 +19,7 @@ import {
   selectPlatformCommandline,
 } from "../execution/commandline.js";
 import {
+  BROKER_IDENTITY_LEASE_ENV,
   issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
 } from "../broker/identity.js";
@@ -34,6 +35,7 @@ import {
 import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
 import { onboardMissingProducerSecrets } from "../broker/onboard.js";
 import {
+  compileServiceStartupBrokerPlan,
   mergeServiceVariableResolutionOptions,
   resolveServiceStartupBrokerResolution,
   summarizeRequiredStartupBrokerFailures,
@@ -460,8 +462,10 @@ async function resolveLaunchVariableResolution(
     brokerService?: DiscoveredService;
     launchLeaseIssuer?: Awaited<ReturnType<typeof resolveSecretsBrokerLaunchLeaseIssuer>>;
   },
+  identityLease?: unknown,
 ): Promise<ServiceVariableResolutionOptions | undefined> {
-  if (!options.brokerLookup) {
+  const plan = compileServiceStartupBrokerPlan(service);
+  if (plan.brokerRefs.length === 0 || !options.brokerLookup) {
     return options.variableResolution;
   }
 
@@ -469,6 +473,7 @@ async function resolveLaunchVariableResolution(
     service,
     options.brokerLookup,
     options.variableResolution,
+    identityLease,
   );
 
   if (options.brokerService) {
@@ -483,6 +488,7 @@ async function resolveLaunchVariableResolution(
         service,
         options.brokerLookup,
         options.variableResolution,
+        identityLease,
       );
     }
   }
@@ -500,51 +506,83 @@ async function resolveLaunchVariableResolution(
   );
 }
 
+async function resolveBrokerRuntimeContext(
+  registry: ServiceRegistry | undefined,
+  options: ServiceLifecycleActionOptions,
+): Promise<SecretsBrokerRuntimeContext | null> {
+  if (options.brokerRuntime !== undefined) return options.brokerRuntime;
+  if (!registry || !options.workspaceRoot) return null;
+  return await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry);
+}
+
+function secureEnvironmentForService(
+  serviceId: string,
+  brokerRuntime: SecretsBrokerRuntimeContext | null,
+  identityEnv: Record<string, string> | undefined,
+  fallbackBrokerEnv: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const secureEnv = {
+    ...(serviceId === SECRETSBROKER_SERVICE_ID
+      ? brokerRuntime?.serverEnv ?? fallbackBrokerEnv ?? {}
+      : {}),
+    ...(identityEnv ?? {}),
+  };
+  return Object.keys(secureEnv).length > 0 ? secureEnv : undefined;
+}
+
 async function resolveBrokerLaunchContext(
   service: DiscoveredService,
   registry: ServiceRegistry | undefined,
   options: ServiceLifecycleActionOptions,
 ): Promise<{
+  brokerRuntime: SecretsBrokerRuntimeContext | null;
   scopedBrokerIdentity: Awaited<ReturnType<typeof issueScopedBrokerIdentity>>;
   variableResolution: ServiceVariableResolutionOptions | undefined;
+  brokerLaunchEnv: Record<string, string> | undefined;
 }> {
+  const brokerRuntime = await resolveBrokerRuntimeContext(registry, options);
   const brokerService = registry?.getById(SECRETSBROKER_SERVICE_ID);
-  const launchLeaseIssuer = await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
+  const launchLeaseIssuer =
+    brokerRuntime?.launchLeaseIssuer ??
+    await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
     launchLeaseIssuer,
+    transportBinding: brokerRuntime?.transportBinding,
   });
+  let identityLease: unknown;
+  const identityLeaseRaw = scopedBrokerIdentity?.env[BROKER_IDENTITY_LEASE_ENV];
+  if (identityLeaseRaw) {
+    try {
+      identityLease = JSON.parse(identityLeaseRaw) as unknown;
+    } catch {
+      identityLease = undefined;
+    }
+  }
   const brokerLookup =
     options.brokerLookup ??
+    brokerRuntime?.lookup ??
     createSecretsBrokerLaunchLookup({
       brokerService,
       launchLeaseIssuer,
       workspaceId: launchLeaseIssuer?.workspaceId,
-    });
+    }) ??
+    ((request) => request.refs.map((ref) => ({ ref, status: "degraded" as const })));
+  const brokerLaunchEnv =
+    service.manifest.id === SECRETSBROKER_SERVICE_ID && !brokerRuntime
+      ? await resolveSecretsBrokerLaunchEnv(service)
+      : undefined;
 
   return {
+    brokerRuntime,
     scopedBrokerIdentity,
     variableResolution: await resolveLaunchVariableResolution(service, {
       ...options,
       brokerLookup,
       brokerService,
       launchLeaseIssuer,
-    }),
+    }, identityLease),
+    brokerLaunchEnv,
   };
-}
-
-async function resolveBrokerServerEnvironment(
-  service: DiscoveredService,
-  registry: ServiceRegistry | undefined,
-  options: ServiceLifecycleActionOptions,
-): Promise<Record<string, string> | undefined> {
-  if (service.manifest.id !== SECRETSBROKER_SERVICE_ID) return undefined;
-
-  const brokerRuntime = options.brokerRuntime !== undefined
-    ? options.brokerRuntime
-    : registry && options.workspaceRoot
-      ? await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry)
-      : null;
-  return brokerRuntime?.serverEnv ?? await resolveSecretsBrokerLaunchEnv(service);
 }
 
 function classifyUnexpectedTermination(
@@ -1209,12 +1247,16 @@ export async function startService(
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
   revokeServiceScopedBrokerIdentities(serviceId);
-  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+  const {
+    brokerRuntime,
+    scopedBrokerIdentity,
+    variableResolution,
+    brokerLaunchEnv,
+  } = await resolveBrokerLaunchContext(
     service,
     registry,
     options,
   );
-  const brokerLaunchEnv = await resolveBrokerServerEnvironment(service, registry, options);
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1309,10 +1351,12 @@ export async function startService(
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
-      secureEnv: {
-        ...(brokerLaunchEnv ?? {}),
-        ...(scopedBrokerIdentity?.env ?? {}),
-      },
+      secureEnv: secureEnvironmentForService(
+        serviceId,
+        brokerRuntime,
+        scopedBrokerIdentity?.env,
+        brokerLaunchEnv,
+      ),
       variableResolution,
       workspaceRoot: options.workspaceRoot,
       runtimeGenerationId: options.runtimeGenerationId,
@@ -1546,12 +1590,16 @@ export async function restartService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+  const {
+    brokerRuntime,
+    scopedBrokerIdentity,
+    variableResolution,
+    brokerLaunchEnv,
+  } = await resolveBrokerLaunchContext(
     service,
     registry,
     options,
   );
-  const brokerLaunchEnv = await resolveBrokerServerEnvironment(service, registry, options);
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1572,10 +1620,12 @@ export async function restartService(
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
-    secureEnv: {
-      ...(brokerLaunchEnv ?? {}),
-      ...(scopedBrokerIdentity?.env ?? {}),
-    },
+    secureEnv: secureEnvironmentForService(
+      serviceId,
+      brokerRuntime,
+      scopedBrokerIdentity?.env,
+      brokerLaunchEnv,
+    ),
     variableResolution,
     workspaceRoot: options.workspaceRoot,
     runtimeInstanceId: options.runtimeInstanceId,
