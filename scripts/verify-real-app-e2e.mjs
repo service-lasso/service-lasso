@@ -151,6 +151,7 @@ async function postJson(url, payload = {}) {
         [body?.error?.code, body?.error, body?.code].find(
           (code) => typeof code === "string" && /^[a-z0-9_]+$/u.test(code),
         ) ?? "unclassified_error",
+      errorMessage: typeof body?.message === "string" ? body.message.slice(0, 512) : null,
     };
     throw error;
   }
