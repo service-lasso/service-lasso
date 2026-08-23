@@ -19,6 +19,7 @@ import {
   selectPlatformCommandline,
 } from "../execution/commandline.js";
 import {
+  issueSecretsBrokerLaunchLease,
   issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
 } from "../broker/identity.js";
@@ -457,6 +458,7 @@ async function resolveLaunchVariableResolution(
   options: ServiceLifecycleActionOptions & {
     brokerService?: DiscoveredService;
     launchLeaseIssuer?: Awaited<ReturnType<typeof resolveSecretsBrokerLaunchLeaseIssuer>>;
+    resolutionLease?: unknown;
   },
 ): Promise<ServiceVariableResolutionOptions | undefined> {
   if (!options.brokerLookup) {
@@ -467,6 +469,7 @@ async function resolveLaunchVariableResolution(
     service,
     options.brokerLookup,
     options.variableResolution,
+    options.resolutionLease,
   );
 
   if (options.brokerService) {
@@ -519,6 +522,12 @@ async function resolveBrokerLaunchContext(
     launchLeaseIssuer,
     transportBinding: brokerRuntime?.transportBinding,
   });
+  // Resolve consumes a one-time lease. Keep it distinct from the lease placed
+  // in the launched service environment so a resolution cannot replay it.
+  const resolutionLease = await issueSecretsBrokerLaunchLease(service, {
+    launchLeaseIssuer,
+    transportBinding: brokerRuntime?.transportBinding,
+  });
   const brokerLookup =
     options.brokerLookup ??
     brokerRuntime?.lookup ??
@@ -535,6 +544,7 @@ async function resolveBrokerLaunchContext(
       brokerLookup,
       brokerService,
       launchLeaseIssuer,
+      resolutionLease,
     }),
   };
 }
