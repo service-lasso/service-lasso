@@ -9,7 +9,12 @@ import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
-import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
+import {
+  ensureTestSecretsBrokerReady,
+  makeTempServicesRoot,
+  writeExecutableFixtureService,
+  writeManifest,
+} from "./test-helpers.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -492,6 +497,7 @@ test("bootstrapBaselineServices runs non-manual setup steps for provider-role se
   const workspaceRoot = path.join(tempRoot, "workspace");
 
   try {
+    await ensureTestSecretsBrokerReady(workspaceRoot);
     const localcert = await writeExecutableFixtureService(servicesRoot, "@localcert", {
       role: "provider",
       healthcheck: null,

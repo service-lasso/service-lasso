@@ -8,7 +8,6 @@ import { writePrivateJson } from "../dist/runtime/security/private-json.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
-
 async function writeReadyBrokerCredentials(workspaceRoot) {
   const privateRoot = path.join(workspaceRoot, ".service-lasso");
   const brokerRoot = path.join(privateRoot, "secretsbroker");
@@ -223,6 +222,7 @@ async function writeLongRunningService(servicesRoot, serviceId, options = {}) {
       files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
     },
   });
+  return { serviceRoot };
 }
 
 async function writeNodeProviderService(servicesRoot) {
@@ -430,6 +430,22 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
     config: {
       files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
     },
+  });
+}
+
+async function seedInitializedSecretsBrokerFixture(serviceRoot) {
+  const paths = resolveSecretsBrokerDataPaths(serviceRoot);
+  await mkdir(paths.brokerStateDir, { recursive: true });
+  await mkdir(path.dirname(paths.storePath), { recursive: true });
+  await writeFile(paths.storePath, JSON.stringify({ version: 1, fixture: true }), { mode: 0o600 });
+  await writeFile(paths.masterKeyFile, "fixture-master-key\n", { mode: 0o600 });
+  await writeSecretsBrokerOperatorConfig(serviceRoot, {
+    version: 1,
+    storePath: paths.storePath,
+    auditPath: paths.auditPath,
+    masterKeyFile: paths.masterKeyFile,
+    apiToken: "fixture-operator-token",
+    initializedAt: new Date(0).toISOString(),
   });
 }
 
@@ -723,11 +739,12 @@ try {
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
   await writePythonProviderService(servicesRoot);
-  await writeHttpService(servicesRoot, "@secretsbroker", "service", {
+  const brokerFixture = await writeHttpService(servicesRoot, "@secretsbroker", "service", {
     ports: { service: secretsBrokerPort },
     urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
     healthUrl: `http://127.0.0.1:${secretsBrokerPort}/health`,
   });
+  await seedInitializedSecretsBrokerFixture(brokerFixture.serviceRoot);
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
