@@ -49,8 +49,7 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       enabled: false,
       healthcheck: null,
     });
-    const { serviceRoot: brokerRoot } = await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
-    await seedInitializedSecretsBrokerFixture(brokerRoot);
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
@@ -182,8 +181,7 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
       enabled: false,
       healthcheck: null,
     });
-    const { serviceRoot: brokerRoot } = await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
-    await seedInitializedSecretsBrokerFixture(brokerRoot);
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node", "@traefik"],
     });
@@ -272,8 +270,7 @@ test("bootstrapBaselineServices waits normal autostart while first-run setup is 
       role: "provider",
       healthcheck: null,
     });
-    const { serviceRoot: brokerRoot } = await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
-    await seedInitializedSecretsBrokerFixture(brokerRoot);
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", {
       depend_on: ["@node"],
     });
