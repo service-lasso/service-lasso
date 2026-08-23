@@ -4,29 +4,10 @@
   "description": "Release-backed local-first secrets broker for Service Lasso bootstrap, service identities, policy, audit, and secret resolution.",
   "version": "2026.8.18-2ee1ba5",
   "enabled": true,
-  "ports": {
-    "service": 17890
-  },
   "env": {
-    "SECRETSBROKER_LISTEN": "127.0.0.1:${SERVICE_PORT}"
+    "SECRETSBROKER_MODE": "production",
+    "SECRETSBROKER_TRANSPORT": "auto"
   },
-  "globalenv": {
-    "SECRETSBROKER_URL": "http://127.0.0.1:${SERVICE_PORT}",
-    "SECRETSBROKER_HEALTH_URL": "http://127.0.0.1:${SERVICE_PORT}/health",
-    "SECRETSBROKER_READY_URL": "http://127.0.0.1:${SERVICE_PORT}/ready"
-  },
-  "urls": [
-    {
-      "label": "health",
-      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
-      "kind": "local"
-    },
-    {
-      "label": "ready",
-      "url": "http://127.0.0.1:${SERVICE_PORT}/ready",
-      "kind": "local"
-    }
-  ],
   "artifact": {
     "kind": "archive",
     "source": {
@@ -61,10 +42,8 @@
   },
   "healthchecks": [
     {
-      "id": "secretsbroker-http-health",
-      "type": "http",
-      "url": "http://127.0.0.1:${SERVICE_PORT}/health",
-      "expected_status": 200,
+      "id": "secretsbroker-process-health",
+      "type": "process",
       "retries": 80,
       "interval": 250
     }
