@@ -187,6 +187,7 @@ import {
 } from "../runtime/operator/inbox.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { ProviderNotReadyError, resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
+import { buildRuntimeDoctorStatus } from "../runtime/doctor/status.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import { stopAllManagedProcesses, writeManagedProcessStdin } from "../runtime/execution/supervisor.js";
@@ -4966,6 +4967,16 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/runtime/instance") {
     writeJson(response, 200, await createRuntimeInstanceSnapshot(config, {
       generationId: config.runtimeGenerationId,
+    }));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/runtime/doctor") {
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    writeJson(response, 200, await buildRuntimeDoctorStatus({
+      config,
+      registry: runtimeModel.registry,
+      graph: runtimeModel.graph,
     }));
     return;
   }

@@ -523,6 +523,107 @@ export interface RuntimeInstanceResponse {
   selection: RuntimeLaneSelection;
 }
 
+export type RuntimeDoctorClassification =
+  | "healthy"
+  | "not_running"
+  | "wrong_lane"
+  | "ambiguous_generation"
+  | "identity_mismatch"
+  | "unknown_owner"
+  | "preferred_port_occupied"
+  | "fixed_port_conflict"
+  | "reservation_drift"
+  | "configuration_drift"
+  | "partial_startup"
+  | "state_corrupt"
+  | "migration_required";
+
+export type RuntimeDoctorRecommendedAction =
+  | "resume"
+  | "stop"
+  | "restart"
+  | "roll_back"
+  | "repair_state"
+  | "request_operator_confirmation";
+
+export interface RuntimeDoctorOwnershipEntryResponse {
+  ownerType: "runtime" | "service";
+  ownerId: string;
+  serviceId: string | null;
+  runtimeInstanceId: string | null;
+  pid: number | null;
+  lifecycleState: "launching" | "running" | "stopping" | "stopped";
+  identityStatus: "owned" | "not_running" | "identity_mismatch" | "unknown_owner";
+  allocationRevision: string | null;
+  ports: Record<string, number>;
+  endpoints: Array<{ name: string; url: string }>;
+  updatedAt: string;
+}
+
+export interface RuntimeDoctorResponse {
+  doctor: {
+    contractVersion: "service-lasso.runtime-doctor.v1";
+    generatedAt: string;
+    classification: RuntimeDoctorClassification;
+    recommendedAction: RuntimeDoctorRecommendedAction;
+    readOnly: true;
+    evidencePaths: {
+      runtimeInstanceState: string;
+      processRegistry: string;
+      portReservations: string;
+    };
+    runtime: {
+      expected: {
+        servicesRoot: string;
+        workspaceRoot: string;
+      };
+      selectedInstanceId: string | null;
+      selectedGenerationStatus: RuntimeInstanceStatus | "stale";
+      selectedGenerationReason: string | null;
+      candidates: Array<{
+        instanceId: string;
+        status: RuntimeInstanceStatus;
+        statusReason: string | null;
+        servicesRoot: string;
+        workspaceRoot: string;
+        pid: number;
+        apiUrl: string;
+        generationId: string | null;
+      }>;
+    };
+    ownership: {
+      runtime: RuntimeDoctorOwnershipEntryResponse[];
+      services: RuntimeDoctorOwnershipEntryResponse[];
+    };
+    endpoints: {
+      reservations: Array<{
+        ownerId: string;
+        portName: string;
+        kind: "api" | "service-fixed" | "service-negotiated";
+        host: string;
+        port: number;
+        stale: boolean;
+        staleReason: string | null;
+      }>;
+      conflicts: Array<{
+        endpoint: string;
+        owners: Array<{
+          ownerId: string;
+          portName: string;
+          kind: "api" | "service-fixed" | "service-negotiated";
+        }>;
+      }>;
+    };
+    dependencies: {
+      blockers: Array<{
+        serviceId: string;
+        dependencyId: string;
+        reason: "dependency_disabled" | "missing_dependency";
+      }>;
+    };
+  };
+}
+
 export interface RuntimeFeatureFlags {
   serviceDiscovery: boolean;
   lifecycleActions: boolean;

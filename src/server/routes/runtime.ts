@@ -42,6 +42,13 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     mutating: true,
   },
   {
+    id: "runtime-doctor",
+    label: "Runtime doctor",
+    methods: ["GET"],
+    pathPrefix: "/api/runtime/doctor",
+    mutating: false,
+  },
+  {
     id: "setup",
     label: "First-run setup",
     methods: ["GET", "POST"],
@@ -192,6 +199,7 @@ export function createRuntimeCapabilitiesResponse(input: RuntimeCapabilitiesInpu
           supportsSafeSecretMetadataOnly: true,
           preferredEndpointGroups: [
             "runtime",
+            "runtime-doctor",
             "dashboard",
             "services",
             "dependencies",

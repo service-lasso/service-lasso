@@ -17,6 +17,7 @@ import { runConfigDriftCliAction, type ConfigDriftCliResult } from "./runtime/cl
 import { runConfigApplyCliAction, type ConfigApplyCliAction, type ConfigApplyCliResult } from "./runtime/cli/config-apply.js";
 import { runConfigSnapshotCliAction, type ConfigSnapshotCliAction, type ConfigSnapshotCliResult } from "./runtime/cli/config-snapshot.js";
 import { runDiagnosticsCliAction, type DiagnosticsCliAction, type DiagnosticsCliResult } from "./runtime/cli/diagnostics.js";
+import { runDoctorCliAction, type DoctorCliAction, type DoctorCliResult } from "./runtime/cli/doctor.js";
 import { readRuntimeInstanceForCli } from "./runtime/cli/instance.js";
 import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCliResult } from "./runtime/cli/plan.js";
 import { runReadinessGateCliAction, type ReadinessGateCliResult } from "./runtime/cli/readiness.js";
@@ -25,13 +26,14 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
+  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "doctor" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
   readinessAction?: "gate";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
   healthAction?: HealthCliAction;
+  doctorAction?: DoctorCliAction;
   planAction?: RuntimePlanCliAction;
   lockfileAction?: LockfileCliAction;
   configApplyAction?: ConfigApplyCliAction;
@@ -94,6 +96,7 @@ function usageText(): string {
     "  service-lasso recovery restart-preflight <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso health history [serviceId] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso instance [--services-root <path>] [--workspace-root <path>] [--generation <id>] [--json]",
+    "  service-lasso doctor status [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso readiness gate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile generate [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso lockfile verify [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -130,6 +133,7 @@ function usageText(): string {
     "  - The plan command previews start, stop, update-install, and app-owned service import actions without writing state.",
     "  - The recovery command reads persisted recovery history or runs doctor/preflight checks.",
     "  - The instance command reads local runtime identity and recent instance registry state.",
+    "  - The doctor command emits a read-only runtime generation, ownership, endpoint, and dependency diagnosis.",
     "  - The readiness command emits a machine-readable gate for baseline automation.",
     "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
     "  - The template check-upgrade command compares an app/template service inventory to current core provider expectations.",
@@ -172,6 +176,7 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
       commandToken === "plan" ||
       commandToken === "lockfile" ||
       commandToken === "instance" ||
+      commandToken === "doctor" ||
       commandToken === "readiness" ||
       commandToken === "config-drift" ||
       commandToken === "config-apply" ||
@@ -271,6 +276,15 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     if (remaining[0] && !remaining[0].startsWith("-")) {
       parsed.serviceId = remaining.shift();
     }
+  }
+
+  if (command === "doctor") {
+    const action = remaining.shift();
+    if (action !== "status") {
+      throw new Error('The "doctor" command requires: status.');
+    }
+
+    parsed.doctorAction = action;
   }
 
   if (command === "lockfile") {
@@ -521,8 +535,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template" && command !== "release") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, template, and release commands.");
+        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "doctor" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template" && command !== "release") {
+          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, doctor, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, template, and release commands.");
         }
         parsed.json = true;
         break;
@@ -1267,6 +1281,25 @@ function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): 
   console.log("- selection: " + result.selection.classification + " (" + result.selection.reason + ")");
 }
 
+function printDoctorResult(result: DoctorCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("[service-lasso] runtime doctor");
+  console.log("- classification: " + result.doctor.classification);
+  console.log("- recommendedAction: " + result.doctor.recommendedAction);
+  console.log("- readOnly: " + result.doctor.readOnly);
+  console.log("- selectedInstance: " + (result.doctor.runtime.selectedInstanceId ?? "none"));
+  console.log("- generationStatus: " + result.doctor.runtime.selectedGenerationStatus);
+  console.log("- runtimeOwners: " + result.doctor.ownership.runtime.length);
+  console.log("- serviceOwners: " + result.doctor.ownership.services.length);
+  console.log("- reservations: " + result.doctor.endpoints.reservations.length);
+  console.log("- conflicts: " + result.doctor.endpoints.conflicts.length);
+  console.log("- dependencyBlockers: " + result.doctor.dependencies.blockers.length);
+}
+
 function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {
   if (asJson) {
     console.log(JSON.stringify(result, null, 2));
@@ -1431,6 +1464,17 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
       version: runtimeVersion,
     });
     printInstanceResult(result, parsed.json);
+    return;
+  }
+
+  if (parsed.command === "doctor") {
+    const result = await runDoctorCliAction({
+      action: parsed.doctorAction!,
+      servicesRoot: parsed.servicesRoot,
+      workspaceRoot: parsed.workspaceRoot,
+      version: runtimeVersion,
+    });
+    printDoctorResult(result, parsed.json);
     return;
   }
 
