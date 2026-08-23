@@ -528,6 +528,11 @@ async function resolveBrokerLaunchContext(
   };
 }
 
+function isProductionSecretsBroker(service: DiscoveredService): boolean {
+  return service.manifest.id === SECRETSBROKER_SERVICE_ID &&
+    service.manifest.env?.SECRETSBROKER_MODE === "production";
+}
+
 function classifyUnexpectedTermination(
   exitCode: number | null,
   signal: NodeJS.Signals | null,
@@ -1193,7 +1198,7 @@ export async function startService(
     options,
   );
   const brokerLaunchEnv =
-    serviceId === SECRETSBROKER_SERVICE_ID
+    isProductionSecretsBroker(service)
       ? await resolveSecretsBrokerLaunchEnv(service)
       : undefined;
   const resolvedPorts = options.plannedPorts ?? (
@@ -1533,7 +1538,7 @@ export async function restartService(
     options,
   );
   const brokerLaunchEnv =
-    serviceId === SECRETSBROKER_SERVICE_ID
+    isProductionSecretsBroker(service)
       ? await resolveSecretsBrokerLaunchEnv(service)
       : undefined;
   const resolvedPorts = options.plannedPorts ?? (
