@@ -23,7 +23,10 @@ import {
   revokeServiceScopedBrokerIdentities,
 } from "../broker/identity.js";
 import { resolveSecretsBrokerLaunchEnv } from "../broker/bootstrap.js";
-import type { SecretsBrokerRuntimeContext } from "../broker/runtime.js";
+import {
+  loadSecretsBrokerRuntimeContext,
+  type SecretsBrokerRuntimeContext,
+} from "../broker/runtime.js";
 import {
   createSecretsBrokerLaunchLookup,
   resolveSecretsBrokerLaunchLeaseIssuer,
@@ -36,6 +39,7 @@ import {
   summarizeRequiredStartupBrokerFailures,
   type BrokerLaunchLookup,
 } from "../broker/launch-resolution.js";
+import { resolveBrokerMaterializationVariables } from "../broker/materialization-resolution.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
@@ -526,6 +530,21 @@ async function resolveBrokerLaunchContext(
       launchLeaseIssuer,
     }),
   };
+}
+
+async function resolveBrokerServerEnvironment(
+  service: DiscoveredService,
+  registry: ServiceRegistry | undefined,
+  options: ServiceLifecycleActionOptions,
+): Promise<Record<string, string> | undefined> {
+  if (service.manifest.id !== SECRETSBROKER_SERVICE_ID) return undefined;
+
+  const brokerRuntime = options.brokerRuntime !== undefined
+    ? options.brokerRuntime
+    : registry && options.workspaceRoot
+      ? await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry)
+      : null;
+  return brokerRuntime?.serverEnv ?? await resolveSecretsBrokerLaunchEnv(service);
 }
 
 function classifyUnexpectedTermination(
@@ -1038,11 +1057,14 @@ export async function configService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
+  const variableResolution = registry
+    ? await resolveBrokerMaterializationVariables(service, registry, options)
+    : options.variableResolution;
   const artifacts = await materializeConfigArtifacts(
     service,
     sharedGlobalEnv,
     resolvedPorts,
-    {},
+    variableResolution,
     options.materializationHooks,
   );
 
@@ -1192,10 +1214,7 @@ export async function startService(
     registry,
     options,
   );
-  const brokerLaunchEnv =
-    serviceId === SECRETSBROKER_SERVICE_ID
-      ? await resolveSecretsBrokerLaunchEnv(service)
-      : undefined;
+  const brokerLaunchEnv = await resolveBrokerServerEnvironment(service, registry, options);
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1532,10 +1551,7 @@ export async function restartService(
     registry,
     options,
   );
-  const brokerLaunchEnv =
-    serviceId === SECRETSBROKER_SERVICE_ID
-      ? await resolveSecretsBrokerLaunchEnv(service)
-      : undefined;
+  const brokerLaunchEnv = await resolveBrokerServerEnvironment(service, registry, options);
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports

@@ -295,7 +295,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
-    SERVICE_HOST: "0.0.0.0",
+    SERVICE_HOST: "127.0.0.1",
     SERVICE_PORT: "${UI_PORT}",
     SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
     SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",

@@ -23,6 +23,7 @@ const PASSWORD_SENTINEL = "test-local-operator-password";
 const REMOTE_CLIENT = "10.0.0.20";
 const REMOTE_HEADERS = {
   "x-service-lasso-client-address": REMOTE_CLIENT,
+  "x-service-lasso-internal-proxy": "serviceadmin",
 };
 
 /**
