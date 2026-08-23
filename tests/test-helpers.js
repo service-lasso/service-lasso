@@ -85,6 +85,28 @@ export async function writeManifest(servicesRoot, serviceId, body) {
   return serviceRoot;
 }
 
+/**
+ * Seed the durable, non-secret Broker state for fixtures that deliberately run
+ * a generic mock daemon instead of a released Broker artifact. Production
+ * bootstrap still requires installed artifacts when it must initialize this
+ * state itself.
+ */
+export async function seedInitializedSecretsBrokerFixture(serviceRoot) {
+  const paths = resolveSecretsBrokerDataPaths(serviceRoot);
+  await mkdir(paths.brokerStateDir, { recursive: true });
+  await mkdir(path.dirname(paths.storePath), { recursive: true });
+  await writeFile(paths.storePath, JSON.stringify({ version: 1, fixture: true }), { mode: 0o600 });
+  await writeFile(paths.masterKeyFile, "fixture-master-key\n", { mode: 0o600 });
+  await writeSecretsBrokerOperatorConfig(serviceRoot, {
+    version: 1,
+    storePath: paths.storePath,
+    auditPath: paths.auditPath,
+    masterKeyFile: paths.masterKeyFile,
+    apiToken: "fixture-operator-token",
+    initializedAt: new Date(0).toISOString(),
+  });
+}
+
 export async function writeExecutableFixtureService(
   servicesRoot,
   serviceId,

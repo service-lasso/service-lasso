@@ -53,7 +53,7 @@ The runtime startup path is formalized as:
 
 1. Compile a selector plan from service `env` plus `broker.imports`.
 2. Deduplicate broker refs so each unique selector is looked up at most once per launch.
-3. Batch lookup the unique refs through the live Secrets Broker `POST /v1/resolve` boundary. Core issues a one-time launch identity lease (no transport binding, because loopback HTTP rejects bound leases), authenticates with the operator API token, and maps typed outcomes back onto the original import refs. Tests and callers may still supply an explicit `brokerLookup` to keep the plumbing path.
+3. Batch lookup the unique refs through the live Secrets Broker `POST /v1/resolve` boundary. Core issues a one-time launch identity lease (no transport binding, because loopback HTTP rejects bound leases), authenticates with the operator API token, and maps typed outcomes back onto the original import refs. When `SECRETSBROKER_NAMED_PIPE`, `SECRETSBROKER_UNIX_SOCKET`, or operator `ipc` metadata is set, that lookup uses the same named-pipe or Unix-socket HTTP client as the management proxy and KV `/v1/kv` routes. Unconfigured runtimes keep loopback HTTP so development health URLs keep working. Tests and callers may still supply an explicit `brokerLookup` to keep the plumbing path.
 4. Classify every unresolved ref as one of:
    - `missing`
    - `locked`

@@ -86,6 +86,25 @@ async function pathExists(targetPath) {
   }
 }
 
+async function seedInitializedSecretsBrokerFixture(serviceRoot) {
+  const { resolveSecretsBrokerDataPaths, writeSecretsBrokerOperatorConfig } = await import(
+    pathToFileURL(path.join(repoRoot, "dist", "runtime", "broker", "operator-config.js")).href
+  );
+  const paths = resolveSecretsBrokerDataPaths(serviceRoot);
+  await mkdir(paths.brokerStateDir, { recursive: true });
+  await mkdir(path.dirname(paths.storePath), { recursive: true });
+  await writeFile(paths.storePath, JSON.stringify({ version: 1, fixture: true }), { mode: 0o600 });
+  await writeFile(paths.masterKeyFile, "fixture-master-key\n", { mode: 0o600 });
+  await writeSecretsBrokerOperatorConfig(serviceRoot, {
+    version: 1,
+    storePath: paths.storePath,
+    auditPath: paths.auditPath,
+    masterKeyFile: paths.masterKeyFile,
+    apiToken: "fixture-operator-token",
+    initializedAt: new Date(0).toISOString(),
+  });
+}
+
 function isSamePath(left, right) {
   return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
 }
@@ -1581,6 +1600,7 @@ export async function runDemoSmoke(options = {}) {
   const preserve = options.preserve === true;
 
   await resetDemoInstance({ servicesRoot, workspaceRoot });
+  await seedInitializedSecretsBrokerFixture(path.join(servicesRoot, "@secretsbroker"));
 
   const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, skipBootstrap: true });
 

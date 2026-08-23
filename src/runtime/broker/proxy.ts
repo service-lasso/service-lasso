@@ -6,7 +6,8 @@ import {
   type SecretsBrokerManagementRequest,
   type SecretsBrokerManagementResponse,
 } from "./client.js";
-import { readSecretsBrokerOperatorConfig, resolveSecretsBrokerPort } from "./operator-config.js";
+import { requestSecretsBrokerHttp, SECRETSBROKER_IPC_MAX_BYTES } from "./ipc-transport.js";
+import { readSecretsBrokerOperatorConfig, resolveSecretsBrokerPort, resolveSecretsBrokerTransport } from "./operator-config.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -18,8 +19,12 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
   "host",
+  "content-length",
 ]);
 
+/**
+ * Read a bounded request body. Oversized payloads fail closed without logging contents.
+ */
 async function readRequestBody(request: IncomingMessage): Promise<Buffer | undefined> {
   const method = (request.method ?? "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") {
@@ -27,8 +32,14 @@ async function readRequestBody(request: IncomingMessage): Promise<Buffer | undef
   }
 
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.byteLength;
+    if (total > SECRETSBROKER_IPC_MAX_BYTES) {
+      throw new ApiError("payload_too_large", 413, "Secrets Broker request exceeds the size limit.");
+    }
+    chunks.push(buffer);
   }
 
   return Buffer.concat(chunks);
@@ -107,20 +118,51 @@ export async function requestLegacySecretsBrokerManagement(
   }, input);
 }
 
+/**
+ * Copy Broker response headers onto the Core response, dropping hop-by-hop fields.
+ */
 function appendProxyResponseHeaders(
   response: ServerResponse,
-  upstreamHeaders: Headers,
+  upstreamHeaders: IncomingMessage["headers"],
+  bodyLength: number,
 ): void {
-  upstreamHeaders.forEach((value, key) => {
+  for (const [key, value] of Object.entries(upstreamHeaders)) {
+    if (value === undefined) {
+      continue;
+    }
     if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
-      return;
+      continue;
     }
     response.setHeader(key, value);
-  });
+  }
+  response.setHeader("content-length", String(bodyLength));
 }
 
 /**
- * Forward a Service Admin broker-management request to the local `@secretsbroker` daemon.
+ * Collect inbound headers for the Broker request. Authorization is replaced by
+ * the workspace operator token so the browser never supplies the Broker secret.
+ */
+function collectUpstreamHeaders(request: IncomingMessage): Record<string, string> {
+  const upstreamHeaders: Record<string, string> = {};
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    const lowerKey = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lowerKey) || lowerKey === "authorization") {
+      continue;
+    }
+
+    upstreamHeaders[key] = Array.isArray(value) ? value.join(", ") : value;
+  }
+  return upstreamHeaders;
+}
+
+/**
+ * Forward a Service Admin broker-management request to the local `@secretsbroker` daemon
+ * over named-pipe, Unix-socket, or loopback HTTP. This extends the shipped HTTP alias
+ * proxy; it is not a second production Broker client.
  */
 export async function proxySecretsBrokerRequest(
   request: IncomingMessage,
@@ -129,52 +171,28 @@ export async function proxySecretsBrokerRequest(
   proxyPath: string,
   search: string,
 ): Promise<void> {
-  const port = resolveSecretsBrokerPort(service);
-  if (port === null) {
-    throw new ApiError("broker_unavailable", 503, "Secrets Broker port is unavailable.");
+  const operatorConfig = await readSecretsBrokerOperatorConfig(service.serviceRoot);
+  const target = resolveSecretsBrokerTransport(service, process.env, operatorConfig);
+  if (target === null) {
+    throw new ApiError("broker_unavailable", 503, "Secrets Broker transport is unavailable.");
   }
 
   const normalizedPath = proxyPath.startsWith("/") ? proxyPath : `/${proxyPath}`;
-  const targetUrl = `http://127.0.0.1:${port}${normalizedPath}${search}`;
-  const upstreamHeaders = new Headers();
-
-  for (const [key, value] of Object.entries(request.headers)) {
-    if (value === undefined) {
-      continue;
-    }
-
-    const lowerKey = key.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lowerKey)) {
-      continue;
-    }
-    if (lowerKey === "authorization") {
-      continue;
-    }
-
-    if (Array.isArray(value)) {
-      for (const entry of value) {
-        upstreamHeaders.append(key, entry);
-      }
-      continue;
-    }
-
-    upstreamHeaders.set(key, value);
-  }
-
-  const operatorConfig = await readSecretsBrokerOperatorConfig(service.serviceRoot);
-  if (operatorConfig?.apiToken && !upstreamHeaders.has("authorization")) {
-    upstreamHeaders.set("Authorization", `Bearer ${operatorConfig.apiToken}`);
+  const upstreamHeaders = collectUpstreamHeaders(request);
+  if (operatorConfig?.apiToken && !Object.keys(upstreamHeaders).some((key) => key.toLowerCase() === "authorization")) {
+    upstreamHeaders.Authorization = `Bearer ${operatorConfig.apiToken}`;
   }
 
   const method = request.method ?? "GET";
   const body = await readRequestBody(request);
-  const upstream = await fetch(targetUrl, {
+  const upstream = await requestSecretsBrokerHttp(target, {
     method,
+    pathWithQuery: `${normalizedPath}${search}`,
     headers: upstreamHeaders,
-    body: body && body.length > 0 ? body : undefined,
+    body,
   });
 
   response.statusCode = upstream.status;
-  appendProxyResponseHeaders(response, upstream.headers);
-  response.end(Buffer.from(await upstream.arrayBuffer()));
+  appendProxyResponseHeaders(response, upstream.headers, upstream.body.byteLength);
+  response.end(upstream.body);
 }

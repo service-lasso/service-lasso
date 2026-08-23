@@ -8,7 +8,6 @@ import { writePrivateJson } from "../dist/runtime/security/private-json.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
-
 async function writeReadyBrokerCredentials(workspaceRoot) {
   const privateRoot = path.join(workspaceRoot, ".service-lasso");
   const brokerRoot = path.join(privateRoot, "secretsbroker");
@@ -223,6 +222,7 @@ async function writeLongRunningService(servicesRoot, serviceId, options = {}) {
       files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
     },
   });
+  return { serviceRoot };
 }
 
 async function writeNodeProviderService(servicesRoot) {
@@ -431,6 +431,7 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
       files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
     },
   });
+  return { serviceRoot };
 }
 
 function traefikPlatformArtifact() {

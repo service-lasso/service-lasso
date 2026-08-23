@@ -17,9 +17,10 @@ import {
   readSecretsBrokerOperatorConfig,
   resolveSecretsBrokerCli,
   resolveSecretsBrokerDataPaths,
-  resolveSecretsBrokerPort,
+  resolveSecretsBrokerTransport,
   WORKSPACE_ID_ENV,
 } from "./operator-config.js";
+import { requestSecretsBrokerHttp } from "./ipc-transport.js";
 
 const DEFAULT_WORKSPACE_ID = "local-demo";
 
@@ -172,8 +173,8 @@ export function createSecretsBrokerLaunchLookup(options: {
     }
 
     const operatorConfig = await readSecretsBrokerOperatorConfig(brokerService.serviceRoot);
-    const port = resolveSecretsBrokerPort(brokerService);
-    if (!operatorConfig || port === null) {
+    const transport = resolveSecretsBrokerTransport(brokerService, process.env, operatorConfig);
+    if (!operatorConfig || transport === null) {
       return unavailableDecisions(refs, "source-unavailable");
     }
 
@@ -196,16 +197,17 @@ export function createSecretsBrokerLaunchLookup(options: {
     };
 
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/v1/resolve`, {
+      const response = await requestSecretsBrokerHttp(transport, {
         method: "POST",
+        pathWithQuery: "/v1/resolve",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${operatorConfig.apiToken}`,
         },
-        body: JSON.stringify(requestBody),
+        body: Buffer.from(JSON.stringify(requestBody), "utf8"),
       });
-      const payload: unknown = await response.json();
-      if (!response.ok) {
+      const payload: unknown = JSON.parse(response.body.toString("utf8"));
+      if (response.status < 200 || response.status >= 300) {
         const errorOutcome = isRecord(payload) && isRecord(payload.error) && typeof payload.error.outcome === "string"
           ? payload.error.outcome
           : "source_unavailable";
