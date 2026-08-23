@@ -1645,7 +1645,12 @@ export async function runDemoSmoke(options = {}) {
     const providerInstall = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/install`, "POST");
     assertCondition(providerInstall.status === 200, "Expected node-sample-service install to return 200.");
     const providerConfig = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/config`, "POST");
-    assertCondition(providerConfig.status === 200, "Expected node-sample-service config to resolve through the production Broker runtime.");
+    assertCondition(providerConfig.status === 409, "Expected node-sample-service config to fail closed before Broker setup.");
+    assertCondition(providerConfig.body.error === "invalid_lifecycle_state", "Expected a typed setup-required lifecycle error.");
+    assertCondition(
+      typeof providerConfig.body.message === "string" && providerConfig.body.message.length > 0,
+      "Expected node-sample-service to report a safe Broker setup boundary.",
+    );
 
     const providerDetail = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service`);
     const providerMetrics = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/metrics`);
@@ -1654,9 +1659,9 @@ export async function runDemoSmoke(options = {}) {
     const aggregateMetrics = await getJson(`${runtime.apiServer.url}/api/metrics`);
 
     assertCondition(providerDetail.body.service.lifecycle.installed === true, "Expected node-sample-service to be installed.");
-    assertCondition(providerDetail.body.service.lifecycle.configured === true, "Expected node-sample-service to be configured through the Broker runtime.");
-    assertCondition(providerDetail.body.service.lifecycle.running === false, "Expected node-sample-service not to start during configuration.");
-    assertCondition(providerMetrics.body.metrics.process.launchCount === 0, "Expected configuration not to launch node-sample-service.");
+    assertCondition(providerDetail.body.service.lifecycle.configured === false, "Expected node-sample-service to remain unconfigured before Broker setup.");
+    assertCondition(providerDetail.body.service.lifecycle.running === false, "Expected node-sample-service not to start before Broker setup.");
+    assertCondition(providerMetrics.body.metrics.process.launchCount === 0, "Expected no node-sample-service process launch before Broker setup.");
     assertCondition(nodeProviderDetail.body.service.id === "@node", "Expected @node provider detail to be available.");
     assertCondition(nodeProviderDetail.body.service.lifecycle.installed === true, "Expected @node provider to be installed.");
     assertCondition(nodeProviderDetail.body.service.lifecycle.configured === true, "Expected @node provider to be configured.");
@@ -1717,7 +1722,7 @@ export async function runDemoSmoke(options = {}) {
           "node-sample-service",
           ...defaultBaselineServiceIds.filter((serviceId) => serviceId !== "echo-service" && serviceId !== "@node"),
         ],
-        brokerConfiguredServices: ["node-sample-service"],
+        setupRequiredBlockedServices: ["node-sample-service"],
       },
     };
   } finally {
