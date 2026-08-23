@@ -237,7 +237,9 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.18-2ee1ba5");
-  assert.equal(byId.get("@secretsbroker")?.ports?.service, 17890);
+  assert.equal(byId.get("@secretsbroker")?.ports?.service, undefined);
+  assert.equal(byId.get("@secretsbroker")?.env?.SECRETSBROKER_MODE, "production");
+  assert.equal(byId.get("@secretsbroker")?.env?.SECRETSBROKER_TRANSPORT, "auto");
   assert.match(byId.get("@traefik")?.commandline?.win32 ?? "", /--providers\.file\.filename="\$\{SERVICE_ROOT\}\\runtime\\dynamic\.yml"/);
   assert.match(byId.get("@traefik")?.commandline?.linux ?? "", /--entryPoints\.mongo\.address=":\$\{endpoint\.mongo\.port\}"/);
   assert.match(byId.get("@traefik")?.commandline?.default ?? "", /--serversTransport\.insecureSkipVerify=true/);
@@ -295,7 +297,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
-    SERVICE_HOST: "0.0.0.0",
+    SERVICE_HOST: "127.0.0.1",
     SERVICE_PORT: "${UI_PORT}",
     SERVICE_LASSO_API_BASE_URL: "http://127.0.0.1:17883",
     SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://127.0.0.1:17883",

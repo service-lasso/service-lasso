@@ -46,7 +46,6 @@ export interface RuntimeSetupStatusResponse {
     vault: {
       required: boolean;
       ready: boolean;
-      path: string;
     };
     operator: {
       osUsername: string;
@@ -92,6 +91,8 @@ export interface RuntimeAuthStatusResponse {
       authenticated: boolean;
       kind: "local-root" | "zitadel" | "local-token" | null;
       actorId: string | null;
+      roles: string[];
+      permissions: string[];
     };
     mode: "local-root" | "zitadel" | "local-token" | "blocked";
     blockers: string[];
@@ -879,6 +880,12 @@ export interface DashboardActionResponse {
     | "open_logs"
     | "open_config"
     | "open_admin";
+  permission: string;
+  granted: boolean;
+  requiresConfirmation: boolean;
+  unavailableReason: "permission_not_granted" | null;
+  actor: string;
+  mode: "local-root" | "signed-in";
 }
 
 export interface DashboardServiceResponse {

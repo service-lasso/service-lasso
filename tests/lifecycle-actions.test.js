@@ -15,10 +15,12 @@ import {
 } from "../dist/runtime/lifecycle/actions.js";
 import {
   hasManagedProcess,
+  setManagedProcessTreeTerminatorForTests,
   startManagedProcess,
   stopManagedProcess,
   waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
+import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -30,8 +32,16 @@ import {
   writeExecutableFixtureService,
 } from "./test-helpers.js";
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -56,6 +66,8 @@ async function waitFor(predicate, timeoutMs = 1_000) {
   throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
+const SUPERVISION_SETTLE_TIMEOUT_MS = process.platform === "win32" ? 10_000 : 2_000;
+
 async function writeCrashOnceService(servicesRoot, serviceId, restartPolicy) {
   const serviceRoot = path.join(servicesRoot, serviceId);
   const runtimeRoot = path.join(serviceRoot, "runtime");
@@ -69,6 +81,7 @@ import path from "node:path";
 const runtimeRoot = path.resolve(process.cwd(), "runtime");
 const markerPath = path.join(runtimeRoot, "crashed-once.txt");
 const readyPath = path.join(runtimeRoot, "ready.txt");
+const crashTriggerPath = path.join(runtimeRoot, "crash-now.txt");
 await mkdir(runtimeRoot, { recursive: true });
 
 try {
@@ -80,9 +93,20 @@ try {
 } catch {
   await writeFile(readyPath, "ready");
   await writeFile(markerPath, "yes");
-  setTimeout(() => {
-    void rm(readyPath, { force: true }).finally(() => process.exit(7));
-  }, 50);
+  let crashing = false;
+  const crashWatcher = setInterval(async () => {
+    if (crashing) return;
+    try {
+      await access(crashTriggerPath);
+    } catch {
+      return;
+    }
+    crashing = true;
+    clearInterval(crashWatcher);
+    await rm(crashTriggerPath, { force: true });
+    await rm(readyPath, { force: true });
+    process.exit(7);
+  }, 20);
 }
 `.trim(),
   );
@@ -101,7 +125,7 @@ try {
       start_period: 0,
     },
   });
-  return { serviceRoot };
+  return { serviceRoot, crashTriggerPath: path.join(runtimeRoot, "crash-now.txt") };
 }
 
 test("lifecycle actions execute in the expected bounded order", async () => {
@@ -142,6 +166,7 @@ test("lifecycle actions execute in the expected bounded order", async () => {
 
     const restart = await postJson(
       `${apiServer.url}/api/services/echo-service/restart`,
+      { confirm: true },
     );
     assert.equal(restart.status, 200);
     assert.equal(restart.body.action, "restart");
@@ -150,6 +175,7 @@ test("lifecycle actions execute in the expected bounded order", async () => {
 
     const stop = await postJson(
       `${apiServer.url}/api/services/echo-service/stop`,
+      { confirm: true },
     );
     assert.equal(stop.status, 200);
     assert.equal(stop.body.action, "stop");
@@ -458,6 +484,7 @@ test("intentional stop keeps persisted lifecycle metadata on stop", async () => 
 
     const stop = await postJson(
       `${apiServer.url}/api/services/echo-service/stop`,
+      { confirm: true },
     );
     assert.equal(stop.status, 200);
 
@@ -505,6 +532,7 @@ test("restart replaces the running process and clears stale termination evidence
     );
     const restart = await postJson(
       `${apiServer.url}/api/services/restart-service/restart`,
+      { confirm: true },
     );
 
     const stored = await readStoredState(serviceRoot);
@@ -537,7 +565,7 @@ test("restart replaces the running process and clears stale termination evidence
   }
 });
 
-test("start blocks required broker failures with safe ref and status metadata", async () => {
+test("config blocks required broker failures with safe ref and status metadata", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-startup-broker-fail-",
@@ -557,6 +585,12 @@ test("start blocks required broker failures with safe ref and status metadata", 
       ],
     },
   });
+  const leaseIssuerPath = path.join(tempRoot, "issue-test-lease.mjs");
+  await writeFile(
+    leaseIssuerPath,
+    'process.stdout.write(JSON.stringify({ outcome: "ready", lease: { fixture: true } }));\n',
+    "utf8",
+  );
 
   try {
     const discovered = await discoverServices(servicesRoot);
@@ -565,18 +599,33 @@ test("start blocks required broker failures with safe ref and status metadata", 
     assert.ok(service);
 
     await installService(service, registry);
-    await configService(service, registry);
+    const brokerLookup = () => [
+      {
+        ref: "database.PASSWORD",
+        status: "policy-denied",
+        value: "raw-secret-must-not-leak",
+      },
+    ];
     await assert.rejects(
-      () =>
-        startService(service, registry, {
-          brokerLookup: () => [
-            {
-              ref: "database.PASSWORD",
-              status: "policy-denied",
-              value: "raw-secret-must-not-leak",
+      () => configService(service, registry, {
+        brokerLookup,
+        brokerRuntime: {
+          lookup: brokerLookup,
+          probe: async () => ({ ok: true }),
+          writeback: async () => ({ ok: false }),
+          management: async () => ({ statusCode: 503, body: {} }),
+          serverEnv: {},
+          launchLeaseIssuer: {
+            command: {
+              command: process.execPath,
+              args: [leaseIssuerPath],
+              env: { ...process.env, SECRETSBROKER_API_TOKEN: "test-only-token" },
             },
-          ],
-        }),
+            workspaceId: "test-workspace",
+          },
+          transportBinding: null,
+        },
+      }),
       (error) => {
         assert.match(error.message, /database\.PASSWORD:policy-denied/);
         assert.equal(error.message.includes("raw-secret-must-not-leak"), false);
@@ -668,6 +717,49 @@ test("runtime summary reflects running services after lifecycle actions", async 
   }
 });
 
+test("runtime shutdown retries a transient owned-tree termination failure and clears recovered diagnostics", async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-lifecycle-stop-retry-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "stop-retry-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  let stopCompleted = false;
+  let terminationAttempts = 0;
+
+  setManagedProcessTreeTerminatorForTests(async (...args) => {
+    terminationAttempts += 1;
+    if (terminationAttempts === 1) {
+      const error = new Error("Injected transient owned-tree control failure.");
+      error.code = "TRANSIENT_TREE_CONTROL";
+      throw error;
+    }
+    return await terminateOwnedProcessTree(...args);
+  });
+
+  try {
+    await postJson(`${apiServer.url}/api/services/stop-retry-service/install`);
+    await postJson(`${apiServer.url}/api/services/stop-retry-service/config`);
+    const start = await postJson(`${apiServer.url}/api/services/stop-retry-service/start`);
+    assert.equal(start.body.ok, true);
+
+    await apiServer.stop();
+    stopCompleted = true;
+
+    assert.equal(terminationAttempts >= 2, true);
+    assert.equal(hasManagedProcess("stop-retry-service"), false);
+  } finally {
+    setManagedProcessTreeTerminatorForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (!stopCompleted) await apiServer.stop().catch(() => undefined);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("start waits for configured readiness and returns healthy once ready", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
@@ -702,7 +794,7 @@ test("start waits for configured readiness and returns healthy once ready", asyn
     assert.equal(start.body.health.type, "file");
     assert.equal(start.body.health.healthy, true);
     assert.match(start.body.message, /readiness succeeded/i);
-    assert.ok(elapsedMs >= 75);
+    assert.ok(elapsedMs >= 20, `expected the 25ms readiness start period, observed ${elapsedMs}ms`);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -867,7 +959,7 @@ test("enabled crash restart policy starts service again through readiness", asyn
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-supervision-crash-restart-",
   );
-  const { serviceRoot } = await writeCrashOnceService(servicesRoot, "crash-once-service", {
+  const { serviceRoot, crashTriggerPath } = await writeCrashOnceService(servicesRoot, "crash-once-service", {
     enabled: true,
     onCrash: true,
     maxAttempts: 2,
@@ -879,6 +971,8 @@ test("enabled crash restart policy starts service again through readiness", asyn
     await installService(service);
     await configService(service);
     const firstStart = await startService(service);
+    assert.equal(firstStart.ok, true);
+    await writeFile(crashTriggerPath, "crash");
 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
@@ -887,10 +981,9 @@ test("enabled crash restart policy starts service again through readiness", asyn
         stored.runtime?.metrics?.launchCount >= 2 &&
         stored.runtime?.supervision?.lastRestartResult === "started"
       );
-    }, 2_000);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
-    assert.equal(firstStart.ok, true);
     assert.equal(stored.runtime.running, true);
     assert.notEqual(stored.runtime.pid, firstStart.state.runtime.pid);
     assert.equal(stored.runtime.supervision.restartAttempts, 0);
@@ -1000,7 +1093,7 @@ test("maxAttempts blocks crash restart attempts at the configured limit", async 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
       return stored.runtime?.supervision?.lastRestartResult === "blocked";
-    }, 1_500);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
@@ -1018,7 +1111,7 @@ test("backoff records the next restart time before launching again", async () =>
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
     "service-lasso-supervision-backoff-",
   );
-  const { serviceRoot } = await writeCrashOnceService(servicesRoot, "backoff-service", {
+  const { serviceRoot, crashTriggerPath } = await writeCrashOnceService(servicesRoot, "backoff-service", {
     enabled: true,
     onCrash: true,
     maxAttempts: 1,
@@ -1029,12 +1122,14 @@ test("backoff records the next restart time before launching again", async () =>
     const [service] = await discoverServices(servicesRoot);
     await installService(service);
     await configService(service);
-    await startService(service);
+    const firstStart = await startService(service);
+    assert.equal(firstStart.ok, true);
+    await writeFile(crashTriggerPath, "crash");
 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
       return stored.runtime?.supervision?.lastRestartResult === "scheduled";
-    }, 1_500);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
@@ -1075,7 +1170,7 @@ test("disabled service is not automatically restarted after crash", async () => 
     await waitFor(async () => {
       const stored = await readStoredState(serviceRoot);
       return stored.runtime?.supervision?.lastRestartResult === "blocked";
-    }, 1_500);
+    }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);

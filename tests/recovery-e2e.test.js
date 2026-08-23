@@ -9,7 +9,7 @@ import AdmZip from "adm-zip";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
-import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
+import { ensureTestSecretsBrokerReady, makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const execFile = promisify(execFileCallback);
 const oldTag = "2026.4.20-old";
@@ -197,16 +197,17 @@ function createEchoHookManifest(releaseServer) {
   };
 }
 
-test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in agreement", async () => {
+test("recovery E2E keeps API, CLI, monitor health, supervised restart, doctor, and hooks in agreement", async (context) => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-recovery-e2e-");
   const releaseServer = await startReleaseServer();
   let apiServer = null;
 
   try {
+    await ensureTestSecretsBrokerReady(workspaceRoot);
     const { serviceRoot: echoRecoveryRoot } = await writeExecutableFixtureService(servicesRoot, "echo-recovery", {
-      autoExitMs: 750,
       exitCode: 2,
+      exitFileRelativePath: "./runtime/crash.txt",
       monitoring: {
         enabled: true,
         intervalSeconds: 1,
@@ -243,19 +244,29 @@ test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in 
 
     for (const action of ["install", "config", "start"]) {
       const response = await postJson(`${apiServer.url}/api/services/echo-recovery/${action}`);
-      assert.equal(response.status, 200);
+      assert.equal(response.status, 200, `${action} failed: ${JSON.stringify(response.body)}`);
     }
 
-    const recoveryState = await waitFor(async () => {
-      const response = await getJson(`${apiServer.url}/api/services/echo-recovery/recovery`);
-      const events = response.body.recovery.events;
-      const hasMonitorRestart = events.some((event) => event.kind === "monitor" && event.action === "restart");
-      const hasDoctor = events.some((event) => event.kind === "doctor" && event.ok === true);
-      const hasRestart = events.some((event) => event.kind === "restart" && event.ok === true);
-      return hasMonitorRestart && hasDoctor && hasRestart ? response.body.recovery : null;
-    });
+    await writeFile(path.join(echoRecoveryRoot, "runtime", "crash.txt"), "crash\n", "utf8");
+
+    let lastRecovery = null;
+    let recoveryState;
+    try {
+      recoveryState = await waitFor(async () => {
+        const response = await getJson(`${apiServer.url}/api/services/echo-recovery/recovery`);
+        lastRecovery = response.body.recovery;
+        const events = response.body.recovery.events;
+        const hasMonitorHealth = events.some((event) => event.kind === "monitor" && event.action === "healthy");
+        const hasDoctor = events.some((event) => event.kind === "doctor" && event.ok === true);
+        const hasRestart = events.some((event) => event.kind === "restart" && event.ok === true);
+        return hasMonitorHealth && hasDoctor && hasRestart ? response.body.recovery : null;
+      }, 30_000);
+    } catch (error) {
+      throw new Error(`Recovery events did not converge: ${JSON.stringify(lastRecovery)}`, { cause: error });
+    }
     assert.ok(recoveryState.events.some((event) => event.kind === "doctor" && event.ok));
     assert.ok(recoveryState.events.some((event) => event.kind === "restart" && event.ok));
+    context.diagnostic("recovery events converged");
 
     const cliRecovery = JSON.parse(await runCli([
       "recovery",
@@ -268,10 +279,13 @@ test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in 
       "--json",
     ]));
     assert.equal(cliRecovery.services[0].serviceId, "echo-recovery");
-    assert.ok(cliRecovery.services[0].recovery.events.some((event) => event.kind === "monitor" && event.action === "restart"));
+    assert.ok(cliRecovery.services[0].recovery.events.some((event) => event.kind === "monitor" && event.action === "healthy"));
+    assert.ok(cliRecovery.services[0].recovery.events.some((event) => event.kind === "restart" && event.ok));
+    context.diagnostic("CLI recovery state agreed");
 
     const updateInstall = await postJson(`${apiServer.url}/api/services/echo-hook/update/install`);
     assert.equal(updateInstall.status, 200);
+    context.diagnostic("update install completed");
 
     const hookState = await readStoredState(echoHookRoot);
     const hookLog = await readFile(path.join(echoHookRoot, "hook.log"), "utf8");
@@ -302,7 +316,9 @@ test("recovery E2E keeps API, CLI, state, monitor restart, doctor, and hooks in 
     assert.deepEqual(cliHookEvents.map((event) => event.phase), ["preUpgrade", "postUpgrade"]);
   } finally {
     if (apiServer) {
+      context.diagnostic("stopping API server");
       await apiServer.stop();
+      context.diagnostic("API server stopped");
     }
     await releaseServer.stop();
     resetLifecycleState();

@@ -69,6 +69,7 @@ export async function runSetupCliAction(options: SetupCliOptions): Promise<Setup
     stepId: options.stepId,
     force: options.force,
     includeManual: options.includeManual,
+    lifecycleOptions: { workspaceRoot: runtimeConfig.workspaceRoot },
   });
   await writeServiceState(service, result.state);
 

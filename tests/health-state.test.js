@@ -16,8 +16,16 @@ import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } fr
 
 const execFile = promisify(execFileCallback);
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -122,8 +130,9 @@ test("health checks persist bounded transition history without secret-bearing UR
     assert.doesNotMatch(persistedHealth, /super-secret-token/);
   } finally {
     await apiServer.stop();
+    const probeClosed = once(probeServer, "close");
     probeServer.close();
-    await once(probeServer, "close");
+    await probeClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -229,8 +238,9 @@ test("GET /api/services/:id/health supports bounded HTTP healthchecks", async ()
     assert.equal(body.health.healthy, true);
   } finally {
     await apiServer.stop();
+    const probeClosed = once(probeServer, "close");
     probeServer.close();
-    await once(probeServer, "close");
+    await probeClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -277,8 +287,9 @@ test("HTTP healthchecks resolve manifest port selectors", async () => {
     assert.equal(body.health.healthy, true);
   } finally {
     await apiServer.stop();
+    const probeClosed = once(probeServer, "close");
     probeServer.close();
-    await once(probeServer, "close");
+    await probeClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -328,8 +339,9 @@ test("HTTP healthchecks resolve and send cookie selectors", async () => {
     assert.equal(body.health.healthy, true);
   } finally {
     await apiServer.stop();
+    const probeClosed = once(probeServer, "close");
     probeServer.close();
-    await once(probeServer, "close");
+    await probeClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -372,8 +384,9 @@ test("GET /api/services/:id/health supports bounded TCP healthchecks", async () 
     assert.match(body.health.detail, /connected successfully/i);
   } finally {
     await apiServer.stop();
+    const tcpClosed = once(tcpServer, "close");
     tcpServer.close();
-    await once(tcpServer, "close");
+    await tcpClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -420,8 +433,9 @@ test("TCP healthchecks resolve host and port selectors", async () => {
     assert.match(body.health.detail, /connected successfully/i);
   } finally {
     await apiServer.stop();
+    const tcpClosed = once(tcpServer, "close");
     tcpServer.close();
-    await once(tcpServer, "close");
+    await tcpClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -466,8 +480,9 @@ test("bare TCP healthchecks infer the default single service port", async () => 
     assert.match(body.health.detail, /127\.0\.0\.1/i);
   } finally {
     await apiServer.stop();
+    const tcpClosed = once(tcpServer, "close");
     tcpServer.close();
-    await once(tcpServer, "close");
+    await tcpClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -577,9 +592,11 @@ test("GET /api/services/:id/health aggregates canonical HTTP and TCP healthcheck
     );
   } finally {
     await apiServer.stop();
+    const httpClosed = once(httpServer, "close");
+    const tcpClosed = once(tcpServer, "close");
     httpServer.close();
     tcpServer.close();
-    await Promise.all([once(httpServer, "close"), once(tcpServer, "close")]);
+    await Promise.all([httpClosed, tcpClosed]);
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -675,8 +692,9 @@ test("GET /api/services/:id/health supports UDP send expect healthchecks", async
     ]);
   } finally {
     await apiServer.stop();
+    const udpClosed = once(udpServer, "close");
     udpServer.close();
-    await once(udpServer, "close");
+    await udpClosed;
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }
@@ -784,7 +802,7 @@ test("HTTP healthcheck lifecycle actions fail start cleanly when the probe is un
     const install = await postJson(`${apiServer.url}/api/services/http-health-fixture/install`);
     const config = await postJson(`${apiServer.url}/api/services/http-health-fixture/config`);
     const start = await postJson(`${apiServer.url}/api/services/http-health-fixture/start`);
-    const stop = await postJson(`${apiServer.url}/api/services/http-health-fixture/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/http-health-fixture/stop`, { confirm: true });
 
     for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
@@ -818,7 +836,7 @@ test("TCP healthcheck lifecycle actions fail start cleanly when the probe is una
     const install = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/install`);
     const config = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/config`);
     const start = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/start`);
-    const stop = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/tcp-health-fixture/stop`, { confirm: true });
 
     for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
@@ -957,7 +975,7 @@ test("file healthcheck lifecycle actions fail start cleanly when the file is una
     const install = await postJson(`${apiServer.url}/api/services/file-health-fixture/install`);
     const config = await postJson(`${apiServer.url}/api/services/file-health-fixture/config`);
     const start = await postJson(`${apiServer.url}/api/services/file-health-fixture/start`);
-    const stop = await postJson(`${apiServer.url}/api/services/file-health-fixture/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/file-health-fixture/stop`, { confirm: true });
 
     for (const response of [install, config, start]) {
       assert.equal(response.status, 200);
@@ -1025,7 +1043,7 @@ test("variable healthcheck lifecycle actions fail start cleanly when the variabl
     const install = await postJson(`${apiServer.url}/api/services/variable-health-fixture/install`);
     const config = await postJson(`${apiServer.url}/api/services/variable-health-fixture/config`);
     const start = await postJson(`${apiServer.url}/api/services/variable-health-fixture/start`);
-    const stop = await postJson(`${apiServer.url}/api/services/variable-health-fixture/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/variable-health-fixture/stop`, { confirm: true });
 
     for (const response of [install, config, start]) {
       assert.equal(response.status, 200);

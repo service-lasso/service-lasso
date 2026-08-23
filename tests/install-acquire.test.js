@@ -136,8 +136,16 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {})
   };
 }
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -384,7 +392,7 @@ test("start can use the installed artifact command when the manifest has no chec
     await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
     const config = await postJson(`${apiServer.url}/api/services/downloaded-service/config`);
     const start = await postJson(`${apiServer.url}/api/services/downloaded-service/start`);
-    const stop = await postJson(`${apiServer.url}/api/services/downloaded-service/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/downloaded-service/stop`, { confirm: true });
 
     assert.equal(config.status, 200);
     assert.equal(start.status, 200);
@@ -420,7 +428,7 @@ test("start prefers an installed artifact command over a checked-in fixture comm
     const extractedPath = install.body.state.installArtifacts.artifact.extractedPath;
     const cwdProofPath = path.join(servicesRoot, "downloaded-service", "artifact-cwd.txt");
     const cwdProof = await waitFor(() => readFile(cwdProofPath, "utf8"));
-    const stop = await postJson(`${apiServer.url}/api/services/downloaded-service/stop`);
+    const stop = await postJson(`${apiServer.url}/api/services/downloaded-service/stop`, { confirm: true });
 
     assert.equal(config.status, 200);
     assert.equal(start.status, 200);

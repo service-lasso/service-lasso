@@ -27,6 +27,7 @@ export interface ProcessTreeControlDependencies {
   inspectProcess?: (pid: number) => Promise<ProcessInspection>;
   killProcess?: (pid: number, signal: NodeJS.Signals | 0) => void;
   readFile?: (filePath: string, encoding: BufferEncoding) => Promise<string>;
+  readWindowsProcessTable?: () => Promise<Array<{ pid: number; parentPid: number }>>;
 }
 
 interface PosixProcessRow {
@@ -61,6 +62,7 @@ type ProcessTreeSignalEvidence =
     };
 
 const PROCESS_TREE_POLL_INTERVAL_MS = 25;
+const PRE_SIGNAL_IDENTITY_ATTEMPTS = 3;
 
 export function createSpawnProcessGroup(
   pid: number,
@@ -317,12 +319,20 @@ async function requireOwnedIdentity(
   identity: ProcessFingerprint,
   dependencies: ProcessTreeControlDependencies = {},
 ): Promise<"owned" | "exited"> {
-  const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
-  if (classification === "owned") {
-    return "owned";
-  }
-  if (classification === "not_running") {
-    return "exited";
+  for (let attempt = 0; attempt < PRE_SIGNAL_IDENTITY_ATTEMPTS; attempt += 1) {
+    const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
+    if (classification === "owned") {
+      return "owned";
+    }
+    if (classification === "not_running") {
+      return "exited";
+    }
+    if (classification === "identity_mismatch") {
+      break;
+    }
+    if (attempt + 1 < PRE_SIGNAL_IDENTITY_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, PROCESS_TREE_POLL_INTERVAL_MS));
+    }
   }
   throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
 }
@@ -347,6 +357,28 @@ async function requirePostSignalIdentity(
   throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
 }
 
+async function inspectTreeMember(
+  pid: number,
+  label: "descendant" | "process-group member",
+  dependencies: ProcessTreeControlDependencies,
+): Promise<ProcessFingerprint | null> {
+  let lastUnknownReason = "process_identity_unknown";
+  for (let attempt = 0; attempt < PRE_SIGNAL_IDENTITY_ATTEMPTS; attempt += 1) {
+    const inspection = await processInspector(dependencies)(pid);
+    if (inspection.status === "running") {
+      return inspection.identity;
+    }
+    if (inspection.status === "not_running") {
+      return null;
+    }
+    lastUnknownReason = inspection.reason;
+    if (attempt + 1 < PRE_SIGNAL_IDENTITY_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, PROCESS_TREE_POLL_INTERVAL_MS));
+    }
+  }
+  throw new Error(`Cannot verify ${label} process ${pid}: ${lastUnknownReason}.`);
+}
+
 async function captureVerifiedMembers(
   target: OwnedProcessTreeTarget,
   dependencies: ProcessTreeControlDependencies = {},
@@ -359,18 +391,14 @@ async function captureVerifiedMembers(
   }
 
   const rows = (dependencies.platform ?? process.platform) === "win32"
-    ? await readWindowsProcessTable()
+    ? await (dependencies.readWindowsProcessTable ?? readWindowsProcessTable)()
     : activeRows(await readPosixProcessTable());
   const descendantRows = collectDescendantRows(rows, target.rootPid);
   const descendants: ProcessFingerprint[] = [];
   for (const row of descendantRows) {
-    const inspection = await processInspector(dependencies)(row.pid);
-    if (inspection.status === "running") {
-      descendants.push(inspection.identity);
-      continue;
-    }
-    if (inspection.status === "unknown") {
-      throw new Error(`Cannot verify descendant process ${row.pid}: ${inspection.reason}.`);
+    const identity = await inspectTreeMember(row.pid, "descendant", dependencies);
+    if (identity) {
+      descendants.push(identity);
     }
   }
   return [...descendants.reverse(), target.rootIdentity];
@@ -392,11 +420,9 @@ export async function captureOwnedProcessTreeMembers(
       .filter((row) => row.processGroupId === processGroupId);
     const members: ProcessFingerprint[] = [];
     for (const row of rows) {
-      const inspection = await processInspector(dependencies)(row.pid);
-      if (inspection.status === "running") {
-        members.push(inspection.identity);
-      } else if (inspection.status === "unknown") {
-        throw new Error(`Cannot verify process-group member ${row.pid}: ${inspection.reason}.`);
+      const identity = await inspectTreeMember(row.pid, "process-group member", dependencies);
+      if (identity) {
+        members.push(identity);
       }
     }
     return members;

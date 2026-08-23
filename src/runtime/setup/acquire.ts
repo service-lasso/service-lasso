@@ -51,6 +51,7 @@ interface ResolvedArtifactDownload {
   checksumSha256: string | null;
   checksumAssetName: string | null;
   checksumAssetUrl: string | null;
+  releaseAssetNames: string[] | null;
 }
 
 function normalizeApiBaseUrl(candidate: string | undefined): string {
@@ -97,6 +98,7 @@ async function resolveGitHubReleaseDownload(
       checksumSha256: lockedEntry.checksumSha256,
       checksumAssetName: null,
       checksumAssetUrl: null,
+      releaseAssetNames: null,
     };
   }
 
@@ -108,6 +110,7 @@ async function resolveGitHubReleaseDownload(
       checksumSha256: platform.sha256 ?? null,
       checksumAssetName: null,
       checksumAssetUrl: null,
+      releaseAssetNames: null,
     };
   }
 
@@ -158,6 +161,7 @@ async function resolveGitHubReleaseDownload(
     checksumSha256: lockedEntry?.checksumSha256 ?? platform.sha256 ?? null,
     checksumAssetName,
     checksumAssetUrl: checksumAsset?.browser_download_url ?? null,
+    releaseAssetNames: (payload.assets ?? []).map((candidate) => candidate.name),
   };
 }
 
@@ -198,7 +202,11 @@ async function downloadText(assetUrl: string): Promise<string> {
     throw new Error(`Failed to download service artifact checksum from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
 
-  return await response.text();
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > 1_048_576) {
+    throw new Error("Service artifact checksum exceeded the 1 MiB size limit.");
+  }
+  return bytes.toString("utf8");
 }
 
 function normalizeSha256(value: string, context: string): string {
@@ -209,8 +217,16 @@ function normalizeSha256(value: string, context: string): string {
   return normalized;
 }
 
-function findSha256InChecksumFile(content: string, artifactAssetName: string, checksumAssetName: string): string {
+export function findSha256InChecksumFile(
+  content: string,
+  artifactAssetName: string,
+  checksumAssetName: string,
+  releaseAssetNames: string[],
+): string {
   let parsedEntries = 0;
+  let selectedChecksum: string | null = null;
+  const seenNames = new Set<string>();
+  const allowedNames = new Set(releaseAssetNames.filter((name) => name !== checksumAssetName));
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) {
@@ -219,14 +235,33 @@ function findSha256InChecksumFile(content: string, artifactAssetName: string, ch
 
     const match = line.match(/^([A-Fa-f0-9]{64})\s+\*?(.+)$/);
     if (!match) {
-      continue;
+      throw new Error(`Malformed checksum asset "${checksumAssetName}": invalid entry.`);
     }
 
     parsedEntries += 1;
     const [, checksum, filename] = match;
-    const normalizedFilename = filename.trim().replace(/^\.\//, "");
-    if (normalizedFilename === artifactAssetName || path.basename(normalizedFilename) === artifactAssetName) {
-      return normalizeSha256(checksum, `artifact "${artifactAssetName}" in checksum asset "${checksumAssetName}"`);
+    const normalizedFilename = filename.trim();
+    if (
+      normalizedFilename.includes("/") ||
+      normalizedFilename.includes("\\") ||
+      path.basename(normalizedFilename) !== normalizedFilename ||
+      normalizedFilename === "." ||
+      normalizedFilename === ".."
+    ) {
+      throw new Error(`Malformed checksum asset "${checksumAssetName}": redirected entry.`);
+    }
+    if (!allowedNames.has(normalizedFilename)) {
+      throw new Error(`Malformed checksum asset "${checksumAssetName}": unexpected entry.`);
+    }
+    if (seenNames.has(normalizedFilename)) {
+      throw new Error(`Malformed checksum asset "${checksumAssetName}": duplicate entry.`);
+    }
+    seenNames.add(normalizedFilename);
+    if (normalizedFilename === artifactAssetName) {
+      selectedChecksum = normalizeSha256(
+        checksum,
+        `artifact "${artifactAssetName}" in checksum asset "${checksumAssetName}"`,
+      );
     }
   }
 
@@ -234,7 +269,10 @@ function findSha256InChecksumFile(content: string, artifactAssetName: string, ch
     throw new Error(`Malformed checksum asset "${checksumAssetName}": no SHA-256 entries were found.`);
   }
 
-  throw new Error(`Checksum asset "${checksumAssetName}" did not contain an entry for "${artifactAssetName}".`);
+  if (!selectedChecksum) {
+    throw new Error(`Checksum asset "${checksumAssetName}" did not contain an entry for "${artifactAssetName}".`);
+  }
+  return selectedChecksum;
 }
 
 async function verifyArchiveChecksum(
@@ -291,6 +329,7 @@ async function verifyArchiveChecksum(
       await downloadText(resolved.checksumAssetUrl),
       assetName,
       checksum.assetName,
+      resolved.releaseAssetNames ?? [],
     );
     source = "release-asset";
   }

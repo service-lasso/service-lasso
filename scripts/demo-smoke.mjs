@@ -9,3 +9,4 @@ console.log(`- api: ${result.url}`);
 console.log(`- servicesRoot: ${result.servicesRoot}`);
 console.log(`- workspaceRoot: ${result.workspaceRoot}`);
 console.log(`- exercised: ${result.summary.demoServicesExercised.join(", ")}`);
+console.log(`- setup-required: ${result.summary.setupRequiredBlockedServices.join(", ")}`);

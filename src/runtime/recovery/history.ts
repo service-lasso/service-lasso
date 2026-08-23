@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import type { ServiceMonitorEvent } from "./monitor.js";
@@ -175,8 +176,11 @@ export async function readServiceRecoveryHistory(service: DiscoveredService): Pr
       JSON.parse(await readFile(paths.recovery, "utf8")) as unknown,
       service.manifest.id,
     );
-  } catch {
-    return normalizeServiceRecoveryHistoryState(null, service.manifest.id);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return normalizeServiceRecoveryHistoryState(null, service.manifest.id);
+    }
+    throw new Error(`Recovery history for "${service.manifest.id}" is unreadable or invalid.`, { cause: error });
   }
 }
 
@@ -192,7 +196,13 @@ export async function writeServiceRecoveryHistory(
   };
 
   await mkdir(paths.stateRoot, { recursive: true });
-  await writeFile(paths.recovery, JSON.stringify(nextState, null, 2));
+  const temporaryPath = `${paths.recovery}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, JSON.stringify(nextState, null, 2), { encoding: "utf8", mode: 0o600 });
+    await rename(temporaryPath, paths.recovery);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
 
   return nextState;
 }

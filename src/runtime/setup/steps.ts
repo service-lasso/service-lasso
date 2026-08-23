@@ -11,7 +11,7 @@ import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
-import { startService } from "../lifecycle/actions.js";
+import { startService, type ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
@@ -372,6 +372,7 @@ async function ensureServiceDependencyReady(
   owner: DiscoveredService,
   dependencyId: string,
   registry: ServiceRegistry,
+  lifecycleOptions: ServiceLifecycleActionOptions = {},
 ): Promise<void> {
   const dependency = registry.getById(dependencyId);
   if (!dependency) {
@@ -391,7 +392,7 @@ async function ensureServiceDependencyReady(
   }
 
   if (!dependencyState.running) {
-    const result = await startService(dependency, registry);
+    const result = await startService(dependency, registry, lifecycleOptions);
     await writeServiceState(dependency, result.state);
   }
 
@@ -409,6 +410,7 @@ async function ensureSetupDependencies(
   registry: ServiceRegistry,
   visiting: Set<string>,
   transactionHooks?: SetupTransactionHooks,
+  lifecycleOptions: ServiceLifecycleActionOptions = {},
 ): Promise<void> {
   for (const dependencyId of step.depend_on ?? []) {
     const setupDependency = dependencyId.match(/^(.+):([^:]+)$/);
@@ -418,11 +420,11 @@ async function ensureSetupDependencies(
       if (!dependencyService) {
         throw new Error(`Setup step "${service.manifest.id}:${stepId}" depends on unknown setup service "${dependencyServiceId}".`);
       }
-      await runSetupStep(dependencyService, registry, dependencyStepId, { visiting, transactionHooks });
+      await runSetupStep(dependencyService, registry, dependencyStepId, { visiting, transactionHooks, lifecycleOptions });
       continue;
     }
 
-    await ensureServiceDependencyReady(service, dependencyId, registry);
+    await ensureServiceDependencyReady(service, dependencyId, registry, lifecycleOptions);
   }
 }
 
@@ -430,7 +432,7 @@ export async function runSetupStep(
   service: DiscoveredService,
   registry: ServiceRegistry,
   stepId: string,
-  options: { force?: boolean; visiting?: Set<string>; transactionHooks?: SetupTransactionHooks } = {},
+  options: { force?: boolean; visiting?: Set<string>; transactionHooks?: SetupTransactionHooks; lifecycleOptions?: ServiceLifecycleActionOptions } = {},
 ): Promise<SetupStepRunResult> {
   const serviceId = service.manifest.id;
   const step = service.manifest.setup?.steps?.[stepId];
@@ -485,7 +487,7 @@ export async function runSetupStep(
     };
   }
 
-  await ensureSetupDependencies(service, stepId, step, registry, visiting, options.transactionHooks);
+  await ensureSetupDependencies(service, stepId, step, registry, visiting, options.transactionHooks, options.lifecycleOptions);
 
   const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
@@ -633,7 +635,7 @@ function resolveSetupOrder(service: DiscoveredService, selectedStepId?: string):
 export async function runServiceSetup(
   service: DiscoveredService,
   registry: ServiceRegistry,
-  options: { stepId?: string; force?: boolean; includeManual?: boolean; transactionHooks?: SetupTransactionHooks } = {},
+  options: { stepId?: string; force?: boolean; includeManual?: boolean; transactionHooks?: SetupTransactionHooks; lifecycleOptions?: ServiceLifecycleActionOptions } = {},
 ): Promise<SetupServiceResult> {
   if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
     await ensureSecretsBrokerBootstrap(service);
@@ -657,6 +659,7 @@ export async function runServiceSetup(
     const result = await runSetupStep(service, registry, stepId, {
       force: options.force,
       transactionHooks: options.transactionHooks,
+      lifecycleOptions: options.lifecycleOptions,
     });
     if (result.run.status === "skipped") {
       skipped.push({ stepId, reason: result.run.message });

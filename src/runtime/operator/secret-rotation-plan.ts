@@ -3,8 +3,13 @@ import type {
   ServiceBrokerChangeReactionMode,
   ServiceBrokerImport,
 } from "../../contracts/service.js";
+import { createHash } from "node:crypto";
 import { DependencyGraph, createServiceRegistry } from "../manager/DependencyGraph.js";
-import { buildServiceSecretReferenceAudit, type SecretReferenceAuditFinding } from "./secret-audit.js";
+import {
+  brokerImportMatchesReference,
+  buildServiceSecretReferenceAudit,
+  type SecretReferenceAuditFinding,
+} from "./secret-audit.js";
 
 export type SecretRotationImpactRole = "direct" | "dependent";
 export type SecretRotationImpactAction = "restart" | "reload" | "action" | "manual" | "none";
@@ -32,6 +37,7 @@ export interface SecretRotationImpactOperation {
 
 export interface SecretRotationImpactPlan {
   ref: string;
+  planFingerprint: string;
   status: "ready" | "blocked";
   confirmationRequired: true;
   valuePolicy: "metadata_only";
@@ -61,11 +67,17 @@ function uniqueSorted<T extends string>(values: T[]): T[] {
 }
 
 function importForRef(service: DiscoveredService, ref: string): ServiceBrokerImport | undefined {
-  return (service.manifest.broker?.imports ?? []).find((entry) => entry.ref === ref);
+  return (service.manifest.broker?.imports ?? []).find((entry) => brokerImportMatchesReference(entry, ref));
 }
 
 function findingsForRef(service: DiscoveredService, ref: string): SecretReferenceAuditFinding[] {
-  return buildServiceSecretReferenceAudit(service).findings.filter((finding) => finding.ref === ref);
+  const selectorRefs = new Set(
+    (service.manifest.broker?.imports ?? [])
+      .filter((entry) => brokerImportMatchesReference(entry, ref))
+      .map((entry) => entry.ref),
+  );
+  selectorRefs.add(ref);
+  return buildServiceSecretReferenceAudit(service).findings.filter((finding) => selectorRefs.has(finding.ref));
 }
 
 function classifyDirectAction(
@@ -132,6 +144,23 @@ function classifyDirectAction(
     };
   }
 
+  if (onChange.mode === "reload") {
+    if (!service.manifest.actions?.reload) {
+      return {
+        action: "manual",
+        actionId: "reload",
+        reason: "Broker import onChange reload mode requires a declared reload service action.",
+        blockers: ["missing_reload_action"],
+      };
+    }
+    return {
+      action: "reload",
+      actionId: "reload",
+      reason: onChange.reason ?? "Run the declared reload action after the secret version is activated.",
+      blockers: [],
+    };
+  }
+
   return {
     action: onChange.mode,
     reason: onChange.reason ?? "Manifest broker import onChange policy declares " + onChange.mode + ".",
@@ -141,6 +170,9 @@ function classifyDirectAction(
 
 function toDirectImpact(service: DiscoveredService, ref: string, findings: SecretReferenceAuditFinding[]): SecretRotationImpactService {
   const action = classifyDirectAction(service, importForRef(service, ref));
+  const installMaterializationBlockers = findings.some((finding) => finding.source === "install")
+    ? ["install_materialization_rotation_unsupported"]
+    : [];
   return {
     serviceId: service.manifest.id,
     role: "direct",
@@ -152,7 +184,7 @@ function toDirectImpact(service: DiscoveredService, ref: string, findings: Secre
     sources: uniqueSorted(findings.map((finding) => finding.source)),
     locations: uniqueSorted(findings.map((finding) => finding.location)),
     dependentsOf: [],
-    blockers: action.blockers,
+    blockers: uniqueSorted([...action.blockers, ...installMaterializationBlockers]),
   };
 }
 
@@ -236,7 +268,7 @@ export function buildSecretRotationImpactPlan(services: DiscoveredService[], ref
   );
   const blockers = uniqueSorted(impactedServices.flatMap((service) => service.blockers.map((blocker) => service.serviceId + ":" + blocker)));
 
-  return {
+  const planWithoutFingerprint = {
     ref,
     status: blockers.length > 0 ? "blocked" : "ready",
     confirmationRequired: true,
@@ -245,5 +277,9 @@ export function buildSecretRotationImpactPlan(services: DiscoveredService[], ref
     execution: buildExecution(impactedServices, graph),
     summary: summarize(impactedServices),
     blockers,
+  } satisfies Omit<SecretRotationImpactPlan, "planFingerprint">;
+  return {
+    ...planWithoutFingerprint,
+    planFingerprint: `sha256:${createHash("sha256").update(JSON.stringify(planWithoutFingerprint)).digest("hex")}`,
   };
 }
