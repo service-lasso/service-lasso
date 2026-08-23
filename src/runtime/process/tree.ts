@@ -126,14 +126,29 @@ async function verifyPostSignalExit(
   return false;
 }
 
-async function waitForCommandExit(command: string, args: string[]): Promise<boolean> {
+async function waitForCommandExit(command: string, args: string[], timeoutMs = 5_000): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
     const child = spawn(command, args, {
       stdio: "ignore",
       windowsHide: true,
     });
-    child.once("close", (exitCode) => resolve(exitCode === 0));
-    child.once("error", () => resolve(false));
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(ok);
+    };
+    const timeout = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // A terminated command does not need a second cleanup attempt.
+      }
+      finish(false);
+    }, timeoutMs);
+    child.once("close", (exitCode) => finish(exitCode === 0));
+    child.once("error", () => finish(false));
   });
 }
 
