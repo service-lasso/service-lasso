@@ -14,14 +14,27 @@ async function rpc(apiServer, request) {
   const response = await fetch(apiServer.url + "/api/mcp", {
     method: "POST",
     headers: {
+      "accept": "application/json, text/event-stream",
       "content-type": "application/json",
     },
     body: JSON.stringify(request),
   });
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("text/event-stream") ? parseMcpEventStream(text) : JSON.parse(text);
   return {
     status: response.status,
-    body: await response.json(),
+    body,
   };
+}
+
+function parseMcpEventStream(text) {
+  const data = text
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart())
+    .join("\n");
+  return JSON.parse(data);
 }
 
 async function writeSecretLog(serviceRoot) {
@@ -64,7 +77,8 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
 
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot, version: "test-version" });
 
-    const capabilitiesResponse = await fetch(apiServer.url + "/api/mcp");
+    const oldDiscoveryResponse = await fetch(apiServer.url + "/api/mcp");
+    const capabilitiesResponse = await fetch(apiServer.url + "/api/mcp/info");
     const capabilities = await capabilitiesResponse.json();
     const tools = await rpc(apiServer, {
       jsonrpc: "2.0",
@@ -77,8 +91,12 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
       method: "resources/list",
     });
 
+    assert.equal(oldDiscoveryResponse.status, 405);
+    assert.equal(oldDiscoveryResponse.headers.get("allow"), "POST");
     assert.equal(capabilitiesResponse.status, 200);
     assert.equal(capabilities.contractVersion, "service-lasso-mcp.v1");
+    assert.equal(capabilities.sdk.packageName, "@modelcontextprotocol/sdk");
+    assert.equal(capabilities.sdk.version, "1.30.0");
     assert.equal(capabilities.scope.mutatingOperations, "omitted");
     assert.equal(capabilities.runtime.serviceCount, 1);
     assert.equal(tools.status, 200);

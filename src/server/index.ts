@@ -148,8 +148,7 @@ import {
 } from "../runtime/operator/secret-rotation-execution.js";
 import {
   getServiceLassoMcpCapabilities,
-  handleServiceLassoMcpJsonRpcRequest,
-  type McpJsonRpcRequest,
+  handleServiceLassoMcpStreamableHttpRequest,
 } from "../runtime/operator/mcp.js";
 import {
   mutateOperatorActionItem,
@@ -2785,7 +2784,7 @@ async function routeRequest(
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/api/mcp") {
+  if (request.method === "GET" && url.pathname === "/api/mcp/info") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(
       response,
@@ -2800,20 +2799,28 @@ async function routeRequest(
     return;
   }
 
+  if ((request.method === "GET" || request.method === "DELETE") && url.pathname === "/api/mcp") {
+    response.setHeader("allow", "POST");
+    writeJson(response, 405, {
+      error: "method_not_allowed",
+      message: "Use POST /api/mcp for MCP Streamable HTTP requests. Use GET /api/mcp/info for discovery metadata.",
+      statusCode: 405,
+    });
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/mcp") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-    writeJson(
+    await handleServiceLassoMcpStreamableHttpRequest(
+      {
+        ...runtimeModel,
+        version: config.version,
+        workspaceRoot: config.workspaceRoot,
+        sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
+      },
+      request,
       response,
-      200,
-      await handleServiceLassoMcpJsonRpcRequest(
-        {
-          ...runtimeModel,
-          version: config.version,
-          workspaceRoot: config.workspaceRoot,
-          sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
-        },
-        await readJsonBody(request) as McpJsonRpcRequest,
-      ),
+      await readJsonBody(request),
     );
     return;
   }

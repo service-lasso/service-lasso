@@ -6,9 +6,11 @@ Service Lasso includes a first read-only Model Context Protocol (MCP) operator s
 
 The runtime currently exposes:
 
-- MCP JSON-RPC requests at `POST /api/mcp`
-- discovery metadata at `GET /api/mcp`
-- protocol revision `2024-11-05`
+- MCP Streamable HTTP requests at `POST /api/mcp`
+- discovery and compatibility metadata at `GET /api/mcp/info`
+- a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
+- protocol revision `2024-11-05` on the compatibility metadata surface
+- `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
 - six read-only tools
 - five read-only resources
 - bounded log output and response redaction
@@ -41,10 +43,10 @@ The current surface must not be treated as the final production MCP boundary.
 
 Known limitations include:
 
-- handwritten JSON-RPC handling rather than the supported official MCP SDK
-- an older protocol revision
+- the legacy JSON-RPC compatibility handler remains in source until stdio and stateful sessions are fully migrated
+- stdio transport is still documented but not wired to an active-runtime adapter
 - no stdio transport for local MCP clients
-- incomplete modern Streamable HTTP request, notification and GET semantics
+- Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
 - no MCP-specific authentication, scope enforcement, Origin validation or per-client rate limiting
 - schemas are advertised but inputs are not fully runtime-validated against them
 - no tool annotations, output schemas or structured results
@@ -104,6 +106,8 @@ Production requirements include:
 - no logging of protocol bodies or credentials
 
 Human-readable discovery moves to `GET /api/mcp/info`. The existing `/api/mcp` behaviour receives a documented compatibility period while clients migrate.
+
+The first SDK-backed migration slice keeps existing read-only tool and resource names stable for `POST /api/mcp` clients. Clients must send an MCP-compatible `Accept` header, such as `application/json, text/event-stream`. Plain `GET /api/mcp` no longer returns discovery JSON; callers should use `GET /api/mcp/info` for operator-facing metadata.
 
 ## Operating modes
 

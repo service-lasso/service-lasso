@@ -1,3 +1,7 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import * as z from "zod/v4";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
@@ -72,9 +76,21 @@ interface McpJsonRpcResponse {
 
 const CONTRACT_VERSION = "service-lasso-mcp.v1";
 const MCP_PROTOCOL_VERSION = "2024-11-05";
+const MCP_SDK_PACKAGE = "@modelcontextprotocol/sdk";
+const MCP_SDK_VERSION = "1.30.0";
 const REDACTION_VALUE = "[REDACTED]";
 const DEFAULT_LOG_LIMIT = 20;
 const MAX_LOG_LIMIT = 50;
+
+const READ_ONLY_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
+
+const optionalServiceIdSchema = z.string().trim().min(1).optional();
+const logLimitSchema = z.number().finite().optional();
 
 const serviceIdInputSchema = {
   serviceId: {
@@ -257,6 +273,12 @@ export function getServiceLassoMcpCapabilities(context: ServiceLassoMcpContext) 
   return {
     contractVersion: CONTRACT_VERSION,
     protocolVersion: MCP_PROTOCOL_VERSION,
+    sdk: {
+      packageName: MCP_SDK_PACKAGE,
+      version: MCP_SDK_VERSION,
+      streamableHttp: "stateless",
+      stdio: "planned thin active-runtime adapter",
+    },
     serverInfo: {
       name: "service-lasso-operator",
       version: context.version,
@@ -283,6 +305,122 @@ export function getServiceLassoMcpCapabilities(context: ServiceLassoMcpContext) 
       serviceCount: context.discovered.length,
     },
   };
+}
+
+export function createServiceLassoMcpServer(context: ServiceLassoMcpContext): McpServer {
+  const server = new McpServer(
+    {
+      name: "service-lasso-operator",
+      version: context.version,
+    },
+    {
+      capabilities: {
+        tools: {},
+        resources: {},
+      },
+    },
+  );
+
+  server.registerTool(
+    "service_lasso_list_services",
+    {
+      title: "List services",
+      description: "List Service Lasso services with safe manifest, lifecycle, and dependency metadata.",
+      inputSchema: {},
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async () => ({ content: jsonContent(await buildMcpServicesPayload(context)) }),
+  );
+
+  server.registerTool(
+    "service_lasso_get_health",
+    {
+      title: "Get service health",
+      description: "Read health metadata for one service or every service.",
+      inputSchema: {
+        serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
+      },
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => ({ content: jsonContent(await buildMcpHealthPayload(context, serviceId)) }),
+  );
+
+  server.registerTool(
+    "service_lasso_list_routes",
+    {
+      title: "List service routes",
+      description: "List safe route and port metadata for one service or every service.",
+      inputSchema: {
+        serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
+      },
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => ({ content: jsonContent(await buildMcpRoutesPayload(context, serviceId)) }),
+  );
+
+  server.registerTool(
+    "service_lasso_dependency_status",
+    {
+      title: "Dependency status",
+      description: "Read dependency readiness, blockers, and next-action metadata.",
+      inputSchema: {
+        serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
+      },
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => ({ content: jsonContent(await buildMcpDependencyStatusPayload(context, serviceId)) }),
+  );
+
+  server.registerTool(
+    "service_lasso_logs_summary",
+    {
+      title: "Logs summary",
+      description: "Read a bounded, redacted runtime log summary for one service.",
+      inputSchema: {
+        serviceId: z.string().trim().min(1).describe("Service Lasso service id."),
+        limit: logLimitSchema.describe("Maximum recent log lines to return. Defaults to 20 and is capped at 50."),
+      },
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId, limit }) => ({
+      content: jsonContent(await buildMcpLogsSummaryPayload(context, serviceId, clampLogLimit(limit))),
+    }),
+  );
+
+  server.registerTool(
+    "service_lasso_diagnostics_summary",
+    {
+      title: "Diagnostics summary",
+      description: "Read safe diagnostic counts, dependency status, and secret-reference audit summaries.",
+      inputSchema: {
+        serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
+      },
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => ({ content: jsonContent(await buildMcpDiagnosticsSummaryPayload(context, serviceId)) }),
+  );
+
+  for (const resource of mcpResources) {
+    server.registerResource(
+      resource.name,
+      resource.uri,
+      {
+        description: resource.description,
+        mimeType: resource.mimeType,
+      },
+      async () => ({
+        contents: [
+          {
+            uri: resource.uri,
+            mimeType: resource.mimeType,
+            text: JSON.stringify(await readResource(context, resource.uri), null, 2),
+          },
+        ],
+      }),
+    );
+  }
+
+  return server;
 }
 
 export async function buildMcpServicesPayload(context: ServiceLassoMcpContext, serviceId?: string) {
@@ -526,13 +664,32 @@ async function readResource(context: ServiceLassoMcpContext, uri: string) {
   }
 }
 
-function jsonContent(payload: unknown) {
+function jsonContent(payload: unknown): { type: "text"; text: string }[] {
   return [
     {
       type: "text",
       text: JSON.stringify(payload, null, 2),
     },
   ];
+}
+
+export async function handleServiceLassoMcpStreamableHttpRequest(
+  context: ServiceLassoMcpContext,
+  request: IncomingMessage,
+  response: ServerResponse,
+  parsedBody: unknown,
+): Promise<void> {
+  const server = createServiceLassoMcpServer(context);
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(request, response, parsedBody);
+  } finally {
+    await server.close().catch(() => undefined);
+  }
 }
 
 function success(id: McpJsonRpcRequest["id"], result: unknown): McpJsonRpcResponse {
