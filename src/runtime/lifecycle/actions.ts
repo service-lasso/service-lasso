@@ -22,8 +22,10 @@ import {
   issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
 } from "../broker/identity.js";
-import { resolveSecretsBrokerLaunchEnv } from "../broker/bootstrap.js";
-import type { SecretsBrokerRuntimeContext } from "../broker/runtime.js";
+import {
+  loadSecretsBrokerRuntimeContext,
+  type SecretsBrokerRuntimeContext,
+} from "../broker/runtime.js";
 import {
   createSecretsBrokerLaunchLookup,
   resolveSecretsBrokerLaunchLeaseIssuer,
@@ -526,11 +528,6 @@ async function resolveBrokerLaunchContext(
       launchLeaseIssuer,
     }),
   };
-}
-
-function isProductionSecretsBroker(service: DiscoveredService): boolean {
-  return service.manifest.id === SECRETSBROKER_SERVICE_ID &&
-    service.manifest.env?.SECRETSBROKER_MODE === "production";
 }
 
 function classifyUnexpectedTermination(
@@ -1197,10 +1194,13 @@ export async function startService(
     registry,
     options,
   );
-  const brokerLaunchEnv =
-    isProductionSecretsBroker(service)
-      ? await resolveSecretsBrokerLaunchEnv(service)
-      : undefined;
+  // The broker's trusted runtime environment is created by the first-run
+  // bootstrap transaction. Do not manufacture a second credential scheme at
+  // service-start time: the runtime client and daemon must share the same
+  // authenticated transport, master key, token, and audit configuration.
+  const brokerLaunchEnv = service.manifest.id === SECRETSBROKER_SERVICE_ID && registry && options.workspaceRoot
+    ? (await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry))?.serverEnv
+    : undefined;
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1537,10 +1537,9 @@ export async function restartService(
     registry,
     options,
   );
-  const brokerLaunchEnv =
-    isProductionSecretsBroker(service)
-      ? await resolveSecretsBrokerLaunchEnv(service)
-      : undefined;
+  const brokerLaunchEnv = service.manifest.id === SECRETSBROKER_SERVICE_ID && registry && options.workspaceRoot
+    ? (await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry))?.serverEnv
+    : undefined;
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
