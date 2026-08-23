@@ -517,6 +517,7 @@ async function resolveBrokerLaunchContext(
     await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
     launchLeaseIssuer,
+    transportBinding: brokerRuntime?.transportBinding,
   });
   const brokerLookup =
     options.brokerLookup ??
