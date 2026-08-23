@@ -285,10 +285,12 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(audit.body.chainStatus, "verified");
     assert.equal(audit.body.rawMaterialReturned, false);
     assert.equal(audit.body.nextCursor, null);
-    assert.equal(audit.body.pagination.total, 15);
+    assert.equal(audit.body.pagination.total, 17);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
+        "permission.decision",
+        "permission.decision",
         "permission.decision",
         "permission.decision",
         "permission.decision",
@@ -354,9 +356,19 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(actionEvent.relatedRevisionId, action.body.run.runId);
 
     const permissionEvents = audit.body.events.filter((event) => event.action === "permission.decision");
-    assert.equal(permissionEvents.length, 4);
-    assert.equal(permissionEvents.every((event) => event.metadata.permission === "service.action.run"), true);
-    assert.ok(permissionEvents.some((event) => event.subject === "dangerous-audit-proof" && event.outcome === "failure"));
+    assert.equal(permissionEvents.length, 6);
+    const actionPermissionEvents = permissionEvents.filter(
+      (event) => event.metadata.permission === "service.action.run",
+    );
+    assert.equal(actionPermissionEvents.length, 4);
+    assert.ok(actionPermissionEvents.some((event) => event.subject === "dangerous-audit-proof" && event.outcome === "failure"));
+    assert.deepEqual(
+      permissionEvents
+        .filter((event) => event.metadata.permission !== "service.action.run")
+        .map((event) => event.metadata.permission)
+        .sort(),
+      ["service:configure", "service:install"],
+    );
 
     const confirmationEvents = audit.body.events.filter(
       (event) => event.action === "service.action.run" && event.subject === "dangerous-audit-proof",
@@ -389,14 +401,14 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(serviceScopedAudit.body.chainStatus, "verified");
     assert.equal(serviceScopedAudit.body.rawMaterialReturned, false);
     assert.equal(serviceScopedAudit.body.events.length, 4);
-    assert.equal(serviceScopedAudit.body.pagination.total, 15);
+    assert.equal(serviceScopedAudit.body.pagination.total, 17);
     assert.equal(serviceScopedAudit.body.nextCursor, "4");
     assert.deepEqual([...new Set(serviceScopedAudit.body.events.map((event) => event.serviceId))], ["audit-service"]);
 
     const nextServiceAuditPage = await getJson(`${apiServer.url}/api/services/audit-service/audit?limit=4&cursor=${serviceScopedAudit.body.nextCursor}`);
     assert.equal(nextServiceAuditPage.status, 200);
     assert.equal(nextServiceAuditPage.body.events.length, 4);
-    assert.equal(nextServiceAuditPage.body.pagination.total, 15);
+    assert.equal(nextServiceAuditPage.body.pagination.total, 17);
     assert.equal(nextServiceAuditPage.body.nextCursor, "8");
 
     const secretSearch = await getJson(`${apiServer.url}/api/audit?query=SUPER_SECRET_VALUE`);

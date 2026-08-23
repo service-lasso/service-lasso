@@ -23,6 +23,7 @@ import {
   revokeServiceScopedBrokerIdentities,
 } from "../broker/identity.js";
 import { resolveSecretsBrokerLaunchEnv } from "../broker/bootstrap.js";
+import type { SecretsBrokerRuntimeContext } from "../broker/runtime.js";
 import {
   createSecretsBrokerLaunchLookup,
   resolveSecretsBrokerLaunchLeaseIssuer,
@@ -83,6 +84,7 @@ const SECRET_LIKE_VALUE_PATTERN =
 const SECRET_LIKE_KEY_PATTERN = /(secret|token|password|credential|private|cookie|key)/i;
 const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeout>>();
 const activeSupervisionRestarts = new Map<string, Promise<void>>();
+const supervisionRestartClaims = new Set<string>();
 const shutdownRequestedServiceIds = new Set<string>();
 
 registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
@@ -115,6 +117,12 @@ export function cancelScheduledSupervisionRestart(serviceId: string): void {
   }
   clearTimeout(timer);
   scheduledSupervisionRestarts.delete(serviceId);
+}
+
+export function hasPendingSupervisionRestart(serviceId: string): boolean {
+  return supervisionRestartClaims.has(serviceId)
+    || scheduledSupervisionRestarts.has(serviceId)
+    || activeSupervisionRestarts.has(serviceId);
 }
 
 function calculateRunDurationMs(
@@ -189,6 +197,7 @@ function applyProcessLaunchMetrics(
 export interface ServiceLifecycleActionOptions {
   variableResolution?: ServiceVariableResolutionOptions;
   brokerLookup?: BrokerLaunchLookup;
+  brokerRuntime?: SecretsBrokerRuntimeContext | null;
   workspaceRoot?: string;
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
@@ -707,8 +716,11 @@ async function superviseUnexpectedProcessExit(
   const termination = classifyUnexpectedTermination(exitCode, signal);
   const reason: ServiceRuntimeSupervisionRestartReason = "crash";
   const policy = service.manifest.restartPolicy;
+  supervisionRestartClaims.add(serviceId);
 
-  if (shutdownRequestedServiceIds.has(serviceId)) {
+  try {
+
+    if (shutdownRequestedServiceIds.has(serviceId)) {
     await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because runtime shutdown was requested.`);
     return;
   }
@@ -775,7 +787,10 @@ async function superviseUnexpectedProcessExit(
     });
   }, backoffSeconds * 1000);
   timer.unref?.();
-  scheduledSupervisionRestarts.set(serviceId, timer);
+    scheduledSupervisionRestarts.set(serviceId, timer);
+  } finally {
+    supervisionRestartClaims.delete(serviceId);
+  }
 }
 
 function resolveExecutionPlanForLifecycle(

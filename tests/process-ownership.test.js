@@ -45,8 +45,16 @@ async function waitFor(check, timeoutMs = 3_000) {
   throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return { response, body: await response.json() };
 }
 
@@ -700,7 +708,7 @@ test("API restart replaces an adopted persisted process and keeps retained ports
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     assert.equal(hasManagedProcess("adopted-restart-service"), true);
 
-    const restart = await postJson(`${apiServer.url}/api/services/adopted-restart-service/restart`);
+    const restart = await postJson(`${apiServer.url}/api/services/adopted-restart-service/restart`, { confirm: true });
 
     assert.equal(restart.response.status, 200, JSON.stringify(restart.body));
     assert.equal(restart.body.action, "restart");
@@ -838,7 +846,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-root-exit-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-root-exit-service");
-  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 750 });
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath);
   let handle;
   let childPid = null;
   let grandchildPid = null;
@@ -854,6 +862,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
     childPid = pids.childPid;
     grandchildPid = pids.grandchildPid;
 
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
     await waitForProcessesStopped([handle.pid, childPid, grandchildPid], 12_000);
     await waitFor(() => !hasManagedProcess("managed-root-exit-service"), 12_000);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-exit-service");
@@ -1198,7 +1207,7 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal(registryText.includes("never-persist-this-value"), false);
     assert.equal(registryText.includes("OWNERSHIP_SECRET_SENTINEL"), false);
 
-    const stoppedResponse = await postJson(`${apiServer.url}/api/services/owned-service/stop`);
+    const stoppedResponse = await postJson(`${apiServer.url}/api/services/owned-service/stop`, { confirm: true });
     assert.equal(stoppedResponse.response.status, 200);
     const stopped = await findProcessOwnership(workspaceRoot, "service", "owned-service");
     assert.equal(stopped.lifecycleState, "stopped");

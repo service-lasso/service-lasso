@@ -11,6 +11,7 @@ import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
 import { writeLocalOperatorAuthState } from "../dist/runtime/auth/local-auth-store.js";
 import {
   clearPersistedFixtureState,
+  ensureTestSecretsBrokerReady,
   makeTempServicesRoot,
   writeManifest,
   writeExecutableFixtureService,
@@ -142,6 +143,8 @@ test("GET /api/setup/status reports first-run setup required for a fresh workspa
     assert.equal(result.body.setup.setupMode, true);
     assert.equal(result.body.setup.vault.required, true);
     assert.equal(result.body.setup.vault.ready, false);
+    assert.equal(Object.hasOwn(result.body.setup.vault, "path"), false);
+    assert.doesNotMatch(JSON.stringify(result.body), /store\.json|master-key|broker-token|signing-key/i);
     assert.equal(result.body.setup.operator.identitySource, "vault");
     assert.equal(result.body.setup.trustBoundary.bindHost, "0.0.0.0");
     assert.equal(result.body.setup.trustBoundary.localOnly, false);
@@ -162,7 +165,7 @@ test("GET /api/setup/status reports first-run setup required for a fresh workspa
   }
 });
 
-test("GET /api/setup/status skips setup mode when the local vault marker exists", async () => {
+test("GET /api/setup/status rejects a legacy vault marker without protected Broker credentials", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-setup-ready-"));
   await ensureLocalVaultMarker(tempDir);
   const apiServer = await startApiServer({
@@ -176,9 +179,9 @@ test("GET /api/setup/status skips setup mode when the local vault marker exists"
     const result = await getJson(`${apiServer.url}/api/setup/status`);
 
     assert.equal(result.status, 200);
-    assert.equal(result.body.setup.state, "not_required");
-    assert.equal(result.body.setup.setupMode, false);
-    assert.equal(result.body.setup.vault.ready, true);
+    assert.equal(result.body.setup.state, "setup_required");
+    assert.equal(result.body.setup.setupMode, true);
+    assert.equal(result.body.setup.vault.ready, false);
     assert.equal(result.body.setup.trustBoundary.localOnly, true);
     assert.deepEqual(result.body.setup.trustBoundary.blockers, []);
   } finally {
@@ -187,7 +190,7 @@ test("GET /api/setup/status skips setup mode when the local vault marker exists"
   }
 });
 
-test("POST /api/setup/bootstrap creates the local vault marker and setup audit trail on local-only bind", async () => {
+test("POST /api/setup/bootstrap fails closed until Secrets Broker is installed and configured", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-setup-bootstrap-"));
   const apiServer = await startApiServer({
     port: 0,
@@ -199,18 +202,10 @@ test("POST /api/setup/bootstrap creates the local vault marker and setup audit t
   try {
     const result = await postJson(`${apiServer.url}/api/setup/bootstrap`, { actor: "local-operator" });
 
-    assert.equal(result.status, 201);
-    assert.equal(result.body.bootstrap.ok, true);
-    assert.equal(result.body.bootstrap.state, "setup_complete");
-    assert.equal(result.body.setup.state, "not_required");
-    assert.equal(result.body.setup.setupMode, false);
-    assert.equal(result.body.setup.vault.ready, true);
-    assert.deepEqual(await readRuntimeAuditActions(tempDir), [
-      "setup.bootstrap.started",
-      "setup.vault.created",
-      "setup.root_identity.created",
-      "setup.bootstrap.completed",
-    ]);
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, "secrets_broker_not_prepared");
+    assert.doesNotMatch(JSON.stringify(result.body), /store\.json|master-key|broker-token|signing-key/i);
+    assert.deepEqual(await readRuntimeAuditActions(tempDir), ["setup.bootstrap.started"]);
   } finally {
     await apiServer.stop();
     await rm(tempDir, { recursive: true, force: true });
@@ -247,7 +242,7 @@ test("POST /api/setup/bootstrap rejects public bind without a setup token", asyn
 
 test("GET /api/runtime/security resolves localhost requests as local-root", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-local-"));
-  await ensureLocalVaultMarker(tempDir);
+  await ensureTestSecretsBrokerReady(tempDir);
   const apiServer = await startApiServer({
     port: 0,
     host: "127.0.0.1",
@@ -372,7 +367,7 @@ test("loopback first-run reveal and acknowledge stay off the security contract",
 
 test("remote API requests cannot inherit local-root trust without auth", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-remote-denied-"));
-  await ensureLocalVaultMarker(tempDir);
+  await ensureTestSecretsBrokerReady(tempDir);
   const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
   const previousLocalToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
   const previousZitadel = process.env.SERVICE_LASSO_ZITADEL_ENABLED;
@@ -415,9 +410,45 @@ test("remote API requests cannot inherit local-root trust without auth", async (
   }
 });
 
+test("loopback Service Admin proxy normalizes remote Zitadel identity", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-admin-proxy-"));
+  await ensureTestSecretsBrokerReady(tempDir);
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousZitadel = process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+  delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  delete process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "0.0.0.0",
+    workspaceRoot: tempDir,
+    version: "auth-admin-proxy-test",
+  });
+
+  try {
+    const authenticated = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-client-address": "192.0.2.40",
+      "x-service-lasso-zitadel-user-id": "usr_trusted_operator",
+    });
+    assert.equal(authenticated.status, 200);
+    assert.equal(authenticated.body.auth.request.clientAddress, "192.0.2.40");
+    assert.equal(authenticated.body.auth.request.local, false);
+    assert.equal(authenticated.body.auth.actor.kind, "zitadel");
+    assert.equal(authenticated.body.auth.actor.actorId, "usr_trusted_operator");
+    assert.equal(authenticated.body.auth.policy.trustProxyHeaders, true);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+    if (previousTrustProxy === undefined) delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    else process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    if (previousZitadel === undefined) delete process.env.SERVICE_LASSO_ZITADEL_ENABLED;
+    else process.env.SERVICE_LASSO_ZITADEL_ENABLED = previousZitadel;
+  }
+});
+
 test("remote API requests can authenticate with an explicit local admin token", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-local-token-"));
-  await ensureLocalVaultMarker(tempDir);
+  await ensureTestSecretsBrokerReady(tempDir);
   const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
   const previousLocalToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
   process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
@@ -519,7 +550,7 @@ test("Admin proxy original-client header treats LAN as remote without TRUST_PROX
 
 test("remote API requests can resolve a Zitadel-authenticated actor", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-auth-zitadel-"));
-  await ensureLocalVaultMarker(tempDir);
+  await ensureTestSecretsBrokerReady(tempDir);
   const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
   const previousZitadel = process.env.SERVICE_LASSO_ZITADEL_ENABLED;
   process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
@@ -1156,7 +1187,7 @@ test("runtime boots from explicit servicesRoot and workspaceRoot config", async 
 });
 
 test("GET /api/runtime/capabilities returns versioned runtime capability metadata", async () => {
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-capabilities-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-capabilities-");
   await writeExecutableFixtureService(servicesRoot, "alpha-service", {
     role: "provider",
   });
@@ -1164,6 +1195,7 @@ test("GET /api/runtime/capabilities returns versioned runtime capability metadat
   const apiServer = await startApiServer({
     port: 0,
     servicesRoot,
+    workspaceRoot,
     version: "capability-test-version",
   });
 
@@ -1220,10 +1252,11 @@ test("GET /api/runtime/capabilities returns versioned runtime capability metadat
 });
 
 test("GET /api/runtime/capabilities reflects configured runtime option flags", async () => {
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-capability-flags-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-capability-flags-");
   const apiServer = await startApiServer({
     port: 0,
     servicesRoot,
+    workspaceRoot,
     version: "capability-flags-test",
     monitor: true,
     updateScheduler: true,

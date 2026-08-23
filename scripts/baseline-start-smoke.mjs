@@ -1,11 +1,39 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writePrivateJson } from "../dist/runtime/security/private-json.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
+
+async function writeReadyBrokerCredentials(workspaceRoot) {
+  const privateRoot = path.join(workspaceRoot, ".service-lasso");
+  const brokerRoot = path.join(privateRoot, "secretsbroker");
+  const storePath = path.join(brokerRoot, "store.json");
+  const workspaceId = `slw_${createHash("sha256").update(path.resolve(workspaceRoot).toLowerCase()).digest("hex").slice(0, 24)}`;
+  const transport = process.platform === "win32"
+    ? { kind: "windows-named-pipe", socketPath: `\\\\.\\pipe\\service-lasso-secretsbroker-${workspaceId}` }
+    : { kind: "unix-socket", socketPath: path.join(os.tmpdir(), `service-lasso-secretsbroker-${workspaceId}.sock`) };
+  await mkdir(brokerRoot, { recursive: true });
+  await writeFile(storePath, "{}\n", { mode: 0o600 });
+  await writePrivateJson(privateRoot, path.join(brokerRoot, "runtime-credentials.json"), {
+    version: 1,
+    workspaceId,
+    createdAt: new Date().toISOString(),
+    apiToken: "a".repeat(43),
+    launchSigningKey: "b".repeat(43),
+    masterKey: "c".repeat(43),
+    transport,
+    transportBinding: null,
+    storePath,
+    auditPath: path.join(brokerRoot, "audit.jsonl"),
+    eventsPath: path.join(brokerRoot, "events.jsonl"),
+    wrapperPath: path.join(brokerRoot, "master-key-wrapper.json"),
+  });
+}
 const coreTraefikManifest = JSON.parse(
   await readFile(path.join(repoRoot, "services", "@traefik", "service.json"), "utf8"),
 );
@@ -84,15 +112,20 @@ async function waitForJson(url, timeoutMs = 300_000) {
   throw lastError ?? new Error(`Timed out waiting for ${url}`);
 }
 
-async function waitForCliSummary(cli, timeoutMs = 30_000) {
+async function waitForCliSummary(cli, timeoutMs = 600_000) {
   const startedAt = Date.now();
   let lastError = null;
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      return JSON.parse(cli.stdout);
+      return JSON.parse(cli.stdout.trim());
     } catch (error) {
       lastError = error;
+      if (cli.child.exitCode !== null || cli.child.signalCode !== null) {
+        throw new Error(
+          `CLI exited before publishing its baseline summary (exit=${cli.child.exitCode ?? "signal"}).`,
+        );
+      }
       await sleep(100);
     }
   }
@@ -683,8 +716,7 @@ let servicesStopped = false;
 
 try {
   await mkdir(servicesRoot, { recursive: true });
-  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
-  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
+  await writeReadyBrokerCredentials(workspaceRoot);
   await writeArchiveProviderService(servicesRoot);
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeLocalcertService(servicesRoot);

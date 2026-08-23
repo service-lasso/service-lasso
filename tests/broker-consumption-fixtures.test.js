@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { installService, configService, startService, stopService } from "../dist/runtime/lifecycle/actions.js";
@@ -126,16 +126,39 @@ test("ordinary service consumes Secrets Broker imports through resolved env with
     const { registry } = await prepareRegistry(servicesRoot);
     const service = registry.getById("ordinary-broker-env-consumer");
     assert.ok(service);
+    const leaseIssuerPath = path.join(tempRoot, "issue-test-lease.mjs");
+    await writeFile(
+      leaseIssuerPath,
+      'process.stdout.write(JSON.stringify({ outcome: "ready", lease: { fixture: true } }));\n',
+      "utf8",
+    );
+    const brokerLookup = ({ refs }) => refs.map((ref) => ({
+      ref,
+      status: "resolved",
+      value: ref === "database.PASSWORD" ? rawSecret : "ordinary-service-api-token",
+    }));
+    const brokerRuntime = {
+      lookup: brokerLookup,
+      probe: async () => ({ ok: true }),
+      writeback: async () => ({ ok: false }),
+      management: async () => ({ statusCode: 503, body: {} }),
+      serverEnv: {},
+      launchLeaseIssuer: {
+        command: {
+          command: process.execPath,
+          args: [leaseIssuerPath],
+          env: { ...process.env, SECRETSBROKER_API_TOKEN: "test-only-token" },
+        },
+        workspaceId: "test-workspace",
+      },
+      transportBinding: null,
+    };
 
     await installService(service, registry);
-    await configService(service, registry);
+    await configService(service, registry, { brokerLookup, brokerRuntime });
     const started = await startService(service, registry, {
-      variableResolution: {
-        brokerValues: {
-          "database.PASSWORD": rawSecret,
-          "services.API_TOKEN": "ordinary-service-api-token",
-        },
-      },
+      brokerLookup,
+      brokerRuntime,
     });
 
     try {

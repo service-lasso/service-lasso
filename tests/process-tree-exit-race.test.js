@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
+import {
+  captureOwnedProcessTreeMembers,
+  terminateOwnedProcessTree,
+} from "../dist/runtime/process/tree.js";
 
 const identity = {
   pid: 43123,
@@ -39,6 +42,24 @@ test("post-signal process absence settles adopted restart tree control", async (
     },
     readFile: async () => {
       throw missingProcessError();
+    },
+  });
+
+  assert.deepEqual(result, { forced: false });
+  assert.deepEqual(signals, [{ pid: identity.pid, signal: "SIGTERM" }]);
+});
+
+test("transient pre-signal inspection failure is retried without weakening identity verification", async () => {
+  const signals = [];
+  const result = await terminateOwnedProcessTree(target, 0, {
+    platform: "linux",
+    inspectProcess: sequencedInspector(
+      { status: "unknown", reason: "windows_process_inspection_failed:transient" },
+      { status: "running", identity },
+      { status: "not_running", reason: "process_not_running" },
+    ),
+    killProcess: (pid, signal) => {
+      if (signal !== 0) signals.push({ pid, signal });
     },
   });
 
@@ -137,4 +158,50 @@ test("post-signal unverifiable active process remains fail closed", async () => 
     }),
     /Cannot verify process 43123/,
   );
+});
+
+test("transient descendant inspection failure is retried before Windows adoption fails", async () => {
+  const childIdentity = { ...identity, pid: identity.pid + 1, commandHash: "b".repeat(64) };
+  let childInspections = 0;
+  const members = await captureOwnedProcessTreeMembers(target, {
+    platform: "win32",
+    readWindowsProcessTable: async () => [
+      { pid: identity.pid, parentPid: 1 },
+      { pid: childIdentity.pid, parentPid: identity.pid },
+    ],
+    inspectProcess: async (pid) => {
+      if (pid === identity.pid) {
+        return { status: "running", identity };
+      }
+      childInspections += 1;
+      return childInspections === 1
+        ? { status: "unknown", reason: "windows_process_evidence_incomplete" }
+        : { status: "running", identity: childIdentity };
+    },
+  });
+
+  assert.equal(childInspections, 2);
+  assert.deepEqual(members, [childIdentity, identity]);
+});
+
+test("persistently unverifiable Windows descendant remains fail closed", async () => {
+  let childInspections = 0;
+  await assert.rejects(
+    captureOwnedProcessTreeMembers(target, {
+      platform: "win32",
+      readWindowsProcessTable: async () => [
+        { pid: identity.pid, parentPid: 1 },
+        { pid: identity.pid + 1, parentPid: identity.pid },
+      ],
+      inspectProcess: async (pid) => {
+        if (pid === identity.pid) {
+          return { status: "running", identity };
+        }
+        childInspections += 1;
+        return { status: "unknown", reason: "windows_process_evidence_incomplete" };
+      },
+    }),
+    /Cannot verify descendant process 43124: windows_process_evidence_incomplete/,
+  );
+  assert.equal(childInspections, 3);
 });

@@ -6,12 +6,15 @@ import type { DiscoveredService, ServiceActionDefinition, ServiceActionPayloadSc
 import { ApiError, LifecycleStateError } from "../../server/errors.js";
 import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/commandline.js";
 import { getLifecycleState } from "../lifecycle/store.js";
+import type { ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 import { getServiceStatePaths } from "../state/paths.js";
+import { resolveBrokerMaterializationVariables } from "../broker/materialization-resolution.js";
+import type { ServiceVariableResolutionOptions } from "../operator/variables.js";
 
 export type ServiceActionRunSource = "manual" | "dagu" | "scheduler";
 export type ServiceActionRunStatus = "succeeded" | "failed" | "timeout";
@@ -435,9 +438,10 @@ function buildActionService(
   action: ServiceActionDefinition,
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
+  variableResolution?: ServiceVariableResolutionOptions,
 ): DiscoveredService {
   const resolvedCommand = action.command
-    ? resolveServiceText(action.command, service, sharedGlobalEnv, resolvedPorts)
+    ? resolveServiceText(action.command, service, sharedGlobalEnv, resolvedPorts, variableResolution)
     : service.manifest.executable;
 
   return {
@@ -445,7 +449,7 @@ function buildActionService(
     manifest: {
       ...service.manifest,
       executable: resolvedCommand,
-      args: (action.args ?? []).map((arg) => resolveServiceText(arg, service, sharedGlobalEnv, resolvedPorts)),
+      args: (action.args ?? []).map((arg) => resolveServiceText(arg, service, sharedGlobalEnv, resolvedPorts, variableResolution)),
       commandline: undefined,
       env: {
         ...(service.manifest.env ?? {}),
@@ -461,10 +465,11 @@ function resolveActionExecutionPlan(
   action: ServiceActionDefinition,
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
+  variableResolution?: ServiceVariableResolutionOptions,
 ): ProviderExecutionPlan {
   const commandline = selectPlatformCommandline(action.commandline);
   if (commandline) {
-    const parsed = parseCommandlineArgs(resolveServiceText(commandline, service, sharedGlobalEnv, resolvedPorts));
+    const parsed = parseCommandlineArgs(resolveServiceText(commandline, service, sharedGlobalEnv, resolvedPorts, variableResolution));
     const [executable, ...args] = parsed;
     if (!executable) {
       throw new ApiError("invalid_action", 400, `Action commandline for "${service.manifest.id}" did not resolve to an executable.`);
@@ -489,7 +494,7 @@ function resolveActionExecutionPlan(
     throw new ApiError("invalid_action", 400, `Action for "${service.manifest.id}" must declare command, commandline, or use a service executable.`);
   }
 
-  const actionService = buildActionService(service, action, sharedGlobalEnv, resolvedPorts);
+  const actionService = buildActionService(service, action, sharedGlobalEnv, resolvedPorts, variableResolution);
   if (service.manifest.execservice) {
     return resolveProviderExecution(actionService, registry);
   }
@@ -518,9 +523,10 @@ function resolveWorkingDirectory(
   executable: string,
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
+  variableResolution?: ServiceVariableResolutionOptions,
 ): string {
   if (action.cwd) {
-    const cwd = resolveServiceText(action.cwd, service, sharedGlobalEnv, resolvedPorts);
+    const cwd = resolveServiceText(action.cwd, service, sharedGlobalEnv, resolvedPorts, variableResolution);
     return path.isAbsolute(cwd) ? cwd : path.resolve(service.serviceRoot, cwd);
   }
 
@@ -543,14 +549,15 @@ function buildProcessEnvironment(
   payloadValue: Record<string, unknown>,
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
+  variableResolution?: ServiceVariableResolutionOptions,
 ): NodeJS.ProcessEnv {
   const serviceVariables = Object.fromEntries(
-    buildServiceVariables(service, sharedGlobalEnv, resolvedPorts).variables.map((entry) => [entry.key, entry.value]),
+    buildServiceVariables(service, sharedGlobalEnv, resolvedPorts, variableResolution).variables.map((entry) => [entry.key, entry.value]),
   );
   const actionEnv = Object.fromEntries(
     Object.entries(action.env ?? {}).map(([key, value]) => [
       key,
-      resolveServiceEnvValue(value, service, sharedGlobalEnv, resolvedPorts),
+      resolveServiceEnvValue(value, service, sharedGlobalEnv, resolvedPorts, variableResolution),
     ]),
   );
 
@@ -607,6 +614,7 @@ export async function runServiceAction(
   registry: ServiceRegistry,
   actionId: string,
   request: ServiceActionRunRequest = {},
+  lifecycleOptions: ServiceLifecycleActionOptions = {},
 ): Promise<{ ok: boolean; serviceId: string; actionId: string; run: ServiceActionRunState; message: string }> {
   const action = service.manifest.actions?.[actionId];
   if (!action) {
@@ -625,6 +633,7 @@ export async function runServiceAction(
   const lifecycle = getLifecycleState(service.manifest.id);
   const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
+  const variableResolution = await resolveBrokerMaterializationVariables(service, registry, lifecycleOptions);
   const executionPlan = resolveActionExecutionPlan(service, registry, action, sharedGlobalEnv, resolvedPorts);
   const executable = resolveExecutable(service, executionPlan);
   const args = executionPlan.args;
@@ -641,7 +650,7 @@ export async function runServiceAction(
     const stderr = createWriteStream(logs.stderrPath, { flags: "w" });
     const child = spawn(executable, args, {
       cwd: resolveWorkingDirectory(service, action, executionPlan, executable, sharedGlobalEnv, resolvedPorts),
-      env: buildProcessEnvironment(service, actionId, executionPlan, action, metadata, payload.value, sharedGlobalEnv, resolvedPorts),
+      env: buildProcessEnvironment(service, actionId, executionPlan, action, metadata, payload.value, sharedGlobalEnv, resolvedPorts, variableResolution),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });

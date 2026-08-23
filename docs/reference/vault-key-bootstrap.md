@@ -1,60 +1,80 @@
-# Vault key bootstrap
+# Secrets Broker key custody and first-run bootstrap
 
-This document is the implementation reference for
-[service-lasso/service-lasso#824](https://github.com/service-lasso/service-lasso/issues/824).
+This document is the current Core implementation reference for
+[service-lasso/service-lasso#1022](https://github.com/service-lasso/service-lasso/issues/1022)
+and supersedes the generated-key reveal proposal in issue `#824`.
 
 ## Purpose
 
-Fresh setup needs one durable vault key contract for local onboarding and
-headless/container deployments. The runtime may use raw key material internally
-while creating the vault, but API responses, audit events, logs, and setup state
-must expose only safe source metadata and a fingerprint.
+Fresh setup must initialize the real release-backed `@secretsbroker` service.
+A marker file, mock vault state, or browser-held key never satisfies readiness.
+Core considers setup complete only when protected workspace credentials, the
+encrypted Broker store, platform custody evidence, authenticated local IPC, and
+the Broker readiness probe agree.
 
-## Source order
+## Custody model
 
-Service Lasso resolves vault key material in this order:
+Core generates independent random API-token, launch-signing, and master-key
+material for the workspace. It stores the credential record under the workspace
+private-state root with these platform boundaries:
 
-1. OS-managed keychain provider.
-2. Mounted secret file, such as `SERVICE_LASSO_VAULT_KEY_FILE`.
-3. Environment variable, such as `SERVICE_LASSO_VAULT_KEY`.
-4. CLI parameter.
-5. Generated local setup key.
+- Windows: the private record is encrypted with CurrentUser DPAPI and restricted
+  to the current SID plus `SYSTEM`; the Broker master key is imported into a
+  separate DPAPI-protected wrapper before normal service launch.
+- Unix-like systems: the private record and Broker transport files are regular,
+  non-redirected owner-only files (`0600` under owner-only directories), and the
+  Unix socket is bound to the current UID.
 
-CLI parameters are supported for compatibility and local scripts, but they are
-the least-preferred supplied source because process listings and shell history
-can expose command-line values.
+Same-user processes remain inside the local trust boundary on Unix-like systems;
+operators who require stronger isolation must run Service Lasso under a
+dedicated OS account or container boundary.
 
-## Supplied keys
+Credentials are supplied to the Broker only through the internal launch
+environment. They are never command-line arguments and must not appear in API
+responses, UI state, logs, audit events, diagnostics, manifests, or issue/PR
+evidence.
 
-When a supplied key is used before the vault exists:
+## Bootstrap sequence
 
-- create the vault with that key
-- do not reveal or echo the key through setup UI, API responses, logs, or audit
-- expose the source type and source label, such as file path or env var name
-- expose a safe SHA-256 fingerprint so the operator can compare sources
-- audit the source type and fingerprint without storing the raw key
+`POST /api/setup/bootstrap` is accepted only on loopback or with a valid
+transient setup token. The endpoint then:
 
-## Generated keys
+1. requires `@secretsbroker` to be discovered, installed, and configured;
+2. creates or loads the protected workspace credential record;
+3. initializes the encrypted store;
+4. imports and verifies the Windows key wrapper when applicable;
+5. starts the Broker on authenticated named-pipe or Unix-socket transport;
+6. requires an authenticated readiness probe;
+7. provisions required Broker-generated declarations without returning values;
+8. records metadata-only setup audit events; and
+9. returns the public `service-lasso.setup-status.v1` projection.
 
-When no supplied key is available:
+Any missing artifact, redirected executable, custody failure, malformed status,
+unready IPC endpoint, or required provisioning failure stops setup. A legacy
+store marker does not bypass these checks.
 
-- generate at least 32 random bytes
-- reveal the generated key once during local setup
-- require the operator to confirm it was saved before setup completes
-- store only safe verification metadata and the vault material needed to unlock
-  the vault
-- never re-reveal the generated key after setup completion
+## Public response boundary
 
-The public bootstrap response uses `contractVersion:
-"vault-key-bootstrap.v1"`. `oneTimeReveal` is only populated for generated-key
-setup responses that explicitly request first reveal.
+Public setup status and bootstrap responses may contain setup state, required
+and ready booleans, safe OS operator context, bind/trust flags, auth metadata,
+blockers, and a provisioned-declaration count.
 
-## Runtime input names
+They never contain store or wrapper paths, IPC addresses, master keys, API
+tokens, signing keys, ciphertext, private credential envelopes, secret values,
+or one-time reveal fields. There is no reveal, copy, download, print, or
+acknowledgement flow for generated Broker key material.
 
-The first implementation slice reserves these runtime input names:
+## Headless and remote setup
 
-- `SERVICE_LASSO_VAULT_KEY_FILE`: mounted file containing the vault key.
-- `SERVICE_LASSO_VAULT_KEY`: raw key material supplied by environment.
+`SERVICE_LASSO_SETUP_TOKEN` authorizes bootstrap on a non-loopback runtime bind;
+it is not vault key material. It remains transient request authority and is
+cleared by Service Admin after success or failure. Container/image automation
+must preinstall and configure the exact Broker artifact before invoking the same
+bootstrap endpoint.
 
-Future CLI wiring should map a CLI vault-key argument into the lower-priority
-CLI source without changing the public response shape.
+## Recovery
+
+Operators recover the local Broker through its audited encrypted backup,
+verification, restore, and master-key-rotation APIs. If protected workspace
+credentials and all valid backups are lost, Core cannot reconstruct encrypted
+secret values; reconnect external providers or initialize a new workspace.

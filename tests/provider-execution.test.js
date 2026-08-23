@@ -12,8 +12,16 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 
 const servicesRoot = path.resolve("services");
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -362,7 +370,7 @@ test("provider-backed lifecycle action includes provider details in API response
       assert.equal(stored.runtime.provider, "node");
       assert.equal(stored.runtime.providerServiceId, "@node");
 
-      const stop = await postJson(`${apiServer.url}/api/services/node-sample-service/stop`);
+      const stop = await postJson(`${apiServer.url}/api/services/node-sample-service/stop`, { confirm: true });
       assert.equal(stop.status, 200);
     } finally {
       await apiServer.stop();
@@ -462,7 +470,7 @@ test("java provider-backed lifecycle action records bounded provider evidence", 
       assert.equal(stored.runtime.provider, "java");
       assert.equal(stored.runtime.providerServiceId, "@java");
 
-      const stop = await postJson(`${apiServer.url}/api/services/java-sample-service/stop`);
+      const stop = await postJson(`${apiServer.url}/api/services/java-sample-service/stop`, { confirm: true });
       assert.equal(stop.status, 200);
     } finally {
       await apiServer.stop();

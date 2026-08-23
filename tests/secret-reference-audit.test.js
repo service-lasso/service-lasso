@@ -198,6 +198,14 @@ async function writeRotationImpactPlanFixture(servicesRoot) {
       CACHE_TOKEN: "\${secretsbroker.DB_PASSWORD}",
       RAW_SENTINEL: rawSecretSentinel,
     },
+    actions: {
+      reload: {
+        label: "Reload secrets",
+        mode: "command",
+        command: "node",
+        args: ["-e", "process.exit(0)"],
+      },
+    },
     broker: {
       imports: [
         {
