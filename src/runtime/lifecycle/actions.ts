@@ -513,9 +513,9 @@ async function resolveBrokerLaunchContext(
   // A production broker has no public loopback port. Reuse its persisted
   // runtime context so both launch leases and reference resolution use the
   // authenticated Unix-socket/named-pipe transport created at setup.
-  const brokerRuntime = registry && options.workspaceRoot
+  const brokerRuntime = options.brokerRuntime ?? (registry && options.workspaceRoot
     ? await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry)
-    : null;
+    : null);
   const launchLeaseIssuer = brokerRuntime?.launchLeaseIssuer ??
     await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
@@ -1059,11 +1059,19 @@ export async function configService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
+  // Config materialization must fail before it writes an artifact whose
+  // required Broker inputs are unavailable. Start repeats this check with a
+  // fresh one-time lease immediately before process launch.
+  const { variableResolution } = await resolveBrokerLaunchContext(
+    service,
+    registry,
+    options,
+  );
   const artifacts = await materializeConfigArtifacts(
     service,
     sharedGlobalEnv,
     resolvedPorts,
-    {},
+    variableResolution ?? {},
     options.materializationHooks,
   );
 
