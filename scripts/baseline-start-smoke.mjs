@@ -434,22 +434,6 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
   return { serviceRoot };
 }
 
-async function seedInitializedSecretsBrokerFixture(serviceRoot) {
-  const paths = resolveSecretsBrokerDataPaths(serviceRoot);
-  await mkdir(paths.brokerStateDir, { recursive: true });
-  await mkdir(path.dirname(paths.storePath), { recursive: true });
-  await writeFile(paths.storePath, JSON.stringify({ version: 1, fixture: true }), { mode: 0o600 });
-  await writeFile(paths.masterKeyFile, "fixture-master-key\n", { mode: 0o600 });
-  await writeSecretsBrokerOperatorConfig(serviceRoot, {
-    version: 1,
-    storePath: paths.storePath,
-    auditPath: paths.auditPath,
-    masterKeyFile: paths.masterKeyFile,
-    apiToken: "fixture-operator-token",
-    initializedAt: new Date(0).toISOString(),
-  });
-}
-
 function traefikPlatformArtifact() {
   switch (process.platform) {
     case "win32":
@@ -740,12 +724,11 @@ try {
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
   await writePythonProviderService(servicesRoot);
-  const brokerFixture = await writeHttpService(servicesRoot, "@secretsbroker", "service", {
+  await writeHttpService(servicesRoot, "@secretsbroker", "service", {
     ports: { service: secretsBrokerPort },
     urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
     healthUrl: `http://127.0.0.1:${secretsBrokerPort}/health`,
   });
-  await seedInitializedSecretsBrokerFixture(brokerFixture.serviceRoot);
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
     depend_on: ["@node", "@traefik"],
