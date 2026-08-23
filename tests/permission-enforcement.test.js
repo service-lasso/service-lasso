@@ -77,7 +77,11 @@ test("permissionActorFromRuntimeAuth maps local-root, local-token, and fail-clos
 
   const zitadel = permissionActorFromRuntimeAuth(
     resolveRuntimeRequestAuth(
-      fakeRequest("10.0.0.8", { "x-service-lasso-zitadel-user-id": "usr_zitadel_operator" }),
+      fakeRequest("127.0.0.1", {
+        "x-service-lasso-internal-proxy": "serviceadmin",
+        "x-service-lasso-client-address": "10.0.0.8",
+        "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
+      }),
       {
         bindHost: "0.0.0.0",
         env: { SERVICE_LASSO_ZITADEL_ENABLED: "true" },
@@ -260,6 +264,7 @@ test("HTTP action runs use the trusted request actor and ignore body actor spoof
       { actor: { type: "local-root", id: "spoofed-root", permissions: ["*"] } },
       {
         "x-forwarded-for": "192.168.1.22",
+        "x-service-lasso-internal-proxy": "serviceadmin",
         "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
       },
     );
