@@ -15,8 +15,9 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
 const sourceServicesRoot = path.join(repoRoot, "services");
-const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
-const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node"]);
+const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
+const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service"];
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -134,16 +135,25 @@ async function waitForText(url, timeoutMs = 300_000) {
   throw lastError ?? new Error(`Timed out waiting for ${url}`);
 }
 
-async function postJson(url) {
+async function postJson(url, payload = {}) {
   const response = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(`POST ${url} failed with ${response.status}: ${JSON.stringify(body)}`);
+    const error = new Error(`POST request failed with HTTP ${response.status}.`);
+    error.verificationEvidence = {
+      httpStatus: response.status,
+      errorCode:
+        [body?.error?.code, body?.error, body?.code].find(
+          (code) => typeof code === "string" && /^[a-z0-9_]+$/u.test(code),
+        ) ?? "unclassified_error",
+      errorMessage: typeof body?.message === "string" ? body.message.slice(0, 512) : null,
+    };
+    throw error;
   }
 
   return body;
@@ -167,6 +177,7 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
       cwd: repoRoot,
       env: {
         ...process.env,
+        SERVICE_LASSO_HOST: "127.0.0.1",
         SERVICE_LASSO_PORT_RANGE_START: String(servicePortStart),
         SERVICE_LASSO_PORT_RANGE_END: String(testPortEnd),
       },
@@ -322,9 +333,9 @@ async function verifyAdvertisedReachability(servicesRoot, service) {
 }
 
 async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_000) {
-  const { running } = expected;
+  const { running, installed = true, configured = true } = expected;
   const healthy = Object.hasOwn(expected, "healthy") ? expected.healthy : true;
-  console.error(`[service-lasso e2e] waiting for ${serviceId} running=${running} healthy=${healthy ?? "any"}`);
+  console.error(`[service-lasso e2e] waiting for ${serviceId} installed=${installed} configured=${configured} running=${running} healthy=${healthy ?? "any"}`);
   const startedAt = Date.now();
   let lastService = null;
 
@@ -335,8 +346,8 @@ async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_
     lastService = service;
 
     if (
-      service.lifecycle?.installed === true &&
-      service.lifecycle?.configured === true &&
+      service.lifecycle?.installed === installed &&
+      service.lifecycle?.configured === configured &&
       service.lifecycle?.running === running &&
       (healthy === undefined || service.health?.healthy === healthy)
     ) {
@@ -347,7 +358,17 @@ async function waitForServiceState(apiUrl, serviceId, expected, timeoutMs = 300_
     await sleep(500);
   }
 
-  throw new Error(`${serviceId} did not reach installed/configured/running=${running}/healthy=${healthy ?? "any"}. Last service state: ${JSON.stringify(lastService)}`);
+  verificationEvidence = {
+    serviceId,
+    expected: { installed, configured, running, healthy: healthy ?? null },
+    observed: {
+      installed: lastService?.lifecycle?.installed ?? null,
+      configured: lastService?.lifecycle?.configured ?? null,
+      running: lastService?.lifecycle?.running ?? null,
+      healthy: lastService?.health?.healthy ?? null,
+    },
+  };
+  throw new Error(`${serviceId} did not reach its expected lifecycle state.`);
 }
 
 const e2eTempParent = path.join(repoRoot, ".tmp", "e2e");
@@ -362,11 +383,10 @@ let servicesStopped = false;
 let activeRuntimeOwner = null;
 let activeRuntimeIdentity = null;
 let verificationStep = "prepare_fixture";
+let verificationEvidence = null;
 
 try {
   console.error(`[service-lasso e2e] temp root ${tempRoot}`);
-  await mkdir(path.join(workspaceRoot, "vault"), { recursive: true });
-  await writeFile(path.join(workspaceRoot, "vault", "vault.json"), "ready\n", "utf8");
   await copyCheckedInServices(servicesRoot);
   await rebaseManifestPorts(servicesRoot);
   verificationStep = "start_runtime";
@@ -386,23 +406,53 @@ try {
     workspaceRoot,
   });
 
+  verificationStep = "first_run_bootstrap";
+  const setupBootstrap = await postJson(`${apiUrl}/api/setup/bootstrap`);
+  assert(
+    setupBootstrap.bootstrap?.ok === true && setupBootstrap.bootstrap?.state === "setup_complete",
+    "First-run Secrets Broker bootstrap did not reach setup_complete.",
+  );
+  assert(
+    Number.isInteger(setupBootstrap.bootstrap?.provisionedSecretCount) && setupBootstrap.bootstrap.provisionedSecretCount > 0,
+    "First-run Secrets Broker bootstrap did not provision declared generated secrets.",
+  );
+
   verificationStep = "service_catalog";
   const services = await waitForJson(`${apiUrl}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
+  const missingServiceIds = baselineServiceIds.filter((serviceId) => !serviceIds.includes(serviceId));
+  verificationEvidence = missingServiceIds.length > 0 ? { missingServiceIds } : null;
   for (const serviceId of baselineServiceIds) {
     assert(serviceIds.includes(serviceId), `Real app service list is missing ${serviceId}.`);
   }
+  verificationEvidence = null;
+
+  for (const serviceId of baselineDaemonServiceIds) {
+    verificationStep = `baseline_start_${serviceId.replace(/[^a-z0-9]+/giu, "_")}`;
+    await postJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}/start`);
+  }
 
   for (const action of ["install", "config", "start"]) {
+    verificationStep = `node_sample_${action}`;
     await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
   }
 
   const liveServices = new Map();
+  const platformSupportByService = new Map();
   for (const serviceId of baselineServiceIds) {
     const isProvider = providerServiceIds.has(serviceId);
+    const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
+    const platforms = manifest.artifact?.platforms;
+    const platformSupported = !platforms || Boolean(platforms[process.platform] ?? platforms.default);
+    platformSupportByService.set(serviceId, platformSupported);
     liveServices.set(
       serviceId,
-      await waitForServiceState(apiUrl, serviceId, { running: !isProvider, healthy: isProvider ? undefined : true }),
+      await waitForServiceState(apiUrl, serviceId, {
+        installed: platformSupported,
+        configured: platformSupported,
+        running: !isProvider && platformSupported,
+        healthy: isProvider || !platformSupported ? undefined : true,
+      }),
     );
   }
 
@@ -420,16 +470,22 @@ try {
   }
   for (const serviceId of providerServiceIds) {
     const service = dashboardServices.services.find((entry) => entry.id === serviceId);
-    assert(service?.status === "available", `${serviceId} provider utility did not report Available status.`);
-    assert(service?.runtimeHealth?.state === "available", `${serviceId} provider runtime state did not report Available.`);
+    const platformSupported = platformSupportByService.get(serviceId) === true;
+    const expectedStatus = platformSupported ? "available" : "stopped";
+    assert(
+      service?.status === expectedStatus,
+      `${serviceId} provider utility did not report its platform-correct ${expectedStatus} status.`,
+    );
+    assert(
+      service?.runtimeHealth?.state === expectedStatus,
+      `${serviceId} provider runtime state did not report its platform-correct ${expectedStatus} state.`,
+    );
   }
 
   verificationStep = "baseline_reachability";
   const serviceAdminPort = requireRuntimeServicePort(liveServices.get("@serviceadmin"), "ui");
-  const secretsBrokerPort = requireRuntimeServicePort(liveServices.get("@secretsbroker"), "service");
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminPort}/`, "Service Admin UI");
   await waitForHealthyHttp(`http://127.0.0.1:${serviceAdminPort}/health`, "Service Admin health");
-  await waitForHealthyHttp(`http://127.0.0.1:${secretsBrokerPort}/health`, "Secrets Broker health");
   await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("@nginx"), "http")}/health`, "NGINX health");
   await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("echo-service"), "health")}/health`, "Echo Service health");
   await waitForHealthyHttp(`http://127.0.0.1:${requireRuntimeServicePort(liveServices.get("@traefik"), "admin")}/ping`, "Traefik ping");
@@ -445,23 +501,28 @@ try {
   assert(/Service Lasso|service-lasso|root/i.test(serviceAdminHtml), "Service Admin UI root did not return recognizable app content.");
 
   verificationStep = "secrets_broker_restart";
-  const stopBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/stop`);
+  const stopBroker = await postJson(
+    `${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/stop`,
+    { confirm: true },
+  );
   assert(stopBroker.ok === true, "Stopping @secretsbroker did not return ok=true.");
   await waitForServiceState(apiUrl, "@secretsbroker", { running: false, healthy: undefined });
 
-  const startBroker = await postJson(`${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/start`);
-  assert(startBroker.ok === true, "Starting @secretsbroker did not return ok=true.");
-  const restartedBroker = await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
-  await waitForHealthyHttp(
-    `http://127.0.0.1:${requireRuntimeServicePort(restartedBroker, "service")}/health`,
-    "Secrets Broker health after restart",
+  const startBroker = await postJson(
+    `${apiUrl}/api/services/${encodeURIComponent("@secretsbroker")}/start`,
+    { confirm: true },
   );
+  assert(startBroker.ok === true, "Starting @secretsbroker did not return ok=true.");
+  await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
 
   verificationStep = "reverse_cleanup";
   await postJson(`${apiUrl}/api/runtime/actions/stopAll`);
   servicesStopped = true;
   console.log("[service-lasso e2e] real app baseline state gate passed");
 } catch (error) {
+  if (error instanceof Error && error.verificationEvidence) {
+    verificationEvidence = error.verificationEvidence;
+  }
   if (!apiUrl && error instanceof RuntimeOwnerFailure && error.cleanupApiUrl) {
     apiUrl = error.cleanupApiUrl;
   }
@@ -487,6 +548,7 @@ try {
           pid: activeRuntimeIdentity.ownerPid,
           apiPort: Number(new URL(activeRuntimeIdentity.apiUrl).port),
         } : null,
+        ...(verificationEvidence ? { evidence: verificationEvidence } : {}),
       };
   console.error(`[service-lasso e2e] ${JSON.stringify(failure)}`);
   throw new Error(JSON.stringify(failure));

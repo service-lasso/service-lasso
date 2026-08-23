@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { access, rm } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
-import { hasManagedProcess, stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
+import {
+  hasManagedProcess,
+  stopAllManagedProcesses,
+  waitForManagedProcessFinalization,
+} from "../dist/runtime/execution/supervisor.js";
 import { configService, installService, startService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -42,7 +46,7 @@ async function installConfigStart(service, registry) {
   await writeServiceState(service, start.state);
 }
 
-test("runtime monitor restarts a crashed service when policy allows", async () => {
+test("runtime monitor defers to an in-flight automatic supervision restart", async () => {
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-monitor-crash-");
 
   try {
@@ -75,13 +79,12 @@ test("runtime monitor restarts a crashed service when policy allows", async () =
     const events = await monitor.runOnce();
     const event = events.find((entry) => entry.serviceId === "crash-restart-service");
 
-    assert.equal(event?.action, "restart");
-    assert.equal(event?.reason, "crashed");
+    assert.equal(event?.action, "skip");
+    assert.equal(event?.reason, "in_flight");
+    await waitFor(() => getLifecycleState("crash-restart-service").runtime.supervision.lastRestartResult === "started");
     assert.equal(getLifecycleState("crash-restart-service").running, true);
-    assert.equal(getLifecycleState("crash-restart-service").runtime.metrics.restartCount, 1);
     const stored = await readStoredState(service.serviceRoot);
-    assert.equal(stored.recovery.events.at(-1).kind, "monitor");
-    assert.equal(stored.recovery.events.at(-1).reason, "crashed");
+    assert.ok(stored.recovery.events.some((entry) => entry.kind === "restart" && entry.ok));
   } finally {
     await stopAllManagedProcesses();
     await rm(tempRoot, { recursive: true, force: true });
@@ -150,6 +153,11 @@ test("runtime monitor skips restart when maxAttempts is already exhausted", asyn
     await installConfigStart(service, registry);
 
     await waitFor(() => getLifecycleState("max-attempt-service").runtime.lastTermination === "crashed");
+    await waitForManagedProcessFinalization("max-attempt-service");
+    assert.equal(
+      getLifecycleState("max-attempt-service").runtime.supervision.lastRestartResult,
+      "blocked",
+    );
 
     const monitor = createRuntimeServiceMonitor({
       registry,
@@ -166,6 +174,33 @@ test("runtime monitor skips restart when maxAttempts is already exhausted", asyn
     assert.equal(stored.recovery.events.at(-1).reason, "max_attempts");
   } finally {
     await stopAllManagedProcesses();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime monitor persists condition transitions instead of heartbeat duplicates", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-monitor-dedupe-");
+
+  try {
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "monitor-dedupe-service", {
+      monitoring: { enabled: false },
+      restartPolicy: { enabled: true, onCrash: true },
+    });
+    const registry = await prepareRegistry(servicesRoot);
+    const monitor = createRuntimeServiceMonitor({
+      registry,
+      logger: { log: () => undefined, warn: () => undefined },
+    });
+
+    const first = await monitor.runOnce();
+    const second = await monitor.runOnce();
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(first[0].reason, "monitoring_disabled");
+    assert.equal(second[0].reason, "monitoring_disabled");
+    assert.equal(stored.recovery.events.length, 1);
+    assert.equal(stored.recovery.events[0].reason, "monitoring_disabled");
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

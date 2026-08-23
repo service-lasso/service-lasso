@@ -1637,16 +1637,20 @@ export async function runDemoSmoke(options = {}) {
     assertCondition(echoMetrics.body.metrics.process.running === true, "Expected echo-service metrics to report running.");
     assertCondition(echoState.running === true, "Expected echo-service persisted runtime state to report running.");
 
-    for (const serviceId of ["@node", "node-sample-service"]) {
-      for (const action of ["install", "config"]) {
-        const result = await getJson(`${runtime.apiServer.url}/api/services/${encodeURIComponent(serviceId)}/${action}`, "POST");
-        assertCondition(result.status === 200, `Expected ${serviceId} ${action} to return 200.`);
-      }
+    for (const action of ["install", "config"]) {
+      const result = await getJson(`${runtime.apiServer.url}/api/services/%40node/${action}`, "POST");
+      assertCondition(result.status === 200, `Expected @node ${action} to return 200.`);
     }
 
-    const providerStart = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/start`, "POST");
-    assertCondition(providerStart.status === 200, "Expected node-sample-service start to return 200.");
-    assertCondition(providerStart.body.provider.provider === "node", "Expected node-sample-service provider to resolve to node.");
+    const providerInstall = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/install`, "POST");
+    assertCondition(providerInstall.status === 200, "Expected node-sample-service install to return 200.");
+    const providerConfig = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/config`, "POST");
+    assertCondition(providerConfig.status === 409, "Expected node-sample-service config to fail closed before Broker setup.");
+    assertCondition(providerConfig.body.error === "invalid_lifecycle_state", "Expected a typed setup-required lifecycle error.");
+    assertCondition(
+      typeof providerConfig.body.message === "string" && providerConfig.body.message.length > 0,
+      "Expected node-sample-service to report a safe Broker setup boundary.",
+    );
 
     const providerDetail = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service`);
     const providerMetrics = await getJson(`${runtime.apiServer.url}/api/services/node-sample-service/metrics`);
@@ -1654,9 +1658,10 @@ export async function runDemoSmoke(options = {}) {
     const nodeProviderMetrics = await getJson(`${runtime.apiServer.url}/api/services/%40node/metrics`);
     const aggregateMetrics = await getJson(`${runtime.apiServer.url}/api/metrics`);
 
-    assertCondition(providerDetail.body.service.lifecycle.running === true, "Expected node-sample-service to be running.");
-    assertCondition(providerMetrics.body.metrics.process.provider === "node", "Expected node-sample-service metrics provider.");
-    assertCondition(providerMetrics.body.metrics.process.launchCount === 1, "Expected node-sample-service launch count to be 1.");
+    assertCondition(providerDetail.body.service.lifecycle.installed === true, "Expected node-sample-service to be installed.");
+    assertCondition(providerDetail.body.service.lifecycle.configured === false, "Expected node-sample-service to remain unconfigured before Broker setup.");
+    assertCondition(providerDetail.body.service.lifecycle.running === false, "Expected node-sample-service not to start before Broker setup.");
+    assertCondition(providerMetrics.body.metrics.process.launchCount === 0, "Expected no node-sample-service process launch before Broker setup.");
     assertCondition(nodeProviderDetail.body.service.id === "@node", "Expected @node provider detail to be available.");
     assertCondition(nodeProviderDetail.body.service.lifecycle.installed === true, "Expected @node provider to be installed.");
     assertCondition(nodeProviderDetail.body.service.lifecycle.configured === true, "Expected @node provider to be configured.");
@@ -1717,6 +1722,7 @@ export async function runDemoSmoke(options = {}) {
           "node-sample-service",
           ...defaultBaselineServiceIds.filter((serviceId) => serviceId !== "echo-service" && serviceId !== "@node"),
         ],
+        setupRequiredBlockedServices: ["node-sample-service"],
       },
     };
   } finally {

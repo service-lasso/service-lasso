@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
+import { builtInAccessGroupTemplates } from "../../platform/security-model.js";
 import {
   LOCAL_ADMIN_TOKEN_HEADER,
   ORIGINAL_CLIENT_ADDRESS_HEADER,
@@ -37,6 +38,8 @@ export interface RuntimeAuthPolicyStatus {
     authenticated: boolean;
     kind: RuntimeAuthActorKind | null;
     actorId: string | null;
+    roles: string[];
+    permissions: string[];
   };
   mode: RuntimeAuthMode;
   blockers: string[];
@@ -59,6 +62,22 @@ export interface RuntimeAuthPolicyOptions {
 }
 
 const AUTH_STATUS_CONTRACT_VERSION = "service-lasso.auth-status.v1";
+const SAFE_ROLE_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+
+function normalizeRoleClaims(...values: Array<string | string[] | undefined>): string[] {
+  const roles = values
+    .flatMap((value) => Array.isArray(value) ? value : value ? [value] : [])
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => SAFE_ROLE_PATTERN.test(value));
+  return [...new Set(roles)].slice(0, 20);
+}
+
+function permissionsForRoles(roles: string[]): string[] {
+  return [...new Set(roles.flatMap((role) =>
+    builtInAccessGroupTemplates.find((template) => template.id === role)?.permissions ?? [],
+  ))];
+}
 
 function truthy(value: string | undefined): boolean {
   return value === "1" || value?.toLowerCase() === "true";
@@ -126,13 +145,15 @@ export function getEffectiveClientAddress(
 ): string | null {
   const peer = getImmediatePeerAddress(request);
   const forwarded = getForwardedClientAddress(request);
-  if (isLoopbackAddress(peer) && forwarded) {
-    return forwarded;
-  }
   if (trustProxyHeaders && forwarded) {
     return forwarded;
   }
   return peer;
+}
+
+function isTrustedServiceAdminProxy(request: IncomingMessage): boolean {
+  return isLoopbackAddress(request.socket.remoteAddress) &&
+    normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-internal-proxy"])) === "serviceadmin";
 }
 
 function presentedLocalSecret(request: IncomingMessage): string | undefined {
@@ -161,6 +182,8 @@ function resolveLocalTokenActor(
     authenticated: true,
     kind: "local-token",
     actorId: "local-admin-token",
+    roles: ["owner"],
+    permissions: ["*"],
   };
 }
 
@@ -175,10 +198,17 @@ function resolveZitadelActor(
     normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-user-id"]));
   if (!userId) return null;
 
+  const roles = normalizeRoleClaims(
+    request.headers["x-service-lasso-zitadel-roles"],
+    request.headers["x-service-lasso-zitadel-groups"],
+  );
+
   return {
     authenticated: true,
     kind: "zitadel",
     actorId: userId,
+    roles,
+    permissions: permissionsForRoles(roles),
   };
 }
 
@@ -209,8 +239,11 @@ export function resolveRuntimeRequestAuth(
   options: RuntimeAuthPolicyOptions,
 ): RuntimeAuthPolicyStatus {
   const env = options.env ?? process.env;
-  const trustProxyHeaders = truthy(env.SERVICE_LASSO_TRUST_PROXY_HEADERS);
-  const zitadelEnabled = truthy(env.SERVICE_LASSO_ZITADEL_ENABLED);
+  const trustedServiceAdminProxy = isTrustedServiceAdminProxy(request);
+  const immediatePeerIsLoopback = isLoopbackAddress(request.socket.remoteAddress);
+  const trustProxyHeaders = immediatePeerIsLoopback &&
+    (truthy(env.SERVICE_LASSO_TRUST_PROXY_HEADERS) || trustedServiceAdminProxy);
+  const zitadelEnabled = truthy(env.SERVICE_LASSO_ZITADEL_ENABLED) || trustedServiceAdminProxy;
   const envToken = normalizeHeaderValue(env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN);
   const localTokenConfigured = Boolean(envToken) || options.localTokenConfigured === true;
   const localOperatorConfigured = options.localOperatorConfigured === true;
@@ -221,7 +254,7 @@ export function resolveRuntimeRequestAuth(
   const local = isLoopbackAddress(clientAddress);
   const remoteAuthRequired = !local;
   const tokenActor = resolveLocalTokenActor(request, envToken, options.verifyLocalSecret);
-  const zitadelActor = resolveZitadelActor(request, zitadelEnabled);
+  const zitadelActor = resolveZitadelActor(request, zitadelEnabled && trustedServiceAdminProxy);
 
   /**
    * Loopback always allows local-token, ZITADEL, or implicit local-root.
@@ -233,11 +266,13 @@ export function resolveRuntimeRequestAuth(
       authenticated: true,
       kind: "local-root" as const,
       actorId: "local-root",
+      roles: ["owner"],
+      permissions: ["*"],
     };
   } else if (forceSso) {
-    actor = zitadelActor ?? { authenticated: false, kind: null, actorId: null };
+    actor = zitadelActor ?? { authenticated: false, kind: null, actorId: null, roles: [], permissions: [] };
   } else {
-    actor = zitadelActor ?? tokenActor ?? { authenticated: false, kind: null, actorId: null };
+    actor = zitadelActor ?? tokenActor ?? { authenticated: false, kind: null, actorId: null, roles: [], permissions: [] };
   }
 
   const blockers: string[] = [];

@@ -9,8 +9,12 @@ import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtur
 
 const servicesRoot = path.resolve("services");
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function postJson(url, body = {}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -319,7 +323,7 @@ test("managed stdout/stderr are captured into runtime-owned log files and surfac
       true,
     );
 
-    await postJson(`${apiServer.url}/api/services/loggy-service/stop`);
+    await postJson(`${apiServer.url}/api/services/loggy-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -506,7 +510,7 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
     assert.equal(stderrChunkBody.path.endsWith(path.join("@reader-service", "logs", "runtime", "stderr.log")), true);
     assert.ok(stderrChunkBody.lines.some((line) => line.includes("reader stderr")));
 
-    await postJson(`${apiServer.url}/api/services/%40reader-service/stop`);
+    await postJson(`${apiServer.url}/api/services/%40reader-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -542,7 +546,7 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
         return null;
       });
 
-      const stop = await postJson(`${apiServer.url}/api/services/archive-loggy-service/stop`);
+      const stop = await postJson(`${apiServer.url}/api/services/archive-loggy-service/stop`, { confirm: true });
       assert.equal(stop.status, 200);
     }
 
@@ -749,7 +753,7 @@ test("runtime-captured output variables satisfy healthchecks and API variable sc
     assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.source, "stdout");
     assert.equal(typeof persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.matchedAt, "string");
 
-    await postJson(`${apiServer.url}/api/services/captured-variable-service/stop`);
+    await postJson(`${apiServer.url}/api/services/captured-variable-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -791,7 +795,7 @@ test("runtime-captured output variables satisfy canonical healthchecks arrays", 
     const persistedRuntime = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
     assert.equal(persistedRuntime.variables.FILEBEAT_ENABLED_INPUTS.value, "4");
 
-    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/stop`);
+    await postJson(`${apiServer.url}/api/services/captured-variable-array-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -935,7 +939,7 @@ test("service variables include merged globalenv entries and managed processes r
     );
     assert.equal(envSnapshot.SHARED_MESSAGE, "hello shared env");
 
-    await postJson(`${apiServer.url}/api/services/consumer-service/stop`);
+    await postJson(`${apiServer.url}/api/services/consumer-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     resetLifecycleState();
@@ -1132,7 +1136,7 @@ test("managed processes receive negotiated port env values", async () => {
     assert.equal(envSnapshot.SERVICE_PORT, String(config.body.state.runtime.ports.service));
     assert.equal(envSnapshot.ECHO_PORT, String(config.body.state.runtime.ports.service));
 
-    await postJson(`${apiServer.url}/api/services/port-env-service/stop`);
+    await postJson(`${apiServer.url}/api/services/port-env-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
     resetLifecycleState();

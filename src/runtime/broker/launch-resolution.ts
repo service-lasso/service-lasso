@@ -28,6 +28,7 @@ export interface BrokerLaunchLookupDecision {
 export interface BrokerLaunchLookupRequest {
   service: DiscoveredService;
   refs: string[];
+  identityLease?: unknown;
 }
 
 export type BrokerLaunchLookup = (
@@ -295,9 +296,10 @@ export async function resolveServiceStartupBrokerResolution(
   service: DiscoveredService,
   lookup: BrokerLaunchLookup,
   baseResolution: ServiceVariableResolutionOptions = {},
+  identityLease?: unknown,
 ): Promise<ServiceStartupBrokerResolution> {
   const plan = compileServiceStartupBrokerPlan(service);
-  const decisions = await lookup({ service, refs: plan.brokerRefs });
+  const decisions = await lookup({ service, refs: plan.brokerRefs, identityLease });
   const expectedRefs = new Set(plan.brokerRefs);
   const importMap = importByRef(plan.imports);
   const brokerValues: Record<string, string> = {};

@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { bootstrapSecretsBrokerVault } from "../dist/runtime/broker/runtime.js";
 
 async function removeDirectoryWithRetry(targetPath, attempts = 5) {
   for (let index = 0; index < attempts; index += 1) {
@@ -41,6 +42,40 @@ export async function makeTempServicesRoot(prefix = "service-lasso-fixture-") {
   await mkdir(servicesRoot, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
   return { tempRoot, servicesRoot, workspaceRoot };
+}
+
+export async function ensureTestSecretsBrokerReady(workspaceRoot) {
+  const command = path.join(workspaceRoot, ".test-fixtures", "secretsbroker");
+  await mkdir(path.dirname(command), { recursive: true });
+  await writeFile(command, "test-only broker command placeholder\n", "utf8");
+  return await bootstrapSecretsBrokerVault(
+    workspaceRoot,
+    { getById: () => ({ manifest: { id: "@secretsbroker" } }) },
+    {
+      brokerCommand: { command, cwd: workspaceRoot },
+      runCommand: async (_command, _cwd, args, environment) => {
+        if (args[0] === "key" && args[1] === "initialize") {
+          await writeFile(environment.SECRETSBROKER_STORE_PATH, "encrypted-test-store\n", "utf8");
+          return JSON.stringify({ available: true, outcome: "ready", state: "ready", keyId: "key_test", keyVersion: "v1" });
+        }
+        if (args[0] === "key" && args[1] === "import") {
+          await writeFile(environment.SECRETSBROKER_WRAPPER_PATH, "protected-test-wrapper\n", "utf8");
+          return JSON.stringify({ available: true, outcome: "ready", state: "ready", keyId: "key_test", keyVersion: "v1" });
+        }
+        if (args[0] === "key" && (args[1] === "status" || args[1] === "wrapper-status")) {
+          return JSON.stringify({
+            available: true,
+            outcome: "ready",
+            state: "ready",
+            keyId: "key_test",
+            keyVersion: "v1",
+            wrapper: { keyId: "key_test", keyVersion: "v1" },
+          });
+        }
+        throw new Error("Unexpected test Broker bootstrap command.");
+      },
+    },
+  );
 }
 
 export async function writeManifest(servicesRoot, serviceId, body) {
@@ -89,6 +124,7 @@ export async function writeExecutableFixtureService(
     enabled = undefined,
     broker = undefined,
     outputvarregex = undefined,
+    exitFileRelativePath = null,
     ignoreSignals = false,
   } = options;
 
@@ -99,7 +135,7 @@ export async function writeExecutableFixtureService(
   const scriptPath = path.join(runtimeRoot, "fixture-service.mjs");
   const scriptSource = `
 import path from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 
 const heartbeat = setInterval(() => {}, 1000);
 const exitCode = Number(process.env.FIXTURE_EXIT_CODE ?? "${exitCode}");
@@ -107,6 +143,7 @@ const autoExitMs = Number(process.env.FIXTURE_AUTO_EXIT_MS ?? "${autoExitMs ?? "
 const readyFileRelativePath = process.env.FIXTURE_READY_FILE ?? "";
 const readyFileDelayMs = Number(process.env.FIXTURE_READY_FILE_DELAY_MS ?? "");
 const captureEnvPath = process.env.FIXTURE_CAPTURE_ENV_FILE ?? "";
+const exitFileRelativePath = process.env.FIXTURE_EXIT_FILE ?? "";
 const captureEnvKeys = process.env.FIXTURE_CAPTURE_ENV_KEYS
   ? JSON.parse(process.env.FIXTURE_CAPTURE_ENV_KEYS)
   : [];
@@ -119,8 +156,26 @@ const stderrLines = process.env.FIXTURE_STDERR_LINES
 
 function shutdown() {
   clearInterval(heartbeat);
+  if (exitWatcher) clearInterval(exitWatcher);
   process.exit(0);
 }
+
+let exitingFromFile = false;
+const exitWatcher = exitFileRelativePath
+  ? setInterval(async () => {
+      if (exitingFromFile) return;
+      try {
+        await access(path.resolve(process.cwd(), exitFileRelativePath));
+      } catch {
+        return;
+      }
+      exitingFromFile = true;
+      await unlink(path.resolve(process.cwd(), exitFileRelativePath)).catch(() => {});
+      clearInterval(heartbeat);
+      clearInterval(exitWatcher);
+      process.exit(exitCode);
+    }, 50)
+  : null;
 
 async function writeReadyFile() {
   const targetPath = path.resolve(process.cwd(), readyFileRelativePath);
@@ -189,6 +244,7 @@ if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
             FIXTURE_CAPTURE_ENV_KEYS: JSON.stringify(captureEnvKeys),
           }
         : {}),
+      ...(exitFileRelativePath !== null ? { FIXTURE_EXIT_FILE: exitFileRelativePath } : {}),
       ...(stdoutLines.length > 0
         ? {
             FIXTURE_STDOUT_LINES: JSON.stringify(stdoutLines),

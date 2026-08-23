@@ -1,6 +1,7 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
-import { restartService } from "../lifecycle/actions.js";
+import { hasPendingSupervisionRestart, restartService } from "../lifecycle/actions.js";
+import type { ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
@@ -36,6 +37,7 @@ export interface RuntimeServiceMonitorOptions {
   intervalMs?: number;
   logger?: Pick<Console, "log" | "warn">;
   now?: () => Date;
+  lifecycleOptions?: () => ServiceLifecycleActionOptions;
 }
 
 export interface RuntimeServiceMonitor {
@@ -76,6 +78,7 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
   const attemptsByService = new Map<string, RestartAttemptState>();
   const unhealthyCounts = new Map<string, number>();
   const inFlight = new Set<string>();
+  const lastPersistedEventByService = new Map<string, string>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let activeRun: Promise<void> | null = null;
 
@@ -102,7 +105,11 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
 
     inFlight.add(serviceId);
     try {
-      const result = await restartService(service, options.registry);
+      const result = await restartService(
+        service,
+        options.registry,
+        options.lifecycleOptions?.() ?? {},
+      );
       await writeServiceState(service, result.state);
       const nextAttempts = attemptState.attempts + 1;
       const backoffSeconds = policy?.backoffSeconds ?? 0;
@@ -152,6 +159,9 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
     }
 
     if (!lifecycle.running) {
+      if (hasPendingSupervisionRestart(serviceId)) {
+        return createEvent(service, "skip", "in_flight", "Automatic supervision restart is already in progress.", now);
+      }
       if (lifecycle.runtime.lastTermination === "crashed" && activeRestartPolicy.onCrash === true) {
         return restartMonitoredService(service, "crashed");
       }
@@ -186,14 +196,18 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
     for (const service of options.registry.list()) {
       const event = await inspectService(service);
       events.push(event);
-      await appendServiceRecoveryHistoryEvents(service, [{
-        kind: "monitor",
-        serviceId: service.manifest.id,
-        action: event.action,
-        reason: event.reason,
-        message: event.message,
-        at: event.at,
-      }]);
+      const eventKey = `${event.action}:${event.reason}`;
+      if (lastPersistedEventByService.get(service.manifest.id) !== eventKey) {
+        await appendServiceRecoveryHistoryEvents(service, [{
+          kind: "monitor",
+          serviceId: service.manifest.id,
+          action: event.action,
+          reason: event.reason,
+          message: event.message,
+          at: event.at,
+        }]);
+        lastPersistedEventByService.set(service.manifest.id, eventKey);
+      }
     }
 
     return events;

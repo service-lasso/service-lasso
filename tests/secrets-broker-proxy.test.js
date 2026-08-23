@@ -435,7 +435,7 @@ test("Core proxy E2E covers reveal, edit, rotate, provider, migration, and telem
 
     const base = `${apiServer.url}/api/services/%40secretsbroker`;
     const listed = await getJson(`${base}/secrets/management`);
-    assert.equal(listed.status, 200);
+    assert.equal(listed.status, 200, JSON.stringify(listed.body));
     assert.equal(Array.isArray(listed.body.results), true);
 
     const aliasedReveal = await postJson(`${base}/secrets/reveal`, {

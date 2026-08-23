@@ -155,7 +155,7 @@ export function resolvePermissionActor(input: unknown): PermissionActor {
   };
 }
 
-function actorHasPermission(actor: PermissionActor, permission: string): boolean {
+export function actorHasPermission(actor: PermissionActor, permission: string): boolean {
   return actor.permissions.includes("*") || actor.permissions.includes(permission);
 }
 

@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { ApiError } from "../../server/errors.js";
+import {
+  requestSecretsBrokerManagement,
+  type SecretsBrokerManagementRequest,
+  type SecretsBrokerManagementResponse,
+} from "./client.js";
 import { readSecretsBrokerOperatorConfig, resolveSecretsBrokerPort } from "./operator-config.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -75,6 +80,31 @@ export function resolveSecretsBrokerAdminAliasPath(suffix: string): string | nul
   }
 
   return null;
+}
+
+/**
+ * Use the bounded management client with legacy operator credentials when a
+ * workspace has not yet migrated to Core-owned protected IPC credentials.
+ * Returns null unless both the loopback port and persisted operator token are
+ * available; callers must prefer the protected runtime context when present.
+ */
+export async function requestLegacySecretsBrokerManagement(
+  service: DiscoveredService,
+  input: SecretsBrokerManagementRequest,
+): Promise<SecretsBrokerManagementResponse | null> {
+  const port = resolveSecretsBrokerPort(service);
+  const operatorConfig = await readSecretsBrokerOperatorConfig(service.serviceRoot);
+  if (port === null || !operatorConfig) {
+    return null;
+  }
+
+  return await requestSecretsBrokerManagement({
+    transport: { kind: "loopback-http", url: `http://127.0.0.1:${port}` },
+    apiToken: operatorConfig.apiToken,
+    workspaceId: "legacy-operator",
+    timeoutMs: 30_000,
+    managementAuthMode: "bearer",
+  }, input);
 }
 
 function appendProxyResponseHeaders(

@@ -19,10 +19,14 @@ import {
   selectPlatformCommandline,
 } from "../execution/commandline.js";
 import {
+  issueSecretsBrokerLaunchLease,
   issueScopedBrokerIdentity,
   revokeServiceScopedBrokerIdentities,
 } from "../broker/identity.js";
-import { resolveSecretsBrokerLaunchEnv } from "../broker/bootstrap.js";
+import {
+  loadSecretsBrokerRuntimeContext,
+  type SecretsBrokerRuntimeContext,
+} from "../broker/runtime.js";
 import {
   createSecretsBrokerLaunchLookup,
   resolveSecretsBrokerLaunchLeaseIssuer,
@@ -83,6 +87,7 @@ const SECRET_LIKE_VALUE_PATTERN =
 const SECRET_LIKE_KEY_PATTERN = /(secret|token|password|credential|private|cookie|key)/i;
 const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeout>>();
 const activeSupervisionRestarts = new Map<string, Promise<void>>();
+const supervisionRestartClaims = new Set<string>();
 const shutdownRequestedServiceIds = new Set<string>();
 
 registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
@@ -115,6 +120,12 @@ export function cancelScheduledSupervisionRestart(serviceId: string): void {
   }
   clearTimeout(timer);
   scheduledSupervisionRestarts.delete(serviceId);
+}
+
+export function hasPendingSupervisionRestart(serviceId: string): boolean {
+  return supervisionRestartClaims.has(serviceId)
+    || scheduledSupervisionRestarts.has(serviceId)
+    || activeSupervisionRestarts.has(serviceId);
 }
 
 function calculateRunDurationMs(
@@ -189,6 +200,7 @@ function applyProcessLaunchMetrics(
 export interface ServiceLifecycleActionOptions {
   variableResolution?: ServiceVariableResolutionOptions;
   brokerLookup?: BrokerLaunchLookup;
+  brokerRuntime?: SecretsBrokerRuntimeContext | null;
   workspaceRoot?: string;
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
@@ -446,6 +458,7 @@ async function resolveLaunchVariableResolution(
   options: ServiceLifecycleActionOptions & {
     brokerService?: DiscoveredService;
     launchLeaseIssuer?: Awaited<ReturnType<typeof resolveSecretsBrokerLaunchLeaseIssuer>>;
+    resolutionLease?: unknown;
   },
 ): Promise<ServiceVariableResolutionOptions | undefined> {
   if (!options.brokerLookup) {
@@ -456,6 +469,7 @@ async function resolveLaunchVariableResolution(
     service,
     options.brokerLookup,
     options.variableResolution,
+    options.resolutionLease,
   );
 
   if (options.brokerService) {
@@ -496,12 +510,27 @@ async function resolveBrokerLaunchContext(
   variableResolution: ServiceVariableResolutionOptions | undefined;
 }> {
   const brokerService = registry?.getById(SECRETSBROKER_SERVICE_ID);
-  const launchLeaseIssuer = await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
+  // A production broker has no public loopback port. Reuse its persisted
+  // runtime context so both launch leases and reference resolution use the
+  // authenticated Unix-socket/named-pipe transport created at setup.
+  const brokerRuntime = options.brokerRuntime ?? (registry && options.workspaceRoot
+    ? await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry)
+    : null);
+  const launchLeaseIssuer = brokerRuntime?.launchLeaseIssuer ??
+    await resolveSecretsBrokerLaunchLeaseIssuer(brokerService);
   const scopedBrokerIdentity = await issueScopedBrokerIdentity(service, {
     launchLeaseIssuer,
+    transportBinding: brokerRuntime?.transportBinding,
+  });
+  // Resolve consumes a one-time lease. Keep it distinct from the lease placed
+  // in the launched service environment so a resolution cannot replay it.
+  const resolutionLease = await issueSecretsBrokerLaunchLease(service, {
+    launchLeaseIssuer,
+    transportBinding: brokerRuntime?.transportBinding,
   });
   const brokerLookup =
     options.brokerLookup ??
+    brokerRuntime?.lookup ??
     createSecretsBrokerLaunchLookup({
       brokerService,
       launchLeaseIssuer,
@@ -515,6 +544,7 @@ async function resolveBrokerLaunchContext(
       brokerLookup,
       brokerService,
       launchLeaseIssuer,
+      resolutionLease,
     }),
   };
 }
@@ -655,6 +685,7 @@ async function runScheduledSupervisionRestart(
   }
 
   try {
+    await assertDoctorPreflightAllowsRestart(targetService);
     const result = await startService(targetService, registry, {
       ...options,
       supervisionRestart: { reason, attemptNumber },
@@ -707,8 +738,11 @@ async function superviseUnexpectedProcessExit(
   const termination = classifyUnexpectedTermination(exitCode, signal);
   const reason: ServiceRuntimeSupervisionRestartReason = "crash";
   const policy = service.manifest.restartPolicy;
+  supervisionRestartClaims.add(serviceId);
 
-  if (shutdownRequestedServiceIds.has(serviceId)) {
+  try {
+
+    if (shutdownRequestedServiceIds.has(serviceId)) {
     await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because runtime shutdown was requested.`);
     return;
   }
@@ -775,7 +809,10 @@ async function superviseUnexpectedProcessExit(
     });
   }, backoffSeconds * 1000);
   timer.unref?.();
-  scheduledSupervisionRestarts.set(serviceId, timer);
+    scheduledSupervisionRestarts.set(serviceId, timer);
+  } finally {
+    supervisionRestartClaims.delete(serviceId);
+  }
 }
 
 function resolveExecutionPlanForLifecycle(
@@ -1023,11 +1060,19 @@ export async function configService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
+  // Config materialization must fail before it writes an artifact whose
+  // required Broker inputs are unavailable. Start repeats this check with a
+  // fresh one-time lease immediately before process launch.
+  const { variableResolution } = await resolveBrokerLaunchContext(
+    service,
+    registry,
+    options,
+  );
   const artifacts = await materializeConfigArtifacts(
     service,
     sharedGlobalEnv,
     resolvedPorts,
-    {},
+    variableResolution ?? {},
     options.materializationHooks,
   );
 
@@ -1177,10 +1222,13 @@ export async function startService(
     registry,
     options,
   );
-  const brokerLaunchEnv =
-    serviceId === SECRETSBROKER_SERVICE_ID
-      ? await resolveSecretsBrokerLaunchEnv(service)
-      : undefined;
+  // The broker's trusted runtime environment is created by the first-run
+  // bootstrap transaction. Do not manufacture a second credential scheme at
+  // service-start time: the runtime client and daemon must share the same
+  // authenticated transport, master key, token, and audit configuration.
+  const brokerLaunchEnv = service.manifest.id === SECRETSBROKER_SERVICE_ID && registry && options.workspaceRoot
+    ? (await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry))?.serverEnv
+    : undefined;
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1517,10 +1565,9 @@ export async function restartService(
     registry,
     options,
   );
-  const brokerLaunchEnv =
-    serviceId === SECRETSBROKER_SERVICE_ID
-      ? await resolveSecretsBrokerLaunchEnv(service)
-      : undefined;
+  const brokerLaunchEnv = service.manifest.id === SECRETSBROKER_SERVICE_ID && registry && options.workspaceRoot
+    ? (await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry))?.serverEnv
+    : undefined;
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports

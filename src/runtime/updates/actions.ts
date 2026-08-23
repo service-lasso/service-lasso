@@ -67,6 +67,7 @@ export interface UpdateInstallOptions {
   force?: boolean;
   registry?: ServiceRegistry;
   now?: () => Date;
+  workspaceRoot?: string;
 }
 
 export type UpdateRollbackReadinessStatus = "ready" | "warning" | "blocked";
@@ -730,7 +731,9 @@ export async function installServiceUpdateCandidate(
   let finalState = nextState;
   let restartedAfterInstall = false;
   if (runningSafety.restartAfterInstall) {
-    const restarted = await startService(service, options.registry);
+    const restarted = await startService(service, options.registry, {
+      workspaceRoot: options.workspaceRoot,
+    });
     await writeServiceState(service, restarted.state);
     finalState = restarted.state;
     restartedAfterInstall = restarted.ok;

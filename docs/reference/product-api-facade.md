@@ -195,7 +195,8 @@ the same model.
 
 Safety rules:
 
-- Seed local-root/root owner into Owner group during vault bootstrap.
+- Keep the built-in local-root role mapping code-owned; Broker bootstrap does not
+  accept browser-supplied group or permission state.
 - Never allow deleting/removing the last Owner-capable actor.
 - Never allow removing your own final security access without strong confirmation.
 - Permission catalogue changes are code/schema-owned, not ad hoc UI strings.

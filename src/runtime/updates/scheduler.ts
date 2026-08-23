@@ -34,6 +34,7 @@ export interface UpdateSchedulerEvent {
 
 export interface RuntimeUpdateSchedulerOptions {
   registry: ServiceRegistry;
+  workspaceRoot?: string;
   intervalMs?: number;
   logger?: Pick<Console, "log" | "warn">;
   now?: () => Date;
@@ -134,7 +135,10 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
         return createEvent(service, "download", "downloaded", mode, message, now);
       }
 
-      const result = await installServiceUpdateCandidate(service, { registry: options.registry });
+      const result = await installServiceUpdateCandidate(service, {
+        registry: options.registry,
+        workspaceRoot: options.workspaceRoot,
+      });
       lastCheckedAtMs.set(serviceId, currentTimeMs);
       const message = `Service "${serviceId}" installed update ${result.state.installArtifacts.artifact?.tag ?? "unknown"}.`;
       logger.log(`[service-lasso] ${message}`);

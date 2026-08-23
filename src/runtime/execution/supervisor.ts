@@ -56,6 +56,7 @@ interface ManagedProcessRecord {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  treeMonitorPromise: Promise<void>;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
@@ -130,6 +131,16 @@ const managedProcessShutdownQuiescers = new Set<(
   serviceIds: ReadonlySet<string>,
 ) => Promise<void> | void>();
 const ADOPTED_PROCESS_POLL_INTERVAL_MS = 250;
+let managedProcessTreeTerminator = terminateOwnedProcessTree;
+
+export function setManagedProcessTreeTerminatorForTests(
+  terminator: typeof terminateOwnedProcessTree | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessTreeTerminator = terminator ?? terminateOwnedProcessTree;
+}
 
 export function registerManagedProcessShutdownQuiescer(
   quiescer: (serviceIds: ReadonlySet<string>) => Promise<void> | void,
@@ -512,6 +523,54 @@ function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved
   };
 }
 
+async function terminateManagedProcessTree(
+  record: ManagedProcessRecord,
+  timeoutMs: number,
+  rootExitObserved = false,
+  retryAfterSharedFailure = false,
+): Promise<ProcessTreeTerminationResult> {
+  let retryAvailable = retryAfterSharedFailure;
+  while (true) {
+    const existing = record.treeTerminationPromise;
+    if (existing) {
+      try {
+        return await existing;
+      } catch (error) {
+        if (record.treeTerminationPromise === existing) {
+          record.treeTerminationPromise = null;
+        }
+        if (!retryAvailable) {
+          throw error;
+        }
+        retryAvailable = false;
+        continue;
+      }
+    }
+
+    const attempt = (async () => {
+      if (record.stopping) {
+        await record.treeMonitorPromise;
+      }
+      return await managedProcessTreeTerminator(
+        managedProcessTreeTarget(record, rootExitObserved),
+        timeoutMs,
+      );
+    })();
+    record.treeTerminationPromise = attempt;
+    try {
+      return await attempt;
+    } catch (error) {
+      if (record.treeTerminationPromise === attempt) {
+        record.treeTerminationPromise = null;
+      }
+      if (!retryAvailable) {
+        throw error;
+      }
+      retryAvailable = false;
+    }
+  }
+}
+
 function adoptedProcessTreeTarget(record: AdoptedProcessRecord): OwnedProcessTreeTarget {
   return {
     rootPid: record.pid,
@@ -646,6 +705,7 @@ export async function beginManagedProcessStop(serviceId: string): Promise<boolea
   const record = managedProcesses.get(serviceId);
   if (record) {
     record.stopping = true;
+    await record.treeMonitorPromise;
     if (record.workspaceRoot && !record.stoppingPersisted) {
       await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
       record.stoppingPersisted = true;
@@ -810,6 +870,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     rootIdentity,
     processGroup,
     knownTreeMembers: [],
+    treeMonitorPromise: Promise.resolve(),
     treeTerminationPromise: null,
     exitPromise,
     finalizePromise: Promise.resolve(),
@@ -847,11 +908,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   }
 
   managedProcesses.set(serviceId, record);
-  void monitorManagedProcessTree(record).catch(() => undefined);
+  record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
-    record.treeTerminationPromise ??= terminateOwnedProcessTree(managedProcessTreeTarget(record, true), 5_000);
-    await record.treeTerminationPromise;
+    await terminateManagedProcessTree(record, 5_000, true, true);
     await new Promise<void>((resolve) => setImmediate(resolve));
     record.exitCode = exitCode;
     record.exitSignal = signal;
@@ -912,8 +972,7 @@ export async function stopManagedProcess(
   }
 
   await beginManagedProcessStop(serviceId);
-  record.treeTerminationPromise ??= terminateOwnedProcessTree(managedProcessTreeTarget(record), timeoutMs);
-  await record.treeTerminationPromise;
+  await terminateManagedProcessTree(record, timeoutMs);
   const result = await record.exitPromise;
   await waitForManagedProcessFinalization(serviceId);
 
@@ -1077,7 +1136,7 @@ export async function stopAllManagedProcesses(): Promise<void> {
     }
   };
 
-  const failureGroups: ManagedProcessFinalizationFailure[][] = [];
+  const unresolvedFailures = new Map<string, ManagedProcessFinalizationFailure[]>();
   for (let pass = 1; pass <= MAX_FINALIZATION_PASSES; pass += 1) {
     const activeServiceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])].reverse();
     const serviceIds = [
@@ -1090,6 +1149,11 @@ export async function stopAllManagedProcesses(): Promise<void> {
     if (serviceIds.length === 0) {
       await new Promise<void>((resolve) => setImmediate(resolve));
       if (managedProcesses.size === 0 && adoptedProcesses.size === 0 && managedProcessFinalizers.size === 0) {
+        for (const [serviceId, failures] of unresolvedFailures) {
+          if (failures.every((failure) => failure.phase === "stop")) {
+            unresolvedFailures.delete(serviceId);
+          }
+        }
         break;
       }
       continue;
@@ -1110,13 +1174,34 @@ export async function stopAllManagedProcesses(): Promise<void> {
     // Windows process-tree ownership inspection uses CIM/WMI. Running one
     // pipeline per service concurrently can exhaust that provider, so keep
     // each bounded convergence pass serialized on Windows.
+    const passResults: Array<{ serviceId: string; failures: ManagedProcessFinalizationFailure[] }> = [];
     if (process.platform === "win32") {
-      for (const serviceId of serviceIds) failureGroups.push(await stopOne(serviceId));
+      for (const serviceId of serviceIds) {
+        passResults.push({ serviceId, failures: await stopOne(serviceId) });
+      }
     } else {
-      failureGroups.push(...await Promise.all(serviceIds.map(stopOne)));
+      const failures = await Promise.all(serviceIds.map(stopOne));
+      passResults.push(...serviceIds.map((serviceId, index) => ({ serviceId, failures: failures[index] ?? [] })));
+    }
+    for (const { serviceId, failures } of passResults) {
+      if (failures.length === 0) {
+        unresolvedFailures.delete(serviceId);
+      } else {
+        unresolvedFailures.set(serviceId, failures);
+      }
     }
 
     await new Promise<void>((resolve) => setImmediate(resolve));
+    const stillTracked = new Set([
+      ...managedProcesses.keys(),
+      ...adoptedProcesses.keys(),
+      ...managedProcessFinalizers.keys(),
+    ]);
+    for (const [serviceId, failures] of unresolvedFailures) {
+      if (!stillTracked.has(serviceId) && failures.every((failure) => failure.phase === "stop")) {
+        unresolvedFailures.delete(serviceId);
+      }
+    }
     if (pass === MAX_FINALIZATION_PASSES && (
       managedProcesses.size > 0 || adoptedProcesses.size > 0 || managedProcessFinalizers.size > 0
     )) {
@@ -1125,7 +1210,8 @@ export async function stopAllManagedProcesses(): Promise<void> {
         ...adoptedProcesses.keys(),
         ...managedProcessFinalizers.keys(),
       ])) {
-        failureGroups.push([{
+        const priorFailures = unresolvedFailures.get(serviceId) ?? [];
+        unresolvedFailures.set(serviceId, [...priorFailures, {
           serviceId,
           pid: managedProcesses.get(serviceId)?.child.pid
             ?? adoptedProcesses.get(serviceId)?.pid
@@ -1137,7 +1223,7 @@ export async function stopAllManagedProcesses(): Promise<void> {
       }
     }
   }
-  const failures = failureGroups.flat();
+  const failures = [...unresolvedFailures.values()].flat();
 
   if (failures.length > 0) {
     throw new ManagedProcessFinalizationError(failures);

@@ -1,6 +1,11 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, writeFile } from "node:fs/promises";
+import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
+import {
+  bootstrapSecretsBrokerVault,
+  readSecretsBrokerRuntimeCredentials,
+} from "../broker/runtime.js";
 
 export type RuntimeSetupState =
   | "not_required"
@@ -32,10 +37,17 @@ export interface RuntimeSetupStatus {
   };
 }
 
+export type PublicRuntimeSetupStatus = Omit<RuntimeSetupStatus, "vault"> & {
+  vault: Pick<RuntimeSetupStatus["vault"], "required" | "ready">;
+};
+
 export interface RuntimeSetupBootstrapResult {
   ok: true;
   state: RuntimeSetupState;
   vaultPath: string;
+  keyId: string;
+  keyVersion: string;
+  transportKind: "loopback-http" | "unix-socket" | "windows-named-pipe";
 }
 
 export interface RuntimeSetupStatusOptions {
@@ -54,7 +66,7 @@ function resolveVaultPath(options: RuntimeSetupStatusOptions): string {
     return path.resolve(configured);
   }
 
-  return path.join(path.resolve(options.workspaceRoot), "vault", "vault.json");
+  return path.join(path.resolve(options.workspaceRoot), ".service-lasso", "secretsbroker", "store.json");
 }
 
 function isLocalBindHost(bindHost: string): boolean {
@@ -67,14 +79,15 @@ function hasSetupToken(options: RuntimeSetupStatusOptions): boolean {
 
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
-    await stat(targetPath);
-    return true;
+    const info = await lstat(targetPath);
+    return info.isFile() && !info.isSymbolicLink();
   } catch {
     return false;
   }
 }
 
-export async function ensureLocalVaultMarker(workspaceRoot: string, contents = "ready\n"): Promise<string> {
+/** @deprecated Test migration helper only. A marker never satisfies production setup readiness. */
+export async function ensureLocalVaultMarker(workspaceRoot: string, contents = "legacy-marker-not-ready\n"): Promise<string> {
   const vaultPath = resolveVaultPath({ workspaceRoot });
   await mkdir(path.dirname(vaultPath), { recursive: true });
   await writeFile(vaultPath, contents);
@@ -89,19 +102,34 @@ export function isSetupBootstrapAllowed(status: RuntimeSetupStatus, tokenAccepte
   return status.trustBoundary.localOnly || tokenAccepted;
 }
 
-export async function bootstrapLocalVault(workspaceRoot: string): Promise<RuntimeSetupBootstrapResult> {
-  const vaultPath = await ensureLocalVaultMarker(workspaceRoot);
+export async function bootstrapLocalVault(
+  workspaceRoot: string,
+  registry: ServiceRegistry,
+): Promise<RuntimeSetupBootstrapResult> {
+  const result = await bootstrapSecretsBrokerVault(workspaceRoot, registry);
   return {
     ok: true,
     state: "setup_complete",
-    vaultPath,
+    vaultPath: resolveVaultPath({ workspaceRoot }),
+    keyId: result.keyId,
+    keyVersion: result.keyVersion,
+    transportKind: result.transportKind,
   };
 }
 
 export async function readRuntimeSetupStatus(options: RuntimeSetupStatusOptions): Promise<RuntimeSetupStatus> {
   const bindHost = options.bindHost ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
   const vaultPath = resolveVaultPath(options);
-  const vaultReady = await pathExists(vaultPath);
+  let credentialsReady = false;
+  try {
+    credentialsReady = (await readSecretsBrokerRuntimeCredentials(options.workspaceRoot)) !== null;
+  } catch {
+    credentialsReady = false;
+  }
+  // First-run setup is complete once the protected runtime identity and
+  // encrypted store exist. A missing/unavailable OS wrapper means an existing
+  // vault is locked; it must never reopen bootstrap mode or hide recovery UI.
+  const vaultReady = credentialsReady && await pathExists(vaultPath);
   const tokenConfigured = hasSetupToken(options);
   const localOnly = isLocalBindHost(bindHost);
   const state = options.stateOverride ?? (vaultReady ? "not_required" : "setup_required");
@@ -134,6 +162,30 @@ export async function readRuntimeSetupStatus(options: RuntimeSetupStatusOptions)
       remoteBootstrapAllowed,
       setupTokenConfigured: tokenConfigured,
       blockers,
+    },
+  };
+}
+
+export function toPublicRuntimeSetupStatus(status: RuntimeSetupStatus): PublicRuntimeSetupStatus {
+  return {
+    contractVersion: status.contractVersion,
+    state: status.state,
+    setupMode: status.setupMode,
+    vault: {
+      required: status.vault.required,
+      ready: status.vault.ready,
+    },
+    operator: {
+      osUsername: status.operator.osUsername,
+      identitySource: status.operator.identitySource,
+    },
+    trustBoundary: {
+      bindHost: status.trustBoundary.bindHost,
+      localOnly: status.trustBoundary.localOnly,
+      localhostBootstrapAllowed: status.trustBoundary.localhostBootstrapAllowed,
+      remoteBootstrapAllowed: status.trustBoundary.remoteBootstrapAllowed,
+      setupTokenConfigured: status.trustBoundary.setupTokenConfigured,
+      blockers: [...status.trustBoundary.blockers],
     },
   };
 }
