@@ -431,6 +431,7 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
       files: [{ path: "./runtime/config.txt", content: "configured ${SERVICE_ID}\n" }],
     },
   });
+  return { serviceRoot };
 }
 
 async function seedInitializedSecretsBrokerFixture(serviceRoot) {
