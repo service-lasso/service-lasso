@@ -327,6 +327,7 @@ test("loopback first-run reveal and acknowledge stay off the security contract",
     assert.equal(firstRun.body.firstRun.password, "test-local-operator-password");
 
     const remoteDenied = await getJsonWithHeaders(`${apiServer.url}/api/runtime/auth/first-run`, {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-client-address": "10.0.0.40",
     });
     assert.equal(remoteDenied.status, 403);
@@ -335,7 +336,10 @@ test("loopback first-run reveal and acknowledge stay off the security contract",
 
     const remoteAck = await fetch(`${apiServer.url}/api/runtime/auth/first-run/acknowledge`, {
       method: "POST",
-      headers: { "x-service-lasso-client-address": "10.0.0.40" },
+      headers: {
+        "x-service-lasso-internal-proxy": "serviceadmin",
+        "x-service-lasso-client-address": "10.0.0.40",
+      },
     });
     const remoteAckBody = await remoteAck.json();
     assert.equal(remoteAck.status, 403);
@@ -511,6 +515,7 @@ test("Admin proxy original-client header treats LAN as remote without TRUST_PROX
 
   try {
     const denied = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-client-address": "192.168.1.40",
     });
     assert.equal(denied.status, 200);
@@ -528,6 +533,7 @@ test("Admin proxy original-client header treats LAN as remote without TRUST_PROX
     assert.equal(sessionToken.includes("test-local-admin-token"), false);
 
     const authed = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-client-address": "192.168.1.40",
       authorization: `Bearer ${sessionToken}`,
     });
@@ -564,6 +570,7 @@ test("remote API requests can resolve a Zitadel-authenticated actor", async () =
 
   try {
     const result = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-forwarded-for": "192.168.1.22",
       "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
     });
@@ -577,6 +584,7 @@ test("remote API requests can resolve a Zitadel-authenticated actor", async () =
     assert.deepEqual(result.body.auth.blockers, []);
 
     const services = await getJsonWithHeaders(`${apiServer.url}/api/services`, {
+      "x-service-lasso-internal-proxy": "serviceadmin",
       "x-forwarded-for": "192.168.1.22",
       "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
     });
