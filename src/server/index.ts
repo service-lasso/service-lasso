@@ -5602,7 +5602,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   const resolvedConfig = resolveRuntimeConfig(options);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
-    bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0",
+    bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
     features: {
       autostart: options.autostart === true,
       monitor: options.monitor === true,
@@ -5987,7 +5987,7 @@ async function startApiServerGeneration(
     committedServiceAdoptionIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RunningApiServer> {
-  const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
+  const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const bootModel = await loadRuntimeModel(config.servicesRoot);
   const runtimeInstanceId = generation.instanceId;
