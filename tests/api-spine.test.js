@@ -471,6 +471,8 @@ test("loopback Service Admin proxy normalizes remote Zitadel identity", async ()
   try {
     const authenticated = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
       "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-proxy": "serviceadmin",
+      "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
       "x-service-lasso-client-address": "192.0.2.40",
       "x-service-lasso-zitadel-user-id": "usr_trusted_operator",
     });
@@ -611,6 +613,8 @@ test("remote API requests can resolve a Zitadel-authenticated actor", async () =
   try {
     const result = await getJsonWithHeaders(`${apiServer.url}/api/runtime/security`, {
       "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-proxy": "serviceadmin",
+      "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
       "x-forwarded-for": "192.168.1.22",
       "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
     });
@@ -625,6 +629,8 @@ test("remote API requests can resolve a Zitadel-authenticated actor", async () =
 
     const services = await getJsonWithHeaders(`${apiServer.url}/api/services`, {
       "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-proxy": "serviceadmin",
+      "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
       "x-forwarded-for": "192.168.1.22",
       "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
     });

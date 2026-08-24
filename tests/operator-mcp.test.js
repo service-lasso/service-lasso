@@ -342,8 +342,10 @@ test("MCP secret metadata returns refs, assignment, and rotation without secret 
     assert.equal(Object.hasOwn(payload.services[0], "manifestPath"), false);
     assert.equal(payload.safety.mutating, false);
     assert.equal(resourcePayload.services[0].serviceId, "mcp-secret-metadata-service");
-    assert.match(extraArgs.body.error.message, /rejects additional properties: reveal/);
-    assert.match(unknownService.body.error.message, /Unknown service id: missing-service/);
+    assert.equal(extraArgs.body.result.isError, true);
+    assert.match(extraArgs.body.result.content[0].text, /Unrecognized key: "reveal"/);
+    assert.equal(unknownService.body.result.isError, true);
+    assert.match(unknownService.body.result.content[0].text, /Unknown service id: missing-service/);
     assertNoSecretMaterial(payload);
     assertNoSecretMaterial(resourcePayload);
     assert.doesNotMatch(serialized, /SERVICE_LASSO_FAKE_SECRET_SENTINEL|reveal|CLIENT_SECRET_VALUE/);
