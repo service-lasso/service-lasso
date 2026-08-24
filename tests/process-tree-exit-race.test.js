@@ -184,6 +184,22 @@ test("transient descendant inspection failure is retried before Windows adoption
   assert.deepEqual(members, [childIdentity, identity]);
 });
 
+test("Windows adoption ignores cyclic process-table descendants", async () => {
+  const childIdentity = { ...identity, pid: identity.pid + 1, commandHash: "b".repeat(64) };
+  const members = await captureOwnedProcessTreeMembers(target, {
+    platform: "win32",
+    readWindowsProcessTable: async () => [
+      { pid: identity.pid, parentPid: childIdentity.pid },
+      { pid: childIdentity.pid, parentPid: identity.pid },
+    ],
+    inspectProcess: async (pid) => pid === identity.pid
+      ? { status: "running", identity }
+      : { status: "running", identity: childIdentity },
+  });
+
+  assert.deepEqual(members, [childIdentity, identity]);
+});
+
 test("persistently unverifiable Windows descendant remains fail closed", async () => {
   let childInspections = 0;
   await assert.rejects(
