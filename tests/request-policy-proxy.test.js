@@ -14,6 +14,8 @@ test("direct remote requests cannot spoof forwarded local-root or Zitadel identi
     request("192.0.2.40", {
       "x-forwarded-for": "127.0.0.1",
       "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-proxy": "serviceadmin",
+      "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
       "x-service-lasso-client-address": "127.0.0.1",
       "x-service-lasso-zitadel-user-id": "spoofed-user",
     }),
@@ -38,6 +40,8 @@ test("exact loopback Service Admin proxy can carry authenticated remote identity
   const result = resolveRuntimeRequestAuth(
     request("127.0.0.1", {
       "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-proxy": "serviceadmin",
+      "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
       "x-service-lasso-client-address": "192.0.2.40",
       "x-service-lasso-zitadel-user-id": "usr_trusted_operator",
     }),

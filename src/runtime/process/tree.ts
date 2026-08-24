@@ -303,12 +303,14 @@ function collectDescendantRows<T extends { pid: number; parentPid: number }>(row
   }
 
   const descendants: T[] = [];
+  const visitedPids = new Set<number>([rootPid]);
   const queue = [...(byParent.get(rootPid) ?? [])];
   while (queue.length > 0) {
     const row = queue.shift();
-    if (!row) {
+    if (!row || visitedPids.has(row.pid)) {
       continue;
     }
+    visitedPids.add(row.pid);
     descendants.push(row);
     queue.push(...(byParent.get(row.pid) ?? []));
   }

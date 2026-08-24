@@ -79,6 +79,8 @@ test("permissionActorFromRuntimeAuth maps local-root, local-token, and fail-clos
     resolveRuntimeRequestAuth(
       fakeRequest("127.0.0.1", {
         "x-service-lasso-internal-proxy": "serviceadmin",
+        "x-service-lasso-proxy": "serviceadmin",
+        "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
         "x-service-lasso-client-address": "10.0.0.8",
         "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
       }),
@@ -265,6 +267,8 @@ test("HTTP action runs use the trusted request actor and ignore body actor spoof
       {
         "x-forwarded-for": "192.168.1.22",
         "x-service-lasso-internal-proxy": "serviceadmin",
+        "x-service-lasso-proxy": "serviceadmin",
+        "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
         "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
       },
     );
