@@ -6,7 +6,11 @@ import {
   type SecretsBrokerManagementRequest,
   type SecretsBrokerManagementResponse,
 } from "./client.js";
-import { requestSecretsBrokerHttp, SECRETSBROKER_IPC_MAX_BYTES } from "./ipc-transport.js";
+import {
+  requestSecretsBrokerHttp,
+  SECRETSBROKER_IPC_MAX_BYTES,
+  type SecretsBrokerHttpRequester,
+} from "./ipc-transport.js";
 import { readSecretsBrokerOperatorConfig, resolveSecretsBrokerPort, resolveSecretsBrokerTransport } from "./operator-config.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -170,10 +174,15 @@ export async function proxySecretsBrokerRequest(
   service: DiscoveredService,
   proxyPath: string,
   search: string,
+  protectedRequester?: SecretsBrokerHttpRequester,
 ): Promise<void> {
-  const operatorConfig = await readSecretsBrokerOperatorConfig(service.serviceRoot);
-  const target = resolveSecretsBrokerTransport(service, process.env, operatorConfig);
-  if (target === null) {
+  const operatorConfig = protectedRequester
+    ? null
+    : await readSecretsBrokerOperatorConfig(service.serviceRoot);
+  const target = protectedRequester
+    ? null
+    : resolveSecretsBrokerTransport(service, process.env, operatorConfig);
+  if (!protectedRequester && target === null) {
     throw new ApiError("broker_unavailable", 503, "Secrets Broker transport is unavailable.");
   }
 
@@ -185,12 +194,15 @@ export async function proxySecretsBrokerRequest(
 
   const method = request.method ?? "GET";
   const body = await readRequestBody(request);
-  const upstream = await requestSecretsBrokerHttp(target, {
+  const upstreamRequest = {
     method,
     pathWithQuery: `${normalizedPath}${search}`,
     headers: upstreamHeaders,
     body,
-  });
+  };
+  const upstream = protectedRequester
+    ? await protectedRequester(upstreamRequest)
+    : await requestSecretsBrokerHttp(target!, upstreamRequest);
 
   response.statusCode = upstream.status;
   appendProxyResponseHeaders(response, upstream.headers, upstream.body.byteLength);

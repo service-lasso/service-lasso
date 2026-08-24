@@ -24,6 +24,11 @@ import {
 } from "./client.js";
 import type { BrokerTransportBinding, SecretsBrokerLaunchLeaseIssuer } from "./identity.js";
 import type { BrokerLaunchLookup } from "./launch-resolution.js";
+import {
+  requestSecretsBrokerHttp,
+  type SecretsBrokerHttpRequester,
+  type SecretsBrokerTransportTarget,
+} from "./ipc-transport.js";
 
 const execFileAsync = promisify(execFile);
 const CREDENTIALS_VERSION = 1;
@@ -54,9 +59,46 @@ export interface SecretsBrokerRuntimeContext {
   probe: () => Promise<SecretsBrokerProbeResult>;
   writeback: (input: SecretsBrokerWritebackRequest) => Promise<SecretsBrokerWritebackResult>;
   management: (input: SecretsBrokerManagementRequest) => Promise<SecretsBrokerManagementResponse>;
+  operatorRequest: SecretsBrokerHttpRequester;
   serverEnv: Record<string, string>;
   launchLeaseIssuer?: SecretsBrokerLaunchLeaseIssuer;
   transportBinding: BrokerTransportBinding | null;
+}
+
+function protectedTransportTarget(
+  transport: SecretsBrokerClientTransport,
+): SecretsBrokerTransportTarget {
+  if (transport.kind !== "loopback-http") {
+    return transport;
+  }
+
+  const url = new URL(transport.url);
+  const port = Number(url.port);
+  if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
+    throw new Error("Secrets Broker loopback transport port is invalid.");
+  }
+  return { kind: "loopback-http", port };
+}
+
+function protectedOperatorRequester(
+  credentials: SecretsBrokerRuntimeCredentials,
+): SecretsBrokerHttpRequester {
+  const target = protectedTransportTarget(credentials.transport);
+  return async (request) => {
+    const headers = Object.fromEntries(
+      Object.entries(request.headers).filter(([name]) => {
+        const normalized = name.toLowerCase();
+        return normalized !== "authorization" && normalized !== "x-secretsbroker-token";
+      }),
+    );
+    return await requestSecretsBrokerHttp(target, {
+      ...request,
+      headers: {
+        ...headers,
+        authorization: `Bearer ${credentials.apiToken}`,
+      },
+    });
+  };
 }
 
 export interface SecretsBrokerBootstrapResult {
@@ -402,6 +444,7 @@ export async function loadSecretsBrokerRuntimeContext(
     probe: async () => await probeSecretsBroker(clientOptions),
     writeback: createSecretsBrokerWriteback(clientOptions),
     management: async (input) => await requestSecretsBrokerManagement(clientOptions, input),
+    operatorRequest: protectedOperatorRequester(credentials),
     serverEnv,
     launchLeaseIssuer,
     transportBinding: credentials.transportBinding,
