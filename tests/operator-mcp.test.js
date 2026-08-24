@@ -109,6 +109,7 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
         "service_lasso_dependency_status",
         "service_lasso_logs_summary",
         "service_lasso_diagnostics_summary",
+        "service_lasso_secret_metadata",
       ],
     );
     assert.equal(
@@ -123,6 +124,7 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
         "servicelasso://routes",
         "servicelasso://dependencies",
         "servicelasso://diagnostics",
+        "servicelasso://secret-metadata",
       ],
     );
   } finally {
@@ -233,6 +235,118 @@ test("MCP tool calls return redacted log summaries and sanitized routes", async 
     assertNoSecretMaterial(logPayload);
     assertNoSecretMaterial(diagnosticsPayload);
     assert.doesNotMatch(serialized, /keep-out|user:password|SERVICE_LASSO_FAKE_SECRET_SENTINEL|abcdefghijklmnopqrstuvwxyz123456/);
+  } finally {
+    await apiServer?.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("MCP secret metadata returns refs, assignment, and rotation without secret values", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-secret-metadata-");
+  let apiServer;
+
+  try {
+    await writeManifest(servicesRoot, "mcp-secret-metadata-service", {
+      id: "mcp-secret-metadata-service",
+      name: "MCP Secret Metadata Service",
+      description: "Secret-metadata fixture.",
+      env: {
+        SERVICE_TOKEN: serviceLassoSecretLeakSentinels[0].value,
+      },
+      broker: {
+        imports: [
+          {
+            ref: "identity.CLIENT_SECRET",
+            namespace: "identity",
+            required: true,
+          },
+        ],
+        accessPolicy: {
+          grants: [
+            {
+              namespace: "identity",
+              operations: ["resolve"],
+              refs: ["identity.CLIENT_SECRET"],
+              purpose: "MCP secret-metadata assignment fixture.",
+            },
+          ],
+        },
+      },
+      healthcheck: {
+        type: "process",
+      },
+    });
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot, version: "test-version" });
+
+    const metadata = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: "secret-metadata",
+      method: "tools/call",
+      params: {
+        name: "service_lasso_secret_metadata",
+        arguments: {
+          serviceId: "mcp-secret-metadata-service",
+        },
+      },
+    });
+    const extraArgs = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: "secret-metadata-extra",
+      method: "tools/call",
+      params: {
+        name: "service_lasso_secret_metadata",
+        arguments: {
+          serviceId: "mcp-secret-metadata-service",
+          reveal: true,
+        },
+      },
+    });
+    const unknownService = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: "secret-metadata-unknown",
+      method: "tools/call",
+      params: {
+        name: "service_lasso_secret_metadata",
+        arguments: {
+          serviceId: "missing-service",
+        },
+      },
+    });
+    const resource = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: "secret-metadata-resource",
+      method: "resources/read",
+      params: {
+        uri: "servicelasso://secret-metadata",
+      },
+    });
+
+    assert.equal(metadata.status, 200);
+    assert.equal(resource.status, 200);
+    const payload = JSON.parse(metadata.body.result.content[0].text);
+    const resourcePayload = JSON.parse(resource.body.result.contents[0].text);
+    const serialized = JSON.stringify({ payload, resourcePayload });
+
+    assert.equal(payload.broker.discovered, false);
+    assert.equal(payload.broker.availability, "not_discovered");
+    assert.equal(payload.lockout.status, "not_queried");
+    assert.equal(payload.summary.references, 1);
+    assert.equal(payload.services.length, 1);
+    assert.equal(payload.services[0].serviceId, "mcp-secret-metadata-service");
+    assert.equal(payload.services[0].references[0].ref, "identity.CLIENT_SECRET");
+    assert.equal(payload.services[0].references[0].namespace, "identity");
+    assert.equal(payload.services[0].references[0].key, "CLIENT_SECRET");
+    assert.equal(payload.services[0].references[0].accessPolicy.status, "allowed");
+    assert.equal(payload.services[0].rotation[0].ref, "identity.CLIENT_SECRET");
+    assert.equal(Object.hasOwn(payload.services[0], "manifestPath"), false);
+    assert.equal(payload.safety.mutating, false);
+    assert.equal(resourcePayload.services[0].serviceId, "mcp-secret-metadata-service");
+    assert.match(extraArgs.body.error.message, /rejects additional properties: reveal/);
+    assert.match(unknownService.body.error.message, /Unknown service id: missing-service/);
+    assertNoSecretMaterial(payload);
+    assertNoSecretMaterial(resourcePayload);
+    assert.doesNotMatch(serialized, /SERVICE_LASSO_FAKE_SECRET_SENTINEL|reveal|CLIENT_SECRET_VALUE/);
   } finally {
     await apiServer?.stop();
     await rm(tempRoot, { recursive: true, force: true });
