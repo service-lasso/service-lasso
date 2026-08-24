@@ -1,6 +1,7 @@
 import path from "node:path";
 import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { ApiError } from "../../server/errors.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
 
 export interface ServiceLogEntry {
@@ -645,17 +646,15 @@ export async function buildServiceLogInfo(
   };
 }
 
-export async function readServiceLogChunk(
-  service: DiscoveredService,
-  before?: number,
-  limit = DEFAULT_LOG_CHUNK_LIMIT,
-  type: ServiceLogReadType = "default",
-  runId = "current",
-): Promise<ServiceLogChunkPayload> {
-  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, runId);
-  const logPath = getLogPathForType(runtimeLogPaths, type);
-  const source = await buildCurrentSourceInfo(runtimeLogPaths, type);
-  const lines = await readRuntimeLogLines(logPath);
+function buildLogChunkPayload(
+  serviceId: string,
+  type: ServiceLogReadType,
+  logPath: string,
+  source: ServiceLogSourceInfo,
+  lines: string[],
+  before: number | undefined,
+  limit: number,
+): ServiceLogChunkPayload {
   const totalLines = lines.length;
   const safeLimit = sanitizePositiveInteger(limit, DEFAULT_LOG_CHUNK_LIMIT, MAX_LOG_CHUNK_LIMIT);
   const end = sanitizeCursor(before, totalLines, totalLines);
@@ -678,7 +677,7 @@ export async function readServiceLogChunk(
   });
 
   return {
-    serviceId: service.manifest.id,
+    serviceId,
     type,
     path: logPath,
     available: source.available,
@@ -694,6 +693,46 @@ export async function readServiceLogChunk(
     entries,
     lines: entries.map((entry) => entry.text),
   };
+}
+
+/**
+ * Resolve a declared or discovered log source by advertised id.
+ * Missing files stay readable as an empty chunk; unknown ids fail closed.
+ */
+export async function resolveAdvertisedLogSource(
+  service: DiscoveredService,
+  sourceId: string,
+  runId = "current",
+): Promise<ServiceLogSourceInfo> {
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, runId);
+  const sources = await buildLogSources(service, { ...runtimeLogPaths, runId });
+  const source = sources.find((entry) => entry.id === sourceId);
+  if (!source) {
+    throw new ApiError("log_source_not_found", 404, `Unknown log source "${sourceId}".`);
+  }
+
+  return source;
+}
+
+export async function readServiceLogChunk(
+  service: DiscoveredService,
+  before?: number,
+  limit = DEFAULT_LOG_CHUNK_LIMIT,
+  type: ServiceLogReadType = "default",
+  runId = "current",
+  sourceId?: string | null,
+): Promise<ServiceLogChunkPayload> {
+  if (sourceId) {
+    const source = await resolveAdvertisedLogSource(service, sourceId, runId);
+    const lines = await readRuntimeLogLines(source.path);
+    return buildLogChunkPayload(service.manifest.id, "default", source.path, source, lines, before, limit);
+  }
+
+  const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, runId);
+  const logPath = getLogPathForType(runtimeLogPaths, type);
+  const source = await buildCurrentSourceInfo(runtimeLogPaths, type);
+  const lines = await readRuntimeLogLines(logPath);
+  return buildLogChunkPayload(service.manifest.id, type, logPath, source, lines, before, limit);
 }
 
 async function collectSearchableLogLines(

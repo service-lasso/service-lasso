@@ -443,11 +443,11 @@ function parseBooleanQuery(value: string | null): boolean {
 }
 
 /**
- * Parses the log-info / log-read / log-search `type` query.
+ * Builtin log-info / log-read / log-search `type` values.
  * `combined` is an alias for `default` (service.log), matching the builtin
  * combined stream that log-info advertises to Service Admin.
  */
-function parseServiceLogReadType(value: string | null): ServiceLogReadType {
+function parseBuiltinServiceLogReadType(value: string | null): ServiceLogReadType | null {
   if (value === null || value === "default" || value === "combined") {
     return "default";
   }
@@ -456,11 +456,52 @@ function parseServiceLogReadType(value: string | null): ServiceLogReadType {
     return value;
   }
 
+  return null;
+}
+
+function parseServiceLogReadType(value: string | null): ServiceLogReadType {
+  const type = parseBuiltinServiceLogReadType(value);
+  if (type !== null) {
+    return type;
+  }
+
   throw new ApiError(
     "invalid_request",
     400,
     "Log type must be one of: default, stdout, stderr, combined.",
   );
+}
+
+/**
+ * Resolves log-info / log-read queries.
+ * Advertised declared/discovered source ids may arrive as `source=` or, for
+ * current Service Admin tabs, as `type=<sourceId>`.
+ */
+function parseServiceLogReadRequest(searchParams: URLSearchParams): {
+  type: ServiceLogReadType;
+  sourceId: string | null;
+} {
+  const sourceParam = searchParams.get("source")?.trim() ?? "";
+  if (sourceParam !== "") {
+    const builtinFromSource = parseBuiltinServiceLogReadType(sourceParam);
+    if (builtinFromSource !== null) {
+      return { type: builtinFromSource, sourceId: null };
+    }
+
+    return { type: "default", sourceId: sourceParam };
+  }
+
+  const typeParam = searchParams.get("type");
+  const builtinType = parseBuiltinServiceLogReadType(typeParam);
+  if (builtinType !== null) {
+    return { type: builtinType, sourceId: null };
+  }
+
+  if (typeParam === null || typeParam.trim() === "") {
+    return { type: "default", sourceId: null };
+  }
+
+  return { type: "default", sourceId: typeParam.trim() };
 }
 
 function cloneWorkflowRunFacadeState(state: WorkflowRunFacadeState): WorkflowRunFacadeState {
@@ -3859,7 +3900,7 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/services/log-info") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = parseServiceLogReadType(url.searchParams.get("type"));
+    const { type } = parseServiceLogReadRequest(url.searchParams);
 
     if (!serviceId) {
       throw new ApiError("invalid_request", 400, "Missing required \"service\" query parameter.");
@@ -3893,7 +3934,7 @@ async function routeRequest(
   if (request.method === "GET" && url.pathname === "/api/logs/read") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const serviceId = url.searchParams.get("service");
-    const type = parseServiceLogReadType(url.searchParams.get("type"));
+    const { type, sourceId } = parseServiceLogReadRequest(url.searchParams);
     const cursorParam = url.searchParams.get("cursor");
     const beforeParam = url.searchParams.get("before");
     const limitParam = url.searchParams.get("limit");
@@ -3915,7 +3956,16 @@ async function routeRequest(
     writeJson(
       response,
       200,
-      createServiceLogChunkResponse(await readServiceLogChunk(service, before, limit, type, getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current")),
+      createServiceLogChunkResponse(
+        await readServiceLogChunk(
+          service,
+          before,
+          limit,
+          type,
+          getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current",
+          sourceId,
+        ),
+      ),
     );
     return;
   }
