@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import http from "node:http";
 import {
   acknowledgeLocalOperatorFirstRun,
   clearLocalAuthSessions,
@@ -21,7 +23,14 @@ import {
   parseLocalAuthValidateInput,
   validateLocalAuth,
 } from "../dist/runtime/auth/local-auth-validate.js";
-import { LOCAL_OPERATOR_USERNAME } from "../dist/runtime/auth/local-auth-constants.js";
+import {
+  FIRST_RUN_VAULT_FIELD_NAMES,
+  LOCAL_ADMIN_TOKEN_FIELD,
+  LOCAL_OPERATOR_PASSWORD_FIELD,
+  LOCAL_OPERATOR_SECRET_KV_PATH,
+  LOCAL_OPERATOR_USERNAME,
+  LOCAL_OPERATOR_USERNAME_FIELD,
+} from "../dist/runtime/auth/local-auth-constants.js";
 
 const TOKEN_SENTINEL = "test-local-admin-token";
 const PASSWORD_SENTINEL = "test-local-operator-password";
@@ -240,6 +249,143 @@ test("first-run seed writes a pending envelope without logging sentinels", async
     assert.equal((envelope?.token ?? "").includes(TOKEN_SENTINEL), false);
   } finally {
     clearLocalAuthMaterialCache();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("hashed first-run state without envelope stays pending", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-first-run-pending-"));
+  try {
+    await writeLocalOperatorAuthState(workspaceRoot, {
+      token: TOKEN_SENTINEL,
+      password: PASSWORD_SENTINEL,
+      credentialsAcknowledged: false,
+      persistPlaintextEnvelope: false,
+    });
+    clearLocalAuthMaterialCache();
+    const material = await loadLocalAuthMaterial({ workspaceRoot });
+    assert.equal(material.firstRunPending, true);
+    assert.equal(material.credentialsAcknowledged, false);
+    assert.equal(await readFirstRunEnvelope(workspaceRoot), null);
+  } finally {
+    clearLocalAuthMaterialCache();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("first-run vault ingest writes field names before the INIT envelope exists", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-first-run-vault-"));
+  const envelopePath = path.join(workspaceRoot, ".service-lasso", "local-operator-first-run.json");
+  /** @type {Record<string, string>} */
+  const store = {};
+  let postedBeforeEnvelope = false;
+  let postedFieldNames = [];
+
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "GET" && url.pathname === "/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    const isLocalOperatorKv =
+      url.pathname === `/v1/kv/data/${LOCAL_OPERATOR_SECRET_KV_PATH}` ||
+      url.pathname === "/v1/kv/data/runtime/auth";
+
+    if (request.method === "GET" && isLocalOperatorKv) {
+      if (Object.keys(store).length === 0 && url.pathname.endsWith("/local-operator")) {
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify({ errors: ["not found"] }));
+        return;
+      }
+      const fields =
+        url.pathname.endsWith("/auth") ? { FORCE_SSO: "false" } : { ...store };
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          data: {
+            data: fields,
+            metadata: { version: Object.keys(fields).length > 0 ? 1 : 0 },
+          },
+        }),
+      );
+      return;
+    }
+
+    if (request.method === "POST" && isLocalOperatorKv) {
+      const chunks = [];
+      request.on("data", (chunk) => {
+        chunks.push(chunk);
+      });
+      request.on("end", () => {
+        const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        const fields =
+          parsed && parsed.data && typeof parsed.data === "object" ? parsed.data : {};
+        if (url.pathname.endsWith("/local-operator")) {
+          postedFieldNames = Object.keys(fields).sort();
+          postedBeforeEnvelope = existsSync(envelopePath) === false;
+          for (const [key, value] of Object.entries(fields)) {
+            if (typeof value === "string") {
+              store[key] = value;
+            }
+          }
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            data: {
+              data: fields,
+              metadata: { version: 1 },
+            },
+          }),
+        );
+      });
+      return;
+    }
+
+    response.writeHead(404);
+    response.end();
+  });
+
+  await new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  assert.notEqual(address, null);
+  const port = address.port;
+
+  try {
+    const material = await ensureLocalOperatorAuth({
+      workspaceRoot,
+      servicesRoot: path.join(workspaceRoot, "services"),
+      brokerClient: { apiToken: "test-broker-api-token", port },
+      brokerWaitTimeoutMs: 1000,
+      brokerWaitIntervalMs: 50,
+    });
+    assert.equal(material.firstRunPending, true);
+    assert.deepEqual(postedFieldNames, [...FIRST_RUN_VAULT_FIELD_NAMES].sort());
+    assert.equal(postedBeforeEnvelope, true);
+    const envelope = await readFirstRunEnvelope(workspaceRoot);
+    assert.equal(envelope?.username, LOCAL_OPERATOR_USERNAME);
+    assert.ok(
+      envelope?.token === store[LOCAL_ADMIN_TOKEN_FIELD],
+      "envelope token must match vault field",
+    );
+    assert.ok(
+      envelope?.password === store[LOCAL_OPERATOR_PASSWORD_FIELD],
+      "envelope password must match vault field",
+    );
+    assert.equal(store[LOCAL_OPERATOR_USERNAME_FIELD], LOCAL_OPERATOR_USERNAME);
+    assert.equal(typeof store[LOCAL_ADMIN_TOKEN_FIELD], "string");
+    assert.equal(typeof store[LOCAL_OPERATOR_PASSWORD_FIELD], "string");
+    assert.ok((store[LOCAL_ADMIN_TOKEN_FIELD] ?? "").includes(TOKEN_SENTINEL) === false);
+  } finally {
+    clearLocalAuthMaterialCache();
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });

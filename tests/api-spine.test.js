@@ -325,6 +325,12 @@ test("loopback first-run reveal and acknowledge stay off the security contract",
     assert.equal(firstRun.body.firstRun.username, "local-operator");
     assert.equal(firstRun.body.firstRun.token, "test-local-admin-token");
     assert.equal(firstRun.body.firstRun.password, "test-local-operator-password");
+    assert.equal(firstRun.body.firstRun.vaultPath, "runtime/local-operator");
+    assert.deepEqual(firstRun.body.firstRun.vaultFieldNames, [
+      "LOCAL_OPERATOR_USERNAME",
+      "LOCAL_ADMIN_TOKEN",
+      "LOCAL_OPERATOR_PASSWORD",
+    ]);
 
     const remoteDenied = await getJsonWithHeaders(`${apiServer.url}/api/runtime/auth/first-run`, {
       "x-service-lasso-internal-proxy": "serviceadmin",
@@ -363,6 +369,40 @@ test("loopback first-run reveal and acknowledge stay off the security contract",
     assert.equal(securityAfter.body.auth.policy.firstRunPending, false);
     assert.equal(securityAfter.body.auth.policy.credentialsAcknowledged, true);
     assert.equal(JSON.stringify(securityAfter.body).includes("test-local-admin-token"), false);
+  } finally {
+    await apiServer.stop();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loopback first-run GET is 503 without secrets while vault ingest is pending", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-first-run-vault-pending-"));
+  await ensureLocalVaultMarker(tempDir);
+  await writeLocalOperatorAuthState(tempDir, {
+    token: "test-local-admin-token",
+    password: "test-local-operator-password",
+    credentialsAcknowledged: false,
+    persistPlaintextEnvelope: false,
+  });
+  const apiServer = await startApiServer({
+    port: 0,
+    host: "127.0.0.1",
+    workspaceRoot: tempDir,
+    version: "auth-first-run-vault-pending",
+  });
+
+  try {
+    const security = await getJson(`${apiServer.url}/api/runtime/security`);
+    assert.equal(security.status, 200);
+    assert.equal(security.body.auth.policy.firstRunPending, true);
+    assert.equal(JSON.stringify(security.body).includes("test-local-admin-token"), false);
+    assert.equal(JSON.stringify(security.body).includes("test-local-operator-password"), false);
+
+    const firstRun = await getJson(`${apiServer.url}/api/runtime/auth/first-run`);
+    assert.equal(firstRun.status, 503);
+    assert.equal(firstRun.body.error, "first_run_vault_not_ready");
+    assert.equal(JSON.stringify(firstRun.body).includes("test-local-admin-token"), false);
+    assert.equal(JSON.stringify(firstRun.body).includes("test-local-operator-password"), false);
   } finally {
     await apiServer.stop();
     await rm(tempDir, { recursive: true, force: true });

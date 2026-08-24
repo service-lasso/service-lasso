@@ -15,8 +15,19 @@ export const FORCE_SSO_FIELD = "FORCE_SSO";
 /** Broker KV path for revealable local-operator secrets. */
 export const LOCAL_OPERATOR_SECRET_KV_PATH = "runtime/local-operator";
 
+export const LOCAL_OPERATOR_USERNAME_FIELD = "LOCAL_OPERATOR_USERNAME";
 export const LOCAL_ADMIN_TOKEN_FIELD = "LOCAL_ADMIN_TOKEN";
 export const LOCAL_OPERATOR_PASSWORD_FIELD = "LOCAL_OPERATOR_PASSWORD";
+
+/**
+ * Stable first-run field names in {@link LOCAL_OPERATOR_SECRET_KV_PATH}.
+ * Names only; never log or print the values.
+ */
+export const FIRST_RUN_VAULT_FIELD_NAMES = [
+  LOCAL_OPERATOR_USERNAME_FIELD,
+  LOCAL_ADMIN_TOKEN_FIELD,
+  LOCAL_OPERATOR_PASSWORD_FIELD,
+] as const;
 
 export const ORIGINAL_CLIENT_ADDRESS_HEADER = "x-service-lasso-client-address";
 export const TRUSTED_INGRESS_HEADER = "x-service-lasso-trusted-ingress";

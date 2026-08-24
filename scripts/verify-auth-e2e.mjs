@@ -10,7 +10,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LOCAL_OPERATOR_USERNAME } from "../dist/runtime/auth/local-auth-constants.js";
+import { LOCAL_OPERATOR_SECRET_KV_PATH, LOCAL_OPERATOR_USERNAME } from "../dist/runtime/auth/local-auth-constants.js";
 import {
   patchLocalOperatorForceSso,
   writeLocalOperatorAuthState,
@@ -132,6 +132,10 @@ export async function runAuthE2e() {
     assert(typeof revealedPassword === "string" && revealedPassword.length > 0, "first-run password must be present");
     assert(revealedToken === TOKEN_SENTINEL, "first-run token must match the seeded sentinel");
     assert(revealedPassword === PASSWORD_SENTINEL, "first-run password must match the seeded sentinel");
+    assert(
+      firstRun.body.firstRun.vaultPath === LOCAL_OPERATOR_SECRET_KV_PATH,
+      "first-run must advertise the Broker KV path without secret values",
+    );
     checks += 1;
 
     const remoteFirstRun = await readJson(`${baseUrl}/api/runtime/auth/first-run`, { headers: REMOTE_HEADERS });

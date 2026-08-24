@@ -103,11 +103,17 @@ export async function writeLocalOperatorAuthState(
     password: string;
     forceSso?: boolean;
     credentialsAcknowledged?: boolean;
+    /**
+     * When false, hashed state is written with `credentialsAcknowledged: false`
+     * but the plaintext envelope is withheld until Broker KV ingest succeeds.
+     */
+    persistPlaintextEnvelope?: boolean;
   },
 ): Promise<LocalOperatorAuthStateFile> {
   const tokenSalt = randomBytes(16);
   const passwordSalt = randomBytes(16);
   const credentialsAcknowledged = input.credentialsAcknowledged === true;
+  const persistPlaintextEnvelope = input.persistPlaintextEnvelope !== false;
   const state: LocalOperatorAuthStateFile = {
     version: 1,
     tokenSalt: tokenSalt.toString("base64url"),
@@ -123,8 +129,8 @@ export async function writeLocalOperatorAuthState(
   await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   if (credentialsAcknowledged) {
     await rm(readFirstRunPath(workspaceRoot), { force: true });
-  } else {
-    await writeFirstRunEnvelope(workspaceRoot, {
+  } else if (persistPlaintextEnvelope) {
+    await persistFirstRunEnvelope(workspaceRoot, {
       username: LOCAL_OPERATOR_USERNAME,
       token: input.token,
       password: input.password,
@@ -133,7 +139,11 @@ export async function writeLocalOperatorAuthState(
   return state;
 }
 
-async function writeFirstRunEnvelope(
+/**
+ * Write the one-time loopback envelope after Broker KV already holds the same
+ * three first-run fields. Callers must not log `secrets`.
+ */
+export async function persistFirstRunEnvelope(
   workspaceRoot: string,
   secrets: LocalOperatorFirstRunSecrets,
 ): Promise<void> {
