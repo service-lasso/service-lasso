@@ -31,6 +31,8 @@ import {
   LOCAL_OPERATOR_USERNAME,
   LOCAL_OPERATOR_USERNAME_FIELD,
 } from "../dist/runtime/auth/local-auth-constants.js";
+import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { requestSecretsBrokerHttp } from "../dist/runtime/broker/ipc-transport.js";
 
 const TOKEN_SENTINEL = "test-local-admin-token";
 const PASSWORD_SENTINEL = "test-local-operator-password";
@@ -360,7 +362,18 @@ test("first-run vault ingest writes field names before the INIT envelope exists"
     const material = await ensureLocalOperatorAuth({
       workspaceRoot,
       servicesRoot: path.join(workspaceRoot, "services"),
-      brokerClient: { apiToken: "test-broker-api-token", port },
+      brokerClient: {
+        request: async (request) => await requestSecretsBrokerHttp(
+          { kind: "loopback-http", port },
+          {
+            ...request,
+            headers: {
+              ...request.headers,
+              authorization: "Bearer test-broker-api-token",
+            },
+          },
+        ),
+      },
       brokerWaitTimeoutMs: 1000,
       brokerWaitIntervalMs: 50,
     });
@@ -387,5 +400,30 @@ test("first-run vault ingest writes field names before the INIT envelope exists"
       server.close(resolve);
     });
     await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("discovered Broker without bootstrap state blocks INIT credentials from local-only fallback", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-first-run-broker-required-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
+
+    await assert.rejects(
+      ensureLocalOperatorAuth({
+        workspaceRoot,
+        servicesRoot,
+        env: {},
+        brokerWaitTimeoutMs: 20,
+        brokerWaitIntervalMs: 5,
+      }),
+      /Secrets Broker did not become ready for first-run vault ingest/,
+    );
+    assert.equal(await readLocalOperatorAuthState(workspaceRoot), null);
+    assert.equal(await readFirstRunEnvelope(workspaceRoot), null);
+  } finally {
+    clearLocalAuthMaterialCache();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });

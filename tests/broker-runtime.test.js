@@ -109,6 +109,7 @@ test("broker bootstrap creates protected credentials and invokes only metadata-s
     const runtimeContext = await loadSecretsBrokerRuntimeContext(workspaceRoot, registry);
     assert.ok(runtimeContext);
     assert.equal(runtimeContext.launchLeaseIssuer, undefined);
+    assert.equal(typeof runtimeContext.operatorRequest, "function");
     assert.equal(typeof runtimeContext.serverEnv.SECRETSBROKER_API_TOKEN, "string");
     await assert.rejects(
       bootstrapSecretsBrokerVault(workspaceRoot, registry),
