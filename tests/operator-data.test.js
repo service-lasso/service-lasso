@@ -493,8 +493,8 @@ test("live log info and chunk routes expose runtime-owned log files for admin co
 
     const invalidTypeResponse = await fetch(`${apiServer.url}/api/logs/read?service=reader-service&type=not-a-stream&limit=50`);
     const invalidTypeBody = await invalidTypeResponse.json();
-    assert.equal(invalidTypeResponse.status, 400);
-    assert.equal(invalidTypeBody.error, "invalid_request");
+    assert.equal(invalidTypeResponse.status, 404);
+    assert.equal(invalidTypeBody.error, "not_found");
 
     assert.equal(stdoutInfoResponse.status, 200);
     assert.equal(stdoutInfoBody.type, "stdout");

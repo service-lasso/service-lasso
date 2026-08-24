@@ -478,6 +478,20 @@ export function createServiceLassoMcpServer(context: ServiceLassoMcpContext): Mc
     async ({ serviceId }) => ({ content: jsonContent(await buildMcpDiagnosticsSummaryPayload(context, serviceId)) }),
   );
 
+  server.registerTool(
+    "service_lasso_secret_metadata",
+    {
+      title: "Secret metadata",
+      description:
+        "Inspect secret metadata only: refs, assignment, rotation readiness, and Secrets Broker availability. Never returns secret values.",
+      inputSchema: z.object({
+        serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
+      }).strict(),
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => ({ content: jsonContent(await buildMcpSecretMetadataPayload(context, serviceId)) }),
+  );
+
   for (const resource of mcpResources) {
     server.registerResource(
       resource.name,
