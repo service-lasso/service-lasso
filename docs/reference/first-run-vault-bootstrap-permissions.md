@@ -152,13 +152,17 @@ configured, including when vault flag `runtime/auth` / `FORCE_SSO` is true, so a
 bad flag cannot brick the machine or hide break-glass methods. Flip `FORCE_SSO`
 from loopback via the KV editor.
 
-First-run seeds Lasso-local secrets into Broker KV path `runtime/local-operator`
-(`LOCAL_ADMIN_TOKEN`, `LOCAL_OPERATOR_PASSWORD`) for audited per-field reveal
-and into a one-time loopback envelope until acknowledge. `GET /api/runtime/security`
-reports `firstRunPending` without credential material. Values are not stored in
-`service.json`. `operator.json` stays the Broker daemon token and is not the
-operator login token. Workspaces that already have hashed local-operator state
-but no envelope default to acknowledged and cannot re-show a token that is no
+First-run writes Lasso-local secrets into Broker KV path `runtime/local-operator`
+(`LOCAL_OPERATOR_USERNAME`, `LOCAL_ADMIN_TOKEN`, `LOCAL_OPERATOR_PASSWORD`)
+**before** the one-time loopback envelope is written, so INIT never shows
+credentials that are not already in the vault. Copy/save on INIT remains the
+operator backup. `GET /api/runtime/security` reports `firstRunPending` without
+credential material. While pending but the envelope is not yet written, loopback
+`GET /api/runtime/auth/first-run` returns 503 `first_run_vault_not_ready`
+without secrets. Values are not stored in `service.json`. `operator.json` stays
+the Broker daemon token and is not the operator login token. Workspaces that
+already have hashed local-operator state marked acknowledged (or legacy files
+with the acknowledgement field missing) cannot re-show a token that is no
 longer in plaintext.
 
 Remote login (when `FORCE_SSO` is off) is either the vault-retrieved token,

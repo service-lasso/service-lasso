@@ -113,6 +113,8 @@ export interface RuntimeLocalAuthFirstRunResponse {
     username: string;
     token: string;
     password: string;
+    vaultPath: string;
+    vaultFieldNames: string[];
   };
 }
 

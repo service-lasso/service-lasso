@@ -99,7 +99,12 @@ import {
 import {
   acknowledgeLocalOperatorFirstRun,
   readFirstRunEnvelope,
+  readLocalOperatorAuthState,
 } from "../runtime/auth/local-auth-store.js";
+import {
+  FIRST_RUN_VAULT_FIELD_NAMES,
+  LOCAL_OPERATOR_SECRET_KV_PATH,
+} from "../runtime/auth/local-auth-constants.js";
 import { parseLocalAuthValidateInput, validateLocalAuth } from "../runtime/auth/local-auth-validate.js";
 import {
   bootstrapLocalVault,
@@ -5127,6 +5132,14 @@ async function routeRequest(
     }
     const envelope = await readFirstRunEnvelope(config.workspaceRoot);
     if (!envelope) {
+      const state = await readLocalOperatorAuthState(config.workspaceRoot);
+      if (state && state.credentialsAcknowledged === false) {
+        throw new ApiError(
+          "first_run_vault_not_ready",
+          503,
+          "First-run credentials are not in Secrets Broker yet.",
+        );
+      }
       throw new ApiError(
         "first_run_not_pending",
         404,
@@ -5147,6 +5160,8 @@ async function routeRequest(
       metadata: {
         username: envelope.username,
         pending: true,
+        vaultPath: LOCAL_OPERATOR_SECRET_KV_PATH,
+        vaultFieldNames: [...FIRST_RUN_VAULT_FIELD_NAMES],
       },
     });
     writeJson(response, 200, {
@@ -5155,6 +5170,8 @@ async function routeRequest(
         username: envelope.username,
         token: envelope.token,
         password: envelope.password,
+        vaultPath: LOCAL_OPERATOR_SECRET_KV_PATH,
+        vaultFieldNames: [...FIRST_RUN_VAULT_FIELD_NAMES],
       },
     });
     return;
@@ -6050,10 +6067,6 @@ async function startApiServerGeneration(
     adoptServiceIds: recovery.adoptServiceIds,
     excludeAdoptServiceIds: recovery.committedServiceAdoptionIds,
   });
-  void ensureLocalOperatorAuth({
-    workspaceRoot: config.workspaceRoot,
-    servicesRoot: config.servicesRoot,
-  }).catch(() => undefined);
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
   const bindRetryLimit = runtimeBindRetryLimit();
@@ -6292,6 +6305,12 @@ async function startApiServerGeneration(
               transaction.journal.phase,
               { completedActions: [`service_started:${service.manifest.id}`] },
             );
+            if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
+              await ensureLocalOperatorAuth({
+                workspaceRoot: config.workspaceRoot,
+                servicesRoot: config.servicesRoot,
+              });
+            }
           },
           afterAction: async (service, action) => {
             const serviceId = service.manifest.id;
@@ -6320,6 +6339,12 @@ async function startApiServerGeneration(
               completedActions: [`service_started:${service.manifest.id}`],
             },
           );
+          if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
+            await ensureLocalOperatorAuth({
+              workspaceRoot: config.workspaceRoot,
+              servicesRoot: config.servicesRoot,
+            });
+          }
         },
         async (service) => {
           const serviceId = service.manifest.id;
@@ -6339,6 +6364,10 @@ async function startApiServerGeneration(
         createStartupSetupTransactionHooks(transaction),
       );
     }
+    await ensureLocalOperatorAuth({
+      workspaceRoot: config.workspaceRoot,
+      servicesRoot: config.servicesRoot,
+    });
   } catch (error) {
     restorePriorRuntimeApiBaseUrl();
     await compensateRuntimeStartupResources({
