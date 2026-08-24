@@ -11,9 +11,10 @@ The runtime currently exposes:
 - a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
 - protocol revision `2024-11-05` on the compatibility metadata surface
 - `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
-- six read-only tools
-- five read-only resources
+- seven read-only tools
+- six read-only resources
 - bounded log output and response redaction
+- secret-metadata tool that never returns secret values
 - no lifecycle, configuration, update or other mutating tools
 
 The prototype was delivered by [issue #592](https://github.com/service-lasso/service-lasso/issues/592) and [PR #604](https://github.com/service-lasso/service-lasso/pull/604).
@@ -28,6 +29,7 @@ The prototype was delivered by [issue #592](https://github.com/service-lasso/ser
 | `service_lasso_dependency_status` | Dependency readiness, blockers and next-action metadata. |
 | `service_lasso_logs_summary` | Bounded recent runtime log lines for one service. |
 | `service_lasso_diagnostics_summary` | Dependency and secret-reference audit summaries. |
+| `service_lasso_secret_metadata` | Secret refs, assignment, rotation readiness, and Secrets Broker availability. Never secret values. |
 
 ### Current resources
 
@@ -36,6 +38,7 @@ The prototype was delivered by [issue #592](https://github.com/service-lasso/ser
 - `servicelasso://routes`
 - `servicelasso://dependencies`
 - `servicelasso://diagnostics`
+- `servicelasso://secret-metadata`
 
 ## Current limitations
 
@@ -48,9 +51,10 @@ Known limitations include:
 - no stdio transport for local MCP clients
 - Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
 - no MCP-specific authentication, scope enforcement, Origin validation or per-client rate limiting
-- schemas are advertised but inputs are not fully runtime-validated against them
+- schemas are advertised but inputs are not fully runtime-validated against them, except `service_lasso_secret_metadata` which rejects additional properties
 - no tool annotations, output schemas or structured results
 - some responses include absolute local runtime paths
+- secret metadata reports Broker lifecycle availability but does not query live lockout counts
 - no Audit search, updates, recovery or configuration-drift tools
 - no guarded lifecycle or maintenance tools
 
@@ -154,6 +158,7 @@ The production read surface should cover:
 | Routes | Ports, route endpoints and Traefik state. |
 | Dependencies | Dependencies, dependants, blockers and readiness. |
 | Logs | Bounded, redacted, cursor-paginated output. |
+| Secret metadata | Refs, assignment, rotation readiness, and Broker availability without values. First slice: `#1067` / `SPEC-006` `AC-6A`. Live lockout counts remain later. |
 | Audit | Filtered, cursor-paginated durable operator events. |
 | Updates | Installed and available version metadata. |
 | Configuration drift | Safe drift status without raw config or secret values. |
@@ -232,7 +237,7 @@ Every mutating attempt, including denied and failed attempts, records safe durab
 
 ## Delivery backlog
 
-The implementation is tracked by [epic #858](https://github.com/service-lasso/service-lasso/issues/858).
+The implementation is tracked by [epic #858](https://github.com/service-lasso/service-lasso/issues/858) and bound to `.governance/specs/SPEC-006-operator-mcp.md`.
 
 Recommended order:
 

@@ -23,6 +23,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - state persistence and startup rehydration
 - packaging/release mechanics for the core runtime itself
 - publishable package mechanics so sibling starter repos can consume the core runtime cleanly
+- read-only operator MCP on the core runtime for services, secret metadata, and logs (`SPEC-006`); never secret values
 
 ## Constraints
 - Governance/spec/backlog traceability must remain in place while product code starts.
@@ -54,6 +55,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Dependency, env, and health semantics should remain explicit and reviewable through docs/specs as implementation hardens.
 - Product implementation should proceed through bounded specs/issues rather than undocumented chat intent.
 - Loopback operators authenticate as `local-root` without a password, and may still use Lasso-local password, vault token, or SSO/ZITADEL when configured. `FORCE_SSO` in Broker KV applies only to remote origins and cannot disable loopback methods. First-run local-admin username, token, and password are written into Secrets Broker KV `runtime/local-operator` before the INIT page can reveal them; copy/save remains the operator backup (`SPEC-005` `AC-5C`, `AC-5J`).
+- Operator MCP reuses runtime facades and stays metadata-only for secrets (`SPEC-006` `AC-6A`).
 
 ## Verification Expectations
 Core product work should be verified with direct runnable evidence, not only documentation updates.

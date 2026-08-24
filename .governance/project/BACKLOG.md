@@ -7,12 +7,21 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 - `SPEC-003-main-develop-reconciliation.md`
 - `SPEC-004-isolated-wsl-runner-pool.md`
 - `SPEC-005-local-operator-auth.md`
+- `SPEC-006-operator-mcp.md`
 
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
 | `ISS-826` | `in_review` | Spec: action permission enforcement middleware | `SPEC-002`, `AC-4BS`, `SPEC-005` | GitHub issue: `#826`; pull request: `#1119`. First slice: durable HTTP action runs use the trusted request-policy actor and ignore JSON-body actor claims. Unmapped ZITADEL grants fail closed. Lifecycle UI decisions remain `#1026`. |
 | `ISS-1023` | `in_review` | P0 broker: authenticated core management proxy over named-pipe and Unix socket | `SPEC-002`, `AC-4BT` | GitHub issue: `#1023`; pull request: `#1118`. HTTP aliases already on develop via PR `#1032`. This slice adds OS IPC HTTP for the management proxy, KV `/v1/kv`, and launch `/v1/resolve` without switching default Broker launch off loopback HTTP. Real Broker subprocess qualification on both OS transports remains. Do not park solely on PR `#1030`. |
+| `ISS-1067` | `in_progress` | Operator MCP for services, secret metadata, and logs | `SPEC-006`, `AC-6A`, `AC-6D`, `AC-6G` | GitHub issue: `#1067`. First slice is `AC-6A` secret-metadata tool/resource on the existing prototype. Close leftover only when `#861` + `#864` meet the product bar. Do not grow a second MCP server. `#859` draft PR `#1029` remains the transport owner. |
+| `ISS-861` | `in_progress` | Complete read-only operator MCP tools, resources and structured contracts | `SPEC-006`, `AC-6A`, `AC-6D` | GitHub issue: `#861`. Depends on `#859`/`#860` for the full surface. `AC-6A` secret metadata is the first product leftover slice. |
+| `ISS-859` | `in_review` | Adopt official MCP SDK stdio and Streamable HTTP transports | `SPEC-006`, `AC-6B` | GitHub issue: `#859`. Draft PR `#1029` (`fix/859-mcp-sdk-transports`). Do not start a parallel transport implementation. |
+| `ISS-860` | `todo` | MCP identity, OAuth discovery, scopes and policy | `SPEC-006`, `AC-6C` | GitHub issue: `#860`. Blocked on `#859`. |
+| `ISS-862` | `todo` | Guarded MCP lifecycle and maintenance actions | `SPEC-006`, `AC-6E` | GitHub issue: `#862`. Blocked on `#860` and `#861`. |
+| `ISS-863` | `todo` | Durable MCP long-running operation status and cancellation | `SPEC-006`, `AC-6F` | GitHub issue: `#863`. Blocked on `#862`. |
+| `ISS-864` | `todo` | MCP security, conformance, packaging and canonical acceptance gates | `SPEC-006`, `AC-6G` | GitHub issue: `#864`. Blocked on `#859`–`#863`. |
+| `ISS-858` | `in_progress` | EPIC: Production-ready Service Lasso MCP server | `SPEC-006`, `AC-6A` through `AC-6G` | GitHub issue: `#858`. Engineering programme parent. Product leftover `#1067` must not grow a second server. |
 | `ISS-1111` | `done` | Pin `@serviceadmin` to dashboard-metrics master release | `SPEC-002`, `AC-4O`, `AC-4Z` | GitHub issue: `#1111`. Landed on develop as `4da92a4` (PR `#1112`). Pin Admin `2026.8.20-858861f` (master after `#560` / `#559` home fleet mix, listen ports, named failures, inbox unread, generation lane, Traefik, log volume; `#561` Playwright Dagu tile). Broker stays `2026.8.18-2ee1ba5`. Canonical demo recycled: develop@`4da92a4`, `@serviceadmin` install tag `2026.8.20-858861f`, keep-alive PID 103968, 17700/17883 200. |
 | `ISS-1121` | `in_progress` | Read advertised NGINX access/error log sources instead of 400 on type | `SPEC-002`, `AC-4J`, `AC-4J.2` | GitHub issue: `#1121`. Sibling Admin: `lasso-serviceadmin#564`. Current Admin tabs send `type=<sourceId>` for discovered `logs/access.log` / `logs/error.log`; Core previously 400'd because only builtin types were allowed. |
 | `ISS-1114` | `in_progress` | Write first-run local-admin credentials into Secrets Broker before INIT reveal | `SPEC-005`, `AC-5C`, `AC-5H`, `AC-5J` | GitHub issue: `#1114`. Vault-first ingest of `LOCAL_OPERATOR_USERNAME`, `LOCAL_ADMIN_TOKEN`, and `LOCAL_OPERATOR_PASSWORD` at `runtime/local-operator` before the loopback envelope is written. Sibling Admin UI: `lasso-serviceadmin#562`. |

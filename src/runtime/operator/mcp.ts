@@ -11,7 +11,10 @@ import type { DependencyGraph } from "../manager/DependencyGraph.js";
 import { buildServiceNetwork } from "./network.js";
 import { readServiceLogChunk } from "./logs.js";
 import { buildBaselineDependencyDiagnostics } from "./dependencyDiagnostics.js";
-import { buildSecretReferenceAudit } from "./secret-audit.js";
+import {
+  buildSecretReferenceAudit,
+  buildSecretRotationReadinessReport,
+} from "./secret-audit.js";
 import { redactDiagnosticsValue } from "../diagnostics/bundle.js";
 
 export interface ServiceLassoMcpContext {
@@ -55,14 +58,28 @@ type ServiceLassoMcpToolName =
   | "service_lasso_list_routes"
   | "service_lasso_dependency_status"
   | "service_lasso_logs_summary"
-  | "service_lasso_diagnostics_summary";
+  | "service_lasso_diagnostics_summary"
+  | "service_lasso_secret_metadata";
 
 type ServiceLassoMcpResourceUri =
   | "servicelasso://services"
   | "servicelasso://health"
   | "servicelasso://routes"
   | "servicelasso://dependencies"
-  | "servicelasso://diagnostics";
+  | "servicelasso://diagnostics"
+  | "servicelasso://secret-metadata";
+
+type McpBrokerAvailability = "available" | "unavailable" | "not_discovered";
+type McpLockoutQueryStatus = "not_queried";
+
+interface McpSecretMetadataBroker {
+  serviceId: string | null;
+  discovered: boolean;
+  installed: boolean | null;
+  configured: boolean | null;
+  running: boolean | null;
+  availability: McpBrokerAvailability;
+}
 
 interface McpJsonRpcResponse {
   jsonrpc: "2.0";
@@ -81,6 +98,8 @@ const MCP_SDK_VERSION = "1.30.0";
 const REDACTION_VALUE = "[REDACTED]";
 const DEFAULT_LOG_LIMIT = 20;
 const MAX_LOG_LIMIT = 50;
+const SECRETS_BROKER_SERVICE_ID = "@secretsbroker";
+const SECRET_METADATA_ARGUMENT_KEYS = ["serviceId"] as const;
 
 const READ_ONLY_TOOL_ANNOTATIONS = {
   readOnlyHint: true,
@@ -164,6 +183,16 @@ const mcpTools: McpToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "service_lasso_secret_metadata",
+    description:
+      "Inspect secret metadata only: refs, assignment, rotation readiness, and Secrets Broker availability. Never returns secret values.",
+    inputSchema: {
+      type: "object",
+      properties: serviceIdInputSchema,
+      additionalProperties: false,
+    },
+  },
 ];
 
 const mcpResources: McpResourceDefinition[] = [
@@ -197,6 +226,12 @@ const mcpResources: McpResourceDefinition[] = [
     description: "Safe operator diagnostic summary with redaction policy.",
     mimeType: "application/json",
   },
+  {
+    uri: "servicelasso://secret-metadata",
+    name: "Secret metadata",
+    description: "Secret refs, assignment, rotation readiness, and Broker availability without secret values.",
+    mimeType: "application/json",
+  },
 ];
 
 function generatedAt(): string {
@@ -226,6 +261,48 @@ function safeArguments(params: unknown): Record<string, unknown> {
 
 function serviceIdFromArguments(args: Record<string, unknown>): string | undefined {
   return typeof args.serviceId === "string" && args.serviceId.trim().length > 0 ? args.serviceId.trim() : undefined;
+}
+
+/**
+ * Rejects extra JSON-RPC tool arguments so this slice runtime-validates
+ * `additionalProperties: false` for secret metadata.
+ */
+function assertAllowedMcpArguments(
+  args: Record<string, unknown>,
+  allowed: readonly string[],
+  toolName: ServiceLassoMcpToolName,
+): void {
+  const extra = Object.keys(args).filter((key) => !allowed.includes(key));
+  if (extra.length > 0) {
+    throw new Error(`${toolName} rejects additional properties: ${extra.join(", ")}.`);
+  }
+}
+
+/**
+ * Reports whether `@secretsbroker` is discovered and running without reading KV.
+ */
+function buildMcpBrokerAvailability(context: ServiceLassoMcpContext): McpSecretMetadataBroker {
+  const broker = context.registry.getById(SECRETS_BROKER_SERVICE_ID);
+  if (!broker) {
+    return {
+      serviceId: null,
+      discovered: false,
+      installed: null,
+      configured: null,
+      running: null,
+      availability: "not_discovered",
+    };
+  }
+
+  const lifecycle = getLifecycleState(broker.manifest.id);
+  return {
+    serviceId: broker.manifest.id,
+    discovered: true,
+    installed: lifecycle.installed,
+    configured: lifecycle.configured,
+    running: lifecycle.running,
+    availability: lifecycle.running ? "available" : "unavailable",
+  };
 }
 
 function selectedServices(context: ServiceLassoMcpContext, serviceId?: string): DiscoveredService[] {
@@ -293,6 +370,7 @@ export function getServiceLassoMcpCapabilities(context: ServiceLassoMcpContext) 
           "raw manifest env/globalenv values are not returned",
           "runtime log text is pattern-redacted before MCP responses",
           "route URLs strip username, password, query string, and fragment",
+          "secret metadata returns refs, assignment, and rotation state only",
           "mutating lifecycle and command-confirmation operations are not exposed as MCP tools",
         ],
       },
@@ -585,6 +663,83 @@ export async function buildMcpLogsSummaryPayload(context: ServiceLassoMcpContext
   };
 }
 
+/**
+ * Builds the AC-6A secret-metadata payload from existing audit and rotation
+ * facades. Omits absolute paths, secret values, and live lockout fetches.
+ */
+export async function buildMcpSecretMetadataPayload(context: ServiceLassoMcpContext, serviceId?: string) {
+  const services = selectedServices(context, serviceId);
+  const secretAudit = buildSecretReferenceAudit(services);
+  const rotation = buildSecretRotationReadinessReport(services);
+  const rotationByServiceId = new Map(rotation.services.map((service) => [service.serviceId, service]));
+  const lockoutStatus: McpLockoutQueryStatus = "not_queried";
+
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    broker: buildMcpBrokerAvailability(context),
+    lockout: {
+      status: lockoutStatus,
+      reason: "Live broker lockout counts stay on the telemetry bridge; this MCP slice does not fetch KV or lockout payloads.",
+    },
+    summary: {
+      services: secretAudit.summary.services,
+      references: secretAudit.summary.references,
+      present: secretAudit.summary.present,
+      missing: secretAudit.summary.missing,
+      malformed: secretAudit.summary.malformed,
+      rotationReady: rotation.summary.ready,
+      rotationNeedsPolicy: rotation.summary.needsPolicy,
+      rotationNeedsCapability: rotation.summary.needsCapability,
+      rotationNeedsAuthCheck: rotation.summary.needsAuthCheck,
+      rotationBlocked: rotation.summary.blocked,
+    },
+    services: secretAudit.services.map((service) => {
+      const rotationReport = rotationByServiceId.get(service.serviceId);
+      return {
+        serviceId: service.serviceId,
+        summary: service.summary,
+        references: service.findings.map((finding) => ({
+          ref: finding.ref,
+          namespace: finding.namespace ?? null,
+          key: finding.key ?? null,
+          status: finding.status,
+          source: finding.source,
+          location: finding.location,
+          required: finding.required !== false,
+          reason: finding.reason,
+          accessPolicy: finding.accessPolicy,
+        })),
+        rotation: (rotationReport?.refs ?? []).map((entry) => ({
+          ref: entry.ref,
+          namespace: entry.namespace ?? null,
+          key: entry.key ?? null,
+          status: entry.status,
+          policy: entry.policy,
+          providerCapability: entry.providerCapability,
+          authRequirement: entry.authRequirement,
+          blockers: entry.blockers,
+        })),
+      };
+    }),
+    safety: {
+      mutating: false,
+      redacted: true,
+      omittedSensitiveFields: [
+        "raw secret values",
+        "manifest env/globalenv values",
+        "broker KV payloads",
+        "tokens",
+        "cookies",
+        "private keys",
+        "recovery material",
+        "absolute workspace, manifest, and log paths",
+        "live lockout payloads",
+      ],
+    },
+  };
+}
+
 export async function buildMcpDiagnosticsSummaryPayload(context: ServiceLassoMcpContext, serviceId?: string) {
   const dependencies = await buildMcpDependencyStatusPayload(context, serviceId);
   const secretAudit = buildSecretReferenceAudit(selectedServices(context, serviceId));
@@ -642,8 +797,11 @@ async function callTool(context: ServiceLassoMcpContext, name: string, args: Rec
       return buildMcpLogsSummaryPayload(context, serviceId, clampLogLimit(args.limit));
     case "service_lasso_diagnostics_summary":
       return buildMcpDiagnosticsSummaryPayload(context, serviceId);
+    case "service_lasso_secret_metadata":
+      assertAllowedMcpArguments(args, SECRET_METADATA_ARGUMENT_KEYS, "service_lasso_secret_metadata");
+      return buildMcpSecretMetadataPayload(context, serviceId);
     default:
-      throw new Error("Unknown MCP tool: " + name);
+      throw new Error(`Unknown MCP tool: ${name}`);
   }
 }
 
@@ -659,8 +817,10 @@ async function readResource(context: ServiceLassoMcpContext, uri: string) {
       return buildMcpDependencyStatusPayload(context);
     case "servicelasso://diagnostics":
       return buildMcpDiagnosticsSummaryPayload(context);
+    case "servicelasso://secret-metadata":
+      return buildMcpSecretMetadataPayload(context);
     default:
-      throw new Error("Unknown MCP resource: " + uri);
+      throw new Error(`Unknown MCP resource: ${uri}`);
   }
 }
 
