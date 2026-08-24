@@ -3607,6 +3607,14 @@ async function routeRequest(
       ),
     );
     await runSecretsBrokerBootstrapStage(
+      "secrets_broker_local_operator_onboarding_failed",
+      async () => await ensureLocalOperatorAuth({
+        workspaceRoot: config.workspaceRoot,
+        servicesRoot: config.servicesRoot,
+        brokerClient: { request: brokerRuntime!.operatorRequest },
+      }),
+    );
+    await runSecretsBrokerBootstrapStage(
       "secrets_broker_bootstrap_audit_unavailable",
       async () => {
         await appendAuditEvent({
@@ -3645,6 +3653,19 @@ async function routeRequest(
       },
     );
 
+    const bootstrappedLocalAuth = await loadLocalAuthMaterial({
+      workspaceRoot: config.workspaceRoot,
+    });
+    const bootstrappedAuth = resolveRuntimeRequestAuth(request, {
+      bindHost: config.bindHost,
+      forceSso: bootstrappedLocalAuth.forceSso,
+      localTokenConfigured: bootstrappedLocalAuth.localTokenConfigured,
+      localOperatorConfigured: bootstrappedLocalAuth.localOperatorConfigured,
+      firstRunPending: bootstrappedLocalAuth.firstRunPending,
+      credentialsAcknowledged: bootstrappedLocalAuth.credentialsAcknowledged,
+      verifyLocalSecret: bootstrappedLocalAuth.verifyLocalSecret,
+    });
+
     writeJson(response, 201, {
       bootstrap: {
         ok: bootstrap.ok,
@@ -3656,7 +3677,7 @@ async function routeRequest(
           workspaceRoot: config.workspaceRoot,
           bindHost: config.bindHost,
         })),
-        auth,
+        auth: bootstrappedAuth,
       },
     });
     return;
@@ -4197,7 +4218,18 @@ async function routeRequest(
       }
 
       const proxyPath = `/${pathParts.slice(4).join("/")}`;
-      await proxySecretsBrokerRequest(request, response, service, proxyPath, url.search);
+      const brokerRuntime = await loadSecretsBrokerRuntimeContext(
+        config.workspaceRoot,
+        runtimeModel.registry,
+      );
+      await proxySecretsBrokerRequest(
+        request,
+        response,
+        service,
+        proxyPath,
+        url.search,
+        brokerRuntime?.operatorRequest,
+      );
       return;
     }
 
@@ -4244,7 +4276,18 @@ async function routeRequest(
     if (serviceId === SECRETSBROKER_SERVICE_ID) {
       const aliasPath = resolveSecretsBrokerAdminAliasPath(pathParts.slice(3).join("/"));
       if (aliasPath) {
-        await proxySecretsBrokerRequest(request, response, service, aliasPath, url.search);
+        const brokerRuntime = await loadSecretsBrokerRuntimeContext(
+          config.workspaceRoot,
+          runtimeModel.registry,
+        );
+        await proxySecretsBrokerRequest(
+          request,
+          response,
+          service,
+          aliasPath,
+          url.search,
+          brokerRuntime?.operatorRequest,
+        );
         return;
       }
     }
@@ -6054,6 +6097,9 @@ async function startApiServerGeneration(
     committedServiceAdoptionIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RunningApiServer> {
+  // A restarted runtime must observe auth policy changes persisted while the
+  // prior listener was stopped, even when both generations share one process.
+  clearLocalAuthMaterialCache();
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const bootModel = await loadRuntimeModel(config.servicesRoot);
@@ -6305,12 +6351,6 @@ async function startApiServerGeneration(
               transaction.journal.phase,
               { completedActions: [`service_started:${service.manifest.id}`] },
             );
-            if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
-              await ensureLocalOperatorAuth({
-                workspaceRoot: config.workspaceRoot,
-                servicesRoot: config.servicesRoot,
-              });
-            }
           },
           afterAction: async (service, action) => {
             const serviceId = service.manifest.id;
@@ -6339,12 +6379,6 @@ async function startApiServerGeneration(
               completedActions: [`service_started:${service.manifest.id}`],
             },
           );
-          if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
-            await ensureLocalOperatorAuth({
-              workspaceRoot: config.workspaceRoot,
-              servicesRoot: config.servicesRoot,
-            });
-          }
         },
         async (service) => {
           const serviceId = service.manifest.id;
@@ -6364,10 +6398,15 @@ async function startApiServerGeneration(
         createStartupSetupTransactionHooks(transaction),
       );
     }
-    await ensureLocalOperatorAuth({
+    const setupAfterStartup = await readRuntimeSetupStatus({
       workspaceRoot: config.workspaceRoot,
-      servicesRoot: config.servicesRoot,
     });
+    if (!setupAfterStartup.setupMode) {
+      await ensureLocalOperatorAuth({
+        workspaceRoot: config.workspaceRoot,
+        servicesRoot: config.servicesRoot,
+      });
+    }
   } catch (error) {
     restorePriorRuntimeApiBaseUrl();
     await compensateRuntimeStartupResources({

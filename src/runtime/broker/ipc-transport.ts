@@ -36,6 +36,11 @@ export interface SecretsBrokerHttpRequest {
   timeoutMs?: number;
 }
 
+/** Authenticated Core-owned request function for the protected Broker transport. */
+export type SecretsBrokerHttpRequester = (
+  request: SecretsBrokerHttpRequest,
+) => Promise<SecretsBrokerHttpResponse>;
+
 /**
  * True when the value is a non-array object record.
  */

@@ -19,12 +19,14 @@ import {
   type LocalAuthMaterial,
   type LocalOperatorFirstRunSecrets,
 } from "./local-auth-store.js";
-import {
-  readSecretsBrokerOperatorConfig,
-  resolveSecretsBrokerPort,
-  SECRETSBROKER_SERVICE_ID,
-} from "../broker/operator-config.js";
+import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
+import { loadSecretsBrokerRuntimeContext } from "../broker/runtime.js";
+import type {
+  SecretsBrokerHttpRequester,
+  SecretsBrokerHttpResponse,
+} from "../broker/ipc-transport.js";
 import { discoverServices } from "../discovery/discoverServices.js";
+import { createServiceRegistry } from "../manager/DependencyGraph.js";
 
 const MATERIAL_CACHE_TTL_MS = 5_000;
 const DEFAULT_BROKER_WAIT_TIMEOUT_MS = 30_000;
@@ -79,8 +81,12 @@ function sleep(ms: number): Promise<void> {
 }
 
 export interface BrokerKvClient {
-  apiToken: string;
-  port: number;
+  request: SecretsBrokerHttpRequester;
+}
+
+interface BrokerKvClientResolution {
+  client: BrokerKvClient | null;
+  discovered: boolean;
 }
 
 export interface EnsureLocalOperatorAuthOptions {
@@ -93,7 +99,6 @@ export interface EnsureLocalOperatorAuthOptions {
    * stays local-only so unit tests do not touch a live demo vault.
    */
   brokerClient?: BrokerKvClient;
-  fetchImpl?: typeof fetch;
   brokerWaitTimeoutMs?: number;
   brokerWaitIntervalMs?: number;
 }
@@ -103,69 +108,73 @@ interface KvSnapshot {
   version: number;
 }
 
-function kvUrl(client: BrokerKvClient, kvPath: string): string {
-  return `http://127.0.0.1:${String(client.port)}/v1/kv/data/${kvPath}?source=local`;
-}
-
-function healthUrl(client: BrokerKvClient): string {
-  return `http://127.0.0.1:${String(client.port)}/health`;
-}
-
-async function resolveBrokerClient(servicesRoot: string): Promise<BrokerKvClient | null> {
+async function resolveBrokerClient(
+  workspaceRoot: string,
+  servicesRoot: string,
+): Promise<BrokerKvClientResolution> {
+  let discovered: Awaited<ReturnType<typeof discoverServices>>;
   try {
-    const discovered = await discoverServices(servicesRoot);
-    const broker = discovered.find((service) => service.manifest.id === SECRETSBROKER_SERVICE_ID);
-    if (!broker) {
-      return null;
-    }
-    const operatorConfig = await readSecretsBrokerOperatorConfig(broker.serviceRoot);
-    const port = resolveSecretsBrokerPort(broker);
-    if (!operatorConfig?.apiToken || port === null) {
-      return null;
-    }
-    return { apiToken: operatorConfig.apiToken, port };
+    discovered = await discoverServices(servicesRoot);
   } catch {
-    return null;
+    return { client: null, discovered: false };
+  }
+  const broker = discovered.find((service) => service.manifest.id === SECRETSBROKER_SERVICE_ID);
+  if (!broker) {
+    return { client: null, discovered: false };
+  }
+  try {
+    const runtime = await loadSecretsBrokerRuntimeContext(
+      workspaceRoot,
+      createServiceRegistry(discovered),
+    );
+    if (!runtime) {
+      return { client: null, discovered: true };
+    }
+    return {
+      client: { request: runtime.operatorRequest },
+      discovered: true,
+    };
+  } catch {
+    return { client: null, discovered: true };
   }
 }
 
-async function brokerHealthOk(client: BrokerKvClient, fetchImpl: typeof fetch): Promise<boolean> {
+async function brokerHealthOk(client: BrokerKvClient): Promise<boolean> {
   try {
-    const response = await fetchImpl(healthUrl(client), {
-      headers: {
-        authorization: `Bearer ${client.apiToken}`,
-      },
-      signal: AbortSignal.timeout(KV_REQUEST_TIMEOUT_MS),
+    const response = await client.request({
+      method: "GET",
+      pathWithQuery: "/ready",
+      headers: {},
+      timeoutMs: KV_REQUEST_TIMEOUT_MS,
     });
-    return response.ok;
+    return response.status === 200;
   } catch {
     return false;
   }
 }
 
 /**
- * Wait until `@secretsbroker` accepts health checks. Returns null when the
- * service is not discovered. Throws when it is discovered but never becomes
- * ready, because first-run secrets must go into the vault before INIT reveal.
+ * Wait until `@secretsbroker` accepts authenticated IPC health checks. Any
+ * missing or unavailable Broker fails closed because first-run secrets must go
+ * into the vault before INIT reveal.
  */
 export async function waitForBrokerKvClient(options: {
+  workspaceRoot: string;
   servicesRoot: string;
-  fetchImpl?: typeof fetch;
   timeoutMs?: number;
   intervalMs?: number;
 }): Promise<BrokerKvClient | null> {
-  const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_BROKER_WAIT_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? DEFAULT_BROKER_WAIT_INTERVAL_MS;
   const deadline = Date.now() + timeoutMs;
   let sawBroker = false;
 
   while (Date.now() <= deadline) {
-    const client = await resolveBrokerClient(options.servicesRoot);
-    if (client) {
-      sawBroker = true;
-      if (await brokerHealthOk(client, fetchImpl)) {
-        return client;
+    const resolution = await resolveBrokerClient(options.workspaceRoot, options.servicesRoot);
+    sawBroker ||= resolution.discovered;
+    if (resolution.client) {
+      if (await brokerHealthOk(resolution.client)) {
+        return resolution.client;
       }
     }
     await sleep(intervalMs);
@@ -174,7 +183,7 @@ export async function waitForBrokerKvClient(options: {
   if (sawBroker) {
     throw new Error("Secrets Broker did not become ready for first-run vault ingest.");
   }
-  return null;
+  throw new Error("Secrets Broker was not discovered for first-run vault ingest.");
 }
 
 function parseKvSnapshot(payload: unknown): KvSnapshot | null {
@@ -197,22 +206,21 @@ function parseKvSnapshot(payload: unknown): KvSnapshot | null {
 async function readKvSnapshot(
   client: BrokerKvClient,
   kvPath: string,
-  fetchImpl: typeof fetch,
 ): Promise<KvSnapshot | null> {
   try {
-    const response = await fetchImpl(kvUrl(client, kvPath), {
-      headers: {
-        authorization: `Bearer ${client.apiToken}`,
-      },
-      signal: AbortSignal.timeout(KV_REQUEST_TIMEOUT_MS),
+    const response = await client.request({
+      method: "GET",
+      pathWithQuery: `/v1/kv/data/${kvPath}?source=local`,
+      headers: {},
+      timeoutMs: KV_REQUEST_TIMEOUT_MS,
     });
     if (response.status === 404) {
       return { fields: {}, version: 0 };
     }
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       return null;
     }
-    return parseKvSnapshot(await response.json());
+    return parseKvSnapshot(parseBrokerJson(response));
   } catch {
     return null;
   }
@@ -223,24 +231,31 @@ async function writeKvSnapshot(
   kvPath: string,
   fields: Record<string, string>,
   cas: number,
-  fetchImpl: typeof fetch,
 ): Promise<boolean> {
   try {
-    const response = await fetchImpl(kvUrl(client, kvPath), {
+    const response = await client.request({
       method: "POST",
+      pathWithQuery: `/v1/kv/data/${kvPath}?source=local`,
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${client.apiToken}`,
       },
-      body: JSON.stringify({
+      body: Buffer.from(JSON.stringify({
         data: fields,
         options: { cas },
-      }),
-      signal: AbortSignal.timeout(KV_REQUEST_TIMEOUT_MS),
+      }), "utf8"),
+      timeoutMs: KV_REQUEST_TIMEOUT_MS,
     });
-    return response.ok || response.status === 204;
+    return (response.status >= 200 && response.status < 300) || response.status === 204;
   } catch {
     return false;
+  }
+}
+
+function parseBrokerJson(response: SecretsBrokerHttpResponse): unknown {
+  try {
+    return JSON.parse(response.body.toString("utf8")) as unknown;
+  } catch {
+    return null;
   }
 }
 
@@ -276,9 +291,8 @@ function secretsFromVaultFields(
 export async function persistFirstRunSecretsInVault(
   client: BrokerKvClient,
   generated: LocalOperatorFirstRunSecrets,
-  fetchImpl: typeof fetch = fetch,
 ): Promise<LocalOperatorFirstRunSecrets> {
-  const existing = await readKvSnapshot(client, LOCAL_OPERATOR_SECRET_KV_PATH, fetchImpl);
+  const existing = await readKvSnapshot(client, LOCAL_OPERATOR_SECRET_KV_PATH);
   if (!existing) {
     throw new Error("Secrets Broker KV read failed for runtime/local-operator.");
   }
@@ -300,13 +314,12 @@ export async function persistFirstRunSecretsInVault(
     LOCAL_OPERATOR_SECRET_KV_PATH,
     merged,
     cas,
-    fetchImpl,
   );
   if (!wrote) {
     throw new Error("Secrets Broker KV write failed for runtime/local-operator.");
   }
 
-  const confirmed = await readKvSnapshot(client, LOCAL_OPERATOR_SECRET_KV_PATH, fetchImpl);
+  const confirmed = await readKvSnapshot(client, LOCAL_OPERATOR_SECRET_KV_PATH);
   if (!confirmed || !snapshotHasFirstRunFields(confirmed.fields)) {
     throw new Error("Secrets Broker KV did not confirm first-run field names after write.");
   }
@@ -317,9 +330,8 @@ async function ensureForceSsoPolicy(
   broker: BrokerKvClient,
   forceSso: boolean,
   workspaceRoot: string,
-  fetchImpl: typeof fetch,
 ): Promise<boolean> {
-  const policy = await readKvSnapshot(broker, LOCAL_AUTH_POLICY_KV_PATH, fetchImpl);
+  const policy = await readKvSnapshot(broker, LOCAL_AUTH_POLICY_KV_PATH);
   if (policy && Object.prototype.hasOwnProperty.call(policy.fields, FORCE_SSO_FIELD)) {
     const next = truthyField(policy.fields[FORCE_SSO_FIELD]);
     await patchLocalOperatorForceSso(workspaceRoot, next);
@@ -330,7 +342,6 @@ async function ensureForceSsoPolicy(
     LOCAL_AUTH_POLICY_KV_PATH,
     { [FORCE_SSO_FIELD]: forceSso ? "true" : "false" },
     policy?.version ?? 0,
-    fetchImpl,
   );
   return forceSso;
 }
@@ -358,22 +369,21 @@ export async function ensureLocalOperatorAuth(
   options: EnsureLocalOperatorAuthOptions,
 ): Promise<LocalAuthMaterial> {
   const env = options.env ?? process.env;
-  const fetchImpl = options.fetchImpl ?? fetch;
   const existing = await readLocalOperatorAuthState(options.workspaceRoot);
   const skipBroker = options.brokerClient === undefined && Boolean(env.NODE_TEST_CONTEXT);
   const broker = skipBroker
     ? null
     : (options.brokerClient ??
       (await waitForBrokerKvClient({
+        workspaceRoot: options.workspaceRoot,
         servicesRoot: options.servicesRoot,
-        fetchImpl,
         timeoutMs: options.brokerWaitTimeoutMs,
         intervalMs: options.brokerWaitIntervalMs,
       })));
   let forceSso = existing?.forceSso === true;
 
   if (broker) {
-    forceSso = await ensureForceSsoPolicy(broker, forceSso, options.workspaceRoot, fetchImpl);
+    forceSso = await ensureForceSsoPolicy(broker, forceSso, options.workspaceRoot);
   }
 
   if (!existing) {
@@ -384,7 +394,7 @@ export async function ensureLocalOperatorAuth(
       password: generateLocalSecret(),
     };
     const vaultSecrets = broker
-      ? await persistFirstRunSecretsInVault(broker, generated, fetchImpl)
+      ? await persistFirstRunSecretsInVault(broker, generated)
       : generated;
     await writeLocalOperatorAuthState(options.workspaceRoot, {
       token: vaultSecrets.token,
@@ -402,7 +412,7 @@ export async function ensureLocalOperatorAuth(
   if (!existing.credentialsAcknowledged) {
     const envelope = await readFirstRunEnvelope(options.workspaceRoot);
     if (broker && envelope) {
-      const vaultSecrets = await persistFirstRunSecretsInVault(broker, envelope, fetchImpl);
+      const vaultSecrets = await persistFirstRunSecretsInVault(broker, envelope);
       await persistFirstRunEnvelope(options.workspaceRoot, vaultSecrets);
     } else if (broker && !envelope) {
       const generated: LocalOperatorFirstRunSecrets = {
@@ -410,7 +420,7 @@ export async function ensureLocalOperatorAuth(
         token: generateLocalSecret(),
         password: generateLocalSecret(),
       };
-      const vaultSecrets = await persistFirstRunSecretsInVault(broker, generated, fetchImpl);
+      const vaultSecrets = await persistFirstRunSecretsInVault(broker, generated);
       await writeLocalOperatorAuthState(options.workspaceRoot, {
         token: vaultSecrets.token,
         password: vaultSecrets.password,

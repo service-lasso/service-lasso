@@ -382,9 +382,7 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
   const runtimeRoot = path.join(serviceRoot, "runtime");
   await mkdir(runtimeRoot, { recursive: true });
   const scriptPath = path.join(runtimeRoot, "server.mjs");
-  await writeFile(
-    scriptPath,
-    [
+  const ordinaryFixture = [
       "import { createServer } from 'node:http';",
       `const port = Number(process.env.${portName.toUpperCase()}_PORT ?? process.env.SERVICE_PORT ?? process.env.UI_PORT);`,
       "const server = createServer((request, response) => {",
@@ -401,7 +399,61 @@ async function writeHttpService(servicesRoot, serviceId, portName, options = {})
       "process.on('SIGINT', shutdown);",
       "process.on('SIGTERM', shutdown);",
       "",
-    ].join("\n"),
+    ];
+  const protectedBrokerFixture = [
+      "import { createServer } from 'node:http';",
+      `const port = Number(process.env.${portName.toUpperCase()}_PORT ?? process.env.SERVICE_PORT);`,
+      "const ipc = process.env.SECRETSBROKER_NAMED_PIPE ?? process.env.SECRETSBROKER_UNIX_SOCKET;",
+      "if (!ipc) throw new Error('protected Broker IPC fixture requires a socket target');",
+      "const entries = new Map();",
+      "function writeJson(response, status, payload) {",
+      "  response.writeHead(status, { 'content-type': 'application/json' });",
+      "  response.end(JSON.stringify(payload));",
+      "}",
+      "async function handler(request, response) {",
+      "  const url = new URL(request.url ?? '/', 'http://broker.local');",
+      "  if (url.pathname === '/health') {",
+      "    writeJson(response, 200, { ok: true, serviceId: '@secretsbroker' });",
+      "    return;",
+      "  }",
+      "  if (url.pathname === '/ready') {",
+      "    writeJson(response, 200, { ready: true, state: 'ready', serviceId: '@secretsbroker' });",
+      "    return;",
+      "  }",
+      "  const prefix = '/v1/kv/data/';",
+      "  if (url.pathname.startsWith(prefix)) {",
+      "    const ref = decodeURIComponent(url.pathname.slice(prefix.length));",
+      "    if (request.method === 'GET') {",
+      "      const entry = entries.get(ref);",
+      "      if (!entry) { writeJson(response, 404, { errors: ['not found'] }); return; }",
+      "      writeJson(response, 200, { data: { data: entry.fields, metadata: { version: entry.version } } });",
+      "      return;",
+      "    }",
+      "    if (request.method === 'POST') {",
+      "      const chunks = [];",
+      "      for await (const chunk of request) chunks.push(chunk);",
+      "      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));",
+      "      const prior = entries.get(ref);",
+      "      const version = (prior?.version ?? 0) + 1;",
+      "      entries.set(ref, { fields: payload.data ?? {}, version });",
+      "      writeJson(response, 200, { data: { version } });",
+      "      return;",
+      "    }",
+      "  }",
+      "  writeJson(response, 404, { errors: ['not found'] });",
+      "}",
+      "const loopbackServer = createServer(handler);",
+      "const ipcServer = createServer(handler);",
+      "loopbackServer.listen(port, '127.0.0.1');",
+      "ipcServer.listen(ipc);",
+      "function shutdown() { loopbackServer.close(); ipcServer.close(() => process.exit(0)); }",
+      "process.on('SIGINT', shutdown);",
+      "process.on('SIGTERM', shutdown);",
+      "",
+    ];
+  await writeFile(
+    scriptPath,
+    (options.protectedBroker ? protectedBrokerFixture : ordinaryFixture).join("\n"),
     "utf8",
   );
   await writeJson(path.join(serviceRoot, "service.json"), {
@@ -728,6 +780,7 @@ try {
     ports: { service: secretsBrokerPort },
     urls: [{ label: "health", url: "http://127.0.0.1:${SERVICE_PORT}/health", kind: "local" }],
     healthUrl: `http://127.0.0.1:${secretsBrokerPort}/health`,
+    protectedBroker: true,
   });
   await writeTraefikService(servicesRoot, { admin: traefikAdminPort, web: traefikWebPort });
   await writeHttpService(servicesRoot, "echo-service", "service", {
