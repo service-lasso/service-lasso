@@ -6401,7 +6401,10 @@ async function startApiServerGeneration(
     const setupAfterStartup = await readRuntimeSetupStatus({
       workspaceRoot: config.workspaceRoot,
     });
-    if (!setupAfterStartup.setupMode) {
+    // A listener without a startup orchestration pass must remain available to
+    // start the Broker. Fail-closed onboarding belongs after that pass (or in
+    // the setup bootstrap route), once its protected transport is reachable.
+    if (!setupAfterStartup.setupMode && (options.baselineBootstrap || options.autostart)) {
       await ensureLocalOperatorAuth({
         workspaceRoot: config.workspaceRoot,
         servicesRoot: config.servicesRoot,
