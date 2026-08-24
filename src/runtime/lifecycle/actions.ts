@@ -40,6 +40,7 @@ import {
   type BrokerLaunchLookup,
 } from "../broker/launch-resolution.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
+import type { ServiceHealthResult } from "../health/types.js";
 import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import {
@@ -451,6 +452,25 @@ function formatStartupBrokerFailureMessage(
     .map((failure) => `${failure.ref}:${failure.status}`)
     .join(", ");
   return `Cannot start service "${serviceId}" because required broker refs are unresolved (${refs}).`;
+}
+
+function summarizeHealthcheckTraceMetadata(
+  health: ServiceHealthResult,
+): Record<string, string | number | boolean | null | string[]> {
+  const checks = health.checks ?? [];
+  return {
+    healthcheckIds: checks.map((check) => check.id),
+    healthcheckPassedIds: checks.filter((check) => check.healthy).map((check) => check.id),
+    healthcheckFailedIds: checks.filter((check) => !check.healthy).map((check) => check.id),
+    requiredHealthcheckFailedIds: checks
+      .filter((check) => check.required && !check.healthy)
+      .map((check) => check.id),
+    optionalHealthcheckFailedIds: checks
+      .filter((check) => !check.required && !check.healthy)
+      .map((check) => check.id),
+    healthcheckAttempts: checks.map((check) => `${check.id}:${check.attempts}`),
+    healthcheckAttemptCount: checks.reduce((total, check) => total + check.attempts, 0),
+  };
 }
 
 async function resolveLaunchVariableResolution(
@@ -1409,6 +1429,7 @@ export async function startService(
     readiness.ready ? "completed" : "failed",
     readiness.message,
     {
+      ...summarizeHealthcheckTraceMetadata(readiness.health),
       readinessAttribution: readiness.attribution.classification,
       attributedEndpointCount: readiness.attribution.checkedEndpointCount,
     },

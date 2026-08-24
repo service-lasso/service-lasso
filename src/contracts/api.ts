@@ -1,5 +1,5 @@
 import type { LifecycleAction, ServiceLifecycleState, ServiceStartTraceState } from "../runtime/lifecycle/types.js";
-import type { ServiceHealthResult } from "../runtime/health/types.js";
+import type { ServiceHealthcheckResult, ServiceHealthResult } from "../runtime/health/types.js";
 import type { ProviderExecutionPlan } from "../runtime/providers/types.js";
 import type { ServiceStatePaths } from "../runtime/state/paths.js";
 import type { ServiceUpdateState } from "../runtime/updates/state.js";
@@ -923,6 +923,15 @@ export interface DashboardRuntimeHealthResponse {
   runId: string | null;
 }
 
+export interface DashboardHealthcheckResponse {
+  id: string;
+  type: ServiceHealthcheckResult["type"];
+  required: boolean;
+  healthy: boolean;
+  attempts: number;
+  detail: string;
+}
+
 export interface DashboardEndpointResponse {
   label: string;
   url: string;
@@ -1001,6 +1010,7 @@ export interface DashboardServiceResponse {
   installed: boolean;
   role: string;
   runtimeHealth: DashboardRuntimeHealthResponse;
+  healthchecks: DashboardHealthcheckResponse[];
   endpoints: DashboardEndpointResponse[];
   metadata: DashboardMetadataResponse;
   dependencies: DashboardDependencyResponse[];
