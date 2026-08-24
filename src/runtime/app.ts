@@ -11,7 +11,7 @@ export interface RuntimeApp {
 
 export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<RuntimeApp> {
   const apiPort = options.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
-  const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
+  const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
 
   const serviceRoot = await ensureRuntimeConfig(
     resolveRuntimeConfig({

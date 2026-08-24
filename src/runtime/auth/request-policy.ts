@@ -4,6 +4,10 @@ import { builtInAccessGroupTemplates } from "../../platform/security-model.js";
 import {
   LOCAL_ADMIN_TOKEN_HEADER,
   ORIGINAL_CLIENT_ADDRESS_HEADER,
+  TRUSTED_INGRESS_HEADER,
+  TRUSTED_INGRESS_VALUE,
+  SERVICEADMIN_PROXY_HEADER,
+  SERVICEADMIN_PROXY_VALUE,
 } from "./local-auth-constants.js";
 
 export type RuntimeAuthActorKind = "local-root" | "zitadel" | "local-token";
@@ -126,6 +130,20 @@ function getImmediatePeerAddress(request: IncomingMessage): string | null {
   return request.socket.remoteAddress ?? null;
 }
 
+function isTrustedLoopbackIngress(request: IncomingMessage): boolean {
+  return (
+    isLoopbackAddress(getImmediatePeerAddress(request)) &&
+    normalizeHeaderValue(firstHeader(request.headers[TRUSTED_INGRESS_HEADER])) === TRUSTED_INGRESS_VALUE
+  );
+}
+
+function isServiceAdminLoopbackProxy(request: IncomingMessage): boolean {
+  return (
+    isLoopbackAddress(getImmediatePeerAddress(request)) &&
+    normalizeHeaderValue(firstHeader(request.headers[SERVICEADMIN_PROXY_HEADER])) === SERVICEADMIN_PROXY_VALUE
+  );
+}
+
 function getForwardedClientAddress(request: IncomingMessage): string | null {
   const forwardedFor = normalizeHeaderValue(firstHeader(request.headers["x-forwarded-for"]));
   if (forwardedFor) {
@@ -145,6 +163,9 @@ export function getEffectiveClientAddress(
 ): string | null {
   const peer = getImmediatePeerAddress(request);
   const forwarded = getForwardedClientAddress(request);
+  if ((isTrustedLoopbackIngress(request) || isServiceAdminLoopbackProxy(request)) && forwarded) {
+    return forwarded;
+  }
   if (trustProxyHeaders && forwarded) {
     return forwarded;
   }
@@ -191,7 +212,7 @@ function resolveZitadelActor(
   request: IncomingMessage,
   zitadelEnabled: boolean,
 ): RuntimeAuthPolicyStatus["actor"] | null {
-  if (!zitadelEnabled) return null;
+  if (!zitadelEnabled || !isTrustedLoopbackIngress(request)) return null;
 
   const userId =
     normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-zitadel-user-id"])) ??

@@ -5,7 +5,13 @@ import {
   isLoopbackAddress,
   resolveRuntimeRequestAuth,
 } from "../dist/runtime/auth/request-policy.js";
-import { ORIGINAL_CLIENT_ADDRESS_HEADER } from "../dist/runtime/auth/local-auth-constants.js";
+import {
+  ORIGINAL_CLIENT_ADDRESS_HEADER,
+  SERVICEADMIN_PROXY_HEADER,
+  SERVICEADMIN_PROXY_VALUE,
+  TRUSTED_INGRESS_HEADER,
+  TRUSTED_INGRESS_VALUE,
+} from "../dist/runtime/auth/local-auth-constants.js";
 
 function fakeRequest(remoteAddress, headers = {}) {
   return {
@@ -42,7 +48,8 @@ test("0.0.0.0 is not treated as a loopback origin", () => {
 test("loopback Admin proxy forwards LAN client and does not grant local-root", () => {
   const request = fakeRequest("127.0.0.1", {
     [ORIGINAL_CLIENT_ADDRESS_HEADER]: "192.168.10.20",
-    "x-service-lasso-internal-proxy": "serviceadmin",
+    [SERVICEADMIN_PROXY_HEADER]: SERVICEADMIN_PROXY_VALUE,
+    [TRUSTED_INGRESS_HEADER]: TRUSTED_INGRESS_VALUE,
   });
   const effective = getEffectiveClientAddress(request, true);
   assert.equal(effective, "192.168.10.20");
@@ -97,9 +104,11 @@ test("FORCE_SSO rejects remote token login and requires a ZITADEL actor", () => 
 
   const allowed = resolveRuntimeRequestAuth(
     fakeRequest("127.0.0.1", {
-      [ORIGINAL_CLIENT_ADDRESS_HEADER]: "10.0.0.9",
       "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-zitadel-user-id": "usr_fake_idp",
+      [ORIGINAL_CLIENT_ADDRESS_HEADER]: "10.0.0.9",
+      [SERVICEADMIN_PROXY_HEADER]: SERVICEADMIN_PROXY_VALUE,
+      [TRUSTED_INGRESS_HEADER]: TRUSTED_INGRESS_VALUE,
     }),
     {
       bindHost: "0.0.0.0",
@@ -138,6 +147,8 @@ test("FORCE_SSO does not hide loopback local-token or identity providers", () =>
     fakeRequest("localhost", {
       "x-service-lasso-internal-proxy": "serviceadmin",
       "x-service-lasso-zitadel-user-id": "usr_fake_idp",
+      [TRUSTED_INGRESS_HEADER]: TRUSTED_INGRESS_VALUE,
+      [SERVICEADMIN_PROXY_HEADER]: SERVICEADMIN_PROXY_VALUE,
     }),
     {
       bindHost: "0.0.0.0",

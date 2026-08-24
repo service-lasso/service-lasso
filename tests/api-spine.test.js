@@ -101,7 +101,7 @@ test("GET /api/health returns core API health", async () => {
   }
 });
 
-test("runtime API binds to all interfaces by default while reporting a local URL", async () => {
+test("runtime API binds to loopback by default", async () => {
   const previousHost = process.env.SERVICE_LASSO_HOST;
   delete process.env.SERVICE_LASSO_HOST;
 
@@ -111,7 +111,7 @@ test("runtime API binds to all interfaces by default while reporting a local URL
     const address = apiServer.server.address();
 
     assert.ok(address && typeof address !== "string");
-    assert.equal(address.address, "0.0.0.0");
+    assert.equal(address.address, "127.0.0.1");
     assert.equal(apiServer.url, `http://127.0.0.1:${apiServer.port}`);
   } finally {
     await apiServer.stop();

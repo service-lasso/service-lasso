@@ -19,6 +19,10 @@ export const LOCAL_ADMIN_TOKEN_FIELD = "LOCAL_ADMIN_TOKEN";
 export const LOCAL_OPERATOR_PASSWORD_FIELD = "LOCAL_OPERATOR_PASSWORD";
 
 export const ORIGINAL_CLIENT_ADDRESS_HEADER = "x-service-lasso-client-address";
+export const TRUSTED_INGRESS_HEADER = "x-service-lasso-trusted-ingress";
+export const TRUSTED_INGRESS_VALUE = "serviceadmin-loopback";
+export const SERVICEADMIN_PROXY_HEADER = "x-service-lasso-proxy";
+export const SERVICEADMIN_PROXY_VALUE = "serviceadmin";
 export const LOCAL_ADMIN_TOKEN_HEADER = "x-service-lasso-admin-token";
 
 export const LOCAL_OPERATOR_STATE_RELATIVE_PATH = ".service-lasso/local-operator-auth.json";
