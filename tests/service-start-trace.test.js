@@ -40,6 +40,15 @@ test("service start trace API returns ordered redacted success timeline", async 
     ports: {
       service: 0,
     },
+    healthchecks: [
+      { id: "process-ready", type: "process" },
+      {
+        id: "optional-diagnostic",
+        type: "file",
+        file: "runtime/optional-diagnostic.txt",
+        required: false,
+      },
+    ],
   });
   const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot: path.join(tempRoot, "workspace") });
 
@@ -70,6 +79,14 @@ test("service start trace API returns ordered redacted success timeline", async 
       [1, 2, 3, 4, 5, 6, 7],
     );
     assert.ok(result.body.trace.events.find((event) => event.phase === "env_merge").metadata.serviceEnvKeys.includes("API_TOKEN"));
+    const healthEvent = result.body.trace.events.find((event) => event.phase === "health_check");
+    assert.deepEqual(healthEvent.metadata.healthcheckIds, ["process-ready", "optional-diagnostic"]);
+    assert.deepEqual(healthEvent.metadata.healthcheckPassedIds, ["process-ready"]);
+    assert.deepEqual(healthEvent.metadata.healthcheckFailedIds, ["optional-diagnostic"]);
+    assert.deepEqual(healthEvent.metadata.requiredHealthcheckFailedIds, []);
+    assert.deepEqual(healthEvent.metadata.optionalHealthcheckFailedIds, ["optional-diagnostic"]);
+    assert.deepEqual(healthEvent.metadata.healthcheckAttempts, ["process-ready:1", "optional-diagnostic:1"]);
+    assert.equal(healthEvent.metadata.healthcheckAttemptCount, 2);
 
     const serialized = JSON.stringify(result.body);
     assert.doesNotMatch(serialized, /raw-api-token|raw-db-password/);
@@ -77,6 +94,57 @@ test("service start trace API returns ordered redacted success timeline", async 
     const persistedRuntime = await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8");
     assert.match(persistedRuntime, /"startTrace"/);
     assert.doesNotMatch(persistedRuntime, /raw-api-token|raw-db-password/);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("failed required readiness exposes per-check trace and operator diagnostic ids", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-start-trace-health-failure-");
+  await writeExecutableFixtureService(servicesRoot, "trace-health-failure", {
+    healthchecks: [
+      { id: "process-ready", type: "process" },
+      {
+        id: "required-ready-file",
+        type: "file",
+        file: "runtime/required-ready.txt",
+        retries: 1,
+        interval: 1,
+      },
+    ],
+  });
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    workspaceRoot: path.join(tempRoot, "workspace"),
+  });
+
+  try {
+    assert.equal((await postJson(apiServer.url + "/api/services/trace-health-failure/install")).status, 200);
+    assert.equal((await postJson(apiServer.url + "/api/services/trace-health-failure/config")).status, 200);
+    const blocked = await postJson(apiServer.url + "/api/services/trace-health-failure/start");
+    assert.equal(blocked.status, 200);
+    assert.equal(blocked.body.ok, false);
+    assert.equal(blocked.body.health.healthy, false);
+
+    const result = await getJson(apiServer.url + "/api/services/trace-health-failure/start-trace");
+    const healthEvent = result.body.trace.events.find((event) => event.phase === "health_check");
+    assert.equal(healthEvent.status, "failed");
+    assert.deepEqual(healthEvent.metadata.healthcheckPassedIds, ["process-ready"]);
+    assert.deepEqual(healthEvent.metadata.healthcheckFailedIds, ["required-ready-file"]);
+    assert.deepEqual(healthEvent.metadata.requiredHealthcheckFailedIds, ["required-ready-file"]);
+    assert.deepEqual(healthEvent.metadata.optionalHealthcheckFailedIds, []);
+    assert.deepEqual(healthEvent.metadata.healthcheckAttempts, ["process-ready:1", "required-ready-file:1"]);
+
+    const diagnostics = await getJson(apiServer.url + "/api/diagnostics/dependencies");
+    const service = diagnostics.body.diagnostics.services.find((entry) => entry.id === "trace-health-failure");
+    assert.equal(service.readiness, "degraded");
+    assert.equal(service.blockingReason, "unhealthy");
+    assert.ok(service.blockers.some((blocker) => blocker.includes("required-ready-file")));
+    assert.equal(service.health.checks.find((check) => check.id === "required-ready-file").required, true);
   } finally {
     await apiServer.stop();
     resetLifecycleState();

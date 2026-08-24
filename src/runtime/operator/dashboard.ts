@@ -4,6 +4,7 @@ import type {
   DashboardActionResponse,
   DashboardDependencyResponse,
   DashboardEndpointResponse,
+  DashboardHealthcheckResponse,
   DashboardLogPreviewEntryResponse,
   DashboardServiceResponse,
   DashboardSummaryResponse,
@@ -57,6 +58,17 @@ function mapRuntimeHealth(
   }
 
   return "critical";
+}
+
+function buildDashboardHealthchecks(health: ServiceHealthResult): DashboardHealthcheckResponse[] {
+  return (health.checks ?? []).map((check) => ({
+    id: check.id,
+    type: check.type,
+    required: check.required,
+    healthy: check.healthy,
+    attempts: check.attempts,
+    detail: check.detail,
+  }));
 }
 
 function formatDuration(ms: number | null): string {
@@ -424,6 +436,7 @@ export async function buildDashboardService(
     installed: lifecycle.installed,
     role: service.manifest.role ?? "service",
     runtimeHealth,
+    healthchecks: buildDashboardHealthchecks(health),
     endpoints,
     metadata: {
       serviceType: inferServiceType(service, runtimeLabel, endpoints),

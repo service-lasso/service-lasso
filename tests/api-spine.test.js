@@ -878,6 +878,15 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
         kind: "local",
       },
     ],
+    healthchecks: [
+      { id: "process-ready", type: "process" },
+      {
+        id: "optional-diagnostic",
+        type: "file",
+        file: "runtime/optional-diagnostic.txt",
+        required: false,
+      },
+    ],
   });
   await writeExecutableFixtureService(servicesRoot, "bravo-service", {
     depend_on: ["alpha-service"],
@@ -898,7 +907,11 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     description: "Provider utility fixture that is ready once installed/configured.",
     role: "provider",
   });
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    workspaceRoot: path.join(tempRoot, "workspace"),
+  });
 
   try {
     for (const serviceId of ["alpha-service", "bravo-service", "provider-utility"]) {
@@ -961,6 +974,19 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(alphaDetail.body.service.runtimeHealth.runId.length > 0, true);
     assert.equal(alphaDetail.body.service.installed, true);
     assert.equal(alphaDetail.body.service.role.length > 0, true);
+    assert.deepEqual(
+      alphaDetail.body.service.healthchecks.map((check) => ({
+        id: check.id,
+        type: check.type,
+        required: check.required,
+        healthy: check.healthy,
+        attempts: check.attempts,
+      })),
+      [
+        { id: "process-ready", type: "process", required: true, healthy: true, attempts: 1 },
+        { id: "optional-diagnostic", type: "file", required: false, healthy: false, attempts: 1 },
+      ],
+    );
     assert.equal(alphaDetail.body.service.metadata.installPath.endsWith(path.join("services", "alpha-service")), true);
     assert.equal(alphaDetail.body.service.metadata.configPath.endsWith(path.join("services", "alpha-service", "service.json")), true);
     assert.equal(alphaDetail.body.service.metadata.logPath.endsWith(path.join("services", "alpha-service", "logs", "runtime", "service.log")), true);

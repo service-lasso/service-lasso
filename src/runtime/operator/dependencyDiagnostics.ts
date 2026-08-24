@@ -111,6 +111,21 @@ function failedReadinessMessage(lifecycle: ServiceLifecycleState): string | null
   return event?.message ?? "Previous start attempt failed readiness.";
 }
 
+function healthBlockers(health: Awaited<ReturnType<typeof evaluateServiceHealth>>): string[] {
+  const failedRequiredIds = (health.checks ?? [])
+    .filter((check) => check.required && !check.healthy)
+    .map((check) => check.id);
+
+  if (failedRequiredIds.length === 0) {
+    return [health.detail];
+  }
+
+  return [
+    health.detail,
+    `Failed required healthcheck id(s): ${failedRequiredIds.join(", ")}.`,
+  ];
+}
+
 function buildEndpoints(
   service: DiscoveredService,
   sharedGlobalEnv: Record<string, string>,
@@ -196,7 +211,7 @@ export async function buildBaselineDependencyDiagnostics(
     } else if (lifecycle.running && !health.healthy) {
       readiness = "degraded";
       blockingReason = "unhealthy";
-      blockers.push(health.detail);
+      blockers.push(...healthBlockers(health));
     } else if (failedReadiness !== null) {
       readiness = "degraded";
       blockingReason = "unhealthy";
