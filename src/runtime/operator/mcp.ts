@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import * as z from "zod/v4";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
@@ -838,6 +839,7 @@ export async function handleServiceLassoMcpStreamableHttpRequest(
   request: IncomingMessage,
   response: ServerResponse,
   parsedBody: unknown,
+  authInfo?: AuthInfo,
 ): Promise<void> {
   const server = createServiceLassoMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
@@ -846,7 +848,9 @@ export async function handleServiceLassoMcpStreamableHttpRequest(
 
   try {
     await server.connect(transport);
-    await transport.handleRequest(request, response, parsedBody);
+    const authenticatedRequest = request as IncomingMessage & { auth?: AuthInfo };
+    if (authInfo) authenticatedRequest.auth = authInfo;
+    await transport.handleRequest(authenticatedRequest, response, parsedBody);
   } finally {
     await server.close().catch(() => undefined);
   }

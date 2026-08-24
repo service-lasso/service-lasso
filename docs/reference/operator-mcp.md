@@ -11,6 +11,10 @@ The runtime currently exposes:
 - a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
 - protocol revision `2024-11-05` on the compatibility metadata surface
 - `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
+- RFC 9728 protected-resource metadata at `GET /.well-known/oauth-protected-resource` when MCP OAuth is fully configured
+- asymmetric JWT signature, issuer, expiry, configured-audience, and scope validation for configured Streamable HTTP
+- trusted actor/client derivation from validated token claims; MCP arguments never supply actor authority
+- exact Origin allowlisting, JSON content-type enforcement, and a 1 MiB request-body limit before protocol handling
 - seven read-only tools
 - six read-only resources
 - bounded log output and response redaction
@@ -50,7 +54,8 @@ Known limitations include:
 - stdio transport is still documented but not wired to an active-runtime adapter
 - no stdio transport for local MCP clients
 - Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
-- no MCP-specific authentication, scope enforcement, Origin validation or per-client rate limiting
+- MCP OAuth is opt-in; without complete OAuth configuration Streamable HTTP remains loopback-local and uses the runtime's trusted local actor
+- per-client and per-actor rate limiting is not yet implemented
 - schemas are advertised but inputs are not fully runtime-validated against them, except `service_lasso_secret_metadata` which rejects additional properties
 - no tool annotations, output schemas or structured results
 - some responses include absolute local runtime paths
@@ -59,6 +64,52 @@ Known limitations include:
 - no guarded lifecycle or maintenance tools
 
 The production roadmap must correct these limitations without weakening the existing read-only and redaction guarantees.
+
+## Streamable HTTP identity boundary
+
+This partial `SPEC-006` `AC-6C` slice makes the configured Streamable HTTP
+endpoint an OAuth protected resource. A standards-compatible OAuth
+authorization server owns authorization and token issuance; Service Lasso only
+validates the resulting access token and enforces resource-server policy.
+
+All four OAuth settings are required together:
+
+- `SERVICE_LASSO_MCP_OAUTH_ISSUER`
+- `SERVICE_LASSO_MCP_OAUTH_JWKS_URI`
+- `SERVICE_LASSO_MCP_RESOURCE_URI` (the canonical URL ending in `/api/mcp`)
+- `SERVICE_LASSO_MCP_OAUTH_AUDIENCE`
+
+`SERVICE_LASSO_MCP_ALLOWED_ORIGINS` may contain a comma-separated list of exact
+browser origins. The configured resource origin is always allowed. Requests
+without an `Origin` header remain valid for non-browser MCP clients; any
+present Origin must match the allowlist exactly. OAuth/resource URLs require
+HTTPS, except loopback HTTP for local development and deterministic tests.
+
+Partial OAuth configuration fails closed. When OAuth is configured:
+
+- missing, malformed, incorrectly signed, wrong-issuer, expired, or
+  wrong-configured-audience tokens receive `401`
+- the challenge points clients to the RFC 9728 resource metadata endpoint
+- every request requires `service-lasso:read`
+- `service_lasso_logs_summary` additionally requires
+  `service-lasso:logs:read`
+- protected-resource metadata advertises only those two currently enforced
+  scopes; guarded-action and broader read scopes remain owned by later issues
+- validated subject and client claims become the trusted Audit actor/client;
+  request bodies and tool arguments cannot override them
+- Audit records contain only safe actor/client/scope metadata and never token,
+  header, cookie, or protocol-body material
+
+Without OAuth configuration, Streamable HTTP accepts only an authenticated
+loopback runtime actor. This preserves local-first operation without turning
+an unconfigured LAN listener into an unauthenticated MCP endpoint.
+
+`#860` remains open after this partial slice. Its remaining acceptance work is
+stdio credential handling and smoke evidence, per-client/per-actor rate
+limiting, and a broader permission-profile matrix. Deterministic Audit-store
+failure coverage is also unverified: the current store does not expose a small
+injectable failure hook, so adding one is deferred rather than widening this
+transport-policy change.
 
 ## Target architecture
 
@@ -102,10 +153,10 @@ Production requirements include:
 - loopback binding by default
 - LAN/remote exposure only when explicitly enabled
 - correct MCP initialise, request, notification, cancellation and shutdown behaviour
-- Origin validation
-- request body limits and timeouts
+- exact Origin validation
+- JSON request content and body-size limits; request timeouts remain follow-up
 - OAuth protected-resource discovery
-- authenticated and audience-bound access tokens
+- signature-, issuer-, expiry-, audience-, and resource-bound access tokens
 - per-client and per-actor rate limits
 - no logging of protocol bodies or credentials
 
@@ -142,7 +193,7 @@ Suggested scopes:
 - `service-lasso:update:write`
 - `service-lasso:runtime:admin`
 
-For Streamable HTTP, Service Lasso acts as an OAuth protected resource and ZITADEL can provide authorisation. The runtime must validate issuer, signature, expiry, audience/resource and scopes.
+For Streamable HTTP, Service Lasso acts as an OAuth protected resource and a standards-compatible OAuth server can provide authorisation. The runtime must validate issuer, signature, expiry, the configured audience and scopes.
 
 The Audit actor is derived from validated identity. A model or client cannot choose its actor by supplying an MCP tool argument.
 
@@ -241,7 +292,7 @@ The implementation is tracked by [epic #858](https://github.com/service-lasso/se
 
 Recommended order:
 
-1. [#859 — official SDK and standards-compliant transports](https://github.com/service-lasso/service-lasso/issues/859)
+1. [#859 — official SDK and standards-compliant transports](https://github.com/service-lasso/service-lasso/issues/859) (merged through PR #1029)
 2. [#860 — identity, OAuth discovery, scopes and policy](https://github.com/service-lasso/service-lasso/issues/860)
 3. [#861 — complete read-only tools, resources and structured contracts](https://github.com/service-lasso/service-lasso/issues/861)
 4. [#862 — guarded lifecycle and maintenance actions](https://github.com/service-lasso/service-lasso/issues/862)

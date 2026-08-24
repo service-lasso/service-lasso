@@ -156,6 +156,19 @@ import {
   handleServiceLassoMcpStreamableHttpRequest,
 } from "../runtime/operator/mcp.js";
 import {
+  MCP_MAX_REQUEST_BODY_BYTES,
+  MCP_PROTECTED_RESOURCE_METADATA_PATH,
+  McpHttpPolicyError,
+  assertMcpJsonContentType,
+  assertMcpScopes,
+  authorizeMcpHttpRequest,
+  createMcpProtectedResourceMetadata,
+  mcpPolicyErrorBody,
+  requiredMcpScopesForRequest,
+  type McpHttpAuthorization,
+  type McpHttpIdentityOptions,
+} from "../runtime/operator/mcp-auth.js";
+import {
   mutateOperatorActionItem,
   readOperatorActionAcknowledgementHistory,
   readOperatorActionQueue,
@@ -385,6 +398,7 @@ export interface ApiServerOptions {
     }) => Promise<void>;
   };
   runtimeGenerationId?: string | null;
+  mcpHttpIdentity?: McpHttpIdentityOptions;
 }
 
 interface ApiRequestTelemetryState {
@@ -403,6 +417,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   serviceCatalogGithubApiBaseUrl?: string;
   endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
   runtimeGenerationId?: string | null;
+  mcpHttpIdentity?: McpHttpIdentityOptions;
 }
 
 export interface RunningApiServer {
@@ -729,11 +744,24 @@ function parseOperatorCommandBody(input: unknown): OperatorCommandRequest {
   };
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+async function readJsonBody(
+  request: IncomingMessage,
+  options: { maxBytes?: number } = {},
+): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const contentLength = Number(request.headers["content-length"]);
+  if (options.maxBytes !== undefined && Number.isFinite(contentLength) && contentLength > options.maxBytes) {
+    throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+  }
 
   for await (const chunk of request) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    totalBytes += buffer.length;
+    if (options.maxBytes !== undefined && totalBytes > options.maxBytes) {
+      throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+    }
+    chunks.push(buffer);
   }
 
   if (chunks.length === 0) {
@@ -1085,6 +1113,46 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
   if (method === "GET" && pathname === "/api/runtime/auth/first-run") return true;
   if (method === "POST" && pathname === "/api/runtime/auth/first-run/acknowledge") return true;
   return false;
+}
+
+function isMcpOwnedAuthenticationRoute(pathname: string): boolean {
+  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH;
+}
+
+function writeMcpPolicyError(response: ServerResponse, error: McpHttpPolicyError): void {
+  if (error.wwwAuthenticate) response.setHeader("www-authenticate", error.wwwAuthenticate);
+  writeJson(response, error.statusCode, mcpPolicyErrorBody(error));
+}
+
+async function recordMcpAuthorizationAudit(
+  config: ApiRouteConfig,
+  request: IncomingMessage,
+  outcome: "success" | "failure",
+  statusCode: number,
+  authorization?: McpHttpAuthorization,
+  reason?: string,
+): Promise<void> {
+  await appendAuditEvent({
+    workspaceRoot: config.workspaceRoot,
+    source: "runtime-api",
+    action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
+    actor: authorization?.actor.actorId ?? "mcp-unauthenticated",
+    method: request.method ?? "POST",
+    routeTemplate: "/api/mcp",
+    outcome,
+    statusCode,
+    summary: outcome === "success"
+      ? "Operator MCP request passed the transport identity and scope boundary."
+      : "Operator MCP request was denied by the transport identity or scope boundary.",
+    reason: reason ?? (outcome === "success" ? "authorized" : "denied"),
+    metadata: authorization
+      ? {
+          actorKind: authorization.actor.kind,
+          clientId: authorization.actor.clientId,
+          scopes: [...authorization.actor.scopes],
+        }
+      : {},
+  });
 }
 
 async function rejectUnauthorizedRemoteRequest(
@@ -2817,7 +2885,12 @@ async function routeRequest(
     credentialsAcknowledged: localAuth.credentialsAcknowledged,
     verifyLocalSecret: localAuth.verifyLocalSecret,
   });
-  if (!isUnauthenticatedRuntimeRoute(method, url.pathname) && auth.policy.remoteAuthRequired && !auth.actor.authenticated) {
+  if (
+    !isUnauthenticatedRuntimeRoute(method, url.pathname) &&
+    !isMcpOwnedAuthenticationRoute(url.pathname) &&
+    auth.policy.remoteAuthRequired &&
+    !auth.actor.authenticated
+  ) {
     await rejectUnauthorizedRemoteRequest(request, config, auth);
   }
 
@@ -2827,6 +2900,19 @@ async function routeRequest(
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     writeJson(response, 200, createHealthResponse(config.version));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH) {
+    try {
+      writeJson(response, 200, createMcpProtectedResourceMetadata(config.mcpHttpIdentity));
+    } catch (error) {
+      if (error instanceof McpHttpPolicyError) {
+        writeMcpPolicyError(response, error);
+        return;
+      }
+      throw error;
+    }
     return;
   }
 
@@ -2856,6 +2942,31 @@ async function routeRequest(
   }
 
   if (request.method === "POST" && url.pathname === "/api/mcp") {
+    let authorization: McpHttpAuthorization | undefined;
+    let parsedBody: unknown;
+    try {
+      assertMcpJsonContentType(request);
+      authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+      parsedBody = await readJsonBody(request, { maxBytes: MCP_MAX_REQUEST_BODY_BYTES });
+      assertMcpScopes(authorization, requiredMcpScopesForRequest(parsedBody));
+    } catch (error) {
+      if (error instanceof McpHttpPolicyError) {
+        await recordMcpAuthorizationAudit(config, request, "failure", error.statusCode, authorization, error.code);
+        writeMcpPolicyError(response, error);
+        return;
+      }
+      if (error instanceof ApiError && (error.code === "payload_too_large" || error.code === "invalid_json")) {
+        const policyError = new McpHttpPolicyError(
+          error.code === "payload_too_large" ? "mcp_payload_too_large" : "mcp_invalid_json",
+          error.statusCode,
+        );
+        await recordMcpAuthorizationAudit(config, request, "failure", policyError.statusCode, authorization, policyError.code);
+        writeMcpPolicyError(response, policyError);
+        return;
+      }
+      throw error;
+    }
+    await recordMcpAuthorizationAudit(config, request, "success", 200, authorization);
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     await handleServiceLassoMcpStreamableHttpRequest(
       {
@@ -2866,7 +2977,8 @@ async function routeRequest(
       },
       request,
       response,
-      await readJsonBody(request),
+      parsedBody,
+      authorization.authInfo,
     );
     return;
   }
@@ -5679,6 +5791,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     serviceCatalogGithubApiBaseUrl: options.serviceCatalogGithubApiBaseUrl,
     endpointAllocationPlan: options.endpointAllocationPlan,
     runtimeGenerationId: options.runtimeGenerationId ?? null,
+    mcpHttpIdentity: options.mcpHttpIdentity,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -6169,6 +6282,7 @@ async function startApiServerGeneration(
         workflowRunFacadeState: options.workflowRunFacadeState,
         endpointAllocationPlan: allocationPlan,
         runtimeGenerationId,
+        mcpHttpIdentity: options.mcpHttpIdentity,
       });
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
