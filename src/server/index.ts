@@ -6097,6 +6097,9 @@ async function startApiServerGeneration(
     committedServiceAdoptionIds?: ReadonlySet<string>;
   } = {},
 ): Promise<RunningApiServer> {
+  // A restarted runtime must observe auth policy changes persisted while the
+  // prior listener was stopped, even when both generations share one process.
+  clearLocalAuthMaterialCache();
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const bootModel = await loadRuntimeModel(config.servicesRoot);
