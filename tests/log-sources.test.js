@@ -83,6 +83,41 @@ test("log-info exposes builtin declared and discovered service-owned log sources
     assert.ok(inventory.sources.some((source) => source.id === "app" && source.status === "available"));
     assert.ok(inventory.sources.every((source) => !String(source.relativePath ?? "").includes("..")));
 
+    const declaredRead = await fetch(`${apiServer.url}/api/logs/read?service=log-source-service&type=app&limit=50`);
+    const declaredBody = await declaredRead.json();
+    assert.equal(declaredRead.status, 200);
+    assert.equal(declaredBody.source.id, "app");
+    assert.match(String(declaredBody.path).replaceAll("\\", "/"), /logs\/app\.log$/);
+    assert.ok(declaredBody.lines.some((line) => line.includes("ready")));
+
+    const sourceQueryRead = await fetch(
+      `${apiServer.url}/api/logs/read?service=log-source-service&type=default&source=app&limit=50`,
+    );
+    const sourceQueryBody = await sourceQueryRead.json();
+    assert.equal(sourceQueryRead.status, 200);
+    assert.equal(sourceQueryBody.source.id, "app");
+    assert.deepEqual(sourceQueryBody.lines, declaredBody.lines);
+
+    const discoveredRead = await fetch(
+      `${apiServer.url}/api/logs/read?service=log-source-service&type=${encodeURIComponent("discovered:var/log/worker.log")}&limit=50`,
+    );
+    const discoveredBody = await discoveredRead.json();
+    assert.equal(discoveredRead.status, 200);
+    assert.equal(discoveredBody.source.id, "discovered:var/log/worker.log");
+    assert.ok(discoveredBody.lines.some((line) => line.includes("worker ready")));
+
+    const missingRead = await fetch(`${apiServer.url}/api/logs/read?service=log-source-service&type=missing&limit=50`);
+    const missingBody = await missingRead.json();
+    assert.equal(missingRead.status, 200);
+    assert.equal(missingBody.available, false);
+    assert.equal(missingBody.totalLines, 0);
+    assert.deepEqual(missingBody.lines, []);
+
+    const unknownRead = await fetch(`${apiServer.url}/api/logs/read?service=log-source-service&type=not-a-source&limit=50`);
+    const unknownBody = await unknownRead.json();
+    assert.equal(unknownRead.status, 404);
+    assert.equal(unknownBody.error, "log_source_not_found");
+
     await apiServer.stop();
     resetLifecycleState();
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
