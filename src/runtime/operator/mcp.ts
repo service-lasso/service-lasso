@@ -115,6 +115,8 @@ const MCP_SDK_VERSION = "1.30.0";
 const REDACTION_VALUE = "[REDACTED]";
 const DEFAULT_LOG_LIMIT = 20;
 const MAX_LOG_LIMIT = 50;
+const DEFAULT_SERVICE_LIMIT = 50;
+const MAX_SERVICE_LIMIT = 100;
 const SECRETS_BROKER_SERVICE_ID = "@secretsbroker";
 const SECRET_METADATA_ARGUMENT_KEYS = ["serviceId"] as const;
 
@@ -127,6 +129,8 @@ const READ_ONLY_TOOL_ANNOTATIONS = {
 
 const optionalServiceIdSchema = z.string().trim().min(1).optional();
 const logLimitSchema = z.number().finite().optional();
+const serviceCursorSchema = z.string().regex(/^(0|[1-9][0-9]*)$/).optional();
+const serviceLimitSchema = z.number().int().min(1).max(MAX_SERVICE_LIMIT).optional();
 
 const serviceIdInputSchema = {
   serviceId: {
@@ -141,7 +145,10 @@ const mcpTools: McpToolDefinition[] = [
     description: "List Service Lasso services with safe manifest, lifecycle, and dependency metadata.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        cursor: { type: "string", description: "Opaque numeric cursor from a prior page." },
+        limit: { type: "number", description: "Maximum services per page; defaults to 50 and is capped at 100." },
+      },
       additionalProperties: false,
     },
   },
@@ -402,8 +409,6 @@ export function getServiceLassoMcpCapabilities(
     tools: mcpTools,
     resources: mcpResources,
     runtime: {
-      servicesRoot: context.servicesRoot,
-      workspaceRoot: context.workspaceRoot ?? null,
       serviceCount: context.discovered.length,
     },
   };
@@ -436,10 +441,10 @@ export function createServiceLassoMcpServer(
     {
       title: "List services",
       description: "List Service Lasso services with safe manifest, lifecycle, and dependency metadata.",
-      inputSchema: {},
+      inputSchema: z.object({ cursor: serviceCursorSchema, limit: serviceLimitSchema }).strict(),
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async () => ({ content: jsonContent(await buildMcpServicesPayload(context)) }),
+    async ({ cursor, limit }) => jsonToolResult(await buildMcpServicesPayload(context, { cursor, limit })),
   );
 
   server.registerTool(
@@ -452,7 +457,7 @@ export function createServiceLassoMcpServer(
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpHealthPayload(context, serviceId)) }),
+    async ({ serviceId }) => jsonToolResult(await buildMcpHealthPayload(context, serviceId)),
   );
 
   server.registerTool(
@@ -465,7 +470,7 @@ export function createServiceLassoMcpServer(
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpRoutesPayload(context, serviceId)) }),
+    async ({ serviceId }) => jsonToolResult(await buildMcpRoutesPayload(context, serviceId)),
   );
 
   server.registerTool(
@@ -478,7 +483,7 @@ export function createServiceLassoMcpServer(
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpDependencyStatusPayload(context, serviceId)) }),
+    async ({ serviceId }) => jsonToolResult(await buildMcpDependencyStatusPayload(context, serviceId)),
   );
 
   assertToolScopes(["service-lasso:logs:read"]);
@@ -493,9 +498,9 @@ export function createServiceLassoMcpServer(
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId, limit }) => ({
-      content: jsonContent(await buildMcpLogsSummaryPayload(context, serviceId, clampLogLimit(limit))),
-    }),
+    async ({ serviceId, limit }) => jsonToolResult(
+      await buildMcpLogsSummaryPayload(context, serviceId, clampLogLimit(limit)),
+    ),
   );
 
   server.registerTool(
@@ -508,7 +513,7 @@ export function createServiceLassoMcpServer(
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpDiagnosticsSummaryPayload(context, serviceId)) }),
+    async ({ serviceId }) => jsonToolResult(await buildMcpDiagnosticsSummaryPayload(context, serviceId)),
   );
 
   server.registerTool(
@@ -522,7 +527,7 @@ export function createServiceLassoMcpServer(
       }).strict(),
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpSecretMetadataPayload(context, serviceId)) }),
+    async ({ serviceId }) => jsonToolResult(await buildMcpSecretMetadataPayload(context, serviceId)),
   );
 
   for (const resource of mcpResources) {
@@ -569,11 +574,20 @@ export async function startServiceLassoMcpStdioAdapter(
   };
 }
 
-export async function buildMcpServicesPayload(context: ServiceLassoMcpContext, serviceId?: string) {
+export async function buildMcpServicesPayload(
+  context: ServiceLassoMcpContext,
+  page: { cursor?: unknown; limit?: unknown } = {},
+) {
+  const cursor = typeof page.cursor === "string" && /^(0|[1-9][0-9]*)$/.test(page.cursor) ? Number(page.cursor) : 0;
+  const limit = typeof page.limit === "number" && Number.isInteger(page.limit)
+    ? Math.max(1, Math.min(MAX_SERVICE_LIMIT, page.limit))
+    : DEFAULT_SERVICE_LIMIT;
+  const allServices = selectedServices(context);
+  const services = allServices.slice(cursor, cursor + limit);
   return {
     contractVersion: CONTRACT_VERSION,
     generatedAt: generatedAt(),
-    services: selectedServices(context, serviceId).map((service) => {
+    services: services.map((service) => {
       const lifecycle = getLifecycleState(service.manifest.id);
       const dependencySummary = context.graph.getServiceDependencies(service.manifest.id);
       return {
@@ -589,10 +603,13 @@ export async function buildMcpServicesPayload(context: ServiceLassoMcpContext, s
         dependencies: dependencySummary.dependencies,
         dependents: dependencySummary.dependents,
         ports: resolvedPorts(service),
-        manifestPath: service.manifestPath,
-        serviceRoot: service.serviceRoot,
       };
     }),
+    pagination: {
+      limit,
+      nextCursor: cursor + services.length < allServices.length ? String(cursor + services.length) : null,
+      total: allServices.length,
+    },
     safety: {
       mutating: false,
       redacted: true,
@@ -817,8 +834,6 @@ export async function buildMcpDiagnosticsSummaryPayload(context: ServiceLassoMcp
     generatedAt: generatedAt(),
     runtime: {
       version: context.version,
-      servicesRoot: context.servicesRoot,
-      workspaceRoot: context.workspaceRoot ?? null,
       serviceCount: selectedServices(context, serviceId).length,
     },
     dependencies: dependencies.diagnostics.summary,
@@ -851,7 +866,8 @@ async function callTool(context: ServiceLassoMcpContext, name: string, args: Rec
 
   switch (name) {
     case "service_lasso_list_services":
-      return buildMcpServicesPayload(context);
+      assertAllowedMcpArguments(args, ["cursor", "limit"], "service_lasso_list_services");
+      return buildMcpServicesPayload(context, { cursor: args.cursor, limit: args.limit });
     case "service_lasso_get_health":
       return buildMcpHealthPayload(context, serviceId);
     case "service_lasso_list_routes":
@@ -899,6 +915,13 @@ function jsonContent(payload: unknown): { type: "text"; text: string }[] {
       text: JSON.stringify(payload, null, 2),
     },
   ];
+}
+
+function jsonToolResult(payload: unknown) {
+  return {
+    content: jsonContent(payload),
+    structuredContent: payload,
+  };
 }
 
 export async function handleServiceLassoMcpStreamableHttpRequest(

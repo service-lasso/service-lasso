@@ -90,6 +90,12 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
       id: 2,
       method: "resources/list",
     });
+    const services = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "service_lasso_list_services", arguments: {} },
+    });
 
     assert.equal(oldDiscoveryResponse.status, 405);
     assert.equal(oldDiscoveryResponse.headers.get("allow"), "POST");
@@ -100,6 +106,8 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
     assert.deepEqual(capabilities.policy, { operatingMode: "read-only", guardedToolsAvailable: false });
     assert.equal(capabilities.scope.mutatingOperations, "omitted");
     assert.equal(capabilities.runtime.serviceCount, 1);
+    assert.equal(Object.hasOwn(capabilities.runtime, "servicesRoot"), false);
+    assert.equal(Object.hasOwn(capabilities.runtime, "workspaceRoot"), false);
     assert.equal(tools.status, 200);
     assert.deepEqual(
       tools.body.result.tools.map((tool) => tool.name),
@@ -113,6 +121,10 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
         "service_lasso_secret_metadata",
       ],
     );
+    const servicePayload = JSON.parse(services.body.result.content[0].text);
+    assert.deepEqual(services.body.result.structuredContent, servicePayload);
+    assert.equal(Object.hasOwn(servicePayload.services[0], "manifestPath"), false);
+    assert.equal(Object.hasOwn(servicePayload.services[0], "serviceRoot"), false);
     assert.equal(
       tools.body.result.tools.some((tool) => /start|stop|restart|install|config|execute/i.test(tool.name)),
       false,
