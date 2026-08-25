@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -93,7 +92,7 @@ test(
     );
     const binary = path.resolve(brokerBinary);
     assert.equal((await lstat(binary)).isFile(), true);
-    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-real-broker-ipc-"));
+    const tempRoot = await mkdtemp(path.join(process.cwd(), ".service-lasso-real-broker-ipc-"));
     const servicesRoot = path.join(tempRoot, "services");
     const workspaceRoot = path.join(tempRoot, "workspace");
     let brokerProcess;
