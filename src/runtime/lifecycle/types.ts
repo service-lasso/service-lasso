@@ -2,7 +2,7 @@ import type { ProviderKind } from "../providers/types.js";
 import type { ScopedBrokerIdentityMetadata } from "../broker/identity.js";
 import type { ResolvedServiceEndpoint } from "../operator/endpoints.js";
 
-export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart";
+export type LifecycleAction = "install" | "config" | "setup" | "start" | "stop" | "restart" | "reload";
 
 export type SetupStepStatus = "succeeded" | "failed" | "timeout" | "skipped";
 

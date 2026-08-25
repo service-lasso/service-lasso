@@ -57,7 +57,7 @@ async function writeActionScript(serviceRoot) {
   );
 }
 
-test("permissionActorFromRuntimeAuth maps local-root, local-token, and fail-closed zitadel", () => {
+test("permissionActorFromRuntimeAuth maps trusted local and role-derived Zitadel permissions", () => {
   const localRoot = permissionActorFromRuntimeAuth(
     resolveRuntimeRequestAuth(fakeRequest("127.0.0.1"), { bindHost: "127.0.0.1", env: {} }),
   );
@@ -83,6 +83,7 @@ test("permissionActorFromRuntimeAuth maps local-root, local-token, and fail-clos
         "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
         "x-service-lasso-client-address": "10.0.0.8",
         "x-service-lasso-zitadel-user-id": "usr_zitadel_operator",
+        "x-service-lasso-zitadel-roles": "operator",
       }),
       {
         bindHost: "0.0.0.0",
@@ -92,7 +93,9 @@ test("permissionActorFromRuntimeAuth maps local-root, local-token, and fail-clos
   );
   assert.equal(zitadel.type, "zitadel-user");
   assert.equal(zitadel.id, "usr_zitadel_operator");
-  assert.deepEqual(zitadel.permissions, []);
+  assert.ok(zitadel.permissions.includes("service:start"));
+  assert.ok(zitadel.permissions.includes("service:reload"));
+  assert.equal(zitadel.permissions.includes("service:configure"), false);
 
   assert.throws(
     () =>
