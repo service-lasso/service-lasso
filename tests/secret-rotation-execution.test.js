@@ -15,7 +15,7 @@ import {
 const ref = "secretsbroker.ROTATE_TOKEN";
 const candidate = "ROTATION_CANDIDATE_MUST_NOT_PERSIST";
 
-function service(id = "consumer", onChange = { mode: "restart" }) {
+function service(id = "consumer", onChange = { mode: "restart" }, rotationOwner = undefined) {
   return {
     manifestPath: path.join("C:", "fixtures", id, "service.json"),
     serviceRoot: path.join("C:", "fixtures", id),
@@ -29,8 +29,35 @@ function service(id = "consumer", onChange = { mode: "restart" }) {
           ref,
           as: "ROTATE_TOKEN",
           required: true,
+          rotationOwner,
           onChange,
         }],
+      },
+    },
+  };
+}
+
+function rotationOwnerService() {
+  return {
+    manifestPath: path.join("C:", "fixtures", "credential-owner", "service.json"),
+    serviceRoot: path.join("C:", "fixtures", "credential-owner"),
+    manifest: {
+      id: "credential-owner",
+      name: "credential-owner",
+      description: "authoritative credential owner fixture",
+      actions: {
+        "rotate-upstream": {
+          label: "Rotate upstream credential",
+          mode: "command",
+          command: "node",
+          args: ["-e", "process.exit(0)"],
+        },
+        "restore-upstream": {
+          label: "Restore upstream credential",
+          mode: "command",
+          command: "node",
+          args: ["-e", "process.exit(0)"],
+        },
       },
     },
   };
@@ -232,6 +259,234 @@ test("manual plans and stale fingerprints fail before any Broker mutation", asyn
       /changed/i,
     );
     assert.equal(calls.length, 0);
+  } finally {
+    resetLifecycleState();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("external authority without an executable owner action remains a manual blocker", () => {
+  const fixture = service("external-consumer", { mode: "restart" }, {
+    authority: "external",
+    reason: "Credential is authoritative outside the Broker.",
+  });
+  const plan = buildSecretRotationImpactPlan([fixture], ref);
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.ownerAction.status, "manual");
+  assert.equal(plan.ownerAction.authority, "external");
+  assert.deepEqual(plan.blockers, ["rotation_owner:owner_action_required"]);
+});
+
+test("shared imports without explicit rotation authority remain a manual blocker", () => {
+  const fixture = service("shared-consumer");
+  fixture.manifest.broker.buckets = [{ namespace: "secretsbroker", kind: "shared" }];
+  const plan = buildSecretRotationImpactPlan([fixture], ref);
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.ownerAction.status, "manual");
+  assert.deepEqual(plan.blockers, ["rotation_owner:owner_action_required"]);
+});
+
+test("declared owner action runs once after Broker readiness and before mutation", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-owner-"));
+  const consumer = service("consumer", { mode: "restart" }, {
+    authority: "external",
+    serviceId: "credential-owner",
+    actionId: "rotate-upstream",
+    rollbackActionId: "restore-upstream",
+    reason: "Rotate the authoritative upstream credential first.",
+  });
+  const owner = rotationOwnerService();
+  const services = [consumer, owner];
+  const registry = createServiceRegistry(services);
+  const brokerCalls = [];
+  const orderedCalls = [];
+  let ownerActionCalls = 0;
+  resetLifecycleState();
+  setRunning(consumer.manifest.id, true);
+  const brokerRuntime = fakeBroker(brokerCalls);
+  const plan = buildSecretRotationImpactPlan(services, ref);
+  assert.equal(plan.status, "ready");
+  assert.deepEqual(plan.ownerAction, {
+    authority: "external",
+    status: "ready",
+    serviceId: "credential-owner",
+    actionId: "rotate-upstream",
+    rollbackActionId: "restore-upstream",
+    reason: "Rotate the authoritative upstream credential first.",
+    blockers: [],
+  });
+
+  try {
+    const options = {
+      workspaceRoot,
+      services,
+      registry,
+      brokerRuntime: {
+        management: async (brokerRequest) => {
+          orderedCalls.push("broker:" + brokerRequest.path);
+          return brokerRuntime.management(brokerRequest);
+        },
+      },
+      operations: {
+        action: async (target, actionId, parentActionId) => {
+          ownerActionCalls += 1;
+          orderedCalls.push(`owner:${target.manifest.id}:${actionId}:${parentActionId}`);
+          return true;
+        },
+        stop: async (target) => setRunning(target.manifest.id, false),
+        start: async (target) => {
+          setRunning(target.manifest.id, true);
+          return true;
+        },
+      },
+    };
+    const result = await executeSecretRotation(request(plan, "rotation-owner"), options);
+    assert.equal(result.outcome, "committed");
+    assert.equal(result.ownerActionCompleted, true);
+    assert.equal(orderedCalls[0].endsWith("/dry-run"), true);
+    assert.equal(orderedCalls[1].endsWith("/status"), true);
+    assert.equal(orderedCalls[2], "owner:credential-owner:rotate-upstream:rotation-owner:owner");
+    assert.equal(orderedCalls[3].endsWith("/stage"), true);
+    assert.equal(ownerActionCalls, 1);
+    await executeSecretRotation(request(plan, "rotation-owner"), options);
+    assert.equal(ownerActionCalls, 1);
+    const stateBytes = await readFile(path.join(workspaceRoot, ".service-lasso", "secret-rotations", "rotation-owner.json"));
+    assert.equal(stateBytes.includes(Buffer.from(candidate)), false);
+  } finally {
+    resetLifecycleState();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("failed owner action stops before any Broker mutation", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-owner-failure-"));
+  const consumer = service("consumer", { mode: "restart" }, {
+    authority: "service",
+    serviceId: "credential-owner",
+    actionId: "rotate-upstream",
+    rollbackActionId: "restore-upstream",
+  });
+  const owner = rotationOwnerService();
+  const services = [consumer, owner];
+  const registry = createServiceRegistry(services);
+  const brokerCalls = [];
+  const plan = buildSecretRotationImpactPlan(services, ref);
+
+  try {
+    await assert.rejects(
+      executeSecretRotation(request(plan, "rotation-owner-failure"), {
+        workspaceRoot,
+        services,
+        registry,
+        brokerRuntime: fakeBroker(brokerCalls),
+        operations: { action: async () => false },
+      }),
+      /owner action failed/i,
+    );
+    assert.deepEqual(brokerCalls.map((call) => call.path), [
+      "/v1/management/secrets/rotation/dry-run",
+      "/v1/management/secrets/rotation/status",
+    ]);
+    assert.equal((await readSecretRotationExecutionState(workspaceRoot, "rotation-owner-failure")).ownerActionCompleted, false);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("Broker mutation failure compensates a completed owner action and blocks reuse", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-owner-compensation-"));
+  const consumer = service("consumer", { mode: "restart" }, {
+    authority: "external",
+    serviceId: "credential-owner",
+    actionId: "rotate-upstream",
+    rollbackActionId: "restore-upstream",
+  });
+  const owner = rotationOwnerService();
+  const services = [consumer, owner];
+  const registry = createServiceRegistry(services);
+  const brokerCalls = [];
+  const ownerActions = [];
+  const brokerRuntime = fakeBroker(brokerCalls);
+  const plan = buildSecretRotationImpactPlan(services, ref);
+
+  try {
+    await assert.rejects(
+      executeSecretRotation(request(plan, "rotation-owner-compensation"), {
+        workspaceRoot,
+        services,
+        registry,
+        brokerRuntime: {
+          management: async (brokerRequest) => {
+            if (brokerRequest.path.endsWith("/stage")) {
+              brokerCalls.push({ path: brokerRequest.path, body: brokerRequest.body });
+              return { statusCode: 503, body: { outcome: "source_unavailable" } };
+            }
+            return brokerRuntime.management(brokerRequest);
+          },
+        },
+        operations: {
+          action: async (_target, actionId) => {
+            ownerActions.push(actionId);
+            return true;
+          },
+        },
+      }),
+      /stage failed closed/i,
+    );
+    assert.deepEqual(ownerActions, ["rotate-upstream", "restore-upstream"]);
+    assert.equal(brokerCalls.some((call) => call.path.endsWith("/activate")), false);
+    const state = await readSecretRotationExecutionState(workspaceRoot, "rotation-owner-compensation");
+    assert.equal(state.phase, "blocked");
+    assert.equal(state.ownerActionCompleted, true);
+    assert.equal(state.ownerRollbackCompleted, true);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("consumer failure rolls back Broker, owner authority, and prior running state", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-owner-rollback-"));
+  const consumer = service("consumer", { mode: "restart" }, {
+    authority: "external",
+    serviceId: "credential-owner",
+    actionId: "rotate-upstream",
+    rollbackActionId: "restore-upstream",
+  });
+  const owner = rotationOwnerService();
+  const services = [consumer, owner];
+  const registry = createServiceRegistry(services);
+  const brokerCalls = [];
+  const ownerActions = [];
+  let startAttempts = 0;
+  resetLifecycleState();
+  setRunning(consumer.manifest.id, true);
+  const plan = buildSecretRotationImpactPlan(services, ref);
+
+  try {
+    const result = await executeSecretRotation(request(plan, "rotation-owner-rollback"), {
+      workspaceRoot,
+      services,
+      registry,
+      brokerRuntime: fakeBroker(brokerCalls),
+      operations: {
+        action: async (_target, actionId) => {
+          ownerActions.push(actionId);
+          return true;
+        },
+        stop: async (target) => setRunning(target.manifest.id, false),
+        start: async (target) => {
+          startAttempts += 1;
+          const succeeds = startAttempts > 1;
+          setRunning(target.manifest.id, succeeds);
+          return succeeds;
+        },
+      },
+    });
+    assert.equal(result.outcome, "rolled_back");
+    assert.deepEqual(ownerActions, ["rotate-upstream", "restore-upstream"]);
+    assert.equal(result.ownerRollbackCompleted, true);
+    assert.equal(getLifecycleState(consumer.manifest.id).running, true);
+    assert.equal(brokerCalls.some((call) => call.path.endsWith("/rollback")), true);
   } finally {
     resetLifecycleState();
     await rm(workspaceRoot, { recursive: true, force: true });
