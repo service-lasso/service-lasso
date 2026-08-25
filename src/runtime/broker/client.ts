@@ -56,6 +56,26 @@ const BROKER_MANAGEMENT_ROUTES = new Map<string, ReadonlySet<"GET" | "POST">>([
   ["/v1/events", new Set(["GET"])],
 ]);
 
+export interface SecretsBrokerManagementRoute {
+  method: "GET" | "POST";
+  path: string;
+}
+
+/**
+ * Returns the exact method/path pairs accepted by the bounded Broker client.
+ * Release qualification uses this projection so native IPC coverage cannot
+ * silently drift behind the product allowlist.
+ */
+export function listSecretsBrokerManagementRoutes(): SecretsBrokerManagementRoute[] {
+  return [...BROKER_MANAGEMENT_ROUTES.entries()]
+    .flatMap(([path, methods]) => [...methods].map((method) => ({ method, path })))
+    .sort((left, right) => {
+      const leftKey = `${left.method} ${left.path}`;
+      const rightKey = `${right.method} ${right.path}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+}
+
 const BROKER_EVENT_QUERY_FIELDS = new Set([
   "since",
   "until",
