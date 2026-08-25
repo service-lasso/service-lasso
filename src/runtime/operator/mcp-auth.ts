@@ -55,6 +55,10 @@ export interface McpHttpIdentityOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+export interface McpStdioCredentialOptions {
+  env?: NodeJS.ProcessEnv;
+}
+
 export interface McpOAuthConfiguration {
   enabled: boolean;
   issuer: string | null;
@@ -398,6 +402,56 @@ function normalizeScopes(payload: JWTPayload): string[] {
 
 function safeClaimId(value: unknown): string | null {
   return typeof value === "string" && SAFE_ID_PATTERN.test(value) ? value : null;
+}
+
+/**
+ * Stdio has no HTTP header channel. Its local credential is therefore an
+ * opt-in process capability: the host must provide a non-empty secret through
+ * its protected environment, together with bounded actor and client ids. The
+ * secret intentionally never becomes protocol, Audit, or response data.
+ */
+export function resolveMcpStdioAuthorization(
+  options: McpStdioCredentialOptions = {},
+): McpHttpAuthorization {
+  const env = options.env ?? process.env;
+  const credential = normalized(env.SERVICE_LASSO_MCP_STDIO_CREDENTIAL);
+  const actorId = safeClaimId(env.SERVICE_LASSO_MCP_STDIO_ACTOR);
+  const clientId = safeClaimId(env.SERVICE_LASSO_MCP_STDIO_CLIENT_ID);
+  if (!credential || credential.length > 16_384 || !actorId || !clientId) {
+    throw new McpHttpPolicyError("mcp_stdio_credentials_not_configured", 503);
+  }
+  const scopes = [MCP_READ_SCOPE, MCP_LOGS_READ_SCOPE];
+  const actor: McpTrustedActor = {
+    kind: "local-token",
+    actorId,
+    clientId,
+    scopes,
+    permissionProfile: "observer",
+  };
+  return {
+    actor,
+    oauth: {
+      enabled: false,
+      issuer: null,
+      jwksUri: null,
+      resource: null,
+      audience: null,
+      allowedOrigins: [],
+    },
+    authInfo: {
+      token: "",
+      clientId,
+      scopes,
+      extra: {
+        actor: {
+          kind: actor.kind,
+          actorId,
+          clientId,
+          permissionProfile: actor.permissionProfile,
+        },
+      },
+    },
+  };
 }
 
 function remoteJwks(url: string): ReturnType<typeof createRemoteJWKSet> {

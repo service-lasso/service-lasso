@@ -154,6 +154,9 @@ import {
 import {
   getServiceLassoMcpCapabilities,
   handleServiceLassoMcpStreamableHttpRequest,
+  startServiceLassoMcpStdioAdapter,
+  type RunningServiceLassoMcpStdioAdapter,
+  type ServiceLassoMcpStdioOptions,
 } from "../runtime/operator/mcp.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
@@ -169,6 +172,7 @@ import {
   createMcpProtectedResourceMetadata,
   mcpPolicyErrorBody,
   requiredMcpScopesForRequest,
+  resolveMcpStdioAuthorization,
   type McpHttpAuthorization,
   type McpHttpIdentityOptions,
   type McpRateLimiter,
@@ -408,6 +412,7 @@ export interface ApiServerOptions {
   };
   runtimeGenerationId?: string | null;
   mcpHttpIdentity?: McpHttpIdentityOptions;
+  mcpStdio?: ServiceLassoMcpStdioOptions & McpHttpIdentityOptions;
   mcpPolicyTestHooks?: {
     appendAuditEvent?: typeof appendAuditEvent;
     now?: () => number;
@@ -447,6 +452,7 @@ export interface RunningApiServer {
   monitor: RuntimeServiceMonitor | null;
   updateScheduler: RuntimeUpdateScheduler | null;
   telemetryExportScheduler: RuntimeTelemetryExportScheduler | null;
+  mcpStdio: RunningServiceLassoMcpStdioAdapter | null;
   stop: () => Promise<void>;
 }
 
@@ -6052,6 +6058,10 @@ function baselineIntentMatches(journal: StartupTransactionJournal, requestedServ
 }
 
 export async function startApiServer(options: ApiServerOptions = {}): Promise<RunningApiServer> {
+  // Reject a requested stdio adapter before the runtime owns an endpoint or
+  // starts any scheduler. The adapter itself is attached only after the active
+  // runtime reaches owned readiness below.
+  if (options.mcpStdio) resolveMcpStdioAuthorization(options.mcpStdio);
   return await startApiServerInternal(options);
 }
 
@@ -6798,6 +6808,39 @@ async function startApiServerGeneration(
     throw new Error("Runtime startup committed without an instance lease.");
   }
 
+  let mcpStdio: RunningServiceLassoMcpStdioAdapter | null = null;
+  if (options.mcpStdio) {
+    const authorization = resolveMcpStdioAuthorization(options.mcpStdio);
+    await appendAuditEvent({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime-mcp-stdio",
+      action: "mcp.auth.allowed",
+      actor: authorization.actor.actorId,
+      method: "STDIO",
+      routeTemplate: "stdio",
+      outcome: "success",
+      statusCode: 200,
+      summary: "Operator MCP stdio adapter accepted a locally configured process credential.",
+      reason: "authorized",
+      metadata: {
+        actorKind: authorization.actor.kind,
+        clientId: authorization.actor.clientId,
+        permissionProfile: authorization.actor.permissionProfile,
+        scopes: [...authorization.actor.scopes],
+      },
+    });
+    mcpStdio = await startServiceLassoMcpStdioAdapter(
+      {
+        ...bootModel,
+        version: config.version,
+        workspaceRoot: config.workspaceRoot,
+        sharedGlobalEnv: collectRuntimeGlobalEnv(bootModel.registry.list()),
+      },
+      authorization,
+      options.mcpStdio,
+    );
+  }
+
   return {
     server,
     port: resolvedPort,
@@ -6810,6 +6853,7 @@ async function startApiServerGeneration(
     monitor,
     updateScheduler,
     telemetryExportScheduler,
+    mcpStdio,
     stop: async () => {
       await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopping" });
       clearInterval(leaseHeartbeat);
@@ -6824,6 +6868,7 @@ async function startApiServerGeneration(
       await monitor?.stop();
       await updateScheduler?.stop();
       await telemetryExportScheduler?.stop();
+      await mcpStdio?.close();
       await stopAllManagedProcesses();
       await markRuntimeInstanceStopped(config, runtimeGenerationId);
       await closeApiServer(server);

@@ -1,9 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Readable, Writable } from "node:stream";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import * as z from "zod/v4";
-import type { McpOperatingMode } from "./mcp-auth.js";
+import { assertMcpScopes, type McpHttpAuthorization, type McpOperatingMode } from "./mcp-auth.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
@@ -27,6 +29,19 @@ export interface ServiceLassoMcpContext {
   registry: ServiceRegistry;
   graph: DependencyGraph;
   sharedGlobalEnv: Record<string, string>;
+}
+
+export interface ServiceLassoMcpServerOptions {
+  authorization?: McpHttpAuthorization;
+}
+
+export interface ServiceLassoMcpStdioOptions {
+  stdin?: Readable;
+  stdout?: Writable;
+}
+
+export interface RunningServiceLassoMcpStdioAdapter {
+  close: () => Promise<void>;
 }
 
 export interface McpJsonRpcRequest {
@@ -359,7 +374,7 @@ export function getServiceLassoMcpCapabilities(
       packageName: MCP_SDK_PACKAGE,
       version: MCP_SDK_VERSION,
       streamableHttp: "stateless",
-      stdio: "planned thin active-runtime adapter",
+      stdio: "opt-in thin active-runtime adapter",
     },
     serverInfo: {
       name: "service-lasso-operator",
@@ -394,7 +409,10 @@ export function getServiceLassoMcpCapabilities(
   };
 }
 
-export function createServiceLassoMcpServer(context: ServiceLassoMcpContext): McpServer {
+export function createServiceLassoMcpServer(
+  context: ServiceLassoMcpContext,
+  options: ServiceLassoMcpServerOptions = {},
+): McpServer {
   const server = new McpServer(
     {
       name: "service-lasso-operator",
@@ -408,6 +426,11 @@ export function createServiceLassoMcpServer(context: ServiceLassoMcpContext): Mc
     },
   );
 
+  const assertToolScopes = (requiredScopes: readonly string[] = []) => {
+    if (options.authorization) assertMcpScopes(options.authorization, requiredScopes);
+  };
+
+  assertToolScopes(["service-lasso:read"]);
   server.registerTool(
     "service_lasso_list_services",
     {
@@ -458,6 +481,7 @@ export function createServiceLassoMcpServer(context: ServiceLassoMcpContext): Mc
     async ({ serviceId }) => ({ content: jsonContent(await buildMcpDependencyStatusPayload(context, serviceId)) }),
   );
 
+  assertToolScopes(["service-lasso:logs:read"]);
   server.registerTool(
     "service_lasso_logs_summary",
     {
@@ -522,6 +546,27 @@ export function createServiceLassoMcpServer(context: ServiceLassoMcpContext): Mc
   }
 
   return server;
+}
+
+/**
+ * Connects stdio to the already-running runtime model. The caller owns the
+ * process lifetime; this adapter never starts an API server or calls it over
+ * HTTP.
+ */
+export async function startServiceLassoMcpStdioAdapter(
+  context: ServiceLassoMcpContext,
+  authorization: McpHttpAuthorization,
+  options: ServiceLassoMcpStdioOptions = {},
+): Promise<RunningServiceLassoMcpStdioAdapter> {
+  const server = createServiceLassoMcpServer(context, { authorization });
+  const transport = new StdioServerTransport(options.stdin, options.stdout);
+  await server.connect(transport);
+  return {
+    close: async () => {
+      await server.close().catch(() => undefined);
+      await transport.close().catch(() => undefined);
+    },
+  };
 }
 
 export async function buildMcpServicesPayload(context: ServiceLassoMcpContext, serviceId?: string) {
