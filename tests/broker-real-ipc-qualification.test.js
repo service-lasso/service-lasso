@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { BROKER_IDENTITY_LEASE_ENV, issueScopedBrokerIdentity } from "../dist/runtime/broker/identity.js";
@@ -19,6 +20,18 @@ import { writeManifest } from "./test-helpers.js";
 
 const requireBrokerBinary = process.env.SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY === "1";
 const brokerBinary = process.env.SERVICE_LASSO_TEST_BROKER_BINARY;
+const execFileAsync = promisify(execFile);
+
+function classifyBrokerCommandFailure(error) {
+  const stderr = error && typeof error === "object" && "stderr" in error
+    ? String(error.stderr)
+    : "";
+  if (stderr.includes("wrapper permissions are not private")) return "wrapper_access";
+  if (stderr.includes("wrapper is unavailable for the current user")) return "wrapper_unavailable";
+  if (stderr.includes("os wrapper provider is unsupported")) return "wrapper_unsupported";
+  if (stderr.includes("invalid portable master key format")) return "invalid_master_key";
+  return "unclassified";
+}
 
 function markPrepared(serviceId, binary) {
   const state = getLifecycleState(serviceId);
@@ -86,6 +99,23 @@ test(
     let brokerProcess;
     let runtimeCredentials = null;
     let qualificationPhase = "fixture setup";
+    let brokerCommandFailure = "none";
+
+    const runBrokerCommand = async (command, cwd, args, environment) => {
+      try {
+        const { stdout } = await execFileAsync(command, args, {
+          cwd,
+          env: { ...process.env, ...environment },
+          windowsHide: true,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        });
+        return stdout;
+      } catch (error) {
+        brokerCommandFailure = classifyBrokerCommandFailure(error);
+        throw error;
+      }
+    };
 
     try {
       await mkdir(servicesRoot, { recursive: true });
@@ -136,7 +166,7 @@ test(
       markPrepared("@secretsbroker", binary);
 
       qualificationPhase = "vault bootstrap";
-      const bootstrap = await bootstrapSecretsBrokerVault(workspaceRoot, registry);
+      const bootstrap = await bootstrapSecretsBrokerVault(workspaceRoot, registry, { runCommand: runBrokerCommand });
       assert.equal(
         bootstrap.transportKind,
         process.platform === "win32" ? "windows-named-pipe" : "unix-socket",
@@ -237,7 +267,7 @@ test(
         ? error.code
         : "none";
       throw new Error(
-        `Real Broker IPC qualification failed during ${qualificationPhase}; brokerExited=${brokerExited}; cause=${causeName}/${causeCode}.`,
+        `Real Broker IPC qualification failed during ${qualificationPhase}; brokerExited=${brokerExited}; cause=${causeName}/${causeCode}; brokerCommandFailure=${brokerCommandFailure}.`,
         { cause: error },
       );
     } finally {
