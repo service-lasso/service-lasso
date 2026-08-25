@@ -21,6 +21,7 @@ The runtime currently exposes:
 - fail-closed `503` behavior when the MCP authorization Audit event cannot be persisted
 - seven read-only tools
 - six read-only resources
+- an opt-in local stdio adapter connected directly to the active runtime process
 - bounded log output and response redaction
 - secret-metadata tool that never returns secret values
 - no lifecycle, configuration, update or other mutating tools
@@ -55,8 +56,6 @@ The current surface must not be treated as the final production MCP boundary.
 Known limitations include:
 
 - the legacy JSON-RPC compatibility handler remains in source until stdio and stateful sessions are fully migrated
-- stdio transport is still documented but not wired to an active-runtime adapter
-- no stdio transport for local MCP clients
 - Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
 - MCP OAuth is opt-in; without complete OAuth configuration Streamable HTTP remains loopback-local and uses the runtime's trusted local actor
 - schemas are advertised but inputs are not fully runtime-validated against them, except `service_lasso_secret_metadata` which rejects additional properties
@@ -167,7 +166,23 @@ Service Lasso is local-first and portable.
 
 stdio is the preferred transport for local desktop and developer MCP clients.
 
-The stdio entry point must be a thin adapter to the active Service Lasso runtime. It must not start a second competing runtime or become a second owner of managed processes.
+Set `SERVICE_LASSO_MCP_STDIO=1` when launching the normal runtime to attach
+the SDK stdio transport to that same active runtime process. It does not start
+a second runtime and does not call the API over HTTP. Because stdio has no
+HTTP authorization header, all three protected process-environment settings
+are required before the adapter starts:
+
+- `SERVICE_LASSO_MCP_STDIO_CREDENTIAL` — a local, non-empty capability secret;
+  it is never sent over MCP, recorded in Audit, logged, or returned.
+- `SERVICE_LASSO_MCP_STDIO_ACTOR` — a bounded trusted local actor id.
+- `SERVICE_LASSO_MCP_STDIO_CLIENT_ID` — a bounded trusted local client id.
+
+The runtime records only the actor, client, permission profile, and scopes in
+the safe `mcp.auth.allowed` Audit event. Missing or malformed stdio settings
+fail closed and do not enable the adapter. Configure these variables through
+the desktop/client process's protected environment or equivalent OS-managed
+secret facility; do not put them in manifests, command arguments, logs, or
+MCP request bodies.
 
 ### Streamable HTTP
 
