@@ -348,7 +348,7 @@ function buildDashboardAction(
 }
 
 function buildDashboardLifecycleAction(
-  id: "install" | "start" | "stop" | "restart",
+  id: "install" | "config" | "start" | "stop" | "restart" | "reload",
   label: string,
   actor: PermissionActor,
 ): DashboardActionResponse {
@@ -364,6 +364,7 @@ function buildDashboardActions(
 ): DashboardActionResponse[] {
   const actions: DashboardActionResponse[] = [
     buildDashboardLifecycleAction("install", "Install service", actor),
+    buildDashboardLifecycleAction("config", "Configure service", actor),
     buildDashboardAction("open_logs", "Open logs", "open_logs", "service:diagnose", false, actor),
     buildDashboardAction("open_config", "Open config", "open_config", "service:configure", false, actor),
   ];
@@ -375,6 +376,7 @@ function buildDashboardActions(
       buildDashboardLifecycleAction("start", "Start service", actor),
       buildDashboardLifecycleAction("stop", "Stop service", actor),
       buildDashboardLifecycleAction("restart", "Restart service", actor),
+      buildDashboardLifecycleAction("reload", "Reload service", actor),
     );
   }
 

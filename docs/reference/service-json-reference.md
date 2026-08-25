@@ -719,6 +719,33 @@ Selector semantics:
 - If `broker.accessPolicy` is present, every declared broker import must have a matching `resolve` grant, and every generated writeback capture must have a matching operation grant for the export namespace.
 - Selectors used without a matching `broker.imports[]` declaration or access-policy grant are treated as missing policy metadata, not as implicit broker access. See [Service Secret Access Policy](./service-secret-access-policy.md).
 
+Rotation ownership is distinct from a consumer's `onChange` reaction. Each import may declare `rotationOwner.authority` as `broker`, `service`, or `external`:
+
+- omitted ownership on service/app imports means the Broker copy is authoritative; shared/global imports must declare authority explicitly, while `authority: "broker"` explicitly records that the shared Broker copy is authoritative;
+- `service` or `external` may name a discovered `serviceId`, declared `actionId`, and declared compensating `rollbackActionId`; after Broker readiness succeeds, the rotation executor runs the owner action once before any Broker staging or activation request;
+- `service` or `external` without both action coordinates remains a metadata-only manual blocker;
+- conflicting owner declarations, missing owner services, and undeclared owner actions fail closed before Broker mutation.
+- failures after a successful owner action invoke its compensating action; a missing or failed compensation blocks the transaction for operator recovery instead of claiming rollback.
+
+```json
+{
+  "namespace": "shared/database",
+  "ref": "database.PASSWORD",
+  "as": "DB_PASSWORD",
+  "required": true,
+  "rotationOwner": {
+    "authority": "external",
+    "serviceId": "database-credential-adapter",
+    "actionId": "rotate-password",
+    "rollbackActionId": "restore-password",
+    "reason": "Rotate at the authoritative database before updating the Broker copy."
+  },
+  "onChange": { "mode": "restart" }
+}
+```
+
+The owner action contract contains identifiers and operator rationale only. It must not contain secret values or upstream credentials.
+
 Producer example:
 
 ```json

@@ -2,6 +2,7 @@ import type {
   DiscoveredService,
   ServiceBrokerChangeReactionMode,
   ServiceBrokerImport,
+  ServiceBrokerRotationAuthority,
 } from "../../contracts/service.js";
 import { createHash } from "node:crypto";
 import { DependencyGraph, createServiceRegistry } from "../manager/DependencyGraph.js";
@@ -35,12 +36,23 @@ export interface SecretRotationImpactOperation {
   reason: string;
 }
 
+export interface SecretRotationOwnerActionPlan {
+  authority: Exclude<ServiceBrokerRotationAuthority, "broker">;
+  status: "ready" | "manual";
+  serviceId?: string;
+  actionId?: string;
+  rollbackActionId?: string;
+  reason: string;
+  blockers: string[];
+}
+
 export interface SecretRotationImpactPlan {
   ref: string;
   planFingerprint: string;
   status: "ready" | "blocked";
   confirmationRequired: true;
   valuePolicy: "metadata_only";
+  ownerAction: SecretRotationOwnerActionPlan | null;
   services: SecretRotationImpactService[];
   execution: {
     stopOrder: string[];
@@ -56,6 +68,7 @@ export interface SecretRotationImpactPlan {
     manual: number;
     none: number;
     blockers: number;
+    ownerAction: number;
   };
   blockers: string[];
 }
@@ -225,7 +238,95 @@ function buildExecution(services: SecretRotationImpactService[], graph: Dependen
   return { stopOrder, startOrder, operations };
 }
 
-function summarize(services: SecretRotationImpactService[]): SecretRotationImpactPlan["summary"] {
+function buildOwnerAction(services: DiscoveredService[], ref: string): SecretRotationOwnerActionPlan | null {
+  const matchingImports = services.flatMap((service) => (service.manifest.broker?.imports ?? [])
+    .filter((entry) => brokerImportMatchesReference(entry, ref))
+    .map((entry) => ({ service, entry })));
+  const declarations = matchingImports.flatMap(({ entry }) => entry.rotationOwner ? [entry.rotationOwner] : []);
+  const hasUndeclaredSharedImport = matchingImports.some(({ service, entry }) =>
+    !entry.rotationOwner && (service.manifest.broker?.buckets ?? []).some((bucket) =>
+      bucket.namespace === entry.namespace && (bucket.kind === "shared" || bucket.kind === "global")));
+  if (declarations.length === 0 && hasUndeclaredSharedImport) {
+    return {
+      authority: "external",
+      status: "manual",
+      reason: "Shared or global Broker imports must explicitly declare rotation authority.",
+      blockers: ["owner_action_required"],
+    };
+  }
+  if (declarations.length === 0 || declarations.every((entry) => entry.authority === "broker")) {
+    return null;
+  }
+
+  const identities = uniqueSorted(declarations.map((entry) =>
+    `${entry.authority}:${entry.serviceId ?? ""}:${entry.actionId ?? ""}:${entry.rollbackActionId ?? ""}`));
+  if (identities.length !== 1 || declarations.some((entry) => entry.authority === "broker")) {
+    return {
+      authority: "external",
+      status: "manual",
+      reason: "Broker imports disagree about the authoritative rotation owner.",
+      blockers: ["conflicting_owner_policy"],
+    };
+  }
+
+  const declaration = declarations[0];
+  const authority = declaration.authority as Exclude<ServiceBrokerRotationAuthority, "broker">;
+  if (!declaration.serviceId || !declaration.actionId || !declaration.rollbackActionId) {
+    return {
+      authority,
+      status: "manual",
+      reason: declaration.reason ?? "The authoritative owner must rotate this credential before the Broker copy changes.",
+      blockers: ["owner_action_required"],
+    };
+  }
+
+  const ownerService = services.find((service) => service.manifest.id === declaration.serviceId);
+  if (!ownerService) {
+    return {
+      authority,
+      status: "manual",
+      serviceId: declaration.serviceId,
+      actionId: declaration.actionId,
+      rollbackActionId: declaration.rollbackActionId,
+      reason: "The declared rotation owner service is not discovered.",
+      blockers: ["owner_service_not_discovered"],
+    };
+  }
+  if (!ownerService.manifest.actions?.[declaration.actionId]) {
+    return {
+      authority,
+      status: "manual",
+      serviceId: declaration.serviceId,
+      actionId: declaration.actionId,
+      rollbackActionId: declaration.rollbackActionId,
+      reason: "The declared rotation owner action is not defined by its service.",
+      blockers: ["owner_action_not_declared"],
+    };
+  }
+  if (!ownerService.manifest.actions[declaration.rollbackActionId]) {
+    return {
+      authority,
+      status: "manual",
+      serviceId: declaration.serviceId,
+      actionId: declaration.actionId,
+      rollbackActionId: declaration.rollbackActionId,
+      reason: "The declared rotation owner rollback action is not defined by its service.",
+      blockers: ["owner_rollback_action_not_declared"],
+    };
+  }
+
+  return {
+    authority,
+    status: "ready",
+    serviceId: declaration.serviceId,
+    actionId: declaration.actionId,
+    rollbackActionId: declaration.rollbackActionId,
+    reason: declaration.reason ?? "Run the authoritative owner action before changing the Broker copy.",
+    blockers: [],
+  };
+}
+
+function summarize(services: SecretRotationImpactService[], ownerAction: SecretRotationOwnerActionPlan | null): SecretRotationImpactPlan["summary"] {
   return {
     directConsumers: services.filter((service) => service.role === "direct").length,
     dependents: services.filter((service) => service.role === "dependent").length,
@@ -234,7 +335,8 @@ function summarize(services: SecretRotationImpactService[]): SecretRotationImpac
     action: services.filter((service) => service.action === "action").length,
     manual: services.filter((service) => service.action === "manual").length,
     none: services.filter((service) => service.action === "none").length,
-    blockers: services.reduce((total, service) => total + service.blockers.length, 0),
+    blockers: services.reduce((total, service) => total + service.blockers.length, 0) + (ownerAction?.blockers.length ?? 0),
+    ownerAction: ownerAction?.status === "ready" ? 1 : 0,
   };
 }
 
@@ -266,16 +368,21 @@ export function buildSecretRotationImpactPlan(services: DiscoveredService[], ref
   const impactedServices = [...directImpacts, ...dependentImpacts].sort((left, right) =>
     left.role.localeCompare(right.role) || left.serviceId.localeCompare(right.serviceId),
   );
-  const blockers = uniqueSorted(impactedServices.flatMap((service) => service.blockers.map((blocker) => service.serviceId + ":" + blocker)));
+  const ownerAction = buildOwnerAction(services, ref);
+  const blockers = uniqueSorted([
+    ...impactedServices.flatMap((service) => service.blockers.map((blocker) => service.serviceId + ":" + blocker)),
+    ...(ownerAction?.blockers.map((blocker) => "rotation_owner:" + blocker) ?? []),
+  ]);
 
   const planWithoutFingerprint = {
     ref,
     status: blockers.length > 0 ? "blocked" : "ready",
     confirmationRequired: true,
     valuePolicy: "metadata_only",
+    ownerAction,
     services: impactedServices,
     execution: buildExecution(impactedServices, graph),
-    summary: summarize(impactedServices),
+    summary: summarize(impactedServices, ownerAction),
     blockers,
   } satisfies Omit<SecretRotationImpactPlan, "planFingerprint">;
   return {

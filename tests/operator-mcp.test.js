@@ -97,6 +97,7 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
     assert.equal(capabilities.contractVersion, "service-lasso-mcp.v1");
     assert.equal(capabilities.sdk.packageName, "@modelcontextprotocol/sdk");
     assert.equal(capabilities.sdk.version, "1.30.0");
+    assert.deepEqual(capabilities.policy, { operatingMode: "read-only", guardedToolsAvailable: false });
     assert.equal(capabilities.scope.mutatingOperations, "omitted");
     assert.equal(capabilities.runtime.serviceCount, 1);
     assert.equal(tools.status, 200);

@@ -88,9 +88,10 @@ function normalizePermissionList(value: unknown): string[] {
  * Maps a trusted request-policy actor onto the permission actor used by
  * durable HTTP enforcement. JSON bodies must not supply this value.
  *
- * `local-root` and explicit `local-token` are owner-equivalent until workspace
- * group assignment is wired. Unmapped ZITADEL actors fail closed with no
- * grants. System and service-account actors are in-process only.
+ * `local-root` and explicit `local-token` are owner-equivalent. ZITADEL grants
+ * come only from the role claims normalized by the trusted request boundary;
+ * unmapped roles therefore still fail closed. System and service-account
+ * actors are in-process only.
  */
 export function permissionActorFromRuntimeAuth(auth: RuntimeAuthPolicyStatus): PermissionActor {
   if (!auth.actor.authenticated || auth.actor.kind === null || auth.actor.actorId === null) {
@@ -116,7 +117,7 @@ export function permissionActorFromRuntimeAuth(auth: RuntimeAuthPolicyStatus): P
   return {
     type: "zitadel-user",
     id: auth.actor.actorId,
-    permissions: [],
+    permissions: [...auth.actor.permissions],
   };
 }
 

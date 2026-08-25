@@ -11,6 +11,14 @@ The runtime currently exposes:
 - a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
 - protocol revision `2024-11-05` on the compatibility metadata surface
 - `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
+- RFC 9728 protected-resource metadata at `GET /.well-known/oauth-protected-resource` when MCP OAuth is fully configured
+- asymmetric JWT signature, issuer, expiry, configured-audience, and scope validation for configured Streamable HTTP
+- trusted actor/client derivation from validated token claims; MCP arguments never supply actor authority
+- exact Origin allowlisting, JSON content-type enforcement, and a 1 MiB request-body limit before protocol handling
+- explicit `disabled`, `read-only` (default), and `guarded` transport modes, with a fail-closed read-only tool allowlist
+- cumulative Observer, Operator, Maintainer, and Administrator profile classification from validated scopes
+- independent fixed-window actor and client rate limits with safe `429` denial Audit events
+- fail-closed `503` behavior when the MCP authorization Audit event cannot be persisted
 - seven read-only tools
 - six read-only resources
 - bounded log output and response redaction
@@ -50,7 +58,7 @@ Known limitations include:
 - stdio transport is still documented but not wired to an active-runtime adapter
 - no stdio transport for local MCP clients
 - Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
-- no MCP-specific authentication, scope enforcement, Origin validation or per-client rate limiting
+- MCP OAuth is opt-in; without complete OAuth configuration Streamable HTTP remains loopback-local and uses the runtime's trusted local actor
 - schemas are advertised but inputs are not fully runtime-validated against them, except `service_lasso_secret_metadata` which rejects additional properties
 - no tool annotations, output schemas or structured results
 - some responses include absolute local runtime paths
@@ -59,6 +67,74 @@ Known limitations include:
 - no guarded lifecycle or maintenance tools
 
 The production roadmap must correct these limitations without weakening the existing read-only and redaction guarantees.
+
+## Streamable HTTP identity boundary
+
+This partial `SPEC-006` `AC-6C` slice makes the configured Streamable HTTP
+endpoint an OAuth protected resource. A standards-compatible OAuth
+authorization server owns authorization and token issuance; Service Lasso only
+validates the resulting access token and enforces resource-server policy.
+
+All four OAuth settings are required together:
+
+- `SERVICE_LASSO_MCP_OAUTH_ISSUER`
+- `SERVICE_LASSO_MCP_OAUTH_JWKS_URI`
+- `SERVICE_LASSO_MCP_RESOURCE_URI` (the canonical URL ending in `/api/mcp`)
+- `SERVICE_LASSO_MCP_OAUTH_AUDIENCE`
+
+`SERVICE_LASSO_MCP_MODE` accepts `disabled`, `read-only`, or `guarded` and
+defaults to `read-only`. Invalid values fail the MCP surface closed with `503`.
+Disabled mode returns `404` for MCP transport and discovery routes. Read-only
+mode accepts only the current allowlisted inspection tools. Guarded mode does
+not itself grant authority and does not expose lifecycle or maintenance tools
+in this issue; those remain owned by `#862`.
+
+Rate limits are enabled by default and may be bounded with positive integer
+settings:
+
+- `SERVICE_LASSO_MCP_RATE_LIMIT_WINDOW_MS` (default `60000`, maximum `3600000`)
+- `SERVICE_LASSO_MCP_RATE_LIMIT_PER_ACTOR` (default `120`, maximum `100000`)
+- `SERVICE_LASSO_MCP_RATE_LIMIT_PER_CLIENT` (default `240`, maximum `100000`)
+
+The actor and client counters are independent and use only validated, bounded
+identity claims. A denial returns `429` with `Retry-After`, records a safe
+`mcp.auth.denied` event, and never records a token or protocol body. Invalid
+rate configuration fails the MCP request closed with `503`.
+
+`SERVICE_LASSO_MCP_ALLOWED_ORIGINS` may contain a comma-separated list of exact
+browser origins. The configured resource origin is always allowed. Requests
+without an `Origin` header remain valid for non-browser MCP clients; any
+present Origin must match the allowlist exactly. OAuth/resource URLs require
+HTTPS, except loopback HTTP for local development and deterministic tests.
+
+Partial OAuth configuration fails closed. When OAuth is configured:
+
+- missing, malformed, incorrectly signed, wrong-issuer, expired, or
+  wrong-configured-audience tokens receive `401`
+- the challenge points clients to the RFC 9728 resource metadata endpoint
+- every request requires `service-lasso:read`
+- `service_lasso_logs_summary` additionally requires
+  `service-lasso:logs:read`
+- protected-resource metadata advertises only those two currently enforced
+  scopes; guarded-action and broader read scopes remain owned by later issues
+- validated subject and client claims become the trusted Audit actor/client;
+  request bodies and tool arguments cannot override them
+- cumulative validated scopes classify the identity as Observer, Operator,
+  Maintainer, or Administrator for Audit and later guarded-policy use
+- Audit records contain only safe actor/client/scope metadata and never token,
+  header, cookie, or protocol-body material
+- if the authorization Audit event cannot be persisted, protocol execution is
+  skipped and the request receives a redacted `mcp_audit_unavailable` `503`
+
+Without OAuth configuration, Streamable HTTP accepts only an authenticated
+loopback runtime actor. This preserves local-first operation without turning
+an unconfigured LAN listener into an unauthenticated MCP endpoint.
+
+`#860` remains open only for stdio credential handling and smoke evidence. The
+repository still has no thin stdio adapter to the active runtime. Starting a
+second runtime or calling the runtime back over HTTP would violate the target
+architecture, so this residual cannot be represented honestly by a standalone
+credential parser or an isolated SDK transport test.
 
 ## Target architecture
 
@@ -102,11 +178,11 @@ Production requirements include:
 - loopback binding by default
 - LAN/remote exposure only when explicitly enabled
 - correct MCP initialise, request, notification, cancellation and shutdown behaviour
-- Origin validation
-- request body limits and timeouts
+- exact Origin validation
+- JSON request content and body-size limits; request timeouts remain follow-up
 - OAuth protected-resource discovery
-- authenticated and audience-bound access tokens
-- per-client and per-actor rate limits
+- signature-, issuer-, expiry-, audience-, and resource-bound access tokens
+- independent per-client and per-actor rate limits with safe denial Audit
 - no logging of protocol bodies or credentials
 
 Human-readable discovery moves to `GET /api/mcp/info`. The existing `/api/mcp` behaviour receives a documented compatibility period while clients migrate.
@@ -119,9 +195,12 @@ The first SDK-backed migration slice keeps existing read-only tool and resource 
 | --- | --- |
 | Disabled | MCP transports are not available. |
 | Read-only | Inspection tools and resources are available according to read scopes. This is the default. |
-| Guarded | Authorised lifecycle and maintenance tools are available through policy, preflight, confirmation and Audit. |
+| Guarded | The mode is accepted and reported, but this `#860` slice still exposes only read-only tools. Authorised lifecycle and maintenance tools arrive through `#862` policy, preflight, confirmation and Audit. |
 
 Enabling guarded mode does not grant permission by itself. Identity scopes and server policy still control every tool call.
+Read-only mode rejects any tool outside the current inspection allowlist before
+the SDK handler runs, so adding a later guarded tool cannot silently widen the
+default surface.
 
 ## Permission profiles
 
@@ -131,6 +210,13 @@ Enabling guarded mode does not grant permission by itself. Identity scopes and s
 | Operator | Observer plus service start, stop and restart. |
 | Maintainer | Operator plus install, setup, configuration and update actions. |
 | Administrator | Maintainer plus runtime-wide actions and MCP policy administration. |
+
+Profiles are classified cumulatively. An Operator must have read plus lifecycle
+scope; a Maintainer must also have configuration and update scopes; an
+Administrator must additionally have runtime-admin scope. A high privilege
+scope presented without its prerequisite scopes does not upgrade the profile.
+This issue records and tests the profile matrix while continuing to expose no
+mutating tools; guarded-action enforcement remains `#862`.
 
 Suggested scopes:
 
@@ -142,7 +228,7 @@ Suggested scopes:
 - `service-lasso:update:write`
 - `service-lasso:runtime:admin`
 
-For Streamable HTTP, Service Lasso acts as an OAuth protected resource and ZITADEL can provide authorisation. The runtime must validate issuer, signature, expiry, audience/resource and scopes.
+For Streamable HTTP, Service Lasso acts as an OAuth protected resource and a standards-compatible OAuth server can provide authorisation. The runtime must validate issuer, signature, expiry, the configured audience and scopes.
 
 The Audit actor is derived from validated identity. A model or client cannot choose its actor by supplying an MCP tool argument.
 
@@ -241,7 +327,7 @@ The implementation is tracked by [epic #858](https://github.com/service-lasso/se
 
 Recommended order:
 
-1. [#859 — official SDK and standards-compliant transports](https://github.com/service-lasso/service-lasso/issues/859)
+1. [#859 — official SDK and standards-compliant transports](https://github.com/service-lasso/service-lasso/issues/859) (merged through PR #1029)
 2. [#860 — identity, OAuth discovery, scopes and policy](https://github.com/service-lasso/service-lasso/issues/860)
 3. [#861 — complete read-only tools, resources and structured contracts](https://github.com/service-lasso/service-lasso/issues/861)
 4. [#862 — guarded lifecycle and maintenance actions](https://github.com/service-lasso/service-lasso/issues/862)

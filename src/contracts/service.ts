@@ -312,7 +312,18 @@ export interface ServiceBrokerImport {
   ref: string;
   as?: string;
   required?: boolean;
+  rotationOwner?: ServiceBrokerRotationOwner;
   onChange?: ServiceBrokerChangeReaction;
+}
+
+export type ServiceBrokerRotationAuthority = "broker" | "service" | "external";
+
+export interface ServiceBrokerRotationOwner {
+  authority: ServiceBrokerRotationAuthority;
+  serviceId?: string;
+  actionId?: string;
+  rollbackActionId?: string;
+  reason?: string;
 }
 
 export type ServiceBrokerChangeReactionMode = "restart" | "reload" | "action" | "manual" | "none";

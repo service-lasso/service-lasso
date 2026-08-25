@@ -8,8 +8,11 @@ on:
     paths:
       - ".github/workflows/docs-site.yml"
       - "docs/**"
+      - ".governance/project/BACKLOG.md"
+      - ".governance/specs/SPEC-007-secrets-capability-ledger.md"
       - "package.json"
       - "package-lock.json"
+      - "scripts/check-secrets-capability-ledger.mjs"
   push:
     branches:
       - develop
@@ -47,6 +50,9 @@ jobs:
 
       - name: Reject critical and high tooling vulnerabilities
         run: npm run audit:tooling
+
+      - name: Validate Secrets capability ledger
+        run: npm run docs:check-secrets-ledger
 
       - name: Build Docusaurus site
         run: npm run docs:build

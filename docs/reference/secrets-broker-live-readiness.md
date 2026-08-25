@@ -1,5 +1,11 @@
 # Secrets Broker live-readiness record
 
+> Current capability maturity is governed by the canonical
+> [Secrets capability ledger](./secrets-capability-ledger.md). This record
+> preserves the candidate release boundary; historical source and local
+> evidence below must not be read as proof that every capability is currently
+> validated.
+
 This record defines the release boundary for the Service Lasso, Secrets Broker,
 and Service Admin candidates. A green source test or a healthy process alone is
 not a go-live decision. The exact published artifacts, their pinned versions,
@@ -93,5 +99,8 @@ passes on Windows and Ubuntu.
    no-leak evidence all refer to those exact releases.
 
 Until those gates pass, the correct verdict is **release candidate, not live**.
-Issue #134 remains open for capabilities explicitly excluded above; it is not
-permitted to be hidden behind a successful local-first release claim.
+Broker issue [#134](https://github.com/service-lasso/lasso-secretsbroker/issues/134)
+is now closed as implementation history, but closure does not establish current
+Admin compatibility, cross-platform live behavior, or capability completeness.
+Those maturity claims remain controlled by the canonical ledger and its exact
+row-specific evidence.
