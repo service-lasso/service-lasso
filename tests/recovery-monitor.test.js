@@ -7,7 +7,12 @@ import {
   stopAllManagedProcesses,
   waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
-import { configService, installService, startService } from "../dist/runtime/lifecycle/actions.js";
+import {
+  configService,
+  hasPendingSupervisionRestart,
+  installService,
+  startService,
+} from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createRuntimeServiceMonitor } from "../dist/runtime/recovery/monitor.js";
@@ -61,7 +66,7 @@ test("runtime monitor defers to an in-flight automatic supervision restart", asy
         enabled: true,
         onCrash: true,
         maxAttempts: 1,
-        backoffSeconds: 0,
+        backoffSeconds: 1,
       },
     });
 
@@ -70,7 +75,10 @@ test("runtime monitor defers to an in-flight automatic supervision restart", asy
     assert.ok(service);
     await installConfigStart(service, registry);
 
-    await waitFor(() => getLifecycleState("crash-restart-service").runtime.lastTermination === "crashed");
+    await waitFor(() => (
+      getLifecycleState("crash-restart-service").runtime.lastTermination === "crashed"
+      && hasPendingSupervisionRestart("crash-restart-service")
+    ));
 
     const monitor = createRuntimeServiceMonitor({
       registry,
