@@ -1017,10 +1017,11 @@ test("dashboard adapter routes expose bounded admin-facing service and summary s
     assert.equal(utilityDetail.body.service.installed, true);
     assert.deepEqual(
       utilityDetail.body.service.actions
-        .filter((action) => ["start", "stop", "restart"].includes(action.kind))
+        .filter((action) => ["start", "stop", "restart", "reload"].includes(action.kind))
         .map((action) => action.kind),
       [],
     );
+    assert.ok(utilityDetail.body.service.actions.some((action) => action.kind === "config"));
   } finally {
     await apiServer.stop();
     resetLifecycleState();

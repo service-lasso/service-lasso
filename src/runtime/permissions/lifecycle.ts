@@ -1,7 +1,13 @@
-export type ServiceLifecycleAction = "install" | "config" | "start" | "stop" | "restart";
+export type ServiceLifecycleAction = "install" | "config" | "start" | "stop" | "restart" | "reload";
 
 export interface ServiceLifecycleActionPolicy {
-  permission: "service:install" | "service:configure" | "service:start" | "service:stop" | "service:restart";
+  permission:
+    | "service:install"
+    | "service:configure"
+    | "service:start"
+    | "service:stop"
+    | "service:restart"
+    | "service:reload";
   sensitive: boolean;
 }
 
@@ -11,6 +17,7 @@ const lifecycleActionPolicies: Record<ServiceLifecycleAction, ServiceLifecycleAc
   start: { permission: "service:start", sensitive: false },
   stop: { permission: "service:stop", sensitive: true },
   restart: { permission: "service:restart", sensitive: true },
+  reload: { permission: "service:reload", sensitive: true },
 };
 
 export function getServiceLifecycleActionPolicy(action: string): ServiceLifecycleActionPolicy | null {

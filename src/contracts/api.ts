@@ -988,6 +988,7 @@ export interface DashboardActionResponse {
     | "restart"
     | "reload"
     | "install"
+    | "config"
     | "uninstall"
     | "open_logs"
     | "open_config"

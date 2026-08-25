@@ -201,7 +201,7 @@ import {
   DEFAULT_BASELINE_SERVICE_IDS,
   type BootstrapBaselineResult,
 } from "../runtime/cli/bootstrap.js";
-import type { LifecycleAction } from "../runtime/lifecycle/types.js";
+import type { LifecycleAction, LifecycleActionResult } from "../runtime/lifecycle/types.js";
 import {
   claimRuntimeEndpointAllocation,
   planAndReserveRuntimeEndpoints,
@@ -223,7 +223,11 @@ import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
-import { enforcePermission, permissionActorFromRuntimeAuth } from "../runtime/permissions/enforcement.js";
+import {
+  enforcePermission,
+  permissionActorFromRuntimeAuth,
+  type PermissionActor,
+} from "../runtime/permissions/enforcement.js";
 import { getServiceLifecycleActionPolicy } from "../runtime/permissions/lifecycle.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
@@ -1869,6 +1873,7 @@ async function executeLifecycleAction(
   allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
+  requestContext?: { actor: PermissionActor; confirmed: boolean },
 ): Promise<LifecycleActionResponse> {
   const plannedPorts = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan)[service.manifest.id] : undefined;
   const allocationOptions = {
@@ -1897,6 +1902,42 @@ async function executeLifecycleAction(
         return await stopService(service);
       case "restart":
         return await restartService(service, registry, allocationOptions);
+      case "reload": {
+        if (!requestContext) {
+          throw new ApiError("actor_required", 401, "Reload requires an authenticated runtime actor.");
+        }
+        if (!service.manifest.actions?.reload) {
+          throw new ApiError(
+            "reload_action_not_declared",
+            409,
+            `Service "${service.manifest.id}" does not declare a reload action.`,
+          );
+        }
+        const reload = await runServiceAction(
+          service,
+          registry,
+          "reload",
+          {
+            source: "manual",
+            actor: requestContext.actor,
+            confirm: requestContext.confirmed,
+          },
+          allocationOptions,
+        );
+        const current = getLifecycleState(service.manifest.id);
+        const state = setLifecycleState(service.manifest.id, {
+          ...current,
+          lastAction: "reload",
+          actionHistory: [...current.actionHistory, "reload"],
+        });
+        return {
+          action: "reload",
+          serviceId: service.manifest.id,
+          ok: reload.ok,
+          state,
+          message: reload.message,
+        } satisfies LifecycleActionResult;
+      }
       default:
         throw new ApiError("invalid_action", 400, `Unknown lifecycle action: ${action}`);
     }
@@ -5006,6 +5047,7 @@ async function routeRequest(
           config.endpointAllocationPlan,
           config.runtimeGenerationId,
           resolveRuntimeInstanceId(config),
+          { actor: lifecycleActor, confirmed: body.confirm },
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
