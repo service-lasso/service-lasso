@@ -66,7 +66,10 @@ The unpublished local candidates have the following direct evidence:
   exact pinned Broker release, verifies the published archive digest, and runs
   that real subprocess journey over a Windows named pipe and a Linux Unix
   socket. The dedicated gate requires a Broker binary and cannot silently turn
-  into the source-suite skip used by ordinary contributor runs.
+  into the source-suite skip used by ordinary contributor runs. Hosted Windows
+  currently fails before subprocess start on the pinned Broker's private-wrapper
+  owner/ACL boundary (`lasso-secretsbroker#166`); Core remains blocked until a
+  repaired immutable Broker release is pinned and both native jobs pass.
 - Service Admin: 106 unit tests, four packaged-runtime tests, production audit
   with no known vulnerabilities, Windows package verification, and a packaged
   Electron/Cypress journey through a real Core and Broker. The journey covers

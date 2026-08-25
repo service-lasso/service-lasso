@@ -131,7 +131,24 @@ jobs:
           $archive = Join-Path $env:RUNNER_TEMP $asset
           $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
           $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.18-2ee1ba5/$asset"
-          Invoke-WebRequest -Uri $url -OutFile $archive
+          $downloaded = $false
+          $maxAttempts = 4
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $archive
+              $downloaded = $true
+              break
+            } catch {
+              if ($attempt -eq $maxAttempts) {
+                throw 'Pinned Secrets Broker archive download failed after bounded retries.'
+              }
+              Start-Sleep -Seconds ([Math]::Pow(2, $attempt))
+            }
+          }
+          if (-not $downloaded) {
+            throw 'Pinned Secrets Broker archive download did not complete.'
+          }
           $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) {
             throw 'Pinned Secrets Broker archive checksum mismatch.'
