@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -23,6 +23,10 @@ import {
   createSafeLockoutFixtureDiagnostic,
   requestBrokerLockoutWithToken,
 } from './real-admin-browser-lockout.mjs'
+import {
+  createSafeRealAdminBrowserTeardownFailure,
+  teardownRealAdminBrowserFixture,
+} from './real-admin-browser-shutdown.mjs'
 import { writeManifest } from '../test-helpers.js'
 
 const sourceBrokerBinary = path.resolve(process.env.SERVICE_LASSO_TEST_BROKER_BINARY ?? '')
@@ -46,7 +50,7 @@ let apiServer = null
 let adminProcess = null
 let vaultServer = null
 let brokerRuntimeCredentials = null
-let shuttingDown = false
+let shutdownPromise = null
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 })
 
 function safeFailureCode(error) {
@@ -89,42 +93,30 @@ async function waitFor(url, timeoutMs = 30_000) {
   throw new Error(`Timed out waiting for ${new URL(url).pathname}`)
 }
 
-async function shutdown(exitCode = 0) {
-  if (shuttingDown) return
-  shuttingDown = true
-  if (adminProcess?.exitCode === null) {
-    adminProcess.kill('SIGTERM')
-    await Promise.race([
-      new Promise((resolve) => adminProcess.once('exit', resolve)),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
-    ])
-    if (adminProcess.exitCode === null) adminProcess.kill('SIGKILL')
-  }
-  await apiServer?.stop().catch(() => undefined)
-  await stopAllManagedProcesses().catch(() => undefined)
-  brokerIPCClient.destroy()
-  if (vaultServer) {
-    const closing = new Promise((resolve) => vaultServer.close(() => resolve()))
-    vaultServer.closeAllConnections?.()
-    await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 5_000))])
-  }
-  resetLifecycleState()
-  const cleanupDeadline = Date.now() + 90_000
-  for (;;) {
+function shutdown(exitCode = 0) {
+  if (shutdownPromise) return shutdownPromise
+  shutdownPromise = (async () => {
+    let resolvedExitCode = exitCode
     try {
-      await rm(tempRoot, {
-        recursive: true,
-        force: true,
-        maxRetries: 8,
-        retryDelay: 250,
+      await teardownRealAdminBrowserFixture({
+        adminProcess,
+        apiServer,
+        stopManagedProcesses: stopAllManagedProcesses,
+        brokerIPCClient,
+        vaultServer,
+        resetLifecycle: resetLifecycleState,
+        tempRoot,
       })
-      break
     } catch (error) {
-      if (Date.now() >= cleanupDeadline) throw error
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      resolvedExitCode = 1
+      const failure = createSafeRealAdminBrowserTeardownFailure(error)
+      await new Promise((resolve) => {
+        process.stderr.write(`${JSON.stringify(failure)}\n`, resolve)
+      })
     }
-  }
-  process.exit(exitCode)
+    process.exit(resolvedExitCode)
+  })()
+  return shutdownPromise
 }
 
 process.on('SIGINT', () => void shutdown(0))
