@@ -9,15 +9,47 @@ export const MCP_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protecte
 export const MCP_MAX_REQUEST_BODY_BYTES = 1_048_576;
 export const MCP_READ_SCOPE = "service-lasso:read";
 export const MCP_LOGS_READ_SCOPE = "service-lasso:logs:read";
+export const MCP_AUDIT_READ_SCOPE = "service-lasso:audit:read";
+export const MCP_LIFECYCLE_WRITE_SCOPE = "service-lasso:lifecycle:write";
+export const MCP_CONFIG_WRITE_SCOPE = "service-lasso:config:write";
+export const MCP_UPDATE_WRITE_SCOPE = "service-lasso:update:write";
+export const MCP_RUNTIME_ADMIN_SCOPE = "service-lasso:runtime:admin";
 
 const MCP_SUPPORTED_SCOPES = [
   MCP_READ_SCOPE,
   MCP_LOGS_READ_SCOPE,
 ] as const;
+const MCP_CURRENT_READ_ONLY_TOOLS = new Set([
+  "service_lasso_list_services",
+  "service_lasso_get_health",
+  "service_lasso_list_routes",
+  "service_lasso_dependency_status",
+  "service_lasso_logs_summary",
+  "service_lasso_diagnostics_summary",
+  "service_lasso_secret_metadata",
+]);
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$/;
 const SAFE_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,127}$/;
 const ASYMMETRIC_JWT_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "EdDSA"];
 const remoteJwksByUrl = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+const DEFAULT_MCP_RATE_LIMIT_WINDOW_MS = 60_000;
+const DEFAULT_MCP_RATE_LIMIT_PER_ACTOR = 120;
+const DEFAULT_MCP_RATE_LIMIT_PER_CLIENT = 240;
+const MAX_MCP_RATE_LIMIT_BUCKETS = 10_000;
+
+export type McpOperatingMode = "disabled" | "read-only" | "guarded";
+export type McpPermissionProfile = "observer" | "operator" | "maintainer" | "administrator";
+
+export interface McpRateLimitConfiguration {
+  windowMs: number;
+  perActor: number;
+  perClient: number;
+}
+
+interface McpRateLimitBucket {
+  count: number;
+  windowStartedAt: number;
+}
 
 export interface McpHttpIdentityOptions {
   env?: NodeJS.ProcessEnv;
@@ -37,6 +69,7 @@ export interface McpTrustedActor {
   actorId: string;
   clientId: string;
   scopes: readonly string[];
+  permissionProfile: McpPermissionProfile;
 }
 
 export interface McpHttpAuthorization {
@@ -50,10 +83,150 @@ export class McpHttpPolicyError extends Error {
     public readonly code: string,
     public readonly statusCode: number,
     public readonly wwwAuthenticate?: string,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(code);
     this.name = "McpHttpPolicyError";
   }
+}
+
+function boundedPositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+  maximum: number,
+): number {
+  const candidate = normalized(value);
+  if (!candidate) return fallback;
+  if (!/^[0-9]+$/.test(candidate)) throw new McpHttpPolicyError(`invalid_${name}`, 503);
+  const parsed = Number(candidate);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new McpHttpPolicyError(`invalid_${name}`, 503);
+  }
+  return parsed;
+}
+
+export function resolveMcpOperatingMode(options: McpHttpIdentityOptions = {}): McpOperatingMode {
+  const value = normalized((options.env ?? process.env).SERVICE_LASSO_MCP_MODE)?.toLowerCase() ?? "read-only";
+  if (value === "disabled" || value === "read-only" || value === "guarded") return value;
+  throw new McpHttpPolicyError("invalid_mcp_mode", 503);
+}
+
+export function assertMcpTransportEnabled(options: McpHttpIdentityOptions = {}): McpOperatingMode {
+  const mode = resolveMcpOperatingMode(options);
+  if (mode === "disabled") throw new McpHttpPolicyError("mcp_disabled", 404);
+  return mode;
+}
+
+export function resolveMcpPermissionProfile(scopes: readonly string[]): McpPermissionProfile {
+  const granted = new Set(scopes);
+  if (
+    granted.has(MCP_READ_SCOPE) &&
+    granted.has(MCP_LIFECYCLE_WRITE_SCOPE) &&
+    granted.has(MCP_CONFIG_WRITE_SCOPE) &&
+    granted.has(MCP_UPDATE_WRITE_SCOPE) &&
+    granted.has(MCP_RUNTIME_ADMIN_SCOPE)
+  ) return "administrator";
+  if (
+    granted.has(MCP_READ_SCOPE) &&
+    granted.has(MCP_LIFECYCLE_WRITE_SCOPE) &&
+    granted.has(MCP_CONFIG_WRITE_SCOPE) &&
+    granted.has(MCP_UPDATE_WRITE_SCOPE)
+  ) return "maintainer";
+  if (granted.has(MCP_READ_SCOPE) && granted.has(MCP_LIFECYCLE_WRITE_SCOPE)) return "operator";
+  return "observer";
+}
+
+export function resolveMcpRateLimitConfiguration(
+  options: McpHttpIdentityOptions = {},
+): McpRateLimitConfiguration {
+  const env = options.env ?? process.env;
+  return {
+    windowMs: boundedPositiveInteger(
+      env.SERVICE_LASSO_MCP_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_MCP_RATE_LIMIT_WINDOW_MS,
+      "mcp_rate_limit_window_ms",
+      3_600_000,
+    ),
+    perActor: boundedPositiveInteger(
+      env.SERVICE_LASSO_MCP_RATE_LIMIT_PER_ACTOR,
+      DEFAULT_MCP_RATE_LIMIT_PER_ACTOR,
+      "mcp_rate_limit_per_actor",
+      100_000,
+    ),
+    perClient: boundedPositiveInteger(
+      env.SERVICE_LASSO_MCP_RATE_LIMIT_PER_CLIENT,
+      DEFAULT_MCP_RATE_LIMIT_PER_CLIENT,
+      "mcp_rate_limit_per_client",
+      100_000,
+    ),
+  };
+}
+
+export class McpRateLimiter {
+  private readonly buckets = new Map<string, McpRateLimitBucket>();
+
+  constructor(private readonly now: () => number = Date.now) {}
+
+  consume(authorization: McpHttpAuthorization, config: McpRateLimitConfiguration): void {
+    const now = this.now();
+    const actorKey = `actor:${authorization.actor.actorId}`;
+    const clientKey = `client:${authorization.actor.clientId}`;
+    const actorBucket = this.currentBucket(actorKey, now, config.windowMs);
+    const clientBucket = this.currentBucket(clientKey, now, config.windowMs);
+    let missingBucketCount = Number(!this.buckets.has(actorKey)) + Number(!this.buckets.has(clientKey));
+    if (this.buckets.size + missingBucketCount > MAX_MCP_RATE_LIMIT_BUCKETS) {
+      for (const [key, bucket] of this.buckets) {
+        if (now - bucket.windowStartedAt >= config.windowMs) this.buckets.delete(key);
+      }
+      missingBucketCount = Number(!this.buckets.has(actorKey)) + Number(!this.buckets.has(clientKey));
+      if (this.buckets.size + missingBucketCount > MAX_MCP_RATE_LIMIT_BUCKETS) {
+        throw new McpHttpPolicyError("mcp_rate_limiter_capacity", 503);
+      }
+    }
+
+    const blockedBucket = actorBucket.count >= config.perActor
+      ? actorBucket
+      : clientBucket.count >= config.perClient
+        ? clientBucket
+        : null;
+    if (blockedBucket) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((blockedBucket.windowStartedAt + config.windowMs - now) / 1_000),
+      );
+      throw new McpHttpPolicyError("mcp_rate_limited", 429, undefined, retryAfterSeconds);
+    }
+
+    actorBucket.count += 1;
+    clientBucket.count += 1;
+    this.remember(actorKey, actorBucket);
+    this.remember(clientKey, clientBucket);
+  }
+
+  private currentBucket(key: string, now: number, windowMs: number): McpRateLimitBucket {
+    const existing = this.buckets.get(key);
+    if (!existing || now - existing.windowStartedAt >= windowMs) {
+      return { count: 0, windowStartedAt: now };
+    }
+    return existing;
+  }
+
+  private remember(key: string, bucket: McpRateLimitBucket): void {
+    this.buckets.set(key, bucket);
+  }
+}
+
+export function createMcpRateLimiter(now?: () => number): McpRateLimiter {
+  return new McpRateLimiter(now);
+}
+
+export function assertMcpRateLimit(
+  limiter: McpRateLimiter,
+  authorization: McpHttpAuthorization,
+  options: McpHttpIdentityOptions = {},
+): void {
+  limiter.consume(authorization, resolveMcpRateLimitConfiguration(options));
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
@@ -160,6 +333,7 @@ function bearerChallenge(config: McpOAuthConfiguration, error?: string, scopes: 
 export function createMcpProtectedResourceMetadata(
   options: McpHttpIdentityOptions = {},
 ): OAuthProtectedResourceMetadata {
+  assertMcpTransportEnabled(options);
   const config = resolveMcpOAuthConfiguration(options);
   if (!config.enabled || !config.issuer || !config.resource) {
     throw new McpHttpPolicyError("mcp_oauth_not_configured", 404);
@@ -258,7 +432,13 @@ async function verifyMcpBearerToken(
       throw new Error("invalid_claims");
     }
     const scopes = normalizeScopes(payload);
-    const actor: McpTrustedActor = { kind: "oauth", actorId, clientId, scopes };
+    const actor: McpTrustedActor = {
+      kind: "oauth",
+      actorId,
+      clientId,
+      scopes,
+      permissionProfile: resolveMcpPermissionProfile(scopes),
+    };
     return {
       actor,
       oauth: config,
@@ -273,6 +453,7 @@ async function verifyMcpBearerToken(
             kind: actor.kind,
             actorId: actor.actorId,
             clientId: actor.clientId,
+            permissionProfile: actor.permissionProfile,
           },
         },
       },
@@ -300,6 +481,7 @@ function localMcpAuthorization(
     actorId: auth.actor.actorId,
     clientId,
     scopes: [...MCP_SUPPORTED_SCOPES],
+    permissionProfile: "administrator",
   };
   return {
     actor,
@@ -308,7 +490,7 @@ function localMcpAuthorization(
       token: "",
       clientId,
       scopes: [...MCP_SUPPORTED_SCOPES],
-      extra: { actor: { kind, actorId: actor.actorId, clientId } },
+      extra: { actor: { kind, actorId: actor.actorId, clientId, permissionProfile: actor.permissionProfile } },
     },
   };
 }
@@ -318,6 +500,7 @@ export async function authorizeMcpHttpRequest(
   runtimeAuth: RuntimeAuthPolicyStatus,
   options: McpHttpIdentityOptions = {},
 ): Promise<McpHttpAuthorization> {
+  assertMcpTransportEnabled(options);
   const config = assertMcpOriginAllowed(request, options);
   const authorization = config.enabled
     ? await verifyMcpBearerToken(request, config)
@@ -339,6 +522,21 @@ export function requiredMcpScopesForRequest(input: unknown): string[] {
     if (name === "service_lasso_logs_summary") scopes.add(MCP_LOGS_READ_SCOPE);
   }
   return [...scopes];
+}
+
+export function assertMcpOperatingModeAllowsRequest(
+  input: unknown,
+  options: McpHttpIdentityOptions = {},
+): void {
+  const mode = assertMcpTransportEnabled(options);
+  if (mode !== "read-only") return;
+  for (const message of collectRequests(input)) {
+    if (message.method !== "tools/call" || !message.params || typeof message.params !== "object" || Array.isArray(message.params)) continue;
+    const name = (message.params as Record<string, unknown>).name;
+    if (typeof name === "string" && !MCP_CURRENT_READ_ONLY_TOOLS.has(name)) {
+      throw new McpHttpPolicyError("mcp_read_only_mode", 403);
+    }
+  }
 }
 
 export function assertMcpScopes(

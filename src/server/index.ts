@@ -160,13 +160,18 @@ import {
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
   McpHttpPolicyError,
   assertMcpJsonContentType,
+  assertMcpOperatingModeAllowsRequest,
+  assertMcpRateLimit,
   assertMcpScopes,
+  assertMcpTransportEnabled,
   authorizeMcpHttpRequest,
+  createMcpRateLimiter,
   createMcpProtectedResourceMetadata,
   mcpPolicyErrorBody,
   requiredMcpScopesForRequest,
   type McpHttpAuthorization,
   type McpHttpIdentityOptions,
+  type McpRateLimiter,
 } from "../runtime/operator/mcp-auth.js";
 import {
   mutateOperatorActionItem,
@@ -399,6 +404,10 @@ export interface ApiServerOptions {
   };
   runtimeGenerationId?: string | null;
   mcpHttpIdentity?: McpHttpIdentityOptions;
+  mcpPolicyTestHooks?: {
+    appendAuditEvent?: typeof appendAuditEvent;
+    now?: () => number;
+  };
 }
 
 interface ApiRequestTelemetryState {
@@ -418,6 +427,8 @@ interface ApiRouteConfig extends RuntimeConfig {
   endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
   runtimeGenerationId?: string | null;
   mcpHttpIdentity?: McpHttpIdentityOptions;
+  mcpRateLimiter: McpRateLimiter;
+  mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
 }
 
 export interface RunningApiServer {
@@ -1121,6 +1132,7 @@ function isMcpOwnedAuthenticationRoute(pathname: string): boolean {
 
 function writeMcpPolicyError(response: ServerResponse, error: McpHttpPolicyError): void {
   if (error.wwwAuthenticate) response.setHeader("www-authenticate", error.wwwAuthenticate);
+  if (error.retryAfterSeconds) response.setHeader("retry-after", String(error.retryAfterSeconds));
   writeJson(response, error.statusCode, mcpPolicyErrorBody(error));
 }
 
@@ -1132,27 +1144,33 @@ async function recordMcpAuthorizationAudit(
   authorization?: McpHttpAuthorization,
   reason?: string,
 ): Promise<void> {
-  await appendAuditEvent({
-    workspaceRoot: config.workspaceRoot,
-    source: "runtime-api",
-    action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
-    actor: authorization?.actor.actorId ?? "mcp-unauthenticated",
-    method: request.method ?? "POST",
-    routeTemplate: "/api/mcp",
-    outcome,
-    statusCode,
-    summary: outcome === "success"
-      ? "Operator MCP request passed the transport identity and scope boundary."
-      : "Operator MCP request was denied by the transport identity or scope boundary.",
-    reason: reason ?? (outcome === "success" ? "authorized" : "denied"),
-    metadata: authorization
-      ? {
-          actorKind: authorization.actor.kind,
-          clientId: authorization.actor.clientId,
-          scopes: [...authorization.actor.scopes],
-        }
-      : {},
-  });
+  try {
+    const appender = config.mcpPolicyTestHooks?.appendAuditEvent ?? appendAuditEvent;
+    await appender({
+      workspaceRoot: config.workspaceRoot,
+      source: "runtime-api",
+      action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
+      actor: authorization?.actor.actorId ?? "mcp-unauthenticated",
+      method: request.method ?? "POST",
+      routeTemplate: "/api/mcp",
+      outcome,
+      statusCode,
+      summary: outcome === "success"
+        ? "Operator MCP request passed the transport identity and scope boundary."
+        : "Operator MCP request was denied by the transport identity or scope boundary.",
+      reason: reason ?? (outcome === "success" ? "authorized" : "denied"),
+      metadata: authorization
+        ? {
+            actorKind: authorization.actor.kind,
+            clientId: authorization.actor.clientId,
+            permissionProfile: authorization.actor.permissionProfile,
+            scopes: [...authorization.actor.scopes],
+          }
+        : {},
+    });
+  } catch {
+    throw new McpHttpPolicyError("mcp_audit_unavailable", 503);
+  }
 }
 
 async function rejectUnauthorizedRemoteRequest(
@@ -2917,6 +2935,16 @@ async function routeRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/mcp/info") {
+    let operatingMode;
+    try {
+      operatingMode = assertMcpTransportEnabled(config.mcpHttpIdentity);
+    } catch (error) {
+      if (error instanceof McpHttpPolicyError) {
+        writeMcpPolicyError(response, error);
+        return;
+      }
+      throw error;
+    }
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     writeJson(
       response,
@@ -2926,12 +2954,21 @@ async function routeRequest(
         version: config.version,
         workspaceRoot: config.workspaceRoot,
         sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
-      }),
+      }, { operatingMode }),
     );
     return;
   }
 
   if ((request.method === "GET" || request.method === "DELETE") && url.pathname === "/api/mcp") {
+    try {
+      assertMcpTransportEnabled(config.mcpHttpIdentity);
+    } catch (error) {
+      if (error instanceof McpHttpPolicyError) {
+        writeMcpPolicyError(response, error);
+        return;
+      }
+      throw error;
+    }
     response.setHeader("allow", "POST");
     writeJson(response, 405, {
       error: "method_not_allowed",
@@ -2945,13 +2982,26 @@ async function routeRequest(
     let authorization: McpHttpAuthorization | undefined;
     let parsedBody: unknown;
     try {
+      assertMcpTransportEnabled(config.mcpHttpIdentity);
       assertMcpJsonContentType(request);
       authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+      assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
       parsedBody = await readJsonBody(request, { maxBytes: MCP_MAX_REQUEST_BODY_BYTES });
+      assertMcpOperatingModeAllowsRequest(parsedBody, config.mcpHttpIdentity);
       assertMcpScopes(authorization, requiredMcpScopesForRequest(parsedBody));
     } catch (error) {
       if (error instanceof McpHttpPolicyError) {
-        await recordMcpAuthorizationAudit(config, request, "failure", error.statusCode, authorization, error.code);
+        try {
+          await recordMcpAuthorizationAudit(config, request, "failure", error.statusCode, authorization, error.code);
+        } catch (auditError) {
+          writeMcpPolicyError(
+            response,
+            auditError instanceof McpHttpPolicyError
+              ? auditError
+              : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+          );
+          return;
+        }
         writeMcpPolicyError(response, error);
         return;
       }
@@ -2960,13 +3010,33 @@ async function routeRequest(
           error.code === "payload_too_large" ? "mcp_payload_too_large" : "mcp_invalid_json",
           error.statusCode,
         );
-        await recordMcpAuthorizationAudit(config, request, "failure", policyError.statusCode, authorization, policyError.code);
+        try {
+          await recordMcpAuthorizationAudit(config, request, "failure", policyError.statusCode, authorization, policyError.code);
+        } catch (auditError) {
+          writeMcpPolicyError(
+            response,
+            auditError instanceof McpHttpPolicyError
+              ? auditError
+              : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+          );
+          return;
+        }
         writeMcpPolicyError(response, policyError);
         return;
       }
       throw error;
     }
-    await recordMcpAuthorizationAudit(config, request, "success", 200, authorization);
+    try {
+      await recordMcpAuthorizationAudit(config, request, "success", 200, authorization);
+    } catch (auditError) {
+      writeMcpPolicyError(
+        response,
+        auditError instanceof McpHttpPolicyError
+          ? auditError
+          : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+      );
+      return;
+    }
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     await handleServiceLassoMcpStreamableHttpRequest(
       {
@@ -5821,6 +5891,9 @@ async function routeRequest(
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
+  if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
   const resolvedConfig = resolveRuntimeConfig(options);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
@@ -5835,6 +5908,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     endpointAllocationPlan: options.endpointAllocationPlan,
     runtimeGenerationId: options.runtimeGenerationId ?? null,
     mcpHttpIdentity: options.mcpHttpIdentity,
+    mcpRateLimiter: createMcpRateLimiter(options.mcpPolicyTestHooks?.now),
+    mcpPolicyTestHooks: options.mcpPolicyTestHooks,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -6329,6 +6404,7 @@ async function startApiServerGeneration(
         endpointAllocationPlan: allocationPlan,
         runtimeGenerationId,
         mcpHttpIdentity: options.mcpHttpIdentity,
+        mcpPolicyTestHooks: options.mcpPolicyTestHooks,
       });
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",

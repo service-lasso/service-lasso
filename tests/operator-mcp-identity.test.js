@@ -4,11 +4,14 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { rm } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { startApiServer } from "../dist/server/index.js";
+import { createApiServer, startApiServer } from "../dist/server/index.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
+  resolveMcpOperatingMode,
   resolveMcpOAuthConfiguration,
+  resolveMcpPermissionProfile,
+  resolveMcpRateLimitConfiguration,
 } from "../dist/runtime/operator/mcp-auth.js";
 import { makeTempServicesRoot } from "./test-helpers.js";
 
@@ -66,6 +69,23 @@ async function signAccessToken(privateKey, overrides = {}) {
   return token.sign(privateKey);
 }
 
+async function startDirectApiServer(options) {
+  const server = createApiServer(options);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    stop: async () => {
+      const closed = once(server, "close");
+      server.close();
+      server.closeAllConnections?.();
+      await closed;
+    },
+  };
+}
+
 async function postMcp(apiServer, options = {}) {
   const headers = {
     accept: "application/json, text/event-stream",
@@ -86,6 +106,7 @@ async function postMcp(apiServer, options = {}) {
   return {
     status: response.status,
     authenticate: response.headers.get("www-authenticate") ?? "",
+    retryAfter: response.headers.get("retry-after") ?? "",
     text: await response.text(),
   };
 }
@@ -224,6 +245,7 @@ test("#860 protects Streamable HTTP with OAuth discovery, trusted identity, scop
     assert.equal(audit.events[0].actor === "untrusted-body-actor", false);
     assert.equal(audit.events[0].metadata?.actorKind, "oauth");
     assert.equal(audit.events[0].metadata?.clientId, "mcp-test-client");
+    assert.equal(audit.events[0].metadata?.permissionProfile, "observer");
     assert.equal(JSON.stringify(audit).includes(validToken), false);
     assert.equal(JSON.stringify(audit).includes(malformedMarker), false);
   } finally {
@@ -251,6 +273,18 @@ test("#860 keeps unconfigured MCP loopback-local and rejects remote identity spo
       },
     });
     assert.equal(local.status, 200);
+
+    const readOnlyMutation = await postMcp(apiServer, {
+      origin: null,
+      body: {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "tools/call",
+        params: { name: "service_lasso_start_service", arguments: { serviceId: "missing" } },
+      },
+    });
+    assert.equal(readOnlyMutation.status, 403);
+    assert.match(readOnlyMutation.text, /mcp_read_only_mode/);
 
     const remoteSpoof = await postMcp(apiServer, {
       origin: null,
@@ -316,4 +350,186 @@ test("#860 rejects hostname lookalikes as insecure JWKS endpoints", () => {
     }),
     (error) => error?.code === "invalid_mcp_oauth_jwks_uri" && error?.statusCode === 503,
   );
+});
+
+test("#860 resolves explicit MCP modes, cumulative permission profiles, and bounded rate configuration", () => {
+  assert.equal(resolveMcpOperatingMode({ env: {} }), "read-only");
+  assert.equal(resolveMcpOperatingMode({ env: { SERVICE_LASSO_MCP_MODE: "disabled" } }), "disabled");
+  assert.equal(resolveMcpOperatingMode({ env: { SERVICE_LASSO_MCP_MODE: "guarded" } }), "guarded");
+  assert.throws(
+    () => resolveMcpOperatingMode({ env: { SERVICE_LASSO_MCP_MODE: "open" } }),
+    (error) => error?.code === "invalid_mcp_mode" && error?.statusCode === 503,
+  );
+
+  assert.equal(resolveMcpPermissionProfile(["service-lasso:read"]), "observer");
+  assert.equal(resolveMcpPermissionProfile([
+    "service-lasso:read",
+    "service-lasso:lifecycle:write",
+  ]), "operator");
+  assert.equal(resolveMcpPermissionProfile([
+    "service-lasso:read",
+    "service-lasso:lifecycle:write",
+    "service-lasso:config:write",
+    "service-lasso:update:write",
+  ]), "maintainer");
+  assert.equal(resolveMcpPermissionProfile([
+    "service-lasso:read",
+    "service-lasso:lifecycle:write",
+    "service-lasso:config:write",
+    "service-lasso:update:write",
+    "service-lasso:runtime:admin",
+  ]), "administrator");
+  assert.equal(resolveMcpPermissionProfile(["service-lasso:runtime:admin"]), "observer");
+
+  assert.deepEqual(
+    resolveMcpRateLimitConfiguration({
+      env: {
+        SERVICE_LASSO_MCP_RATE_LIMIT_WINDOW_MS: "5000",
+        SERVICE_LASSO_MCP_RATE_LIMIT_PER_ACTOR: "3",
+        SERVICE_LASSO_MCP_RATE_LIMIT_PER_CLIENT: "5",
+      },
+    }),
+    { windowMs: 5000, perActor: 3, perClient: 5 },
+  );
+  assert.throws(
+    () => resolveMcpRateLimitConfiguration({ env: { SERVICE_LASSO_MCP_RATE_LIMIT_PER_ACTOR: "0" } }),
+    (error) => error?.code === "invalid_mcp_rate_limit_per_actor" && error?.statusCode === 503,
+  );
+});
+
+test("#860 enforces guarded-mode profile evidence plus independent actor and client rate limits", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-rate-limit-");
+  const jwks = await startJwksServer();
+  let apiServer;
+  const env = {
+    SERVICE_LASSO_MCP_MODE: "guarded",
+    SERVICE_LASSO_MCP_OAUTH_ISSUER: issuer,
+    SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
+    SERVICE_LASSO_MCP_RESOURCE_URI: resource,
+    SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
+    SERVICE_LASSO_MCP_ALLOWED_ORIGINS: allowedOrigin,
+    SERVICE_LASSO_MCP_RATE_LIMIT_WINDOW_MS: "60000",
+    SERVICE_LASSO_MCP_RATE_LIMIT_PER_ACTOR: "2",
+    SERVICE_LASSO_MCP_RATE_LIMIT_PER_CLIENT: "2",
+  };
+
+  try {
+    apiServer = await startDirectApiServer({ servicesRoot, workspaceRoot, mcpHttpIdentity: { env } });
+    const infoResponse = await fetch(apiServer.url + "/api/mcp/info");
+    assert.equal(infoResponse.status, 200);
+    const info = await infoResponse.json();
+    assert.deepEqual(info.policy, { operatingMode: "guarded", guardedToolsAvailable: false });
+
+    const profileScopes = {
+      observer: "service-lasso:read",
+      operator: "service-lasso:read service-lasso:lifecycle:write",
+      maintainer: "service-lasso:read service-lasso:lifecycle:write service-lasso:config:write service-lasso:update:write",
+      administrator: "service-lasso:read service-lasso:lifecycle:write service-lasso:config:write service-lasso:update:write service-lasso:runtime:admin",
+    };
+    const profileTokens = {};
+    for (const [profile, scope] of Object.entries(profileScopes)) {
+      const token = await signAccessToken(jwks.privateKey, {
+        subject: `profile-${profile}`,
+        claims: { client_id: `client-${profile}`, scope },
+      });
+      profileTokens[profile] = token;
+      const allowed = await postMcp(apiServer, { token });
+      assert.equal(allowed.status, 200);
+    }
+
+    const observerMutation = await postMcp(apiServer, {
+      token: profileTokens.observer,
+      body: {
+        jsonrpc: "2.0",
+        id: 61,
+        method: "tools/call",
+        params: { name: "service_lasso_start_service", arguments: { serviceId: "missing" } },
+      },
+    });
+    assert.equal(observerMutation.status, 200);
+    assert.match(observerMutation.text, /not found|unknown tool/i);
+
+    const actorToken = await signAccessToken(jwks.privateKey, {
+      subject: "rate-actor",
+      claims: { client_id: "rate-actor-client", scope: "service-lasso:read" },
+    });
+    assert.equal((await postMcp(apiServer, { token: actorToken })).status, 200);
+    assert.equal((await postMcp(apiServer, { token: actorToken })).status, 200);
+    const actorDenied = await postMcp(apiServer, { token: actorToken });
+    assert.equal(actorDenied.status, 429);
+    assert.match(actorDenied.retryAfter, /^[1-9][0-9]*$/);
+
+    const sharedClientTokens = await Promise.all(["a", "b", "c"].map((suffix) => signAccessToken(jwks.privateKey, {
+      subject: `shared-client-actor-${suffix}`,
+      claims: { client_id: "shared-rate-client", scope: "service-lasso:read" },
+    })));
+    assert.equal((await postMcp(apiServer, { token: sharedClientTokens[0] })).status, 200);
+    assert.equal((await postMcp(apiServer, { token: sharedClientTokens[1] })).status, 200);
+    const clientDenied = await postMcp(apiServer, { token: sharedClientTokens[2] });
+    assert.equal(clientDenied.status, 429);
+    assert.match(clientDenied.retryAfter, /^[1-9][0-9]*$/);
+
+    const audit = await readAuditEvents({ workspaceRoot });
+    const profileByActor = new Map(audit.events
+      .filter((event) => event.action === "mcp.auth.allowed")
+      .map((event) => [event.actor, event.metadata?.permissionProfile]));
+    for (const profile of Object.keys(profileScopes)) {
+      assert.equal(profileByActor.get(`profile-${profile}`), profile);
+    }
+    const denied = audit.events.filter((event) => event.action === "mcp.auth.denied" && event.reason === "mcp_rate_limited");
+    assert.ok(denied.some((event) => event.actor === "rate-actor" && event.metadata?.clientId === "rate-actor-client"));
+    assert.ok(denied.some((event) => event.actor === "shared-client-actor-c" && event.metadata?.clientId === "shared-rate-client"));
+    for (const token of [...Object.values(profileTokens), actorToken, ...sharedClientTokens]) {
+      assert.equal(JSON.stringify(audit).includes(token), false);
+    }
+  } finally {
+    await apiServer?.stop();
+    await jwks.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#860 disables every MCP route and fails closed without leaking Audit-store errors", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-mode-audit-");
+  const previousTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  let disabledServer;
+  let auditFailureServer;
+  try {
+    disabledServer = await startDirectApiServer({
+      servicesRoot,
+      workspaceRoot,
+      mcpHttpIdentity: { env: { SERVICE_LASSO_MCP_MODE: "disabled" } },
+    });
+    assert.equal((await fetch(disabledServer.url + "/.well-known/oauth-protected-resource")).status, 404);
+    assert.equal((await fetch(disabledServer.url + "/api/mcp/info")).status, 404);
+    assert.equal((await postMcp(disabledServer, { origin: null })).status, 404);
+    await disabledServer.stop();
+    disabledServer = undefined;
+
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    const auditFailureMarker = "mcp-sensitive-audit-store-failure";
+    auditFailureServer = await startDirectApiServer({
+      servicesRoot,
+      workspaceRoot,
+      mcpPolicyTestHooks: {
+        appendAuditEvent: async () => {
+          throw new Error(auditFailureMarker);
+        },
+      },
+    });
+    const denied = await postMcp(auditFailureServer, { origin: null });
+    assert.equal(denied.status, 503);
+    assert.match(denied.text, /mcp_audit_unavailable/);
+    assert.equal(denied.text.includes(auditFailureMarker), false);
+    assert.equal(denied.text.includes("service_lasso_list_services"), false);
+  } finally {
+    await disabledServer?.stop();
+    await auditFailureServer?.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (previousTestHooks === undefined) {
+      delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    } else {
+      process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousTestHooks;
+    }
+  }
 });

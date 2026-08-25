@@ -7,7 +7,7 @@ Give Cursor and other MCP clients a local-first operator surface on the Service 
 Included:
 - One MCP adapter in `service-lasso` that reuses runtime/operator facades
 - Read-only tools and resources, including secret metadata without values
-- A partial Streamable HTTP identity slice with OAuth protected-resource discovery, scopes, and fail-closed server policy under `#860` / `AC-6C`
+- A Streamable HTTP identity slice with OAuth protected-resource discovery, scopes, explicit transport modes, cumulative permission profiles, per-actor/client rate limits, and fail-closed server/Audit policy under `#860` / `AC-6C`
 - Later programme slices for complete read tools, guarded actions, long-running operations, and release gates
 - Documentation in `docs/reference/operator-mcp.md`
 
@@ -24,7 +24,7 @@ Explicitly out of scope:
 ## Acceptance Criteria
 - `AC-6A`: The read-only MCP prototype exposes a dedicated secret-metadata tool and resource that return allowlisted metadata only: secret refs, namespace/key, assignment/access-policy status, rotation readiness, and Secrets Broker lifecycle availability. Responses, resources, and tests never include secret values, credential sentinels, env values, tokens, cookies, private keys, recovery material, or absolute workspace/manifest/log paths. Live broker lockout counts stay on the existing telemetry bridge until a later slice; this criterion reports lockout as not queried rather than fetching KV.
 - `AC-6B`: MCP protocol plumbing uses the supported official TypeScript SDK with stdio and standards-compliant Streamable HTTP (`#859`). This criterion is not satisfied by handwritten JSON-RPC alone.
-- `AC-6C`: Streamable HTTP identity, OAuth protected-resource discovery, scopes, and server-side policy fail closed (`#860`). Observer credentials cannot mutate state. Actors come from validated identity, never from tool arguments.
+- `AC-6C`: Streamable HTTP identity, OAuth protected-resource discovery, scopes, explicit disabled/read-only/guarded modes, per-actor/client rate limits, and server-side policy fail closed (`#860`). Observer credentials cannot mutate state. Permission profiles are derived from cumulative granted scopes, actors come from validated identity rather than tool arguments, and MCP execution stops safely when its Audit event cannot be persisted. Local stdio remains unavailable until a thin credential-bearing adapter can connect to the active runtime without starting a competing process or looping back over HTTP.
 - `AC-6D`: The complete read-only operator surface covers runtime status, paginated services, health, routes, dependencies, bounded redacted logs, Audit search, updates, drift, recovery, and operations, with strict schemas and structured output (`#861`). `#1067` closes only when this criterion plus `AC-6G` meet the product bar for services, secret metadata, and logs.
 - `AC-6E`: Guarded lifecycle and maintenance tools call shared operator facades, enforce Observer/Operator/Maintainer/Administrator boundaries, and require actor-bound server confirmation (`#862`).
 - `AC-6F`: Long-running install/update actions return a durable operation id that can be polled and cancelled (`#863`).
@@ -32,9 +32,9 @@ Explicitly out of scope:
 
 ## Tests and Evidence
 - Focused `tests/operator-mcp.test.js` coverage for tool/resource advertisement, secret-metadata shape, unknown-service errors, extra-argument rejection, and `assertNoSecretMaterial` redaction.
-- Focused `#860` coverage for OAuth discovery, Origin/content boundaries, token validation, scope denial, trusted actor derivation, and redacted failures.
+- Focused `#860` coverage for OAuth discovery, Origin/content boundaries, token validation, scope denial, trusted actor derivation, explicit modes, cumulative permission profiles, independent actor/client rate limits, deterministic Audit-store failure, and redacted failures.
 - Later slices add guarded-action, operation, Inspector, and packaged-app evidence under `#861`–`#864`.
-- `#860` remains open until stdio credential handling/smoke evidence, per-client/per-actor rate limiting, and the broader permission-profile matrix are implemented. Deterministic Audit-store failure coverage also remains acceptance evidence because the current store has no small injectable failure hook.
+- `#860` remains open for local stdio credential handling and stdio smoke evidence. The adapter must reuse the active runtime directly; a second runtime owner or HTTP-loopback adapter would violate the architecture.
 
 ## Documentation Impact
 - `.governance/specs/SPEC-006-operator-mcp.md`
@@ -49,6 +49,7 @@ Explicitly out of scope:
 - No live tokens or secret values in fixtures, logs, or MCP responses
 
 ## Change Notes
-- 2026-08-25: `#859` / PR `#1029` is merged. `#860` begins a partial `AC-6C` slice for the existing SDK Streamable HTTP transport while explicitly excluding `#861`–`#863` and the inherited `#1067` registration defect. The issue stays open for its listed identity acceptance residuals.
+- 2026-08-25: `#860` extends the existing Streamable HTTP slice with explicit disabled/read-only/guarded modes, a fail-closed read-only tool allowlist, cumulative Observer/Operator/Maintainer/Administrator classification, independent actor/client rate limits, safe `429` denial Audit evidence, and deterministic fail-closed Audit-store coverage. The issue stays open only for stdio credential handling and smoke proof because the active-runtime adapter does not yet exist.
+- 2026-08-25: `#859` / PR `#1029` is merged. `#860` begins a partial `AC-6C` slice for the existing SDK Streamable HTTP transport while explicitly excluding `#861`–`#863` and the inherited `#1067` registration defect.
 - 2026-08-21: `#1067` / `AC-6A` adds `service_lasso_secret_metadata` and `servicelasso://secret-metadata` on the existing handwritten MCP prototype. `#859` draft PR `#1029` remains the transport owner; this slice does not replace JSON-RPC or add OAuth.
 - Live Secrets Broker lockout aggregates remain a residual for a later `#861`/`#864` slice so MCP does not grow a second KV or telemetry client.

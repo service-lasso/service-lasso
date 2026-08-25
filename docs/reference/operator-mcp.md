@@ -15,6 +15,10 @@ The runtime currently exposes:
 - asymmetric JWT signature, issuer, expiry, configured-audience, and scope validation for configured Streamable HTTP
 - trusted actor/client derivation from validated token claims; MCP arguments never supply actor authority
 - exact Origin allowlisting, JSON content-type enforcement, and a 1 MiB request-body limit before protocol handling
+- explicit `disabled`, `read-only` (default), and `guarded` transport modes, with a fail-closed read-only tool allowlist
+- cumulative Observer, Operator, Maintainer, and Administrator profile classification from validated scopes
+- independent fixed-window actor and client rate limits with safe `429` denial Audit events
+- fail-closed `503` behavior when the MCP authorization Audit event cannot be persisted
 - seven read-only tools
 - six read-only resources
 - bounded log output and response redaction
@@ -55,7 +59,6 @@ Known limitations include:
 - no stdio transport for local MCP clients
 - Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
 - MCP OAuth is opt-in; without complete OAuth configuration Streamable HTTP remains loopback-local and uses the runtime's trusted local actor
-- per-client and per-actor rate limiting is not yet implemented
 - schemas are advertised but inputs are not fully runtime-validated against them, except `service_lasso_secret_metadata` which rejects additional properties
 - no tool annotations, output schemas or structured results
 - some responses include absolute local runtime paths
@@ -79,6 +82,25 @@ All four OAuth settings are required together:
 - `SERVICE_LASSO_MCP_RESOURCE_URI` (the canonical URL ending in `/api/mcp`)
 - `SERVICE_LASSO_MCP_OAUTH_AUDIENCE`
 
+`SERVICE_LASSO_MCP_MODE` accepts `disabled`, `read-only`, or `guarded` and
+defaults to `read-only`. Invalid values fail the MCP surface closed with `503`.
+Disabled mode returns `404` for MCP transport and discovery routes. Read-only
+mode accepts only the current allowlisted inspection tools. Guarded mode does
+not itself grant authority and does not expose lifecycle or maintenance tools
+in this issue; those remain owned by `#862`.
+
+Rate limits are enabled by default and may be bounded with positive integer
+settings:
+
+- `SERVICE_LASSO_MCP_RATE_LIMIT_WINDOW_MS` (default `60000`, maximum `3600000`)
+- `SERVICE_LASSO_MCP_RATE_LIMIT_PER_ACTOR` (default `120`, maximum `100000`)
+- `SERVICE_LASSO_MCP_RATE_LIMIT_PER_CLIENT` (default `240`, maximum `100000`)
+
+The actor and client counters are independent and use only validated, bounded
+identity claims. A denial returns `429` with `Retry-After`, records a safe
+`mcp.auth.denied` event, and never records a token or protocol body. Invalid
+rate configuration fails the MCP request closed with `503`.
+
 `SERVICE_LASSO_MCP_ALLOWED_ORIGINS` may contain a comma-separated list of exact
 browser origins. The configured resource origin is always allowed. Requests
 without an `Origin` header remain valid for non-browser MCP clients; any
@@ -97,19 +119,22 @@ Partial OAuth configuration fails closed. When OAuth is configured:
   scopes; guarded-action and broader read scopes remain owned by later issues
 - validated subject and client claims become the trusted Audit actor/client;
   request bodies and tool arguments cannot override them
+- cumulative validated scopes classify the identity as Observer, Operator,
+  Maintainer, or Administrator for Audit and later guarded-policy use
 - Audit records contain only safe actor/client/scope metadata and never token,
   header, cookie, or protocol-body material
+- if the authorization Audit event cannot be persisted, protocol execution is
+  skipped and the request receives a redacted `mcp_audit_unavailable` `503`
 
 Without OAuth configuration, Streamable HTTP accepts only an authenticated
 loopback runtime actor. This preserves local-first operation without turning
 an unconfigured LAN listener into an unauthenticated MCP endpoint.
 
-`#860` remains open after this partial slice. Its remaining acceptance work is
-stdio credential handling and smoke evidence, per-client/per-actor rate
-limiting, and a broader permission-profile matrix. Deterministic Audit-store
-failure coverage is also unverified: the current store does not expose a small
-injectable failure hook, so adding one is deferred rather than widening this
-transport-policy change.
+`#860` remains open only for stdio credential handling and smoke evidence. The
+repository still has no thin stdio adapter to the active runtime. Starting a
+second runtime or calling the runtime back over HTTP would violate the target
+architecture, so this residual cannot be represented honestly by a standalone
+credential parser or an isolated SDK transport test.
 
 ## Target architecture
 
@@ -157,7 +182,7 @@ Production requirements include:
 - JSON request content and body-size limits; request timeouts remain follow-up
 - OAuth protected-resource discovery
 - signature-, issuer-, expiry-, audience-, and resource-bound access tokens
-- per-client and per-actor rate limits
+- independent per-client and per-actor rate limits with safe denial Audit
 - no logging of protocol bodies or credentials
 
 Human-readable discovery moves to `GET /api/mcp/info`. The existing `/api/mcp` behaviour receives a documented compatibility period while clients migrate.
@@ -170,9 +195,12 @@ The first SDK-backed migration slice keeps existing read-only tool and resource 
 | --- | --- |
 | Disabled | MCP transports are not available. |
 | Read-only | Inspection tools and resources are available according to read scopes. This is the default. |
-| Guarded | Authorised lifecycle and maintenance tools are available through policy, preflight, confirmation and Audit. |
+| Guarded | The mode is accepted and reported, but this `#860` slice still exposes only read-only tools. Authorised lifecycle and maintenance tools arrive through `#862` policy, preflight, confirmation and Audit. |
 
 Enabling guarded mode does not grant permission by itself. Identity scopes and server policy still control every tool call.
+Read-only mode rejects any tool outside the current inspection allowlist before
+the SDK handler runs, so adding a later guarded tool cannot silently widen the
+default surface.
 
 ## Permission profiles
 
@@ -182,6 +210,13 @@ Enabling guarded mode does not grant permission by itself. Identity scopes and s
 | Operator | Observer plus service start, stop and restart. |
 | Maintainer | Operator plus install, setup, configuration and update actions. |
 | Administrator | Maintainer plus runtime-wide actions and MCP policy administration. |
+
+Profiles are classified cumulatively. An Operator must have read plus lifecycle
+scope; a Maintainer must also have configuration and update scopes; an
+Administrator must additionally have runtime-admin scope. A high privilege
+scope presented without its prerequisite scopes does not upgrade the profile.
+This issue records and tests the profile matrix while continuing to expose no
+mutating tools; guarded-action enforcement remains `#862`.
 
 Suggested scopes:
 

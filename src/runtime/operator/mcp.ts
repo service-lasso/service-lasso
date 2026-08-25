@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import * as z from "zod/v4";
+import type { McpOperatingMode } from "./mcp-auth.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
@@ -347,7 +348,10 @@ function sanitizeHealth(health: ServiceHealthResult): ServiceHealthResult {
   return redactDiagnosticsValue(health) as ServiceHealthResult;
 }
 
-export function getServiceLassoMcpCapabilities(context: ServiceLassoMcpContext) {
+export function getServiceLassoMcpCapabilities(
+  context: ServiceLassoMcpContext,
+  options: { operatingMode?: McpOperatingMode } = {},
+) {
   return {
     contractVersion: CONTRACT_VERSION,
     protocolVersion: MCP_PROTOCOL_VERSION,
@@ -360,6 +364,10 @@ export function getServiceLassoMcpCapabilities(context: ServiceLassoMcpContext) 
     serverInfo: {
       name: "service-lasso-operator",
       version: context.version,
+    },
+    policy: {
+      operatingMode: options.operatingMode ?? "read-only",
+      guardedToolsAvailable: false,
     },
     scope: {
       mutatingOperations: "omitted",
