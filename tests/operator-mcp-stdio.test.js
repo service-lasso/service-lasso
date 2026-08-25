@@ -80,7 +80,7 @@ test("#860 serves MCP stdio from the active runtime with a redacted local creden
     assert.equal(tools.result.tools.some((tool) => tool.name === "service_lasso_list_services"), true);
     assert.equal(tools.result.tools.some((tool) => tool.name === "service_lasso_logs_summary"), true);
 
-    const audit = await readAuditEvents(workspaceRoot);
+    const audit = await readAuditEvents({ workspaceRoot });
     const allowed = audit.events.find((event) => event.action === "mcp.auth.allowed" && event.source === "runtime-mcp-stdio");
     assert.equal(allowed?.actor, "mcp-stdio-test-actor");
     assert.equal(allowed?.metadata?.clientId, "mcp-stdio-test-client");
