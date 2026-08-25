@@ -44,7 +44,7 @@ function markPrepared(serviceId, binary) {
         sourceType: "release-qualification",
         repo: "service-lasso/lasso-secretsbroker",
         channel: null,
-        tag: "2026.8.18-2ee1ba5",
+        tag: "2026.8.25-41f7206",
         assetName: path.basename(binary),
         assetUrl: null,
         archiveType: null,
