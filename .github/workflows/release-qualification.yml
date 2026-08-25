@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  qualify-release:
+  qualify-products:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -86,3 +86,94 @@ jobs:
             artifacts/npm/service-lasso-package-*/publish-artifact.json
           if-no-files-found: warn
           retention-days: 14
+
+  qualify-broker-ipc:
+    name: broker-ipc (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: secretsbroker-linux.tar.gz
+            binary: secretsbroker
+            sha256: 3f9af58da8681427c4c04f5f215e03881c7c529a61329f693b82e72b95a182b4
+          - os: windows-latest
+            asset: secretsbroker-win32.zip
+            binary: secretsbroker.exe
+            sha256: 84b4e706a179f5a2ec65c2a45e97334d40f0fbbc6bdf7114c2ab74437c8ff4c2
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Core
+        run: npm run build
+
+      - name: Download and verify pinned Secrets Broker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = '${{ matrix.asset }}'
+          $expected = '${{ matrix.sha256 }}'
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
+          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.18-2ee1ba5/$asset"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw 'Pinned Secrets Broker archive checksum mismatch.'
+          }
+          New-Item -ItemType Directory -Path $extractRoot | Out-Null
+          if ($asset.EndsWith('.zip')) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot
+          } else {
+            tar -xzf $archive -C $extractRoot
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Pinned Secrets Broker archive extraction failed.'
+            }
+          }
+          $binary = Get-ChildItem -LiteralPath $extractRoot -Filter '${{ matrix.binary }}' -File -Recurse | Select-Object -First 1
+          if (-not $binary) {
+            throw 'Pinned Secrets Broker binary is missing from the verified archive.'
+          }
+          if ($env:RUNNER_OS -ne 'Windows') {
+            chmod +x $binary.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Pinned Secrets Broker binary could not be made executable.'
+            }
+          }
+          "SERVICE_LASSO_TEST_BROKER_BINARY=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Qualify real Broker subprocess over authenticated OS IPC
+        env:
+          SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+        run: node --test --test-concurrency=1 --test-timeout=900000 tests/broker-real-ipc-qualification.test.js
+
+  qualify-release:
+    if: ${{ always() }}
+    needs:
+      - qualify-products
+      - qualify-broker-ipc
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require product and Broker IPC qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.qualify-products.result }}' = 'success'
+          test '${{ needs.qualify-broker-ipc.result }}' = 'success'

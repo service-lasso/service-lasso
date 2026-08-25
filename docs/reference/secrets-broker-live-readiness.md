@@ -56,7 +56,11 @@ The unpublished local candidates have the following direct evidence:
   setup, request-policy, linked-rotation, and protected-state suites on Windows;
   the focused Unix-socket/security boundary also passes in WSL. Bounded and
   bundled release/package verification and a real Broker/consumer restart
-  journey pass without plaintext residue.
+  journey pass without plaintext residue. Release Qualification downloads the
+  exact pinned Broker release, verifies the published archive digest, and runs
+  that real subprocess journey over a Windows named pipe and a Linux Unix
+  socket. The dedicated gate requires a Broker binary and cannot silently turn
+  into the source-suite skip used by ordinary contributor runs.
 - Service Admin: 106 unit tests, four packaged-runtime tests, production audit
   with no known vulnerabilities, Windows package verification, and a packaged
   Electron/Cypress journey through a real Core and Broker. The journey covers
@@ -76,9 +80,9 @@ passes on Windows and Ubuntu.
 1. Publish the Broker candidate through review, run the real alternate-Windows-
    principal named-pipe denial gate, release its exact three-platform artifacts,
    and update Core to the exact release tag.
-2. Publish the Core candidate through review and run full hosted build, audit,
-   release, startup/recovery, Windows named-pipe, Linux Unix-socket, and docs
-   qualification.
+2. Publish the Core candidate through review and keep the full hosted build,
+   audit, release, startup/recovery, checksum-bound Windows named-pipe and Linux
+   Unix-socket subprocess, and docs qualification green.
 3. Publish the Service Admin candidate after those revisions exist remotely;
    require the packaged Windows, Ubuntu, and macOS real-browser workflow to
    record the exact Core and Broker revisions.
