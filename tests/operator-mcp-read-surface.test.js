@@ -66,6 +66,16 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
         port: { strategy: "preferred", default: 43150 },
         exposure: "lan",
       }],
+      urls: [
+        {
+          label: "admin",
+          url: "https://user:password@example.invalid:43150/admin?access_token=keep-out#frag",
+        },
+        {
+          label: "public",
+          url: "https://example.invalid:43150/public",
+        },
+      ],
       config: {
         files: [{ path: "runtime/private.ini", content: `token=${secret}\n` }],
       },
@@ -206,6 +216,17 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
     assert.match(outputs.drift.artifacts[0].artifactId, /^config-[a-f0-9]{16}$/);
     assert.equal(outputs.recovery.events[0].stepSummary.timedOut, 1);
     assert.equal(outputs.routes.services[0].routes[0].provider, "traefik");
+    assert.deepEqual(outputs.routes.services[0].routes.find((route) => route.endpoint.label === "admin")?.target, {});
+    assert.equal(outputs.routes.services[0].routes.find((route) => route.endpoint.label === "admin")?.state, "invalid");
+    assert.deepEqual(
+      outputs.routes.services[0].routes.find((route) => route.endpoint.label === "public")?.target,
+      {
+        protocol: "https",
+        host: "example.invalid:43150",
+        path: "/public",
+        pathPrefix: "/public",
+      },
+    );
     assertNoSecretMaterial(outputs);
     assert.equal(serialized.includes(secret), false);
     assert.equal(serialized.includes(tempRoot), false);

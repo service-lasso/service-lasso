@@ -142,7 +142,14 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
     assert.equal(Object.hasOwn(servicePayload.services[0], "manifestPath"), false);
     assert.equal(Object.hasOwn(servicePayload.services[0], "serviceRoot"), false);
     assert.equal(
-      tools.body.result.tools.some((tool) => /start|stop|restart|install|config|execute/i.test(tool.name)),
+      tools.body.result.tools.some((tool) => [
+        "service_lasso_start_service",
+        "service_lasso_stop_service",
+        "service_lasso_restart_service",
+        "service_lasso_install_service",
+        "service_lasso_configure_service",
+        "service_lasso_execute_command",
+      ].includes(tool.name)),
       false,
     );
     assert.deepEqual(
@@ -267,11 +274,10 @@ test("MCP tool calls return redacted log summaries and sanitized routes", async 
     const diagnosticsPayload = JSON.parse(diagnostics.body.result.contents[0].text);
     const serialized = JSON.stringify({ routePayload, logPayload, diagnosticsPayload });
 
-    assert.equal(
-      routePayload.services[0].endpoints.find((endpoint) => endpoint.label === "admin")?.url,
-      "https://example.invalid:43102/admin",
-    );
-    assert.equal(logPayload.log.entries[0].message.includes("[REDACTED]"), true);
+    const adminRoute = routePayload.services[0].routes.find((route) => route.endpoint.label === "admin");
+    assert.deepEqual(adminRoute?.target, {});
+    assert.equal(adminRoute?.state, "invalid");
+    assert.equal(logPayload.log.entries[0].summary.includes("[REDACTED]"), true);
     assert.equal(diagnosticsPayload.secretReferences.references, 1);
     assertNoSecretMaterial(routePayload);
     assertNoSecretMaterial(logPayload);
@@ -387,7 +393,7 @@ test("MCP secret metadata returns refs, assignment, and rotation without secret 
     assert.equal(extraArgs.body.result.isError, true);
     assert.match(extraArgs.body.result.content[0].text, /Unrecognized key: "reveal"/);
     assert.equal(unknownService.body.result.isError, true);
-    assert.match(unknownService.body.result.content[0].text, /Unknown service id: missing-service/);
+    assert.equal(JSON.parse(unknownService.body.result.content[0].text).error.code, "unknown_service");
     assertNoSecretMaterial(payload);
     assertNoSecretMaterial(resourcePayload);
     assert.doesNotMatch(serialized, /SERVICE_LASSO_FAKE_SECRET_SENTINEL|reveal|CLIENT_SECRET_VALUE/);

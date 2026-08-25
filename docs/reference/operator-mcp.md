@@ -363,7 +363,7 @@ MCP responses and Audit events must not include:
 - unrestricted raw log content
 - absolute paths unless explicitly safe and required
 
-Route URLs strip usernames, passwords, query strings and fragments. Log output is bounded and redacted before serialization. Output contracts should use allowlisted fields instead of relying only on best-effort denylist scrubbing.
+Safe route URLs are projected to protocol, host and path metadata without query strings or fragments. URLs containing credential- or secret-like material fail closed as invalid metadata and are not serialized. Log output is bounded and redacted before serialization. Output contracts use allowlisted fields instead of relying only on best-effort denylist scrubbing.
 
 Every mutating attempt, including denied and failed attempts, records safe durable Audit metadata with actor, client, tool, target, outcome and correlation id.
 
