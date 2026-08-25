@@ -90,6 +90,11 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
       id: 2,
       method: "resources/list",
     });
+    const resourceTemplates = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: "resource-templates",
+      method: "resources/templates/list",
+    });
     const services = await rpc(apiServer, {
       jsonrpc: "2.0",
       id: 3,
@@ -112,15 +117,26 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
     assert.deepEqual(
       tools.body.result.tools.map((tool) => tool.name),
       [
+        "service_lasso_runtime_status",
         "service_lasso_list_services",
+        "service_lasso_get_service",
         "service_lasso_get_health",
         "service_lasso_list_routes",
         "service_lasso_dependency_status",
         "service_lasso_logs_summary",
+        "service_lasso_audit_search",
+        "service_lasso_update_status",
+        "service_lasso_config_drift",
+        "service_lasso_recovery_status",
+        "service_lasso_operation_status",
         "service_lasso_diagnostics_summary",
         "service_lasso_secret_metadata",
       ],
     );
+    assert.equal(tools.body.result.tools.every((tool) => tool.title), true);
+    assert.equal(tools.body.result.tools.every((tool) => tool.inputSchema.additionalProperties === false), true);
+    assert.equal(tools.body.result.tools.every((tool) => tool.outputSchema.additionalProperties === false), true);
+    assert.equal(tools.body.result.tools.every((tool) => tool.annotations.readOnlyHint === true), true);
     const servicePayload = JSON.parse(services.body.result.content[0].text);
     assert.deepEqual(services.body.result.structuredContent, servicePayload);
     assert.equal(Object.hasOwn(servicePayload.services[0], "manifestPath"), false);
@@ -132,12 +148,25 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
     assert.deepEqual(
       resources.body.result.resources.map((resource) => resource.uri),
       [
+        "servicelasso://runtime",
         "servicelasso://services",
         "servicelasso://health",
         "servicelasso://routes",
         "servicelasso://dependencies",
         "servicelasso://diagnostics",
         "servicelasso://secret-metadata",
+      ],
+    );
+    assert.deepEqual(
+      resourceTemplates.body.result.resourceTemplates.map((resource) => resource.uriTemplate),
+      [
+        "servicelasso://services/{serviceId}",
+        "servicelasso://services/{serviceId}/health",
+        "servicelasso://services/{serviceId}/routes",
+        "servicelasso://services/{serviceId}/dependencies",
+        "servicelasso://services/{serviceId}/updates",
+        "servicelasso://services/{serviceId}/drift",
+        "servicelasso://services/{serviceId}/recovery",
       ],
     );
   } finally {
