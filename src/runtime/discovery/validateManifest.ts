@@ -4,6 +4,7 @@ import type {
   ServiceBrokerAccessScope,
   ServiceBrokerBucketKind,
   ServiceBrokerChangeReactionMode,
+  ServiceBrokerRotationAuthority,
   ServiceBrokerWritebackOperation,
   ServiceHookFailurePolicy,
   ServiceLogSourceDeclaration,
@@ -55,6 +56,7 @@ const brokerAccessScopes = new Set(["workspace", "service", "app", "shared", "gl
 const brokerWritebackOperations = new Set(["create", "update", "rotate", "delete"]);
 const brokerBucketKinds = new Set(["service", "app", "shared", "global"]);
 const brokerChangeReactionModes = new Set(["restart", "reload", "action", "manual", "none"]);
+const brokerRotationAuthorities = new Set(["broker", "service", "external"]);
 const endpointKinds = new Set(["network", "url", "mount", "device"]);
 const endpointDirections = new Set(["inbound", "outbound"]);
 const endpointTransports = new Set(["tcp", "udp"]);
@@ -647,6 +649,52 @@ function parseBrokerChangeReaction(value: unknown, field: string, manifestPath: 
   return {
     mode,
     actionId: record.actionId === undefined ? undefined : expectNonEmptyString(record.actionId, `${field}.actionId`, manifestPath),
+    reason: record.reason === undefined ? undefined : expectNonEmptyString(record.reason, `${field}.reason`, manifestPath),
+  };
+}
+
+function parseBrokerRotationOwner(value: unknown, field: string, manifestPath: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const authority = expectOptionalEnum<ServiceBrokerRotationAuthority>(
+    record.authority,
+    `${field}.authority`,
+    brokerRotationAuthorities,
+    "broker, service, or external",
+    manifestPath,
+  );
+  if (!authority) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.authority" to be set.`);
+  }
+
+  const serviceId = record.serviceId === undefined
+    ? undefined
+    : expectNonEmptyString(record.serviceId, `${field}.serviceId`, manifestPath);
+  const actionId = record.actionId === undefined
+    ? undefined
+    : expectNonEmptyString(record.actionId, `${field}.actionId`, manifestPath);
+  const rollbackActionId = record.rollbackActionId === undefined
+    ? undefined
+    : expectNonEmptyString(record.rollbackActionId, `${field}.rollbackActionId`, manifestPath);
+  if ([serviceId, actionId, rollbackActionId].filter(Boolean).length > 0 &&
+      [serviceId, actionId, rollbackActionId].some((entry) => !entry)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.serviceId", "${field}.actionId", and "${field}.rollbackActionId" together.`);
+  }
+  if (authority === "broker" && (serviceId || actionId || rollbackActionId)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: Broker-owned rotation must not declare an owner service action.`);
+  }
+
+  return {
+    authority,
+    serviceId,
+    actionId,
+    rollbackActionId,
     reason: record.reason === undefined ? undefined : expectNonEmptyString(record.reason, `${field}.reason`, manifestPath),
   };
 }
@@ -1668,6 +1716,7 @@ function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: strin
             ref: expectBrokerRef(importRecord.ref, `${field}.ref`, manifestPath),
             as: importRecord.as === undefined ? undefined : expectNonEmptyString(importRecord.as, `${field}.as`, manifestPath),
             required: expectOptionalBoolean(importRecord.required, `${field}.required`, manifestPath),
+            rotationOwner: parseBrokerRotationOwner(importRecord.rotationOwner, `${field}.rotationOwner`, manifestPath),
             onChange: parseBrokerChangeReaction(importRecord.onChange, `${field}.onChange`, manifestPath),
           };
         })

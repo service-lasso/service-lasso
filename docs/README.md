@@ -34,6 +34,7 @@ Use this short list as the public documentation map:
 - [Release Manifest Verification](reference/release-manifest-verification.md): read-only checks for service release manifests, platform assets, release labels, and checksums.
 - [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
 - [Secrets Broker Key Custody](reference/vault-key-bootstrap.md): real Broker first-run setup, platform custody, authenticated IPC, public response boundaries, and recovery.
+- [Secrets Capability Ledger](reference/secrets-capability-ledger.md): canonical cross-repository capability maturity, exact evidence, blockers, and release-wave truth.
 - [Secrets Broker Live Readiness](reference/secrets-broker-live-readiness.md): supported release scope, direct candidate evidence, exclusions, and exact go-live gates.
 - [Audit](reference/audit.md): durable metadata-only event history, storage layout, sensitive-data rules, and tamper-evidence meaning.
 - [Process Ownership Registry](reference/process-ownership-registry.md): durable OS process identity, PID-reuse protection, atomic persistence, and safe legacy migration.
@@ -56,6 +57,7 @@ Current canonical files:
 - [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md)
 - [One-shot Jobs](reference/one-shot-jobs.md)
 - [Vault Key Bootstrap](reference/vault-key-bootstrap.md)
+- [Secrets Capability Ledger](reference/secrets-capability-ledger.md)
 - [Secrets Broker Live Readiness](reference/secrets-broker-live-readiness.md)
 - [Setup Helper Conventions](service-authoring/setup-helper-conventions.md)
 

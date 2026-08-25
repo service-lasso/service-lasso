@@ -1065,6 +1065,13 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
               ref: "database.PASSWORD",
               as: "DB_PASSWORD",
               required: true,
+              rotationOwner: {
+                authority: "external",
+                serviceId: "credential-owner",
+                actionId: "rotate-database-password",
+                rollbackActionId: "restore-database-password",
+                reason: "Rotate at the authoritative database before updating the Broker copy.",
+              },
             },
           ],
           exports: [
@@ -1136,6 +1143,13 @@ test("loadServiceManifest accepts bounded broker manifest policy", async () => {
           ref: "database.PASSWORD",
           as: "DB_PASSWORD",
           required: true,
+          rotationOwner: {
+            authority: "external",
+            serviceId: "credential-owner",
+            actionId: "rotate-database-password",
+            rollbackActionId: "restore-database-password",
+            reason: "Rotate at the authoritative database before updating the Broker copy.",
+          },
           onChange: undefined,
         },
       ],
@@ -1336,6 +1350,18 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
       description: "Invalid writeback operation.",
       broker: { writeback: { allowedNamespaces: ["runtime"], allowedOperations: ["read"] } },
     });
+    await writeManifest(servicesRoot, "bad-rotation-owner", {
+      id: "bad-rotation-owner",
+      name: "Bad Rotation Owner",
+      description: "Owner action is missing its service id.",
+      broker: {
+        imports: [{
+          namespace: "shared/database",
+          ref: "database.PASSWORD",
+          rotationOwner: { authority: "external", actionId: "rotate-password" },
+        }],
+      },
+    });
     await writeManifest(servicesRoot, "duplicate-import", {
       id: "duplicate-import",
       name: "Duplicate Import",
@@ -1458,6 +1484,10 @@ test("loadServiceManifest rejects malformed broker manifest policy", async () =>
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "bad-writeback", "service.json")),
       /broker\.writeback\.allowedOperations/i,
+    );
+    await assert.rejects(
+      () => loadServiceManifest(path.join(servicesRoot, "bad-rotation-owner", "service.json")),
+      /rotationOwner\.serviceId.*rotationOwner\.actionId.*rotationOwner\.rollbackActionId.*together/i,
     );
     await assert.rejects(
       () => loadServiceManifest(path.join(servicesRoot, "duplicate-import", "service.json")),

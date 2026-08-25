@@ -53,6 +53,8 @@ export interface SecretRotationExecutionState {
   stoppedServiceIds: string[];
   completedOperations: string[];
   rollbackCompletedOperations: string[];
+  ownerActionCompleted: boolean;
+  ownerRollbackCompleted: boolean;
   failureCode: string | null;
   plan: SecretRotationImpactPlan;
 }
@@ -174,10 +176,16 @@ function validateState(value: unknown, expectedOperationId?: string): SecretRota
       !SAFE_ID.test(value.operationId) || (expectedOperationId && value.operationId !== expectedOperationId) ||
       typeof value.ref !== "string" || !SAFE_REF.test(value.ref) || typeof value.planFingerprint !== "string" ||
       !value.planFingerprint.startsWith("sha256:") || typeof value.phase !== "string" ||
-      typeof value.outcome !== "string" || !isRecord(value.plan)) {
+      typeof value.outcome !== "string" || !isRecord(value.plan) ||
+      (value.ownerActionCompleted !== undefined && typeof value.ownerActionCompleted !== "boolean") ||
+      (value.ownerRollbackCompleted !== undefined && typeof value.ownerRollbackCompleted !== "boolean")) {
     throw new ApiError("rotation_state_invalid", 409, "Persisted rotation operation state is invalid.");
   }
-  return value as unknown as SecretRotationExecutionState;
+  return {
+    ...value,
+    ownerActionCompleted: value.ownerActionCompleted === true,
+    ownerRollbackCompleted: value.ownerRollbackCompleted === true,
+  } as unknown as SecretRotationExecutionState;
 }
 
 export async function readSecretRotationExecutionState(
@@ -370,6 +378,48 @@ async function convergeConsumers(
   }
 }
 
+async function runOwnerAction(
+  state: SecretRotationExecutionState,
+  options: SecretRotationExecutionOptions,
+): Promise<void> {
+  const ownerAction = state.plan.ownerAction;
+  if (!ownerAction || state.ownerActionCompleted) return;
+  if (ownerAction.status !== "ready" || !ownerAction.serviceId || !ownerAction.actionId) {
+    throw new ApiError("rotation_owner_action_required", 409, "Rotation requires a valid authoritative owner action.");
+  }
+  const service = options.registry.getById(ownerAction.serviceId);
+  if (!service) {
+    throw new ApiError("rotation_plan_stale", 409, `Rotation owner service "${ownerAction.serviceId}" is no longer discovered.`);
+  }
+  if (!await executionOperations(options).action(service, ownerAction.actionId, `${state.operationId}:owner`, state.actorId)) {
+    throw new ApiError("rotation_owner_action_failed", 503, "The authoritative rotation owner action failed.");
+  }
+  state.ownerActionCompleted = true;
+  state.updatedAt = new Date().toISOString();
+  await writeState(options.workspaceRoot, state);
+}
+
+async function runOwnerRollback(
+  state: SecretRotationExecutionState,
+  options: SecretRotationExecutionOptions,
+): Promise<void> {
+  const ownerAction = state.plan.ownerAction;
+  if (!ownerAction || !state.ownerActionCompleted || state.ownerRollbackCompleted) return;
+  if (ownerAction.status !== "ready" || !ownerAction.serviceId || !ownerAction.rollbackActionId) {
+    throw new ApiError("rotation_owner_rollback_required", 409, "Rotation requires a valid authoritative owner rollback action.");
+  }
+  const service = options.registry.getById(ownerAction.serviceId);
+  if (!service) {
+    throw new ApiError("rotation_plan_stale", 409, `Rotation owner service "${ownerAction.serviceId}" is no longer discovered.`);
+  }
+  if (!await executionOperations(options).action(service, ownerAction.rollbackActionId, `${state.operationId}:owner-rollback`, state.actorId)) {
+    throw new ApiError("rotation_owner_rollback_failed", 503, "The authoritative rotation owner rollback action failed.");
+  }
+  state.ownerRollbackCompleted = true;
+  state.updatedAt = new Date().toISOString();
+  await writeState(options.workspaceRoot, state);
+}
+
 async function rollBackActivatedRotation(
   state: SecretRotationExecutionState,
   reason: string,
@@ -394,6 +444,7 @@ async function rollBackActivatedRotation(
   if (rolledBack.outcome !== "rolled_back" && rolledBack.nextAction !== "already_active") {
     throw new ApiError("rotation_rollback_failed", 503, "Secrets Broker did not restore the previous active version.");
   }
+  await runOwnerRollback(state, options);
   await convergeConsumers(state, options, true);
   state.activeVersionId = state.previousVersionId;
   state.phase = "rolled_back";
@@ -430,6 +481,8 @@ function initialState(
     stoppedServiceIds: [],
     completedOperations: [],
     rollbackCompletedOperations: [],
+    ownerActionCompleted: false,
+    ownerRollbackCompleted: false,
     failureCode: null,
     plan,
   };
@@ -490,6 +543,7 @@ export async function executeSecretRotation(
         if (status.outcome !== "ready" || !currentVersion) {
           throw new ApiError("broker_rotation_not_ready", 409, "Secrets Broker current version is unavailable.");
         }
+        await runOwnerAction(state, options);
         const staged = await brokerPost(options, "/v1/management/secrets/rotation/stage", {
           requestId: `${state.operationId}-stage`,
           serviceId: "@service-lasso",
@@ -557,6 +611,24 @@ export async function executeSecretRotation(
       state.updatedAt = new Date().toISOString();
       const activated = state.phase === "activated" || state.phase === "converging" || state.phase === "rolling_back";
       if (!activated) {
+        if (state.ownerActionCompleted) {
+          try {
+            await runOwnerRollback(state, options);
+            if (state.stoppedServiceIds.length > 0) {
+              await convergeConsumers(state, options, true);
+            }
+          } catch (rollbackError) {
+            state.phase = "blocked";
+            state.outcome = "blocked";
+            state.failureCode = safeFailureCode(rollbackError);
+            state.updatedAt = new Date().toISOString();
+            await writeState(options.workspaceRoot, state);
+            throw new ApiError("rotation_owner_rollback_blocked", 503, "Rotation stopped before activation and authoritative owner rollback requires operator recovery.");
+          }
+          state.phase = "blocked";
+          state.outcome = "blocked";
+          state.updatedAt = new Date().toISOString();
+        }
         await writeState(options.workspaceRoot, state);
         throw error;
       }

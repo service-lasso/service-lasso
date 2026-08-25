@@ -118,6 +118,7 @@ export const serviceLassoPermissionCatalogue = [
   permission("service:start", "Service start", "Start managed services.", []),
   permission("service:stop", "Service stop", "Stop managed services.", []),
   permission("service:restart", "Service restart", "Restart managed services.", []),
+  permission("service:reload", "Service reload", "Reload a managed service through its declared reload action.", []),
   permission("service:update", "Service update", "Update managed services.", ["elevated"]),
   permission("service:diagnose", "Service diagnostics", "Run diagnostics and health checks.", []),
   permission("backup:create", "Backup creation", "Create workspace or service backups.", ["elevated"]),
@@ -133,8 +134,8 @@ export const serviceLassoPermissionCatalogue = [
 export const builtInAccessGroupTemplates = [
   groupTemplate("owner", "Owner", "Full workspace ownership and final recovery authority.", ["*"], true),
   groupTemplate("security-admin", "Security Admin", "Manage users, groups, mappings, local tokens, provider auth, audit, and security settings.", ["workspace:read", "security:manage", "audit:read"], true),
-  groupTemplate("service-admin", "Service Admin", "Install, configure, start, stop, restart, update, and diagnose services.", ["workspace:read", "service:install", "service:configure", "service:start", "service:stop", "service:restart", "service:update", "service:diagnose"], false),
-  groupTemplate("operator", "Operator", "Operate and diagnose already configured services.", ["workspace:read", "service:start", "service:stop", "service:restart", "service:diagnose"], false),
+  groupTemplate("service-admin", "Service Admin", "Install, configure, start, stop, restart, reload, update, and diagnose services.", ["workspace:read", "service:install", "service:configure", "service:start", "service:stop", "service:restart", "service:reload", "service:update", "service:diagnose"], false),
+  groupTemplate("operator", "Operator", "Operate and diagnose already configured services.", ["workspace:read", "service:start", "service:stop", "service:restart", "service:reload", "service:diagnose"], false),
   groupTemplate("viewer", "Viewer", "Read-only runtime and service visibility.", ["workspace:read", "audit:read"], false),
   groupTemplate("backup-operator", "Backup Operator", "Create backups and inspect backup history.", ["workspace:read", "backup:create", "backup:read"], false),
   groupTemplate("restore-operator", "Restore Operator", "Restore backups with elevated confirmation.", ["workspace:read", "backup:read", "backup:restore"], false),
