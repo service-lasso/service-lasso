@@ -21,6 +21,12 @@ Relevant repos:
 | [`service-lasso/lasso-localcert`](https://github.com/service-lasso/lasso-localcert), [`service-lasso/lasso-nginx`](https://github.com/service-lasso/lasso-nginx), [`service-lasso/lasso-traefik`](https://github.com/service-lasso/lasso-traefik) | release-backed baseline infrastructure services |
 | [`service-lasso/lasso-postgres`](https://github.com/service-lasso/lasso-postgres), [`service-lasso/lasso-pgadmin4`](https://github.com/service-lasso/lasso-pgadmin4), [`service-lasso/lasso-openobserve`](https://github.com/service-lasso/lasso-openobserve), [`service-lasso/lasso-filebeat`](https://github.com/service-lasso/lasso-filebeat), [`service-lasso/lasso-soarca`](https://github.com/service-lasso/lasso-soarca), [`service-lasso/lasso-cacao-roaster`](https://github.com/service-lasso/lasso-cacao-roaster), [`service-lasso/lasso-mongo`](https://github.com/service-lasso/lasso-mongo), [`service-lasso/lasso-typedb`](https://github.com/service-lasso/lasso-typedb), [`service-lasso/lasso-files`](https://github.com/service-lasso/lasso-files), [`service-lasso/lasso-fastapi`](https://github.com/service-lasso/lasso-fastapi), [`service-lasso/lasso-jupyterlab`](https://github.com/service-lasso/lasso-jupyterlab), [`service-lasso/lasso-totaljs-messageservice`](https://github.com/service-lasso/lasso-totaljs-messageservice), [`service-lasso/lasso-totaljs-flow`](https://github.com/service-lasso/lasso-totaljs-flow), [`service-lasso/lasso-websight-cms`](https://github.com/service-lasso/lasso-websight-cms), [`service-lasso/lasso-bpmn-server`](https://github.com/service-lasso/lasso-bpmn-server), [`service-lasso/lasso-zitadel`](https://github.com/service-lasso/lasso-zitadel), [`service-lasso/lasso-keycloak`](https://github.com/service-lasso/lasso-keycloak), [`service-lasso/lasso-dagu`](https://github.com/service-lasso/lasso-dagu) | app-owned add-on service repos that consumers can add to their own `services/` folder |
 
+Secrets capability and cross-repository proof are tracked in the canonical
+[Secrets capability ledger](docs/reference/secrets-capability-ledger.md).
+Including Core, Secrets Broker, or Service Admin in the baseline does not by
+itself mean that every operation, provider, platform, or Admin surface is
+validated.
+
 ## Requirements
 
 - Node.js `>=22`

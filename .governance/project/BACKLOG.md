@@ -8,10 +8,12 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 - `SPEC-004-isolated-wsl-runner-pool.md`
 - `SPEC-005-local-operator-auth.md`
 - `SPEC-006-operator-mcp.md`
+- `SPEC-007-secrets-capability-ledger.md`
 
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-872` | `in_progress` | Canonical Secrets capability and release-readiness ledger | `SPEC-007`, `AC-7A` through `AC-7E` | GitHub issue: `#872`. Deliberately promoted for the selected Secrets release-governance tranche after live ownership proof found no assignee, branch, worktree, or PR. The canonical JSON ledger and review check preserve live-versus-target truth across Core, Broker, and Admin. |
 | `ISS-826` | `in_review` | Spec: action permission enforcement middleware | `SPEC-002`, `AC-4BS`, `SPEC-005` | GitHub issue: `#826`; pull request: `#1119`. First slice: durable HTTP action runs use the trusted request-policy actor and ignore JSON-body actor claims. Unmapped ZITADEL grants fail closed. Lifecycle UI decisions remain `#1026`. |
 | `ISS-1023` | `in_review` | P0 broker: authenticated core management proxy over named-pipe and Unix socket | `SPEC-002`, `AC-4BT` | GitHub issue: `#1023`; pull request: `#1118`. HTTP aliases already on develop via PR `#1032`. This slice adds OS IPC HTTP for the management proxy, KV `/v1/kv`, and launch `/v1/resolve` without switching default Broker launch off loopback HTTP. Real Broker subprocess qualification on both OS transports remains. Do not park solely on PR `#1030`. |
 | `ISS-1067` | `in_review` | Operator MCP for services, secret metadata, and logs | `SPEC-006`, `AC-6A`, `AC-6D`, `AC-6G` | GitHub issue: `#1067`. First slice PR `#1115` (`AC-6A` secret-metadata tool/resource on the existing prototype). Close leftover only when `#861` + `#864` meet the product bar. Do not grow a second MCP server. `#859` draft PR `#1029` remains the transport owner. |
@@ -202,6 +204,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Task Queue
 | ID | Status | Linked Issue | Title | Spec References | Exit Evidence |
 | --- | --- | --- | --- | --- | --- |
+| `TASK-872` | `in_progress` | `ISS-872` | Publish and structurally validate the canonical Secrets capability ledger | `SPEC-007`, `AC-7A` through `AC-7E` | Record Releases 1-4, enterprise/deferred rows, every Admin `#97` item, exact evidence URLs, current blockers, and next actions; wire the structural check into Docs Site CI and reconcile README/live-readiness links without changing product behavior. |
 | `TASK-826` | `in_review` | `ISS-826` | Bind durable HTTP action-run enforcement to the trusted request-policy actor | `SPEC-002`, `AC-4BS` | Action-run HTTP ignores JSON-body actor claims; loopback `local-root` and remote `local-token` can run; unmapped ZITADEL is denied; confirmation still required; permission decisions are audited without secrets. Evidence: `tests/permission-enforcement.test.js` plus PR `#1119`. |
 | `TASK-1070` | `in_progress` | `ISS-1070` | Copy persisted pid and runId onto dashboard runtimeHealth | `SPEC-002`, `AC-4O`, `AC-4O.1` | Dashboard service detail for a running fixture reports `runtimeHealth.pid > 0` and a non-empty `runId`; stopped services report `pid: null`. |
 | `TASK-995` | `in_progress` | `ISS-995` | Harden provider dependency and readiness enforcement | `SPEC-002`, `AC-4H`, `AC-4U`, `AC-4Y` | Service/setup `execservice` declarations require an explicit provider dependency; runtime execution fails closed until the provider and release artifact are ready; compatibility reports unready providers; direct executables without `execservice` retain their current behavior. |
