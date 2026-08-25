@@ -231,8 +231,13 @@ test(
       const brokerExited = brokerProcess
         ? brokerProcess.exitCode !== null || brokerProcess.signalCode !== null
         : false;
+      const causeName = error instanceof Error ? error.name : "unknown";
+      const causeCode = error && typeof error === "object" && "code" in error &&
+        typeof error.code === "string" && /^[a-z0-9_]+$/u.test(error.code)
+        ? error.code
+        : "none";
       throw new Error(
-        `Real Broker IPC qualification failed during ${qualificationPhase}; brokerExited=${brokerExited}.`,
+        `Real Broker IPC qualification failed during ${qualificationPhase}; brokerExited=${brokerExited}; cause=${causeName}/${causeCode}.`,
         { cause: error },
       );
     } finally {
