@@ -548,6 +548,26 @@ function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved
     processGroup: record.processGroup,
     knownMembers: record.knownTreeMembers,
     rootExitObserved,
+    rootOwnershipProbe: () => {
+      if (record.child.exitCode !== null || record.child.signalCode !== null) {
+        return "exited";
+      }
+      let probeError = false;
+      const captureProbeError = () => {
+        probeError = true;
+      };
+      record.child.prependOnceListener("error", captureProbeError);
+      try {
+        // ChildProcess.kill(0) probes the exact native process handle retained
+        // by Node, so a reused numeric PID cannot authorize taskkill.
+        const alive = record.child.kill(0);
+        return probeError ? "unverifiable" : alive ? "owned" : "exited";
+      } catch {
+        return "unverifiable";
+      } finally {
+        record.child.removeListener("error", captureProbeError);
+      }
+    },
   };
 }
 
@@ -616,14 +636,30 @@ function adoptedProcessTreeTarget(record: AdoptedProcessRecord): OwnedProcessTre
     rootIdentity: record.rootIdentity,
     processGroup: record.processGroup,
     knownMembers: record.knownTreeMembers,
+    forceImmediately: process.platform === "win32",
+    preferFastWindowsRootIdentity: process.platform === "win32",
   };
 }
 
-async function adoptedProcessPollDelay(): Promise<void> {
+async function adoptedProcessPollDelay(signal?: AbortSignal): Promise<void> {
   // Keep this bounded timer referenced: shutdown explicitly awaits the adopted
   // monitor finalizer, and an unref'ed timer can otherwise leave that promise
   // pending after the owned process tree becomes the last active handle.
-  await new Promise<void>((resolve) => setTimeout(resolve, ADOPTED_PROCESS_POLL_INTERVAL_MS));
+  if (signal?.aborted) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ADOPTED_PROCESS_POLL_INTERVAL_MS);
+    signal?.addEventListener("abort", finish, { once: true });
+    if (signal?.aborted) {
+      finish();
+    }
+  });
 }
 
 async function refreshAdoptedProcessTreeMembers(
@@ -659,7 +695,7 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
       // Process inspection can fail transiently; retain the last verified snapshot.
     }
     if (!record.stopping && !record.treeMonitorAbortController.signal.aborted) {
-      await adoptedProcessPollDelay();
+      await adoptedProcessPollDelay(record.treeMonitorAbortController.signal);
     }
   }
 }
@@ -716,7 +752,7 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
 async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void> {
   const serviceId = record.service.manifest.id;
   while (adoptedProcesses.get(serviceId) === record && !record.stopping) {
-    await adoptedProcessPollDelay();
+    await adoptedProcessPollDelay(record.monitorAbortController.signal);
     if (adoptedProcesses.get(serviceId) !== record || record.stopping) {
       return;
     }
@@ -1117,25 +1153,32 @@ async function stopAdoptedProcess(
   const deadlineMs = processControlDeadline(timeoutMs);
   const finalizer = managedProcessFinalizers.get(serviceId);
   await beginManagedProcessStop(serviceId, deadlineMs);
-  const ownership = await withProcessControlDeadline(
-    async () => await findProcessOwnership(record.workspaceRoot, "service", serviceId),
-    { deadlineMs },
-  );
-  const status = ownership
-    ? await withProcessControlDeadline(
-        async (signal) => await classifyRegisteredProcess(ownership, { deadlineMs, signal }),
-        { deadlineMs },
-      )
-    : "not_running";
-  if (status === "unknown_owner") {
-    throw new Error(`Cannot stop service "${serviceId}" because its adopted process owner is unverifiable.`);
-  }
-  const terminationTarget = status === "owned"
-    ? adoptedProcessTreeTarget(record)
-    : {
-        ...adoptedProcessTreeTarget(record),
+  let terminationTarget = adoptedProcessTreeTarget(record);
+  if (process.platform !== "win32") {
+    // POSIX process-group signaling needs this fresh registry check before it
+    // targets a numeric group. On Windows, terminateOwnedProcessTree performs
+    // the same fail-closed fingerprint check immediately before taskkill;
+    // repeating CIM here can consume the caller's entire absolute deadline.
+    const ownership = await withProcessControlDeadline(
+      async () => await findProcessOwnership(record.workspaceRoot, "service", serviceId),
+      { deadlineMs },
+    );
+    const status = ownership
+      ? await withProcessControlDeadline(
+          async (signal) => await classifyRegisteredProcess(ownership, { deadlineMs, signal }),
+          { deadlineMs },
+        )
+      : "not_running";
+    if (status === "unknown_owner") {
+      throw new Error(`Cannot stop service "${serviceId}" because its adopted process owner is unverifiable.`);
+    }
+    if (status !== "owned") {
+      terminationTarget = {
+        ...terminationTarget,
         processGroup: { kind: "none" as const, id: null },
       };
+    }
+  }
   const termination = await terminateOwnedProcessTree(
     terminationTarget,
     remainingProcessControlMs(deadlineMs),

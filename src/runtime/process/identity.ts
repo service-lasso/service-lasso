@@ -29,6 +29,13 @@ export type ProcessIdentityClassification =
   | "identity_mismatch"
   | "unknown_owner";
 
+interface WindowsNativeProcessJson {
+  Status?: unknown;
+  ProcessId?: unknown;
+  StartTime?: unknown;
+  ExecutablePath?: unknown;
+}
+
 export interface ProcessInspectorDependencies {
   platform?: NodeJS.Platform;
   readFile?: (filePath: string, encoding?: BufferEncoding) => Promise<string | Buffer>;
@@ -281,6 +288,99 @@ function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection
     };
   } catch {
     return { status: "unknown", reason: "windows_process_output_invalid" };
+  }
+}
+
+function parseWindowsNativeIdentity(
+  stdout: string,
+  expected: ProcessFingerprint,
+): ProcessIdentityClassification {
+  if (!stdout.trim()) {
+    return "unknown_owner";
+  }
+  try {
+    const value = JSON.parse(stdout) as WindowsNativeProcessJson;
+    if (value.Status === "not_running") {
+      return "not_running";
+    }
+    if (
+      value.Status !== "running" ||
+      Number(value.ProcessId) !== expected.pid ||
+      typeof value.StartTime !== "string" ||
+      !Number.isFinite(Date.parse(value.StartTime)) ||
+      typeof value.ExecutablePath !== "string" ||
+      !value.ExecutablePath.trim()
+    ) {
+      return "unknown_owner";
+    }
+
+    // A Windows process creation timestamp identifies the immutable process
+    // instance behind a numeric PID. The executable image corroborates that
+    // identity; the command line cannot change during the instance lifetime,
+    // so the already-persisted command hash need not be re-read through WMI.
+    return new Date(value.StartTime).toISOString() === expected.createdAt &&
+      normalizeExecutablePath(value.ExecutablePath, "win32") === normalizeExecutablePath(expected.executablePath, "win32")
+      ? "owned"
+      : "identity_mismatch";
+  } catch {
+    return "unknown_owner";
+  }
+}
+
+export async function classifyWindowsProcessIdentityFast(
+  expected: ProcessFingerprint,
+  dependencies: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "runCommand"> = {},
+): Promise<ProcessIdentityClassification> {
+  if (!Number.isInteger(expected.pid) || expected.pid <= 0) {
+    return "not_running";
+  }
+  const injectedRunner = dependencies.runCommand;
+  const command = [
+    `$process = Get-Process -Id ${expected.pid} -ErrorAction SilentlyContinue`,
+    "if ($null -eq $process) {",
+    "  [pscustomobject]@{ Status = 'not_running' } | ConvertTo-Json -Compress",
+    "  exit 0",
+    "}",
+    "try {",
+    "  $result = [pscustomobject]@{",
+    "    Status = 'running'",
+    "    ProcessId = $process.Id",
+    "    StartTime = $process.StartTime.ToUniversalTime().ToString('o')",
+    "    ExecutablePath = $process.Path",
+    "  }",
+    "  $result | ConvertTo-Json -Compress",
+    "} catch {",
+    "  [pscustomobject]@{ Status = 'unknown' } | ConvertTo-Json -Compress",
+    "}",
+  ].join("\n");
+
+  try {
+    const result = await runProcessControlCommand(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", command],
+      {
+        captureOutput: true,
+        deadlineMs: dependencies.deadlineMs,
+        signal: dependencies.signal,
+        runner: injectedRunner
+          ? async (executable, args, helperOptions) => ({
+              exitCode: 0,
+              ...(await injectedRunner(executable, args, {
+                deadlineMs: dependencies.deadlineMs,
+                signal: helperOptions.signal,
+              })),
+            })
+          : undefined,
+      },
+    );
+    return result.exitCode === 0
+      ? parseWindowsNativeIdentity(result.stdout, expected)
+      : "unknown_owner";
+  } catch (error) {
+    if (isProcessControlDeadlineError(error)) {
+      throw error;
+    }
+    return "unknown_owner";
   }
 }
 

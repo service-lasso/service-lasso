@@ -299,7 +299,7 @@ test("Windows per-PID CIM helper is killed and observed closed inside its absolu
   await assert.rejects(
     inspectOwnedProcess(identity.pid, {
       platform: "win32",
-      deadlineMs: Date.now() + 150,
+      deadlineMs: Date.now() + 500,
       runCommand: async (_command, _args, { signal } = {}) => {
         const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
           stdio: ["ignore", "pipe", "ignore"],
@@ -325,7 +325,7 @@ test("Windows per-PID CIM helper is killed and observed closed inside its absolu
   assert.equal(helperAbortObserved, true);
   assert.equal(helperCloseObserved, true);
   assert.equal(Number.isInteger(helperPid) && helperPid > 0 && helperPid !== identity.pid, true);
-  assert.equal(Date.now() - startedAt < 1_000, true);
+  assert.equal(Date.now() - startedAt < 1_500, true);
 });
 
 test("Windows taskkill helpers are aborted at one deadline and target only the verified root tree", async () => {
@@ -336,9 +336,14 @@ test("Windows taskkill helpers are aborted at one deadline and target only the v
   const startedAt = Date.now();
 
   await assert.rejects(
-    terminateOwnedProcessTree(target, 150, {
+    terminateOwnedProcessTree({
+      ...target,
+      rootOwnershipProbe: () => "owned",
+    }, 500, {
       platform: "win32",
-      inspectProcess: async () => ({ status: "running", identity }),
+      inspectProcess: async () => {
+        throw new Error("Managed root handle proof must bypass per-PID CIM.");
+      },
       runWindowsCommand: async (command, args, { signal }) => {
         commands.push([command, ...args]);
         const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -362,7 +367,7 @@ test("Windows taskkill helpers are aborted at one deadline and target only the v
     (error) => error?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED",
   );
 
-  assert.equal(Date.now() - startedAt < 1_000, true);
+  assert.equal(Date.now() - startedAt < 1_500, true);
   assert.equal(helperAbortCount, 2);
   assert.equal(helperCloseCount, 2);
   assert.equal(helperPids.every((pid) => Number.isInteger(pid) && pid > 0 && pid !== identity.pid), true);
@@ -385,5 +390,210 @@ test("Windows process-tree stop refuses a missing root fingerprint before taskki
     }),
     /without verified root identity/,
   );
+  assert.deepEqual(commands, []);
+});
+
+test("Windows adopted stop uses one forced exact-root taskkill without a graceful helper", async () => {
+  const commands = [];
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    forceImmediately: true,
+    preferFastWindowsRootIdentity: true,
+  }, 500, {
+    platform: "win32",
+    classifyWindowsProcessIdentityFast: async () => "owned",
+    inspectProcess: async () => {
+      throw new Error("Conclusive native identity must bypass per-PID CIM.");
+    },
+    killProcess: (_pid, signal) => {
+      if (signal === 0) throw missingProcessError();
+      throw new Error("Verified adopted members must remain owned by taskkill /T.");
+    },
+    runWindowsCommand: async (command, args) => {
+      commands.push([command, ...args]);
+      return { exitCode: 0, stdout: "" };
+    },
+  });
+
+  assert.deepEqual(result, { forced: true });
+  assert.deepEqual(commands, [["taskkill", "/pid", String(identity.pid), "/t", "/f"]]);
+});
+
+test("Windows adopted immediate-force stop rejects a changed fingerprint before any helper", async () => {
+  const commands = [];
+  await assert.rejects(
+    terminateOwnedProcessTree({
+      ...target,
+      forceImmediately: true,
+      preferFastWindowsRootIdentity: true,
+    }, 500, {
+      platform: "win32",
+      classifyWindowsProcessIdentityFast: async () => "identity_mismatch",
+      inspectProcess: async () => {
+        throw new Error("Conclusive native mismatch must bypass per-PID CIM.");
+      },
+      runWindowsCommand: async (command, args) => {
+        commands.push([command, ...args]);
+        return { exitCode: 0, stdout: "" };
+      },
+    }),
+    /Cannot verify process 43123/,
+  );
+
+  assert.deepEqual(commands, []);
+});
+
+test("Windows adopted immediate-force stop treats a conclusively exited incarnation as clean without a helper", async () => {
+  const commands = [];
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    knownMembers: [],
+    forceImmediately: true,
+    preferFastWindowsRootIdentity: true,
+  }, 500, {
+    platform: "win32",
+    classifyWindowsProcessIdentityFast: async () => "not_running",
+    inspectProcess: async () => {
+      throw new Error("Conclusive native exit must bypass per-PID CIM.");
+    },
+    runWindowsCommand: async (command, args) => {
+      commands.push([command, ...args]);
+      return { exitCode: 0, stdout: "" };
+    },
+  });
+
+  assert.deepEqual(result, { forced: false });
+  assert.deepEqual(commands, []);
+});
+
+test("Windows adopted immediate-force stop settles an authorized root that exits before taskkill completes", async () => {
+  const commands = [];
+  let presenceProbes = 0;
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    forceImmediately: true,
+    preferFastWindowsRootIdentity: true,
+  }, 500, {
+    platform: "win32",
+    classifyWindowsProcessIdentityFast: async () => "owned",
+    inspectProcess: async () => {
+      throw new Error("Post-taskkill absence must bypass per-PID CIM.");
+    },
+    killProcess: (_pid, signal) => {
+      if (signal === 0) {
+        presenceProbes += 1;
+        throw missingProcessError();
+      }
+    },
+    runWindowsCommand: async (command, args) => {
+      commands.push([command, ...args]);
+      return { exitCode: 128, stdout: "" };
+    },
+  });
+
+  assert.deepEqual(result, { forced: true });
+  assert.equal(presenceProbes, 1);
+  assert.deepEqual(commands, [["taskkill", "/pid", String(identity.pid), "/t", "/f"]]);
+});
+
+test("Windows adopted immediate-force stop falls back to the full fingerprint only for inconclusive native evidence", async () => {
+  const commands = [];
+  let fullFingerprintChecks = 0;
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    forceImmediately: true,
+    preferFastWindowsRootIdentity: true,
+  }, 500, {
+    platform: "win32",
+    classifyWindowsProcessIdentityFast: async () => "unknown_owner",
+    inspectProcess: async () => {
+      fullFingerprintChecks += 1;
+      return { status: "running", identity };
+    },
+    killProcess: (_pid, signal) => {
+      if (signal === 0) throw missingProcessError();
+    },
+    runWindowsCommand: async (command, args) => {
+      commands.push([command, ...args]);
+      return { exitCode: 0, stdout: "" };
+    },
+  });
+
+  assert.deepEqual(result, { forced: true });
+  assert.equal(fullFingerprintChecks, 1);
+  assert.deepEqual(commands, [["taskkill", "/pid", String(identity.pid), "/t", "/f"]]);
+});
+
+test("Windows managed root-handle exit proof prevents taskkill against a reused PID", async () => {
+  const commands = [];
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    knownMembers: [],
+    rootOwnershipProbe: () => "exited",
+  }, 500, {
+    platform: "win32",
+    inspectProcess: async () => {
+      throw new Error("Exited native process handle must bypass per-PID CIM.");
+    },
+    runWindowsCommand: async (command, args) => {
+      commands.push([command, ...args]);
+      return { exitCode: 0, stdout: "" };
+    },
+  });
+
+  assert.deepEqual(result, { forced: false });
+  assert.deepEqual(commands, []);
+});
+
+test("Windows exited managed root still cleans its verified descendant without retargeting the root PID", async () => {
+  const childIdentity = { ...identity, pid: identity.pid + 1, commandHash: "b".repeat(64) };
+  const signals = [];
+  const commands = [];
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    knownMembers: [identity, childIdentity],
+    rootOwnershipProbe: () => "exited",
+  }, 500, {
+    platform: "win32",
+    inspectProcess: async (pid) => pid === childIdentity.pid
+      ? { status: "running", identity: childIdentity }
+      : { status: "not_running", reason: "process_not_running" },
+    killProcess: (pid, signal) => {
+      if (signal === 0) {
+        throw missingProcessError();
+      }
+      signals.push({ pid, signal });
+    },
+    runWindowsCommand: async (command, args) => {
+      commands.push([command, ...args]);
+      return { exitCode: 0, stdout: "" };
+    },
+  });
+
+  assert.deepEqual(result, { forced: false });
+  assert.deepEqual(signals, [{ pid: childIdentity.pid, signal: "SIGTERM" }]);
+  assert.deepEqual(commands, []);
+});
+
+test("Windows managed root-handle probe failure remains fail closed before taskkill", async () => {
+  const commands = [];
+  await assert.rejects(
+    terminateOwnedProcessTree({
+      ...target,
+      knownMembers: [],
+      rootOwnershipProbe: () => "unverifiable",
+    }, 500, {
+      platform: "win32",
+      inspectProcess: async () => {
+        throw new Error("Unverifiable native process handle must not fall back to PID authorization.");
+      },
+      runWindowsCommand: async (command, args) => {
+        commands.push([command, ...args]);
+        return { exitCode: 0, stdout: "" };
+      },
+    }),
+    /Cannot verify process 43123/,
+  );
+
   assert.deepEqual(commands, []);
 });

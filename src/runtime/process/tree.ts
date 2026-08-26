@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 import { readdir, readFile, readlink } from "node:fs/promises";
 import {
+  classifyWindowsProcessIdentityFast,
   classifyProcessIdentity,
   inspectProcess,
   type ProcessFingerprint,
+  type ProcessIdentityClassification,
   type ProcessInspection,
 } from "./identity.js";
 import {
@@ -24,6 +26,9 @@ export interface OwnedProcessTreeTarget {
   processGroup: ProcessTreeGroup;
   knownMembers?: ProcessFingerprint[];
   rootExitObserved?: boolean;
+  rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
+  forceImmediately?: boolean;
+  preferFastWindowsRootIdentity?: boolean;
 }
 
 export interface ProcessTreeTerminationResult {
@@ -38,6 +43,10 @@ export interface ProcessTreeControlDependencies {
     pid: number,
     options?: { deadlineMs?: number; signal?: AbortSignal },
   ) => Promise<ProcessInspection>;
+  classifyWindowsProcessIdentityFast?: (
+    identity: ProcessFingerprint,
+    options?: { deadlineMs?: number; signal?: AbortSignal },
+  ) => Promise<ProcessIdentityClassification>;
   killProcess?: (pid: number, signal: NodeJS.Signals | 0) => void;
   readFile?: (filePath: string, encoding: BufferEncoding) => Promise<string>;
   readWindowsProcessTable?: (
@@ -77,6 +86,7 @@ type ProcessTreeSignalEvidence =
       kind: "windows-taskkill";
       rootPid: number;
       rootIdentity: ProcessFingerprint | null;
+      rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
       members: ProcessFingerprint[];
       commandSucceeded: boolean;
     };
@@ -369,10 +379,45 @@ async function requireOwnedIdentity(
   throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
 }
 
+async function requireFastWindowsIdentity(
+  identity: ProcessFingerprint,
+  dependencies: ProcessTreeControlDependencies,
+): Promise<"owned" | "exited"> {
+  const classification = await (dependencies.classifyWindowsProcessIdentityFast
+    ? dependencies.classifyWindowsProcessIdentityFast(identity, {
+        deadlineMs: dependencies.deadlineMs,
+        signal: dependencies.signal,
+      })
+    : classifyWindowsProcessIdentityFast(identity, {
+        deadlineMs: dependencies.deadlineMs,
+        signal: dependencies.signal,
+      }));
+  if (classification === "owned") {
+    return "owned";
+  }
+  if (classification === "not_running") {
+    return "exited";
+  }
+  if (classification === "identity_mismatch") {
+    throw new Error(`Cannot verify process ${identity.pid} while controlling its process tree.`);
+  }
+  // Missing native start/image evidence is fail-closed. Fall back to the full
+  // fingerprint only in that inconclusive case, under the same deadline.
+  return await requireOwnedIdentity(identity, dependencies);
+}
+
 async function requirePostSignalIdentity(
   identity: ProcessFingerprint,
   dependencies: ProcessTreeControlDependencies,
 ): Promise<"owned" | "exited" | "unverifiable"> {
+  // `taskkill` normally makes the exact PID disappear before its helper closes.
+  // Prove that cheap, unambiguous state first so a successful forced stop does
+  // not spend the caller's remaining deadline launching another CIM helper.
+  // A still-present or ambiguous PID continues through full fingerprint
+  // verification, preserving fail-closed PID-reuse protection.
+  if ((dependencies.platform ?? process.platform) === "win32" && await verifyPostSignalExit(identity.pid, dependencies)) {
+    return "exited";
+  }
   const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
   if (classification === "owned") {
     return "owned";
@@ -508,10 +553,17 @@ async function signalOwnedProcessTree(
     }
     const rootStatus = target.rootExitObserved
       ? "exited"
-      : await requireOwnedIdentity(target.rootIdentity as ProcessFingerprint, dependencies);
+      : target.rootOwnershipProbe?.() ?? (
+          target.preferFastWindowsRootIdentity
+            ? await requireFastWindowsIdentity(target.rootIdentity as ProcessFingerprint, dependencies)
+            : await requireOwnedIdentity(target.rootIdentity as ProcessFingerprint, dependencies)
+        );
+    if (rootStatus === "unverifiable") {
+      throw new Error(`Cannot verify process ${target.rootPid} while controlling its process tree.`);
+    }
     const members = target.knownMembers && target.knownMembers.length > 0
-      ? target.knownMembers.filter((member) => !target.rootExitObserved || member.pid !== target.rootPid)
-      : target.rootIdentity && rootStatus === "owned"
+      ? target.knownMembers.filter((member) => rootStatus === "owned" || member.pid !== target.rootPid)
+      : target.rootIdentity && rootStatus === "owned" && !target.rootOwnershipProbe
         // `taskkill /T` owns descendant discovery for a still-live, identity-
         // verified root. Retain the root as post-signal evidence without
         // blocking a caller stop on another full-table CIM scan; the Windows
@@ -534,6 +586,7 @@ async function signalOwnedProcessTree(
       kind: "windows-taskkill",
       rootPid: target.rootPid,
       rootIdentity: target.rootIdentity,
+      rootOwnershipProbe: target.rootOwnershipProbe,
       members,
       commandSucceeded: await waitForCommandExit("taskkill", args, dependencies),
     };
@@ -570,8 +623,15 @@ async function hasRunningEvidence(
   }
 
   if (evidence.kind === "windows-taskkill") {
-    if (!evidence.commandSucceeded) {
-      return true;
+    // `taskkill` can return process-not-found when the authorized root exits
+    // between the immutable identity check and helper execution. Its exit code
+    // is not ownership evidence: settle only after the exact root and every
+    // verified member are gone, and remain fail closed while any are owned or
+    // unverifiable.
+    if (evidence.rootOwnershipProbe) {
+      if (evidence.rootOwnershipProbe() !== "exited") {
+        return true;
+      }
     }
     if (!evidence.rootIdentity && evidence.members.length === 0) {
       return false;
@@ -625,9 +685,11 @@ async function forceSignaledProcessTree(
   }
 
   if (evidence.kind === "windows-taskkill") {
-    const rootState = evidence.rootIdentity
-      ? await requirePostSignalIdentity(evidence.rootIdentity, dependencies)
-      : "owned";
+    const rootState = evidence.rootOwnershipProbe
+      ? evidence.rootOwnershipProbe()
+      : evidence.rootIdentity
+        ? await requirePostSignalIdentity(evidence.rootIdentity, dependencies)
+        : "owned";
     if (rootState === "unverifiable") {
       throw new Error(`Cannot verify process ${evidence.rootPid} while controlling its process tree.`);
     }
@@ -660,9 +722,29 @@ export async function terminateOwnedProcessTree(
   if (initialRemainingMs <= 0) {
     throw new ProcessControlDeadlineError();
   }
+  if ((dependencies.platform ?? process.platform) === "win32" && target.forceImmediately) {
+    const forcedDependencies: ProcessTreeControlDependencies = {
+      ...dependencies,
+      deadlineMs,
+    };
+    const forcedEvidence = await signalOwnedProcessTree(target, "SIGKILL", forcedDependencies);
+    if (!await waitForProcessTreeExit(forcedEvidence, deadlineMs, forcedDependencies)) {
+      throw new ProcessControlDeadlineError();
+    }
+    return {
+      forced: forcedEvidence.kind !== "verified-members" || forcedEvidence.members.length > 0,
+    };
+  }
+  // Windows forced termination must retain enough of the same absolute caller
+  // deadline to fingerprint-reverify the root, run taskkill /F, and observe
+  // exact-target exit. CIM startup is materially slower than POSIX process
+  // inspection, so give graceful taskkill one eighth rather than consuming
+  // half of the end-to-end bound. This reallocates the fixed deadline; it does
+  // not extend or reset it.
+  const gracefulBudgetDivisor = (dependencies.platform ?? process.platform) === "win32" ? 8 : 2;
   const gracefulDeadlineMs = Math.min(
     deadlineMs,
-    Date.now() + Math.max(1, Math.floor(initialRemainingMs / 2)),
+    Date.now() + Math.max(1, Math.floor(initialRemainingMs / gracefulBudgetDivisor)),
   );
   const gracefulDependencies: ProcessTreeControlDependencies = {
     ...dependencies,

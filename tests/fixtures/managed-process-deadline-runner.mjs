@@ -64,18 +64,26 @@ try {
     failure = error;
   }
   const elapsedMs = Date.now() - startedAt;
-  if (
-    failure?.code !== "PROCESS_CONTROL_DEADLINE_EXCEEDED" ||
-    failure?.message !== "Process control did not converge before its deadline." ||
-    !abortObserved ||
-    !(receivedTimeoutMs > 0 && receivedTimeoutMs <= 5_000) ||
-    !Number.isFinite(receivedDeadlineMs) ||
-    elapsedMs < 4_500 ||
-    elapsedMs >= 6_000 ||
-    !hasManagedProcess(serviceId)
-  ) {
+  const mismatchCode = failure?.code !== "PROCESS_CONTROL_DEADLINE_EXCEEDED"
+    ? "DEADLINE_ERROR_CODE_MISMATCH"
+    : failure?.message !== "Process control did not converge before its deadline."
+      ? "DEADLINE_ERROR_MESSAGE_MISMATCH"
+      : !abortObserved
+        ? "DEADLINE_ABORT_NOT_OBSERVED"
+        : !(receivedTimeoutMs > 0 && receivedTimeoutMs <= 5_000)
+          ? "DEADLINE_TIMEOUT_NOT_PROPAGATED"
+          : !Number.isFinite(receivedDeadlineMs)
+            ? "DEADLINE_ABSOLUTE_BOUND_MISSING"
+            : elapsedMs < 4_500
+              ? "DEADLINE_RETURNED_TOO_EARLY"
+              : elapsedMs >= 6_000
+                ? "DEADLINE_RETURNED_TOO_LATE"
+                : !hasManagedProcess(serviceId)
+                  ? "DEADLINE_MANAGED_STATE_LOST"
+                  : null;
+  if (mismatchCode) {
     throw Object.assign(new Error("managed stop deadline evidence did not match"), {
-      code: "DEADLINE_EVIDENCE_MISMATCH",
+      code: mismatchCode,
     });
   }
 
