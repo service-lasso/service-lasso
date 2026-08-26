@@ -100,11 +100,11 @@ jobs:
           - os: ubuntu-latest
             asset: secretsbroker-linux.tar.gz
             binary: secretsbroker
-            sha256: 3f9af58da8681427c4c04f5f215e03881c7c529a61329f693b82e72b95a182b4
+            sha256: 952856d8b4d82772de2e3aa2b66708a2f154565a13941f4c723216f3a2765807
           - os: windows-latest
             asset: secretsbroker-win32.zip
             binary: secretsbroker.exe
-            sha256: 84b4e706a179f5a2ec65c2a45e97334d40f0fbbc6bdf7114c2ab74437c8ff4c2
+            sha256: 1bb86e6b03026e535c24b1dd00368022334f67d66d6f3af118251d29b5db7b8b
 
     steps:
       - name: Check out repo
@@ -130,7 +130,7 @@ jobs:
           $expected = '${{ matrix.sha256 }}'
           $archive = Join-Path $env:RUNNER_TEMP $asset
           $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
-          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.18-2ee1ba5/$asset"
+          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.25-41f7206/$asset"
           $downloaded = $false
           $maxAttempts = 4
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -177,7 +177,17 @@ jobs:
       - name: Qualify real Broker subprocess over authenticated OS IPC
         env:
           SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+          SERVICE_LASSO_BROKER_IPC_EVIDENCE_PATH: artifacts/broker-ipc-${{ runner.os }}.json
         run: node --test --test-concurrency=1 --test-timeout=900000 tests/broker-real-ipc-qualification.test.js
+
+      - name: Upload Broker IPC qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: broker-ipc-qualification-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/broker-ipc-${{ runner.os }}.json
+          if-no-files-found: error
+          retention-days: 14
 
   qualify-release:
     if: ${{ always() }}

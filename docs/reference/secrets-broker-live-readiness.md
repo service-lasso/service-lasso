@@ -53,7 +53,7 @@ apply button.
 
 ## Candidate evidence
 
-The unpublished local candidates have the following direct evidence:
+The current candidates have the following direct evidence:
 
 - Broker: complete Go tests, `go vet`, packaged Windows binary scans with zero
   reachable vulnerabilities, Windows package/harness verification, and clean
@@ -66,10 +66,13 @@ The unpublished local candidates have the following direct evidence:
   exact pinned Broker release, verifies the published archive digest, and runs
   that real subprocess journey over a Windows named pipe and a Linux Unix
   socket. The dedicated gate requires a Broker binary and cannot silently turn
-  into the source-suite skip used by ordinary contributor runs. Hosted Windows
-  currently fails before subprocess start on the pinned Broker's private-wrapper
-  owner/ACL boundary (`lasso-secretsbroker#166`); Core remains blocked until a
-  repaired immutable Broker release is pinned and both native jobs pass.
+  into the source-suite skip used by ordinary contributor runs. Broker PR `#167`
+  repaired the private-wrapper owner/ACL boundary and checksum-verified release
+  `2026.8.25-41f7206` targets merge
+  `41f7206f90a624582fa53397304b8d6c3536b24b`. Its downloaded Windows, Linux,
+  and macOS archives and released manifest match both GitHub's SHA-256 digests
+  and `SHA256SUMS.txt`. Core pins that release; live readiness still requires
+  terminal green hosted native, product, aggregate, and post-merge evidence.
 - Service Admin: 106 unit tests, four packaged-runtime tests, production audit
   with no known vulnerabilities, Windows package verification, and a packaged
   Electron/Cypress journey through a real Core and Broker. The journey covers
@@ -86,18 +89,15 @@ passes on Windows and Ubuntu.
 
 ## Remaining release gates
 
-1. Publish the Broker candidate through review, run the real alternate-Windows-
-   principal named-pipe denial gate, release its exact three-platform artifacts,
-   and update Core to the exact release tag.
-2. Publish the Core candidate through review and keep the full hosted build,
+1. Publish the Core candidate through review and keep the full hosted build,
    audit, release, startup/recovery, checksum-bound Windows named-pipe and Linux
    Unix-socket subprocess, and docs qualification green.
-3. Publish the Service Admin candidate after those revisions exist remotely;
+2. Publish the Service Admin candidate after those revisions exist remotely;
    require the packaged Windows, Ubuntu, and macOS real-browser workflow to
    record the exact Core and Broker revisions.
-4. Release Service Admin, pin its exact tag in Core, rerun Core release/package
+3. Release Service Admin, pin its exact tag in Core, rerun Core release/package
    qualification, and promote the final reviewed Core commit.
-5. Verify the public release manifests, asset digests, installed versions, live
+4. Verify the public release manifests, asset digests, installed versions, live
    process versions, authenticated UI, linked rotation, restart recovery, and
    no-leak evidence all refer to those exact releases.
 

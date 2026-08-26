@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -16,6 +16,17 @@ import { getLifecycleState, resetLifecycleState, setLifecycleState } from '../..
 import { createServiceRegistry } from '../../dist/runtime/manager/DependencyGraph.js'
 import { writeServiceState } from '../../dist/runtime/state/writeState.js'
 import { startApiServer } from '../../dist/server/index.js'
+import {
+  BROKER_LOCKOUT_INVALID_ATTEMPTS,
+  BrokerLockoutFixtureError,
+  classifyBrokerLockoutAttempt,
+  createSafeLockoutFixtureDiagnostic,
+  requestBrokerLockoutWithToken,
+} from './real-admin-browser-lockout.mjs'
+import {
+  createSafeRealAdminBrowserTeardownFailure,
+  teardownRealAdminBrowserFixture,
+} from './real-admin-browser-shutdown.mjs'
 import { writeManifest } from '../test-helpers.js'
 
 const sourceBrokerBinary = path.resolve(process.env.SERVICE_LASSO_TEST_BROKER_BINARY ?? '')
@@ -39,7 +50,7 @@ let apiServer = null
 let adminProcess = null
 let vaultServer = null
 let brokerRuntimeCredentials = null
-let shuttingDown = false
+let shutdownPromise = null
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 })
 
 function safeFailureCode(error) {
@@ -82,77 +93,30 @@ async function waitFor(url, timeoutMs = 30_000) {
   throw new Error(`Timed out waiting for ${new URL(url).pathname}`)
 }
 
-function requestBrokerWithToken(credentials, token) {
-  return new Promise((resolve, reject) => {
-    const request = http.request({
-      method: 'GET',
-      path: '/v1/management/lifecycle/status',
-      socketPath: credentials.transport.socketPath,
-      agent: brokerIPCClient,
-      headers: { 'X-SecretsBroker-Token': token },
-    }, (response) => {
-      const chunks = []
-      let byteLength = 0
-      response.on('data', (chunk) => {
-        byteLength += chunk.length
-        if (byteLength <= 65_536) chunks.push(chunk)
-      })
-      response.on('end', () => {
-        if (byteLength > 65_536) {
-          reject(new Error('Broker lockout response exceeded the bounded fixture limit.'))
-          return
-        }
-        try {
-          resolve({
-            statusCode: response.statusCode ?? 0,
-            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
-          })
-        } catch {
-          reject(new Error('Broker lockout response was not valid JSON.'))
-        }
-      })
-    })
-    request.once('error', reject)
-    request.end()
-  })
-}
-
-async function shutdown(exitCode = 0) {
-  if (shuttingDown) return
-  shuttingDown = true
-  if (adminProcess?.exitCode === null) {
-    adminProcess.kill('SIGTERM')
-    await Promise.race([
-      new Promise((resolve) => adminProcess.once('exit', resolve)),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
-    ])
-    if (adminProcess.exitCode === null) adminProcess.kill('SIGKILL')
-  }
-  await apiServer?.stop().catch(() => undefined)
-  await stopAllManagedProcesses().catch(() => undefined)
-  brokerIPCClient.destroy()
-  if (vaultServer) {
-    const closing = new Promise((resolve) => vaultServer.close(() => resolve()))
-    vaultServer.closeAllConnections?.()
-    await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 5_000))])
-  }
-  resetLifecycleState()
-  const cleanupDeadline = Date.now() + 90_000
-  for (;;) {
+function shutdown(exitCode = 0) {
+  if (shutdownPromise) return shutdownPromise
+  shutdownPromise = (async () => {
+    let resolvedExitCode = exitCode
     try {
-      await rm(tempRoot, {
-        recursive: true,
-        force: true,
-        maxRetries: 8,
-        retryDelay: 250,
+      await teardownRealAdminBrowserFixture({
+        adminProcess,
+        apiServer,
+        stopManagedProcesses: stopAllManagedProcesses,
+        brokerIPCClient,
+        vaultServer,
+        resetLifecycle: resetLifecycleState,
+        tempRoot,
       })
-      break
     } catch (error) {
-      if (Date.now() >= cleanupDeadline) throw error
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      resolvedExitCode = 1
+      const failure = createSafeRealAdminBrowserTeardownFailure(error)
+      await new Promise((resolve) => {
+        process.stderr.write(`${JSON.stringify(failure)}\n`, resolve)
+      })
     }
-  }
-  process.exit(exitCode)
+    process.exit(resolvedExitCode)
+  })()
+  return shutdownPromise
 }
 
 process.on('SIGINT', () => void shutdown(0))
@@ -211,14 +175,23 @@ try {
         response.end(JSON.stringify({ outcome: 'broker_credentials_unavailable' }))
         return
       }
+      const lockoutDiagnostic = {
+        phase: 'readiness',
+        attempt: null,
+        statusCode: null,
+      }
       try {
         let brokerIPCReady = false
         for (let attempt = 0; attempt < 40 && !brokerIPCReady; attempt += 1) {
+          lockoutDiagnostic.attempt = attempt + 1
+          lockoutDiagnostic.statusCode = null
           try {
-            const readiness = await requestBrokerWithToken(
+            const readiness = await requestBrokerLockoutWithToken(
               brokerRuntimeCredentials,
-              brokerRuntimeCredentials.apiToken
+              brokerRuntimeCredentials.apiToken,
+              { agent: brokerIPCClient }
             )
+            lockoutDiagnostic.statusCode = readiness.statusCode
             brokerIPCReady = readiness.statusCode === 200
           } catch {}
           if (!brokerIPCReady) {
@@ -226,29 +199,37 @@ try {
           }
         }
         if (!brokerIPCReady) {
-          throw new Error('Broker IPC did not become ready for lockout qualification.')
-        }
-        let result
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          result = await requestBrokerWithToken(
-            brokerRuntimeCredentials,
-            `invalid-browser-lockout-token-${attempt}`
+          throw new BrokerLockoutFixtureError(
+            'broker_ipc_not_ready',
+            'Broker IPC did not become ready for lockout qualification.'
           )
         }
-        const lockoutScope = result?.body?.error?.lockoutScope
-        if (
-          result?.statusCode !== 423 ||
-          result?.body?.error?.lockoutActive !== true ||
-          typeof lockoutScope !== 'string' ||
-          !lockoutScope.startsWith('local_api:')
-        ) {
-          throw new Error('Broker did not enter the expected scoped local API lockout.')
+        lockoutDiagnostic.phase = 'invalid_attempt'
+        let lockoutScope = null
+        for (let attempt = 1; attempt <= BROKER_LOCKOUT_INVALID_ATTEMPTS; attempt += 1) {
+          lockoutDiagnostic.attempt = attempt
+          lockoutDiagnostic.statusCode = null
+          const result = await requestBrokerLockoutWithToken(
+            brokerRuntimeCredentials,
+            `invalid-browser-lockout-token-${attempt - 1}`,
+            { agent: brokerIPCClient }
+          )
+          lockoutDiagnostic.statusCode = result.statusCode
+          const classification = classifyBrokerLockoutAttempt(result, attempt)
+          if (classification.state === 'locked') lockoutScope = classification.lockoutScope
         }
+        if (!lockoutScope) throw new BrokerLockoutFixtureError(
+          'broker_lockout_contract_mismatch',
+          'Broker did not enter the expected scoped local API lockout.'
+        )
         response.writeHead(200, { 'Content-Type': 'application/json' })
         response.end(JSON.stringify({ outcome: 'lockout_active', lockoutScope }))
-      } catch {
+      } catch (error) {
         response.writeHead(409, { 'Content-Type': 'application/json' })
-        response.end(JSON.stringify({ outcome: 'lockout_fixture_failed' }))
+        response.end(JSON.stringify({
+          outcome: 'lockout_fixture_failed',
+          diagnostic: createSafeLockoutFixtureDiagnostic(error, lockoutDiagnostic),
+        }))
       }
       return
     }
