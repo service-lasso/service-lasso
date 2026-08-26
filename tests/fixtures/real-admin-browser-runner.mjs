@@ -32,6 +32,7 @@ import {
   FAIL_NEXT_SAMPLE_START_ENV,
   FAIL_NEXT_SAMPLE_START_PATH,
   handleFailNextSampleStartRequest,
+  SAMPLE_READINESS_PORT_ENV,
 } from './real-admin-browser-rollback.mjs'
 import { writeManifest } from '../test-helpers.js'
 
@@ -449,8 +450,17 @@ try {
     env: {
       SAMPLE_REQUIRED_TOKEN: '${sample.GENERATED_TOKEN}',
       [FAIL_NEXT_SAMPLE_START_ENV]: sampleStartFailureMarker,
+      [SAMPLE_READINESS_PORT_ENV]: '${READINESS_PORT}',
     },
-    healthcheck: { type: 'process' },
+    ports: { readiness: 37987 },
+    healthcheck: {
+      type: 'http',
+      url: 'http://127.0.0.1:${READINESS_PORT}/ready',
+      expected_status: 200,
+      retries: 10,
+      interval: 100,
+      timeout: 500,
+    },
     broker: {
       imports: [{
         namespace: 'services/sample-service',
