@@ -65,6 +65,7 @@ let adminProcess = null
 let vaultServer = null
 let brokerRuntimeCredentials = null
 let shutdownPromise = null
+let startupPhase = 'initializing'
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 })
 
 function safeFailureCode(error) {
@@ -140,6 +141,7 @@ process.on('message', (message) => {
 })
 
 try {
+  startupPhase = 'workspace_setup'
   await mkdir(servicesRoot, { recursive: true })
   await mkdir(workspaceRoot, { recursive: true })
   const vaultValues = new Map()
@@ -452,7 +454,7 @@ try {
       [FAIL_NEXT_SAMPLE_START_ENV]: sampleStartFailureMarker,
       [SAMPLE_READINESS_PORT_ENV]: '${READINESS_PORT}',
     },
-    ports: { readiness: 37987 },
+    ports: { readiness: 0 },
     healthcheck: {
       type: 'http',
       url: 'http://127.0.0.1:${READINESS_PORT}/ready',
@@ -487,6 +489,7 @@ try {
   })
 
   resetLifecycleState()
+  startupPhase = 'service_discovery'
   const discovered = await discoverServices(servicesRoot)
   const registry = createServiceRegistry(discovered)
   for (const service of discovered) {
@@ -494,7 +497,11 @@ try {
     const prepared = {
       ...state,
       installed: true,
-      configured: true,
+      // The sample's readiness port is allocated by startApiServer. Keep the
+      // secret consumer unconfigured until the normal post-bootstrap start
+      // path can materialize both that planned port and its required Broker
+      // value together.
+      configured: service.manifest.id !== 'sample-service',
       installArtifacts: service.manifest.id === '@secretsbroker'
         ? {
             ...state.installArtifacts,
@@ -520,9 +527,11 @@ try {
   }
 
   if (qualificationMode !== 'first-run') {
+    startupPhase = 'broker_bootstrap'
     await bootstrapSecretsBrokerVault(workspaceRoot, registry)
   }
 
+  startupPhase = 'api_start'
   apiServer = await startApiServer({
     port: 0,
     host: '127.0.0.1',
@@ -531,6 +540,7 @@ try {
     version: 'real-admin-browser-qualification',
   })
   if (qualificationMode === 'comprehensive') {
+    startupPhase = 'comprehensive_provisioning'
     const startResponse = await fetch(`${apiServer.url}/api/services/%40secretsbroker/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -553,6 +563,7 @@ try {
       throw new Error('Linked secret consumer failed to start with a provisioned secret.')
     }
   }
+  startupPhase = 'admin_start'
   const adminPort = await reservePort()
   adminProcess = spawn(process.execPath, [path.join(adminRoot, 'runtime', 'server.js')], {
     cwd: adminRoot,
@@ -565,7 +576,9 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   adminProcess.stderr.on('data', (chunk) => process.stderr.write(chunk))
+  startupPhase = 'admin_readiness'
   await waitFor(`http://127.0.0.1:${adminPort}/`)
+  startupPhase = 'ready'
   process.stdout.write(`${JSON.stringify({
     contractVersion: 'service-lasso.real-admin-browser.v1',
     platform: process.platform,
@@ -581,6 +594,7 @@ try {
     schema: 'service-lasso.real-admin-browser-failure.v1',
     code: safeFailureCode(error),
     causeClass: error instanceof Error ? error.name : 'unknown',
+    phase: startupPhase,
   })}\n`)
   await shutdown(1)
 }
