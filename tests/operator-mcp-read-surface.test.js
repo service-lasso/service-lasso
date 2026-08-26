@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createServiceRegistry, DependencyGraph } from "../dist/runtime/manager/DependencyGraph.js";
 import { collectRuntimeGlobalEnv } from "../dist/runtime/operator/variables.js";
@@ -52,6 +52,30 @@ async function fixtureContext(servicesRoot, workspaceRoot) {
 test("MCP read contracts paginate deterministically and omit sensitive paths and values", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-read-");
   const secret = serviceLassoSecretLeakSentinels[0].value;
+  const hostilePosixPath = "/opt/service-lasso/private-mcp-version.txt";
+  const hostileForwardSlashWindowsPath = "C:/service-lasso/private-mcp-version.txt";
+  const hostileManifestVersion = `manifest-${secret}-${hostilePosixPath}-${hostileForwardSlashWindowsPath}-${path.join(tempRoot, "manifest-version.txt")}`;
+  const hostileAvailableTag = `available-tag-${secret}-${hostilePosixPath}-${hostileForwardSlashWindowsPath}-${path.join(tempRoot, "available-tag.txt")}`;
+  const hostileAvailableVersion = `available-version-${secret}-${hostilePosixPath}-${hostileForwardSlashWindowsPath}-${path.join(tempRoot, "available-version.txt")}`;
+  const hostileCandidateTag = `candidate-tag-${secret}-${hostilePosixPath}-${hostileForwardSlashWindowsPath}-${path.join(tempRoot, "candidate-tag.txt")}`;
+  const hostileCandidateVersion = `candidate-version-${secret}-${hostilePosixPath}-${hostileForwardSlashWindowsPath}-${path.join(tempRoot, "candidate-version.txt")}`;
+  const hostileValues = [
+    hostileManifestVersion,
+    hostileAvailableTag,
+    hostileAvailableVersion,
+    hostileCandidateTag,
+    hostileCandidateVersion,
+  ];
+  const assertNoHostileMcpText = (value) => {
+    const text = JSON.stringify(value);
+    assert.equal(text.includes(secret), false);
+    assert.equal(text.includes(tempRoot), false);
+    assert.equal(text.includes(hostilePosixPath), false);
+    assert.equal(text.includes(hostileForwardSlashWindowsPath), false);
+    for (const hostileValue of hostileValues) {
+      assert.equal(text.includes(hostileValue), false);
+    }
+  };
 
   try {
     await writeExecutableFixtureService(servicesRoot, "alpha-service", {
@@ -83,6 +107,20 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
     await writeExecutableFixtureService(servicesRoot, "beta-service", {
       depend_on: ["alpha-service"],
     });
+
+    const alphaManifestPath = path.join(servicesRoot, "alpha-service", "service.json");
+    const alphaManifest = JSON.parse(await readFile(alphaManifestPath, "utf8"));
+    await writeFile(alphaManifestPath, JSON.stringify({
+      ...alphaManifest,
+      version: hostileManifestVersion,
+    }, null, 2));
+    const betaManifestPath = path.join(servicesRoot, "beta-service", "service.json");
+    const betaManifest = JSON.parse(await readFile(betaManifestPath, "utf8"));
+    await writeFile(betaManifestPath, JSON.stringify({
+      ...betaManifest,
+      description: "See https://example.invalid/releases/tag/v2 for details.",
+      version: "release/v2.0.0",
+    }, null, 2));
 
     const context = await fixtureContext(servicesRoot, workspaceRoot);
     const alpha = context.registry.getById("alpha-service");
@@ -118,16 +156,16 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
       },
       provenance: null,
       available: {
-        tag: "v2",
-        version: "2.0.0",
+        tag: hostileAvailableTag,
+        version: hostileAvailableVersion,
         releaseUrl: "https://example.invalid/private-release",
         publishedAt: "2026-08-25T00:00:00.000Z",
         assetName: "private.zip",
         assetUrl: "https://example.invalid/private.zip",
       },
       downloadedCandidate: {
-        tag: "v2",
-        version: "2.0.0",
+        tag: hostileCandidateTag,
+        version: hostileCandidateVersion,
         assetName: "private.zip",
         assetUrl: "https://example.invalid/private.zip",
         archivePath: path.join(tempRoot, "private.zip"),
@@ -188,6 +226,8 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
     assert.deepEqual(firstPage.services.map((service) => service.id), ["alpha-service"]);
     assert.deepEqual(secondPage.services.map((service) => service.id), ["beta-service"]);
     assert.equal(secondPage.pagination.nextCursor, null);
+    assert.equal(secondPage.services[0].version, "release/v2.0.0");
+    assert.equal(secondPage.services[0].description, "See https://example.invalid/releases/tag/v2 for details.");
 
     const outputs = {
       runtime: await buildMcpRuntimeStatusPayload(context),
@@ -204,7 +244,7 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
       diagnostics: await buildMcpDiagnosticsSummaryPayload(context, "alpha-service"),
       secretMetadata: await buildMcpSecretMetadataPayload(context, "alpha-service"),
     };
-    const serialized = JSON.stringify(outputs);
+    const serialized = JSON.stringify({ firstPage, outputs });
 
     assert.equal(outputs.logs.log.entries[0].summary.includes("[REDACTED]"), false);
     assert.equal(outputs.logs.log.entries[0].summary, "second safe line");
@@ -212,7 +252,13 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
     assert.equal(outputs.redactedLog.log.entries[0].summary.includes(alpha.serviceRoot), false);
     assert.match(outputs.redactedLog.log.entries[0].summary, /\[REDACTED/);
     assert.equal(outputs.audit.events[0].subject, "[REDACTED_PATH]");
-    assert.equal(outputs.updates.services[0].downloadedCandidate.tag, "v2");
+    assert.match(firstPage.services[0].version, /\[REDACTED/);
+    assert.match(outputs.service.service.version, /\[REDACTED/);
+    assert.match(outputs.updates.services[0].declaredVersion, /\[REDACTED/);
+    assert.match(outputs.updates.services[0].available.tag, /\[REDACTED/);
+    assert.match(outputs.updates.services[0].available.version, /\[REDACTED/);
+    assert.match(outputs.updates.services[0].downloadedCandidate.tag, /\[REDACTED/);
+    assert.match(outputs.updates.services[0].downloadedCandidate.version, /\[REDACTED/);
     assert.match(outputs.drift.artifacts[0].artifactId, /^config-[a-f0-9]{16}$/);
     assert.equal(outputs.recovery.events[0].stepSummary.timedOut, 1);
     assert.equal(outputs.routes.services[0].routes[0].provider, "traefik");
@@ -228,8 +274,7 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
       },
     );
     assertNoSecretMaterial(outputs);
-    assert.equal(serialized.includes(secret), false);
-    assert.equal(serialized.includes(tempRoot), false);
+    assertNoHostileMcpText({ firstPage, outputs });
     assert.equal(serialized.includes(alpha.serviceRoot), false);
     assert.equal(serialized.includes("/opt/private/secret.ini"), false);
     assert.equal(serialized.includes("private.ini"), false);
@@ -262,6 +307,8 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
       assert.equal(result.isError, undefined);
       assert.deepEqual(result.structuredContent, JSON.parse(result.content[0].text));
       assert.equal(result.structuredContent.pagination.nextCursor, "1");
+      assertNoSecretMaterial(result.structuredContent);
+      assertNoHostileMcpText(result.structuredContent);
 
       for (const [name, args] of [
         ["service_lasso_runtime_status", {}],
@@ -281,6 +328,7 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
         assert.equal(toolResult.isError, undefined, `${name} should return a schema-valid read result`);
         assert.deepEqual(toolResult.structuredContent, JSON.parse(toolResult.content[0].text));
         assertNoSecretMaterial(toolResult.structuredContent);
+        assertNoHostileMcpText(toolResult.structuredContent);
       }
 
       const invalidCursor = await client.callTool({
@@ -296,6 +344,8 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
       const resourcePayload = JSON.parse(detailResource.contents[0].text);
       assert.equal(resourcePayload.service.id, "alpha-service");
       assert.equal(JSON.stringify(resourcePayload).includes(alpha.serviceRoot), false);
+      assertNoSecretMaterial(resourcePayload);
+      assertNoHostileMcpText(resourcePayload);
     } finally {
       await client.close();
       await server.close();

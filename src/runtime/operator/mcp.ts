@@ -873,8 +873,8 @@ function safeMcpText(context: ServiceLassoMcpContext, value: unknown): string {
 
   return result
     .replace(/file:\/\/\/?[^\s"']+/giu, "[REDACTED_PATH]")
-    .replace(/(?:[A-Za-z]:\\|\\\\)[^\s"']+/gu, "[REDACTED_PATH]")
-    .replace(/(^|[\s("'=])\/(?:[^\s"'<>]+\/)*[^\s"'<>]+/gu, "$1[REDACTED_PATH]")
+    .replace(/(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s"']+/gu, "$1[REDACTED_PATH]")
+    .replace(/(^|[\s("'=,;|{}\[\]-]|:(?=\/[^/]))\/(?:[^\s"'<>/]+\/)*[^\s"'<>/]+/gu, "$1[REDACTED_PATH]")
     .trim();
 }
 
@@ -887,7 +887,9 @@ function safeServiceDetail(context: ServiceLassoMcpContext, service: DiscoveredS
     description: service.manifest.description ? safeMcpText(context, service.manifest.description) : null,
     enabled: service.manifest.enabled !== false,
     role: service.manifest.role ?? "service",
-    version: service.manifest.version ?? null,
+    version: service.manifest.version === undefined
+      ? null
+      : safeMcpText(context, service.manifest.version),
     lifecycle: {
       installed: lifecycle.installed,
       configured: lifecycle.configured,
@@ -1720,7 +1722,9 @@ export async function buildMcpUpdatesPayload(
     services: states.map(({ service, update }) => ({
       serviceId: service.manifest.id,
       installed: getLifecycleState(service.manifest.id).installed,
-      declaredVersion: service.manifest.version ?? null,
+      declaredVersion: service.manifest.version === undefined
+        ? null
+        : safeMcpText(context, service.manifest.version),
       state: update.state,
       updatedAt: update.updatedAt,
       lastCheck: update.lastCheck ? {
@@ -1728,13 +1732,15 @@ export async function buildMcpUpdatesPayload(
         status: update.lastCheck.status,
       } : null,
       available: update.available ? {
-        tag: update.available.tag,
-        version: update.available.version,
+        tag: update.available.tag === null ? null : safeMcpText(context, update.available.tag),
+        version: update.available.version === null ? null : safeMcpText(context, update.available.version),
         publishedAt: update.available.publishedAt,
       } : null,
       downloadedCandidate: update.downloadedCandidate ? {
-        tag: update.downloadedCandidate.tag,
-        version: update.downloadedCandidate.version,
+        tag: safeMcpText(context, update.downloadedCandidate.tag),
+        version: update.downloadedCandidate.version === null
+          ? null
+          : safeMcpText(context, update.downloadedCandidate.version),
         downloadedAt: update.downloadedCandidate.downloadedAt,
       } : null,
       installDeferredAt: update.installDeferred?.deferredAt ?? null,
