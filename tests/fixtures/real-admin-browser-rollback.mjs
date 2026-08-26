@@ -3,6 +3,7 @@ import path from 'node:path'
 
 export const FAIL_NEXT_SAMPLE_START_PATH = '/__service_lasso_test/fail-next-sample-start'
 export const FAIL_NEXT_SAMPLE_START_ENV = 'SERVICE_LASSO_TEST_FAIL_NEXT_START_MARKER'
+export const SAMPLE_READINESS_PORT_ENV = 'SAMPLE_READINESS_PORT'
 export const SAMPLE_START_FAILURE_EXIT_CODE = 73
 
 const MAX_CONTROL_REQUEST_BYTES = 0
@@ -68,9 +69,11 @@ export async function handleFailNextSampleStartRequest(request, response, marker
 export function createRealAdminBrowserSampleSource() {
   return [
     'import { createHash } from "node:crypto"',
+    'import http from "node:http"',
     'import { mkdir, rename, rm, writeFile } from "node:fs/promises"',
     'import path from "node:path"',
     `const marker = process.env.${FAIL_NEXT_SAMPLE_START_ENV} ?? ""`,
+    'let failedLaunch = false',
     'if (marker) {',
     '  const claimedMarker = `${marker}.claimed-${process.pid}`',
     '  let claimed = false',
@@ -90,14 +93,38 @@ export function createRealAdminBrowserSampleSource() {
     '      process.stderr.write(JSON.stringify({ outcome: "sample_start_marker_remove_failed" }))',
     '      process.exit(74)',
     '    }',
-    `    process.exit(${SAMPLE_START_FAILURE_EXIT_CODE})`,
+    '    failedLaunch = true',
     '  }',
     '}',
     'const value = process.env.SAMPLE_REQUIRED_TOKEN ?? ""',
     'const target = path.resolve(process.cwd(), ".state/browser-broker-evidence.json")',
-    'const timer = setInterval(() => {}, 1000)',
-    'process.on("SIGTERM", () => { clearInterval(timer); process.exit(0) })',
-    'await mkdir(path.dirname(target), { recursive: true })',
-    'await writeFile(target, JSON.stringify({ present: value.length >= 32, digest: createHash("sha256").update(value).digest("hex") }))',
+    `const readinessPort = Number(process.env.${SAMPLE_READINESS_PORT_ENV} ?? "")`,
+    'const keepAlive = setInterval(() => {}, 1000)',
+    'let server = null',
+    'let stopping = false',
+    'const finish = () => { clearInterval(keepAlive); process.exit(failedLaunch ? 73 : 0) }',
+    'process.on("SIGTERM", () => {',
+    '  if (stopping) return',
+    '  stopping = true',
+    '  if (server?.listening) server.close(finish)',
+    '  else finish()',
+    '})',
+    'if (!failedLaunch) {',
+    '  if (!Number.isInteger(readinessPort) || readinessPort < 1 || readinessPort > 65535) {',
+    '    process.stderr.write(JSON.stringify({ outcome: "sample_readiness_port_invalid" }))',
+    '    process.exit(75)',
+    '  }',
+    '  await mkdir(path.dirname(target), { recursive: true })',
+    '  await writeFile(target, JSON.stringify({ present: value.length >= 32, digest: createHash("sha256").update(value).digest("hex") }))',
+    '  server = http.createServer((request, response) => {',
+    '    if (request.method !== "GET" || request.url !== "/ready") { response.writeHead(404); response.end(); return }',
+    '    response.writeHead(200, { "Cache-Control": "no-store", "Content-Type": "application/json" })',
+    '    response.end(JSON.stringify({ outcome: "sample_ready" }))',
+    '  })',
+    '  await new Promise((resolve, reject) => {',
+    '    server.once("error", reject)',
+    '    server.listen(readinessPort, "127.0.0.1", resolve)',
+    '  })',
+    '}',
   ].join('\n')
 }
