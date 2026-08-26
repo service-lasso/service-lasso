@@ -449,6 +449,12 @@ async function inspectTreeMember(
       return null;
     }
     lastUnknownReason = inspection.reason;
+    // A descendant can exit between the process-table snapshot and its full
+    // fingerprint query. Ignore only an unambiguous absence; a still-present
+    // or inaccessible PID remains fail closed and is retried below.
+    if (await verifyPostSignalExit(pid, dependencies)) {
+      return null;
+    }
     if (attempt + 1 < PRE_SIGNAL_IDENTITY_ATTEMPTS) {
       await new Promise((resolve) => setTimeout(resolve, PROCESS_TREE_POLL_INTERVAL_MS));
     }

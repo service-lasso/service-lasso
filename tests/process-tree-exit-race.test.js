@@ -181,6 +181,7 @@ test("transient descendant inspection failure is retried before Windows adoption
         ? { status: "unknown", reason: "windows_process_evidence_incomplete" }
         : { status: "running", identity: childIdentity };
     },
+    killProcess: () => undefined,
   });
 
   assert.equal(childInspections, 2);
@@ -219,10 +220,38 @@ test("persistently unverifiable Windows descendant remains fail closed", async (
         childInspections += 1;
         return { status: "unknown", reason: "windows_process_evidence_incomplete" };
       },
+      killProcess: () => undefined,
     }),
     /Cannot verify descendant process 43124: windows_process_evidence_incomplete/,
   );
   assert.equal(childInspections, 3);
+});
+
+test("Windows adoption ignores a descendant that exits after the process-table snapshot", async () => {
+  const childPid = identity.pid + 1;
+  let childInspections = 0;
+  const members = await captureOwnedProcessTreeMembers(target, {
+    platform: "win32",
+    readWindowsProcessTable: async () => [
+      { pid: identity.pid, parentPid: 1 },
+      { pid: childPid, parentPid: identity.pid },
+    ],
+    inspectProcess: async (pid) => {
+      if (pid === identity.pid) {
+        return { status: "running", identity };
+      }
+      childInspections += 1;
+      return { status: "unknown", reason: "windows_process_evidence_incomplete" };
+    },
+    killProcess: (pid, signal) => {
+      assert.equal(pid, childPid);
+      assert.equal(signal, 0);
+      throw missingProcessError();
+    },
+  });
+
+  assert.equal(childInspections, 1);
+  assert.deepEqual(members, [identity]);
 });
 
 test("Windows full-table CIM inspection is aborted at the shared deadline without signaling any process", async () => {
