@@ -27,6 +27,12 @@ import {
   createSafeRealAdminBrowserTeardownFailure,
   teardownRealAdminBrowserFixture,
 } from './real-admin-browser-shutdown.mjs'
+import {
+  createRealAdminBrowserSampleSource,
+  FAIL_NEXT_SAMPLE_START_ENV,
+  FAIL_NEXT_SAMPLE_START_PATH,
+  handleFailNextSampleStartRequest,
+} from './real-admin-browser-rollback.mjs'
 import { writeManifest } from '../test-helpers.js'
 
 const sourceBrokerBinary = path.resolve(process.env.SERVICE_LASSO_TEST_BROKER_BINARY ?? '')
@@ -36,6 +42,13 @@ if (!sourceBrokerBinary || !adminRoot) throw new Error('Broker binary and Admin 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'service-lasso-real-admin-browser-'))
 const servicesRoot = path.join(tempRoot, 'services')
 const workspaceRoot = path.join(tempRoot, 'workspace')
+const sampleRoot = path.join(servicesRoot, 'sample-service')
+const sampleStartFailureMarker = path.join(
+  workspaceRoot,
+  '.service-lasso',
+  'test-fixtures',
+  'sample-start-failure.once'
+)
 const brokerBinary = path.join(tempRoot, 'secretsbroker.exe')
 const brokerSourcesPath = path.join(tempRoot, 'broker-sources.json')
 const brokerWrapperPath = path.join(workspaceRoot, '.service-lasso', 'secretsbroker', 'master-key-wrapper.json')
@@ -131,6 +144,10 @@ try {
   const vaultValues = new Map()
   vaultServer = http.createServer(async (request, response) => {
     const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1')
+    if (requestUrl.pathname === FAIL_NEXT_SAMPLE_START_PATH) {
+      await handleFailNextSampleStartRequest(request, response, sampleStartFailureMarker)
+      return
+    }
     if (requestUrl.pathname === '/__service_lasso_test/lock-wrapper') {
       if (request.method !== 'POST') {
         response.writeHead(405, { Allow: 'POST' })
@@ -418,26 +435,21 @@ try {
     },
     healthcheck: { type: 'process' },
   })
-  const sampleRoot = path.join(servicesRoot, 'sample-service')
   await mkdir(path.join(sampleRoot, 'runtime'), { recursive: true })
-  await writeFile(path.join(sampleRoot, 'runtime', 'sample.mjs'), [
-    'import { createHash } from "node:crypto"',
-    'import { mkdir, writeFile } from "node:fs/promises"',
-    'import path from "node:path"',
-    'const value = process.env.SAMPLE_REQUIRED_TOKEN ?? ""',
-    'const target = path.resolve(process.cwd(), ".state/browser-broker-evidence.json")',
-    'await mkdir(path.dirname(target), { recursive: true })',
-    'await writeFile(target, JSON.stringify({ present: value.length >= 32, digest: createHash("sha256").update(value).digest("hex") }))',
-    'const timer = setInterval(() => {}, 1000)',
-    'process.on("SIGTERM", () => { clearInterval(timer); process.exit(0) })',
-  ].join('\n'))
+  await writeFile(
+    path.join(sampleRoot, 'runtime', 'sample.mjs'),
+    createRealAdminBrowserSampleSource()
+  )
   await writeManifest(servicesRoot, 'sample-service', {
     id: 'sample-service',
     name: 'Sample Service',
     description: 'Real browser qualification secret owner.',
     executable: process.execPath,
     args: ['runtime/sample.mjs'],
-    env: { SAMPLE_REQUIRED_TOKEN: '${sample.GENERATED_TOKEN}' },
+    env: {
+      SAMPLE_REQUIRED_TOKEN: '${sample.GENERATED_TOKEN}',
+      [FAIL_NEXT_SAMPLE_START_ENV]: sampleStartFailureMarker,
+    },
     healthcheck: { type: 'process' },
     broker: {
       imports: [{
