@@ -138,7 +138,11 @@ test("#860 protects Streamable HTTP with OAuth discovery, trusted identity, scop
     const metadata = await metadataResponse.json();
     assert.equal(metadata.resource, resource);
     assert.deepEqual(metadata.authorization_servers, [issuer]);
-    assert.deepEqual(metadata.scopes_supported, ["service-lasso:read", "service-lasso:logs:read"]);
+    assert.deepEqual(metadata.scopes_supported, [
+      "service-lasso:read",
+      "service-lasso:logs:read",
+      "service-lasso:audit:read",
+    ]);
     assert.deepEqual(metadata.bearer_methods_supported, ["header"]);
 
     const unauthenticated = await postMcp(apiServer);
@@ -199,6 +203,18 @@ test("#860 protects Streamable HTTP with OAuth discovery, trusted identity, scop
     });
     assert.equal(deniedLogs.status, 403);
     assert.match(deniedLogs.authenticate, /scope="service-lasso:logs:read"/);
+
+    const deniedAuditSearch = await postMcp(apiServer, {
+      token: validToken,
+      body: {
+        jsonrpc: "2.0",
+        id: "audit-scope",
+        method: "tools/call",
+        params: { name: "service_lasso_audit_search", arguments: {} },
+      },
+    });
+    assert.equal(deniedAuditSearch.status, 403);
+    assert.match(deniedAuditSearch.authenticate, /scope="service-lasso:audit:read"/);
 
     const deniedBatchLogs = await postMcp(apiServer, {
       token: validToken,

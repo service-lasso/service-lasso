@@ -90,6 +90,17 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
       id: 2,
       method: "resources/list",
     });
+    const resourceTemplates = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: "resource-templates",
+      method: "resources/templates/list",
+    });
+    const services = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "service_lasso_list_services", arguments: {} },
+    });
 
     assert.equal(oldDiscoveryResponse.status, 405);
     assert.equal(oldDiscoveryResponse.headers.get("allow"), "POST");
@@ -100,32 +111,69 @@ test("MCP endpoint advertises read-only operator tools and resources", async () 
     assert.deepEqual(capabilities.policy, { operatingMode: "read-only", guardedToolsAvailable: false });
     assert.equal(capabilities.scope.mutatingOperations, "omitted");
     assert.equal(capabilities.runtime.serviceCount, 1);
+    assert.equal(Object.hasOwn(capabilities.runtime, "servicesRoot"), false);
+    assert.equal(Object.hasOwn(capabilities.runtime, "workspaceRoot"), false);
     assert.equal(tools.status, 200);
     assert.deepEqual(
       tools.body.result.tools.map((tool) => tool.name),
       [
+        "service_lasso_runtime_status",
         "service_lasso_list_services",
+        "service_lasso_get_service",
         "service_lasso_get_health",
         "service_lasso_list_routes",
         "service_lasso_dependency_status",
         "service_lasso_logs_summary",
+        "service_lasso_audit_search",
+        "service_lasso_update_status",
+        "service_lasso_config_drift",
+        "service_lasso_recovery_status",
+        "service_lasso_operation_status",
         "service_lasso_diagnostics_summary",
         "service_lasso_secret_metadata",
       ],
     );
+    assert.equal(tools.body.result.tools.every((tool) => tool.title), true);
+    assert.equal(tools.body.result.tools.every((tool) => tool.inputSchema.additionalProperties === false), true);
+    assert.equal(tools.body.result.tools.every((tool) => tool.outputSchema.additionalProperties === false), true);
+    assert.equal(tools.body.result.tools.every((tool) => tool.annotations.readOnlyHint === true), true);
+    const servicePayload = JSON.parse(services.body.result.content[0].text);
+    assert.deepEqual(services.body.result.structuredContent, servicePayload);
+    assert.equal(Object.hasOwn(servicePayload.services[0], "manifestPath"), false);
+    assert.equal(Object.hasOwn(servicePayload.services[0], "serviceRoot"), false);
     assert.equal(
-      tools.body.result.tools.some((tool) => /start|stop|restart|install|config|execute/i.test(tool.name)),
+      tools.body.result.tools.some((tool) => [
+        "service_lasso_start_service",
+        "service_lasso_stop_service",
+        "service_lasso_restart_service",
+        "service_lasso_install_service",
+        "service_lasso_configure_service",
+        "service_lasso_execute_command",
+      ].includes(tool.name)),
       false,
     );
     assert.deepEqual(
       resources.body.result.resources.map((resource) => resource.uri),
       [
+        "servicelasso://runtime",
         "servicelasso://services",
         "servicelasso://health",
         "servicelasso://routes",
         "servicelasso://dependencies",
         "servicelasso://diagnostics",
         "servicelasso://secret-metadata",
+      ],
+    );
+    assert.deepEqual(
+      resourceTemplates.body.result.resourceTemplates.map((resource) => resource.uriTemplate),
+      [
+        "servicelasso://services/{serviceId}",
+        "servicelasso://services/{serviceId}/health",
+        "servicelasso://services/{serviceId}/routes",
+        "servicelasso://services/{serviceId}/dependencies",
+        "servicelasso://services/{serviceId}/updates",
+        "servicelasso://services/{serviceId}/drift",
+        "servicelasso://services/{serviceId}/recovery",
       ],
     );
   } finally {
@@ -226,11 +274,10 @@ test("MCP tool calls return redacted log summaries and sanitized routes", async 
     const diagnosticsPayload = JSON.parse(diagnostics.body.result.contents[0].text);
     const serialized = JSON.stringify({ routePayload, logPayload, diagnosticsPayload });
 
-    assert.equal(
-      routePayload.services[0].endpoints.find((endpoint) => endpoint.label === "admin")?.url,
-      "https://example.invalid:43102/admin",
-    );
-    assert.equal(logPayload.log.entries[0].message.includes("[REDACTED]"), true);
+    const adminRoute = routePayload.services[0].routes.find((route) => route.endpoint.label === "admin");
+    assert.deepEqual(adminRoute?.target, {});
+    assert.equal(adminRoute?.state, "invalid");
+    assert.equal(logPayload.log.entries[0].summary.includes("[REDACTED]"), true);
     assert.equal(diagnosticsPayload.secretReferences.references, 1);
     assertNoSecretMaterial(routePayload);
     assertNoSecretMaterial(logPayload);
@@ -346,7 +393,7 @@ test("MCP secret metadata returns refs, assignment, and rotation without secret 
     assert.equal(extraArgs.body.result.isError, true);
     assert.match(extraArgs.body.result.content[0].text, /Unrecognized key: "reveal"/);
     assert.equal(unknownService.body.result.isError, true);
-    assert.match(unknownService.body.result.content[0].text, /Unknown service id: missing-service/);
+    assert.equal(JSON.parse(unknownService.body.result.content[0].text).error.code, "unknown_service");
     assertNoSecretMaterial(payload);
     assertNoSecretMaterial(resourcePayload);
     assert.doesNotMatch(serialized, /SERVICE_LASSO_FAKE_SECRET_SENTINEL|reveal|CLIENT_SECRET_VALUE/);

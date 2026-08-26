@@ -1,6 +1,6 @@
 # Operator MCP
 
-Service Lasso includes a first read-only Model Context Protocol (MCP) operator surface. The current implementation is a safe inspection prototype; the production roadmap extends it into a standards-compliant, authenticated and permission-controlled operator interface.
+Service Lasso includes a versioned, read-only Model Context Protocol (MCP) operator surface for inspecting the active runtime. It uses the same discovery, health, route, dependency, log, Audit, update, drift and recovery state as the normal operator APIs.
 
 ## Current implementation
 
@@ -19,8 +19,8 @@ The runtime currently exposes:
 - cumulative Observer, Operator, Maintainer, and Administrator profile classification from validated scopes
 - independent fixed-window actor and client rate limits with safe `429` denial Audit events
 - fail-closed `503` behavior when the MCP authorization Audit event cannot be persisted
-- seven read-only tools
-- six read-only resources
+- fourteen read-only tools with strict input/output schemas, titles, annotations, text compatibility content and `structuredContent`
+- seven static read-only resources and seven service-scoped resource templates
 - an opt-in local stdio adapter connected directly to the active runtime process
 - bounded log output and response redaction
 - secret-metadata tool that never returns secret values
@@ -32,22 +32,55 @@ The prototype was delivered by [issue #592](https://github.com/service-lasso/ser
 
 | Tool | Purpose |
 | --- | --- |
-| `service_lasso_list_services` | Safe service inventory, lifecycle booleans, dependencies, ports and paths. |
+| `service_lasso_runtime_status` | Runtime version, readiness and supported read capabilities. |
+| `service_lasso_list_services` | Cursor-paginated safe service inventory and lifecycle metadata. |
+| `service_lasso_get_service` | Allowlisted detail for one service. |
 | `service_lasso_get_health` | Health metadata for one service or all services. |
-| `service_lasso_list_routes` | Route and port metadata for one service or all services. |
+| `service_lasso_list_routes` | Route, port and effective Traefik metadata for one service or all services. |
 | `service_lasso_dependency_status` | Dependency readiness, blockers and next-action metadata. |
-| `service_lasso_logs_summary` | Bounded recent runtime log lines for one service. |
+| `service_lasso_logs_summary` | Bounded, redacted, cursor-paginated runtime log summaries for one service. |
+| `service_lasso_audit_search` | Filtered, cursor-paginated durable Audit events with sensitive metadata omitted. |
+| `service_lasso_update_status` | Installed, available and downloaded update state without URLs, paths or hook output. |
+| `service_lasso_config_drift` | Opaque config-artifact drift status without paths, values, hashes or previews. |
+| `service_lasso_recovery_status` | Cursor-paginated recovery history without commands, output or raw messages. |
+| `service_lasso_operation_status` | Reports stable `feature_unavailable` until durable operations are delivered by #863. |
 | `service_lasso_diagnostics_summary` | Dependency and secret-reference audit summaries. |
 | `service_lasso_secret_metadata` | Secret refs, assignment, rotation readiness, and Secrets Broker availability. Never secret values. |
 
 ### Current resources
 
 - `servicelasso://services`
+- `servicelasso://runtime`
 - `servicelasso://health`
 - `servicelasso://routes`
 - `servicelasso://dependencies`
 - `servicelasso://diagnostics`
 - `servicelasso://secret-metadata`
+
+Service-scoped resource templates are:
+
+- `servicelasso://services/{serviceId}`
+- `servicelasso://services/{serviceId}/health`
+- `servicelasso://services/{serviceId}/routes`
+- `servicelasso://services/{serviceId}/dependencies`
+- `servicelasso://services/{serviceId}/updates`
+- `servicelasso://services/{serviceId}/drift`
+- `servicelasso://services/{serviceId}/recovery`
+
+### Read contract, limits and errors
+
+Every tool rejects additional properties at runtime and is annotated read-only, non-destructive, idempotent and closed-world. Successful calls return the same versioned payload in text and structured form. Cursors are deterministic decimal offsets; malformed, non-canonical or stale offsets fail rather than silently restarting a page.
+
+| Surface | Default | Maximum |
+| --- | ---: | ---: |
+| Service inventory and update state | 50 | 100 |
+| Log summaries | 20 | 50 |
+| Audit search | 50 | 100 |
+| Recovery history | 20 | 100 |
+
+Stable tool errors use `unknown_service`, `feature_unavailable`, `forbidden`, `invalid_cursor` or `invalid_request`. Errors contain a stable code and safe message, never an internal exception, root path, raw log/config value or credential.
+
+Streamable HTTP requires `service-lasso:read` for all tools, `service-lasso:logs:read` for `service_lasso_logs_summary`, and `service-lasso:audit:read` for `service_lasso_audit_search`. The protected-resource metadata advertises those scopes. The trusted local stdio adapter receives the same three read scopes after its protected environment credential is validated.
 
 ## Current limitations
 
@@ -58,11 +91,9 @@ Known limitations include:
 - the legacy JSON-RPC compatibility handler remains in source until stdio and stateful sessions are fully migrated
 - Streamable HTTP is currently stateless and does not yet expose resumable GET SSE sessions
 - MCP OAuth is opt-in; without complete OAuth configuration Streamable HTTP remains loopback-local and uses the runtime's trusted local actor
-- schemas are advertised but inputs are not fully runtime-validated against them, except `service_lasso_secret_metadata` which rejects additional properties
-- no tool annotations, output schemas or structured results
-- some responses include absolute local runtime paths
+- the read surface is stateless; clients should treat cursors as snapshot-relative and retry a fresh query after `invalid_cursor`
 - secret metadata reports Broker lifecycle availability but does not query live lockout counts
-- no Audit search, updates, recovery or configuration-drift tools
+- durable generic MCP operations are not available until #863; the read tool reports `feature_unavailable`
 - no guarded lifecycle or maintenance tools
 
 The production roadmap must correct these limitations without weakening the existing read-only and redaction guarantees.
@@ -112,10 +143,9 @@ Partial OAuth configuration fails closed. When OAuth is configured:
   wrong-configured-audience tokens receive `401`
 - the challenge points clients to the RFC 9728 resource metadata endpoint
 - every request requires `service-lasso:read`
-- `service_lasso_logs_summary` additionally requires
-  `service-lasso:logs:read`
-- protected-resource metadata advertises only those two currently enforced
-  scopes; guarded-action and broader read scopes remain owned by later issues
+- `service_lasso_logs_summary` additionally requires `service-lasso:logs:read`
+- `service_lasso_audit_search` additionally requires `service-lasso:audit:read`
+- protected-resource metadata advertises only those three currently enforced read scopes; guarded-action scopes remain owned by later issues
 - validated subject and client claims become the trusted Audit actor/client;
   request bodies and tool arguments cannot override them
 - cumulative validated scopes classify the identity as Observer, Operator,
@@ -129,11 +159,9 @@ Without OAuth configuration, Streamable HTTP accepts only an authenticated
 loopback runtime actor. This preserves local-first operation without turning
 an unconfigured LAN listener into an unauthenticated MCP endpoint.
 
-`#860` remains open only for stdio credential handling and smoke evidence. The
-repository still has no thin stdio adapter to the active runtime. Starting a
-second runtime or calling the runtime back over HTTP would violate the target
-architecture, so this residual cannot be represented honestly by a standalone
-credential parser or an isolated SDK transport test.
+`#860` is complete through PR `#1137`. The opt-in stdio adapter attaches to the
+active runtime and preserves the same identity, scope, Audit and redaction
+boundary without starting a second runtime or calling back over HTTP.
 
 ## Target architecture
 
@@ -247,7 +275,7 @@ For Streamable HTTP, Service Lasso acts as an OAuth protected resource and a sta
 
 The Audit actor is derived from validated identity. A model or client cannot choose its actor by supplying an MCP tool argument.
 
-## Planned read-only surface
+## Read-only surface
 
 The production read surface should cover:
 
@@ -264,17 +292,20 @@ The production read surface should cover:
 | Updates | Installed and available version metadata. |
 | Configuration drift | Safe drift status without raw config or secret values. |
 | Recovery | Recovery status, history and safe next action. |
-| Operations | Status for long-running Service Lasso actions. |
+| Operations | Explicit unsupported-capability status until durable action state is delivered by #863. |
 
-Resources should use templates rather than returning unbounded global payloads:
+Service-specific resources use templates rather than returning unbounded global payloads:
 
 - `servicelasso://runtime`
 - `servicelasso://services/{serviceId}`
 - `servicelasso://services/{serviceId}/health`
 - `servicelasso://services/{serviceId}/routes`
 - `servicelasso://services/{serviceId}/dependencies`
+- `servicelasso://services/{serviceId}/updates`
+- `servicelasso://services/{serviceId}/drift`
+- `servicelasso://services/{serviceId}/recovery`
 
-Every tool requires strict runtime input validation, output schemas, structured results, deterministic limits and stable errors. Absolute local roots should be replaced with opaque identifiers or safe relative paths.
+Every current read tool has strict runtime input validation, an output schema, structured results, deterministic limits and stable errors. Absolute local roots and config paths are omitted or replaced with opaque identifiers.
 
 ## Planned guarded actions
 
@@ -332,7 +363,7 @@ MCP responses and Audit events must not include:
 - unrestricted raw log content
 - absolute paths unless explicitly safe and required
 
-Route URLs strip usernames, passwords, query strings and fragments. Log output is bounded and redacted before serialization. Output contracts should use allowlisted fields instead of relying only on best-effort denylist scrubbing.
+Safe route URLs are projected to protocol, host and path metadata without query strings or fragments. URLs containing credential- or secret-like material fail closed as invalid metadata and are not serialized. Log output is bounded and redacted before serialization. Output contracts use allowlisted fields instead of relying only on best-effort denylist scrubbing.
 
 Every mutating attempt, including denied and failed attempts, records safe durable Audit metadata with actor, client, tool, target, outcome and correlation id.
 

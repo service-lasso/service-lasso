@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Readable, Writable } from "node:stream";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createHash } from "node:crypto";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
@@ -8,13 +9,18 @@ import * as z from "zod/v4";
 import { assertMcpScopes, type McpHttpAuthorization, type McpOperatingMode } from "./mcp-auth.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
+import type { AuditQuery } from "../../contracts/api.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import type { DependencyGraph } from "../manager/DependencyGraph.js";
-import { buildServiceNetwork } from "./network.js";
+import { buildEffectiveRouteMetadata } from "./endpoints.js";
 import { readServiceLogChunk } from "./logs.js";
 import { buildBaselineDependencyDiagnostics } from "./dependencyDiagnostics.js";
+import { readAuditEvents } from "../audit/store.js";
+import { readServiceUpdateState } from "../updates/state.js";
+import { buildServiceConfigDriftReport } from "./config-drift.js";
+import { readServiceRecoveryHistory } from "../recovery/history.js";
 import {
   buildSecretReferenceAudit,
   buildSecretRotationReadinessReport,
@@ -53,6 +59,7 @@ export interface McpJsonRpcRequest {
 
 interface McpToolDefinition {
   name: ServiceLassoMcpToolName;
+  title: string;
   description: string;
   inputSchema: {
     type: "object";
@@ -60,31 +67,57 @@ interface McpToolDefinition {
     required?: string[];
     additionalProperties: false;
   };
+  outputSchema: Record<string, unknown>;
+  annotations: typeof READ_ONLY_TOOL_ANNOTATIONS;
 }
 
 interface McpResourceDefinition {
-  uri: ServiceLassoMcpResourceUri;
+  uri: ServiceLassoMcpStaticResourceUri;
   name: string;
   description: string;
   mimeType: "application/json";
 }
 
 type ServiceLassoMcpToolName =
+  | "service_lasso_runtime_status"
   | "service_lasso_list_services"
+  | "service_lasso_get_service"
   | "service_lasso_get_health"
   | "service_lasso_list_routes"
   | "service_lasso_dependency_status"
   | "service_lasso_logs_summary"
+  | "service_lasso_audit_search"
+  | "service_lasso_update_status"
+  | "service_lasso_config_drift"
+  | "service_lasso_recovery_status"
+  | "service_lasso_operation_status"
   | "service_lasso_diagnostics_summary"
   | "service_lasso_secret_metadata";
 
-type ServiceLassoMcpResourceUri =
+type ServiceLassoMcpStaticResourceUri =
+  | "servicelasso://runtime"
   | "servicelasso://services"
   | "servicelasso://health"
   | "servicelasso://routes"
   | "servicelasso://dependencies"
   | "servicelasso://diagnostics"
   | "servicelasso://secret-metadata";
+
+type ServiceLassoMcpResourceTemplateUri =
+  | "servicelasso://services/{serviceId}"
+  | "servicelasso://services/{serviceId}/health"
+  | "servicelasso://services/{serviceId}/routes"
+  | "servicelasso://services/{serviceId}/dependencies"
+  | "servicelasso://services/{serviceId}/updates"
+  | "servicelasso://services/{serviceId}/drift"
+  | "servicelasso://services/{serviceId}/recovery";
+
+interface McpResourceTemplateDefinition {
+  uriTemplate: ServiceLassoMcpResourceTemplateUri;
+  name: string;
+  description: string;
+  mimeType: "application/json";
+}
 
 type McpBrokerAvailability = "available" | "unavailable" | "not_discovered";
 type McpLockoutQueryStatus = "not_queried";
@@ -115,6 +148,12 @@ const MCP_SDK_VERSION = "1.30.0";
 const REDACTION_VALUE = "[REDACTED]";
 const DEFAULT_LOG_LIMIT = 20;
 const MAX_LOG_LIMIT = 50;
+const DEFAULT_SERVICE_LIMIT = 50;
+const MAX_SERVICE_LIMIT = 100;
+const DEFAULT_AUDIT_LIMIT = 50;
+const MAX_AUDIT_LIMIT = 100;
+const DEFAULT_RECOVERY_LIMIT = 20;
+const MAX_RECOVERY_LIMIT = 100;
 const SECRETS_BROKER_SERVICE_ID = "@secretsbroker";
 const SECRET_METADATA_ARGUMENT_KEYS = ["serviceId"] as const;
 
@@ -126,7 +165,347 @@ const READ_ONLY_TOOL_ANNOTATIONS = {
 };
 
 const optionalServiceIdSchema = z.string().trim().min(1).optional();
-const logLimitSchema = z.number().finite().optional();
+const requiredServiceIdSchema = z.string().trim().min(1);
+const cursorInputSchema = z.string().trim().min(1).max(32).optional();
+const logLimitSchema = z.number().int().min(1).max(MAX_LOG_LIMIT).optional();
+const serviceCursorSchema = z.string().trim().min(1).max(32).optional();
+const serviceLimitSchema = z.number().int().min(1).max(MAX_SERVICE_LIMIT).optional();
+const auditLimitSchema = z.number().int().min(1).max(MAX_AUDIT_LIMIT).optional();
+const recoveryLimitSchema = z.number().int().min(1).max(MAX_RECOVERY_LIMIT).optional();
+
+const safetyOutputSchema = z.object({
+  mutating: z.literal(false),
+  redacted: z.literal(true),
+  omittedSensitiveFields: z.array(z.string()).optional(),
+}).strict();
+
+const paginationOutputSchema = z.object({
+  limit: z.number().int().nonnegative(),
+  nextCursor: z.string().nullable(),
+  total: z.number().int().nonnegative(),
+}).strict();
+
+const runtimeStatusOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  runtime: z.object({
+    version: z.string(),
+    serviceCount: z.number().int().nonnegative(),
+    status: z.enum(["ready", "degraded"]),
+  }).strict(),
+  capabilities: z.object({
+    services: z.literal(true),
+    health: z.literal(true),
+    routes: z.literal(true),
+    dependencies: z.literal(true),
+    redactedLogs: z.literal(true),
+    durableAudit: z.boolean(),
+    updates: z.literal(true),
+    configDrift: z.literal(true),
+    recovery: z.literal(true),
+    durableOperations: z.literal(false),
+  }).strict(),
+  safety: safetyOutputSchema,
+}).strict();
+
+const serviceDetailEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  enabled: z.boolean(),
+  role: z.string(),
+  version: z.string().nullable(),
+  lifecycle: z.object({
+    installed: z.boolean(),
+    configured: z.boolean(),
+    running: z.boolean(),
+  }).strict(),
+  dependencies: z.array(z.string()),
+  dependents: z.array(z.string()),
+  providerRequirements: z.array(z.object({
+    capability: z.string(),
+    requirement: z.string(),
+    serviceId: z.string(),
+    version: z.string(),
+  }).strict()),
+  ports: z.record(z.string(), z.number().int()),
+}).strict();
+
+const serviceDetailOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  service: serviceDetailEntrySchema,
+  safety: safetyOutputSchema,
+}).strict();
+
+const servicesOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  services: z.array(serviceDetailEntrySchema),
+  pagination: paginationOutputSchema,
+  safety: safetyOutputSchema,
+}).strict();
+
+const healthCheckOutputSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  required: z.boolean(),
+  healthy: z.boolean(),
+  attempts: z.number().int().nonnegative(),
+  detail: z.string(),
+}).strict();
+
+const healthOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  services: z.array(z.object({
+    serviceId: z.string(),
+    running: z.boolean(),
+    health: z.object({
+      type: z.string(),
+      healthy: z.boolean(),
+      detail: z.string(),
+      checks: z.array(healthCheckOutputSchema),
+    }).strict(),
+  }).strict()),
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    healthy: z.number().int().nonnegative(),
+    unhealthy: z.number().int().nonnegative(),
+  }).strict(),
+  safety: safetyOutputSchema,
+}).strict();
+
+const routeOutputSchema = z.object({
+  serviceId: z.string(),
+  serviceName: z.string(),
+  endpoint: z.object({
+    id: z.string(),
+    label: z.string(),
+    kind: z.string(),
+    source: z.string(),
+  }).strict(),
+  exposure: z.string(),
+  provider: z.string(),
+  target: z.object({
+    bind: z.string().optional(),
+    port: z.number().int().optional(),
+    protocol: z.string().optional(),
+    host: z.string().optional(),
+    path: z.string().optional(),
+    pathPrefix: z.string().optional(),
+  }).strict(),
+  traefik: z.object({
+    routerName: z.string(),
+    serviceName: z.string(),
+    middlewareNames: z.array(z.string()),
+    entryPoints: z.array(z.string()),
+    tls: z.string(),
+    rule: z.string(),
+  }).strict().nullable(),
+  configSource: z.string(),
+  state: z.string(),
+  diagnostics: z.array(z.string()),
+  nextAction: z.string(),
+}).strict();
+
+const routesOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  services: z.array(z.object({
+    serviceId: z.string(),
+    ports: z.record(z.string(), z.number().int()),
+    routes: z.array(routeOutputSchema),
+  }).strict()),
+  safety: safetyOutputSchema,
+}).strict();
+
+const dependenciesOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  summary: z.object({
+    status: z.string(),
+    totalServices: z.number().int().nonnegative(),
+    enabledServices: z.number().int().nonnegative(),
+    runningServices: z.number().int().nonnegative(),
+    startableServices: z.number().int().nonnegative(),
+    blockedServices: z.number().int().nonnegative(),
+    degradedServices: z.number().int().nonnegative(),
+    disabledServices: z.number().int().nonnegative(),
+  }).strict(),
+  services: z.array(z.object({
+    serviceId: z.string(),
+    readiness: z.string(),
+    blockingReason: z.string().nullable(),
+    blockers: z.array(z.string()),
+    nextAction: z.string(),
+    dependencies: z.array(z.object({
+      serviceId: z.string(),
+      ready: z.boolean(),
+      readiness: z.string(),
+      blockingReason: z.string().nullable(),
+    }).strict()),
+    dependents: z.array(z.string()),
+  }).strict()),
+  safety: safetyOutputSchema,
+}).strict();
+
+const logsOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  serviceId: z.string(),
+  log: z.object({
+    type: z.string(),
+    totalLines: z.number().int().nonnegative(),
+    cursor: z.string(),
+    nextCursor: z.string().nullable(),
+    limit: z.number().int().positive(),
+    entries: z.array(z.object({
+      source: z.object({
+        kind: z.string(),
+        archiveId: z.string().nullable(),
+        lineNumber: z.number().int().positive(),
+      }).strict(),
+      stream: z.string(),
+      summary: z.string(),
+      truncated: z.boolean(),
+    }).strict()),
+  }).strict(),
+  safety: safetyOutputSchema,
+}).strict();
+
+const auditOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  chainStatus: z.string(),
+  events: z.array(z.object({
+    id: z.string(),
+    timestamp: z.string(),
+    source: z.string(),
+    action: z.string(),
+    actor: z.string(),
+    subject: z.string().nullable(),
+    serviceId: z.string().nullable(),
+    method: z.string().nullable(),
+    routeTemplate: z.string().nullable(),
+    outcome: z.enum(["success", "failure"]),
+    statusCode: z.number().int(),
+    summary: z.string(),
+    reason: z.string().nullable(),
+    correlationId: z.string(),
+    relatedRevisionId: z.string().nullable(),
+    chainStatus: z.string(),
+  }).strict()),
+  pagination: paginationOutputSchema,
+  safety: safetyOutputSchema,
+}).strict();
+
+const updatesOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  services: z.array(z.object({
+    serviceId: z.string(),
+    installed: z.boolean(),
+    declaredVersion: z.string().nullable(),
+    state: z.string(),
+    updatedAt: z.string(),
+    lastCheck: z.object({
+      checkedAt: z.string(),
+      status: z.string(),
+    }).strict().nullable(),
+    available: z.object({
+      tag: z.string().nullable(),
+      version: z.string().nullable(),
+      publishedAt: z.string().nullable(),
+    }).strict().nullable(),
+    downloadedCandidate: z.object({
+      tag: z.string(),
+      version: z.string().nullable(),
+      downloadedAt: z.string(),
+    }).strict().nullable(),
+    installDeferredAt: z.string().nullable(),
+    failedAt: z.string().nullable(),
+  }).strict()),
+  pagination: paginationOutputSchema,
+  safety: safetyOutputSchema,
+}).strict();
+
+const driftOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  serviceId: z.string(),
+  checkedAt: z.string(),
+  configured: z.boolean(),
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    drifted: z.number().int().nonnegative(),
+    unchanged: z.number().int().nonnegative(),
+    changed: z.number().int().nonnegative(),
+    missing: z.number().int().nonnegative(),
+    unmanaged: z.number().int().nonnegative(),
+  }).strict(),
+  artifacts: z.array(z.object({
+    artifactId: z.string(),
+    status: z.string(),
+  }).strict()),
+  safety: safetyOutputSchema,
+}).strict();
+
+const recoveryOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  serviceId: z.string(),
+  updatedAt: z.string(),
+  events: z.array(z.object({
+    kind: z.string(),
+    at: z.string(),
+    action: z.string().nullable(),
+    reason: z.string().nullable(),
+    phase: z.string().nullable(),
+    ok: z.boolean().nullable(),
+    blocked: z.boolean().nullable(),
+    stepSummary: z.object({
+      total: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      timedOut: z.number().int().nonnegative(),
+    }).strict(),
+  }).strict()),
+  pagination: paginationOutputSchema,
+  safety: safetyOutputSchema,
+}).strict();
+
+const diagnosticsOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  runtime: z.object({ version: z.string(), serviceCount: z.number().int().nonnegative() }).strict(),
+  dependencies: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  secretReferences: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  redaction: z.record(z.string(), z.unknown()),
+  safety: safetyOutputSchema,
+}).strict();
+
+const secretMetadataOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  broker: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  lockout: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  summary: z.record(z.string(), z.number()),
+  services: z.array(z.record(z.string(), z.unknown())),
+  safety: safetyOutputSchema,
+}).strict();
+
+const operationOutputSchema = z.object({
+  contractVersion: z.literal(CONTRACT_VERSION),
+  generatedAt: z.string(),
+  operationId: z.string(),
+  available: z.literal(false),
+  code: z.literal("feature_unavailable"),
+  safety: safetyOutputSchema,
+}).strict();
+
+function outputJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  return z.toJSONSchema(schema) as Record<string, unknown>;
+}
 
 const serviceIdInputSchema = {
   serviceId: {
@@ -137,43 +516,80 @@ const serviceIdInputSchema = {
 
 const mcpTools: McpToolDefinition[] = [
   {
+    name: "service_lasso_runtime_status",
+    title: "Runtime status",
+    description: "Read safe runtime version, readiness, and operator capability metadata.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputSchema: outputJsonSchema(runtimeStatusOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
     name: "service_lasso_list_services",
+    title: "List services",
     description: "List Service Lasso services with safe manifest, lifecycle, and dependency metadata.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        cursor: { type: "string", description: "Opaque numeric cursor from a prior page." },
+        limit: { type: "number", description: "Maximum services per page; defaults to 50 and is capped at 100." },
+      },
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(servicesOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_get_service",
+    title: "Get service detail",
+    description: "Read allowlisted metadata for one Service Lasso service.",
+    inputSchema: {
+      type: "object",
+      properties: { serviceId: { type: "string", description: "Service Lasso service id." } },
+      required: ["serviceId"],
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(serviceDetailOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
     name: "service_lasso_get_health",
+    title: "Get service health",
     description: "Read health metadata for one service or every service.",
     inputSchema: {
       type: "object",
       properties: serviceIdInputSchema,
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(healthOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
     name: "service_lasso_list_routes",
+    title: "List service routes",
     description: "List safe route and port metadata for one service or every service.",
     inputSchema: {
       type: "object",
       properties: serviceIdInputSchema,
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(routesOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
     name: "service_lasso_dependency_status",
+    title: "Dependency status",
     description: "Read dependency readiness, blockers, and next-action metadata.",
     inputSchema: {
       type: "object",
       properties: serviceIdInputSchema,
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(dependenciesOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
     name: "service_lasso_logs_summary",
+    title: "Logs summary",
     description: "Read a bounded, redacted runtime log summary for one service.",
     inputSchema: {
       type: "object",
@@ -186,22 +602,114 @@ const mcpTools: McpToolDefinition[] = [
           type: "number",
           description: "Maximum recent log lines to return. Defaults to 20 and is capped at 50.",
         },
+        cursor: {
+          type: "string",
+          description: "Opaque cursor from a prior log page.",
+        },
       },
       required: ["serviceId"],
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(logsOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_audit_search",
+    title: "Search Audit",
+    description: "Search durable Audit events with bounded filters and deterministic cursor pagination.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        serviceId: { type: "string" },
+        actor: { type: "string" },
+        action: { type: "string" },
+        outcome: { type: "string", enum: ["success", "failure"] },
+        source: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        query: { type: "string" },
+        cursor: { type: "string" },
+        limit: { type: "number", minimum: 1, maximum: MAX_AUDIT_LIMIT },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(auditOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_update_status",
+    title: "Update status",
+    description: "Read allowlisted installed and available update state without URLs, paths, hooks, or raw errors.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...serviceIdInputSchema,
+        cursor: { type: "string" },
+        limit: { type: "number", minimum: 1, maximum: MAX_SERVICE_LIMIT },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(updatesOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_config_drift",
+    title: "Configuration drift",
+    description: "Read opaque configuration-artifact drift status without paths, hashes, previews, or values.",
+    inputSchema: {
+      type: "object",
+      properties: { serviceId: { type: "string" } },
+      required: ["serviceId"],
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(driftOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_recovery_status",
+    title: "Recovery status",
+    description: "Read bounded recovery history without commands, output streams, or paths.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        serviceId: { type: "string" },
+        cursor: { type: "string" },
+        limit: { type: "number", minimum: 1, maximum: MAX_RECOVERY_LIMIT },
+      },
+      required: ["serviceId"],
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(recoveryOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_operation_status",
+    title: "Operation status",
+    description: "Report the stable unavailable status for durable MCP operations until issue #863 lands.",
+    inputSchema: {
+      type: "object",
+      properties: { operationId: { type: "string" } },
+      required: ["operationId"],
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(operationOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
     name: "service_lasso_diagnostics_summary",
+    title: "Diagnostics summary",
     description: "Read safe diagnostic counts, dependency status, and secret-reference audit summaries.",
     inputSchema: {
       type: "object",
       properties: serviceIdInputSchema,
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(diagnosticsOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
     name: "service_lasso_secret_metadata",
+    title: "Secret metadata",
     description:
       "Inspect secret metadata only: refs, assignment, rotation readiness, and Secrets Broker availability. Never returns secret values.",
     inputSchema: {
@@ -209,10 +717,18 @@ const mcpTools: McpToolDefinition[] = [
       properties: serviceIdInputSchema,
       additionalProperties: false,
     },
+    outputSchema: outputJsonSchema(secretMetadataOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
 ];
 
 const mcpResources: McpResourceDefinition[] = [
+  {
+    uri: "servicelasso://runtime",
+    name: "Runtime status",
+    description: "Safe runtime status and operator capability metadata.",
+    mimeType: "application/json",
+  },
   {
     uri: "servicelasso://services",
     name: "Service inventory",
@@ -251,16 +767,148 @@ const mcpResources: McpResourceDefinition[] = [
   },
 ];
 
+const mcpResourceTemplates: McpResourceTemplateDefinition[] = [
+  {
+    uriTemplate: "servicelasso://services/{serviceId}",
+    name: "Service detail",
+    description: "Allowlisted metadata for one service.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "servicelasso://services/{serviceId}/health",
+    name: "Service health",
+    description: "Health and readiness for one service.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "servicelasso://services/{serviceId}/routes",
+    name: "Service routes",
+    description: "Route, port, and Traefik metadata for one service.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "servicelasso://services/{serviceId}/dependencies",
+    name: "Service dependencies",
+    description: "Dependency readiness and blockers for one service.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "servicelasso://services/{serviceId}/updates",
+    name: "Service updates",
+    description: "Allowlisted installed and available update state for one service.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "servicelasso://services/{serviceId}/drift",
+    name: "Service configuration drift",
+    description: "Opaque configuration-artifact drift status for one service.",
+    mimeType: "application/json",
+  },
+  {
+    uriTemplate: "servicelasso://services/{serviceId}/recovery",
+    name: "Service recovery",
+    description: "Bounded recovery history for one service.",
+    mimeType: "application/json",
+  },
+];
+
 function generatedAt(): string {
   return new Date().toISOString();
 }
 
-function clampLogLimit(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return DEFAULT_LOG_LIMIT;
+class McpReadError extends Error {
+  constructor(
+    public readonly code: "unknown_service" | "feature_unavailable" | "forbidden" | "invalid_cursor" | "invalid_request",
+    message: string,
+  ) {
+    super(message);
+    this.name = "McpReadError";
+  }
+}
+
+function stableMcpError(error: unknown): McpReadError {
+  if (error instanceof McpReadError) return error;
+  if (error && typeof error === "object" && "code" in error && error.code === "mcp_insufficient_scope") {
+    return new McpReadError("forbidden", "The validated identity does not have the required read scope.");
+  }
+  if (error instanceof Error && /^Unknown service id:/u.test(error.message)) {
+    return new McpReadError("unknown_service", "The requested service is not available.");
+  }
+  return new McpReadError("invalid_request", "The MCP read request could not be completed.");
+}
+
+function parseOpaqueCursor(value: unknown, total: number): number {
+  if (value === undefined) return 0;
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/u.test(value)) {
+    throw new McpReadError("invalid_cursor", "The cursor is invalid.");
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > total) {
+    throw new McpReadError("invalid_cursor", "The cursor is invalid or stale.");
+  }
+  return parsed;
+}
+
+function boundedLimit(value: unknown, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > maximum) {
+    throw new McpReadError("invalid_request", `Limit must be an integer from 1 to ${maximum}.`);
+  }
+  return value;
+}
+
+function safeMcpText(context: ServiceLassoMcpContext, value: unknown): string {
+  let result = String(redactDiagnosticsValue(String(value)));
+  const roots = [context.workspaceRoot, context.servicesRoot, ...context.discovered.flatMap((service) => [
+    service.serviceRoot,
+    service.manifestPath,
+  ])]
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    .sort((left, right) => right.length - left.length);
+
+  for (const root of roots) {
+    result = result.replaceAll(root, "[REDACTED_PATH]");
+    result = result.replaceAll(root.replaceAll("\\", "/"), "[REDACTED_PATH]");
   }
 
-  return Math.max(1, Math.min(MAX_LOG_LIMIT, Math.trunc(value)));
+  return result
+    .replace(/file:\/\/\/?[^\s"']+/giu, "[REDACTED_PATH]")
+    .replace(/(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s"']+/gu, "$1[REDACTED_PATH]")
+    .replace(/(^|[\s("'=,;|{}\[\]-]|:(?=\/[^/]))\/(?:[^\s"'<>/]+\/)*[^\s"'<>/]+/gu, "$1[REDACTED_PATH]")
+    .trim();
+}
+
+function safeServiceDetail(context: ServiceLassoMcpContext, service: DiscoveredService) {
+  const lifecycle = getLifecycleState(service.manifest.id);
+  const dependencySummary = context.graph.getServiceDependencies(service.manifest.id);
+  return {
+    id: service.manifest.id,
+    name: safeMcpText(context, service.manifest.name),
+    description: service.manifest.description ? safeMcpText(context, service.manifest.description) : null,
+    enabled: service.manifest.enabled !== false,
+    role: service.manifest.role ?? "service",
+    version: service.manifest.version === undefined
+      ? null
+      : safeMcpText(context, service.manifest.version),
+    lifecycle: {
+      installed: lifecycle.installed,
+      configured: lifecycle.configured,
+      running: lifecycle.running,
+    },
+    dependencies: dependencySummary.dependencies,
+    dependents: dependencySummary.dependents,
+    providerRequirements: dependencySummary.providerRequirements.map((requirement) => ({
+      capability: safeMcpText(context, requirement.capability),
+      requirement: safeMcpText(context, requirement.requirement),
+      serviceId: requirement.serviceId,
+      version: safeMcpText(context, requirement.version),
+    })),
+    ports: resolvedPorts(service),
+  };
+}
+
+function opaqueArtifactId(serviceId: string, relativePath: string): string {
+  return `config-${createHash("sha256").update(`${serviceId}\0${relativePath}`).digest("hex").slice(0, 16)}`;
 }
 
 function safeArguments(params: unknown): Record<string, unknown> {
@@ -281,8 +929,8 @@ function serviceIdFromArguments(args: Record<string, unknown>): string | undefin
 }
 
 /**
- * Rejects extra JSON-RPC tool arguments so this slice runtime-validates
- * `additionalProperties: false` for secret metadata.
+ * Rejects extra JSON-RPC tool arguments so the compatibility path preserves
+ * the same `additionalProperties: false` boundary as the SDK registrations.
  */
 function assertAllowedMcpArguments(
   args: Record<string, unknown>,
@@ -291,7 +939,7 @@ function assertAllowedMcpArguments(
 ): void {
   const extra = Object.keys(args).filter((key) => !allowed.includes(key));
   if (extra.length > 0) {
-    throw new Error(`${toolName} rejects additional properties: ${extra.join(", ")}.`);
+    throw new McpReadError("invalid_request", `${toolName} rejects additional properties.`);
   }
 }
 
@@ -329,7 +977,7 @@ function selectedServices(context: ServiceLassoMcpContext, serviceId?: string): 
 
   const service = context.registry.getById(serviceId);
   if (!service) {
-    throw new Error("Unknown service id: " + serviceId);
+    throw new McpReadError("unknown_service", "The requested service is not available.");
   }
 
   return [service];
@@ -340,27 +988,24 @@ function resolvedPorts(service: DiscoveredService): Record<string, number> {
   return Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
 }
 
-function sanitizeUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    url.hash = "";
-    const safePath = String(redactDiagnosticsValue(url.pathname));
-    return `${url.protocol}//${url.host}${safePath}`;
-  } catch {
-    const redacted = String(redactDiagnosticsValue(value));
-    return redacted.split("?")[0]?.split("#")[0] ?? redacted;
-  }
-}
-
 function redactLogValue(value: string): string {
   return String(redactDiagnosticsValue(value));
 }
 
-function sanitizeHealth(health: ServiceHealthResult): ServiceHealthResult {
-  return redactDiagnosticsValue(health) as ServiceHealthResult;
+function sanitizeHealth(context: ServiceLassoMcpContext, health: ServiceHealthResult) {
+  return {
+    type: health.type,
+    healthy: health.healthy,
+    detail: safeMcpText(context, health.detail),
+    checks: (health.checks ?? []).map((check) => ({
+      id: check.id,
+      type: check.type,
+      required: check.required,
+      healthy: check.healthy,
+      attempts: check.attempts,
+      detail: safeMcpText(context, check.detail),
+    })),
+  };
 }
 
 export function getServiceLassoMcpCapabilities(
@@ -401,9 +1046,8 @@ export function getServiceLassoMcpCapabilities(
     },
     tools: mcpTools,
     resources: mcpResources,
+    resourceTemplates: mcpResourceTemplates,
     runtime: {
-      servicesRoot: context.servicesRoot,
-      workspaceRoot: context.workspaceRoot ?? null,
       serviceCount: context.discovered.length,
     },
   };
@@ -426,20 +1070,58 @@ export function createServiceLassoMcpServer(
     },
   );
 
-  const assertToolScopes = (requiredScopes: readonly string[] = []) => {
-    if (options.authorization) assertMcpScopes(options.authorization, requiredScopes);
+  const executeTool = async (
+    requiredScopes: readonly string[],
+    action: () => Promise<Record<string, unknown>>,
+  ) => {
+    try {
+      if (options.authorization) assertMcpScopes(options.authorization, requiredScopes);
+      return jsonToolResult(await action());
+    } catch (error) {
+      return jsonToolErrorResult(error);
+    }
   };
 
-  assertToolScopes(["service-lasso:read"]);
+  server.registerTool(
+    "service_lasso_runtime_status",
+    {
+      title: "Runtime status",
+      description: "Read safe runtime version, readiness, and operator capability metadata.",
+      inputSchema: z.object({}).strict(),
+      outputSchema: runtimeStatusOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async () => executeTool(["service-lasso:read"], async () => buildMcpRuntimeStatusPayload(context)),
+  );
+
   server.registerTool(
     "service_lasso_list_services",
     {
       title: "List services",
       description: "List Service Lasso services with safe manifest, lifecycle, and dependency metadata.",
-      inputSchema: {},
+      inputSchema: z.object({ cursor: serviceCursorSchema, limit: serviceLimitSchema }).strict(),
+      outputSchema: servicesOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async () => ({ content: jsonContent(await buildMcpServicesPayload(context)) }),
+    async ({ cursor, limit }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpServicesPayload(context, { cursor, limit }),
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_get_service",
+    {
+      title: "Get service detail",
+      description: "Read allowlisted metadata for one Service Lasso service.",
+      inputSchema: z.object({ serviceId: requiredServiceIdSchema }).strict(),
+      outputSchema: serviceDetailOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpServiceDetailPayload(context, serviceId),
+    ),
   );
 
   server.registerTool(
@@ -447,12 +1129,16 @@ export function createServiceLassoMcpServer(
     {
       title: "Get service health",
       description: "Read health metadata for one service or every service.",
-      inputSchema: {
+      inputSchema: z.object({
         serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
-      },
+      }).strict(),
+      outputSchema: healthOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpHealthPayload(context, serviceId)) }),
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpHealthPayload(context, serviceId),
+    ),
   );
 
   server.registerTool(
@@ -460,12 +1146,16 @@ export function createServiceLassoMcpServer(
     {
       title: "List service routes",
       description: "List safe route and port metadata for one service or every service.",
-      inputSchema: {
+      inputSchema: z.object({
         serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
-      },
+      }).strict(),
+      outputSchema: routesOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpRoutesPayload(context, serviceId)) }),
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpRoutesPayload(context, serviceId),
+    ),
   );
 
   server.registerTool(
@@ -473,29 +1163,129 @@ export function createServiceLassoMcpServer(
     {
       title: "Dependency status",
       description: "Read dependency readiness, blockers, and next-action metadata.",
-      inputSchema: {
+      inputSchema: z.object({
         serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
-      },
+      }).strict(),
+      outputSchema: dependenciesOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpDependencyStatusPayload(context, serviceId)) }),
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpDependencyStatusPayload(context, serviceId),
+    ),
   );
 
-  assertToolScopes(["service-lasso:logs:read"]);
   server.registerTool(
     "service_lasso_logs_summary",
     {
       title: "Logs summary",
       description: "Read a bounded, redacted runtime log summary for one service.",
-      inputSchema: {
-        serviceId: z.string().trim().min(1).describe("Service Lasso service id."),
+      inputSchema: z.object({
+        serviceId: requiredServiceIdSchema.describe("Service Lasso service id."),
+        cursor: cursorInputSchema.describe("Opaque cursor from a prior page."),
         limit: logLimitSchema.describe("Maximum recent log lines to return. Defaults to 20 and is capped at 50."),
-      },
+      }).strict(),
+      outputSchema: logsOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId, limit }) => ({
-      content: jsonContent(await buildMcpLogsSummaryPayload(context, serviceId, clampLogLimit(limit))),
-    }),
+    async ({ serviceId, cursor, limit }) => executeTool(
+      ["service-lasso:read", "service-lasso:logs:read"],
+      async () => buildMcpLogsSummaryPayload(context, serviceId, { cursor, limit }),
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_audit_search",
+    {
+      title: "Search Audit",
+      description: "Search durable Audit events with bounded filters and deterministic cursor pagination.",
+      inputSchema: z.object({
+        serviceId: optionalServiceIdSchema,
+        actor: z.string().trim().min(1).max(200).optional(),
+        action: z.string().trim().min(1).max(200).optional(),
+        outcome: z.enum(["success", "failure"]).optional(),
+        source: z.string().trim().min(1).max(200).optional(),
+        since: z.string().trim().min(1).max(64).optional(),
+        until: z.string().trim().min(1).max(64).optional(),
+        query: z.string().trim().min(1).max(200).optional(),
+        cursor: cursorInputSchema,
+        limit: auditLimitSchema,
+      }).strict(),
+      outputSchema: auditOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async (input) => executeTool(
+      ["service-lasso:read", "service-lasso:audit:read"],
+      async () => buildMcpAuditPayload(context, input),
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_update_status",
+    {
+      title: "Update status",
+      description: "Read allowlisted installed and available update state without URLs, paths, hooks, or raw errors.",
+      inputSchema: z.object({
+        serviceId: optionalServiceIdSchema,
+        cursor: cursorInputSchema,
+        limit: serviceLimitSchema,
+      }).strict(),
+      outputSchema: updatesOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async (input) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpUpdatesPayload(context, input),
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_config_drift",
+    {
+      title: "Configuration drift",
+      description: "Read opaque configuration-artifact drift status without paths, hashes, previews, or values.",
+      inputSchema: z.object({ serviceId: requiredServiceIdSchema }).strict(),
+      outputSchema: driftOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpConfigDriftPayload(context, serviceId),
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_recovery_status",
+    {
+      title: "Recovery status",
+      description: "Read bounded recovery history without commands, output streams, or paths.",
+      inputSchema: z.object({
+        serviceId: requiredServiceIdSchema,
+        cursor: cursorInputSchema,
+        limit: recoveryLimitSchema,
+      }).strict(),
+      outputSchema: recoveryOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ serviceId, cursor, limit }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpRecoveryPayload(context, serviceId, { cursor, limit }),
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_operation_status",
+    {
+      title: "Operation status",
+      description: "Report the stable unavailable status for durable MCP operations until issue #863 lands.",
+      inputSchema: z.object({ operationId: z.string().trim().min(1).max(200) }).strict(),
+      outputSchema: operationOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ operationId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpOperationStatusPayload(context, operationId),
+    ),
   );
 
   server.registerTool(
@@ -503,12 +1293,16 @@ export function createServiceLassoMcpServer(
     {
       title: "Diagnostics summary",
       description: "Read safe diagnostic counts, dependency status, and secret-reference audit summaries.",
-      inputSchema: {
+      inputSchema: z.object({
         serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
-      },
+      }).strict(),
+      outputSchema: diagnosticsOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpDiagnosticsSummaryPayload(context, serviceId)) }),
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpDiagnosticsSummaryPayload(context, serviceId),
+    ),
   );
 
   server.registerTool(
@@ -520,9 +1314,13 @@ export function createServiceLassoMcpServer(
       inputSchema: z.object({
         serviceId: optionalServiceIdSchema.describe("Optional Service Lasso service id. Omit to return all services."),
       }).strict(),
+      outputSchema: secretMetadataOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
-    async ({ serviceId }) => ({ content: jsonContent(await buildMcpSecretMetadataPayload(context, serviceId)) }),
+    async ({ serviceId }) => executeTool(
+      ["service-lasso:read"],
+      async () => buildMcpSecretMetadataPayload(context, serviceId),
+    ),
   );
 
   for (const resource of mcpResources) {
@@ -539,6 +1337,38 @@ export function createServiceLassoMcpServer(
             uri: resource.uri,
             mimeType: resource.mimeType,
             text: JSON.stringify(await readResource(context, resource.uri), null, 2),
+          },
+        ],
+      }),
+    );
+  }
+
+  for (const resource of mcpResourceTemplates) {
+    server.registerResource(
+      resource.name,
+      new ResourceTemplate(resource.uriTemplate, {
+        list: undefined,
+        complete: {
+          serviceId: (value) => context.discovered
+            .map((service) => service.manifest.id)
+            .filter((serviceId) => serviceId.startsWith(value))
+            .slice(0, 100),
+        },
+      }),
+      {
+        description: resource.description,
+        mimeType: resource.mimeType,
+      },
+      async (uri, variables) => ({
+        contents: [
+          {
+            uri: uri.toString(),
+            mimeType: resource.mimeType,
+            text: JSON.stringify(
+              await readResourceTemplate(context, resource.uriTemplate, String(variables.serviceId ?? "")),
+              null,
+              2,
+            ),
           },
         ],
       }),
@@ -569,34 +1399,78 @@ export async function startServiceLassoMcpStdioAdapter(
   };
 }
 
-export async function buildMcpServicesPayload(context: ServiceLassoMcpContext, serviceId?: string) {
+export async function buildMcpRuntimeStatusPayload(context: ServiceLassoMcpContext) {
+  const lifecycleStates = context.discovered.map((service) => getLifecycleState(service.manifest.id));
+  const degraded = lifecycleStates.some((state) => state.runtime.startTrace.current?.status === "failed");
   return {
     contractVersion: CONTRACT_VERSION,
     generatedAt: generatedAt(),
-    services: selectedServices(context, serviceId).map((service) => {
-      const lifecycle = getLifecycleState(service.manifest.id);
-      const dependencySummary = context.graph.getServiceDependencies(service.manifest.id);
-      return {
-        id: service.manifest.id,
-        name: service.manifest.name,
-        description: service.manifest.description,
-        enabled: service.manifest.enabled !== false,
-        role: service.manifest.role ?? "service",
-        version: service.manifest.version ?? null,
-        installed: lifecycle.installed,
-        configured: lifecycle.configured,
-        running: lifecycle.running,
-        dependencies: dependencySummary.dependencies,
-        dependents: dependencySummary.dependents,
-        ports: resolvedPorts(service),
-        manifestPath: service.manifestPath,
-        serviceRoot: service.serviceRoot,
-      };
-    }),
+    runtime: {
+      version: context.version,
+      serviceCount: context.discovered.length,
+      status: degraded ? "degraded" as const : "ready" as const,
+    },
+    capabilities: {
+      services: true as const,
+      health: true as const,
+      routes: true as const,
+      dependencies: true as const,
+      redactedLogs: true as const,
+      durableAudit: Boolean(context.workspaceRoot || context.discovered.length > 0),
+      updates: true as const,
+      configDrift: true as const,
+      recovery: true as const,
+      durableOperations: false as const,
+    },
+    safety: {
+      mutating: false as const,
+      redacted: true as const,
+      omittedSensitiveFields: ["runtime paths", "process command lines", "environment and config values"],
+    },
+  };
+}
+
+export async function buildMcpServiceDetailPayload(context: ServiceLassoMcpContext, serviceId: string) {
+  const [service] = selectedServices(context, serviceId);
+  if (!service) throw new McpReadError("unknown_service", "The requested service is not available.");
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    service: safeServiceDetail(context, service),
+    safety: {
+      mutating: false as const,
+      redacted: true as const,
+      omittedSensitiveFields: ["manifest and service paths", "environment and config values", "process command lines"],
+    },
+  };
+}
+
+export async function buildMcpServicesPayload(
+  context: ServiceLassoMcpContext,
+  page: { cursor?: unknown; limit?: unknown } = {},
+) {
+  const allServices = selectedServices(context);
+  const cursor = parseOpaqueCursor(page.cursor, allServices.length);
+  const limit = boundedLimit(page.limit, DEFAULT_SERVICE_LIMIT, MAX_SERVICE_LIMIT);
+  const services = allServices.slice(cursor, cursor + limit);
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    services: services.map((service) => safeServiceDetail(context, service)),
+    pagination: {
+      limit,
+      nextCursor: cursor + services.length < allServices.length ? String(cursor + services.length) : null,
+      total: allServices.length,
+    },
     safety: {
       mutating: false,
       redacted: true,
-      omittedSensitiveFields: ["manifest.env", "manifest.globalenv", "manifest.broker secret payloads"],
+      omittedSensitiveFields: [
+        "manifest and service paths",
+        "manifest.env",
+        "manifest.globalenv",
+        "manifest.broker secret payloads",
+      ],
     },
   };
 }
@@ -609,6 +1483,7 @@ export async function buildMcpHealthPayload(context: ServiceLassoMcpContext, ser
         serviceId: service.manifest.id,
         running: lifecycle.running,
         health: sanitizeHealth(
+          context,
           await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, context.sharedGlobalEnv),
         ),
       };
@@ -636,22 +1511,34 @@ export async function buildMcpRoutesPayload(context: ServiceLassoMcpContext, ser
     contractVersion: CONTRACT_VERSION,
     generatedAt: generatedAt(),
     services: selectedServices(context, serviceId).map((service) => {
-      const network = buildServiceNetwork(service, context.sharedGlobalEnv, resolvedPorts(service));
+      const ports = resolvedPorts(service);
+      const routeMetadata = buildEffectiveRouteMetadata(service, ports);
       return {
         serviceId: service.manifest.id,
-        ports: network.ports,
-        portmapping: redactDiagnosticsValue(network.portmapping),
-        endpoints: network.endpoints.map((endpoint) => ({
-          label: endpoint.label,
-          kind: endpoint.kind,
-          url: endpoint.url ? sanitizeUrl(endpoint.url) : null,
+        ports,
+        routes: routeMetadata.routes.map((route) => ({
+          serviceId: route.serviceId,
+          serviceName: safeMcpText(context, route.serviceName),
+          endpoint: route.endpoint,
+          exposure: route.exposure,
+          provider: route.provider,
+          target: route.target,
+          traefik: route.traefik ?? null,
+          configSource: route.configSource,
+          state: route.state,
+          diagnostics: route.diagnostics.map((entry) => safeMcpText(context, entry)),
+          nextAction: safeMcpText(context, route.nextAction),
         })),
       };
     }),
     safety: {
       mutating: false,
       redacted: true,
-      omittedSensitiveFields: ["url.username", "url.password", "url.search", "url.hash"],
+      omittedSensitiveFields: [
+        "route URL credentials, query strings, and fragments",
+        "manifest and service paths",
+        "raw generated proxy configuration",
+      ],
     },
   };
 }
@@ -668,37 +1555,51 @@ export async function buildMcpDependencyStatusPayload(context: ServiceLassoMcpCo
     : diagnostics.services;
 
   if (serviceId && selected.length === 0) {
-    throw new Error("Unknown service id: " + serviceId);
+    throw new McpReadError("unknown_service", "The requested service is not available.");
   }
 
   return {
     contractVersion: CONTRACT_VERSION,
     generatedAt: generatedAt(),
-    diagnostics: {
-      summary: diagnostics.summary,
-      services: selected.map((service) => ({
-        ...service,
-        endpoints: service.endpoints.map((endpoint) => ({
-          ...endpoint,
-          url: sanitizeUrl(endpoint.url),
-        })),
-        health: sanitizeHealth(service.health),
+    summary: diagnostics.summary,
+    services: selected.map((service) => ({
+      serviceId: service.id,
+      readiness: service.readiness,
+      blockingReason: service.blockingReason,
+      blockers: service.blockers.map((entry) => safeMcpText(context, entry)),
+      nextAction: safeMcpText(context, service.nextAction),
+      dependencies: service.dependencies.map((dependency) => ({
+        serviceId: dependency.id,
+        ready: dependency.ready,
+        readiness: dependency.readiness,
+        blockingReason: dependency.blockingReason,
       })),
-    },
+      dependents: service.dependents,
+    })),
     safety: {
       mutating: false,
       redacted: true,
+      omittedSensitiveFields: ["endpoint URLs", "health payload details that contain local paths"],
     },
   };
 }
 
-export async function buildMcpLogsSummaryPayload(context: ServiceLassoMcpContext, serviceId: string, limit = DEFAULT_LOG_LIMIT) {
+export async function buildMcpLogsSummaryPayload(
+  context: ServiceLassoMcpContext,
+  serviceId: string,
+  page: { cursor?: unknown; limit?: unknown } = {},
+) {
   const service = context.registry.getById(serviceId);
   if (!service) {
-    throw new Error("Unknown service id: " + serviceId);
+    throw new McpReadError("unknown_service", "The requested service is not available.");
   }
 
-  const logs = await readServiceLogChunk(service, undefined, clampLogLimit(limit));
+  const limit = boundedLimit(page.limit, DEFAULT_LOG_LIMIT, MAX_LOG_LIMIT);
+  const requestedCursor = page.cursor === undefined ? undefined : parseOpaqueCursor(page.cursor, Number.MAX_SAFE_INTEGER);
+  const logs = await readServiceLogChunk(service, requestedCursor, limit);
+  if (requestedCursor !== undefined && requestedCursor > logs.totalLines) {
+    throw new McpReadError("invalid_cursor", "The cursor is invalid or stale.");
+  }
   return {
     contractVersion: CONTRACT_VERSION,
     generatedAt: generatedAt(),
@@ -706,20 +1607,17 @@ export async function buildMcpLogsSummaryPayload(context: ServiceLassoMcpContext
     log: {
       type: logs.type,
       totalLines: logs.totalLines,
-      start: logs.start,
-      end: logs.end,
-      hasMore: logs.hasMore,
+      cursor: logs.cursor,
       nextCursor: logs.nextCursor,
       limit: logs.limit,
       entries: logs.entries.map((entry) => ({
         source: {
           kind: entry.source.kind,
-          archiveId: entry.source.archiveId,
+          archiveId: entry.source.archiveId ?? null,
           lineNumber: entry.source.lineNumber,
         },
         stream: entry.stream,
-        message: redactLogValue(entry.message),
-        text: redactLogValue(entry.text),
+        summary: safeMcpText(context, redactLogValue(entry.message)),
         truncated: entry.truncated,
       })),
     },
@@ -729,6 +1627,225 @@ export async function buildMcpLogsSummaryPayload(context: ServiceLassoMcpContext
       omittedSensitiveFields: ["log.path", "log.source.path", "raw secret-like log text"],
     },
   };
+}
+
+export async function buildMcpAuditPayload(
+  context: ServiceLassoMcpContext,
+  input: {
+    serviceId?: string;
+    actor?: string;
+    action?: string;
+    outcome?: "success" | "failure";
+    source?: string;
+    since?: string;
+    until?: string;
+    query?: string;
+    cursor?: unknown;
+    limit?: unknown;
+  } = {},
+) {
+  const services = selectedServices(context, input.serviceId);
+  const cursor = parseOpaqueCursor(input.cursor, Number.MAX_SAFE_INTEGER);
+  const limit = boundedLimit(input.limit, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT);
+  const query: AuditQuery = {
+    serviceId: input.serviceId,
+    actor: input.actor,
+    action: input.action,
+    outcome: input.outcome,
+    source: input.source,
+    since: input.since,
+    until: input.until,
+    query: input.query,
+    cursor: String(cursor),
+    limit: String(limit),
+  };
+  const audit = await readAuditEvents({
+    workspaceRoot: context.workspaceRoot,
+    serviceRoots: services.map((service) => service.serviceRoot),
+    query,
+  });
+  if (cursor > audit.pagination.total) {
+    throw new McpReadError("invalid_cursor", "The cursor is invalid or stale.");
+  }
+
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    chainStatus: audit.chainStatus,
+    events: audit.events.map((event) => ({
+      id: event.id,
+      timestamp: event.timestamp,
+      source: safeMcpText(context, event.source),
+      action: safeMcpText(context, event.action),
+      actor: safeMcpText(context, event.actor),
+      subject: event.subject ? safeMcpText(context, event.subject) : null,
+      serviceId: event.serviceId ?? null,
+      method: event.method ?? null,
+      routeTemplate: event.routeTemplate ? safeMcpText(context, event.routeTemplate) : null,
+      outcome: event.outcome,
+      statusCode: event.statusCode,
+      summary: safeMcpText(context, event.summary),
+      reason: event.reason ? safeMcpText(context, event.reason) : null,
+      correlationId: event.correlationId,
+      relatedRevisionId: event.relatedRevisionId,
+      chainStatus: event.chainStatus,
+    })),
+    pagination: audit.pagination,
+    safety: {
+      mutating: false as const,
+      redacted: true as const,
+      omittedSensitiveFields: [
+        "Audit metadata payloads",
+        "chain hashes and storage paths",
+        "raw request, config, log, and secret material",
+      ],
+    },
+  };
+}
+
+export async function buildMcpUpdatesPayload(
+  context: ServiceLassoMcpContext,
+  input: { serviceId?: string; cursor?: unknown; limit?: unknown } = {},
+) {
+  const allServices = selectedServices(context, input.serviceId);
+  const cursor = parseOpaqueCursor(input.cursor, allServices.length);
+  const limit = boundedLimit(input.limit, DEFAULT_SERVICE_LIMIT, MAX_SERVICE_LIMIT);
+  const services = allServices.slice(cursor, cursor + limit);
+  const states = await Promise.all(services.map(async (service) => ({
+    service,
+    update: await readServiceUpdateState(service),
+  })));
+
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    services: states.map(({ service, update }) => ({
+      serviceId: service.manifest.id,
+      installed: getLifecycleState(service.manifest.id).installed,
+      declaredVersion: service.manifest.version === undefined
+        ? null
+        : safeMcpText(context, service.manifest.version),
+      state: update.state,
+      updatedAt: update.updatedAt,
+      lastCheck: update.lastCheck ? {
+        checkedAt: update.lastCheck.checkedAt,
+        status: update.lastCheck.status,
+      } : null,
+      available: update.available ? {
+        tag: update.available.tag === null ? null : safeMcpText(context, update.available.tag),
+        version: update.available.version === null ? null : safeMcpText(context, update.available.version),
+        publishedAt: update.available.publishedAt,
+      } : null,
+      downloadedCandidate: update.downloadedCandidate ? {
+        tag: safeMcpText(context, update.downloadedCandidate.tag),
+        version: update.downloadedCandidate.version === null
+          ? null
+          : safeMcpText(context, update.downloadedCandidate.version),
+        downloadedAt: update.downloadedCandidate.downloadedAt,
+      } : null,
+      installDeferredAt: update.installDeferred?.deferredAt ?? null,
+      failedAt: update.failed?.failedAt ?? null,
+    })),
+    pagination: {
+      limit,
+      nextCursor: cursor + services.length < allServices.length ? String(cursor + services.length) : null,
+      total: allServices.length,
+    },
+    safety: {
+      mutating: false as const,
+      redacted: true as const,
+      omittedSensitiveFields: [
+        "release and asset URLs",
+        "source repository configuration",
+        "archive and extraction paths",
+        "hook commands, stdout, and stderr",
+        "raw failure and deferral reasons",
+      ],
+    },
+  };
+}
+
+export async function buildMcpConfigDriftPayload(context: ServiceLassoMcpContext, serviceId: string) {
+  const [service] = selectedServices(context, serviceId);
+  if (!service) throw new McpReadError("unknown_service", "The requested service is not available.");
+  const drift = await buildServiceConfigDriftReport(service, context.discovered);
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    serviceId,
+    checkedAt: drift.checkedAt,
+    configured: drift.configured,
+    summary: drift.summary,
+    artifacts: drift.files.map((file) => ({
+      artifactId: opaqueArtifactId(serviceId, file.path),
+      status: file.status,
+    })),
+    safety: {
+      mutating: false as const,
+      redacted: true as const,
+      omittedSensitiveFields: [
+        "relative and absolute config paths",
+        "desired and current hashes, sizes, previews, and values",
+      ],
+    },
+  };
+}
+
+export async function buildMcpRecoveryPayload(
+  context: ServiceLassoMcpContext,
+  serviceId: string,
+  page: { cursor?: unknown; limit?: unknown } = {},
+) {
+  const [service] = selectedServices(context, serviceId);
+  if (!service) throw new McpReadError("unknown_service", "The requested service is not available.");
+  const recovery = await readServiceRecoveryHistory(service);
+  const ordered = recovery.events
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => right.event.at.localeCompare(left.event.at) || right.index - left.index);
+  const cursor = parseOpaqueCursor(page.cursor, ordered.length);
+  const limit = boundedLimit(page.limit, DEFAULT_RECOVERY_LIMIT, MAX_RECOVERY_LIMIT);
+  const events = ordered.slice(cursor, cursor + limit).map(({ event }) => {
+    const steps = event.kind === "doctor" || event.kind === "hook" ? event.steps : [];
+    return {
+      kind: event.kind,
+      at: event.at,
+      action: event.kind === "monitor" ? event.action : null,
+      reason: event.kind === "monitor" ? event.reason : null,
+      phase: event.kind === "hook" ? safeMcpText(context, event.phase) : null,
+      ok: event.kind === "doctor" || event.kind === "hook" || event.kind === "restart" ? event.ok : null,
+      blocked: event.kind === "doctor" || event.kind === "hook" ? event.blocked : null,
+      stepSummary: {
+        total: steps.length,
+        failed: steps.filter((step) => !step.ok).length,
+        timedOut: steps.filter((step) => step.timedOut).length,
+      },
+    };
+  });
+
+  return {
+    contractVersion: CONTRACT_VERSION,
+    generatedAt: generatedAt(),
+    serviceId,
+    updatedAt: recovery.updatedAt,
+    events,
+    pagination: {
+      limit,
+      nextCursor: cursor + events.length < ordered.length ? String(cursor + events.length) : null,
+      total: ordered.length,
+    },
+    safety: {
+      mutating: false as const,
+      redacted: true as const,
+      omittedSensitiveFields: ["hook and doctor commands", "stdout and stderr", "paths", "raw recovery messages"],
+    },
+  };
+}
+
+export async function buildMcpOperationStatusPayload(_context: ServiceLassoMcpContext, _operationId: string): Promise<never> {
+  throw new McpReadError(
+    "feature_unavailable",
+    "Durable MCP operation status is unavailable until issue #863 is implemented.",
+  );
 }
 
 /**
@@ -817,31 +1934,20 @@ export async function buildMcpDiagnosticsSummaryPayload(context: ServiceLassoMcp
     generatedAt: generatedAt(),
     runtime: {
       version: context.version,
-      servicesRoot: context.servicesRoot,
-      workspaceRoot: context.workspaceRoot ?? null,
       serviceCount: selectedServices(context, serviceId).length,
     },
-    dependencies: dependencies.diagnostics.summary,
+    dependencies: dependencies.summary,
     secretReferences: secretAudit.summary,
-    services: secretAudit.services.map((service) => ({
-      serviceId: service.serviceId,
-      summary: service.summary,
-      findings: service.findings.map((finding) => ({
-        ref: finding.ref,
-        namespace: finding.namespace,
-        key: finding.key,
-        status: finding.status,
-        source: finding.source,
-        location: finding.location,
-        required: finding.required,
-        accessPolicy: finding.accessPolicy,
-      })),
-    })),
     redaction: getServiceLassoMcpCapabilities(context).scope.redaction,
     safety: {
       mutating: false,
       redacted: true,
-      omittedSensitiveFields: ["raw secret values", "manifest env/globalenv values", "runtime command payloads"],
+      omittedSensitiveFields: [
+        "raw secret values and per-reference metadata",
+        "manifest env/globalenv values",
+        "runtime command payloads",
+        "workspace, service, manifest, config, and log paths",
+      ],
     },
   };
 }
@@ -850,20 +1956,68 @@ async function callTool(context: ServiceLassoMcpContext, name: string, args: Rec
   const serviceId = serviceIdFromArguments(args);
 
   switch (name) {
+    case "service_lasso_runtime_status":
+      assertAllowedMcpArguments(args, [], "service_lasso_runtime_status");
+      return buildMcpRuntimeStatusPayload(context);
     case "service_lasso_list_services":
-      return buildMcpServicesPayload(context);
+      assertAllowedMcpArguments(args, ["cursor", "limit"], "service_lasso_list_services");
+      return buildMcpServicesPayload(context, { cursor: args.cursor, limit: args.limit });
+    case "service_lasso_get_service":
+      assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_get_service");
+      if (!serviceId) throw new McpReadError("invalid_request", "serviceId is required.");
+      return buildMcpServiceDetailPayload(context, serviceId);
     case "service_lasso_get_health":
+      assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_get_health");
       return buildMcpHealthPayload(context, serviceId);
     case "service_lasso_list_routes":
+      assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_list_routes");
       return buildMcpRoutesPayload(context, serviceId);
     case "service_lasso_dependency_status":
+      assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_dependency_status");
       return buildMcpDependencyStatusPayload(context, serviceId);
     case "service_lasso_logs_summary":
+      assertAllowedMcpArguments(args, ["serviceId", "cursor", "limit"], "service_lasso_logs_summary");
       if (!serviceId) {
-        throw new Error("service_lasso_logs_summary requires serviceId.");
+        throw new McpReadError("invalid_request", "serviceId is required.");
       }
-      return buildMcpLogsSummaryPayload(context, serviceId, clampLogLimit(args.limit));
+      return buildMcpLogsSummaryPayload(context, serviceId, { cursor: args.cursor, limit: args.limit });
+    case "service_lasso_audit_search":
+      assertAllowedMcpArguments(
+        args,
+        ["serviceId", "actor", "action", "outcome", "source", "since", "until", "query", "cursor", "limit"],
+        "service_lasso_audit_search",
+      );
+      return buildMcpAuditPayload(context, {
+        serviceId,
+        actor: typeof args.actor === "string" ? args.actor : undefined,
+        action: typeof args.action === "string" ? args.action : undefined,
+        outcome: args.outcome === "success" || args.outcome === "failure" ? args.outcome : undefined,
+        source: typeof args.source === "string" ? args.source : undefined,
+        since: typeof args.since === "string" ? args.since : undefined,
+        until: typeof args.until === "string" ? args.until : undefined,
+        query: typeof args.query === "string" ? args.query : undefined,
+        cursor: args.cursor,
+        limit: args.limit,
+      });
+    case "service_lasso_update_status":
+      assertAllowedMcpArguments(args, ["serviceId", "cursor", "limit"], "service_lasso_update_status");
+      return buildMcpUpdatesPayload(context, { serviceId, cursor: args.cursor, limit: args.limit });
+    case "service_lasso_config_drift":
+      assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_config_drift");
+      if (!serviceId) throw new McpReadError("invalid_request", "serviceId is required.");
+      return buildMcpConfigDriftPayload(context, serviceId);
+    case "service_lasso_recovery_status":
+      assertAllowedMcpArguments(args, ["serviceId", "cursor", "limit"], "service_lasso_recovery_status");
+      if (!serviceId) throw new McpReadError("invalid_request", "serviceId is required.");
+      return buildMcpRecoveryPayload(context, serviceId, { cursor: args.cursor, limit: args.limit });
+    case "service_lasso_operation_status":
+      assertAllowedMcpArguments(args, ["operationId"], "service_lasso_operation_status");
+      if (typeof args.operationId !== "string" || !args.operationId.trim()) {
+        throw new McpReadError("invalid_request", "operationId is required.");
+      }
+      return buildMcpOperationStatusPayload(context, args.operationId.trim());
     case "service_lasso_diagnostics_summary":
+      assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_diagnostics_summary");
       return buildMcpDiagnosticsSummaryPayload(context, serviceId);
     case "service_lasso_secret_metadata":
       assertAllowedMcpArguments(args, SECRET_METADATA_ARGUMENT_KEYS, "service_lasso_secret_metadata");
@@ -875,6 +2029,8 @@ async function callTool(context: ServiceLassoMcpContext, name: string, args: Rec
 
 async function readResource(context: ServiceLassoMcpContext, uri: string) {
   switch (uri) {
+    case "servicelasso://runtime":
+      return buildMcpRuntimeStatusPayload(context);
     case "servicelasso://services":
       return buildMcpServicesPayload(context);
     case "servicelasso://health":
@@ -892,6 +2048,44 @@ async function readResource(context: ServiceLassoMcpContext, uri: string) {
   }
 }
 
+async function readResourceTemplate(
+  context: ServiceLassoMcpContext,
+  uriTemplate: ServiceLassoMcpResourceTemplateUri,
+  serviceId: string,
+) {
+  if (!serviceId.trim()) throw new McpReadError("invalid_request", "serviceId is required.");
+  switch (uriTemplate) {
+    case "servicelasso://services/{serviceId}":
+      return buildMcpServiceDetailPayload(context, serviceId);
+    case "servicelasso://services/{serviceId}/health":
+      return buildMcpHealthPayload(context, serviceId);
+    case "servicelasso://services/{serviceId}/routes":
+      return buildMcpRoutesPayload(context, serviceId);
+    case "servicelasso://services/{serviceId}/dependencies":
+      return buildMcpDependencyStatusPayload(context, serviceId);
+    case "servicelasso://services/{serviceId}/updates":
+      return buildMcpUpdatesPayload(context, { serviceId });
+    case "servicelasso://services/{serviceId}/drift":
+      return buildMcpConfigDriftPayload(context, serviceId);
+    case "servicelasso://services/{serviceId}/recovery":
+      return buildMcpRecoveryPayload(context, serviceId);
+  }
+}
+
+async function readResourceByUri(context: ServiceLassoMcpContext, uri: string) {
+  if (mcpResources.some((resource) => resource.uri === uri)) {
+    return readResource(context, uri);
+  }
+  const match = uri.match(/^servicelasso:\/\/services\/([^/]+)(?:\/(health|routes|dependencies|updates|drift|recovery))?$/u);
+  if (!match) throw new McpReadError("invalid_request", "Unknown MCP resource.");
+  const serviceId = decodeURIComponent(match[1] ?? "");
+  const suffix = match[2] ?? null;
+  const template = suffix
+    ? `servicelasso://services/{serviceId}/${suffix}` as ServiceLassoMcpResourceTemplateUri
+    : "servicelasso://services/{serviceId}";
+  return readResourceTemplate(context, template, serviceId);
+}
+
 function jsonContent(payload: unknown): { type: "text"; text: string }[] {
   return [
     {
@@ -899,6 +2093,32 @@ function jsonContent(payload: unknown): { type: "text"; text: string }[] {
       text: JSON.stringify(payload, null, 2),
     },
   ];
+}
+
+function jsonToolResult(payload: Record<string, unknown>) {
+  return {
+    content: jsonContent(payload),
+    structuredContent: payload,
+  };
+}
+
+function jsonToolErrorResult(error: unknown) {
+  const stable = stableMcpError(error);
+  const payload = {
+    contractVersion: CONTRACT_VERSION,
+    error: {
+      code: stable.code,
+      message: stable.message,
+    },
+    safety: {
+      mutating: false,
+      redacted: true,
+    },
+  };
+  return {
+    content: jsonContent(payload),
+    isError: true as const,
+  };
 }
 
 export async function handleServiceLassoMcpStreamableHttpRequest(
@@ -974,11 +2194,12 @@ export async function handleServiceLassoMcpJsonRpcRequest(
     if (request.method === "tools/call") {
       const params = request.params && typeof request.params === "object" ? request.params as Record<string, unknown> : {};
       const name = typeof params.name === "string" ? params.name : "";
-      const payload = await callTool(context, name, safeArguments(request.params));
-      return success(request.id, {
-        content: jsonContent(payload),
-        isError: false,
-      });
+      try {
+        const payload = await callTool(context, name, safeArguments(request.params));
+        return success(request.id, jsonToolResult(payload));
+      } catch (error) {
+        return success(request.id, jsonToolErrorResult(error));
+      }
     }
 
     if (request.method === "resources/list") {
@@ -990,7 +2211,7 @@ export async function handleServiceLassoMcpJsonRpcRequest(
     if (request.method === "resources/read") {
       const params = request.params && typeof request.params === "object" ? request.params as Record<string, unknown> : {};
       const uri = typeof params.uri === "string" ? params.uri : "";
-      const payload = await readResource(context, uri);
+      const payload = await readResourceByUri(context, uri);
       return success(request.id, {
         contents: [
           {
@@ -999,6 +2220,12 @@ export async function handleServiceLassoMcpJsonRpcRequest(
             text: JSON.stringify(payload, null, 2),
           },
         ],
+      });
+    }
+
+    if (request.method === "resources/templates/list") {
+      return success(request.id, {
+        resourceTemplates: mcpResourceTemplates,
       });
     }
 

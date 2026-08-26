@@ -8,7 +8,7 @@ Included:
 - One MCP adapter in `service-lasso` that reuses runtime/operator facades
 - Read-only tools and resources, including secret metadata without values
 - A Streamable HTTP identity slice with OAuth protected-resource discovery, scopes, explicit transport modes, cumulative permission profiles, per-actor/client rate limits, and fail-closed server/Audit policy under `#860` / `AC-6C`
-- Later programme slices for complete read tools, guarded actions, long-running operations, and release gates
+- Complete strict read tools and resources under `#861`, followed by guarded actions, long-running operations, and release gates
 - Documentation in `docs/reference/operator-mcp.md`
 
 Explicitly out of scope:
@@ -18,7 +18,7 @@ Explicitly out of scope:
 - Guessing a new transport/identity architecture beyond `#858` / `docs/reference/operator-mcp.md`
 - Service Admin MCP settings UI (`lasso-serviceadmin#423` is already closed)
 - Canonical demo recycle or keep-alive ownership from this spec
-- Additional read tools (`#861`), mutating lifecycle tools (`#862`), long-running operations (`#863`), and release qualification (`#864`)
+- Mutating lifecycle tools (`#862`), durable long-running operations (`#863`), and release qualification (`#864`)
 - The inherited `#1067` missing SDK-registration baseline defect; `#860` must keep its identity boundary independently testable
 
 ## Acceptance Criteria
@@ -33,7 +33,8 @@ Explicitly out of scope:
 ## Tests and Evidence
 - Focused `tests/operator-mcp.test.js` coverage for tool/resource advertisement, secret-metadata shape, unknown-service errors, extra-argument rejection, and `assertNoSecretMaterial` redaction.
 - Focused `#860` coverage for OAuth discovery, Origin/content boundaries, token validation, scope denial, trusted actor derivation, explicit modes, cumulative permission profiles, independent actor/client rate limits, deterministic Audit-store failure, and redacted failures.
-- Later slices add guarded-action, operation, Inspector, and packaged-app evidence under `#861`–`#864`.
+- `tests/operator-mcp-read-surface.test.js` proves deterministic pagination, allowlisted output shaping, stable errors, schema/annotation contracts and secret/config/token/path regression sentinels for `#861` / `AC-6D`.
+- Later slices add guarded-action, durable-operation, packaged-app and canonical evidence under `#862`–`#864`.
 - `#860` includes local stdio credential handling and smoke evidence. The adapter must reuse the active runtime directly; a second runtime owner or HTTP-loopback adapter would violate the architecture.
 
 ## Documentation Impact
@@ -46,9 +47,12 @@ Explicitly out of scope:
 - `npm run build`
 - `node --test --test-concurrency=1 tests/operator-mcp-identity.test.js` for `#860` / `AC-6C`
 - `node --test --test-concurrency=1 tests/operator-mcp.test.js` for the inherited read-only MCP surface
+- `node --test tests/operator-mcp-read-surface.test.js` for strict `#861` read contracts and sensitive-output regression coverage
 - No live tokens or secret values in fixtures, logs, or MCP responses
 
 ## Change Notes
+- 2026-08-25: `#861` completes the read-only inventory, detail, health, routes/Traefik, dependencies, logs, Audit, updates, config drift and recovery contracts with strict schemas, structured content, deterministic cursors, stable errors and path/value-safe allowlists. Operation status reports `feature_unavailable` until `#863` owns durable operation state.
+- 2026-08-25: `#860` / PR `#1137` is merged at `52884d4`, completing OAuth/policy plus the credential-gated active-runtime stdio adapter.
 - 2026-08-25: `#860` adds an opt-in local stdio credential path and smoke proof through the active runtime process. A protected environment capability plus bounded actor/client ids gate the SDK transport; the secret is neither protocol nor Audit data, while a safe startup Audit event records only derived identity metadata.
 - 2026-08-25: `#860` extends the existing Streamable HTTP slice with explicit disabled/read-only/guarded modes, a fail-closed read-only tool allowlist, cumulative Observer/Operator/Maintainer/Administrator classification, independent actor/client rate limits, safe `429` denial Audit evidence, and deterministic fail-closed Audit-store coverage.
 - 2026-08-25: `#859` / PR `#1029` is merged. `#860` begins a partial `AC-6C` slice for the existing SDK Streamable HTTP transport while explicitly excluding `#861`–`#863` and the inherited `#1067` registration defect.

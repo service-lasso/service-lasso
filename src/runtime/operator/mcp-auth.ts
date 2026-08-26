@@ -18,13 +18,21 @@ export const MCP_RUNTIME_ADMIN_SCOPE = "service-lasso:runtime:admin";
 const MCP_SUPPORTED_SCOPES = [
   MCP_READ_SCOPE,
   MCP_LOGS_READ_SCOPE,
+  MCP_AUDIT_READ_SCOPE,
 ] as const;
 const MCP_CURRENT_READ_ONLY_TOOLS = new Set([
+  "service_lasso_runtime_status",
   "service_lasso_list_services",
+  "service_lasso_get_service",
   "service_lasso_get_health",
   "service_lasso_list_routes",
   "service_lasso_dependency_status",
   "service_lasso_logs_summary",
+  "service_lasso_audit_search",
+  "service_lasso_update_status",
+  "service_lasso_config_drift",
+  "service_lasso_recovery_status",
+  "service_lasso_operation_status",
   "service_lasso_diagnostics_summary",
   "service_lasso_secret_metadata",
 ]);
@@ -574,6 +582,7 @@ export function requiredMcpScopesForRequest(input: unknown): string[] {
     if (message.method !== "tools/call" || !message.params || typeof message.params !== "object" || Array.isArray(message.params)) continue;
     const name = (message.params as Record<string, unknown>).name;
     if (name === "service_lasso_logs_summary") scopes.add(MCP_LOGS_READ_SCOPE);
+    if (name === "service_lasso_audit_search") scopes.add(MCP_AUDIT_READ_SCOPE);
   }
   return [...scopes];
 }
