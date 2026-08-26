@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import {
+  isProcessControlDeadlineError,
+  remainingProcessControlMs,
+  runProcessControlCommand,
+} from "./deadline.js";
 
 const execFileAsync = promisify(execFileCallback);
 
@@ -28,7 +33,13 @@ export interface ProcessInspectorDependencies {
   platform?: NodeJS.Platform;
   readFile?: (filePath: string, encoding?: BufferEncoding) => Promise<string | Buffer>;
   readlink?: (filePath: string) => Promise<string>;
-  runCommand?: (command: string, args: string[]) => Promise<{ stdout: string }>;
+  deadlineMs?: number;
+  signal?: AbortSignal;
+  runCommand?: (
+    command: string,
+    args: string[],
+    options?: { deadlineMs?: number; signal?: AbortSignal },
+  ) => Promise<{ stdout: string }>;
 }
 
 function normalizeCommandLine(commandLine: string | readonly string[]): string {
@@ -275,7 +286,8 @@ function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection
 
 async function inspectWindowsProcess(
   pid: number,
-  runCommand: NonNullable<ProcessInspectorDependencies["runCommand"]>,
+  runCommand: ProcessInspectorDependencies["runCommand"],
+  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal">,
 ): Promise<ProcessInspection> {
   const command = [
     `$process = Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\"`,
@@ -290,9 +302,29 @@ async function inspectWindowsProcess(
   ].join("\n");
 
   try {
-    const result = await runCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command]);
+    const result = await runProcessControlCommand(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", command],
+      {
+        captureOutput: true,
+        deadlineMs: options.deadlineMs,
+        signal: options.signal,
+        runner: runCommand
+          ? async (executable, args, helperOptions) => ({
+              exitCode: 0,
+              ...(await runCommand(executable, args, {
+                deadlineMs: options.deadlineMs,
+                signal: helperOptions.signal,
+              })),
+            })
+          : undefined,
+      },
+    );
     return parseWindowsProcessJson(result.stdout, pid);
   } catch (error) {
+    if (isProcessControlDeadlineError(error)) {
+      throw error;
+    }
     return isMissingProcessError(error)
       ? { status: "not_running", reason: "process_not_running" }
       : { status: "unknown", reason: `windows_process_inspection_failed:${errorReason(error)}` };
@@ -344,8 +376,16 @@ export async function inspectProcess(
   const platform = dependencies.platform ?? process.platform;
   const readFileDependency = dependencies.readFile ?? ((filePath, encoding) => readFile(filePath, encoding));
   const readlinkDependency = dependencies.readlink ?? readlink;
-  const runCommand = dependencies.runCommand ?? (async (command, args) => {
-    const result = await execFileAsync(command, args, { windowsHide: true });
+  const runCommand = dependencies.runCommand ?? (async (command, args, options = {}) => {
+    const timeout = options.deadlineMs === undefined
+      ? undefined
+      : Math.max(1, remainingProcessControlMs(options.deadlineMs));
+    const result = await execFileAsync(command, args, {
+      windowsHide: true,
+      signal: options.signal,
+      timeout,
+      killSignal: "SIGKILL",
+    });
     return { stdout: result.stdout };
   });
 
@@ -363,7 +403,7 @@ export async function inspectProcess(
     });
   }
   if (platform === "win32") {
-    return await inspectWindowsProcess(pid, runCommand);
+    return await inspectWindowsProcess(pid, dependencies.runCommand, dependencies);
   }
   if (platform === "darwin") {
     return await inspectDarwinProcess(pid, runCommand);

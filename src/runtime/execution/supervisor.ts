@@ -17,7 +17,13 @@ import {
   transitionProcessOwnership,
   type ProcessOwnershipEntry,
 } from "../process/registry.js";
-import { inspectProcess, type ProcessFingerprint } from "../process/identity.js";
+import { inspectProcess, type ProcessFingerprint, type ProcessInspection } from "../process/identity.js";
+import {
+  isProcessControlDeadlineError,
+  processControlDeadline,
+  remainingProcessControlMs,
+  withProcessControlDeadline,
+} from "../process/deadline.js";
 import {
   captureOwnedProcessTreeMembers,
   createSpawnProcessGroup,
@@ -57,7 +63,9 @@ interface ManagedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   treeMonitorPromise: Promise<void>;
+  treeMonitorAbortController: AbortController;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
+  stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
 }
@@ -73,6 +81,7 @@ interface AdoptedProcessRecord {
   rootIdentity: ProcessFingerprint;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  monitorAbortController: AbortController;
 }
 
 export type ManagedProcessFinalizationPhase = "stop" | "finalize";
@@ -131,7 +140,9 @@ const managedProcessShutdownQuiescers = new Set<(
   serviceIds: ReadonlySet<string>,
 ) => Promise<void> | void>();
 const ADOPTED_PROCESS_POLL_INTERVAL_MS = 250;
+const WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS = 1_000;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
+let managedProcessRootInspector = inspectProcess;
 
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
@@ -140,6 +151,15 @@ export function setManagedProcessTreeTerminatorForTests(
     throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessTreeTerminator = terminator ?? terminateOwnedProcessTree;
+}
+
+export function setManagedProcessRootInspectorForTests(
+  inspector: ((pid: number) => Promise<ProcessInspection>) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process-root test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessRootInspector = inspector ?? inspectProcess;
 }
 
 export function registerManagedProcessShutdownQuiescer(
@@ -197,16 +217,24 @@ function trackManagedProcessFinalizer(serviceId: string, pid: number | null, pro
   void promise.then(clearFinalizer, () => undefined);
 }
 
-export async function waitForManagedProcessFinalization(serviceId: string): Promise<void> {
+export async function waitForManagedProcessFinalization(
+  serviceId: string,
+  deadlineMs?: number,
+): Promise<void> {
   const finalizer = managedProcessFinalizers.get(serviceId);
   if (!finalizer) {
     return;
   }
 
   try {
-    await finalizer.promise;
+    await withProcessControlDeadline(
+      async () => await finalizer.promise,
+      { deadlineMs },
+    );
   } catch (error) {
-    if (managedProcessFinalizers.get(serviceId) === finalizer) {
+    // A deadline stops this waiter, not the finalizer itself. Keep the finalizer
+    // registered so a later shutdown convergence pass still observes it.
+    if (!isProcessControlDeadlineError(error) && managedProcessFinalizers.get(serviceId) === finalizer) {
       managedProcessFinalizers.delete(serviceId);
     }
     throw new ManagedProcessFinalizationError([{
@@ -528,13 +556,17 @@ async function terminateManagedProcessTree(
   timeoutMs: number,
   rootExitObserved = false,
   retryAfterSharedFailure = false,
+  deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
     const existing = record.treeTerminationPromise;
     if (existing) {
       try {
-        return await existing;
+        return await withProcessControlDeadline(
+          async () => await existing,
+          { deadlineMs },
+        );
       } catch (error) {
         if (record.treeTerminationPromise === existing) {
           record.treeTerminationPromise = null;
@@ -549,11 +581,18 @@ async function terminateManagedProcessTree(
 
     const attempt = (async () => {
       if (record.stopping) {
-        await record.treeMonitorPromise;
+        await withProcessControlDeadline(
+          async () => await record.treeMonitorPromise,
+          { deadlineMs },
+        );
       }
-      return await managedProcessTreeTerminator(
-        managedProcessTreeTarget(record, rootExitObserved),
-        timeoutMs,
+      return await withProcessControlDeadline(
+        async (signal) => await managedProcessTreeTerminator(
+          managedProcessTreeTarget(record, rootExitObserved),
+          remainingProcessControlMs(deadlineMs),
+          { deadlineMs, signal },
+        ),
+        { deadlineMs },
       );
     })();
     record.treeTerminationPromise = attempt;
@@ -587,12 +626,15 @@ async function adoptedProcessPollDelay(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ADOPTED_PROCESS_POLL_INTERVAL_MS));
 }
 
-async function refreshAdoptedProcessTreeMembers(record: AdoptedProcessRecord): Promise<void> {
+async function refreshAdoptedProcessTreeMembers(
+  record: AdoptedProcessRecord,
+  options: { deadlineMs?: number; signal?: AbortSignal } = {},
+): Promise<void> {
   const members = await captureOwnedProcessTreeMembers({
     rootPid: record.pid,
     rootIdentity: record.rootIdentity,
     processGroup: record.processGroup,
-  });
+  }, options);
   if (members.length > 0) {
     record.knownTreeMembers = members;
   }
@@ -606,14 +648,19 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
   const serviceId = record.service.manifest.id;
   while (managedProcesses.get(serviceId) === record && !record.stopping && !record.treeTerminationPromise) {
     try {
-      const members = await captureOwnedProcessTreeMembers(managedProcessTreeTarget(record));
+      const members = await captureOwnedProcessTreeMembers(managedProcessTreeTarget(record), {
+        deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
+        signal: record.treeMonitorAbortController.signal,
+      });
       if (members.length > 0) {
         record.knownTreeMembers = members;
       }
     } catch {
       // Process inspection can fail transiently; retain the last verified snapshot.
     }
-    await adoptedProcessPollDelay();
+    if (!record.stopping && !record.treeMonitorAbortController.signal.aborted) {
+      await adoptedProcessPollDelay();
+    }
   }
 }
 
@@ -680,7 +727,10 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
       if (!ownership) {
         throw new Error(`Process ownership is missing for adopted service "${serviceId}".`);
       }
-      status = await classifyRegisteredProcess(ownership);
+      status = await classifyRegisteredProcess(ownership, {
+        deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
+        signal: record.monitorAbortController.signal,
+      });
     } catch {
       // Process inspection can fail transiently; retain durable ownership and retry.
       continue;
@@ -688,7 +738,10 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
 
     if (status === "owned") {
       try {
-        await refreshAdoptedProcessTreeMembers(record);
+        await refreshAdoptedProcessTreeMembers(record, {
+          deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
+          signal: record.monitorAbortController.signal,
+        });
       } catch {
         // Retain the last verified tree snapshot and retry process inspection.
       }
@@ -701,13 +754,36 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
   }
 }
 
-export async function beginManagedProcessStop(serviceId: string): Promise<boolean> {
+export async function beginManagedProcessStop(
+  serviceId: string,
+  deadlineMs?: number,
+): Promise<boolean> {
   const record = managedProcesses.get(serviceId);
   if (record) {
+    if (deadlineMs !== undefined) {
+      const priorDeadlineExpired = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) <= 0;
+      record.stopDeadlineMs = priorDeadlineExpired && record.treeTerminationPromise === null
+        ? deadlineMs
+        : Math.min(record.stopDeadlineMs ?? deadlineMs, deadlineMs);
+    }
     record.stopping = true;
-    await record.treeMonitorPromise;
+    record.treeMonitorAbortController.abort();
+    await withProcessControlDeadline(
+      async () => await record.treeMonitorPromise,
+      { deadlineMs: record.stopDeadlineMs ?? deadlineMs },
+    );
     if (record.workspaceRoot && !record.stoppingPersisted) {
-      await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopping", undefined, record.child.pid);
+      await withProcessControlDeadline(
+        async () => await transitionProcessOwnership(
+          record.workspaceRoot as string,
+          "service",
+          serviceId,
+          "stopping",
+          undefined,
+          record.child.pid,
+        ),
+        { deadlineMs: record.stopDeadlineMs ?? deadlineMs },
+      );
       record.stoppingPersisted = true;
     }
     return true;
@@ -716,8 +792,26 @@ export async function beginManagedProcessStop(serviceId: string): Promise<boolea
   const adopted = adoptedProcesses.get(serviceId);
   if (adopted) {
     adopted.stopping = true;
+    adopted.monitorAbortController.abort();
+    const monitor = managedProcessFinalizers.get(serviceId);
+    if (monitor) {
+      await withProcessControlDeadline(
+        async () => await monitor.promise,
+        { deadlineMs },
+      );
+    }
     if (!adopted.stoppingPersisted) {
-      await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopping", undefined, adopted.pid);
+      await withProcessControlDeadline(
+        async () => await transitionProcessOwnership(
+          adopted.workspaceRoot,
+          "service",
+          serviceId,
+          "stopping",
+          undefined,
+          adopted.pid,
+        ),
+        { deadlineMs },
+      );
       adopted.stoppingPersisted = true;
     }
     return true;
@@ -759,6 +853,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
     rootIdentity: ownership.identity,
     processGroup: ownership.processGroup,
     knownTreeMembers: [],
+    monitorAbortController: new AbortController(),
   };
   await refreshAdoptedProcessTreeMembers(record);
   adoptedProcesses.set(serviceId, record);
@@ -849,7 +944,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
   const rootPid = child.pid ?? 0;
   const processGroup = createSpawnProcessGroup(rootPid);
-  const rootInspection = rootPid > 0 ? await inspectProcess(rootPid) : null;
+  const rootInspection = rootPid > 0 ? await managedProcessRootInspector(rootPid) : null;
   let rootIdentity = rootInspection?.status === "running" ? rootInspection.identity : null;
 
   const record: ManagedProcessRecord = {
@@ -871,7 +966,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     processGroup,
     knownTreeMembers: [],
     treeMonitorPromise: Promise.resolve(),
+    treeMonitorAbortController: new AbortController(),
     treeTerminationPromise: null,
+    stopDeadlineMs: null,
     exitPromise,
     finalizePromise: Promise.resolve(),
   };
@@ -911,7 +1008,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
   const logFinalizePromise = record.finalizePromise;
   const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
-    await terminateManagedProcessTree(record, 5_000, true, true);
+    const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
+      ? record.stopDeadlineMs
+      : processControlDeadline(5_000);
+    await terminateManagedProcessTree(record, 5_000, true, true, finalizationDeadlineMs);
     await new Promise<void>((resolve) => setImmediate(resolve));
     record.exitCode = exitCode;
     record.exitSignal = signal;
@@ -971,10 +1071,14 @@ export async function stopManagedProcess(
     return await stopAdoptedProcess(serviceId, timeoutMs);
   }
 
-  await beginManagedProcessStop(serviceId);
-  await terminateManagedProcessTree(record, timeoutMs);
-  const result = await record.exitPromise;
-  await waitForManagedProcessFinalization(serviceId);
+  const deadlineMs = processControlDeadline(timeoutMs);
+  await beginManagedProcessStop(serviceId, deadlineMs);
+  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs);
+  const result = await withProcessControlDeadline(
+    async () => await record.exitPromise,
+    { deadlineMs },
+  );
+  await waitForManagedProcessFinalization(serviceId, deadlineMs);
 
   return result;
 }
@@ -1010,10 +1114,19 @@ async function stopAdoptedProcess(
     return null;
   }
 
+  const deadlineMs = processControlDeadline(timeoutMs);
   const finalizer = managedProcessFinalizers.get(serviceId);
-  await beginManagedProcessStop(serviceId);
-  const ownership = await findProcessOwnership(record.workspaceRoot, "service", serviceId);
-  const status = ownership ? await classifyRegisteredProcess(ownership) : "not_running";
+  await beginManagedProcessStop(serviceId, deadlineMs);
+  const ownership = await withProcessControlDeadline(
+    async () => await findProcessOwnership(record.workspaceRoot, "service", serviceId),
+    { deadlineMs },
+  );
+  const status = ownership
+    ? await withProcessControlDeadline(
+        async (signal) => await classifyRegisteredProcess(ownership, { deadlineMs, signal }),
+        { deadlineMs },
+      )
+    : "not_running";
   if (status === "unknown_owner") {
     throw new Error(`Cannot stop service "${serviceId}" because its adopted process owner is unverifiable.`);
   }
@@ -1023,14 +1136,21 @@ async function stopAdoptedProcess(
         ...adoptedProcessTreeTarget(record),
         processGroup: { kind: "none" as const, id: null },
       };
-  const termination = await terminateOwnedProcessTree(terminationTarget, timeoutMs);
+  const termination = await terminateOwnedProcessTree(
+    terminationTarget,
+    remainingProcessControlMs(deadlineMs),
+    { deadlineMs },
+  );
 
-  await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
-    await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
-    adoptedProcesses.delete(serviceId);
-  });
+  await withProcessControlDeadline(
+    async () => await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
+      await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
+      adoptedProcesses.delete(serviceId);
+    }),
+    { deadlineMs },
+  );
   if (finalizer) {
-    await waitForManagedProcessFinalization(serviceId);
+    await waitForManagedProcessFinalization(serviceId, deadlineMs);
   }
   return termination.forced
     ? { exitCode: null, signal: "SIGKILL" }

@@ -6,6 +6,14 @@ import {
   type ProcessFingerprint,
   type ProcessInspection,
 } from "./identity.js";
+import {
+  isProcessControlDeadlineError,
+  ProcessControlDeadlineError,
+  processControlDeadline,
+  remainingProcessControlMs,
+  runProcessControlCommand,
+  withProcessControlDeadline,
+} from "./deadline.js";
 import type { ProcessOwnershipEntry } from "./registry.js";
 
 type ProcessTreeGroup = ProcessOwnershipEntry["processGroup"];
@@ -24,10 +32,22 @@ export interface ProcessTreeTerminationResult {
 
 export interface ProcessTreeControlDependencies {
   platform?: NodeJS.Platform;
-  inspectProcess?: (pid: number) => Promise<ProcessInspection>;
+  deadlineMs?: number;
+  signal?: AbortSignal;
+  inspectProcess?: (
+    pid: number,
+    options?: { deadlineMs?: number; signal?: AbortSignal },
+  ) => Promise<ProcessInspection>;
   killProcess?: (pid: number, signal: NodeJS.Signals | 0) => void;
   readFile?: (filePath: string, encoding: BufferEncoding) => Promise<string>;
-  readWindowsProcessTable?: () => Promise<Array<{ pid: number; parentPid: number }>>;
+  readWindowsProcessTable?: (
+    options?: { deadlineMs?: number; signal?: AbortSignal },
+  ) => Promise<Array<{ pid: number; parentPid: number }>>;
+  runWindowsCommand?: (
+    command: string,
+    args: string[],
+    options: { captureOutput: boolean; signal: AbortSignal },
+  ) => Promise<{ exitCode: number | null; stdout: string }>;
 }
 
 interface PosixProcessRow {
@@ -79,7 +99,12 @@ function isMissingProcessError(error: unknown): boolean {
 }
 
 function processInspector(dependencies: ProcessTreeControlDependencies): (pid: number) => Promise<ProcessInspection> {
-  return dependencies.inspectProcess ?? inspectProcess;
+  return async (pid) => await withProcessControlDeadline(
+    async (signal) => dependencies.inspectProcess
+      ? await dependencies.inspectProcess(pid, { deadlineMs: dependencies.deadlineMs, signal })
+      : await inspectProcess(pid, { deadlineMs: dependencies.deadlineMs, signal }),
+    dependencies,
+  );
 }
 
 function processKiller(dependencies: ProcessTreeControlDependencies): (pid: number, signal: NodeJS.Signals | 0) => void {
@@ -126,40 +151,44 @@ async function verifyPostSignalExit(
   return false;
 }
 
-async function waitForCommandExit(command: string, args: string[]): Promise<boolean> {
-  return await new Promise<boolean>((resolve) => {
-    const child = spawn(command, args, {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    child.once("close", (exitCode) => resolve(exitCode === 0));
-    child.once("error", () => resolve(false));
+async function runWindowsCommand(
+  command: string,
+  args: string[],
+  captureOutput: boolean,
+  dependencies: ProcessTreeControlDependencies,
+): Promise<{ exitCode: number | null; stdout: string }> {
+  return await runProcessControlCommand(command, args, {
+    captureOutput,
+    deadlineMs: dependencies.deadlineMs,
+    signal: dependencies.signal,
+    runner: dependencies.runWindowsCommand,
   });
 }
 
-async function waitForCommandOutput(command: string, args: string[]): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    });
-    let output = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      output += chunk;
-    });
-    child.once("close", (exitCode) => {
-      if (exitCode === 0) {
-        resolve(output);
-      } else {
-        reject(new Error(`Unable to inspect the Windows process table (PowerShell exited ${exitCode ?? "unknown"}).`));
-      }
-    });
-    child.once("error", reject);
-  });
+async function waitForCommandExit(
+  command: string,
+  args: string[],
+  dependencies: ProcessTreeControlDependencies,
+): Promise<boolean> {
+  const result = await runWindowsCommand(command, args, false, dependencies);
+  return result.exitCode === 0;
 }
 
-async function readWindowsProcessTable(): Promise<WindowsProcessRow[]> {
+async function waitForCommandOutput(
+  command: string,
+  args: string[],
+  dependencies: ProcessTreeControlDependencies,
+): Promise<string> {
+  const result = await runWindowsCommand(command, args, true, dependencies);
+  if (result.exitCode !== 0) {
+    throw new Error(`Unable to inspect the Windows process table (PowerShell exited ${result.exitCode ?? "unknown"}).`);
+  }
+  return result.stdout;
+}
+
+async function readWindowsProcessTable(
+  dependencies: ProcessTreeControlDependencies,
+): Promise<WindowsProcessRow[]> {
   const command = [
     "Get-CimInstance Win32_Process",
     "| Select-Object ProcessId,ParentProcessId",
@@ -168,6 +197,7 @@ async function readWindowsProcessTable(): Promise<WindowsProcessRow[]> {
   const stdout = await waitForCommandOutput(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", command],
+    dependencies,
   );
   if (!stdout.trim()) {
     return [];
@@ -393,7 +423,15 @@ async function captureVerifiedMembers(
   }
 
   const rows = (dependencies.platform ?? process.platform) === "win32"
-    ? await (dependencies.readWindowsProcessTable ?? readWindowsProcessTable)()
+    ? dependencies.readWindowsProcessTable
+      ? await withProcessControlDeadline(
+          async (signal) => await dependencies.readWindowsProcessTable?.({
+            deadlineMs: dependencies.deadlineMs,
+            signal,
+          }) ?? [],
+          dependencies,
+        )
+      : await readWindowsProcessTable(dependencies)
     : activeRows(await readPosixProcessTable());
   const descendantRows = collectDescendantRows(rows, target.rootPid);
   const descendants: ProcessFingerprint[] = [];
@@ -465,15 +503,20 @@ async function signalOwnedProcessTree(
   dependencies: ProcessTreeControlDependencies,
 ): Promise<ProcessTreeSignalEvidence> {
   if ((dependencies.platform ?? process.platform) === "win32") {
+    if (!target.rootExitObserved && !target.rootIdentity) {
+      throw new Error(`Cannot control legacy process tree ${target.rootPid} without verified root identity.`);
+    }
     const rootStatus = target.rootExitObserved
       ? "exited"
-      : target.rootIdentity
-      ? await requireOwnedIdentity(target.rootIdentity, dependencies)
-      : "owned";
+      : await requireOwnedIdentity(target.rootIdentity as ProcessFingerprint, dependencies);
     const members = target.knownMembers && target.knownMembers.length > 0
       ? target.knownMembers.filter((member) => !target.rootExitObserved || member.pid !== target.rootPid)
       : target.rootIdentity && rootStatus === "owned"
-        ? await captureVerifiedMembers(target, dependencies)
+        // `taskkill /T` owns descendant discovery for a still-live, identity-
+        // verified root. Retain the root as post-signal evidence without
+        // blocking a caller stop on another full-table CIM scan; the Windows
+        // monitor keeps the richer descendant snapshot for root-exit cleanup.
+        ? [target.rootIdentity]
         : [];
     if (rootStatus === "exited") {
       await signalVerifiedMembers(members, signal, dependencies);
@@ -492,7 +535,7 @@ async function signalOwnedProcessTree(
       rootPid: target.rootPid,
       rootIdentity: target.rootIdentity,
       members,
-      commandSucceeded: await waitForCommandExit("taskkill", args),
+      commandSucceeded: await waitForCommandExit("taskkill", args, dependencies),
     };
   }
 
@@ -527,8 +570,11 @@ async function hasRunningEvidence(
   }
 
   if (evidence.kind === "windows-taskkill") {
+    if (!evidence.commandSucceeded) {
+      return true;
+    }
     if (!evidence.rootIdentity && evidence.members.length === 0) {
-      return !evidence.commandSucceeded;
+      return false;
     }
     for (const member of evidence.members) {
       if (await requirePostSignalIdentity(member, dependencies) !== "exited") {
@@ -548,18 +594,18 @@ async function hasRunningEvidence(
 
 async function waitForProcessTreeExit(
   evidence: ProcessTreeSignalEvidence,
-  timeoutMs: number,
+  deadlineMs: number,
   dependencies: ProcessTreeControlDependencies,
 ): Promise<boolean> {
-  const deadline = Date.now() + Math.max(0, timeoutMs);
   while (true) {
     if (!await hasRunningEvidence(evidence, dependencies)) {
       return true;
     }
-    if (Date.now() >= deadline) {
+    const remainingMs = remainingProcessControlMs(deadlineMs);
+    if (remainingMs <= 0) {
       return false;
     }
-    await new Promise((resolve) => setTimeout(resolve, PROCESS_TREE_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, Math.min(PROCESS_TREE_POLL_INTERVAL_MS, remainingMs)));
   }
 }
 
@@ -587,7 +633,11 @@ async function forceSignaledProcessTree(
     }
     const rootStillOwned = rootState === "owned";
     const commandSucceeded = rootStillOwned
-      ? await waitForCommandExit("taskkill", ["/pid", String(evidence.rootPid), "/t", "/f"])
+      ? await waitForCommandExit(
+          "taskkill",
+          ["/pid", String(evidence.rootPid), "/t", "/f"],
+          dependencies,
+        )
       : evidence.commandSucceeded;
     await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true);
     return {
@@ -605,14 +655,44 @@ export async function terminateOwnedProcessTree(
   timeoutMs: number,
   dependencies: ProcessTreeControlDependencies = {},
 ): Promise<ProcessTreeTerminationResult> {
-  const gracefulEvidence = await signalOwnedProcessTree(target, "SIGTERM", dependencies);
-  if (await waitForProcessTreeExit(gracefulEvidence, timeoutMs, dependencies)) {
-    return { forced: false };
+  const deadlineMs = processControlDeadline(timeoutMs, dependencies.deadlineMs);
+  const initialRemainingMs = remainingProcessControlMs(deadlineMs);
+  if (initialRemainingMs <= 0) {
+    throw new ProcessControlDeadlineError();
+  }
+  const gracefulDeadlineMs = Math.min(
+    deadlineMs,
+    Date.now() + Math.max(1, Math.floor(initialRemainingMs / 2)),
+  );
+  const gracefulDependencies: ProcessTreeControlDependencies = {
+    ...dependencies,
+    deadlineMs: gracefulDeadlineMs,
+  };
+  let gracefulEvidence: ProcessTreeSignalEvidence | null = null;
+  try {
+    gracefulEvidence = await signalOwnedProcessTree(target, "SIGTERM", gracefulDependencies);
+    if (await waitForProcessTreeExit(gracefulEvidence, gracefulDeadlineMs, gracefulDependencies)) {
+      return { forced: false };
+    }
+  } catch (error) {
+    if (!isProcessControlDeadlineError(error)) {
+      throw error;
+    }
   }
 
-  const forcedEvidence = await forceSignaledProcessTree(gracefulEvidence, dependencies);
-  if (!await waitForProcessTreeExit(forcedEvidence, timeoutMs, dependencies)) {
-    throw new Error(`Process tree rooted at PID ${target.rootPid} did not stop after forced termination.`);
+  if (remainingProcessControlMs(deadlineMs) <= 0) {
+    throw new ProcessControlDeadlineError();
   }
+  const forcedDependencies: ProcessTreeControlDependencies = {
+    ...dependencies,
+    deadlineMs,
+  };
+  const forcedEvidence = gracefulEvidence
+    ? await forceSignaledProcessTree(gracefulEvidence, forcedDependencies)
+    : await signalOwnedProcessTree(target, "SIGKILL", forcedDependencies);
+  if (!await waitForProcessTreeExit(forcedEvidence, deadlineMs, forcedDependencies)) {
+    throw new ProcessControlDeadlineError();
+  }
+
   return { forced: true };
 }

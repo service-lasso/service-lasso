@@ -40,4 +40,4 @@ jobs:
       - name: Verify lifecycle ownership and process-tree cleanup
         env:
           SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-test-instances.json
-        run: node --test --test-concurrency=1 tests/process-ownership.test.js tests/lifecycle-actions.test.js
+        run: node --test --test-concurrency=1 tests/process-ownership.test.js tests/lifecycle-actions.test.js tests/process-tree-exit-race.test.js tests/managed-process-deadline.test.js tests/real-admin-browser-rollback-fixture.test.js
