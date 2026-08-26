@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import {
+  classifyWindowsProcessIdentityFast,
   classifyProcessIdentity,
   hashProcessCommandLine,
   inspectProcess,
@@ -34,6 +35,9 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// These fixtures deliberately ignore SIGTERM and require forced tree cleanup,
+// registry convergence, and finalization inside one caller-owned deadline.
+const PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS = 5_000;
 
 async function waitFor(check, timeoutMs = 3_000) {
   const deadline = Date.now() + timeoutMs;
@@ -233,6 +237,111 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
     windowsInspector({ ProcessId: 4242, CreationDate: null, ExecutablePath: null, CommandLine: null }),
   );
   assert.deepEqual(unverified, { status: "unknown", reason: "windows_process_evidence_incomplete" });
+});
+
+test("Windows native identity adapter matches immutable process incarnation fields without CIM", async () => {
+  const expected = {
+    pid: 4242,
+    createdAt: "2026-07-18T01:02:03.456Z",
+    executablePath: "C:\\Program Files\\nodejs\\node.exe",
+    commandHash: "a".repeat(64),
+  };
+  let inspectedCommand = "";
+  const runCommand = async (_command, args) => {
+    inspectedCommand = args.at(-1) ?? "";
+    return {
+      stdout: JSON.stringify({
+        Status: "running",
+        ProcessId: expected.pid,
+        StartTime: "2026-07-18T01:02:03.4560000Z",
+        ExecutablePath: "c:\\program files\\nodejs\\NODE.exe",
+      }),
+    };
+  };
+
+  assert.equal(await classifyWindowsProcessIdentityFast(expected, { runCommand }), "owned");
+  assert.equal(inspectedCommand.includes("Get-Process -Id 4242"), true);
+  assert.equal(inspectedCommand.includes("Get-CimInstance"), false);
+  assert.equal(
+    await classifyWindowsProcessIdentityFast({
+      ...expected,
+      createdAt: "2026-07-18T01:02:04.456Z",
+    }, { runCommand }),
+    "identity_mismatch",
+  );
+  assert.equal(
+    await classifyWindowsProcessIdentityFast({
+      ...expected,
+      executablePath: "C:\\Program Files\\nodejs\\other.exe",
+    }, { runCommand }),
+    "identity_mismatch",
+  );
+  assert.equal(
+    await classifyWindowsProcessIdentityFast(expected, {
+      runCommand: async () => ({ stdout: JSON.stringify({ Status: "not_running" }) }),
+    }),
+    "not_running",
+  );
+});
+
+test("Windows native identity adapter aborts and closes a non-returning helper at its deadline", async () => {
+  const expected = {
+    pid: 4242,
+    createdAt: "2026-07-18T01:02:03.456Z",
+    executablePath: "C:\\Program Files\\nodejs\\node.exe",
+    commandHash: "a".repeat(64),
+  };
+  let helperAbortObserved = false;
+  let helperCloseObserved = false;
+  let helperPid = null;
+  const startedAt = Date.now();
+
+  await assert.rejects(
+    classifyWindowsProcessIdentityFast(expected, {
+      deadlineMs: Date.now() + 150,
+      runCommand: async (_command, _args, { signal }) => await new Promise((resolve, reject) => {
+        const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        helperPid = helper.pid;
+        signal?.addEventListener("abort", () => {
+          helperAbortObserved = true;
+          helper.kill("SIGKILL");
+        }, { once: true });
+        helper.once("close", () => {
+          helperCloseObserved = true;
+          resolve({ stdout: "" });
+        });
+        helper.once("error", reject);
+      }),
+    }),
+    (error) => error?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+  );
+
+  await waitFor(() => helperCloseObserved, 1_000);
+  assert.equal(helperAbortObserved, true);
+  assert.equal(helperCloseObserved, true);
+  assert.equal(Number.isInteger(helperPid) && helperPid > 0 && helperPid !== expected.pid, true);
+  assert.equal(Date.now() - startedAt < 1_500, true);
+});
+
+test("Windows native identity probe matches the stored full fingerprint for the live process", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const inspection = await inspectProcess(process.pid);
+  assert.equal(inspection.status, "running");
+  assert.equal(
+    await classifyWindowsProcessIdentityFast(inspection.identity, { deadlineMs: Date.now() + 5_000 }),
+    "owned",
+  );
+  assert.equal(
+    await classifyWindowsProcessIdentityFast({
+      ...inspection.identity,
+      createdAt: new Date(Date.parse(inspection.identity.createdAt) + 1_000).toISOString(),
+    }, { deadlineMs: Date.now() + 5_000 }),
+    "identity_mismatch",
+  );
 });
 
 test("workspace process registry writes atomically, recovers from residue, and clears stopped PIDs", async () => {
@@ -784,15 +893,17 @@ test("legacy adopted ownership verifies and stops descendants without a persiste
     const runningOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
     assert.deepEqual(runningOwnership.processGroup, { kind: "none", id: null });
 
-    const stopped = await stopManagedProcess("adopted-stop-service", 100);
+    const stopStartedAt = Date.now();
+    const stopped = await stopManagedProcess("adopted-stop-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
     assert.ok(stopped);
+    assert.equal(Date.now() - stopStartedAt < PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS + 1_000, true);
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
     assert.equal(hasManagedProcess("adopted-stop-service"), false);
     const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
     assert.equal(ownership.lifecycleState, "stopped");
     assert.equal(ownership.pid, null);
   } finally {
-    await stopManagedProcess("adopted-stop-service", 100).catch(() => null);
+    await stopManagedProcess("adopted-stop-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     forceCleanupProcesses([root.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
@@ -827,7 +938,7 @@ test("managed stop owns and terminates the complete child and grandchild process
       assert.deepEqual(runningOwnership.processGroup, { kind: "posix", id: String(handle.pid) });
     }
 
-    const stopped = await stopManagedProcess("process-tree-service", 100);
+    const stopped = await stopManagedProcess("process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
 
     assert.ok(stopped);
     await waitForProcessesStopped([handle.pid, childPid, grandchildPid]);
@@ -835,7 +946,7 @@ test("managed stop owns and terminates the complete child and grandchild process
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
   } finally {
-    await stopManagedProcess("process-tree-service", 100).catch(() => null);
+    await stopManagedProcess("process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
@@ -1051,7 +1162,7 @@ test("rehydrated adopted ownership retains and stops the complete persisted proc
     const adoptedOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-process-tree-service");
     assert.deepEqual(adoptedOwnership.processGroup, processGroup);
 
-    const stopped = await stopManagedProcess("adopted-process-tree-service", 100);
+    const stopped = await stopManagedProcess("adopted-process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
 
     assert.ok(stopped);
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
@@ -1060,7 +1171,7 @@ test("rehydrated adopted ownership retains and stops the complete persisted proc
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
   } finally {
-    await stopManagedProcess("adopted-process-tree-service", 100).catch(() => null);
+    await stopManagedProcess("adopted-process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     forceCleanupProcesses([root.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });

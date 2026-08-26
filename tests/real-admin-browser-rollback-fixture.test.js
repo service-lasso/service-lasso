@@ -8,7 +8,6 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  armNextSampleStartFailure,
   createRealAdminBrowserSampleSource,
   FAIL_NEXT_SAMPLE_START_ENV,
   FAIL_NEXT_SAMPLE_START_PATH,
@@ -21,12 +20,24 @@ import { hasManagedProcess, stopAllManagedProcesses } from "../dist/runtime/exec
 import { startService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
-import { executeSecretRotation } from "../dist/runtime/operator/secret-rotation-execution.js";
-import { buildSecretRotationImpactPlan } from "../dist/runtime/operator/secret-rotation-plan.js";
+import { createApiServer, startApiServer } from "../dist/server/index.js";
 import { writeManifest } from "./test-helpers.js";
 
 const PROCESS_TIMEOUT_MS = 5_000;
 const MAX_CAPTURE_BYTES = 4_096;
+const ROTATION_HTTP_TIMEOUT_MS = 60_000;
+
+function assertNoPathOrValueFields(value, trail = "response") {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertNoPathOrValueFields(entry, `${trail}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, entry] of Object.entries(value)) {
+    assert.equal(/(?:^value$|path$)/i.test(key), false, `private field ${trail}.${key} must not be returned`);
+    assertNoPathOrValueFields(entry, `${trail}.${key}`);
+  }
+}
 
 function waitForExit(child, timeoutMs = PROCESS_TIMEOUT_MS) {
   if (child.exitCode !== null || child.signalCode !== null) {
@@ -126,6 +137,20 @@ function startSample(sampleRoot, markerPath, secretValue, readinessPort) {
     windowsHide: true,
   });
 }
+
+test("secret rotation Broker injection stays unavailable without explicit test hooks", () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  try {
+    assert.throws(
+      () => createApiServer({ secretRotationTestHooks: { brokerRuntime: {} } }),
+      /Secret rotation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1/,
+    );
+  } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  }
+});
 
 test("real browser rollback hook fails one sample start and permits the next without leaking material", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-real-admin-rollback-"));
@@ -252,6 +277,10 @@ test("real rotation uses lifecycle readiness to roll back one failed start and r
   let activeVersionId = "version-previous";
   let activeValue = previousValue;
   let stagedValue = null;
+  let apiServer = null;
+  let controlServer = null;
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
 
   const brokerRuntime = {
     lookup: async ({ refs }) => refs.map((requestedRef) => ({
@@ -345,13 +374,30 @@ test("real rotation uses lifecycle readiness to roll back one failed start and r
       },
     });
 
+    apiServer = await startApiServer({
+      port: 0,
+      servicesRoot,
+      workspaceRoot,
+      secretRotationTestHooks: { brokerRuntime },
+    });
+
     const services = await discoverServices(servicesRoot);
     const sample = services.find((service) => service.manifest.id === "sample-service");
     assert.ok(sample);
     const registry = createServiceRegistry(services);
     const current = getLifecycleState("sample-service");
     setLifecycleState("sample-service", { ...current, installed: true, configured: true });
-    const initialStart = await startService(sample, registry, { workspaceRoot, brokerRuntime });
+    const plannedPorts = Object.fromEntries(apiServer.endpointAllocationPlan.endpoints
+      .filter((endpoint) => endpoint.ownerType === "service" && endpoint.ownerId === "sample-service")
+      .map((endpoint) => [endpoint.endpointId, endpoint.port]));
+    const initialStart = await startService(sample, registry, {
+      workspaceRoot,
+      brokerRuntime,
+      plannedPorts,
+      runtimeGenerationId: apiServer.generationId,
+      runtimeInstanceId: apiServer.instanceId,
+      allocationRevision: apiServer.endpointAllocationPlan.allocationId,
+    });
     assert.equal(initialStart.ok, true);
     assert.equal(initialStart.state.running, true);
     assert.equal(hasManagedProcess("sample-service"), true);
@@ -361,30 +407,79 @@ test("real rotation uses lifecycle readiness to roll back one failed start and r
       digest: createHash("sha256").update(previousValue).digest("hex"),
     });
 
-    const armed = await armNextSampleStartFailure(markerPath);
-    assert.deepEqual(armed, { outcome: "sample_start_failure_armed" });
-    const plan = buildSecretRotationImpactPlan(services, ref);
-    assert.equal(plan.status, "ready");
-    const operation = await executeSecretRotation({
-      operationId: "real-browser-readiness-rollback",
-      ref,
-      planFingerprint: plan.planFingerprint,
-      reason: "bounded real browser automatic rollback qualification",
-      confirm: true,
-      value: candidateValue,
-      actorId: "local:test-operator",
-    }, {
-      workspaceRoot,
-      services,
-      registry,
-      brokerRuntime,
+    controlServer = http.createServer(async (request, response) => {
+      if (new URL(request.url ?? "/", "http://127.0.0.1").pathname === FAIL_NEXT_SAMPLE_START_PATH) {
+        await handleFailNextSampleStartRequest(request, response, markerPath);
+        return;
+      }
+      response.writeHead(404);
+      response.end();
     });
+    await new Promise((resolve, reject) => {
+      controlServer.once("error", reject);
+      controlServer.listen(0, "127.0.0.1", resolve);
+    });
+    const controlPort = controlServer.address().port;
+    const armResponse = await fetch(`http://127.0.0.1:${controlPort}${FAIL_NEXT_SAMPLE_START_PATH}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS),
+    });
+    assert.equal(armResponse.status, 200);
+    const armed = await armResponse.json();
+    assert.deepEqual(armed, { outcome: "sample_start_failure_armed" });
+    assert.doesNotMatch(JSON.stringify(armed), /path|value|secret|marker/i);
+
+    const planResponse = await fetch(`${apiServer.url}/api/secrets/rotation-plan?ref=${encodeURIComponent(ref)}`, {
+      signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS),
+    });
+    assert.equal(planResponse.status, 200);
+    const plan = await planResponse.json();
+    assert.equal(plan.status, "ready");
+    const operationId = "real-browser-http-readiness-rollback";
+    let executeRequestCount = 0;
+    const executeStartedAt = Date.now();
+    executeRequestCount += 1;
+    const executeResponse = await fetch(`${apiServer.url}/api/secrets/rotation/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        operationId,
+        ref,
+        planFingerprint: plan.planFingerprint,
+        reason: "bounded real browser automatic rollback qualification",
+        confirm: true,
+        value: candidateValue,
+      }),
+      signal: AbortSignal.timeout(ROTATION_HTTP_TIMEOUT_MS),
+    });
+    const executeElapsedMs = Date.now() - executeStartedAt;
+    const rawExecuteBody = await executeResponse.text();
+    assert.equal(Buffer.byteLength(rawExecuteBody) <= 64 * 1024, true);
+    assert.equal(executeResponse.status, 200);
+    assert.equal(executeRequestCount, 1);
+    assert.equal(executeElapsedMs < ROTATION_HTTP_TIMEOUT_MS, true);
+    const executeBody = JSON.parse(rawExecuteBody);
+    const operation = executeBody.operation;
 
     assert.equal(operation.outcome, "rolled_back");
     assert.equal(operation.phase, "rolled_back");
     assert.equal(operation.failureCode, "rotation_consumer_not_ready");
     assert.equal(operation.activeVersionId, "version-previous");
     assert.deepEqual(operation.rollbackCompletedOperations, ["sample-service:restart:"]);
+    const readbackResponse = await fetch(
+      `${apiServer.url}/api/secrets/rotation/operations/${encodeURIComponent(operationId)}`,
+      { signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS) },
+    );
+    assert.equal(readbackResponse.status, 200);
+    const rawReadbackBody = await readbackResponse.text();
+    assert.equal(Buffer.byteLength(rawReadbackBody) <= 64 * 1024, true);
+    const readback = JSON.parse(rawReadbackBody);
+    assert.equal(readback.operation.operationId, operationId);
+    assert.equal(readback.operation.outcome, "rolled_back");
+    assert.equal(readback.operation.phase, "rolled_back");
+    assert.equal(readback.operation.failureCode, "rotation_consumer_not_ready");
+    assert.equal(readback.operation.activeVersionId, "version-previous");
+    assert.deepEqual(readback.operation.rollbackCompletedOperations, ["sample-service:restart:"]);
     assert.deepEqual(brokerCalls, [
       "/v1/management/secrets/rotation/dry-run",
       "/v1/management/secrets/rotation/status",
@@ -403,7 +498,8 @@ test("real rotation uses lifecycle readiness to roll back one failed start and r
       digest: createHash("sha256").update(previousValue).digest("hex"),
     });
 
-    const safeOutput = JSON.stringify(operation);
+    const safeOutput = JSON.stringify({ armed, plan, executeBody, readback });
+    assertNoPathOrValueFields({ armed, plan, executeBody, readback });
     for (const forbidden of [tempRoot, workspaceRoot, markerPath, previousValue, candidateValue]) {
       assert.equal(safeOutput.includes(forbidden), false);
     }
@@ -414,8 +510,13 @@ test("real rotation uses lifecycle readiness to roll back one failed start and r
     ]);
     assert.deepEqual(processOutput, ["", ""]);
   } finally {
+    if (apiServer) await apiServer.stop().catch(() => undefined);
+    controlServer?.closeAllConnections?.();
+    if (controlServer?.listening) await new Promise((resolve) => controlServer.close(resolve));
     await stopAllManagedProcesses().catch(() => undefined);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

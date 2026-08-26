@@ -32,6 +32,10 @@ import {
   writeExecutableFixtureService,
 } from "./test-helpers.js";
 
+// The stubborn fixture ignores SIGTERM, so forced tree cleanup and lifecycle
+// finalization share this one explicit caller-owned convergence deadline.
+const PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS = 5_000;
+
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
@@ -1364,7 +1368,7 @@ test("managed process stop escalates after timeout and clears supervisor state",
       }
     });
 
-    const stopped = await stopManagedProcess("stubborn-service", 100);
+    const stopped = await stopManagedProcess("stubborn-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
 
     assert.ok(stopped);
     assert.equal(hasManagedProcess("stubborn-service"), false);
@@ -1373,7 +1377,7 @@ test("managed process stop escalates after timeout and clears supervisor state",
       assert.equal(stopped.signal, "SIGKILL");
     }
   } finally {
-    await stopManagedProcess("stubborn-service", 100).catch(() => null);
+    await stopManagedProcess("stubborn-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

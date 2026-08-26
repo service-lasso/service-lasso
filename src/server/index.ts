@@ -116,6 +116,7 @@ import {
   loadSecretsBrokerRuntimeContext,
   provisionFirstRunGeneratedSecrets,
   SecretsBrokerBootstrapError,
+  type SecretsBrokerRuntimeContext,
 } from "../runtime/broker/runtime.js";
 import { buildBrokerDecommissionDependencyEvidence } from "../runtime/broker/decommission.js";
 import {
@@ -417,6 +418,9 @@ export interface ApiServerOptions {
     appendAuditEvent?: typeof appendAuditEvent;
     now?: () => number;
   };
+  secretRotationTestHooks?: {
+    brokerRuntime: SecretsBrokerRuntimeContext;
+  };
 }
 
 interface ApiRequestTelemetryState {
@@ -438,6 +442,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   mcpHttpIdentity?: McpHttpIdentityOptions;
   mcpRateLimiter: McpRateLimiter;
   mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
+  secretRotationTestHooks?: ApiServerOptions["secretRotationTestHooks"];
 }
 
 export interface RunningApiServer {
@@ -5758,9 +5763,11 @@ async function routeRequest(
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const broker = runtimeModel.registry.getById("@secretsbroker");
     const brokerLifecycle = broker ? getLifecycleState(broker.manifest.id) : null;
-    const brokerRuntime = broker && brokerLifecycle?.running && brokerLifecycle.installed && brokerLifecycle.configured
-      ? await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry)
-      : null;
+    const brokerRuntime = config.secretRotationTestHooks?.brokerRuntime ?? (
+      broker && brokerLifecycle?.running && brokerLifecycle.installed && brokerLifecycle.configured
+        ? await loadSecretsBrokerRuntimeContext(config.workspaceRoot, runtimeModel.registry)
+        : null
+    );
     if (!brokerRuntime) {
       throw new ApiError("secrets_broker_not_ready", 503, "Secrets Broker must be prepared, running, and authenticated before rotation.");
     }
@@ -5942,6 +5949,9 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
+  if (options.secretRotationTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Secret rotation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
   const resolvedConfig = resolveRuntimeConfig(options);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
@@ -5958,6 +5968,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     mcpHttpIdentity: options.mcpHttpIdentity,
     mcpRateLimiter: createMcpRateLimiter(options.mcpPolicyTestHooks?.now),
     mcpPolicyTestHooks: options.mcpPolicyTestHooks,
+    secretRotationTestHooks: options.secretRotationTestHooks,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -6457,6 +6468,7 @@ async function startApiServerGeneration(
         runtimeGenerationId,
         mcpHttpIdentity: options.mcpHttpIdentity,
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
+        secretRotationTestHooks: options.secretRotationTestHooks,
       });
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",

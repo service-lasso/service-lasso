@@ -19,6 +19,7 @@ const LOCK_RETRY_MS = 20;
 const LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;
 const LEGACY_START_TOLERANCE_MS = 2_000;
+let workspaceLockOwnerIdentityPromise: Promise<ProcessFingerprint> | null = null;
 
 export type ProcessOwnerType = "runtime" | "service";
 export type ProcessOwnershipLifecycleState = "launching" | "running" | "stopping" | "stopped";
@@ -122,6 +123,25 @@ export function getWorkspaceLifecycleLockPath(workspaceRoot: string): string {
 
 export function resolveWorkspaceProcessId(workspaceRoot: string): string {
   return "slw_" + createHash("sha256").update(path.resolve(workspaceRoot)).digest("hex").slice(0, 16);
+}
+
+async function resolveWorkspaceLockOwnerIdentity(): Promise<ProcessFingerprint> {
+  const pending = workspaceLockOwnerIdentityPromise ?? (async () => {
+    const inspection = await inspectProcess(process.pid);
+    if (inspection.status !== "running") {
+      throw new Error(`Cannot verify workspace lifecycle lock owner: ${inspection.reason}`);
+    }
+    return inspection.identity;
+  })();
+  workspaceLockOwnerIdentityPromise = pending;
+  try {
+    return await pending;
+  } catch (error) {
+    if (workspaceLockOwnerIdentityPromise === pending) {
+      workspaceLockOwnerIdentityPromise = null;
+    }
+    throw error;
+  }
 }
 
 function ownerKey(ownerType: ProcessOwnerType, ownerId: string): string {
@@ -330,10 +350,7 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
   await mkdir(path.dirname(lockPath), { recursive: true });
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   const token = randomUUID();
-  const ownerInspection = await inspectProcess(process.pid);
-  if (ownerInspection.status !== "running") {
-    throw new Error(`Cannot verify workspace lifecycle lock owner: ${ownerInspection.reason}`);
-  }
+  const ownerIdentity = await resolveWorkspaceLockOwnerIdentity();
 
   while (true) {
     try {
@@ -343,7 +360,7 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
           version: 1,
           token,
           pid: process.pid,
-          identity: ownerInspection.identity,
+          identity: ownerIdentity,
           acquiredAt: new Date().toISOString(),
         })}\n`, "utf8");
         await handle.sync();
