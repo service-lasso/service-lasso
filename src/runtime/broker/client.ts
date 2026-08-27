@@ -6,6 +6,7 @@ import type {
   BrokerLaunchLookupDecision,
   BrokerLaunchLookupStatus,
 } from "./launch-resolution.js";
+import { SECRETSBROKER_IPC_TIMEOUT_MS } from "./ipc-transport.js";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -170,8 +171,8 @@ export class SecretsBrokerManagementError extends Error {
   }
 }
 
-function normalizeTimeout(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_TIMEOUT_MS;
+function normalizeTimeout(value: number | undefined, defaultValue = DEFAULT_TIMEOUT_MS): number {
+  if (value === undefined) return defaultValue;
   if (!Number.isInteger(value) || value < 100 || value > 30_000) {
     throw new Error("Secrets Broker timeout must be between 100 and 30000 milliseconds.");
   }
@@ -254,7 +255,7 @@ export async function requestSecretsBrokerManagement(
 ): Promise<SecretsBrokerManagementResponse> {
   const transport = validateTransport(options.transport);
   const token = validateToken(options.apiToken);
-  const timeoutMs = normalizeTimeout(options.timeoutMs);
+  const timeoutMs = normalizeTimeout(options.timeoutMs, SECRETSBROKER_IPC_TIMEOUT_MS);
   const requestPath = validateManagementTarget(input.method, input.path);
   const managementAuthMode = options.managementAuthMode ?? "token-header";
   const body = input.method === "POST" ? JSON.stringify(input.body ?? {}) : undefined;

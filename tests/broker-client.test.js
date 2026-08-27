@@ -312,6 +312,117 @@ test("broker management client proxies only allowlisted JSON operations over aut
   }
 });
 
+test("broker management preserves a single protected provider migration apply after readiness reads", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-provider-apply-"));
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\service-lasso-broker-provider-apply-${process.pid}-${Date.now()}`
+    : path.join(tempRoot, "broker.sock");
+  const routes = [];
+  let applyRequests = 0;
+  const server = responseServer(async (request, response) => {
+    routes.push(`${request.method} ${request.url}`);
+    assert.equal(request.headers["x-secretsbroker-token"], apiToken);
+    if (request.method === "GET" && request.url === "/v1/providers/config/status") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        serviceId: "@secretsbroker",
+        outcome: "ready",
+        providers: [{
+          providerId: "vault-policy-denied",
+          outcome: "ready",
+          migration: { maturity: "validated", executable: true },
+        }],
+      }));
+      return;
+    }
+    if (request.method === "POST" && request.url === "/v1/providers/migration/dry-run") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        serviceId: "@secretsbroker",
+        outcome: "dry_run_ready",
+        applied: false,
+      }));
+      return;
+    }
+    assert.equal(request.method, "POST");
+    assert.equal(request.url, "/v1/providers/migration/apply");
+    applyRequests += 1;
+    await new Promise((resolve) => setTimeout(resolve, 5_100));
+    if (response.destroyed) return;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      serviceId: "@secretsbroker",
+      outcome: "partial_failure",
+      applied: false,
+      auditStatus: "audit_recorded",
+      results: [{ providerId: "vault-policy-denied", outcome: "policy_denied", verified: false }],
+    }));
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  const options = {
+    transport: process.platform === "win32"
+      ? { kind: "windows-named-pipe", socketPath }
+      : { kind: "unix-socket", socketPath },
+    apiToken,
+    workspaceId: "workspace-test",
+  };
+  try {
+    const firstStatus = await requestSecretsBrokerManagement(options, {
+      method: "GET",
+      path: "/v1/providers/config/status",
+    });
+    assert.equal(firstStatus.statusCode, 200);
+    assert.equal(firstStatus.body.outcome, "ready");
+    assert.equal(firstStatus.body.providers[0].providerId, "vault-policy-denied");
+    assert.equal(firstStatus.body.providers[0].migration.executable, true);
+
+    const dryRun = await requestSecretsBrokerManagement(options, {
+      method: "POST",
+      path: "/v1/providers/migration/dry-run",
+      body: { providerId: "vault-policy-denied", confirm: false },
+    });
+    assert.equal(dryRun.statusCode, 200);
+    assert.equal(dryRun.body.outcome, "dry_run_ready");
+
+    const secondStatus = await requestSecretsBrokerManagement(options, {
+      method: "GET",
+      path: "/v1/providers/config/status",
+    });
+    assert.equal(secondStatus.statusCode, 200);
+    assert.equal(secondStatus.body.providers[0].migration.maturity, "validated");
+
+    const apply = await requestSecretsBrokerManagement(options, {
+      method: "POST",
+      path: "/v1/providers/migration/apply",
+      body: { providerId: "vault-policy-denied", confirm: true },
+    });
+    assert.deepEqual(apply, {
+      statusCode: 200,
+      body: {
+        serviceId: "@secretsbroker",
+        outcome: "partial_failure",
+        applied: false,
+        auditStatus: "audit_recorded",
+        results: [{ providerId: "vault-policy-denied", outcome: "policy_denied", verified: false }],
+      },
+    });
+    assert.equal(applyRequests, 1, "the durable migration mutation must not be retried");
+    assert.deepEqual(routes, [
+      "GET /v1/providers/config/status",
+      "POST /v1/providers/migration/dry-run",
+      "GET /v1/providers/config/status",
+      "POST /v1/providers/migration/apply",
+    ]);
+  } finally {
+    server.closeAllConnections();
+    await close(server);
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("broker management client allowlists every decommission and rotation operation exposed by Core", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-lifecycle-routes-"));
   const socketPath = process.platform === "win32"
