@@ -203,12 +203,15 @@ test("process identity classifies the active host process without PID-only trust
 test("Windows inspection adapter captures creation, executable, and hashed command evidence", async () => {
   const commandLine = '"C:\\Program Files\\nodejs\\node.exe" C:\\apps\\service.mjs --port 18080';
   let inspectedCommand = "";
+  let defaultDeadlineMs = null;
+  const defaultDeadlineStartedAt = Date.now();
   const inspection = await inspectProcess(
     4242,
     {
       platform: "win32",
-      runCommand: async (_command, args) => {
+      runCommand: async (_command, args, options) => {
         inspectedCommand = args.at(-1) ?? "";
+        defaultDeadlineMs = options?.deadlineMs ?? null;
         return {
           stdout: JSON.stringify({
             ProcessId: 4242,
@@ -222,6 +225,9 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
   );
 
   assert.equal(inspectedCommand.includes("@{;"), false);
+  const defaultDeadlineDeltaMs = defaultDeadlineMs - defaultDeadlineStartedAt;
+  assert.equal(defaultDeadlineDeltaMs >= 14_000, true);
+  assert.equal(defaultDeadlineDeltaMs <= 16_000, true);
   assert.deepEqual(inspection, {
     status: "running",
     identity: {
@@ -237,6 +243,30 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
     windowsInspector({ ProcessId: 4242, CreationDate: null, ExecutablePath: null, CommandLine: null }),
   );
   assert.deepEqual(unverified, { status: "unknown", reason: "windows_process_evidence_incomplete" });
+
+  const explicitDeadlineMs = Date.now() + 30_000;
+  let receivedExplicitDeadlineMs = null;
+  await inspectProcess(4242, {
+    ...windowsInspector({
+      ProcessId: 4242,
+      CreationDate: "2026-07-18T01:02:03.456Z",
+      ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+      CommandLine: commandLine,
+    }),
+    deadlineMs: explicitDeadlineMs,
+    runCommand: async (_command, _args, options) => {
+      receivedExplicitDeadlineMs = options?.deadlineMs ?? null;
+      return {
+        stdout: JSON.stringify({
+          ProcessId: 4242,
+          CreationDate: "2026-07-18T01:02:03.456Z",
+          ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+          CommandLine: commandLine,
+        }),
+      };
+    },
+  });
+  assert.equal(receivedExplicitDeadlineMs, explicitDeadlineMs);
 });
 
 test("Windows native identity adapter matches immutable process incarnation fields without CIM", async () => {

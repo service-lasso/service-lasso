@@ -10,6 +10,7 @@ import {
 } from "./deadline.js";
 
 const execFileAsync = promisify(execFileCallback);
+const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
 
 export interface ProcessFingerprint {
   pid: number;
@@ -503,7 +504,10 @@ export async function inspectProcess(
     });
   }
   if (platform === "win32") {
-    return await inspectWindowsProcess(pid, dependencies.runCommand, dependencies);
+    return await inspectWindowsProcess(pid, dependencies.runCommand, {
+      ...dependencies,
+      deadlineMs: dependencies.deadlineMs ?? Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+    });
   }
   if (platform === "darwin") {
     return await inspectDarwinProcess(pid, runCommand);
