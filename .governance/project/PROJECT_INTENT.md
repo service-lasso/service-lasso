@@ -68,3 +68,4 @@ For the first runtime slice, expected proof should include:
 - direct proof that manifest discovery/parsing works against defined fixture/sample services
 - documented residual gaps/blockers for anything not yet implemented
 - backlog/spec traceability updated to distinguish shipped runtime behavior from remaining planned behavior
+- working-release claims proven from the exact downloaded Core GitHub release and public npm package, with checksum-bound published Admin and Broker behavior on Windows, Ubuntu, and macOS plus exactly three retained metadata-only artifacts and direct artifact API readback; source builds are not publication proof

@@ -92,3 +92,9 @@ evidence is a row-specific real-process result.
 - 2026-08-25: Issue `#872` was deliberately promoted from Backlog when the
   Secrets release-governance tranche was explicitly selected. No competing
   assignee, branch, worktree, or pull request existed at intake.
+- 2026-08-27: Core `#1152` is the `SPEC-002` `AC-4BZ.1` published-package
+  evidence gate for the working-release claim linked to `#1151` and `#871`.
+  Its workflow and retained metadata cannot upgrade any ledger maturity row:
+  that requires a dispatched exact-publication run with terminal Windows,
+  Ubuntu, and macOS results plus artifact API readback and row-specific live
+  product evidence.
