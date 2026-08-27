@@ -1,0 +1,318 @@
+name: Packaged Admin Lifecycle Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/packaged-admin-lifecycle.yml
+      - services/@serviceadmin/service.json
+      - services/@secretsbroker/service.json
+      - src/runtime/**
+      - src/server/**
+      - tests/fixtures/real-admin-browser-runner.mjs
+  push:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/packaged-admin-lifecycle.yml
+      - services/@serviceadmin/service.json
+      - services/@secretsbroker/service.json
+      - src/runtime/**
+      - src/server/**
+      - tests/fixtures/real-admin-browser-runner.mjs
+
+concurrency:
+  group: packaged-admin-lifecycle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packaged-admin-lifecycle:
+    name: packaged-admin-lifecycle (${{ matrix.admin_platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            admin_platform: linux
+            admin_asset: "@serviceadmin-linux.tar.gz"
+            admin_sha256: 9cf43a9ee2a7881834bb3d1141cba148d02ccb8d6e69e0cb1e1ade4941e1bd71
+            broker_asset: secretsbroker-linux.tar.gz
+            broker_binary: secretsbroker
+            broker_sha256: 952856d8b4d82772de2e3aa2b66708a2f154565a13941f4c723216f3a2765807
+          - os: windows-latest
+            admin_platform: win32
+            admin_asset: "@serviceadmin-win32.zip"
+            admin_sha256: 839729e1818f9ff4c0ed33e44c580c2f19582f204b4e003ef0fde9456280e31d
+            broker_asset: secretsbroker-win32.zip
+            broker_binary: secretsbroker.exe
+            broker_sha256: 1bb86e6b03026e535c24b1dd00368022334f67d66d6f3af118251d29b5db7b8b
+          - os: macos-latest
+            admin_platform: darwin
+            admin_asset: "@serviceadmin-darwin.tar.gz"
+            admin_sha256: 7bdb7ca27488265e5ff00bdae3e23b53679f5423cece8495de6943ee66a781c1
+            broker_asset: secretsbroker-darwin.tar.gz
+            broker_binary: secretsbroker
+            broker_sha256: 735fb84fb6139ff36f25907f1f56d00cd731375b338cea1657c4944f899cf3c6
+    env:
+      ADMIN_RELEASE_ID: "377559666"
+      ADMIN_RELEASE_TAG: "2026.8.27-b393c70"
+      ADMIN_REVISION: "b393c70ba834d0da6c1cdb0039f304dd14bf9e79"
+      BROKER_RELEASE_ID: "376535953"
+      BROKER_RELEASE_TAG: "2026.8.25-41f7206"
+      BROKER_REVISION: "41f7206f90a624582fa53397304b8d6c3536b24b"
+
+    steps:
+      - name: Check out candidate Core
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check out exact qualified Admin harness
+        uses: actions/checkout@v5
+        with:
+          repository: service-lasso/lasso-serviceadmin
+          ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79
+          path: qualification/admin
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - name: Install and build candidate Core
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install exact Admin browser harness
+        working-directory: qualification/admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm exec cypress install
+
+      - name: Acquire checksum-bound published Admin and Broker
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_ADMIN_ASSET: ${{ matrix.admin_asset }}
+          EXPECTED_ADMIN_SHA256: ${{ matrix.admin_sha256 }}
+          EXPECTED_BROKER_ASSET: ${{ matrix.broker_asset }}
+          EXPECTED_BROKER_SHA256: ${{ matrix.broker_sha256 }}
+          EXPECTED_BROKER_BINARY: ${{ matrix.broker_binary }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Invoke-CoreInstall([string]$serviceId, [string]$servicesRoot, [string]$workspaceRoot) {
+            $output = @(& node dist/cli.js install $serviceId --services-root $servicesRoot --workspace-root $workspaceRoot --json)
+            if ($LASTEXITCODE -ne 0) {
+              throw "Core install failed for $serviceId."
+            }
+            try {
+              return (($output -join "`n") | ConvertFrom-Json)
+            } catch {
+              throw "Core install did not return the expected JSON contract for $serviceId."
+            }
+          }
+
+          function Assert-AcquiredArtifact(
+            [object]$payload,
+            [string]$serviceId,
+            [string]$expectedTag,
+            [string]$expectedAsset,
+            [string]$expectedSha
+          ) {
+            if (-not $payload.ok -or $payload.action -ne 'install') {
+              throw "Core install contract failed for $serviceId."
+            }
+            $artifact = $payload.state.installArtifacts.artifact
+            if (-not $artifact -or $artifact.tag -ne $expectedTag -or $artifact.assetName -ne $expectedAsset) {
+              throw "Core acquired unexpected release metadata for $serviceId."
+            }
+            if (-not $artifact.checksum -or $artifact.checksum.algorithm -ne 'sha256') {
+              throw "Core omitted SHA-256 evidence for $serviceId."
+            }
+            if ($artifact.checksum.source -ne 'release-asset' -or $artifact.checksum.checksumAssetName -ne 'SHA256SUMS.txt') {
+              throw "Core did not verify $serviceId through the published checksum manifest."
+            }
+            if ($artifact.checksum.expected.ToLowerInvariant() -ne $expectedSha) {
+              throw "Core resolved an unexpected checksum for $serviceId."
+            }
+            if ($artifact.checksum.actual.ToLowerInvariant() -ne $expectedSha) {
+              throw "Core downloaded an unexpected archive for $serviceId."
+            }
+            if (-not (Test-Path -LiteralPath $artifact.archivePath -PathType Leaf)) {
+              throw "Core did not retain the verified archive for $serviceId."
+            }
+            if (-not (Test-Path -LiteralPath $artifact.extractedPath -PathType Container)) {
+              throw "Core did not extract the verified archive for $serviceId."
+            }
+            return $artifact
+          }
+
+          $servicesRoot = Join-Path $env:RUNNER_TEMP 'packaged-admin-services'
+          $workspaceRoot = Join-Path $env:RUNNER_TEMP 'packaged-admin-workspace'
+          New-Item -ItemType Directory -Path $servicesRoot, $workspaceRoot | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'services/@serviceadmin') -Destination $servicesRoot -Recurse
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'services/@secretsbroker') -Destination $servicesRoot -Recurse
+
+          $adminPayload = Invoke-CoreInstall '@serviceadmin' $servicesRoot $workspaceRoot
+          $adminArtifact = Assert-AcquiredArtifact `
+            $adminPayload `
+            '@serviceadmin' `
+            $env:ADMIN_RELEASE_TAG `
+            $env:EXPECTED_ADMIN_ASSET `
+            $env:EXPECTED_ADMIN_SHA256
+
+          $brokerPayload = Invoke-CoreInstall '@secretsbroker' $servicesRoot $workspaceRoot
+          $brokerArtifact = Assert-AcquiredArtifact `
+            $brokerPayload `
+            '@secretsbroker' `
+            $env:BROKER_RELEASE_TAG `
+            $env:EXPECTED_BROKER_ASSET `
+            $env:EXPECTED_BROKER_SHA256
+
+          $brokerBinaries = @(
+            Get-ChildItem -LiteralPath $brokerArtifact.extractedPath -Filter $env:EXPECTED_BROKER_BINARY -File -Recurse
+          )
+          if ($brokerBinaries.Count -ne 1) {
+            throw 'The verified Broker archive did not contain exactly one expected executable.'
+          }
+          $brokerBinary = $brokerBinaries[0]
+          if ($env:RUNNER_OS -ne 'Windows') {
+            & chmod +x $brokerBinary.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw 'The verified Broker executable could not be made executable.'
+            }
+          }
+
+          "SERVICE_LASSO_TEST_ADMIN_ROOT=$($adminArtifact.extractedPath)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "SERVICE_LASSO_TEST_BROKER_BINARY=$($brokerBinary.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "ADMIN_ARCHIVE_SHA256=$($adminArtifact.checksum.actual.ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "BROKER_ARCHIVE_SHA256=$($brokerArtifact.checksum.actual.ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Bind exact source revisions
+        id: revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          core_revision="$(git rev-parse HEAD)"
+          admin_revision="$(git -C qualification/admin rev-parse HEAD)"
+          test "$admin_revision" = "$ADMIN_REVISION"
+          echo "core_revision=$core_revision" >> "$GITHUB_OUTPUT"
+          echo "SERVICE_LASSO_TEST_CORE_REVISION=$core_revision" >> "$GITHUB_ENV"
+          echo "SERVICE_LASSO_TEST_BROKER_REVISION=$BROKER_REVISION" >> "$GITHUB_ENV"
+
+      - name: Drive released Admin lifecycle browser contracts
+        id: qualify
+        working-directory: qualification/admin
+        shell: bash
+        env:
+          SERVICE_LASSO_TEST_CORE_ROOT: ${{ github.workspace }}
+          SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+        run: |
+          set -euo pipefail
+          pnpm test:secrets:real-first-run-browser
+          pnpm test:secrets:real-browser
+          pnpm test:secrets:real-stopped-lifecycle-browser
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            pnpm test:secrets:real-lockout-browser
+          fi
+
+      - name: Record metadata-only packaged acceptance evidence
+        if: always()
+        shell: pwsh
+        env:
+          QUALIFICATION_OUTCOME: ${{ steps.qualify.outcome }}
+          CORE_REVISION: ${{ steps.revisions.outputs.core_revision }}
+          ADMIN_PLATFORM: ${{ matrix.admin_platform }}
+          ADMIN_ASSET: ${{ matrix.admin_asset }}
+          ADMIN_EXPECTED_SHA256: ${{ matrix.admin_sha256 }}
+          BROKER_ASSET: ${{ matrix.broker_asset }}
+          BROKER_EXPECTED_SHA256: ${{ matrix.broker_sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $hex64 = '^[0-9a-f]{64}$'
+          if ($env:CORE_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:BROKER_REVISION -notmatch '^[0-9a-f]{40}$') {
+            throw 'Packaged acceptance revision evidence is invalid.'
+          }
+          if ($env:ADMIN_ARCHIVE_SHA256 -notmatch $hex64 -or $env:BROKER_ARCHIVE_SHA256 -notmatch $hex64) {
+            throw 'Packaged acceptance archive evidence is missing or invalid.'
+          }
+          if ($env:ADMIN_ARCHIVE_SHA256 -ne $env:ADMIN_EXPECTED_SHA256 -or $env:BROKER_ARCHIVE_SHA256 -ne $env:BROKER_EXPECTED_SHA256) {
+            throw 'Packaged acceptance archive evidence does not match the pinned releases.'
+          }
+
+          $modes = @('first_run', 'comprehensive_lifecycle', 'stopped_lifecycle')
+          if ($env:RUNNER_OS -eq 'Windows') {
+            $modes += 'local_operator_lockout'
+          }
+          $evidence = [ordered]@{
+            schema = 'service-lasso.packaged-admin-lifecycle.v1'
+            retainedContent = 'metadata_only'
+            outcome = $env:QUALIFICATION_OUTCOME
+            platform = $env:ADMIN_PLATFORM
+            core = [ordered]@{
+              revision = $env:CORE_REVISION
+            }
+            admin = [ordered]@{
+              revision = $env:ADMIN_REVISION
+              releaseId = $env:ADMIN_RELEASE_ID
+              tag = $env:ADMIN_RELEASE_TAG
+              asset = $env:ADMIN_ASSET
+              sha256 = $env:ADMIN_ARCHIVE_SHA256
+              checksumSource = 'SHA256SUMS.txt'
+            }
+            broker = [ordered]@{
+              revision = $env:BROKER_REVISION
+              releaseId = $env:BROKER_RELEASE_ID
+              tag = $env:BROKER_RELEASE_TAG
+              asset = $env:BROKER_ASSET
+              sha256 = $env:BROKER_ARCHIVE_SHA256
+              checksumSource = 'SHA256SUMS.txt'
+            }
+            browser = [ordered]@{
+              modes = $modes
+              mutationRetry = $false
+              capturesRetained = $false
+              sensitiveEvidenceRetained = $false
+            }
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" -Encoding utf8
+
+      - name: Upload packaged Admin lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: packaged-admin-lifecycle-${{ matrix.admin_platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  require-packaged-admin-lifecycle:
+    if: always()
+    needs:
+      - packaged-admin-lifecycle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require all packaged Admin lifecycle platforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.packaged-admin-lifecycle.result }}' = 'success'

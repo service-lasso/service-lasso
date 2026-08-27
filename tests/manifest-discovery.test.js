@@ -293,7 +293,37 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("echo-service")?.urls?.find((url) => url.label === "health")?.url, "http://127.0.0.1:${HEALTH_PORT}/health");
   assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
-  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.8.20-858861f");
+  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.8.27-b393c70");
+  assert.equal(byServiceId.get("@serviceadmin")?.catalogProvenance?.checksumPresent, true);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(byId.get("@serviceadmin")?.artifact?.platforms ?? {}).map(([platform, definition]) => [
+        platform,
+        {
+          assetName: definition.assetName,
+          checksum: {
+            algorithm: definition.checksum?.algorithm,
+            assetName: definition.checksum?.assetName,
+          },
+        },
+      ]),
+    ),
+    {
+      win32: {
+        assetName: "@serviceadmin-win32.zip",
+        checksum: { algorithm: "sha256", assetName: "SHA256SUMS.txt" },
+      },
+      linux: {
+        assetName: "@serviceadmin-linux.tar.gz",
+        checksum: { algorithm: "sha256", assetName: "SHA256SUMS.txt" },
+      },
+      darwin: {
+        assetName: "@serviceadmin-darwin.tar.gz",
+        checksum: { algorithm: "sha256", assetName: "SHA256SUMS.txt" },
+      },
+    },
+  );
+  assert.equal(byId.get("@serviceadmin")?.artifact?.checksum, undefined);
   assert.equal(byId.get("@serviceadmin")?.name, "Core Service Admin");
   assert.match(byId.get("@serviceadmin")?.description ?? "", /Core operator\/admin UI service/);
   assert.deepEqual(byId.get("@serviceadmin")?.env, {
