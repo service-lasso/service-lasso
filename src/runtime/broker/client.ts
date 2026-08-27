@@ -255,7 +255,10 @@ export async function requestSecretsBrokerManagement(
 ): Promise<SecretsBrokerManagementResponse> {
   const transport = validateTransport(options.transport);
   const token = validateToken(options.apiToken);
-  const timeoutMs = normalizeTimeout(options.timeoutMs, SECRETSBROKER_IPC_TIMEOUT_MS);
+  const timeoutMs = normalizeTimeout(
+    options.timeoutMs,
+    input.method === "GET" ? DEFAULT_TIMEOUT_MS : SECRETSBROKER_IPC_TIMEOUT_MS,
+  );
   const requestPath = validateManagementTarget(input.method, input.path);
   const managementAuthMode = options.managementAuthMode ?? "token-header";
   const body = input.method === "POST" ? JSON.stringify(input.body ?? {}) : undefined;
@@ -268,12 +271,9 @@ export async function requestSecretsBrokerManagement(
     const connection = transport.kind === "loopback-http"
       ? { protocol: url!.protocol, hostname: url!.hostname, port: url!.port, path: `${url!.pathname}${url!.search}` }
       : { socketPath: transport.socketPath, path: requestPath };
-    // A pooled Windows pipe session can remain writable while no longer
-    // serving responses. Management operations use a fresh local connection.
     const request = http.request({
       method: input.method,
       ...connection,
-      ...(transport.kind === "windows-named-pipe" ? { agent: false } : {}),
       headers: {
         accept: "application/json",
         ...(managementAuthMode === "bearer"

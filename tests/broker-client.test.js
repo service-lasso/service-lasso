@@ -312,7 +312,60 @@ test("broker management client proxies only allowlisted JSON operations over aut
   }
 });
 
-test("broker management preserves a single protected provider migration apply after readiness reads", async () => {
+test("broker management readiness GET fails typed before the eight-second detector bound", async (context) => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-management-read-timeout-"));
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\service-lasso-broker-management-read-timeout-${process.pid}-${Date.now()}`
+    : path.join(tempRoot, "broker.sock");
+  let requests = 0;
+  const server = responseServer((request) => {
+    requests += 1;
+    assert.equal(request.method, "GET");
+    assert.equal(request.url, "/v1/providers/config/status");
+    assert.equal(request.headers["x-secretsbroker-token"], apiToken);
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  const started = Date.now();
+  try {
+    await assert.rejects(
+      requestSecretsBrokerManagement({
+        transport: process.platform === "win32"
+          ? { kind: "windows-named-pipe", socketPath }
+          : { kind: "unix-socket", socketPath },
+        apiToken,
+        workspaceId: "workspace-test",
+      }, {
+        method: "GET",
+        path: "/v1/providers/config/status",
+      }),
+      (error) => {
+        assert.equal(error?.code, "broker_unavailable");
+        assert.equal(error?.message, "Secrets Broker management transport is unavailable.");
+        return true;
+      },
+    );
+    const elapsedMs = Date.now() - started;
+    assert.ok(elapsedMs >= 4_500, `readiness GET failed too early (${elapsedMs}ms)`);
+    assert.ok(elapsedMs < 8_000, `readiness GET exceeded the detector bound (${elapsedMs}ms)`);
+    assert.equal(requests, 1, "a timed-out readiness GET must not be retried");
+    context.diagnostic(JSON.stringify({
+      schema: "service-lasso.broker-management-timeout-proof.v1",
+      method: "GET",
+      outcome: "broker_unavailable",
+      requests,
+      elapsedMs,
+    }));
+  } finally {
+    server.closeAllConnections();
+    await close(server);
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("broker management preserves a single protected provider migration apply after readiness reads", async (context) => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-provider-apply-"));
   const socketPath = process.platform === "win32"
     ? `\\\\.\\pipe\\service-lasso-broker-provider-apply-${process.pid}-${Date.now()}`
@@ -394,11 +447,13 @@ test("broker management preserves a single protected provider migration apply af
     assert.equal(secondStatus.statusCode, 200);
     assert.equal(secondStatus.body.providers[0].migration.maturity, "validated");
 
+    const applyStarted = Date.now();
     const apply = await requestSecretsBrokerManagement(options, {
       method: "POST",
       path: "/v1/providers/migration/apply",
       body: { providerId: "vault-policy-denied", confirm: true },
     });
+    const applyElapsedMs = Date.now() - applyStarted;
     assert.deepEqual(apply, {
       statusCode: 200,
       body: {
@@ -409,7 +464,15 @@ test("broker management preserves a single protected provider migration apply af
         results: [{ providerId: "vault-policy-denied", outcome: "policy_denied", verified: false }],
       },
     });
+    assert.ok(applyElapsedMs >= 5_000, `migration apply did not exercise the POST-only extended bound (${applyElapsedMs}ms)`);
     assert.equal(applyRequests, 1, "the durable migration mutation must not be retried");
+    context.diagnostic(JSON.stringify({
+      schema: "service-lasso.broker-management-timeout-proof.v1",
+      method: "POST",
+      outcome: apply.body.outcome,
+      requests: applyRequests,
+      elapsedMs: applyElapsedMs,
+    }));
     assert.deepEqual(routes, [
       "GET /v1/providers/config/status",
       "POST /v1/providers/migration/dry-run",

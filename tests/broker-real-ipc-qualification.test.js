@@ -2,16 +2,12 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
-import {
-  listSecretsBrokerManagementRoutes,
-  requestSecretsBrokerManagement,
-} from "../dist/runtime/broker/client.js";
+import { listSecretsBrokerManagementRoutes } from "../dist/runtime/broker/client.js";
 import { BROKER_IDENTITY_LEASE_ENV, issueScopedBrokerIdentity } from "../dist/runtime/broker/identity.js";
 import {
   bootstrapSecretsBrokerVault,
@@ -338,65 +334,6 @@ async function stopBroker(child) {
     }
   }
 }
-
-test("Windows management readiness reads do not reuse a named-pipe connection", {
-  skip: process.platform !== "win32",
-}, async () => {
-  const socketPath = `\\\\.\\pipe\\service-lasso-broker-management-rebind-${process.pid}-${Date.now()}`;
-  const requestsBySocket = new WeakMap();
-  const routes = [];
-  let acceptedConnections = 0;
-  const server = createServer((request, response) => {
-    routes.push(`${request.method} ${request.url}`);
-    const priorRequests = requestsBySocket.get(request.socket) ?? 0;
-    requestsBySocket.set(request.socket, priorRequests + 1);
-    if (priorRequests > 0) {
-      // Model a non-responsive pooled pipe session. A later readiness read
-      // must use a fresh connection instead of waiting on this old session.
-      return;
-    }
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({
-      serviceId: "@secretsbroker",
-      outcome: "ready",
-      providers: [{ providerId: "vault-browser", outcome: "ready" }],
-    }));
-  });
-  server.on("connection", () => {
-    acceptedConnections += 1;
-  });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, resolve);
-  });
-  const options = {
-    transport: { kind: "windows-named-pipe", socketPath },
-    apiToken: "broker-test-token-with-at-least-32-bytes",
-    workspaceId: "workspace-test",
-    timeoutMs: 250,
-  };
-  try {
-    const firstStatus = await requestSecretsBrokerManagement(options, {
-      method: "GET",
-      path: "/v1/providers/config/status",
-    });
-    const secondStatus = await requestSecretsBrokerManagement(options, {
-      method: "GET",
-      path: "/v1/providers/config/status",
-    });
-
-    assert.equal(firstStatus.statusCode, 200);
-    assert.equal(secondStatus.statusCode, 200);
-    assert.deepEqual(routes, [
-      "GET /v1/providers/config/status",
-      "GET /v1/providers/config/status",
-    ]);
-    assert.equal(acceptedConnections, 2, "each Windows management read must use a fresh pipe connection");
-  } finally {
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
-  }
-});
 
 test(
   "pinned real Broker serves management, KV, and resolve over authenticated OS IPC",
