@@ -22,6 +22,13 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /repository: service-lasso\/lasso-serviceadmin[\s\S]*?ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79/);
   assert.match(workflow, /node scripts\/prepare-published-package-qualification\.mjs/);
   assert.doesNotMatch(workflow, /\bnpm ci\b|\bnpm run build\b|\bcontinue-on-error\b|\bmain\b|--force|screenshots|videos/iu);
+  const matrixJobStart = workflow.indexOf("  published-package-qualification:");
+  const matrixStepsStart = workflow.indexOf("\n    steps:", matrixJobStart);
+  const aggregateJobStart = workflow.indexOf("  require-published-package-qualification:");
+  const aggregateStepsStart = workflow.indexOf("\n    steps:", aggregateJobStart);
+  assert.doesNotMatch(workflow.slice(matrixJobStart, matrixStepsStart), /runner\.temp/);
+  assert.doesNotMatch(workflow.slice(aggregateJobStart, aggregateStepsStart), /runner\.temp/);
+  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 4);
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",

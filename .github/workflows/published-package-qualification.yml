@@ -74,7 +74,6 @@ jobs:
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
       QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
-      QUALIFICATION_PRIVATE_STATE_PATH: ${{ runner.temp }}/qualification-private-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}.json
       QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}
 
     steps:
@@ -113,6 +112,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          QUALIFICATION_PRIVATE_STATE_PATH: ${{ runner.temp }}/qualification-private-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}.json
         run: node scripts/prepare-published-package-qualification.mjs
 
       - name: Drive released Admin full browser contracts
@@ -139,6 +139,8 @@ jobs:
         id: cleanup
         if: always()
         shell: bash
+        env:
+          QUALIFICATION_PRIVATE_STATE_PATH: ${{ runner.temp }}/qualification-private-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}.json
         run: node scripts/cleanup-published-package-qualification.mjs
 
       - name: Record metadata-only terminal evidence
@@ -180,7 +182,6 @@ jobs:
       CORE_WIN32_SHA256: ${{ inputs.core_win32_sha256 }}
       CORE_LINUX_SHA256: ${{ inputs.core_linux_sha256 }}
       CORE_DARWIN_SHA256: ${{ inputs.core_darwin_sha256 }}
-      QUALIFICATION_ARTIFACTS_ROOT: ${{ runner.temp }}/published-package-artifact-readback
     steps:
       - name: Check out exact aggregate verifier
         uses: actions/checkout@v5
@@ -191,12 +192,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_ARTIFACTS_ROOT: ${{ runner.temp }}/published-package-artifact-readback
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir "$QUALIFICATION_ARTIFACTS_ROOT"
 
       - name: Read back artifact API and verify all terminal evidence
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          QUALIFICATION_ARTIFACTS_ROOT: ${{ runner.temp }}/published-package-artifact-readback
         run: node scripts/verify-published-package-qualification-artifacts.mjs
 
       - name: Require terminal-green three-platform jobs
