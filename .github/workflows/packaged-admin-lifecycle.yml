@@ -193,7 +193,7 @@ jobs:
           }
           $brokerBinary = $brokerBinaries[0]
           if ($env:RUNNER_OS -ne 'Windows') {
-            & chmod +x -- $brokerBinary.FullName
+            & chmod +x $brokerBinary.FullName
             if ($LASTEXITCODE -ne 0) {
               throw 'The verified Broker executable could not be made executable.'
             }

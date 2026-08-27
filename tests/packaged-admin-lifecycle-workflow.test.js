@@ -41,6 +41,8 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /checksum\.actual\.ToLowerInvariant\(\) -ne \$expectedSha/);
   assert.match(workflow, /SERVICE_LASSO_TEST_ADMIN_ROOT/);
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
+  assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
+  assert.doesNotMatch(workflow, /& chmod \+x --/);
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
