@@ -255,7 +255,10 @@ export async function requestSecretsBrokerManagement(
 ): Promise<SecretsBrokerManagementResponse> {
   const transport = validateTransport(options.transport);
   const token = validateToken(options.apiToken);
-  const timeoutMs = normalizeTimeout(options.timeoutMs, SECRETSBROKER_IPC_TIMEOUT_MS);
+  const timeoutMs = normalizeTimeout(
+    options.timeoutMs,
+    input.method === "GET" ? DEFAULT_TIMEOUT_MS : SECRETSBROKER_IPC_TIMEOUT_MS,
+  );
   const requestPath = validateManagementTarget(input.method, input.path);
   const managementAuthMode = options.managementAuthMode ?? "token-header";
   const body = input.method === "POST" ? JSON.stringify(input.body ?? {}) : undefined;
