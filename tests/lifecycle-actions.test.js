@@ -71,6 +71,7 @@ async function waitFor(predicate, timeoutMs = 1_000) {
 }
 
 const SUPERVISION_SETTLE_TIMEOUT_MS = process.platform === "win32" ? 10_000 : 2_000;
+const SUPERVISION_CLEANUP_TIMEOUT_MS = 5_000;
 
 async function writeCrashOnceService(servicesRoot, serviceId, restartPolicy) {
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -1001,7 +1002,10 @@ test("enabled crash restart policy starts service again through readiness", asyn
     );
   } finally {
     await stopManagedProcess("crash-once-service", 100).catch(() => null);
-    await waitForManagedProcessFinalization("crash-once-service").catch(() => undefined);
+    await waitForManagedProcessFinalization(
+      "crash-once-service",
+      Date.now() + SUPERVISION_CLEANUP_TIMEOUT_MS,
+    ).catch(() => undefined);
     resetLifecycleState();
     await rm(tempRoot, {
       recursive: true,
