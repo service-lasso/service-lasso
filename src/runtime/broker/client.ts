@@ -268,9 +268,12 @@ export async function requestSecretsBrokerManagement(
     const connection = transport.kind === "loopback-http"
       ? { protocol: url!.protocol, hostname: url!.hostname, port: url!.port, path: `${url!.pathname}${url!.search}` }
       : { socketPath: transport.socketPath, path: requestPath };
+    // A pooled Windows pipe session can remain writable while no longer
+    // serving responses. Management operations use a fresh local connection.
     const request = http.request({
       method: input.method,
       ...connection,
+      ...(transport.kind === "windows-named-pipe" ? { agent: false } : {}),
       headers: {
         accept: "application/json",
         ...(managementAuthMode === "bearer"
