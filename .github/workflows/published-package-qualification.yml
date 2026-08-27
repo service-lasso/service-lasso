@@ -1,0 +1,207 @@
+name: Published Package Three-OS Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      core_release_id:
+        description: Exact published Core GitHub release ID
+        required: true
+        type: string
+      core_release_tag:
+        description: Exact published Core tag and npm version
+        required: true
+        type: string
+      core_revision:
+        description: Exact 40-character Core release target SHA
+        required: true
+        type: string
+      core_npm_version:
+        description: Exact public npm package version
+        required: true
+        type: string
+      core_win32_sha256:
+        description: SHA-256 of the published unbundled Core Windows archive
+        required: true
+        type: string
+      core_linux_sha256:
+        description: SHA-256 of the published unbundled Core Linux archive
+        required: true
+        type: string
+      core_darwin_sha256:
+        description: SHA-256 of the published unbundled Core macOS archive
+        required: true
+        type: string
+      core_npm_integrity:
+        description: Exact SHA-512 SRI from the public npm registry
+        required: true
+        type: string
+
+concurrency:
+  group: published-package-qualification-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  published-package-qualification:
+    name: published-package-qualification (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            core_suffix: linux.tar.gz
+            core_sha256: ${{ inputs.core_linux_sha256 }}
+          - os: windows-latest
+            platform: win32
+            core_suffix: win32.zip
+            core_sha256: ${{ inputs.core_win32_sha256 }}
+          - os: macos-latest
+            platform: darwin
+            core_suffix: darwin.tar.gz
+            core_sha256: ${{ inputs.core_darwin_sha256 }}
+    env:
+      CORE_RELEASE_ID: ${{ inputs.core_release_id }}
+      CORE_RELEASE_TAG: ${{ inputs.core_release_tag }}
+      CORE_REVISION: ${{ inputs.core_revision }}
+      CORE_NPM_VERSION: ${{ inputs.core_npm_version }}
+      CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
+      CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
+      CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
+      QUALIFICATION_PLATFORM: ${{ matrix.platform }}
+      QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
+      QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}
+
+    steps:
+      - name: Check out exact qualification harness
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Check out exact qualified Admin browser harness
+        uses: actions/checkout@v5
+        with:
+          repository: service-lasso/lasso-serviceadmin
+          ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79
+          path: qualification/admin
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - name: Install exact Admin browser harness dependencies
+        working-directory: qualification/admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm exec cypress install
+
+      - name: Verify and prepare published packages
+        id: prepare
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUALIFICATION_PRIVATE_STATE_PATH: ${{ runner.temp }}/qualification-private-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}.json
+        run: node scripts/prepare-published-package-qualification.mjs
+
+      - name: Drive released Admin full browser contracts
+        id: qualify
+        working-directory: qualification/admin
+        shell: bash
+        env:
+          SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+        run: |
+          set -euo pipefail
+          test "$QUALIFICATION_PREPARED" = "1"
+          pnpm test:secrets:real-first-run-browser
+          echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
+          pnpm test:secrets:real-browser
+          echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
+          pnpm test:secrets:real-stopped-lifecycle-browser
+          echo "QUALIFICATION_STOPPED_LIFECYCLE=success" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            pnpm test:secrets:real-lockout-browser
+            echo "QUALIFICATION_LOCKOUT=success" >> "$GITHUB_ENV"
+          fi
+
+      - name: Prove owned process and filesystem cleanup convergence
+        id: cleanup
+        if: always()
+        shell: bash
+        env:
+          QUALIFICATION_PRIVATE_STATE_PATH: ${{ runner.temp }}/qualification-private-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}.json
+        run: node scripts/cleanup-published-package-qualification.mjs
+
+      - name: Record metadata-only terminal evidence
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUALIFICATION_JOB_NAME: published-package-qualification (${{ matrix.platform }})
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          QUALIFICATION_OUTCOME: ${{ steps.qualify.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+        run: node scripts/record-published-package-qualification.mjs
+
+      - name: Upload retained platform evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: published-package-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/retained-${{ matrix.platform }}/published-package-qualification-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  require-published-package-qualification:
+    name: require-published-package-qualification
+    if: always()
+    needs:
+      - published-package-qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    env:
+      CORE_RELEASE_ID: ${{ inputs.core_release_id }}
+      CORE_RELEASE_TAG: ${{ inputs.core_release_tag }}
+      CORE_REVISION: ${{ inputs.core_revision }}
+      CORE_NPM_VERSION: ${{ inputs.core_npm_version }}
+      CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
+      CORE_WIN32_SHA256: ${{ inputs.core_win32_sha256 }}
+      CORE_LINUX_SHA256: ${{ inputs.core_linux_sha256 }}
+      CORE_DARWIN_SHA256: ${{ inputs.core_darwin_sha256 }}
+    steps:
+      - name: Check out exact aggregate verifier
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download exact current-run artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_ARTIFACTS_ROOT: ${{ runner.temp }}/published-package-artifact-readback
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir "$QUALIFICATION_ARTIFACTS_ROOT"
+
+      - name: Read back artifact API and verify all terminal evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUALIFICATION_ARTIFACTS_ROOT: ${{ runner.temp }}/published-package-artifact-readback
+        run: node scripts/verify-published-package-qualification-artifacts.mjs
+
+      - name: Require terminal-green three-platform jobs
+        shell: bash
+        run: test '${{ needs.published-package-qualification.result }}' = 'success'
