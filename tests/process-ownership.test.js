@@ -329,17 +329,22 @@ test("Windows native identity adapter aborts and closes a non-returning helper a
 test("Windows native identity probe matches the stored full fingerprint for the live process", {
   skip: process.platform !== "win32",
 }, async () => {
+  // This real-host smoke includes PowerShell cold start on shared Windows runners.
+  // Product process-control deadlines are covered independently by injected tests above.
+  const nativeIdentitySmokeDeadlineMs = 15_000;
   const inspection = await inspectProcess(process.pid);
   assert.equal(inspection.status, "running");
   assert.equal(
-    await classifyWindowsProcessIdentityFast(inspection.identity, { deadlineMs: Date.now() + 5_000 }),
+    await classifyWindowsProcessIdentityFast(inspection.identity, {
+      deadlineMs: Date.now() + nativeIdentitySmokeDeadlineMs,
+    }),
     "owned",
   );
   assert.equal(
     await classifyWindowsProcessIdentityFast({
       ...inspection.identity,
       createdAt: new Date(Date.parse(inspection.identity.createdAt) + 1_000).toISOString(),
-    }, { deadlineMs: Date.now() + 5_000 }),
+    }, { deadlineMs: Date.now() + nativeIdentitySmokeDeadlineMs }),
     "identity_mismatch",
   );
 });

@@ -43,6 +43,7 @@ This repo is therefore the place where the real core behavior must live and cont
 ## Assumptions
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.
 - The current highest-value work is proving release readiness from a clean consumer perspective: package install, GitHub release artifacts, manifest-owned service acquisition, Service Admin integration, Echo Service behavior, and canonical reference-app source/bootstrap/bundled outputs.
+- Hosted Windows cold start and load can make a real PowerShell identity smoke slower than the product's caller-owned process-control deadline. The smoke therefore uses its own explicit bounded test allowance; deterministic injected tests remain the authority for the unchanged product deadline, helper termination, and fail-closed classifications.
 - GitHub-backed issues/project board remain the system of record for governed execution tracking.
 - Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 
@@ -52,6 +53,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - `node-sample-service` is the tracked rotation/update fixture for non-secret env plus optional consumer and generated producer secrets.
 - The core runtime should expose a standalone execution surface independent of any app-host-specific assumptions.
 - Service lifecycle work should converge on explicit actions such as install, config, start, stop, and health/status reporting.
+- Real-host Windows process-identity smoke must prove both an owned full fingerprint and an identity mismatch within an explicit test-only bound appropriate for hosted cold start/load. It must not relax or replace deterministic proof that production process control carries one absolute caller deadline and terminates over-budget helper processes safely (`SPEC-002` `AC-4BH`, `AC-4BS.2`).
 - Service lifecycle mutations must derive authority from the trusted runtime request context and enforce the same permission and confirmation decisions projected to Service Admin. Final cross-repository acceptance pins the exact checksum-bound Admin release, acquires the published Admin and Broker archives through Core's production install path, and drives the unchanged released UI against the candidate Core on Windows, Linux, and macOS. The packaged proof must retain authenticated protected Broker transport across target readiness reads and a single durable provider-migration apply, and must prove a visibly enabled, confirmed, exactly-once local-root restart followed by ready-state refresh without retries, captures, credentials, paths, or secret values in evidence (`SPEC-002` `AC-4BY`, `AC-4BY.1`, `AC-4BY.2`).
 - Dependency, env, and health semantics should remain explicit and reviewable through docs/specs as implementation hardens.
 - Product implementation should proceed through bounded specs/issues rather than undocumented chat intent.
