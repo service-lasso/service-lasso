@@ -1,23 +1,26 @@
 # Canonical demo watchdog
 
-The canonical Service Lasso LAN demo is:
+The canonical Service Lasso demo uses operator-supplied network parameters. The
+repository does not choose an IP address or hostname:
 
 | Surface | URL |
 | --- | --- |
-| Service Admin | `http://192.168.1.53:17700/` |
-| Runtime API health | `http://192.168.1.53:17883/api/health` |
+| Service Admin | `http://<client-visible-host>:17700/` |
+| Runtime API health | `http://<client-visible-host>:17883/api/health` |
 
 Use the repo-owned watchdog when the canonical demo must be kept online:
 
 ```powershell
-npm run demo:watchdog
+$bindHost = "<bind-host>"
+$demoHost = "<client-visible-host>"
+npm run demo:watchdog -- --bind-host=$bindHost --host=$demoHost
 ```
 
 Use the hardened deploy command when a developer or validator needs to prove a
 specific checked-out ref is the canonical live demo:
 
 ```powershell
-npm run demo:deploy-canonical -- --ref HEAD --expect /api/log-shipping:200 --expect-json /api/telemetry:apiRequests
+npm run demo:deploy-canonical -- --ref HEAD --host=$bindHost --url-host=$demoHost --expect /api/log-shipping:200 --expect-json /api/telemetry:apiRequests
 ```
 
 `demo:deploy-canonical` is the required path before claiming latest code is
@@ -61,7 +64,7 @@ At final handoff or safe blocker exit, run the recorded cleanup command. If
 cleanup is intentionally skipped, record the reason and the summary path so the
 owning worktree processes can be identified later.
 
-The watchdog checks both LAN URLs before it attempts recovery. If either URL is
+The watchdog checks both operator-selected URLs before it attempts recovery. If either URL is
 unreachable, it acquires `.demo-logs/demo-watchdog.lock.json` before launching
 recovery so repeated scheduler runs cannot overlap. Manual recycle also acquires
 the scheduled-task compatibility lock `.demo-logs/watchdog.lock`, which keeps the
@@ -69,7 +72,7 @@ Windows scheduled watchdog from starting a second recovery while validation is
 already recycling the canonical demo. Recovery runs:
 
 ```powershell
-npm run demo:recycle -- --port=17883
+npm run demo:recycle -- --port=17883 --host=$bindHost --runtime-url=http://${demoHost}:17883 --admin-url=http://${demoHost}:17700/
 ```
 
 `demo:recycle` is a lower-level recovery primitive. It is useful when the
@@ -81,13 +84,14 @@ The command also sets `SERVICE_LASSO_PORT=17883` in the recovery process. This
 keeps the runtime on the canonical port instead of falling back to the generic
 development default.
 
-Before claiming a demo deploy or recycle succeeded, run the canonical verifier:
+Before claiming a demo deploy or recycle succeeded, run the canonical verifier
+with the client-visible host or with both complete URLs:
 
 ```powershell
-npm run demo:verify-canonical
+npm run demo:verify-canonical -- --host=$demoHost
 ```
 
-The verifier checks the canonical LAN ports, runtime health, Service Admin
+The verifier checks the parameterized canonical ports, runtime health, Service Admin
 reachability, runtime `servicesRoot` / `workspaceRoot`, the live release
 metadata against the checked-in `services/` manifests, and each checkable
 advertised service UI/API/health URL from those manifests. Provider-only
@@ -106,18 +110,21 @@ Useful overrides:
 
 | Setting | Purpose |
 | --- | --- |
-| `--host=<host>` / `SERVICE_LASSO_DEMO_HOST` | LAN host for both default checks. |
+| `--bind-host=<host>` / `SERVICE_LASSO_DEMO_BIND_HOST` | Required listener bind host for watchdog recovery. |
+| `--host=<host>` / `SERVICE_LASSO_DEMO_HOST` | Client-visible host used to derive both check URLs. Required unless both URLs are explicit. |
 | `--runtime-port=<port>` / `SERVICE_LASSO_PORT` | Runtime port used for health and recovery. |
-| `--service-admin-url=<url>` | Explicit Service Admin check URL. |
+| `--runtime-url=<url>` / `SERVICE_LASSO_DEMO_RUNTIME_URL` | Explicit runtime base URL, propagated to recovery. |
+| `--service-admin-url=<url>` / `SERVICE_LASSO_DEMO_ADMIN_URL` | Explicit Service Admin check URL. |
 | `--runtime-health-url=<url>` | Explicit runtime health check URL. |
 | `--lock-path=<path>` | Alternate repo-owned watchdog lock file for validation. |
 | `--legacy-scheduler-lock-path=<path>` / `SERVICE_LASSO_DEMO_LEGACY_WATCHDOG_LOCK` | Alternate compatibility lock honored by the Windows scheduled task. |
 | `--dry-run` | Check health and report that recovery would be needed without recycling. |
 
-Every final demo handoff should include the branch, commit, `npm run demo:watchdog`
-or `npm run demo:deploy-canonical -- --ref <ref>` result,
+Every final demo handoff should include the branch, commit, the exact bind and
+client-visible host or URL parameters, the parameterized `npm run demo:watchdog`
+or `npm run demo:deploy-canonical -- --ref <ref> ...` result,
 `.demo-logs/canonical-deploy-summary.json`, `npm run demo:verify-canonical`
 output, endpoint expectation results for the changed feature surface, and live
-LAN proof for both canonical URLs. Prefer `demo:deploy-canonical` for developer
+network proof for both canonical URLs. Prefer `demo:deploy-canonical` for developer
 and validator latest-demo claims; use `demo:watchdog` only for availability
 recovery and `demo:recycle` only as the lower-level refresh primitive.
