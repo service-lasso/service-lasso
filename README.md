@@ -92,21 +92,23 @@ Use these commands when operating or checking the demo:
 | `npm run demo:start -- --port=17883` | Build, ensure the demo runtime is available on the canonical runtime port, and exit cleanly when the canonical endpoints are already healthy. |
 | `npm run demo:gate -- --port=17883` | Return one worker-safe gate result with endpoint health, listener state, lifecycle ownership, recovery lock path, recovery attempt evidence, and next safe action. |
 | `npm run demo:status -- --port=17883` | Print a non-mutating status report for runtime health, Service Admin reachability, Service Admin same-origin runtime API probes, workspace root, lifecycle state path, and demo log path. |
-| `npm run demo:verify-canonical -- --port=17883` | Verify the canonical runtime health endpoint, Service Admin URL, Service Admin same-origin `/api/dashboard` and `/api/services` JSON responses, and the expected canonical service state. Exits non-zero when either surface is not reachable, an Admin API path returns the HTML shell instead of runtime JSON, or the service state does not match the canonical contract. |
+| `npm run demo:verify-canonical -- --host=<client-visible-host> --port=17883` | Verify the canonical runtime health endpoint, Service Admin URL, Service Admin same-origin `/api/dashboard` and `/api/services` JSON responses, and the expected canonical service state. Exits non-zero when either surface is not reachable, an Admin API path returns the HTML shell instead of runtime JSON, or the service state does not match the canonical contract. |
 | `npm run demo:worktree-proof -- --id=issue-947` | Prepare an issue-worktree proof lane with free runtime, Service Admin, and demo service ports. Writes `worktree-proof-summary.json` with the allocated URLs plus exact `demo:gate`, `demo:verify-canonical`, and cleanup commands for developer and validator handoff. |
 | `npm run demo:reset` | Clear the default demo workspace and managed demo service state. |
 | `npm run demo:smoke` | Run an isolated end-to-end smoke test against the bounded demo fixture. |
 
-Canonical LAN checks used by the unattended worker are:
+Canonical demo network identity is supplied by the operator. The repository does
+not choose an IP address or hostname. Given `--host=<client-visible-host>`, the
+unattended checks are:
 
 | URL | Purpose |
 | --- | --- |
-| `http://192.168.1.53:17883/api/health` | Service Lasso runtime health |
-| `http://192.168.1.53:17700/` | Service Admin UI |
-| `http://192.168.1.53:17700/api/dashboard` | Service Admin same-origin runtime API probe |
-| `http://192.168.1.53:17700/api/services` | Service Admin same-origin service-state probe |
+| `http://<client-visible-host>:17883/api/health` | Service Lasso runtime health |
+| `http://<client-visible-host>:17700/` | Service Admin UI |
+| `http://<client-visible-host>:17700/api/dashboard` | Service Admin same-origin runtime API probe |
+| `http://<client-visible-host>:17700/api/services` | Service Admin same-origin service-state probe |
 
-Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state. When runtime health is down and there is no wrong-owner, stale-lock, active-recovery, or listener-conflict blocker, the gate starts one detached Service Lasso runtime process, records the runtime log path under `.demo-logs/`, waits for the canonical endpoints, and returns `recovered` if they become healthy. It exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, `service_admin_down`, `service_admin_api_non_json`, `service_admin_api_down`, `service_admin_services_api_non_json`, `service_admin_services_api_down`, `canonical_service_state_mismatch`, or `service_startup_failure` when the worker should stop and hand off a blocker. `service_admin_api_non_json` means Service Admin was reachable but `/api/dashboard` returned non-JSON content, usually the HTML shell, so the visible UI is not actually connected to the runtime API. `canonical_service_state_mismatch` means the Admin API is reachable but the service list does not match the accepted canonical demo contract. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
+Start, gate, status, and verification commands accept `--runtime-url=...`, `--admin-url=...`, `--workspace-root=...`, `--services-root=...`, `--timeout-ms=...`, `--demo-log-root=...`, and `--json` for automation. The canonical verifier also accepts `--host=...` to derive both canonical URLs; if `--host` is omitted, both URLs must be supplied explicitly. `demo:start` writes the latest canonical demo ownership/status record to `workspace/demo-instance/.service-lasso/demo-lifecycle.json` when it finds or starts a healthy demo. `demo:gate` also writes that lifecycle state. When runtime health is down and there is no wrong-owner, stale-lock, active-recovery, or listener-conflict blocker, the gate starts one detached Service Lasso runtime process, records the runtime log path under `.demo-logs/`, waits for the canonical endpoints, and returns `recovered` if they become healthy. It exits non-zero with a structured classification such as `runtime_port_owner_conflict`, `wrong_workspace_owner`, `stale_recovery_lock`, `service_admin_down`, `service_admin_api_non_json`, `service_admin_api_down`, `service_admin_services_api_non_json`, `service_admin_services_api_down`, `canonical_service_state_mismatch`, or `service_startup_failure` when the worker should stop and hand off a blocker. `service_admin_api_non_json` means Service Admin was reachable but `/api/dashboard` returned non-JSON content, usually the HTML shell, so the visible UI is not actually connected to the runtime API. `canonical_service_state_mismatch` means the Admin API is reachable but the service list does not match the accepted canonical demo contract. Lifecycle state is reported under `workspace/demo-instance/.service-lasso/`; demo logs are reported under `.demo-logs/`.
 
 For ordinary issue worktree proof, prefer `npm run demo:worktree-proof -- --id=<issue-or-branch>` before touching the fixed canonical ports. The command copies the demo services into `workspace/demo-instance/worktree-proof/<id>/services`, allocates free ports, patches the copied manifests, and writes the allocated runtime/Admin URLs plus owner metadata under `.demo-logs/worktree-proof/<id>/worktree-proof-summary.json`. Developer issue comments and validator handoffs should quote the `gate`, `verify`, and `cleanup` commands from that summary so validation checks the exact worktree-owned instance. Use fixed `17883`/`17700` only for intentional shared canonical refreshes.
 
@@ -115,7 +117,8 @@ The current canonical demo accepts the source Service Admin dev server as the vi
 On npm/PowerShell combinations that do not pass script flags after the first separator, add a second separator before the script flags:
 
 ```powershell
-npm run demo:verify-canonical -- -- --runtime-url=http://192.168.1.53:17883 --admin-url=http://192.168.1.53:17700/ --json
+$demoHost = "<client-visible-host>"
+npm run demo:verify-canonical -- -- --host=$demoHost --json
 ```
 
 ## Baseline Services

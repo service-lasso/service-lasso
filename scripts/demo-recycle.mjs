@@ -272,6 +272,9 @@ async function acquireDetachedRecycleLocks({ timeoutMs = detachedLockWaitTimeout
 
   const watchdogOptions = resolveWatchdogOptions([
     `--port=${options.port}`,
+    `--bind-host=${options.host}`,
+    `--runtime-url=${recycleRuntimeUrl()}`,
+    `--service-admin-url=${options.serviceAdminUrl ?? "http://127.0.0.1:17700/"}`,
   ]);
   const deadline = Date.now() + timeoutMs;
   let lastBlocker = "";

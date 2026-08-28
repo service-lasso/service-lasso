@@ -237,18 +237,19 @@ test("canonical deploy accepts npm-forwarded positional deploy args", () => {
       "/api/log-shipping:200",
       "/api/telemetry:telemetry.apiRequests",
     ], {
-      SERVICE_LASSO_DEMO_HOST: "127.0.0.1",
+      SERVICE_LASSO_DEMO_BIND_HOST: "0.0.0.0",
+      SERVICE_LASSO_DEMO_URL_HOST: "demo.example.test",
       npm_config_expect: "true",
       npm_config_expect_json: "true",
       npm_config_ref: "true",
     }),
     {
       ref: "HEAD",
-      host: "127.0.0.1",
+      host: "0.0.0.0",
       runtimePort: canonicalRuntimePort,
       serviceAdminPort: canonicalServiceAdminPort,
-      runtimeUrl: `http://127.0.0.1:${canonicalRuntimePort}`,
-      serviceAdminUrl: `http://127.0.0.1:${canonicalServiceAdminPort}/`,
+      runtimeUrl: `http://demo.example.test:${canonicalRuntimePort}`,
+      serviceAdminUrl: `http://demo.example.test:${canonicalServiceAdminPort}/`,
       servicesRoot: path.resolve("services"),
       workspaceRoot: path.resolve("workspace", "demo-instance"),
       logsRoot: path.resolve(".demo-logs"),
@@ -266,6 +267,7 @@ test("canonical deploy accepts npm-forwarded positional deploy args", () => {
 test("canonical deploy accepts npm-forwarded deploy option configs", () => {
   const options = resolveCanonicalDeployOptions([], {
     npm_config_ref: "HEAD",
+    npm_config_host: "0.0.0.0",
     npm_config_force_recovery: "true",
     npm_config_logs_root: "C:/tmp/service-lasso/deploy-logs",
     npm_config_runtime_url: "http://127.0.0.1:17883",
@@ -283,20 +285,35 @@ test("canonical deploy accepts npm-forwarded deploy option configs", () => {
   assert.equal(options.workspaceRoot, path.resolve("C:/tmp/service-lasso/workspace"));
 });
 
-test("canonical deploy defaults to loopback runtime control and LAN Admin reachability", () => {
-  const options = resolveCanonicalDeployOptions(["--ref=HEAD"], {});
+test("canonical deploy rejects missing network parameters before execution", () => {
+  assert.throws(
+    () => resolveCanonicalDeployOptions(["--ref=HEAD"], {}),
+    /requires --host=<bind-host>/,
+  );
+  assert.throws(
+    () => resolveCanonicalDeployOptions(["--ref=HEAD", "--host=0.0.0.0"], {}),
+    /requires --url-host=<client-visible-host>/,
+  );
+});
+
+test("canonical deploy derives runtime and Admin URLs from explicit parameters", () => {
+  const options = resolveCanonicalDeployOptions([
+    "--ref=HEAD",
+    "--host=0.0.0.0",
+    "--url-host=demo.example.test",
+  ], {});
 
   assert.equal(options.host, "0.0.0.0");
-  assert.equal(options.runtimeUrl, `http://127.0.0.1:${canonicalRuntimePort}`);
-  assert.equal(options.serviceAdminUrl, `http://192.168.1.53:${canonicalServiceAdminPort}/`);
+  assert.equal(options.runtimeUrl, `http://demo.example.test:${canonicalRuntimePort}`);
+  assert.equal(options.serviceAdminUrl, `http://demo.example.test:${canonicalServiceAdminPort}/`);
 });
 
 test("canonical deploy and recycle propagate LAN runtime URLs to child scripts", () => {
   const deployOptions = resolveCanonicalDeployOptions([
     "--ref=HEAD",
     "--host=0.0.0.0",
-    "--runtime-url=http://192.168.1.53:17883",
-    "--service-admin-url=http://192.168.1.53:17700/",
+    "--runtime-url=http://demo.example.test:17883",
+    "--service-admin-url=http://demo.example.test:17700/",
     "--services-root=C:/tmp/service-lasso/services",
     "--workspace-root=C:/tmp/service-lasso/workspace",
   ]);
@@ -307,16 +324,16 @@ test("canonical deploy and recycle propagate LAN runtime URLs to child scripts",
     ),
     [
       "--host=0.0.0.0",
-      "--runtime-url=http://192.168.1.53:17883",
-      "--admin-url=http://192.168.1.53:17700/",
+      "--runtime-url=http://demo.example.test:17883",
+      "--admin-url=http://demo.example.test:17700/",
     ],
   );
 
   const recycleOptions = resolveDemoOptions([
     "--port=17883",
     "--host=0.0.0.0",
-    "--runtime-url=http://192.168.1.53:17883",
-    "--admin-url=http://192.168.1.53:17700/",
+    "--runtime-url=http://demo.example.test:17883",
+    "--admin-url=http://demo.example.test:17700/",
     "--services-root=C:/tmp/service-lasso/services",
     "--workspace-root=C:/tmp/service-lasso/workspace",
   ]);
@@ -327,8 +344,8 @@ test("canonical deploy and recycle propagate LAN runtime URLs to child scripts",
     ),
     [
       "--host=0.0.0.0",
-      "--runtime-url=http://192.168.1.53:17883",
-      "--admin-url=http://192.168.1.53:17700/",
+      "--runtime-url=http://demo.example.test:17883",
+      "--admin-url=http://demo.example.test:17700/",
     ],
   );
 });
@@ -340,7 +357,9 @@ test("canonical deploy preparation honors explicit service roots", async () => {
   try {
     const deployOptions = resolveCanonicalDeployOptions([
       "--ref=HEAD",
-      "--runtime-url=http://127.0.0.1:17883",
+      "--host=0.0.0.0",
+      "--url-host=demo.example.test",
+      "--runtime-url=http://demo.example.test:17883",
       `--services-root=${servicesRoot}`,
     ]);
 
@@ -396,8 +415,8 @@ test("worktree proof patches copied Service Admin manifests to allocated URLs", 
       id: "@serviceadmin",
       ports: { ui: 17700 },
       env: {
-        SERVICE_LASSO_API_BASE_URL: "http://192.168.1.53:17883",
-        SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://192.168.1.53:17883",
+        SERVICE_LASSO_API_BASE_URL: "http://old-demo.example.test:17883",
+        SERVICE_LASSO_RUNTIME_API_BASE_URL: "http://old-demo.example.test:17883",
       },
     },
     {
@@ -420,7 +439,7 @@ test("canonical service admin seed uses the canonical runtime URL for its API pr
   const servicesRoot = path.join(tempDir, "services");
   const serviceAdminRoot = path.join(servicesRoot, "@serviceadmin");
   const manifestPath = path.join(serviceAdminRoot, "service.json");
-  const runtimeUrl = "http://192.168.1.53:17883";
+  const runtimeUrl = "http://demo.example.test:17883";
 
   try {
     await mkdir(serviceAdminRoot, { recursive: true });
@@ -450,7 +469,7 @@ test("demo recycle rewrites Service Admin runtime API proxy URL", async () => {
   const servicesRoot = path.join(tempDir, "services");
   const serviceAdminRoot = path.join(servicesRoot, "@serviceadmin");
   const manifestPath = path.join(serviceAdminRoot, "service.json");
-  const runtimeUrl = "http://192.168.1.53:17883";
+  const runtimeUrl = "http://demo.example.test:17883";
 
   try {
     await mkdir(serviceAdminRoot, { recursive: true });
@@ -809,8 +828,8 @@ test("canonical demo verifier fails when an advertised service URL is unreachabl
       {
         servicesRoot,
         workspaceRoot,
-        runtimeUrl: "http://192.168.1.53:17883",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       {
         fetch: async (url, options) => {
@@ -1085,27 +1104,75 @@ test("demo options default to the canonical runtime port instead of NGINX 18080"
   }
 });
 
-test("demo watchdog defaults to the canonical LAN endpoints and runtime port", () => {
-  const options = resolveWatchdogOptions([], {});
+test("demo watchdog requires parameterized network identity and propagates it to recovery", () => {
+  assert.throws(
+    () => resolveWatchdogOptions([], {}),
+    /requires --bind-host=<bind-host>/,
+  );
+  assert.throws(
+    () => resolveWatchdogOptions(["--bind-host=0.0.0.0"], {}),
+    /requires --host=<client-visible-host>/,
+  );
+
+  const options = resolveWatchdogOptions([
+    "--bind-host=0.0.0.0",
+    "--host=demo.example.test",
+  ], {});
   assert.equal(options.runtimePort, 17883);
-  assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
-  assert.equal(options.runtimeHealthUrl, "http://192.168.1.53:17883/api/health");
+  assert.equal(options.runtimeUrl, "http://demo.example.test:17883");
+  assert.equal(options.serviceAdminUrl, "http://demo.example.test:17700/");
+  assert.equal(options.runtimeHealthUrl, "http://demo.example.test:17883/api/health");
   assert.equal(options.legacySchedulerLockPath, path.resolve(".demo-logs", "watchdog.lock"));
 
   const recovery = buildRecoveryCommand(options);
-  assert.deepEqual(recovery.args, ["run", "demo:recycle", "--", "--port=17883"]);
+  assert.deepEqual(recovery.args, [
+    "run",
+    "demo:recycle",
+    "--",
+    "--port=17883",
+    "--host=0.0.0.0",
+    "--runtime-url=http://demo.example.test:17883",
+    "--admin-url=http://demo.example.test:17700/",
+  ]);
   assert.equal(recovery.env.SERVICE_LASSO_PORT, "17883");
+  assert.equal(recovery.env.SERVICE_LASSO_HOST, "0.0.0.0");
+  assert.equal(recovery.env.SERVICE_LASSO_RUNTIME_URL, "http://demo.example.test:17883");
+  assert.equal(recovery.env.SERVICE_LASSO_ADMIN_URL, "http://demo.example.test:17700/");
   assert.equal(recovery.env.SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD, "1");
 });
 
-test("canonical demo verifier defaults to loopback runtime and canonical prepared services root", () => {
-  const options = resolveCanonicalVerifierOptions([], {});
+test("demo watchdog accepts complete explicit URLs without a shared client host", () => {
+  const options = resolveWatchdogOptions([
+    "--bind-host=127.0.0.1",
+    "--runtime-url=http://runtime.demo.test:17883",
+    "--service-admin-url=http://admin.demo.test:17700/",
+  ], {});
+
+  assert.equal(options.runtimeUrl, "http://runtime.demo.test:17883");
+  assert.equal(options.serviceAdminUrl, "http://admin.demo.test:17700/");
+  assert.equal(options.runtimeHealthUrl, "http://runtime.demo.test:17883/api/health");
+});
+
+test("canonical demo verifier requires a host or complete explicit URLs", () => {
+  assert.throws(
+    () => resolveCanonicalVerifierOptions([], {}),
+    /requires --host=<client-visible-host>/,
+  );
+
+  const options = resolveCanonicalVerifierOptions(["--host=demo.example.test"], {});
   assert.equal(options.runtimePort, canonicalRuntimePort);
   assert.equal(options.serviceAdminPort, canonicalServiceAdminPort);
-  assert.equal(options.runtimeUrl, "http://127.0.0.1:17883");
-  assert.equal(options.serviceAdminUrl, "http://192.168.1.53:17700/");
-  assert.equal(options.runtimeHealthUrl, "http://127.0.0.1:17883/api/health");
+  assert.equal(options.runtimeUrl, "http://demo.example.test:17883");
+  assert.equal(options.serviceAdminUrl, "http://demo.example.test:17700/");
+  assert.equal(options.runtimeHealthUrl, "http://demo.example.test:17883/api/health");
   assert.equal(options.servicesRoot, canonicalDemoServicesRoot);
+
+  const explicit = resolveCanonicalVerifierOptions([
+    "--runtime-url=http://runtime.demo.test:17883",
+    "--service-admin-url=http://admin.demo.test:17700/",
+  ], {});
+  assert.equal(explicit.runtimeUrl, "http://runtime.demo.test:17883");
+  assert.equal(explicit.serviceAdminUrl, "http://admin.demo.test:17700/");
 });
 
 test("canonical demo verifier accepts live metadata matching checked-in release pins", async () => {
@@ -1120,8 +1187,8 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
       {
         servicesRoot,
         workspaceRoot,
-        runtimeUrl: "http://192.168.1.53:17883",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       { fetch: canonicalFetch({ servicesRoot, workspaceRoot }) },
     );
@@ -1140,7 +1207,7 @@ test("canonical demo verifier discovers only the active workspace generation end
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
   const stateDirectory = path.join(workspaceRoot, ".service-lasso");
   const generationId = "11111111-1111-4111-8111-111111111111";
-  const runtimeUrl = "http://192.168.1.53:17883";
+  const runtimeUrl = "http://demo.example.test:17883";
 
   try {
     await writeCanonicalFixtureManifests(servicesRoot);
@@ -1166,7 +1233,7 @@ test("canonical demo verifier discovers only the active workspace generation end
     }, null, 2)}\n`);
 
     const result = await verifyCanonicalDemo(
-      { servicesRoot, workspaceRoot, serviceAdminUrl: "http://192.168.1.53:17700/" },
+      { servicesRoot, workspaceRoot, serviceAdminUrl: "http://demo.example.test:17700/" },
       { fetch: canonicalFetch({ servicesRoot, workspaceRoot, generationId }) },
     );
 
@@ -1214,13 +1281,13 @@ test("canonical demo verifier uses selected loopback metadata when LAN runtime A
       {
         servicesRoot,
         workspaceRoot,
-        runtimeUrl: "http://192.168.1.53:17883",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       {
         fetch: async (url, options) => {
           const parsed = new URL(url);
-          if (parsed.hostname === "192.168.1.53" && parsed.port === "17883" && ["/api/runtime", "/api/runtime/instance", "/api/services"].includes(parsed.pathname)) {
+          if (parsed.hostname === "demo.example.test" && parsed.port === "17883" && ["/api/runtime", "/api/runtime/instance", "/api/services"].includes(parsed.pathname)) {
             return jsonResponse(401, { error: "remote_auth_required" });
           }
           return baseFetch(url, options);
@@ -1229,7 +1296,7 @@ test("canonical demo verifier uses selected loopback metadata when LAN runtime A
     );
 
     assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
-    assert.equal(result.summary.runtimeUrl, "http://192.168.1.53:17883");
+    assert.equal(result.summary.runtimeUrl, "http://demo.example.test:17883");
     assert.equal(result.summary.generationId, generationId);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -1248,8 +1315,8 @@ test("canonical demo verifier accepts source Admin owning the canonical Service 
       {
         servicesRoot,
         workspaceRoot,
-        runtimeUrl: "http://192.168.1.53:17883",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       { fetch: canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true }) },
     );
@@ -1275,8 +1342,8 @@ test("canonical demo verifier accepts seeded source Admin manifest state", async
       {
         servicesRoot,
         workspaceRoot,
-        runtimeUrl: "http://192.168.1.53:17883",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       { fetch: canonicalFetch({ servicesRoot, workspaceRoot, sourceServiceAdmin: true, sourceServiceAdminSeeded: true }) },
     );
@@ -1302,8 +1369,8 @@ test("canonical demo verifier reports wrong runtime lane and stale release pins"
       {
         servicesRoot,
         workspaceRoot,
-        runtimeUrl: "http://192.168.1.53:18080",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:18080",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       {
         fetch: canonicalFetch({
@@ -1336,8 +1403,8 @@ test("canonical demo verifier rejects a healthy runtime from another generation"
         servicesRoot,
         workspaceRoot,
         generationId: expectedGenerationId,
-        runtimeUrl: "http://192.168.1.53:17883",
-        serviceAdminUrl: "http://192.168.1.53:17700/",
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
       },
       {
         fetch: canonicalFetch({

@@ -7,9 +7,12 @@ import {
   defaultDemoWorkspaceRoot,
 } from "./demo-instance-lib.mjs";
 import { canonicalDemoServicesRoot } from "./demo-canonical-root.mjs";
+import {
+  buildParameterizedHttpUrl,
+  optionalNetworkValue,
+} from "./demo-network-options.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
-export const canonicalDemoHost = "192.168.1.53";
 export const canonicalRuntimePort = 17883;
 export const canonicalServiceAdminPort = 17700;
 export const canonicalServiceIds = [...canonicalDemoRequiredServiceIds];
@@ -240,8 +243,7 @@ async function checkReachabilityTarget(checks, serviceId, target, fetchImpl, tim
   );
 }
 
-export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), env = process.env) {
-  const host = parseFlag(args, "host") ?? env.SERVICE_LASSO_DEMO_HOST ?? canonicalDemoHost;
+function resolveCanonicalVerifierBaseOptions(args = [], env = {}) {
   const runtimePort = parseNumber(
     parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? env.SERVICE_LASSO_PORT,
     canonicalRuntimePort,
@@ -251,28 +253,46 @@ export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), en
     canonicalServiceAdminPort,
   );
 
-  const explicitRuntimeUrl = parseFlag(args, "runtime-url") ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL;
-  const runtimeUrl = normalizeUrlBase(explicitRuntimeUrl ?? `http://127.0.0.1:${runtimePort}`);
-  const serviceAdminUrl =
-    parseFlag(args, "service-admin-url")
-    ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL
-    ?? `http://${host}:${serviceAdminPort}/`;
-
   return {
-    host,
     runtimePort,
     serviceAdminPort,
-    runtimeUrl,
-    runtimeUrlExplicit: Boolean(explicitRuntimeUrl),
     generationId: parseFlag(args, "generation") ?? env.SERVICE_LASSO_DEMO_GENERATION_ID ?? null,
-    serviceAdminUrl,
-    runtimeHealthUrl: `${runtimeUrl}/api/health`,
-    runtimeSummaryUrl: `${runtimeUrl}/api/runtime`,
-    runtimeServicesUrl: `${runtimeUrl}/api/services`,
     servicesRoot: canonicalServicesRootFor(parseFlag(args, "services-root") ?? env.SERVICE_LASSO_SERVICES_ROOT ?? defaultDemoServicesRoot),
     workspaceRoot: path.resolve(parseFlag(args, "workspace-root") ?? env.SERVICE_LASSO_WORKSPACE_ROOT ?? defaultDemoWorkspaceRoot),
     timeoutMs: parseNumber(parseFlag(args, "timeout-ms") ?? env.SERVICE_LASSO_DEMO_VERIFY_TIMEOUT_MS, 10_000),
     serviceIds: canonicalServiceIds,
+  };
+}
+
+export function resolveCanonicalVerifierOptions(args = process.argv.slice(2), env = process.env) {
+  const base = resolveCanonicalVerifierBaseOptions(args, env);
+  const host = optionalNetworkValue(parseFlag(args, "host") ?? env.SERVICE_LASSO_DEMO_HOST);
+  const explicitRuntimeUrl = optionalNetworkValue(
+    parseFlag(args, "runtime-url") ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL,
+  );
+  const explicitServiceAdminUrl = optionalNetworkValue(
+    parseFlag(args, "service-admin-url") ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL,
+  );
+  if ((!explicitRuntimeUrl || !explicitServiceAdminUrl) && !host) {
+    throw new Error(
+      "Canonical verifier requires --host=<client-visible-host> or SERVICE_LASSO_DEMO_HOST unless both --runtime-url and --service-admin-url are supplied.",
+    );
+  }
+  const runtimeUrl = normalizeUrlBase(
+    explicitRuntimeUrl ?? buildParameterizedHttpUrl(host, base.runtimePort),
+  );
+  const serviceAdminUrl = explicitServiceAdminUrl
+    ?? buildParameterizedHttpUrl(host, base.serviceAdminPort);
+
+  return {
+    ...base,
+    host,
+    runtimeUrl,
+    runtimeUrlExplicit: Boolean(explicitRuntimeUrl),
+    serviceAdminUrl,
+    runtimeHealthUrl: `${runtimeUrl}/api/health`,
+    runtimeSummaryUrl: `${runtimeUrl}/api/runtime`,
+    runtimeServicesUrl: `${runtimeUrl}/api/services`,
   };
 }
 
@@ -320,7 +340,14 @@ function isSourceServiceAdminState(service) {
 
 export async function verifyCanonicalDemo(options = {}, deps = {}) {
   let resolved = {
-    ...resolveCanonicalVerifierOptions([], {}),
+    ...resolveCanonicalVerifierBaseOptions([], {}),
+    host: null,
+    runtimeUrl: undefined,
+    runtimeUrlExplicit: false,
+    serviceAdminUrl: undefined,
+    runtimeHealthUrl: undefined,
+    runtimeSummaryUrl: undefined,
+    runtimeServicesUrl: undefined,
     ...options,
   };
   const runtimeUrlExplicit = typeof options.runtimeUrlExplicit === "boolean"
@@ -372,6 +399,18 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       };
     }
   }
+  if (!resolved.runtimeUrl) {
+    throw new Error("Canonical verification requires an explicit runtime URL or active workspace generation metadata.");
+  }
+  if (!resolved.serviceAdminUrl) {
+    throw new Error("Canonical verification requires an explicit Service Admin URL.");
+  }
+  resolved = {
+    ...resolved,
+    runtimeHealthUrl: resolved.runtimeHealthUrl ?? `${resolved.runtimeUrl}/api/health`,
+    runtimeSummaryUrl: resolved.runtimeSummaryUrl ?? `${resolved.runtimeUrl}/api/runtime`,
+    runtimeServicesUrl: resolved.runtimeServicesUrl ?? `${resolved.runtimeUrl}/api/services`,
+  };
   const fetchImpl = deps.fetch ?? fetch;
   const checks = [];
   const expectedServices = await readExpectedDemoServices(resolved.servicesRoot, resolved.serviceIds);

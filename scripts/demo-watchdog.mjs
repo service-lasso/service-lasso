@@ -3,9 +3,13 @@ import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoRoot } from "./demo-instance-lib.mjs";
+import {
+  buildParameterizedHttpUrl,
+  optionalNetworkValue,
+  requireNetworkValue,
+} from "./demo-network-options.mjs";
 
 const defaultRuntimePort = 17883;
-const defaultDemoHost = "192.168.1.53";
 const defaultLockTtlMs = 30 * 60 * 1000;
 const defaultLegacySchedulerLockTtlMs = 10 * 60 * 1000;
 const defaultRecoveryTimeoutMs = 15 * 60 * 1000;
@@ -26,15 +30,28 @@ export function resolveWatchdogOptions(args = process.argv.slice(2), env = proce
     parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? env.SERVICE_LASSO_PORT,
     defaultRuntimePort,
   );
-  const demoHost = parseFlag(args, "host") ?? env.SERVICE_LASSO_DEMO_HOST ?? defaultDemoHost;
-  const serviceAdminUrl =
-    parseFlag(args, "service-admin-url")
-    ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL
-    ?? `http://${demoHost}:17700/`;
-  const runtimeHealthUrl =
-    parseFlag(args, "runtime-health-url")
-    ?? env.SERVICE_LASSO_DEMO_RUNTIME_HEALTH_URL
-    ?? `http://${demoHost}:${runtimePort}/api/health`;
+  const bindHost = requireNetworkValue(
+    parseFlag(args, "bind-host") ?? env.SERVICE_LASSO_DEMO_BIND_HOST,
+    "Canonical watchdog requires --bind-host=<bind-host> or SERVICE_LASSO_DEMO_BIND_HOST for recovery.",
+  );
+  const demoHost = optionalNetworkValue(parseFlag(args, "host") ?? env.SERVICE_LASSO_DEMO_HOST);
+  const explicitRuntimeUrl = optionalNetworkValue(
+    parseFlag(args, "runtime-url") ?? env.SERVICE_LASSO_DEMO_RUNTIME_URL,
+  );
+  const explicitServiceAdminUrl = optionalNetworkValue(
+    parseFlag(args, "service-admin-url") ?? env.SERVICE_LASSO_DEMO_SERVICEADMIN_URL,
+  );
+  if ((!explicitRuntimeUrl || !explicitServiceAdminUrl) && !demoHost) {
+    throw new Error(
+      "Canonical watchdog requires --host=<client-visible-host> or SERVICE_LASSO_DEMO_HOST unless both --runtime-url and --service-admin-url are supplied.",
+    );
+  }
+  const runtimeUrl = (explicitRuntimeUrl ?? buildParameterizedHttpUrl(demoHost, runtimePort)).replace(/\/$/, "");
+  const serviceAdminUrl = explicitServiceAdminUrl
+    ?? buildParameterizedHttpUrl(demoHost, 17700);
+  const runtimeHealthUrl = optionalNetworkValue(
+    parseFlag(args, "runtime-health-url") ?? env.SERVICE_LASSO_DEMO_RUNTIME_HEALTH_URL,
+  ) ?? `${runtimeUrl}/api/health`;
   const lockPath =
     parseFlag(args, "lock-path")
     ?? env.SERVICE_LASSO_DEMO_WATCHDOG_LOCK
@@ -45,7 +62,9 @@ export function resolveWatchdogOptions(args = process.argv.slice(2), env = proce
     ?? path.join(repoRoot, ".demo-logs", "watchdog.lock");
 
   return {
+    bindHost,
     runtimePort,
+    runtimeUrl,
     serviceAdminUrl,
     runtimeHealthUrl,
     lockPath,
@@ -221,9 +240,20 @@ export async function releaseLegacySchedulerLock(lockPath) {
 export function buildRecoveryCommand(options) {
   return {
     command: process.platform === "win32" ? "npm.cmd" : "npm",
-    args: ["run", "demo:recycle", "--", `--port=${options.runtimePort}`],
+    args: [
+      "run",
+      "demo:recycle",
+      "--",
+      `--port=${options.runtimePort}`,
+      `--host=${options.bindHost}`,
+      `--runtime-url=${options.runtimeUrl}`,
+      `--admin-url=${options.serviceAdminUrl}`,
+    ],
     env: {
       SERVICE_LASSO_PORT: String(options.runtimePort),
+      SERVICE_LASSO_HOST: options.bindHost,
+      SERVICE_LASSO_RUNTIME_URL: options.runtimeUrl,
+      SERVICE_LASSO_ADMIN_URL: options.serviceAdminUrl,
       SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD: "1",
     },
   };
