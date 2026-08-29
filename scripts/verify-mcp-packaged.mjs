@@ -133,11 +133,9 @@ try {
   }
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
   const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");
-  const stdioPreloadPath = path.join(consumerRoot, "mcp-packaged-stdio-preload.mjs");
   await Promise.all([
     copyFile(path.join(repoRoot, "scripts", "mcp-packaged-consumer-runner.mjs"), consumerRunnerPath),
     copyFile(path.join(repoRoot, "scripts", "mcp-product-acceptance-lib.mjs"), consumerLibraryPath),
-    copyFile(path.join(repoRoot, "scripts", "mcp-packaged-stdio-preload.mjs"), stdioPreloadPath),
   ]);
   const platformReadRoots = process.platform === "win32"
     ? [path.dirname(process.execPath), process.env.SystemRoot, process.env.WINDIR]

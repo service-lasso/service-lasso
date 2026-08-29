@@ -74,7 +74,7 @@ compares all durable identity fields:
 Creation time is required because operating systems reuse PIDs. PID equality by
 itself never authorises termination.
 
-Windows identity inspection uses a direct per-PID `System.Management` WMI query. Linux inspection uses `/proc`
+Windows identity inspection uses one native process handle for PID, creation time, executable image, and command-line evidence. Linux inspection uses `/proc`
 identity data, with a bounded `ps` fallback, and macOS uses `ps` metadata.
 
 ## Legacy state migration

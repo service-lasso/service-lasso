@@ -16,7 +16,6 @@ on:
       - package-lock.json
       - scripts/mcp-product-acceptance-lib.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
-      - scripts/mcp-packaged-stdio-preload.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-mcp-product-artifact.mjs
@@ -44,7 +43,6 @@ on:
       - package-lock.json
       - scripts/mcp-product-acceptance-lib.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
-      - scripts/mcp-packaged-stdio-preload.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-mcp-product-artifact.mjs

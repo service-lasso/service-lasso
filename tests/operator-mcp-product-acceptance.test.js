@@ -4,10 +4,6 @@ import { rm } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startApiServer } from "../dist/server/index.js";
-import {
-  inspectProcess,
-  setWindowsProcessInspectionTimeoutForTests,
-} from "../dist/runtime/process/identity.js";
 import { runInspector, supportedMcpVersions } from "../scripts/mcp-product-acceptance-lib.mjs";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 
@@ -183,71 +179,5 @@ test("#864 official SDK and Inspector accept the guarded Streamable HTTP product
     if (connected) await client.close().catch(() => undefined);
     await apiServer?.stop();
     await rm(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test("#864 Windows acceptance inspection bound is explicitly gated, capped, and resettable", async () => {
-  const previousTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const inspectWithCapturedDeadline = async () => {
-    let deadlineMs = null;
-    const startedAt = Date.now();
-    const inspection = await inspectProcess(4242, {
-      platform: "win32",
-      runCommand: async (_command, _args, options) => {
-        deadlineMs = options?.deadlineMs ?? null;
-        return {
-          stdout: JSON.stringify({
-            ProcessId: 4242,
-            CreationDate: "2026-07-18T01:02:03.456Z",
-            ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
-            CommandLine: '"C:\\Program Files\\nodejs\\node.exe" service.mjs',
-          }),
-        };
-      },
-    });
-    assert.equal(inspection.status, "running");
-    return { deadlineMs, startedAt };
-  };
-
-  delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  assert.throws(
-    () => setWindowsProcessInspectionTimeoutForTests(60_000),
-    /requires explicit test hooks/u,
-  );
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  try {
-    for (const invalid of [14_999, 60_001, 15_000.5]) {
-      assert.throws(
-        () => setWindowsProcessInspectionTimeoutForTests(invalid),
-        /must be null or an integer/u,
-      );
-    }
-
-    setWindowsProcessInspectionTimeoutForTests(60_000);
-    const acceptanceBound = await inspectWithCapturedDeadline();
-    assert.equal(acceptanceBound.deadlineMs - acceptanceBound.startedAt >= 59_000, true);
-    assert.equal(acceptanceBound.deadlineMs - acceptanceBound.startedAt <= 61_000, true);
-
-    const explicitDeadlineMs = Date.now() + 25_000;
-    let receivedExplicitDeadlineMs = null;
-    await inspectProcess(4242, {
-      platform: "win32",
-      deadlineMs: explicitDeadlineMs,
-      runCommand: async (_command, _args, options) => {
-        receivedExplicitDeadlineMs = options?.deadlineMs ?? null;
-        return { stdout: "" };
-      },
-    });
-    assert.equal(receivedExplicitDeadlineMs, explicitDeadlineMs);
-
-    setWindowsProcessInspectionTimeoutForTests(null);
-    const productDefault = await inspectWithCapturedDeadline();
-    assert.equal(productDefault.deadlineMs - productDefault.startedAt >= 14_000, true);
-    assert.equal(productDefault.deadlineMs - productDefault.startedAt <= 16_000, true);
-  } finally {
-    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-    setWindowsProcessInspectionTimeoutForTests(null);
-    if (previousTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousTestHooks;
   }
 });

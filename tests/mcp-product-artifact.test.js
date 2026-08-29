@@ -47,7 +47,7 @@ function evidence(candidateSha, platform) {
       stdio: "passed",
       operatingModes: ["read-only", "guarded"],
       identityInspectionPolicy: platform === "win32"
-        ? "real-host-60s-acceptance-bound"
+        ? "native-win32-product-default"
         : "product-default",
     },
     canonical: {
@@ -79,7 +79,7 @@ test("#864 retained evidence rejects incomplete, inflated, unexpected, or malfor
     (value) => { value.packageArchiveSha256 = "not-a-digest"; },
     (value) => { value.canonical.discovery = "failed"; },
     (value) => { value.packagedRuntime.operatingModes.reverse(); },
-    (value) => { value.packagedRuntime.identityInspectionPolicy = "real-host-60s-acceptance-bound"; },
+    (value) => { value.packagedRuntime.identityInspectionPolicy = "native-win32-product-default"; },
   ];
   for (const mutate of invalidMutations) {
     const invalid = structuredClone(valid);
@@ -97,7 +97,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
   validateMcpProductEvidence(winEvidence, { candidateSha, platform: "win32" });
   assert.throws(
     () => validateMcpProductEvidence(
-      { ...winEvidence, packagedRuntime: { ...winEvidence.packagedRuntime, identityInspectionPolicy: "product-default" } },
+      { ...winEvidence, packagedRuntime: { ...winEvidence.packagedRuntime, identityInspectionPolicy: "real-host-60s-acceptance-bound" } },
       { candidateSha, platform: "win32" },
     ),
     /closed acceptance contract/u,
@@ -220,13 +220,10 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
-    assert.match(packagedConsumer, /SERVICE_LASSO_ENABLE_TEST_HOOKS = "1"[\s\S]*?setWindowsProcessInspectionTimeoutForTests\(60_000\)[\s\S]*?delete process\.env\.SERVICE_LASSO_ENABLE_TEST_HOOKS/u);
-    assert.match(packagedConsumer, /mcp-packaged-stdio-preload\.mjs/u);
-    const stdioPreload = await readFile("scripts/mcp-packaged-stdio-preload.mjs", "utf8");
-    assert.match(stdioPreload, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?setWindowsProcessInspectionTimeoutForTests\(60_000\)[\s\S]*?delete process\.env\.SERVICE_LASSO_ENABLE_TEST_HOOKS/u);
+    assert.doesNotMatch(packagedConsumer, /setWindowsProcessInspectionTimeoutForTests|mcp-packaged-stdio-preload/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
-    assert.match(identitySource, /setWindowsProcessInspectionTimeoutForTests\(timeoutMs: number \| null\)[\s\S]*?SERVICE_LASSO_ENABLE_TEST_HOOKS[\s\S]*?MAX_WINDOWS_PROCESS_INSPECTION_TEST_TIMEOUT_MS/u);
-    assert.match(identitySource, /System\.Management\.ManagementObjectSearcher[\s\S]*?System\.Management\.ManagementDateTimeConverter/u);
+    assert.match(identitySource, /OpenProcess[\s\S]*?GetProcessTimes[\s\S]*?QueryFullProcessImageName[\s\S]*?NtQueryInformationProcess/u);
+    assert.doesNotMatch(identitySource, /setWindowsProcessInspectionTimeoutForTests|System\.Management\.ManagementObjectSearcher/u);
     assert.doesNotMatch(identitySource, /Get-CimInstance Win32_Process/u);
   } finally {
     const closed = once(server, "close");

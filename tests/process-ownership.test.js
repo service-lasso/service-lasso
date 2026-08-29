@@ -65,7 +65,7 @@ async function postJson(url, body) {
 function windowsInspector(identity) {
   return {
     platform: "win32",
-    runCommand: async () => ({ stdout: JSON.stringify(identity) }),
+    runCommand: async () => ({ stdout: JSON.stringify({ Status: "running", ...identity }) }),
   };
 }
 
@@ -201,7 +201,7 @@ test("process identity classifies the active host process without PID-only trust
 });
 
 test("Windows inspection adapter captures creation, executable, and hashed command evidence", async () => {
-  const commandLine = '"C:\\Program Files\\nodejs\\node.exe" C:\\apps\\service.mjs --port 18080';
+  const commandLine = '"C:\\Program Files\\nodejs\\node.exe" "C:\\apps\\service alpha.mjs" --label="quoted Ω" --payload=' + "x".repeat(2_048);
   let inspectedCommand = "";
   let defaultDeadlineMs = null;
   const defaultDeadlineStartedAt = Date.now();
@@ -214,6 +214,7 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
         defaultDeadlineMs = options?.deadlineMs ?? null;
         return {
           stdout: JSON.stringify({
+            Status: "running",
             ProcessId: 4242,
             CreationDate: "2026-07-18T01:02:03.456Z",
             ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
@@ -225,8 +226,11 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
   );
 
   assert.equal(inspectedCommand.includes("@{;"), false);
-  assert.equal(inspectedCommand.includes("System.Management.ManagementObjectSearcher"), true);
-  assert.equal(inspectedCommand.includes("System.Management.ManagementDateTimeConverter"), true);
+  assert.equal(inspectedCommand.includes("OpenProcess"), true);
+  assert.equal(inspectedCommand.includes("GetProcessTimes"), true);
+  assert.equal(inspectedCommand.includes("QueryFullProcessImageName"), true);
+  assert.equal(inspectedCommand.includes("NtQueryInformationProcess"), true);
+  assert.equal(inspectedCommand.includes("System.Management.ManagementObjectSearcher"), false);
   assert.equal(inspectedCommand.includes("Get-CimInstance"), false);
   const defaultDeadlineDeltaMs = defaultDeadlineMs - defaultDeadlineStartedAt;
   assert.equal(defaultDeadlineDeltaMs >= 14_000, true);
@@ -261,6 +265,7 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
       receivedExplicitDeadlineMs = options?.deadlineMs ?? null;
       return {
         stdout: JSON.stringify({
+          Status: "running",
           ProcessId: 4242,
           CreationDate: "2026-07-18T01:02:03.456Z",
           ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
@@ -272,12 +277,98 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
   assert.equal(receivedExplicitDeadlineMs, explicitDeadlineMs);
 });
 
+test("Windows inspection treats only an explicit absent-process result as not running", async () => {
+  assert.deepEqual(
+    await inspectProcess(4242, windowsInspector({ Status: "not_running" })),
+    { status: "not_running", reason: "process_not_running" },
+  );
+  assert.deepEqual(
+    await inspectProcess(4242, {
+      platform: "win32",
+      runCommand: async () => ({ stdout: JSON.stringify({ Status: "not_running" }), exitCode: 1 }),
+    }),
+    { status: "unknown", reason: "windows_process_helper_failed" },
+  );
+  assert.deepEqual(
+    await inspectProcess(4242, { platform: "win32", runCommand: async () => ({ stdout: "" }) }),
+    { status: "unknown", reason: "windows_process_output_missing" },
+  );
+  assert.deepEqual(
+    await inspectProcess(4242, { platform: "win32", runCommand: async () => ({ stdout: "not-json" }) }),
+    { status: "unknown", reason: "windows_process_output_invalid" },
+  );
+  assert.deepEqual(
+    await inspectProcess(4242, windowsInspector({ ProcessId: 4242 })),
+    { status: "unknown", reason: "windows_process_evidence_incomplete" },
+  );
+});
+
+test("Windows full identity inspection aborts and observes helper closure at its deadline", async () => {
+  let helperAbortObserved = false;
+  let helperCloseObserved = false;
+  let helperPid = null;
+  await assert.rejects(
+    inspectProcess(4242, {
+      platform: "win32",
+      deadlineMs: Date.now() + 150,
+      runCommand: async (_command, _args, { signal }) => await new Promise((resolve, reject) => {
+        const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        helperPid = helper.pid;
+        signal?.addEventListener("abort", () => {
+          helperAbortObserved = true;
+          helper.kill("SIGKILL");
+        }, { once: true });
+        helper.once("close", () => {
+          helperCloseObserved = true;
+          resolve({ stdout: "" });
+        });
+        helper.once("error", reject);
+      }),
+    }),
+    (error) => error?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+  );
+  await waitFor(() => helperCloseObserved, 1_000);
+  assert.equal(helperAbortObserved, true);
+  assert.equal(helperCloseObserved, true);
+  assert.equal(Number.isInteger(helperPid) && helperPid > 0 && helperPid !== 4242, true);
+});
+
+test("Windows full identity concurrently inspects self and child under the product default", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const [selfInspection, childInspection] = await Promise.all([
+      inspectProcess(process.pid),
+      inspectProcess(child.pid),
+    ]);
+    assert.equal(selfInspection.status, "running");
+    assert.equal(selfInspection.identity.pid, process.pid);
+    assert.equal(childInspection.status, "running");
+    assert.equal(childInspection.identity.pid, child.pid);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = new Promise((resolve) => child.once("close", resolve));
+      child.kill("SIGKILL");
+      await closed;
+    }
+  }
+});
+
 test("Windows native identity adapter matches immutable process incarnation fields without CIM", async () => {
+  const commandLine = '"C:\\Program Files\\nodejs\\node.exe" service.mjs';
   const expected = {
     pid: 4242,
     createdAt: "2026-07-18T01:02:03.456Z",
     executablePath: "C:\\Program Files\\nodejs\\node.exe",
-    commandHash: "a".repeat(64),
+    commandHash: hashProcessCommandLine(commandLine),
   };
   let inspectedCommand = "";
   const runCommand = async (_command, args) => {
@@ -286,14 +377,15 @@ test("Windows native identity adapter matches immutable process incarnation fiel
       stdout: JSON.stringify({
         Status: "running",
         ProcessId: expected.pid,
-        StartTime: "2026-07-18T01:02:03.4560000Z",
+        CreationDate: "2026-07-18T01:02:03.4560000Z",
         ExecutablePath: "c:\\program files\\nodejs\\NODE.exe",
+        CommandLine: commandLine,
       }),
     };
   };
 
   assert.equal(await classifyWindowsProcessIdentityFast(expected, { runCommand }), "owned");
-  assert.equal(inspectedCommand.includes("Get-Process -Id 4242"), true);
+  assert.equal(inspectedCommand.includes("OpenProcess"), true);
   assert.equal(inspectedCommand.includes("Get-CimInstance"), false);
   assert.equal(
     await classifyWindowsProcessIdentityFast({
@@ -307,6 +399,10 @@ test("Windows native identity adapter matches immutable process incarnation fiel
       ...expected,
       executablePath: "C:\\Program Files\\nodejs\\other.exe",
     }, { runCommand }),
+    "identity_mismatch",
+  );
+  assert.equal(
+    await classifyWindowsProcessIdentityFast({ ...expected, commandHash: "a".repeat(64) }, { runCommand }),
     "identity_mismatch",
   );
   assert.equal(
