@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -169,6 +169,14 @@ const packaged = await import("@service-lasso/service-lasso");
 if (typeof packaged.startApiServer !== "function") {
   throw new Error("Fresh consumer package does not expose the runtime API entrypoint.");
 }
+const identityModulePath = path.join(installedRoot, "dist", "runtime", "process", "identity.js");
+const packagedIdentity = await import(pathToFileURL(identityModulePath).href);
+if (typeof packagedIdentity.resolveCurrentProcessIdentity !== "function") {
+  throw new Error("Fresh consumer package does not expose its internal current-process identity resolver.");
+}
+if (process.platform === "win32") {
+  await packagedIdentity.resolveCurrentProcessIdentity({ deadlineMs: Date.now() + 60_000 });
+}
 
 const inspectorEnvironment = {
   ...process.env,
@@ -290,11 +298,14 @@ try {
   httpServer = null;
 
   const stdioCredential = "packaged-stdio-capability-not-protocol-data";
+  const stdioPreloadPath = path.join(consumerRoot, "mcp-packaged-stdio-preload.mjs");
   const stdioTransport = new StdioClientTransport({
     command: process.execPath,
     args: [path.join(installedRoot, "dist", "index.js")],
     cwd: consumerRoot,
     env: isolatedRuntimeEnvironment({
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(stdioPreloadPath).href}`.trim(),
+      SERVICE_LASSO_MCP_ACCEPTANCE_INSTALLED_ROOT: installedRoot,
       SERVICE_LASSO_PORT: "0",
       SERVICE_LASSO_SERVICES_ROOT: configuration.servicesRoot,
       SERVICE_LASSO_WORKSPACE_ROOT: configuration.stdioWorkspaceRoot,

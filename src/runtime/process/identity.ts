@@ -11,12 +11,45 @@ import {
 
 const execFileAsync = promisify(execFileCallback);
 const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
+let currentProcessIdentityPromise: Promise<ProcessFingerprint> | null = null;
 
 export interface ProcessFingerprint {
   pid: number;
   createdAt: string;
   executablePath: string;
   commandHash: string;
+}
+
+/**
+ * Resolve and cache the immutable identity of this exact process. The optional
+ * absolute deadline is an internal test-harness allowance only; production
+ * callers omit it and retain the fail-closed Windows default above.
+ */
+export async function resolveCurrentProcessIdentity(
+  options: { deadlineMs?: number } = {},
+): Promise<ProcessFingerprint> {
+  if (options.deadlineMs !== undefined && !Number.isFinite(options.deadlineMs)) {
+    throw new Error("Current process identity deadline must be finite.");
+  }
+  const pending = currentProcessIdentityPromise ?? (async () => {
+    const inspection = await inspectProcess(
+      process.pid,
+      options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs },
+    );
+    if (inspection.status !== "running") {
+      throw new Error(`Cannot verify current process identity: ${inspection.reason}`);
+    }
+    return inspection.identity;
+  })();
+  currentProcessIdentityPromise = pending;
+  try {
+    return await pending;
+  } catch (error) {
+    if (currentProcessIdentityPromise === pending) {
+      currentProcessIdentityPromise = null;
+    }
+    throw error;
+  }
 }
 
 export type ProcessInspection =

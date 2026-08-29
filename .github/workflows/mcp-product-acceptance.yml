@@ -16,6 +16,7 @@ on:
       - package-lock.json
       - scripts/mcp-product-acceptance-lib.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
+      - scripts/mcp-packaged-stdio-preload.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-mcp-product-artifact.mjs
@@ -24,6 +25,7 @@ on:
       - src/runtime/operator/**
       - src/server/**
       - tests/operator-mcp*.test.js
+      - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
       - docs/reference/secrets-capability-ledger.json
@@ -42,6 +44,7 @@ on:
       - package-lock.json
       - scripts/mcp-product-acceptance-lib.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
+      - scripts/mcp-packaged-stdio-preload.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-mcp-product-artifact.mjs
@@ -50,6 +53,7 @@ on:
       - src/runtime/operator/**
       - src/server/**
       - tests/operator-mcp*.test.js
+      - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
       - docs/reference/secrets-capability-ledger.json

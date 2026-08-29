@@ -81,20 +81,6 @@ async function writeCanonicalService(servicesRoot) {
   return serviceId;
 }
 
-async function prepareHostedWindowsIdentityInspection() {
-  if (process.platform !== "win32") return;
-  await runCommand(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      'Get-CimInstance Win32_Process -Filter "ProcessId = $PID" | Out-Null',
-    ],
-    { timeoutMs: 60_000 },
-  );
-}
-
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
@@ -140,12 +126,6 @@ try {
     staged.packageArchivePath,
     "@modelcontextprotocol/inspector@2.4.0",
   ], { cwd: consumerRoot, timeoutMs: 300_000 });
-  // Hosted Windows can spend longer than the product's unchanged fail-closed
-  // 15-second identity deadline starting CIM for the first time. Warm only the
-  // test-owned host facility under its own bound before exercising that exact
-  // production deadline inside the packaged runtime.
-  await prepareHostedWindowsIdentityInspection();
-
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
@@ -153,9 +133,11 @@ try {
   }
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
   const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");
+  const stdioPreloadPath = path.join(consumerRoot, "mcp-packaged-stdio-preload.mjs");
   await Promise.all([
     copyFile(path.join(repoRoot, "scripts", "mcp-packaged-consumer-runner.mjs"), consumerRunnerPath),
     copyFile(path.join(repoRoot, "scripts", "mcp-product-acceptance-lib.mjs"), consumerLibraryPath),
+    copyFile(path.join(repoRoot, "scripts", "mcp-packaged-stdio-preload.mjs"), stdioPreloadPath),
   ]);
   const platformReadRoots = process.platform === "win32"
     ? [path.dirname(process.execPath), process.env.SystemRoot, process.env.WINDIR]

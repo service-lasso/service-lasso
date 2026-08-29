@@ -14,6 +14,7 @@ import {
 import {
   classifyProcessIdentity,
   inspectProcess,
+  resolveCurrentProcessIdentity,
   type ProcessFingerprint,
   type ProcessIdentityClassification,
 } from "../process/identity.js";
@@ -414,17 +415,14 @@ async function acquireHostAllocationLock(): Promise<() => Promise<void>> {
   await mkdir(path.dirname(lockPath), { recursive: true });
   const token = randomUUID();
   const deadline = Date.now() + HOST_REGISTRY_LOCK_TIMEOUT_MS;
-  const ownerInspection = await inspectProcess(process.pid);
-  if (ownerInspection.status !== "running") {
-    throw new Error(`Cannot verify host endpoint allocation lock owner: ${ownerInspection.reason}.`);
-  }
+  const ownerIdentity = await resolveCurrentProcessIdentity();
   while (true) {
     try {
       const handle = await open(lockPath, "wx", 0o600);
       try {
         await handle.writeFile(`${JSON.stringify({
           token,
-          reservationIdentity: ownerInspection.identity,
+          reservationIdentity: ownerIdentity,
           createdAt: new Date().toISOString(),
         })}\n`);
         await handle.sync();
@@ -588,10 +586,7 @@ export async function claimRuntimeEndpointAllocation(
         `Cannot claim runtime endpoint allocation ${plan.allocationId}: ${inspection.reason}.`,
       );
     }
-    const current = await inspectProcess(process.pid);
-    if (current.status !== "running") {
-      throw new Error(`Cannot verify recovering endpoint allocation owner: ${current.reason}.`);
-    }
+    const currentIdentity = await resolveCurrentProcessIdentity();
     const now = new Date().toISOString();
     const claimed = { ...plan, updatedAt: now } satisfies RuntimeEndpointAllocationPlan;
     // Updating the workspace timestamp is non-authoritative. Persist it before
@@ -601,7 +596,7 @@ export async function claimRuntimeEndpointAllocation(
       version: 1,
       updatedAt: now,
       allocations: registry.allocations.map((entry) => entry.allocationId === plan.allocationId
-        ? { ...entry, reservationIdentity: current.identity, updatedAt: now }
+        ? { ...entry, reservationIdentity: currentIdentity, updatedAt: now }
         : entry),
     } satisfies HostEndpointAllocationRegistry);
     return claimed;
@@ -872,10 +867,7 @@ export async function planAndReserveRuntimeEndpoints(
   const requests = await buildRequests(options);
   const release = await acquireHostAllocationLock();
   try {
-    const ownerInspection = await inspectProcess(process.pid);
-    if (ownerInspection.status !== "running") {
-      throw new Error(`Cannot verify endpoint allocation owner: ${ownerInspection.reason}.`);
-    }
+    const ownerIdentity = await resolveCurrentProcessIdentity();
     const registry = await readHostRegistry();
     const retained = await activeHostAllocations(registry);
     const endpoints = await allocateRequests(requests, retained, options.probePort);
@@ -899,7 +891,7 @@ export async function planAndReserveRuntimeEndpoints(
       laneId: plan.laneId,
       generationId: plan.generationId,
       workspaceRoot: plan.workspaceRoot,
-      reservationIdentity: ownerInspection.identity,
+      reservationIdentity: ownerIdentity,
       reservedAt: now,
       updatedAt: now,
     }));

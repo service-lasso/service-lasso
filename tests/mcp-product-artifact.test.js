@@ -205,11 +205,16 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     }
 
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
-    assert.match(packagedVerifier, /Get-CimInstance Win32_Process[\s\S]*?timeoutMs: 60_000/u);
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
+    assert.match(packagedConsumer, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?resolveCurrentProcessIdentity\(\{ deadlineMs: Date\.now\(\) \+ 60_000 \}\)/u);
+    assert.match(packagedConsumer, /mcp-packaged-stdio-preload\.mjs/u);
+    const stdioPreload = await readFile("scripts/mcp-packaged-stdio-preload.mjs", "utf8");
+    assert.match(stdioPreload, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?resolveCurrentProcessIdentity\(\{ deadlineMs: Date\.now\(\) \+ 60_000 \}\)/u);
+    const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
+    assert.match(identitySource, /resolveCurrentProcessIdentity\([\s\S]*?options: \{ deadlineMs\?: number \}[\s\S]*?inspectProcess\([\s\S]*?process\.pid,[\s\S]*?\{ deadlineMs: options\.deadlineMs \}/u);
   } finally {
     const closed = once(server, "close");
     server.close();

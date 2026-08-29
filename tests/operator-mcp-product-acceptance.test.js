@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { rm } from "node:fs/promises";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startApiServer } from "../dist/server/index.js";
 import { runInspector, supportedMcpVersions } from "../scripts/mcp-product-acceptance-lib.mjs";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
+
+const execFileAsync = promisify(execFile);
 
 function resultPayload(value) {
   return value?.result ?? value;
@@ -180,4 +184,26 @@ test("#864 official SDK and Inspector accept the guarded Streamable HTTP product
     await apiServer?.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("#864 current-process identity cache coalesces concurrent real inspection", async () => {
+  const result = await execFileAsync(
+    process.execPath,
+    ["tests/fixtures/current-process-identity-runner.mjs", "concurrent-cache"],
+    { cwd: process.cwd(), timeout: 90_000, windowsHide: true },
+  );
+  assert.deepEqual(JSON.parse(result.stdout), { result: "shared-verified-identity" });
+  assert.equal(result.stderr, "");
+});
+
+test("#864 failed Windows current-process identity prime clears its cache for a bounded retry", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const result = await execFileAsync(
+    process.execPath,
+    ["tests/fixtures/current-process-identity-runner.mjs", "failed-prime-retry"],
+    { cwd: process.cwd(), timeout: 90_000, windowsHide: true },
+  );
+  assert.deepEqual(JSON.parse(result.stdout), { result: "failed-prime-retried" });
+  assert.equal(result.stderr, "");
 });
