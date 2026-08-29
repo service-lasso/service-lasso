@@ -878,6 +878,10 @@ test("#863 actor/workspace isolation fails closed while Administrator inspection
     ), true);
   } finally {
     gate.resolve();
+    if (operationId) {
+      const terminal = await pollOperation(ownerConnection.client, operationId, "succeeded");
+      assert.equal(terminal.outcome, "succeeded");
+    }
     await ownerConnection.client.close();
     await ownerConnection.server.close();
     await rm(tempRoot, { recursive: true, force: true });
