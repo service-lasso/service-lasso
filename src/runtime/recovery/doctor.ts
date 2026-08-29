@@ -1,9 +1,14 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { DiscoveredService, ServiceDoctorPolicy, ServiceHookFailurePolicy, ServiceHookStep } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import { resolveServiceEnvValue } from "../operator/variables.js";
 import { appendServiceRecoveryHistoryEvents } from "./history.js";
+import {
+  buildExecutableInputFiles,
+  type ServiceExecutableMutationBinding,
+} from "../setup/definition-revision.js";
 
 export interface DoctorStepResult {
   name: string;
@@ -43,26 +48,68 @@ function resolveStepCwd(service: DiscoveredService, step: ServiceHookStep): stri
   return path.isAbsolute(step.cwd) ? step.cwd : path.resolve(service.serviceRoot, step.cwd);
 }
 
+function buildDoctorEnvironment(service: DiscoveredService, step: ServiceHookStep): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...Object.fromEntries(
+      Object.entries(step.env ?? {}).map(([key, value]) => [
+        key,
+        resolveServiceEnvValue(value, service),
+      ]),
+    ),
+    SERVICE_ID: service.manifest.id,
+    SERVICE_ROOT: service.serviceRoot,
+  };
+}
+
+async function buildDoctorStepExecutableBinding(
+  service: DiscoveredService,
+  step: ServiceHookStep,
+  index: number,
+): Promise<ServiceExecutableMutationBinding> {
+  const cwd = resolveStepCwd(service, step);
+  const files = await buildExecutableInputFiles(step.command, step.args ?? [], cwd, buildDoctorEnvironment(service, step));
+  const identity = {
+    serviceId: service.manifest.id,
+    index,
+    step,
+    cwd: path.normalize(cwd).replaceAll("\\", "/"),
+    files,
+  };
+  return {
+    revision: `service-doctor-executable-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`,
+    files,
+  };
+}
+
+export async function buildDoctorExecutableBindings(
+  service: DiscoveredService,
+): Promise<Record<string, ServiceExecutableMutationBinding>> {
+  const steps = service.manifest.doctor?.steps ?? [];
+  return Object.fromEntries(await Promise.all(steps.map(async (step, index) => [
+    String(index),
+    await buildDoctorStepExecutableBinding(service, step, index),
+  ])));
+}
+
 async function runDoctorStep(
   service: DiscoveredService,
   doctor: ServiceDoctorPolicy,
   step: ServiceHookStep,
+  index: number,
+  expectedBinding?: ServiceExecutableMutationBinding,
 ): Promise<DoctorStepResult> {
   const startedAt = new Date().toISOString();
   const failurePolicy = resolveFailurePolicy(doctor, step);
+  if (expectedBinding) {
+    const currentBinding = await buildDoctorStepExecutableBinding(service, step, index);
+    if (currentBinding.revision !== expectedBinding.revision) {
+      throw new LifecycleStateError(`Doctor step "${index}" executable inputs changed after guarded preflight.`);
+    }
+  }
   const child = spawn(step.command, step.args ?? [], {
     cwd: resolveStepCwd(service, step),
-    env: {
-      ...process.env,
-      ...Object.fromEntries(
-        Object.entries(step.env ?? {}).map(([key, value]) => [
-          key,
-          resolveServiceEnvValue(value, service),
-        ]),
-      ),
-      SERVICE_ID: service.manifest.id,
-      SERVICE_ROOT: service.serviceRoot,
-    },
+    env: buildDoctorEnvironment(service, step),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -105,7 +152,10 @@ async function runDoctorStep(
   };
 }
 
-export async function runDoctorPreflight(service: DiscoveredService): Promise<DoctorRunResult> {
+export async function runDoctorPreflight(
+  service: DiscoveredService,
+  expectedBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
+): Promise<DoctorRunResult> {
   const doctor = service.manifest.doctor;
   if (!doctor || doctor.enabled !== true || !doctor.steps || doctor.steps.length === 0) {
     return {
@@ -116,8 +166,12 @@ export async function runDoctorPreflight(service: DiscoveredService): Promise<Do
   }
 
   const steps: DoctorStepResult[] = [];
-  for (const step of doctor.steps) {
-    const result = await runDoctorStep(service, doctor, step);
+  for (const [index, step] of doctor.steps.entries()) {
+    const expectedBinding = expectedBindings ? expectedBindings[String(index)] : undefined;
+    if (expectedBindings && !expectedBinding) {
+      throw new LifecycleStateError(`Doctor step "${index}" was not part of the approved guarded plan.`);
+    }
+    const result = await runDoctorStep(service, doctor, step, index, expectedBinding);
     steps.push(result);
     if (!result.ok && result.failurePolicy === "block") {
       return {
@@ -135,8 +189,11 @@ export async function runDoctorPreflight(service: DiscoveredService): Promise<Do
   };
 }
 
-export async function runAndRecordDoctorPreflight(service: DiscoveredService): Promise<DoctorRunResult> {
-  const result = await runDoctorPreflight(service);
+export async function runAndRecordDoctorPreflight(
+  service: DiscoveredService,
+  expectedBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
+): Promise<DoctorRunResult> {
+  const result = await runDoctorPreflight(service, expectedBindings);
   await appendServiceRecoveryHistoryEvents(service, [{
     kind: "doctor",
     serviceId: service.manifest.id,
@@ -149,8 +206,11 @@ export async function runAndRecordDoctorPreflight(service: DiscoveredService): P
   return result;
 }
 
-export async function assertDoctorPreflightAllowsRestart(service: DiscoveredService): Promise<DoctorRunResult> {
-  const result = await runAndRecordDoctorPreflight(service);
+export async function assertDoctorPreflightAllowsRestart(
+  service: DiscoveredService,
+  expectedBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
+): Promise<DoctorRunResult> {
+  const result = await runAndRecordDoctorPreflight(service, expectedBindings);
 
   if (result.blocked) {
     const failed = result.steps.find((step) => !step.ok && step.failurePolicy === "block");

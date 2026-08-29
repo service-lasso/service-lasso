@@ -5,6 +5,7 @@ import type {
 } from "../../contracts/service.js";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { LifecycleStateError } from "../../server/errors.js";
 import {
   beginManagedProcessStop,
@@ -60,7 +61,14 @@ import { createDirectExecutionPlan } from "../providers/direct.js";
 import { resolveProviderExecution } from "../providers/resolveProvider.js";
 import { assertDoctorPreflightAllowsRestart } from "../recovery/doctor.js";
 import { appendServiceRecoveryHistoryEvents } from "../recovery/history.js";
-import { acquireInstallArtifact } from "../setup/acquire.js";
+import { acquireInstallArtifact, buildInstallArtifactCandidateBinding } from "../setup/acquire.js";
+import {
+  buildExecutableInputFiles,
+  buildServiceExecutableMutationRevision,
+  verifyExecutableInputFiles,
+  type ExecutableInputFileDigest,
+  type ServiceExecutableMutationBinding,
+} from "../setup/definition-revision.js";
 import {
   materializeConfigArtifacts,
   materializeInstallArtifacts,
@@ -206,9 +214,18 @@ export interface ServiceLifecycleActionOptions {
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
   plannedPorts?: Record<string, number>;
+  plannedPortsByService?: Record<string, Record<string, number>>;
   allocationRevision?: string | null;
   materializationHooks?: MaterializationWriteHooks;
   artifactAcquisitionHooks?: StartupArtifactAcquisitionHooks;
+  expectedArtifactRevision?: string;
+  allowedMutationServiceIds?: ReadonlySet<string>;
+  expectedDefinitionRevision?: string;
+  expectedTemplateDigests?: Readonly<Record<string, string>>;
+  expectedExecutableRevision?: string;
+  expectedExecutableFiles?: readonly ExecutableInputFileDigest[];
+  expectedStopExecutableBinding?: ServiceStopExecutableMutationBinding;
+  expectedDoctorExecutableBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
     attemptNumber: number;
@@ -705,7 +722,7 @@ async function runScheduledSupervisionRestart(
   }
 
   try {
-    await assertDoctorPreflightAllowsRestart(targetService);
+    await assertDoctorPreflightAllowsRestart(targetService, options.expectedDoctorExecutableBindings);
     const result = await startService(targetService, registry, {
       ...options,
       supervisionRestart: { reason, attemptNumber },
@@ -908,6 +925,35 @@ function resolveStopOverrideCwd(
   return path.isAbsolute(cwd) ? cwd : path.resolve(service.serviceRoot, cwd);
 }
 
+export interface ServiceStopExecutableMutationBinding extends ServiceExecutableMutationBinding {
+  override: boolean;
+}
+
+export async function buildServiceStopExecutableMutationBinding(
+  service: DiscoveredService,
+): Promise<ServiceStopExecutableMutationBinding> {
+  const action = getLifecycleStopOverride(service);
+  const resolvedPorts = getLifecycleState(service.manifest.id).runtime.ports;
+  const command = action ? resolveStopOverrideCommand(service, action, resolvedPorts) : null;
+  const cwd = action ? resolveStopOverrideCwd(service, action, resolvedPorts) : service.serviceRoot;
+  const env = action ? buildStopOverrideEnvironment(service, action, resolvedPorts) : process.env;
+  const files = command
+    ? await buildExecutableInputFiles(command.executable, command.args, cwd, env)
+    : [];
+  const identity = {
+    serviceId: service.manifest.id,
+    action: action ?? null,
+    command,
+    cwd: path.normalize(cwd).replaceAll("\\", "/"),
+    files,
+  };
+  return {
+    revision: `service-stop-executable-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`,
+    files,
+    override: Boolean(command),
+  };
+}
+
 function buildStopOverrideEnvironment(
   service: DiscoveredService,
   action: ServiceActionDefinition,
@@ -937,6 +983,7 @@ async function runStopOverrideCommand(
   service: DiscoveredService,
   action: ServiceActionDefinition,
   resolvedPorts: Record<string, number>,
+  expectedBinding?: ServiceStopExecutableMutationBinding,
 ): Promise<{ ok: boolean; timedOut: boolean; exitCode: number | null; signal: NodeJS.Signals | null }> {
   const command = resolveStopOverrideCommand(service, action, resolvedPorts);
   if (!command) {
@@ -944,7 +991,23 @@ async function runStopOverrideCommand(
   }
 
   const timeoutMs = (action.timeoutSeconds ?? DEFAULT_STOP_ACTION_TIMEOUT_SECONDS) * 1000;
+  if (expectedBinding) {
+    const currentBinding = await buildServiceStopExecutableMutationBinding(service);
+    if (currentBinding.revision !== expectedBinding.revision) {
+      throw new LifecycleStateError(
+        `Cannot stop service "${service.manifest.id}" because its declared stop executable inputs changed after guarded preflight.`,
+      );
+    }
+  }
   await beginManagedProcessStop(service.manifest.id);
+  if (expectedBinding) {
+    const currentBinding = await buildServiceStopExecutableMutationBinding(service);
+    if (currentBinding.revision !== expectedBinding.revision) {
+      throw new LifecycleStateError(
+        `Cannot stop service "${service.manifest.id}" because its declared stop executable inputs changed before spawn.`,
+      );
+    }
+  }
 
   const child = spawn(command.executable, command.args, {
     cwd: resolveStopOverrideCwd(service, action, resolvedPorts),
@@ -996,6 +1059,7 @@ async function runStopOverrideCommand(
 async function stopManagedProcessWithOverride(
   service: DiscoveredService,
   current: ServiceLifecycleState,
+  expectedBinding?: ServiceStopExecutableMutationBinding,
 ): Promise<{ exitCode: number | null; message: string }> {
   const serviceId = service.manifest.id;
   const override = getLifecycleStopOverride(service);
@@ -1007,7 +1071,7 @@ async function stopManagedProcessWithOverride(
     };
   }
 
-  const overrideResult = await runStopOverrideCommand(service, override, current.runtime.ports);
+  const overrideResult = await runStopOverrideCommand(service, override, current.runtime.ports, expectedBinding);
   if (overrideResult.ok) {
     const settled = await waitForManagedProcessExit(serviceId, 5_000);
     if (settled || !hasManagedProcess(serviceId)) {
@@ -1037,8 +1101,27 @@ export async function installService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const acquiredArtifact = await acquireInstallArtifact(service, options.artifactAcquisitionHooks);
-  const artifacts = await materializeInstallArtifacts(service, sharedGlobalEnv, {}, {}, options.materializationHooks);
+  if (options.expectedArtifactRevision) {
+    const binding = await buildInstallArtifactCandidateBinding(service);
+    if (!binding.executable || binding.revision !== options.expectedArtifactRevision) {
+      throw new LifecycleStateError(
+        `Cannot install service "${serviceId}" because its artifact candidate changed after guarded preflight.`,
+      );
+    }
+  }
+  const acquiredArtifact = await acquireInstallArtifact(
+    service,
+    options.artifactAcquisitionHooks,
+    options.expectedArtifactRevision,
+  );
+  const artifacts = await materializeInstallArtifacts(
+    service,
+    sharedGlobalEnv,
+    {},
+    {},
+    options.materializationHooks,
+    options.expectedTemplateDigests,
+  );
 
   return applyState(serviceId, "install", (current) => ({
     nextState: {
@@ -1094,6 +1177,7 @@ export async function configService(
     resolvedPorts,
     variableResolution ?? {},
     options.materializationHooks,
+    options.expectedTemplateDigests,
   );
 
   return applyState(serviceId, "config", (state) => ({
@@ -1249,6 +1333,10 @@ export async function startService(
   const brokerLaunchEnv = service.manifest.id === SECRETSBROKER_SERVICE_ID && registry && options.workspaceRoot
     ? (await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry))?.serverEnv
     : undefined;
+  const secureLaunchEnv = {
+    ...(brokerLaunchEnv ?? {}),
+    ...(scopedBrokerIdentity?.env ?? {}),
+  };
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1256,6 +1344,24 @@ export async function startService(
         ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
         : {}
   );
+  const verifyApprovedExecutable = options.expectedExecutableRevision
+    ? async (): Promise<void> => {
+        await verifyExecutableInputFiles(options.expectedExecutableFiles ?? []);
+        const currentRevision = await buildServiceExecutableMutationRevision(
+          service,
+          registry,
+          resolvedPorts,
+          sharedGlobalEnv,
+          variableResolution,
+          secureLaunchEnv,
+        );
+        if (currentRevision !== options.expectedExecutableRevision) {
+          throw new LifecycleStateError(
+            `Cannot start service "${serviceId}" because its resolved executable inputs changed after guarded preflight.`,
+          );
+        }
+      }
+    : undefined;
   const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   recordStartTraceEvent(
     serviceId,
@@ -1343,15 +1449,13 @@ export async function startService(
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
-      secureEnv: {
-        ...(brokerLaunchEnv ?? {}),
-        ...(scopedBrokerIdentity?.env ?? {}),
-      },
+      secureEnv: secureLaunchEnv,
       variableResolution,
       workspaceRoot: options.workspaceRoot,
       runtimeGenerationId: options.runtimeGenerationId,
       runtimeInstanceId: options.runtimeInstanceId,
       allocationRevision,
+      verifyBeforeSpawn: verifyApprovedExecutable,
       onExit: async ({ exitCode, signal, wasStopping }) => {
         if (wasStopping) {
           return;
@@ -1502,6 +1606,7 @@ export async function startService(
 
 export async function stopService(
   service: DiscoveredService,
+  options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   cancelScheduledSupervisionRestart(serviceId);
@@ -1512,7 +1617,7 @@ export async function stopService(
     );
   }
 
-  const stopped = await stopManagedProcessWithOverride(service, current);
+  const stopped = await stopManagedProcessWithOverride(service, current, options.expectedStopExecutableBinding);
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),
@@ -1571,7 +1676,7 @@ export async function restartService(
       `Cannot restart service "${serviceId}" because no executable is configured.`,
     );
   }
-  await assertDoctorPreflightAllowsRestart(service);
+  await assertDoctorPreflightAllowsRestart(service, options.expectedDoctorExecutableBindings);
 
   if (current.running) {
     await stopManagedProcess(serviceId);
@@ -1589,6 +1694,10 @@ export async function restartService(
   const brokerLaunchEnv = service.manifest.id === SECRETSBROKER_SERVICE_ID && registry && options.workspaceRoot
     ? (await loadSecretsBrokerRuntimeContext(options.workspaceRoot, registry))?.serverEnv
     : undefined;
+  const secureLaunchEnv = {
+    ...(brokerLaunchEnv ?? {}),
+    ...(scopedBrokerIdentity?.env ?? {}),
+  };
   const resolvedPorts = options.plannedPorts ?? (
     Object.keys(current.runtime.ports).length > 0
       ? current.runtime.ports
@@ -1609,15 +1718,30 @@ export async function restartService(
     executionPlan,
     sharedGlobalEnv,
     resolvedPorts,
-    secureEnv: {
-      ...(brokerLaunchEnv ?? {}),
-      ...(scopedBrokerIdentity?.env ?? {}),
-    },
+    secureEnv: secureLaunchEnv,
     variableResolution,
     workspaceRoot: options.workspaceRoot,
     runtimeInstanceId: options.runtimeInstanceId,
     runtimeGenerationId: options.runtimeGenerationId,
     allocationRevision,
+    verifyBeforeSpawn: options.expectedExecutableRevision
+      ? async (): Promise<void> => {
+          await verifyExecutableInputFiles(options.expectedExecutableFiles ?? []);
+          const currentRevision = await buildServiceExecutableMutationRevision(
+            service,
+            registry,
+            resolvedPorts,
+            sharedGlobalEnv,
+            variableResolution,
+            secureLaunchEnv,
+          );
+          if (currentRevision !== options.expectedExecutableRevision) {
+            throw new LifecycleStateError(
+              `Cannot restart service "${serviceId}" because its resolved executable inputs changed after guarded preflight.`,
+            );
+          }
+        }
+      : undefined,
     onExit: async ({ exitCode, signal, wasStopping }) => {
       if (wasStopping) {
         return;

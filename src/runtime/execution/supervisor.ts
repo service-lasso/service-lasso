@@ -116,6 +116,7 @@ interface StartProcessOptions {
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
   allocationRevision?: string | null;
+  verifyBeforeSpawn?: () => Promise<void>;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
@@ -455,6 +456,48 @@ function buildProcessEnvironment(
     ...executionPlan.providerEnv,
     ...serviceVariables,
     ...secureEnv,
+  };
+}
+
+export interface ResolvedManagedProcessLaunch {
+  executable: string;
+  args: string[];
+  workingDirectory: string;
+  environment: NodeJS.ProcessEnv;
+}
+
+/**
+ * Resolve the exact launch tuple consumed by spawn. Guarded-action executable
+ * evidence uses this same resolver so confirmation cannot describe a
+ * different command-root interpretation than the process supervisor.
+ */
+export function resolveManagedProcessLaunch(
+  service: DiscoveredService,
+  executionPlan: ProviderExecutionPlan,
+  sharedGlobalEnv: Record<string, string> = {},
+  resolvedPorts: Record<string, number> = {},
+  secureEnv: Record<string, string> = {},
+  variableResolution: ServiceVariableResolutionOptions = {},
+): ResolvedManagedProcessLaunch {
+  const executable = resolveExecutable(service, executionPlan);
+  const workingDirectory = resolveWorkingDirectory(service, executionPlan, executable);
+  const args = resolveCommandRootArgs(
+    service,
+    executionPlan,
+    resolveExecutionArgs(service, executionPlan, sharedGlobalEnv, resolvedPorts, variableResolution),
+  );
+  return {
+    executable,
+    args,
+    workingDirectory,
+    environment: buildProcessEnvironment(
+      service,
+      executionPlan,
+      sharedGlobalEnv,
+      resolvedPorts,
+      secureEnv,
+      variableResolution,
+    ),
   };
 }
 
@@ -937,21 +980,33 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     }
   }
 
-  const executable = resolveExecutable(service, executionPlan);
-  const workingDirectory = resolveWorkingDirectory(service, executionPlan, executable);
-  const args = resolveCommandRootArgs(
+  const {
+    executable,
+    args,
+    workingDirectory,
+    environment,
+  } = resolveManagedProcessLaunch(
     service,
     executionPlan,
-    resolveExecutionArgs(service, executionPlan, sharedGlobalEnv, resolvedPorts, variableResolution),
+    sharedGlobalEnv,
+    resolvedPorts,
+    secureEnv,
+    variableResolution,
   );
   const command = buildCommandString(executable, args);
   const startedAt = new Date().toISOString();
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
   const stdinEnabled = serviceEnablesStdin(service);
 
+  try {
+    await options.verifyBeforeSpawn?.();
+  } catch (error) {
+    await closeRuntimeLogStreams(logStreams);
+    throw error;
+  }
   const child = spawn(executable, args, {
     cwd: workingDirectory,
-    env: buildProcessEnvironment(service, executionPlan, sharedGlobalEnv, resolvedPorts, secureEnv, variableResolution),
+    env: environment,
     stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
     windowsHide: true,

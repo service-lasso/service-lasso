@@ -32,6 +32,11 @@ export interface ServiceUpdateAvailableSummary {
   assetNames: string[];
   matchedAssetName: string | null;
   assetUrl: string | null;
+  assetId?: number | null;
+  assetNodeId?: string | null;
+  assetSize?: number | null;
+  assetUpdatedAt?: string | null;
+  assetDigest?: string | null;
 }
 
 export type ServiceUpdateCurrentComparison =
@@ -80,8 +85,13 @@ interface StoredInstallArtifact {
 }
 
 interface GitHubReleaseAsset {
+  id?: number;
+  node_id?: string;
   name: string;
   browser_download_url?: string;
+  size?: number;
+  updated_at?: string;
+  digest?: string | null;
 }
 
 interface GitHubReleaseResponse {
@@ -440,6 +450,11 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
           assetNames,
           matchedAssetName: null,
           assetUrl: null,
+          assetId: null,
+          assetNodeId: null,
+          assetSize: null,
+          assetUpdatedAt: null,
+          assetDigest: null,
         },
         provenance: createProvenanceSummary({
           sourceRepo: artifact.source.repo,
@@ -477,6 +492,11 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
         assetNames,
         matchedAssetName: matchedAsset?.name ?? expectedAssetName,
         assetUrl: matchedAsset?.browser_download_url ?? platform.assetUrl ?? null,
+        assetId: typeof matchedAsset?.id === "number" ? matchedAsset.id : null,
+        assetNodeId: matchedAsset?.node_id ?? null,
+        assetSize: typeof matchedAsset?.size === "number" ? matchedAsset.size : null,
+        assetUpdatedAt: matchedAsset?.updated_at ?? null,
+        assetDigest: matchedAsset?.digest ?? null,
       },
       provenance: createProvenanceSummary({
         sourceRepo: artifact.source.repo,

@@ -23,7 +23,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - state persistence and startup rehydration
 - packaging/release mechanics for the core runtime itself
 - publishable package mechanics so sibling starter repos can consume the core runtime cleanly
-- read-only operator MCP on the core runtime for runtime, service, health, route, dependency, redacted log, Audit, update, drift, recovery and secret metadata (`SPEC-006`); never secret values, raw config/log payloads or local roots
+- one operator MCP on the core runtime for safe reads plus guarded lifecycle and maintenance actions through shared application facades (`SPEC-006`); never secret values, raw config/log payloads, local roots, generic shell, terminal/stdin, raw filesystem, or raw configuration tools
 
 ## Constraints
 - Governance/spec/backlog traceability must remain in place while product code starts.
@@ -63,6 +63,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Loopback operators authenticate as `local-root` without a password, and may still use Lasso-local password, vault token, or SSO/ZITADEL when configured. `FORCE_SSO` in Broker KV applies only to remote origins and cannot disable loopback methods. First-run local-admin username, token, and password are written into Secrets Broker KV `runtime/local-operator` before the INIT page can reveal them; copy/save remains the operator backup (`SPEC-005` `AC-5C`, `AC-5J`).
 - Operator MCP reuses runtime facades, stays metadata-only for secrets and config, and publishes strict versioned read contracts with deterministic pagination and stable safe errors (`SPEC-006` `AC-6A`, `AC-6D`).
 - Operator MCP Streamable HTTP remains authenticated-loopback-only until a complete OAuth resource configuration enables signature-, issuer-, expiry-, configured-audience-, scope-, Origin-, and content-boundary enforcement. MCP defaults to read-only, supports explicit disabled/guarded configuration, rate-limits validated actors and clients independently, and fails closed when its Audit event cannot be persisted (`SPEC-006` `AC-6C`).
+- Guarded MCP actions derive actor and permission profile only from validated transport identity, preflight through the same application facade used by runtime operators, require server-bound single-use confirmation for risky mutations, and replay duplicate idempotency keys without repeating lifecycle effects (`SPEC-006` `AC-6E`).
 
 ## Verification Expectations
 Core product work should be verified with direct runnable evidence, not only documentation updates.

@@ -1,5 +1,10 @@
 import path from "node:path";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { constants as fsConstants } from "node:fs";
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import AdmZip from "adm-zip";
 import * as tar from "tar";
 import type {
@@ -12,8 +17,18 @@ import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
-import { startService, stopService } from "../lifecycle/actions.js";
-import { runLifecycleHookPhase, type LifecycleHookPhaseResult, type ServiceHookPhase } from "../recovery/hooks.js";
+import {
+  buildServiceStopExecutableMutationBinding,
+  startService,
+  stopService,
+  type ServiceStopExecutableMutationBinding,
+} from "../lifecycle/actions.js";
+import {
+  buildLifecycleHookExecutableBindings,
+  runLifecycleHookPhase,
+  type LifecycleHookPhaseResult,
+  type ServiceHookPhase,
+} from "../recovery/hooks.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import { readStoredState } from "../state/readState.js";
 import { writeServiceState } from "../state/writeState.js";
@@ -28,6 +43,13 @@ import {
   writeServiceUpdateState,
   type ServiceUpdateState,
 } from "./state.js";
+import {
+  buildServiceExecutableMutationBinding,
+  buildServiceMutationDefinitionRevision,
+  type ExecutableInputFileDigest,
+  type ServiceExecutableMutationBinding,
+} from "../setup/definition-revision.js";
+import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 
 export interface UpdateServiceSummary {
   serviceId: string;
@@ -52,6 +74,30 @@ export interface UpdateDownloadActionResult {
   archivePath: string;
 }
 
+export interface UpdateDownloadOptions {
+  expectedCandidateRevision?: string;
+}
+
+export function buildUpdateCandidateRevision(result: ServiceUpdateCheckResult): string {
+  const candidate = {
+    serviceId: result.serviceId,
+    status: result.status,
+    sourceRepo: result.provenance.sourceRepo,
+    tag: result.available?.tag ?? null,
+    version: result.available?.version ?? null,
+    assetName: result.available?.matchedAssetName ?? null,
+    assetUrl: result.available?.assetUrl ?? null,
+    releaseUrl: result.available?.releaseUrl ?? null,
+    publishedAt: result.available?.publishedAt ?? null,
+    assetId: result.available?.assetId ?? null,
+    assetNodeId: result.available?.assetNodeId ?? null,
+    assetSize: result.available?.assetSize ?? null,
+    assetUpdatedAt: result.available?.assetUpdatedAt ?? null,
+    assetDigest: result.available?.assetDigest ?? null,
+  };
+  return `update-candidate-${createHash("sha256").update(JSON.stringify(candidate)).digest("hex")}`;
+}
+
 export interface UpdateInstallActionResult {
   action: "install";
   serviceId: string;
@@ -59,6 +105,7 @@ export interface UpdateInstallActionResult {
   state: ServiceLifecycleState;
   forced: boolean;
   stoppedForInstall: boolean;
+  restartRequired: boolean;
   restartedAfterInstall: boolean;
   rollbackReadiness: UpdateRollbackReadinessReport;
 }
@@ -68,6 +115,81 @@ export interface UpdateInstallOptions {
   registry?: ServiceRegistry;
   now?: () => Date;
   workspaceRoot?: string;
+  runtimeGenerationId?: string;
+  runtimeInstanceId?: string;
+  allocationRevision?: string;
+  plannedPorts?: Record<string, number>;
+  expectedCandidateRevision?: string;
+}
+
+export interface UpdateInstallCandidateBinding {
+  revision: string;
+  archiveSha256: string;
+  archiveSize: number;
+  hookBindings: Record<string, ServiceExecutableMutationBinding>;
+  stopBinding: ServiceStopExecutableMutationBinding;
+  stableLaunchFiles: ExecutableInputFileDigest[];
+}
+
+async function sha256File(filePath: string): Promise<{ digest: string; size: number }> {
+  const hash = createHash("sha256");
+  let size = 0;
+  for await (const chunk of createReadStream(filePath)) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    hash.update(buffer);
+  }
+  return { digest: hash.digest("hex"), size };
+}
+
+export async function buildUpdateInstallCandidateBinding(
+  service: DiscoveredService,
+  force = false,
+  registry?: ServiceRegistry,
+): Promise<UpdateInstallCandidateBinding> {
+  const update = await readServiceUpdateState(service);
+  const candidate = update.downloadedCandidate;
+  if (!candidate) {
+    throw new Error(`Service "${service.manifest.id}" has no downloaded update candidate.`);
+  }
+  const archive = await sha256File(candidate.archivePath);
+  const definitionRevision = await buildServiceMutationDefinitionRevision(service);
+  const hookBindings = await buildLifecycleHookExecutableBindings(service, ["preUpgrade", "postUpgrade", "rollback", "onFailure"]);
+  const stopBinding = await buildServiceStopExecutableMutationBinding(service);
+  const preInstallExecutableBinding = await buildServiceExecutableMutationBinding(
+    service,
+    registry,
+    getLifecycleState(service.manifest.id).runtime.ports,
+    registry ? collectRuntimeGlobalEnv(registry.list()) : {},
+  );
+  const priorExtractedPath = getLifecycleState(service.manifest.id).installArtifacts.artifact?.extractedPath;
+  const stableLaunchFiles = preInstallExecutableBinding.files.filter((file) => {
+    if (!priorExtractedPath) return true;
+    const relative = path.relative(priorExtractedPath, file.file);
+    return relative.startsWith("..") || path.isAbsolute(relative);
+  });
+  const identity = {
+    serviceId: service.manifest.id,
+    force,
+    tag: candidate.tag,
+    version: candidate.version,
+    assetName: candidate.assetName,
+    assetUrl: candidate.assetUrl,
+    archiveSha256: archive.digest,
+    archiveSize: archive.size,
+    definitionRevision,
+    hookRevisions: Object.fromEntries(Object.entries(hookBindings).map(([key, binding]) => [key, binding.revision])),
+    stopExecutableRevision: stopBinding.revision,
+    stableLaunchFiles,
+  };
+  return {
+    revision: `update-install-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`,
+    archiveSha256: archive.digest,
+    archiveSize: archive.size,
+    hookBindings,
+    stopBinding,
+    stableLaunchFiles,
+  };
 }
 
 export type UpdateRollbackReadinessStatus = "ready" | "warning" | "blocked";
@@ -221,6 +343,7 @@ async function assertInstallWindowAllows(
 async function stopRunningServiceForInstall(
   service: DiscoveredService,
   options: UpdateInstallOptions,
+  expectedStopBinding?: ServiceStopExecutableMutationBinding,
 ): Promise<{ stoppedForInstall: boolean; restartAfterInstall: boolean }> {
   const current = getLifecycleState(service.manifest.id);
   if (options.force === true || !current.running) {
@@ -238,7 +361,7 @@ async function stopRunningServiceForInstall(
     throw new UpdateInstallDeferredError(`Update install for "${service.manifest.id}" is blocked because the service is running.`, update);
   }
 
-  const stopped = await stopService(service);
+  const stopped = await stopService(service, { expectedStopExecutableBinding: expectedStopBinding });
   await writeServiceState(service, stopped.state);
   return {
     stoppedForInstall: true,
@@ -249,17 +372,21 @@ async function stopRunningServiceForInstall(
 async function recordHookPhase(
   service: DiscoveredService,
   phase: ServiceHookPhase,
+  expectedBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
 ): Promise<LifecycleHookPhaseResult> {
-  const result = await runLifecycleHookPhase(service, phase);
+  const result = await runLifecycleHookPhase(service, phase, expectedBindings);
   if (result.steps.length > 0) {
     await appendUpdateHookResults(service, [result]);
   }
   return result;
 }
 
-async function recordFailureHooks(service: DiscoveredService): Promise<void> {
-  await recordHookPhase(service, "rollback");
-  await recordHookPhase(service, "onFailure");
+async function recordFailureHooks(
+  service: DiscoveredService,
+  expectedBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
+): Promise<void> {
+  await recordHookPhase(service, "rollback", expectedBindings);
+  await recordHookPhase(service, "onFailure", expectedBindings);
 }
 
 function findBlockingHookStep(result: LifecycleHookPhaseResult): string {
@@ -270,8 +397,9 @@ async function assertHookPhaseAllowsUpgrade(
   service: DiscoveredService,
   phase: ServiceHookPhase,
   sourceStatus: string,
+  expectedBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
 ): Promise<void> {
-  const result = await recordHookPhase(service, phase);
+  const result = await recordHookPhase(service, phase, expectedBindings);
   if (!result.blocked) {
     return;
   }
@@ -280,22 +408,37 @@ async function assertHookPhaseAllowsUpgrade(
     reason: `${phase} hook blocked update install at step "${findBlockingHookStep(result)}".`,
     sourceStatus,
   });
-  await recordFailureHooks(service);
+  await recordFailureHooks(service, expectedBindings);
   throw new Error(`${phase} hook blocked update install for "${service.manifest.id}".`);
 }
 
-async function downloadToFile(assetUrl: string, destinationPath: string): Promise<void> {
+async function downloadToFile(
+  assetUrl: string,
+  destinationPath: string,
+  expected: { size: number | null; digest: string | null },
+): Promise<void> {
   const response = await fetch(assetUrl);
   if (!response.ok) {
     throw new Error(`Failed to download update candidate from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
 
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (expected.size !== null && bytes.length !== expected.size) {
+    throw new Error(`Downloaded update candidate size did not match its confirmed provider metadata.`);
+  }
+  const providerDigest = expected.digest?.match(/^sha256:([0-9a-f]{64})$/iu)?.[1]?.toLowerCase() ?? null;
+  if (providerDigest) {
+    const actualDigest = createHash("sha256").update(bytes).digest("hex");
+    if (actualDigest !== providerDigest) {
+      throw new Error(`Downloaded update candidate digest did not match its confirmed provider metadata.`);
+    }
+  }
   await mkdir(path.dirname(destinationPath), { recursive: true });
-  await writeFile(destinationPath, Buffer.from(await response.arrayBuffer()));
+  await writeFile(destinationPath, bytes);
 }
 
 async function extractArchive(
-  archivePath: string,
+  archiveBytes: Buffer,
   archiveType: ServiceArtifactPlatform["archiveType"],
   destinationPath: string,
 ): Promise<void> {
@@ -303,14 +446,11 @@ async function extractArchive(
   await mkdir(destinationPath, { recursive: true });
 
   if (archiveType === "zip") {
-    new AdmZip(archivePath).extractAllTo(destinationPath, true);
+    new AdmZip(archiveBytes).extractAllTo(destinationPath, true);
     return;
   }
 
-  await tar.extract({
-    file: archivePath,
-    cwd: destinationPath,
-  });
+  await pipeline(Readable.from([archiveBytes]), tar.extract({ cwd: destinationPath }));
 }
 
 function summarizeReadiness(checks: UpdateRollbackReadinessCheck[]): UpdateRollbackReadinessReport {
@@ -558,8 +698,21 @@ export async function checkServiceUpdatesForCli(
 
 export async function downloadServiceUpdateCandidate(
   service: DiscoveredService,
+  options: UpdateDownloadOptions = {},
 ): Promise<UpdateDownloadActionResult> {
   const result = await checkServiceUpdate(service);
+  if (
+    options.expectedCandidateRevision &&
+    !/^sha256:[0-9a-f]{64}$/iu.test(result.available?.assetDigest ?? "")
+  ) {
+    throw new Error(`The guarded update candidate for "${service.manifest.id}" has no exact provider SHA-256 digest.`);
+  }
+  if (
+    options.expectedCandidateRevision &&
+    buildUpdateCandidateRevision(result) !== options.expectedCandidateRevision
+  ) {
+    throw new Error(`The update candidate for "${service.manifest.id}" changed after guarded preflight.`);
+  }
   const persistedCheck = await persistUpdateCheckResult(service, result);
 
   if (result.status !== "update_available" || !result.available?.assetUrl || !result.available.matchedAssetName || !result.available.tag) {
@@ -570,7 +723,10 @@ export async function downloadServiceUpdateCandidate(
   const releaseSegment = result.available.tag.replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.updateCandidates, releaseSegment, result.available.matchedAssetName);
   try {
-    await downloadToFile(result.available.assetUrl, archivePath);
+    await downloadToFile(result.available.assetUrl, archivePath, {
+      size: result.available.assetSize ?? null,
+      digest: result.available.assetDigest ?? null,
+    });
   } catch (error) {
     await persistUpdateFailure(service, {
       reason: error instanceof Error ? error.message : "Failed to download update candidate.",
@@ -619,9 +775,20 @@ export async function installServiceUpdateCandidate(
   await assertInstallWindowAllows(service, options);
   const beforeInstallState = getLifecycleState(service.manifest.id);
   const rollbackReadiness = await assertRollbackReadinessAllowsInstall(service, beforeInstallState, options);
-  const runningSafety = await stopRunningServiceForInstall(service, options);
+  let runningSafety: Awaited<ReturnType<typeof stopRunningServiceForInstall>> | null = null;
+  if (!options.expectedCandidateRevision) {
+    // Preserve the ordinary update contract: policy deferrals and any
+    // required stop happen before a network download. Guarded execution has
+    // an already-confirmed candidate and delays the stop until that candidate
+    // and its executable bindings have been revalidated below.
+    runningSafety = await stopRunningServiceForInstall(service, options);
+  }
+
   let update = await readServiceUpdateState(service);
   if (!update.downloadedCandidate) {
+    if (options.expectedCandidateRevision) {
+      throw new Error(`Service "${service.manifest.id}" has no confirmed downloaded update candidate.`);
+    }
     update = (await downloadServiceUpdateCandidate(service)).update;
   }
 
@@ -630,19 +797,49 @@ export async function installServiceUpdateCandidate(
     throw new Error(`Service "${service.manifest.id}" has no downloaded update candidate.`);
   }
 
+  let verifiedArchivePath: string | null = null;
+  let guardedBinding: UpdateInstallCandidateBinding | null = null;
+  if (options.expectedCandidateRevision) {
+    guardedBinding = await buildUpdateInstallCandidateBinding(service, options.force === true, options.registry);
+    if (guardedBinding.revision !== options.expectedCandidateRevision) {
+      throw new Error(`The downloaded update candidate for "${service.manifest.id}" changed after guarded preflight.`);
+    }
+    const paths = getServiceStatePaths(service.serviceRoot);
+    verifiedArchivePath = path.join(paths.updateCandidates, ".verified", `${randomUUID()}.archive`);
+    await mkdir(path.dirname(verifiedArchivePath), { recursive: true });
+    await copyFile(candidate.archivePath, verifiedArchivePath, fsConstants.COPYFILE_EXCL);
+    const copied = await sha256File(verifiedArchivePath);
+    if (copied.digest !== guardedBinding.archiveSha256 || copied.size !== guardedBinding.archiveSize) {
+      await rm(verifiedArchivePath, { force: true });
+      throw new Error(`The downloaded update candidate for "${service.manifest.id}" changed while it was being verified.`);
+    }
+  }
+
   const platform = getCurrentPlatformArtifact(artifact);
   const paths = getServiceStatePaths(service.serviceRoot);
   const extractedPath = path.join(paths.extracted, "current");
-  await assertHookPhaseAllowsUpgrade(service, "preUpgrade", "pre_upgrade_hook_failed");
   try {
-    await extractArchive(candidate.archivePath, platform.archiveType, extractedPath);
-  } catch (error) {
-    await persistUpdateFailure(service, {
-      reason: error instanceof Error ? error.message : "Failed to install update candidate.",
-      sourceStatus: "install_failed",
-    });
-    await recordFailureHooks(service);
-    throw error;
+    runningSafety ??= await stopRunningServiceForInstall(service, options, guardedBinding?.stopBinding);
+    await assertHookPhaseAllowsUpgrade(service, "preUpgrade", "pre_upgrade_hook_failed", guardedBinding?.hookBindings);
+    try {
+      const archiveBytes = await readFile(verifiedArchivePath ?? candidate.archivePath);
+      if (guardedBinding) {
+        const archiveDigest = createHash("sha256").update(archiveBytes).digest("hex");
+        if (archiveDigest !== guardedBinding.archiveSha256 || archiveBytes.length !== guardedBinding.archiveSize) {
+          throw new Error(`The downloaded update candidate for "${service.manifest.id}" changed before immutable extraction.`);
+        }
+      }
+      await extractArchive(archiveBytes, platform.archiveType, extractedPath);
+    } catch (error) {
+      await persistUpdateFailure(service, {
+        reason: error instanceof Error ? error.message : "Failed to install update candidate.",
+        sourceStatus: "install_failed",
+      });
+      await recordFailureHooks(service, guardedBinding?.hookBindings);
+      throw error;
+    }
+  } finally {
+    if (verifiedArchivePath) await rm(verifiedArchivePath, { force: true }).catch(() => undefined);
   }
 
   const current = getLifecycleState(service.manifest.id);
@@ -731,14 +928,39 @@ export async function installServiceUpdateCandidate(
   let finalState = nextState;
   let restartedAfterInstall = false;
   if (runningSafety.restartAfterInstall) {
+    const postInstallExecutableBinding = guardedBinding
+      ? await buildServiceExecutableMutationBinding(
+          service,
+          options.registry,
+          options.plannedPorts ?? getLifecycleState(service.manifest.id).runtime.ports,
+          options.registry ? collectRuntimeGlobalEnv(options.registry.list()) : {},
+        )
+      : null;
+    if (postInstallExecutableBinding && guardedBinding) {
+      const installedExtractedPath = getLifecycleState(service.manifest.id).installArtifacts.artifact?.extractedPath;
+      const currentStableLaunchFiles = postInstallExecutableBinding.files.filter((file) => {
+        if (!installedExtractedPath) return true;
+        const relative = path.relative(installedExtractedPath, file.file);
+        return relative.startsWith("..") || path.isAbsolute(relative);
+      });
+      if (JSON.stringify(currentStableLaunchFiles) !== JSON.stringify(guardedBinding.stableLaunchFiles)) {
+        throw new Error(`Stable launch inputs for "${service.manifest.id}" changed during guarded update installation.`);
+      }
+    }
     const restarted = await startService(service, options.registry, {
       workspaceRoot: options.workspaceRoot,
+      runtimeGenerationId: options.runtimeGenerationId,
+      runtimeInstanceId: options.runtimeInstanceId,
+      allocationRevision: options.allocationRevision,
+      plannedPorts: options.plannedPorts,
+      expectedExecutableRevision: postInstallExecutableBinding?.revision,
+      expectedExecutableFiles: postInstallExecutableBinding?.files,
     });
     await writeServiceState(service, restarted.state);
     finalState = restarted.state;
     restartedAfterInstall = restarted.ok;
   }
-  await assertHookPhaseAllowsUpgrade(service, "postUpgrade", "post_upgrade_hook_failed");
+  await assertHookPhaseAllowsUpgrade(service, "postUpgrade", "post_upgrade_hook_failed", guardedBinding?.hookBindings);
   const finalUpdateState = await readServiceUpdateState(service);
 
   return {
@@ -748,6 +970,7 @@ export async function installServiceUpdateCandidate(
     state: finalState,
     forced: options.force === true,
     stoppedForInstall: runningSafety.stoppedForInstall,
+    restartRequired: runningSafety.restartAfterInstall,
     restartedAfterInstall,
     rollbackReadiness,
   };

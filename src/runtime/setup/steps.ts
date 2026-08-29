@@ -2,6 +2,7 @@ import path from "node:path";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { DiscoveredService, ServiceSetupStep } from "../../contracts/service.js";
 import type { ProviderExecutionPlan } from "../providers/types.js";
 import { createDirectExecutionPlan } from "../providers/direct.js";
@@ -18,6 +19,10 @@ import { parseCommandlineArgs, selectPlatformCommandline } from "../execution/co
 import { writeServiceState } from "../state/writeState.js";
 import { ensureSecretsBrokerBootstrap } from "../broker/bootstrap.js";
 import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
+import {
+  buildExecutableInputFiles,
+  type ExecutableInputFileDigest,
+} from "./definition-revision.js";
 
 export interface SetupStepRunResult {
   ok: boolean;
@@ -255,6 +260,45 @@ function resolveStepExecutionPlan(
   };
 }
 
+export interface SetupStepExecutableMutationBinding {
+  revision: string;
+  files: ExecutableInputFileDigest[];
+}
+
+export async function buildSetupStepExecutableMutationBinding(
+  service: DiscoveredService,
+  registry: ServiceRegistry,
+  stepId: string,
+  plannedPorts?: Record<string, number>,
+): Promise<SetupStepExecutableMutationBinding> {
+  const step = service.manifest.setup?.steps?.[stepId];
+  if (!step) throw new Error(`Unknown setup step "${stepId}" for service "${service.manifest.id}".`);
+  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
+  const lifecycle = getLifecycleState(service.manifest.id);
+  const resolvedPorts = plannedPorts ?? (
+    Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {}
+  );
+  const executionPlan = resolveStepExecutionPlan(service, registry, step, sharedGlobalEnv, resolvedPorts);
+  const executable = resolveExecutable(service, executionPlan);
+  const args = executionPlan.args;
+  const cwd = await resolveWorkingDirectory(service, step, sharedGlobalEnv, resolvedPorts);
+  const files = await buildExecutableInputFiles(executable, args, cwd);
+  const identity = {
+    serviceId: service.manifest.id,
+    stepId,
+    step,
+    executionPlan,
+    executable,
+    args,
+    cwd: path.normalize(cwd).replaceAll("\\", "/"),
+    files,
+  };
+  return {
+    revision: `setup-executable-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`,
+    files,
+  };
+}
+
 function buildProcessEnvironment(
   service: DiscoveredService,
   executionPlan: ProviderExecutionPlan,
@@ -392,7 +436,15 @@ async function ensureServiceDependencyReady(
   }
 
   if (!dependencyState.running) {
-    const result = await startService(dependency, registry, lifecycleOptions);
+    if (lifecycleOptions.allowedMutationServiceIds && !lifecycleOptions.allowedMutationServiceIds.has(dependencyId)) {
+      throw new Error(
+        `Setup for "${owner.manifest.id}" cannot start dependency "${dependencyId}" because it was not part of the approved plan.`,
+      );
+    }
+    const result = await startService(dependency, registry, {
+      ...lifecycleOptions,
+      plannedPorts: lifecycleOptions.plannedPortsByService?.[dependencyId] ?? lifecycleOptions.plannedPorts,
+    });
     await writeServiceState(dependency, result.state);
   }
 
@@ -411,6 +463,7 @@ async function ensureSetupDependencies(
   visiting: Set<string>,
   transactionHooks?: SetupTransactionHooks,
   lifecycleOptions: ServiceLifecycleActionOptions = {},
+  expectedExecutableBindings?: Readonly<Record<string, SetupStepExecutableMutationBinding>>,
 ): Promise<void> {
   for (const dependencyId of step.depend_on ?? []) {
     const setupDependency = dependencyId.match(/^(.+):([^:]+)$/);
@@ -420,7 +473,12 @@ async function ensureSetupDependencies(
       if (!dependencyService) {
         throw new Error(`Setup step "${service.manifest.id}:${stepId}" depends on unknown setup service "${dependencyServiceId}".`);
       }
-      await runSetupStep(dependencyService, registry, dependencyStepId, { visiting, transactionHooks, lifecycleOptions });
+      await runSetupStep(dependencyService, registry, dependencyStepId, {
+        visiting,
+        transactionHooks,
+        lifecycleOptions,
+        expectedExecutableBindings,
+      });
       continue;
     }
 
@@ -432,7 +490,13 @@ export async function runSetupStep(
   service: DiscoveredService,
   registry: ServiceRegistry,
   stepId: string,
-  options: { force?: boolean; visiting?: Set<string>; transactionHooks?: SetupTransactionHooks; lifecycleOptions?: ServiceLifecycleActionOptions } = {},
+  options: {
+    force?: boolean;
+    visiting?: Set<string>;
+    transactionHooks?: SetupTransactionHooks;
+    lifecycleOptions?: ServiceLifecycleActionOptions;
+    expectedExecutableBindings?: Readonly<Record<string, SetupStepExecutableMutationBinding>>;
+  } = {},
 ): Promise<SetupStepRunResult> {
   const serviceId = service.manifest.id;
   const step = service.manifest.setup?.steps?.[stepId];
@@ -487,7 +551,26 @@ export async function runSetupStep(
     };
   }
 
-  await ensureSetupDependencies(service, stepId, step, registry, visiting, options.transactionHooks, options.lifecycleOptions);
+  if (
+    options.lifecycleOptions?.allowedMutationServiceIds &&
+    !options.lifecycleOptions.allowedMutationServiceIds.has(serviceId)
+  ) {
+    visiting.delete(visitKey);
+    throw new Error(
+      `Setup step "${serviceId}:${stepId}" was not part of the approved mutation plan.`,
+    );
+  }
+
+  await ensureSetupDependencies(
+    service,
+    stepId,
+    step,
+    registry,
+    visiting,
+    options.transactionHooks,
+    options.lifecycleOptions,
+    options.expectedExecutableBindings,
+  );
 
   const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
@@ -528,6 +611,19 @@ export async function runSetupStep(
   const combined = createWriteStream(logs.logPath, { flags: "w" });
   const stdout = createWriteStream(logs.stdoutPath, { flags: "w" });
   const stderr = createWriteStream(logs.stderrPath, { flags: "w" });
+  if (options.expectedExecutableBindings) {
+    const expected = options.expectedExecutableBindings[`${serviceId}:${stepId}`];
+    try {
+      const currentBinding = await buildSetupStepExecutableMutationBinding(service, registry, stepId, resolvedPorts);
+      if (!expected || currentBinding.revision !== expected.revision) {
+        throw new Error(`Setup step "${serviceId}:${stepId}" executable inputs changed after guarded preflight.`);
+      }
+    } catch (error) {
+      await Promise.all([closeWriteStream(combined), closeWriteStream(stdout), closeWriteStream(stderr)]);
+      visiting.delete(visitKey);
+      throw error;
+    }
+  }
   const child = spawn(executable, args, {
     cwd,
     env: buildProcessEnvironment(service, executionPlan, step, sharedGlobalEnv, resolvedPorts),
@@ -635,7 +731,14 @@ function resolveSetupOrder(service: DiscoveredService, selectedStepId?: string):
 export async function runServiceSetup(
   service: DiscoveredService,
   registry: ServiceRegistry,
-  options: { stepId?: string; force?: boolean; includeManual?: boolean; transactionHooks?: SetupTransactionHooks; lifecycleOptions?: ServiceLifecycleActionOptions } = {},
+  options: {
+    stepId?: string;
+    force?: boolean;
+    includeManual?: boolean;
+    transactionHooks?: SetupTransactionHooks;
+    lifecycleOptions?: ServiceLifecycleActionOptions;
+    expectedExecutableBindings?: Readonly<Record<string, SetupStepExecutableMutationBinding>>;
+  } = {},
 ): Promise<SetupServiceResult> {
   if (service.manifest.id === SECRETSBROKER_SERVICE_ID) {
     await ensureSecretsBrokerBootstrap(service);
@@ -660,6 +763,7 @@ export async function runServiceSetup(
       force: options.force,
       transactionHooks: options.transactionHooks,
       lifecycleOptions: options.lifecycleOptions,
+      expectedExecutableBindings: options.expectedExecutableBindings,
     });
     if (result.run.status === "skipped") {
       skipped.push({ stepId, reason: result.run.message });

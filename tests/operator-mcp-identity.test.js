@@ -142,6 +142,10 @@ test("#860 protects Streamable HTTP with OAuth discovery, trusted identity, scop
       "service-lasso:read",
       "service-lasso:logs:read",
       "service-lasso:audit:read",
+      "service-lasso:lifecycle:write",
+      "service-lasso:config:write",
+      "service-lasso:update:write",
+      "service-lasso:runtime:admin",
     ]);
     assert.deepEqual(metadata.bearer_methods_supported, ["header"]);
 
@@ -434,7 +438,7 @@ test("#860 enforces guarded-mode profile evidence plus independent actor and cli
     const infoResponse = await fetch(apiServer.url + "/api/mcp/info");
     assert.equal(infoResponse.status, 200);
     const info = await infoResponse.json();
-    assert.deepEqual(info.policy, { operatingMode: "guarded", guardedToolsAvailable: false });
+    assert.deepEqual(info.policy, { operatingMode: "guarded", guardedToolsAvailable: true });
 
     const profileScopes = {
       observer: "service-lasso:read",
@@ -462,8 +466,8 @@ test("#860 enforces guarded-mode profile evidence plus independent actor and cli
         params: { name: "service_lasso_start_service", arguments: { serviceId: "missing" } },
       },
     });
-    assert.equal(observerMutation.status, 200);
-    assert.match(observerMutation.text, /not found|unknown tool/i);
+    assert.equal(observerMutation.status, 403);
+    assert.match(observerMutation.authenticate, /scope="service-lasso:lifecycle:write"/);
 
     const actorToken = await signAccessToken(jwks.privateKey, {
       subject: "rate-actor",
@@ -495,6 +499,15 @@ test("#860 enforces guarded-mode profile evidence plus independent actor and cli
     const denied = audit.events.filter((event) => event.action === "mcp.auth.denied" && event.reason === "mcp_rate_limited");
     assert.ok(denied.some((event) => event.actor === "rate-actor" && event.metadata?.clientId === "rate-actor-client"));
     assert.ok(denied.some((event) => event.actor === "shared-client-actor-c" && event.metadata?.clientId === "shared-rate-client"));
+    assert.ok(audit.events.some((event) =>
+      event.action === "mcp.action.denied" &&
+      event.actor === "profile-observer" &&
+      event.reason === "mcp_insufficient_scope" &&
+      event.metadata?.clientId === "client-observer" &&
+      event.metadata?.action === "service_start" &&
+      event.metadata?.targetIds?.includes("missing") &&
+      typeof event.correlationId === "string"
+    ));
     for (const token of [...Object.values(profileTokens), actorToken, ...sharedClientTokens]) {
       assert.equal(JSON.stringify(audit).includes(token), false);
     }

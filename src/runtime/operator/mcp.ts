@@ -4,9 +4,17 @@ import { createHash } from "node:crypto";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import * as z from "zod/v4";
 import { assertMcpScopes, type McpHttpAuthorization, type McpOperatingMode } from "./mcp-auth.js";
+import {
+  auditMcpGuardedActionSchemaDenial,
+  guardedActionPolicy,
+  invokeMcpGuardedAction,
+  McpGuardedActionError,
+  type McpGuardedActionFacade,
+  type McpGuardedActionInput,
+  type McpGuardedActionName,
+} from "./mcp-guarded-actions.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import type { AuditQuery } from "../../contracts/api.js";
@@ -35,15 +43,19 @@ export interface ServiceLassoMcpContext {
   registry: ServiceRegistry;
   graph: DependencyGraph;
   sharedGlobalEnv: Record<string, string>;
+  guardedActionFacade?: McpGuardedActionFacade;
+  mcpOperatingMode?: McpOperatingMode;
 }
 
 export interface ServiceLassoMcpServerOptions {
   authorization?: McpHttpAuthorization;
+  operatingMode?: McpOperatingMode;
 }
 
 export interface ServiceLassoMcpStdioOptions {
   stdin?: Readable;
   stdout?: Writable;
+  operatingMode?: McpOperatingMode;
 }
 
 export interface RunningServiceLassoMcpStdioAdapter {
@@ -68,7 +80,12 @@ interface McpToolDefinition {
     additionalProperties: false;
   };
   outputSchema: Record<string, unknown>;
-  annotations: typeof READ_ONLY_TOOL_ANNOTATIONS;
+  annotations: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+  };
 }
 
 interface McpResourceDefinition {
@@ -92,7 +109,18 @@ type ServiceLassoMcpToolName =
   | "service_lasso_recovery_status"
   | "service_lasso_operation_status"
   | "service_lasso_diagnostics_summary"
-  | "service_lasso_secret_metadata";
+  | "service_lasso_secret_metadata"
+  | "service_lasso_start_service"
+  | "service_lasso_stop_service"
+  | "service_lasso_restart_service"
+  | "service_lasso_install_service"
+  | "service_lasso_configure_service"
+  | "service_lasso_run_setup_step"
+  | "service_lasso_check_updates"
+  | "service_lasso_download_update"
+  | "service_lasso_install_update"
+  | "service_lasso_start_all"
+  | "service_lasso_stop_all";
 
 type ServiceLassoMcpStaticResourceUri =
   | "servicelasso://runtime"
@@ -164,14 +192,95 @@ const READ_ONLY_TOOL_ANNOTATIONS = {
   openWorldHint: false,
 };
 
+const guardedActionOutputSchema = z.object({
+  contractVersion: z.literal("service-lasso-mcp-guarded-action.v1"),
+  generatedAt: z.string(),
+  action: z.enum([
+    "service_start",
+    "service_stop",
+    "service_restart",
+    "service_install",
+    "service_configure",
+    "setup_step_run",
+    "update_check",
+    "update_download",
+    "update_install",
+    "runtime_start_all",
+    "runtime_stop_all",
+  ]),
+  status: z.enum(["preflight", "succeeded", "failed", "skipped", "replayed"]),
+  ok: z.boolean(),
+  correlationId: z.string(),
+  preflight: z.object({
+    planId: z.string(),
+    targets: z.array(z.string().regex(/^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u)).max(100)
+      .refine((entries) => new Set(entries).size === entries.length),
+    effects: z.array(z.string()).max(100),
+    executable: z.boolean(),
+    skippedReason: z.string().nullable(),
+    requiredProfile: z.enum(["observer", "operator", "maintainer", "administrator"]),
+  }).strict(),
+  confirmation: z.object({
+    required: z.boolean(),
+    id: z.string().nullable(),
+    status: z.enum(["not_required", "pending", "consumed"]),
+    expiresAt: z.string().nullable(),
+    confirmationPhrase: z.string().optional(),
+  }).strict(),
+  idempotency: z.object({
+    keyId: z.string().nullable(),
+    replayed: z.boolean(),
+  }).strict(),
+  summary: z.string(),
+  result: z.object({
+    targets: z.array(z.string().regex(/^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u)).max(100)
+      .refine((entries) => new Set(entries).size === entries.length),
+    effects: z.array(z.string()).max(100),
+    resultingState: z.array(z.object({
+      serviceId: z.string().regex(/^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u),
+      installed: z.boolean(),
+      configured: z.boolean(),
+      running: z.boolean(),
+    }).strict()).max(100).refine((entries) => new Set(entries.map((entry) => entry.serviceId)).size === entries.length),
+  }).strict().nullable(),
+  safety: z.object({
+    mutating: z.boolean(),
+    redacted: z.literal(true),
+    omittedSensitiveFields: z.array(z.string()),
+  }).strict(),
+}).strict();
+
 const optionalServiceIdSchema = z.string().trim().min(1).optional();
-const requiredServiceIdSchema = z.string().trim().min(1);
+const requiredServiceIdSchema = z.string().regex(/^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u);
+const guardedSetupStepIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$/u);
 const cursorInputSchema = z.string().trim().min(1).max(32).optional();
 const logLimitSchema = z.number().int().min(1).max(MAX_LOG_LIMIT).optional();
 const serviceCursorSchema = z.string().trim().min(1).max(32).optional();
 const serviceLimitSchema = z.number().int().min(1).max(MAX_SERVICE_LIMIT).optional();
 const auditLimitSchema = z.number().int().min(1).max(MAX_AUDIT_LIMIT).optional();
 const recoveryLimitSchema = z.number().int().min(1).max(MAX_RECOVERY_LIMIT).optional();
+const guardedExecutionInputShape = {
+  execute: z.boolean().optional(),
+  idempotencyKey: z.string().regex(/^(?!(?:AKIA|ASIA)[A-Z0-9]{16}$)(?!gh[pousr]_)(?!xox[a-z]-)(?![A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$)[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/u).optional(),
+  confirmationId: z.string().regex(/^mcp-confirmation-[0-9a-f-]{36}$/u).optional(),
+  confirmationPhrase: z.string().min(10).max(200).optional(),
+  confirmationTtlSeconds: z.number().int().min(1).max(900).optional(),
+};
+const guardedServiceInputSchema = z.object({
+  serviceId: requiredServiceIdSchema,
+  ...guardedExecutionInputShape,
+}).strict();
+const guardedSetupInputSchema = z.object({
+  serviceId: requiredServiceIdSchema,
+  stepId: guardedSetupStepIdSchema,
+  ...guardedExecutionInputShape,
+}).strict();
+const guardedUpdateInstallInputSchema = z.object({
+  serviceId: requiredServiceIdSchema,
+  force: z.boolean().optional(),
+  ...guardedExecutionInputShape,
+}).strict();
+const guardedRuntimeInputSchema = z.object({ ...guardedExecutionInputShape }).strict();
 
 const safetyOutputSchema = z.object({
   mutating: z.literal(false),
@@ -203,6 +312,7 @@ const runtimeStatusOutputSchema = z.object({
     updates: z.literal(true),
     configDrift: z.literal(true),
     recovery: z.literal(true),
+    guardedActions: z.boolean(),
     durableOperations: z.literal(false),
   }).strict(),
   safety: safetyOutputSchema,
@@ -722,6 +832,162 @@ const mcpTools: McpToolDefinition[] = [
   },
 ];
 
+const guardedActionCommonInputProperties: Record<string, unknown> = {
+  execute: { type: "boolean", description: "Omit or set false for preflight; true requests guarded execution." },
+  idempotencyKey: { type: "string", minLength: 8, maxLength: 200, pattern: "^(?!(?:AKIA|ASIA)[A-Z0-9]{16}$)(?!gh[pousr]_)(?!xox[a-z]-)(?![A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}$)[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$" },
+  confirmationId: { type: "string", pattern: "^mcp-confirmation-[0-9a-f-]{36}$" },
+  confirmationPhrase: { type: "string", minLength: 10, maxLength: 200 },
+  confirmationTtlSeconds: { type: "integer", minimum: 1, maximum: 900 },
+};
+
+function guardedAnnotations(input: { destructive: boolean; openWorld?: boolean }) {
+  return {
+    readOnlyHint: false,
+    destructiveHint: input.destructive,
+    idempotentHint: true,
+    openWorldHint: input.openWorld ?? false,
+  };
+}
+
+function guardedToolDefinition(input: {
+  name: ServiceLassoMcpToolName;
+  title: string;
+  description: string;
+  serviceId?: boolean;
+  stepId?: boolean;
+  force?: boolean;
+  destructive: boolean;
+  openWorld?: boolean;
+}): McpToolDefinition {
+  const properties: Record<string, unknown> = {
+    ...(input.serviceId ? { serviceId: { type: "string", pattern: "^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" } } : {}),
+    ...(input.stepId ? { stepId: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}$" } } : {}),
+    ...(input.force ? { force: { type: "boolean" } } : {}),
+    ...guardedActionCommonInputProperties,
+  };
+  return {
+    name: input.name,
+    title: input.title,
+    description: input.description,
+    inputSchema: {
+      type: "object",
+      properties,
+      ...((input.serviceId || input.stepId) ? {
+        required: [
+          ...(input.serviceId ? ["serviceId"] : []),
+          ...(input.stepId ? ["stepId"] : []),
+        ],
+      } : {}),
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(guardedActionOutputSchema),
+    annotations: guardedAnnotations(input),
+  };
+}
+
+const guardedMcpTools: McpToolDefinition[] = [
+  guardedToolDefinition({
+    name: "service_lasso_start_service",
+    title: "Start service",
+    description: "Preflight or execute one confirmed service start through the shared runtime facade.",
+    serviceId: true,
+    destructive: false,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_stop_service",
+    title: "Stop service",
+    description: "Preflight or execute one confirmed service stop through the shared runtime facade.",
+    serviceId: true,
+    destructive: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_restart_service",
+    title: "Restart service",
+    description: "Preflight or execute one confirmed service restart with normal dependency, port, readiness, and recovery behavior.",
+    serviceId: true,
+    destructive: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_install_service",
+    title: "Install service",
+    description: "Preflight or execute one confirmed manifest-owned service installation.",
+    serviceId: true,
+    destructive: true,
+    openWorld: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_configure_service",
+    title: "Configure service",
+    description: "Preflight or execute manifest-owned configuration without accepting raw configuration bodies.",
+    serviceId: true,
+    destructive: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_run_setup_step",
+    title: "Run setup step",
+    description: "Preflight or execute one named manifest-owned setup step; no arbitrary command input is accepted.",
+    serviceId: true,
+    stepId: true,
+    destructive: true,
+    openWorld: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_check_updates",
+    title: "Check service updates",
+    description: "Preflight or execute one allowlisted update check through the shared update facade.",
+    serviceId: true,
+    destructive: false,
+    openWorld: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_download_update",
+    title: "Download service update",
+    description: "Preflight or execute one confirmed pinned update download.",
+    serviceId: true,
+    destructive: false,
+    openWorld: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_install_update",
+    title: "Install service update",
+    description: "Preflight or execute one confirmed update installation with rollback-readiness policy.",
+    serviceId: true,
+    force: true,
+    destructive: true,
+    openWorld: true,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_start_all",
+    title: "Start all services",
+    description: "Preflight or execute the confirmed dependency-ordered runtime start plan.",
+    destructive: false,
+  }),
+  guardedToolDefinition({
+    name: "service_lasso_stop_all",
+    title: "Stop all services",
+    description: "Preflight or execute the confirmed dependency-ordered runtime stop plan.",
+    destructive: true,
+  }),
+];
+
+const guardedActionByToolName: Partial<Record<ServiceLassoMcpToolName, McpGuardedActionName>> = {
+  service_lasso_start_service: "service_start",
+  service_lasso_stop_service: "service_stop",
+  service_lasso_restart_service: "service_restart",
+  service_lasso_install_service: "service_install",
+  service_lasso_configure_service: "service_configure",
+  service_lasso_run_setup_step: "setup_step_run",
+  service_lasso_check_updates: "update_check",
+  service_lasso_download_update: "update_download",
+  service_lasso_install_update: "update_install",
+  service_lasso_start_all: "runtime_start_all",
+  service_lasso_stop_all: "runtime_stop_all",
+};
+
+function advertisedMcpTools(mode: McpOperatingMode): McpToolDefinition[] {
+  return mode === "guarded" ? [...mcpTools, ...guardedMcpTools] : mcpTools;
+}
+
 const mcpResources: McpResourceDefinition[] = [
   {
     uri: "servicelasso://runtime",
@@ -818,7 +1084,7 @@ function generatedAt(): string {
 
 class McpReadError extends Error {
   constructor(
-    public readonly code: "unknown_service" | "feature_unavailable" | "forbidden" | "invalid_cursor" | "invalid_request",
+    public readonly code: "unknown_service" | "feature_unavailable" | "forbidden" | "invalid_cursor" | "invalid_request" | McpGuardedActionError["code"],
     message: string,
   ) {
     super(message);
@@ -828,6 +1094,9 @@ class McpReadError extends Error {
 
 function stableMcpError(error: unknown): McpReadError {
   if (error instanceof McpReadError) return error;
+  if (error instanceof McpGuardedActionError) {
+    return new McpReadError(error.code, error.message);
+  }
   if (error && typeof error === "object" && "code" in error && error.code === "mcp_insufficient_scope") {
     return new McpReadError("forbidden", "The validated identity does not have the required read scope.");
   }
@@ -1012,6 +1281,8 @@ export function getServiceLassoMcpCapabilities(
   context: ServiceLassoMcpContext,
   options: { operatingMode?: McpOperatingMode } = {},
 ) {
+  const operatingMode = options.operatingMode ?? context.mcpOperatingMode ?? "read-only";
+  const guardedToolsAvailable = operatingMode === "guarded" && Boolean(context.guardedActionFacade && context.workspaceRoot);
   return {
     contractVersion: CONTRACT_VERSION,
     protocolVersion: MCP_PROTOCOL_VERSION,
@@ -1026,12 +1297,12 @@ export function getServiceLassoMcpCapabilities(
       version: context.version,
     },
     policy: {
-      operatingMode: options.operatingMode ?? "read-only",
-      guardedToolsAvailable: false,
+      operatingMode,
+      guardedToolsAvailable,
     },
     scope: {
-      mutatingOperations: "omitted",
-      tools: "read-only",
+      mutatingOperations: guardedToolsAvailable ? "guarded" : "omitted",
+      tools: guardedToolsAvailable ? "read and guarded actions" : "read-only",
       resources: "read-only",
       redaction: {
         value: REDACTION_VALUE,
@@ -1040,11 +1311,11 @@ export function getServiceLassoMcpCapabilities(
           "runtime log text is pattern-redacted before MCP responses",
           "route URLs strip username, password, query string, and fragment",
           "secret metadata returns refs, assignment, and rotation state only",
-          "mutating lifecycle and command-confirmation operations are not exposed as MCP tools",
+          "guarded action output contains allowlisted targets, effects, status, and correlation metadata only",
         ],
       },
     },
-    tools: mcpTools,
+    tools: advertisedMcpTools(guardedToolsAvailable ? "guarded" : "read-only"),
     resources: mcpResources,
     resourceTemplates: mcpResourceTemplates,
     runtime: {
@@ -1057,6 +1328,8 @@ export function createServiceLassoMcpServer(
   context: ServiceLassoMcpContext,
   options: ServiceLassoMcpServerOptions = {},
 ): McpServer {
+  const operatingMode = options.operatingMode ?? context.mcpOperatingMode ?? "read-only";
+  const guardedToolsAvailable = operatingMode === "guarded" && Boolean(context.guardedActionFacade && context.workspaceRoot);
   const server = new McpServer(
     {
       name: "service-lasso-operator",
@@ -1323,6 +1596,54 @@ export function createServiceLassoMcpServer(
     ),
   );
 
+  if (guardedToolsAvailable) {
+    const registerGuardedAction = (
+      toolName: ServiceLassoMcpToolName,
+      action: McpGuardedActionName,
+      inputSchema: z.ZodType<McpGuardedActionInput>,
+    ) => {
+      const definition = guardedMcpTools.find((entry) => entry.name === toolName);
+      if (!definition) throw new Error(`Missing guarded MCP tool definition: ${toolName}`);
+      server.registerTool(
+        toolName,
+        {
+          title: definition.title,
+          description: definition.description,
+          inputSchema,
+          outputSchema: guardedActionOutputSchema,
+          annotations: definition.annotations,
+        },
+        async (parameters) => {
+          try {
+            const payload = await invokeMcpGuardedAction({
+              workspaceRoot: context.workspaceRoot,
+              operatingMode,
+              authorization: options.authorization,
+              facade: context.guardedActionFacade,
+              action,
+              parameters,
+            });
+            return jsonToolResult(payload as unknown as Record<string, unknown>);
+          } catch (error) {
+            return jsonToolErrorResult(error);
+          }
+        },
+      );
+    };
+
+    registerGuardedAction("service_lasso_start_service", "service_start", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_stop_service", "service_stop", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_restart_service", "service_restart", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_install_service", "service_install", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_configure_service", "service_configure", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_run_setup_step", "setup_step_run", guardedSetupInputSchema);
+    registerGuardedAction("service_lasso_check_updates", "update_check", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_download_update", "update_download", guardedServiceInputSchema);
+    registerGuardedAction("service_lasso_install_update", "update_install", guardedUpdateInstallInputSchema);
+    registerGuardedAction("service_lasso_start_all", "runtime_start_all", guardedRuntimeInputSchema);
+    registerGuardedAction("service_lasso_stop_all", "runtime_stop_all", guardedRuntimeInputSchema);
+  }
+
   for (const resource of mcpResources) {
     server.registerResource(
       resource.name,
@@ -1375,6 +1696,31 @@ export function createServiceLassoMcpServer(
     );
   }
 
+  if (guardedToolsAvailable && context.workspaceRoot && options.authorization) {
+    // The pinned MCP SDK validates tool inputs before registered callbacks. Wrap
+    // that single validation boundary so recognized guarded denials are durably
+    // audited for every transport, including stdio, without logging arguments.
+    const validationBoundary = server as unknown as {
+      validateToolInput: (tool: unknown, args: unknown, toolName: string) => Promise<unknown>;
+    };
+    const validateToolInput = validationBoundary.validateToolInput.bind(server);
+    validationBoundary.validateToolInput = async (tool, args, toolName) => {
+      try {
+        return await validateToolInput(tool, args, toolName);
+      } catch (error) {
+        const action = guardedActionByToolName[toolName as ServiceLassoMcpToolName];
+        if (!action) throw error;
+        await auditMcpGuardedActionSchemaDenial({
+          workspaceRoot: context.workspaceRoot as string,
+          authorization: options.authorization as McpHttpAuthorization,
+          action,
+          parameters: args,
+        });
+        throw new McpGuardedActionError("invalid_request", "The guarded action request did not match the strict tool schema.");
+      }
+    };
+  }
+
   return server;
 }
 
@@ -1388,7 +1734,10 @@ export async function startServiceLassoMcpStdioAdapter(
   authorization: McpHttpAuthorization,
   options: ServiceLassoMcpStdioOptions = {},
 ): Promise<RunningServiceLassoMcpStdioAdapter> {
-  const server = createServiceLassoMcpServer(context, { authorization });
+  const server = createServiceLassoMcpServer(context, {
+    authorization,
+    operatingMode: options.operatingMode ?? context.mcpOperatingMode ?? "read-only",
+  });
   const transport = new StdioServerTransport(options.stdin, options.stdout);
   await server.connect(transport);
   return {
@@ -1420,6 +1769,7 @@ export async function buildMcpRuntimeStatusPayload(context: ServiceLassoMcpConte
       updates: true as const,
       configDrift: true as const,
       recovery: true as const,
+      guardedActions: context.mcpOperatingMode === "guarded" && Boolean(context.guardedActionFacade && context.workspaceRoot),
       durableOperations: false as const,
     },
     safety: {
@@ -2126,17 +2476,18 @@ export async function handleServiceLassoMcpStreamableHttpRequest(
   request: IncomingMessage,
   response: ServerResponse,
   parsedBody: unknown,
-  authInfo?: AuthInfo,
+  authorization?: McpHttpAuthorization,
+  operatingMode: McpOperatingMode = "read-only",
 ): Promise<void> {
-  const server = createServiceLassoMcpServer(context);
+  const server = createServiceLassoMcpServer(context, { authorization, operatingMode });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
 
   try {
     await server.connect(transport);
-    const authenticatedRequest = request as IncomingMessage & { auth?: AuthInfo };
-    if (authInfo) authenticatedRequest.auth = authInfo;
+    const authenticatedRequest = request as IncomingMessage & { auth?: McpHttpAuthorization["authInfo"] };
+    if (authorization) authenticatedRequest.auth = authorization.authInfo;
     await transport.handleRequest(authenticatedRequest, response, parsedBody);
   } finally {
     await server.close().catch(() => undefined);
