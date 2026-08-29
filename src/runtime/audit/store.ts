@@ -12,6 +12,8 @@ import type {
 import { assertSafeAuditMetadata } from "./events.js";
 
 export interface AppendAuditEventInput {
+  /** Optional deterministic identifier for idempotent terminal/outbox replay. */
+  eventId?: string;
   workspaceRoot?: string;
   serviceRoot?: string;
   source: string;
@@ -242,6 +244,8 @@ async function appendAuditLine(filePath: string, auditDir: string, event: AuditE
   const previousQueue = auditAppendQueues.get(auditDir) ?? Promise.resolve();
   const operation = previousQueue.catch(() => undefined).then(async () => {
     const existing = await readAuditDir(auditDir);
+    const duplicate = existing.find((candidate) => candidate.id === event.id);
+    if (duplicate) return duplicate;
     const previous = existing.at(-1);
     const sequence = typeof previous?.sequence === "number" ? previous.sequence + 1 : 1;
     const previousHash = previous?.eventHash || null;
@@ -278,6 +282,9 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     assertSafeAuditMetadata(input.metadata);
   }
 
+  if (input.eventId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(input.eventId)) {
+    throw new Error("Audit eventId must be a bounded safe identifier.");
+  }
   const timestamp = new Date().toISOString();
   const target =
     input.serviceRoot && input.serviceId
@@ -294,7 +301,7 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
           }
         : null;
   const event: AuditEvent = {
-    id: randomUUID(),
+    id: input.eventId ?? randomUUID(),
     timestamp,
     source: input.source,
     action: input.action,

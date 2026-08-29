@@ -36,6 +36,8 @@ const activeOperations = new Map<string, {
 const STATE_VERSION = 1;
 const STATE_LOCK_TIMEOUT_MS = 15_000;
 const STATE_LOCK_STALE_MS = 60_000;
+const RUNNER_HEARTBEAT_INTERVAL_MS = 250;
+const RUNNER_HEARTBEAT_STALE_MS = 15_000;
 const profileRank: Record<McpPermissionProfile, number> = {
   observer: 0,
   operator: 1,
@@ -108,7 +110,7 @@ export interface McpOperationSafety {
 
 interface PendingTerminal {
   status: McpOperationOutcome;
-  phase: "completed" | "failed" | "cancelled" | "skipped" | "replayed";
+  phase: "completed" | "failed" | "cancelled" | "skipped" | "replayed" | "interrupted";
   progress: 100;
   summary: string;
   completedAt: string;
@@ -133,6 +135,9 @@ interface StoredOperation {
   cancellationSupported: boolean;
   outcome: McpOperationOutcome | null;
   runnerPid: number;
+  runnerInstanceId: string;
+  heartbeatAt: string;
+  guardedExecutionId: string | null;
   pendingTerminal: PendingTerminal | null;
 }
 
@@ -153,12 +158,16 @@ export interface McpOperationRecoveryResult {
   summary: string;
 }
 
+export interface McpOperationRecoveryRecord extends McpOperationPublicRecord {
+  guardedExecutionId: string | null;
+}
+
 export interface McpOperationServiceOptions {
   workspaceRoot: string;
   requestBudgetMs?: number;
   retentionMs?: number;
   now?: () => Date;
-  recoverDetached?: (operation: McpOperationPublicRecord) => Promise<McpOperationRecoveryResult | null>;
+  recoverDetached?: (operation: McpOperationRecoveryRecord) => Promise<McpOperationRecoveryResult | null>;
   cancelDetached?: (operation: McpOperationPublicRecord) => Promise<"cancelled" | "unsupported" | "too_late">;
 }
 
@@ -203,6 +212,7 @@ export class McpOperationService {
     action: McpGuardedActionName;
     targetIds: string[];
     cancellationSupported: boolean;
+    guardedExecutionId?: string | null;
     requestSignal?: AbortSignal;
     execute: (
       signal: AbortSignal,
@@ -212,6 +222,12 @@ export class McpOperationService {
   }): Promise<{ kind: "completed"; response: McpGuardedActionResponse } | { kind: "accepted"; payload: McpOperationAcceptedPayload }> {
     const authorization = requiredAuthorization(input.authorization);
     const createdAt = this.now();
+    const priorState = await this.readAndCleanState();
+    for (const prior of priorState.operations.filter((operation) =>
+      !isTerminal(operation.status) && Date.parse(operation.expiresAt) <= createdAt.getTime()
+    )) {
+      await this.reconcileOperation(prior.operationId);
+    }
     const operationId = `mcp-operation-${randomUUID()}`;
     const correlationId = `mcp-operation-correlation-${randomUUID()}`;
     const targetIds = normalizeTargets(input.targetIds);
@@ -234,6 +250,9 @@ export class McpOperationService {
       cancellationSupported: input.cancellationSupported,
       outcome: null,
       runnerPid: process.pid,
+      runnerInstanceId: randomUUID(),
+      heartbeatAt: createdAt.toISOString(),
+      guardedExecutionId: normalizeGuardedExecutionId(input.guardedExecutionId),
       pendingTerminal: null,
     };
 
@@ -286,7 +305,7 @@ export class McpOperationService {
         generatedAt: this.now().toISOString(),
         accepted: true,
         operation: current.operation,
-        safety: operationSafety(false),
+        safety: operationSafety(true),
       },
     };
   }
@@ -416,10 +435,19 @@ export class McpOperationService {
     if (active) {
       active.controller.abort(new Error("MCP operation cancellation requested."));
       await Promise.race([active.completion, delay(2_000, undefined, { ref: false })]);
+    } else if (runnerOwnsLiveOperation(record, this.now())) {
+      const deadline = Date.now() + 2_000;
+      do {
+        await delay(50, undefined, { ref: false });
+        record = await this.readRecord(normalizedId);
+        if (record.pendingTerminal) await this.finalizePendingTerminal(normalizedId);
+        record = await this.readRecord(normalizedId);
+        if (isTerminal(record.status)) break;
+      } while (Date.now() < deadline);
     } else if (this.cancelDetached) {
       let detachedResult: "cancelled" | "unsupported" | "too_late";
       try {
-        detachedResult = await this.cancelDetached(publicRecord(record, identity.actor.actorId));
+        detachedResult = await this.cancelDetached(recoveryRecord(record, identity.actor.actorId));
       } catch {
         await this.restoreDetachedAfterCancellation(normalizedId);
         throw new McpOperationError("invalid_request", "Durable MCP operation cancellation could not be completed safely.");
@@ -440,7 +468,16 @@ export class McpOperationService {
     }
 
     record = await this.readRecord(normalizedId);
-    return cancellationPayload(record, identity.actor.actorId, "requested", this.now());
+    if (record.pendingTerminal) {
+      await this.finalizePendingTerminal(normalizedId);
+      record = await this.readRecord(normalizedId);
+    }
+    return cancellationPayload(
+      record,
+      identity.actor.actorId,
+      isTerminal(record.status) && record.status !== "cancelled" ? "too_late" : "requested",
+      this.now(),
+    );
   }
 
   private async restoreDetachedAfterCancellation(operationId: string): Promise<void> {
@@ -466,6 +503,20 @@ export class McpOperationService {
     let response: McpGuardedActionResponse | null = null;
     let error: unknown | null = null;
     let lastProgressPersistedAt = Date.now();
+    let heartbeatStopped = false;
+    const heartbeat = (async () => {
+      while (!heartbeatStopped) {
+        await delay(RUNNER_HEARTBEAT_INTERVAL_MS, undefined, { ref: false });
+        if (heartbeatStopped) break;
+        await this.updateRecord(initial.operationId, (record) => {
+          if (record.runnerInstanceId !== initial.runnerInstanceId || isTerminal(record.status) || record.pendingTerminal) return;
+          record.heartbeatAt = this.now().toISOString();
+          if (record.status === "cancelling") {
+            controller.abort(new Error("MCP operation cancellation requested."));
+          }
+        }).catch(() => undefined);
+      }
+    })();
     try {
       response = await execute(controller.signal, async (update) => {
         const normalizedTargets = update.targetIds ? normalizeTargets(update.targetIds) : null;
@@ -519,6 +570,8 @@ export class McpOperationService {
     } catch (caught) {
       error ??= caught;
     } finally {
+      heartbeatStopped = true;
+      await heartbeat.catch(() => undefined);
       activeOperations.delete(activeKey);
     }
     return { response, error };
@@ -548,21 +601,26 @@ export class McpOperationService {
   }
 
   private async finalizePendingTerminal(operationId: string): Promise<void> {
-    const record = await this.readRecord(operationId);
-    const pending = record.pendingTerminal;
-    if (!pending) return;
-    await auditOperation(this.workspaceRoot, record, pending.status, pending.phase);
-    await this.updateRecord(operationId, (current) => {
-      if (!current.pendingTerminal || current.pendingTerminal.completedAt !== pending.completedAt) return;
-      current.status = pending.status;
-      current.phase = pending.phase;
-      current.progress = pending.progress;
-      current.summary = pending.summary;
-      current.updatedAt = pending.completedAt;
-      current.completedAt = pending.completedAt;
-      current.expiresAt = new Date(Date.parse(pending.completedAt) + this.retentionMs).toISOString();
-      current.outcome = pending.status;
-      current.pendingTerminal = null;
+    await withStateLock(this.workspaceRoot, async () => {
+      const state = await readState(this.workspaceRoot);
+      const record = state.operations.find((operation) => operation.operationId === operationId);
+      if (!record) throw new McpOperationError("operation_not_found", "The durable MCP operation was not found.");
+      const pending = record.pendingTerminal;
+      if (!pending) return;
+      await auditOperation(this.workspaceRoot, record, pending.status, pending.phase, {
+        eventId: terminalAuditEventId(record, pending),
+      });
+      if (!record.pendingTerminal || record.pendingTerminal.completedAt !== pending.completedAt) return;
+      record.status = pending.status;
+      record.phase = pending.phase;
+      record.progress = pending.progress;
+      record.summary = pending.summary;
+      record.updatedAt = pending.completedAt;
+      record.completedAt = pending.completedAt;
+      record.expiresAt = new Date(Date.parse(pending.completedAt) + this.retentionMs).toISOString();
+      record.outcome = pending.status;
+      record.pendingTerminal = null;
+      await writeState(this.workspaceRoot, state);
     });
   }
 
@@ -573,10 +631,10 @@ export class McpOperationService {
       return;
     }
     if (isTerminal(record.status) || activeOperations.has(operationKey(this.workspaceRoot, operationId))) return;
-    if (record.runnerPid > 0 && processIsAlive(record.runnerPid)) return;
+    if (runnerOwnsLiveOperation(record, this.now())) return;
 
     if (this.recoverDetached) {
-      const recovered = await this.recoverDetached(publicRecord(record, record.actorId));
+      const recovered = await this.recoverDetached(recoveryRecord(record, record.actorId));
       if (recovered && recovered.status !== "running") {
         await this.stageTerminal(operationId, recovered.status, recovered.summary);
         await this.finalizePendingTerminal(operationId);
@@ -591,6 +649,16 @@ export class McpOperationService {
         });
         return;
       }
+    }
+    if (Date.parse(record.expiresAt) <= this.now().getTime()) {
+      await this.stageTerminal(
+        operationId,
+        "failed",
+        "The interrupted durable MCP operation expired without an authoritative terminal result.",
+        "interrupted",
+      );
+      await this.finalizePendingTerminal(operationId);
+      return;
     }
     await this.updateRecord(operationId, (current) => {
       current.phase = "detached";
@@ -696,6 +764,14 @@ function normalizeTargets(values: string[]): string[] {
   return targets;
 }
 
+function normalizeGuardedExecutionId(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  if (!/^[0-9a-f]{64}$/u.test(value)) {
+    throw new McpOperationError("invalid_request", "Guarded execution identity is invalid.");
+  }
+  return value;
+}
+
 function sameTargets(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -724,6 +800,13 @@ function publicRecord(record: StoredOperation, actorId: string): McpOperationPub
     cancellationSupported: record.cancellationSupported,
     outcome: record.outcome,
     ownership: record.actorId === storedIdentity(actorId, "actor") ? "own" : "other",
+  };
+}
+
+function recoveryRecord(record: StoredOperation, actorId: string): McpOperationRecoveryRecord {
+  return {
+    ...publicRecord(record, actorId),
+    guardedExecutionId: record.guardedExecutionId,
   };
 }
 
@@ -797,6 +880,10 @@ function isTerminal(status: McpOperationStatus): status is McpOperationOutcome {
 
 function operationKey(workspaceRoot: string, operationId: string): string {
   return `${path.resolve(workspaceRoot)}\0${operationId}`;
+}
+
+function runnerOwnsLiveOperation(record: StoredOperation, now: Date): boolean {
+  return processIsAlive(record.runnerPid) && now.getTime() - Date.parse(record.heartbeatAt) <= RUNNER_HEARTBEAT_STALE_MS;
 }
 
 function cleanupState(state: OperationState, now: Date): boolean {
@@ -874,6 +961,9 @@ function parseStoredOperation(raw: unknown): StoredOperation {
     typeof record.cancellationSupported !== "boolean" ||
     !(record.outcome === null || (typeof record.outcome === "string" && ["succeeded", "failed", "cancelled", "skipped"].includes(record.outcome))) ||
     typeof record.runnerPid !== "number" || !Number.isSafeInteger(record.runnerPid) || record.runnerPid <= 0 ||
+    typeof record.runnerInstanceId !== "string" || !/^[0-9a-f-]{36}$/u.test(record.runnerInstanceId) ||
+    !isIso(record.heartbeatAt) ||
+    !(record.guardedExecutionId === null || typeof record.guardedExecutionId === "string" && /^[0-9a-f]{64}$/u.test(record.guardedExecutionId)) ||
     !(record.pendingTerminal === null || isPendingTerminal(record.pendingTerminal))
   ) throw invalidState();
   return record as StoredOperation;
@@ -884,7 +974,7 @@ function isPendingTerminal(value: unknown): value is PendingTerminal {
   const pending = value as Partial<PendingTerminal>;
   return (
     typeof pending.status === "string" && ["succeeded", "failed", "cancelled", "skipped"].includes(pending.status) &&
-    typeof pending.phase === "string" && ["completed", "failed", "cancelled", "skipped", "replayed"].includes(pending.phase) &&
+    typeof pending.phase === "string" && ["completed", "failed", "cancelled", "skipped", "replayed", "interrupted"].includes(pending.phase) &&
     pending.progress === 100 && typeof pending.summary === "string" && pending.summary.length > 0 && pending.summary.length <= 300 &&
     isIso(pending.completedAt)
   );
@@ -915,10 +1005,11 @@ async function auditOperation(
   record: StoredOperation,
   event: "started" | "cancellation" | McpOperationOutcome,
   reason: string,
-  options: { actorId?: string; clientId?: string; denied?: boolean } = {},
+  options: { actorId?: string; clientId?: string; denied?: boolean; eventId?: string } = {},
 ): Promise<void> {
   try {
     await appendAuditEvent({
+      eventId: options.eventId,
       workspaceRoot,
       source: "runtime-mcp",
       action: `mcp.operation.${event}`,
@@ -945,6 +1036,13 @@ async function auditOperation(
   }
 }
 
+function terminalAuditEventId(record: StoredOperation, pending: PendingTerminal): string {
+  const digest = createHash("sha256")
+    .update(`${record.operationId}\0${record.correlationId}\0${pending.status}\0${pending.phase}\0${pending.completedAt}`, "utf8")
+    .digest("hex");
+  return `mcp-operation-terminal-${digest}`;
+}
+
 async function withStateLock<T>(workspaceRoot: string, work: () => Promise<T>): Promise<T> {
   const statePath = mcpOperationStatePath(workspaceRoot);
   const previous = stateQueues.get(statePath) ?? Promise.resolve();
@@ -960,9 +1058,22 @@ async function withStateLock<T>(workspaceRoot: string, work: () => Promise<T>): 
   try {
     await mkdir(path.dirname(statePath), { recursive: true, mode: 0o700 });
     while (!handle) {
+      if (await stateLockRecoveryInProgress(lockPath)) {
+        if (Date.now() >= deadline) {
+          throw new McpOperationError("operation_state_unavailable", "Durable MCP operation state is busy.");
+        }
+        await delay(20 + Math.floor(Math.random() * 31));
+        continue;
+      }
       try {
         handle = await open(lockPath, "wx", 0o600);
         await handle.writeFile(JSON.stringify({ pid: process.pid, nonce, createdAt: new Date().toISOString() }), "utf8");
+        if (await stateLockRecoveryInProgress(lockPath)) {
+          await handle.close();
+          handle = null;
+          await removeOwnedLock(lockPath, nonce);
+          await delay(20 + Math.floor(Math.random() * 31));
+        }
       } catch (error) {
         if (!isNodeError(error) || error.code !== "EEXIST") throw error;
         await recoverStaleLock(lockPath);
@@ -985,29 +1096,122 @@ async function withStateLock<T>(workspaceRoot: string, work: () => Promise<T>): 
 }
 
 async function recoverStaleLock(lockPath: string): Promise<void> {
-  let info;
+  const recoveryPath = `${lockPath}.recovery`;
+  const recoveryNonce = randomBytes(16).toString("hex");
+  let recoveryHandle: Awaited<ReturnType<typeof open>> | null = null;
   try {
-    info = await stat(lockPath);
+    recoveryHandle = await open(recoveryPath, "wx", 0o600);
+    await recoveryHandle.writeFile(JSON.stringify({
+      pid: process.pid,
+      nonce: recoveryNonce,
+      createdAt: new Date().toISOString(),
+    }), "utf8");
   } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") return;
+    if (isNodeError(error) && error.code === "EEXIST") return;
     throw error;
   }
-  if (Date.now() - info.mtimeMs < STATE_LOCK_STALE_MS) return;
-  let owner: { pid?: unknown; nonce?: unknown } = {};
   try {
-    owner = JSON.parse(await readFile(lockPath, "utf8")) as { pid?: unknown; nonce?: unknown };
-  } catch {
-    // A malformed stale lock has no trustworthy live owner.
+    let inspectedHandle: Awaited<ReturnType<typeof open>> | null = null;
+    try {
+      inspectedHandle = await open(lockPath, "r");
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return;
+      throw error;
+    }
+    try {
+      const inspectedStat = await inspectedHandle.stat();
+      if (Date.now() - inspectedStat.mtimeMs < STATE_LOCK_STALE_MS) return;
+      let inspectedOwner: { pid?: unknown; nonce?: unknown } = {};
+      try {
+        inspectedOwner = JSON.parse(await inspectedHandle.readFile("utf8")) as { pid?: unknown; nonce?: unknown };
+      } catch {
+        // A malformed stale lock has no trustworthy live owner and is recoverable.
+      }
+      const ownerPid = typeof inspectedOwner.pid === "number" && Number.isSafeInteger(inspectedOwner.pid) && inspectedOwner.pid > 0
+        ? inspectedOwner.pid
+        : null;
+      if (ownerPid !== null && processIsAlive(ownerPid)) return;
+      const claimedPath = `${lockPath}.stale-${process.pid}-${randomBytes(8).toString("hex")}`;
+      try {
+        await rename(lockPath, claimedPath);
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") return;
+        throw error;
+      }
+      const claimedStat = await stat(claimedPath);
+      let claimedOwner: { nonce?: unknown } = {};
+      try {
+        claimedOwner = JSON.parse(await readFile(claimedPath, "utf8")) as { nonce?: unknown };
+      } catch {
+        // File metadata still identifies the claimed malformed lock.
+      }
+      const sameFile = inspectedStat.dev === claimedStat.dev && inspectedStat.ino !== 0 && inspectedStat.ino === claimedStat.ino;
+      const sameFallbackIdentity = inspectedStat.size === claimedStat.size && inspectedStat.mtimeMs === claimedStat.mtimeMs;
+      const sameNonce = typeof inspectedOwner.nonce !== "string" || claimedOwner.nonce === inspectedOwner.nonce;
+      if (!(sameFile || sameFallbackIdentity) || !sameNonce) {
+        await rename(claimedPath, lockPath).catch(() => undefined);
+        return;
+      }
+      await rm(claimedPath, { force: true });
+    } finally {
+      await inspectedHandle.close();
+    }
+  } finally {
+    if (recoveryHandle) {
+      await recoveryHandle.close().catch(() => undefined);
+      await removeOwnedLock(recoveryPath, recoveryNonce);
+    }
   }
-  if (typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0 && processIsAlive(owner.pid)) return;
-  const claimed = `${lockPath}.stale-${process.pid}-${randomBytes(8).toString("hex")}`;
+}
+
+async function stateLockRecoveryInProgress(lockPath: string): Promise<boolean> {
+  const recoveryPath = `${lockPath}.recovery`;
+  let inspectedHandle: Awaited<ReturnType<typeof open>> | null = null;
   try {
-    await rename(lockPath, claimed);
+    inspectedHandle = await open(recoveryPath, "r");
   } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") return;
+    if (isNodeError(error) && error.code === "ENOENT") return false;
     throw error;
   }
-  await rm(claimed, { force: true });
+  try {
+    const inspectedStat = await inspectedHandle.stat();
+    if (Date.now() - inspectedStat.mtimeMs < STATE_LOCK_STALE_MS) return true;
+    let inspectedOwner: { pid?: unknown; nonce?: unknown } = {};
+    try {
+      inspectedOwner = JSON.parse(await inspectedHandle.readFile("utf8")) as { pid?: unknown; nonce?: unknown };
+    } catch {
+      // A malformed stale recovery sentinel has no trustworthy live owner.
+    }
+    const ownerPid = typeof inspectedOwner.pid === "number" && Number.isSafeInteger(inspectedOwner.pid) && inspectedOwner.pid > 0
+      ? inspectedOwner.pid
+      : null;
+    if (ownerPid !== null && processIsAlive(ownerPid)) return true;
+    const claimedPath = `${recoveryPath}.stale-${process.pid}-${randomBytes(8).toString("hex")}`;
+    try {
+      await rename(recoveryPath, claimedPath);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return false;
+      throw error;
+    }
+    const claimedStat = await stat(claimedPath);
+    let claimedOwner: { nonce?: unknown } = {};
+    try {
+      claimedOwner = JSON.parse(await readFile(claimedPath, "utf8")) as { nonce?: unknown };
+    } catch {
+      // File metadata still identifies the claimed malformed sentinel.
+    }
+    const sameFile = inspectedStat.dev === claimedStat.dev && inspectedStat.ino !== 0 && inspectedStat.ino === claimedStat.ino;
+    const sameFallbackIdentity = inspectedStat.size === claimedStat.size && inspectedStat.mtimeMs === claimedStat.mtimeMs;
+    const sameNonce = typeof inspectedOwner.nonce !== "string" || claimedOwner.nonce === inspectedOwner.nonce;
+    if (!(sameFile || sameFallbackIdentity) || !sameNonce) {
+      await rename(claimedPath, recoveryPath).catch(() => undefined);
+      return true;
+    }
+    await rm(claimedPath, { force: true });
+    return false;
+  } finally {
+    await inspectedHandle.close();
+  }
 }
 
 async function removeOwnedLock(lockPath: string, nonce: string): Promise<void> {

@@ -3009,6 +3009,7 @@ function createMcpGuardedActionFacade(
         }
       }
       if (action === "runtime_start_all" || action === "runtime_stop_all") {
+        executionOptions.signal?.throwIfAborted();
         const result = await executeRuntimeOrchestrationAction(
           action === "runtime_start_all" ? "startAll" : "stopAll",
           runtimeModel,
@@ -3092,6 +3093,7 @@ function createMcpGuardedActionFacade(
             throw new ApiError("guarded_plan_changed", 409, "The resolved restart executable inputs changed before execution.");
           }
         }
+        executionOptions.signal?.throwIfAborted();
         const result = await executeLifecycleAction(
           lifecycleAction,
           service,
@@ -3131,6 +3133,7 @@ function createMcpGuardedActionFacade(
         })).digest("hex")}` !== approvedPlan.revision) {
           throw new ApiError("guarded_plan_changed", 409, "The manifest-owned setup definition changed before execution.");
         }
+        executionOptions.signal?.throwIfAborted();
         const result = await runServiceSetup(service, runtimeModel.registry, {
           stepId: parameters.stepId,
           force: parameters.force,
@@ -3172,6 +3175,7 @@ function createMcpGuardedActionFacade(
         await executionOptions.reportProgress?.({ phase: "verifying_update", progress: 80, summary: "Verifying the downloaded update candidate." });
         return successful(action, [serviceId], "Service update download completed.");
       }
+      executionOptions.signal?.throwIfAborted();
       const install = await installServiceUpdateCandidate(service, {
         force: parameters.force,
         registry: runtimeModel.registry,

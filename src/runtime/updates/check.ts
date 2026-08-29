@@ -515,6 +515,7 @@ export async function checkServiceUpdate(
       checkedAt,
     };
   } catch (error: unknown) {
+    if (options.signal?.aborted || error instanceof Error && error.name === "AbortError") throw error;
     return {
       serviceId: service.manifest.id,
       status: "check_failed",

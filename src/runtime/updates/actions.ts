@@ -2,7 +2,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { constants as fsConstants } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, link, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import AdmZip from "adm-zip";
@@ -418,13 +418,15 @@ async function downloadToFile(
   destinationPath: string,
   expected: { size: number | null; digest: string | null },
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<boolean> {
+  signal?.throwIfAborted();
   const response = await fetch(assetUrl, { signal });
   if (!response.ok) {
     throw new Error(`Failed to download update candidate from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
 
   const bytes = Buffer.from(await response.arrayBuffer());
+  signal?.throwIfAborted();
   if (expected.size !== null && bytes.length !== expected.size) {
     throw new Error(`Downloaded update candidate size did not match its confirmed provider metadata.`);
   }
@@ -436,7 +438,30 @@ async function downloadToFile(
     }
   }
   await mkdir(path.dirname(destinationPath), { recursive: true });
-  await writeFile(destinationPath, bytes);
+  signal?.throwIfAborted();
+  const temporaryPath = `${destinationPath}.partial-${randomUUID()}`;
+  let created = false;
+  try {
+    await writeFile(temporaryPath, bytes, { flag: "wx" });
+    signal?.throwIfAborted();
+    try {
+      await link(temporaryPath, destinationPath);
+      created = true;
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error;
+      const existing = await readFile(destinationPath);
+      if (existing.length !== bytes.length || !createHash("sha256").update(existing).digest().equals(createHash("sha256").update(bytes).digest())) {
+        throw new Error("An existing update candidate does not match the confirmed provider artifact.");
+      }
+    }
+    if (signal?.aborted && created) {
+      await rm(destinationPath, { force: true });
+    }
+    signal?.throwIfAborted();
+    return created;
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
 }
 
 async function extractArchive(
@@ -678,6 +703,7 @@ export async function checkServiceUpdatesForCli(
   const checked = await Promise.all(
     selected.map(async (service) => {
       const result = await checkServiceUpdate(service, options);
+      options.signal?.throwIfAborted();
       const update = await persistUpdateCheckResult(service, result);
       return {
         serviceId: service.manifest.id,
@@ -703,7 +729,9 @@ export async function downloadServiceUpdateCandidate(
   service: DiscoveredService,
   options: UpdateDownloadOptions = {},
 ): Promise<UpdateDownloadActionResult> {
+  options.signal?.throwIfAborted();
   const result = await checkServiceUpdate(service, { signal: options.signal });
+  options.signal?.throwIfAborted();
   if (
     options.expectedCandidateRevision &&
     !/^sha256:[0-9a-f]{64}$/iu.test(result.available?.assetDigest ?? "")
@@ -725,26 +753,33 @@ export async function downloadServiceUpdateCandidate(
   const paths = getServiceStatePaths(service.serviceRoot);
   const releaseSegment = result.available.tag.replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.updateCandidates, releaseSegment, result.available.matchedAssetName);
+  let update: ServiceUpdateState;
+  let archiveCreated = false;
   try {
-    await downloadToFile(result.available.assetUrl, archivePath, {
+    archiveCreated = await downloadToFile(result.available.assetUrl, archivePath, {
       size: result.available.assetSize ?? null,
       digest: result.available.assetDigest ?? null,
     }, options.signal);
+    options.signal?.throwIfAborted();
+    update = await persistDownloadedUpdateCandidate(service, {
+      tag: result.available.tag,
+      version: result.available.version,
+      assetName: result.available.matchedAssetName,
+      assetUrl: result.available.assetUrl,
+      archivePath,
+      extractedPath: null,
+    });
   } catch (error) {
+    if (options.signal?.aborted || error instanceof Error && error.name === "AbortError") {
+      if (archiveCreated) await rm(archivePath, { force: true }).catch(() => undefined);
+      throw error;
+    }
     await persistUpdateFailure(service, {
       reason: error instanceof Error ? error.message : "Failed to download update candidate.",
       sourceStatus: "download_failed",
     });
     throw error;
   }
-  const update = await persistDownloadedUpdateCandidate(service, {
-    tag: result.available.tag,
-    version: result.available.version,
-    assetName: result.available.matchedAssetName,
-    assetUrl: result.available.assetUrl,
-    archivePath,
-    extractedPath: null,
-  });
 
   return {
     action: "download",

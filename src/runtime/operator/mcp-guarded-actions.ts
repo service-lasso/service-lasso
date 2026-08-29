@@ -248,12 +248,75 @@ export function guardedActionIdempotencyPath(
   clientId: string,
   idempotencyKey: string,
 ): string {
-  const recordId = fingerprint({ actorId, clientId, idempotencyKey });
-  return path.join(workspaceRoot, ".service-lasso", "mcp", "idempotency", `${recordId}.json`);
+  return guardedActionExecutionPath(workspaceRoot, guardedActionExecutionId(actorId, clientId, idempotencyKey));
+}
+
+export function guardedActionExecutionId(actorId: string, clientId: string, idempotencyKey: string): string {
+  const normalized = normalizeIdempotencyKey(idempotencyKey);
+  if (!normalized) {
+    throw new McpGuardedActionError("invalid_idempotency_key", "Execution requires a bounded idempotency key of at least eight safe characters.");
+  }
+  return fingerprint({ actorId, clientId, idempotencyKey: normalized });
+}
+
+function guardedActionExecutionPath(workspaceRoot: string, executionId: string): string {
+  if (!/^[0-9a-f]{64}$/u.test(executionId)) {
+    throw new McpGuardedActionError("guarded_action_state_invalid", "Guarded action execution identity is invalid.");
+  }
+  return path.join(workspaceRoot, ".service-lasso", "mcp", "idempotency", `${executionId}.json`);
 }
 
 export function guardedActionPolicy(action: McpGuardedActionName): Readonly<ActionPolicy> {
   return policyByAction[action];
+}
+
+export async function assertMcpGuardedActionAuthorization(input: {
+  workspaceRoot: string;
+  operatingMode: "disabled" | "read-only" | "guarded";
+  authorization: McpHttpAuthorization | undefined;
+  action: McpGuardedActionName;
+  correlationId?: string;
+}): Promise<void> {
+  const correlationId = input.correlationId ?? `mcp-action-${randomUUID()}`;
+  if (!input.authorization) {
+    await audit(input.workspaceRoot, input.action, "denied", "mcp-unauthenticated", "mcp-unauthenticated", correlationId, [], "authorization_required");
+    throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
+  }
+  try {
+    assertAuthorized(input.operatingMode, input.authorization, policyByAction[input.action]);
+  } catch (error) {
+    await audit(
+      input.workspaceRoot,
+      input.action,
+      "denied",
+      input.authorization.actor.actorId,
+      input.authorization.actor.clientId,
+      correlationId,
+      [],
+      error instanceof McpGuardedActionError ? error.code : "forbidden",
+    );
+    throw error;
+  }
+}
+
+export async function readMcpGuardedActionExecution(input: {
+  workspaceRoot: string;
+  executionId: string;
+  expectedCorrelationId: string;
+}): Promise<McpGuardedActionResponse | null> {
+  const statePath = guardedActionStatePath(input.workspaceRoot);
+  const idempotencyPath = guardedActionExecutionPath(input.workspaceRoot, input.executionId);
+  const existing = await withStateLock(statePath, async () =>
+    await readIdempotencyRecord(input.workspaceRoot, idempotencyPath));
+  if (!existing || existing.correlationId !== input.expectedCorrelationId) return null;
+  if (existing.response) return existing.response;
+  if (!existing.pendingResponse) return null;
+  return await finalizePendingTerminal({
+    workspaceRoot: input.workspaceRoot,
+    statePath,
+    idempotencyPath,
+    expectedCorrelationId: input.expectedCorrelationId,
+  });
 }
 
 export async function auditMcpGuardedActionSchemaDenial(input: {
@@ -299,26 +362,14 @@ export async function invokeMcpGuardedAction(input: {
     throw new McpGuardedActionError("feature_unavailable", "Guarded actions are unavailable for this runtime.");
   }
 
-  if (!authorization) {
-    await audit(workspaceRoot, input.action, "denied", "mcp-unauthenticated", "mcp-unauthenticated", correlationId, [], "authorization_required");
-    throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
-  }
-
-  try {
-    assertAuthorized(input.operatingMode, authorization, policy);
-  } catch (error) {
-    await audit(
-      workspaceRoot,
-      input.action,
-      "denied",
-      authorization.actor.actorId,
-      authorization.actor.clientId,
-      correlationId,
-      safeTargetIds(input.parameters),
-      error instanceof McpGuardedActionError ? error.code : "forbidden",
-    );
-    throw error;
-  }
+  await assertMcpGuardedActionAuthorization({
+    workspaceRoot,
+    operatingMode: input.operatingMode,
+    authorization,
+    action: input.action,
+    correlationId,
+  });
+  if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
 
   let normalized: McpGuardedActionParameters;
   let idempotencyKey: string | null;

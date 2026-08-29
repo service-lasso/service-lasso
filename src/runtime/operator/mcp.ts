@@ -7,10 +7,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import { assertMcpScopes, type McpHttpAuthorization, type McpOperatingMode } from "./mcp-auth.js";
 import {
+  assertMcpGuardedActionAuthorization,
   auditMcpGuardedActionSchemaDenial,
+  guardedActionExecutionId,
   guardedActionPolicy,
   invokeMcpGuardedAction,
   McpGuardedActionError,
+  readMcpGuardedActionExecution,
   type McpGuardedActionFacade,
   type McpGuardedActionInput,
   type McpGuardedActionName,
@@ -1473,41 +1476,35 @@ export function getServiceLassoMcpCapabilities(
 function defaultOperationRecovery(
   context: ServiceLassoMcpContext,
 ): McpOperationServiceOptions["recoverDetached"] | undefined {
-  const facade = context.guardedActionFacade;
-  const snapshot = facade?.snapshot?.bind(facade);
-  if (!snapshot) return undefined;
+  const workspaceRoot = context.workspaceRoot;
+  if (!workspaceRoot) return undefined;
   return async (operation) => {
-    if (operation.targetIds.length === 0) return null;
-    let states;
+    if (!operation.guardedExecutionId) return null;
+    let completed;
     try {
-      states = await snapshot(operation.targetIds);
+      completed = await readMcpGuardedActionExecution({
+        workspaceRoot,
+        executionId: operation.guardedExecutionId,
+        expectedCorrelationId: operation.correlationId,
+      });
     } catch {
       return null;
     }
-    if (states.length !== operation.targetIds.length) return null;
-    const complete = operation.action === "service_install"
-      ? states.every((state) => state.installed)
-      : operation.action === "service_configure"
-        ? states.every((state) => state.configured)
-        : operation.action === "runtime_start_all"
-          ? states.every((state) => state.running)
-          : operation.action === "runtime_stop_all"
-            ? states.every((state) => !state.running)
-            : false;
-    return complete
-      ? {
-          status: "succeeded",
-          phase: "runtime_reconciled",
-          progress: 100,
-          summary: "The surviving runtime operation completed and was reconciled safely.",
-        }
-      : null;
+    if (!completed) return null;
+    return {
+      status: completed.status === "skipped" || completed.status === "replayed"
+        ? "skipped"
+        : completed.ok
+          ? "succeeded"
+          : "failed",
+      phase: completed.status === "replayed" ? "replayed" : "guarded_result_reconciled",
+      progress: 100,
+      summary: completed.summary,
+    };
   };
 }
 
-const defaultDetachedCancellation: NonNullable<McpOperationServiceOptions["cancelDetached"]> = async (operation) => (
-  isSafelyCancellableMcpAction(operation.action) ? "cancelled" : "unsupported"
-);
+const defaultDetachedCancellation: NonNullable<McpOperationServiceOptions["cancelDetached"]> = async () => "unsupported";
 
 export function createServiceLassoMcpServer(
   context: ServiceLassoMcpContext,
@@ -1874,20 +1871,37 @@ export function createServiceLassoMcpServer(
               signal,
               reportProgress,
             });
-            const payload = parameters.execute === true && isDurableMcpAction(action) && operationService
-              ? await operationService.submit({
-                  authorization: options.authorization,
-                  action,
-                  targetIds: parameters.serviceId
-                    ? [parameters.serviceId]
-                    : (action === "runtime_start_all" || action === "runtime_stop_all")
-                      ? context.discovered.map((service) => service.manifest.id)
-                      : [],
-                  cancellationSupported: isSafelyCancellableMcpAction(action),
-                  requestSignal: extra.signal,
-                  execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),
-                }).then((submission) => submission.kind === "completed" ? submission.response : submission.payload)
-              : await invoke();
+            let payload;
+            if (parameters.execute === true && isDurableMcpAction(action) && operationService) {
+              await assertMcpGuardedActionAuthorization({
+                workspaceRoot: context.workspaceRoot!,
+                operatingMode,
+                authorization: options.authorization,
+                action,
+              });
+              const authorization = options.authorization;
+              if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
+              const submission = await operationService.submit({
+                authorization,
+                action,
+                targetIds: parameters.serviceId
+                  ? [parameters.serviceId]
+                  : (action === "runtime_start_all" || action === "runtime_stop_all")
+                    ? context.discovered.map((service) => service.manifest.id)
+                    : [],
+                cancellationSupported: isSafelyCancellableMcpAction(action),
+                guardedExecutionId: guardedActionExecutionId(
+                  authorization.actor.actorId,
+                  authorization.actor.clientId,
+                  parameters.idempotencyKey ?? "",
+                ),
+                requestSignal: extra.signal,
+                execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),
+              });
+              payload = submission.kind === "completed" ? submission.response : submission.payload;
+            } else {
+              payload = await invoke();
+            }
             return jsonToolResult(payload as unknown as Record<string, unknown>);
           } catch (error) {
             return jsonToolErrorResult(error);
