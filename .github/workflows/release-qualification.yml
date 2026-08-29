@@ -306,7 +306,7 @@ jobs:
 
       - name: Verify fresh-consumer packaged MCP
         env:
-          MCP_PRODUCT_EVIDENCE_PATH: artifacts/release-mcp-product-${{ matrix.platform }}.json
+          MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
         run: npm run verify:mcp:packaged
 
       - name: Upload exact-SHA release MCP evidence
@@ -314,7 +314,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: release-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/release-mcp-product-${{ matrix.platform }}.json
+          path: artifacts/mcp-product-${{ matrix.platform }}.json
           if-no-files-found: error
           retention-days: 90
 

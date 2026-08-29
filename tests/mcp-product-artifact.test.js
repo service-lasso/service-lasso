@@ -191,16 +191,22 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
     assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
     assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+    assert.match(releaseWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
     assert.match(releaseWorkflow, /qualify-release:[\s\S]*?needs:[\s\S]*?- qualify-mcp-product[\s\S]*?- qualify-mcp-packaged/u);
 
     for (const workflowPath of [".github/workflows/publish-package.yml", ".github/workflows/release-artifact.yml"]) {
       const publicationWorkflow = await readFile(workflowPath, "utf8");
       assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
       assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+      assert.match(publicationWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
       assert.match(publicationWorkflow, /needs:[\s\S]*?- qualify-mcp-packaged/u);
       assert.match(publicationWorkflow, /retention-days: 90/u);
       assert.match(publicationWorkflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     }
+
+    const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
+    assert.match(packagedVerifier, /Get-CimInstance Win32_Process[\s\S]*?timeoutMs: 60_000/u);
+    assert.match(packagedVerifier, /process\.platform === "darwin"[\s\S]*?"\/var"/u);
   } finally {
     const closed = once(server, "close");
     server.close();

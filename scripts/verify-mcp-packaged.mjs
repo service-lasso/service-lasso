@@ -78,6 +78,20 @@ async function writeCanonicalService(servicesRoot) {
   return serviceId;
 }
 
+async function prepareHostedWindowsIdentityInspection() {
+  if (process.platform !== "win32") return;
+  await runCommand(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      'Get-CimInstance Win32_Process -Filter "ProcessId = $PID" | Out-Null',
+    ],
+    { timeoutMs: 60_000 },
+  );
+}
+
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
@@ -120,6 +134,11 @@ try {
     staged.packageArchivePath,
     "@modelcontextprotocol/inspector@2.4.0",
   ], { cwd: consumerRoot, timeoutMs: 300_000 });
+  // Hosted Windows can spend longer than the product's unchanged fail-closed
+  // 15-second identity deadline starting CIM for the first time. Warm only the
+  // test-owned host facility under its own bound before exercising that exact
+  // production deadline inside the packaged runtime.
+  await prepareHostedWindowsIdentityInspection();
 
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
@@ -135,7 +154,7 @@ try {
   const platformReadRoots = process.platform === "win32"
     ? [path.dirname(process.execPath), process.env.SystemRoot, process.env.WINDIR]
     : process.platform === "darwin"
-      ? [path.dirname(process.execPath), "/System", "/usr", "/Library", "/private/etc"]
+      ? [path.dirname(process.execPath), "/System", "/usr", "/Library", "/private/etc", "/var"]
       : [path.dirname(process.execPath), "/proc", "/etc", "/usr", "/lib", "/lib64"];
   const permissionOptions = [
     "--permission",
