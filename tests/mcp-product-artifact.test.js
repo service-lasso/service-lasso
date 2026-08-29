@@ -206,7 +206,10 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
 
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
     assert.match(packagedVerifier, /Get-CimInstance Win32_Process[\s\S]*?timeoutMs: 60_000/u);
-    assert.match(packagedVerifier, /process\.platform === "darwin"[\s\S]*?"\/var"/u);
+    assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
+    assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
+    const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
+    assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
   } finally {
     const closed = once(server, "close");
     server.close();

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +30,10 @@ function isolatedConsumerEnvironment(overrides) {
       .filter((name) => typeof process.env[name] === "string")
       .map((name) => [name, process.env[name]]),
   );
-  return { ...environment, ...overrides };
+  const platformEnvironment = process.platform === "win32" && process.env.SystemRoot
+    ? { PSModulePath: path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules") }
+    : {};
+  return { ...environment, ...platformEnvironment, ...overrides };
 }
 
 async function removeOwnedTempRoot(tempRoot) {
@@ -106,7 +109,10 @@ if (!relativeEvidence || relativeEvidence.startsWith("..") || path.isAbsolute(re
   throw new Error("Packaged MCP evidence must stay inside the repository artifacts directory.");
 }
 
-const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-mcp-packaged-"));
+// Canonicalize before deriving any consumer path. On macOS, /var is a symlink
+// to /private/var; mixing those identities makes Node's permission model deny
+// main-module realpath traversal even when the raw temporary path is allowed.
+const tempRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), "service-lasso-mcp-packaged-")));
 const packageOutputRoot = path.join(tempRoot, "package-output");
 const consumerRoot = path.join(tempRoot, "consumer");
 const servicesRoot = path.join(tempRoot, "services");
@@ -154,7 +160,7 @@ try {
   const platformReadRoots = process.platform === "win32"
     ? [path.dirname(process.execPath), process.env.SystemRoot, process.env.WINDIR]
     : process.platform === "darwin"
-      ? [path.dirname(process.execPath), "/System", "/usr", "/Library", "/private/etc", "/var"]
+      ? [path.dirname(process.execPath), "/System", "/usr", "/Library", "/private/etc"]
       : [path.dirname(process.execPath), "/proc", "/etc", "/usr", "/lib", "/lib64"];
   const permissionOptions = [
     "--permission",

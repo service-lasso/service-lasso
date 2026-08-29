@@ -119,7 +119,7 @@ async function verifyProtocolMatrix(endpoint, supported) {
 }
 
 function isolatedRuntimeEnvironment(overrides) {
-  const allowedNames = ["PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec", "TEMP", "TMP", "TMPDIR", "NODE_OPTIONS"];
+  const allowedNames = ["PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec", "TEMP", "TMP", "TMPDIR", "NODE_OPTIONS", "PSModulePath"];
   const environment = Object.fromEntries(
     allowedNames
       .filter((name) => typeof process.env[name] === "string")
