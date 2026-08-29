@@ -37,6 +37,7 @@ const MCP_CURRENT_READ_ONLY_TOOLS = new Set([
   "service_lasso_config_drift",
   "service_lasso_recovery_status",
   "service_lasso_operation_status",
+  "service_lasso_list_operations",
   "service_lasso_diagnostics_summary",
   "service_lasso_secret_metadata",
 ]);

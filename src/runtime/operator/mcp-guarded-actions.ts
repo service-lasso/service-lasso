@@ -55,6 +55,18 @@ export interface McpGuardedActionFacadeResult {
   resultingState: McpGuardedActionServiceState[];
 }
 
+export interface McpGuardedActionExecutionOptions {
+  signal?: AbortSignal;
+  reportProgress?: (update: McpGuardedActionProgressUpdate) => Promise<void>;
+}
+
+export interface McpGuardedActionProgressUpdate {
+  phase: string;
+  progress: number;
+  summary: string;
+  targetIds?: string[];
+}
+
 /**
  * The runtime owns this facade. MCP receives only this narrow application
  * boundary and never loops back through HTTP or reimplements lifecycle work.
@@ -65,6 +77,7 @@ export interface McpGuardedActionFacade {
     action: McpGuardedActionName,
     parameters: McpGuardedActionParameters,
     approvedPlan: McpGuardedActionPlan,
+    options?: McpGuardedActionExecutionOptions,
   ): Promise<McpGuardedActionFacadeResult>;
   snapshot?(targets: string[]): Promise<McpGuardedActionServiceState[]>;
 }
@@ -272,9 +285,12 @@ export async function invokeMcpGuardedAction(input: {
   action: McpGuardedActionName;
   parameters: McpGuardedActionInput;
   now?: () => Date;
+  correlationId?: string;
+  signal?: AbortSignal;
+  reportProgress?: McpGuardedActionExecutionOptions["reportProgress"];
 }): Promise<McpGuardedActionResponse> {
   const now = input.now ?? (() => new Date());
-  const correlationId = `mcp-action-${randomUUID()}`;
+  const correlationId = input.correlationId ?? `mcp-action-${randomUUID()}`;
   const workspaceRoot = input.workspaceRoot;
   const authorization = input.authorization;
   const policy = policyByAction[input.action];
@@ -392,8 +408,16 @@ export async function invokeMcpGuardedAction(input: {
   let authoritativePlan: McpGuardedActionPlan;
   let plan: McpGuardedActionPlan;
   try {
+    await input.reportProgress?.({ phase: "preflight", progress: 10, summary: "Guarded action preflight is running." });
+    input.signal?.throwIfAborted();
     authoritativePlan = await input.facade.preflight(input.action, normalized);
     plan = normalizePlan(input.action, authoritativePlan);
+    await input.reportProgress?.({
+      phase: "preflight_complete",
+      progress: 15,
+      summary: "Guarded action preflight completed.",
+      targetIds: plan.targets,
+    });
   } catch {
     await audit(workspaceRoot, input.action, "failed", authorization.actor.actorId, authorization.actor.clientId, correlationId, safeTargetIds(normalized), "preflight_failed");
     throw new McpGuardedActionError("preflight_failed", "The guarded action preflight could not be completed.");
@@ -587,10 +611,15 @@ export async function invokeMcpGuardedAction(input: {
   }
 
   await audit(workspaceRoot, input.action, "started", authorization.actor.actorId, authorization.actor.clientId, correlationId, plan.targets, "authorized");
+  await input.reportProgress?.({ phase: "executing", progress: 25, summary: "Guarded action is executing through the shared facade." });
 
   let facadeResult: McpGuardedActionFacadeResult;
   try {
-    facadeResult = await input.facade.execute(input.action, normalized, authoritativePlan);
+    input.signal?.throwIfAborted();
+    facadeResult = await input.facade.execute(input.action, normalized, authoritativePlan, {
+      signal: input.signal,
+      reportProgress: input.reportProgress,
+    });
   } catch {
     const resultingState = input.facade.snapshot
       ? await input.facade.snapshot(plan.targets).catch(() => [])
@@ -600,10 +629,11 @@ export async function invokeMcpGuardedAction(input: {
       status: "failed",
       targets: plan.targets,
       effects: plan.effects,
-      summary: "The guarded action failed safely.",
+      summary: input.signal?.aborted ? "The guarded action was cancelled safely." : "The guarded action failed safely.",
       resultingState,
     };
   }
+  await input.reportProgress?.({ phase: "finalizing", progress: 90, summary: "Guarded action execution is finalizing." });
 
   const status = facadeResult.status;
   const completed = response({

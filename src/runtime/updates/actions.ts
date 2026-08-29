@@ -76,6 +76,7 @@ export interface UpdateDownloadActionResult {
 
 export interface UpdateDownloadOptions {
   expectedCandidateRevision?: string;
+  signal?: AbortSignal;
 }
 
 export function buildUpdateCandidateRevision(result: ServiceUpdateCheckResult): string {
@@ -416,8 +417,9 @@ async function downloadToFile(
   assetUrl: string,
   destinationPath: string,
   expected: { size: number | null; digest: string | null },
+  signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(assetUrl);
+  const response = await fetch(assetUrl, { signal });
   if (!response.ok) {
     throw new Error(`Failed to download update candidate from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
@@ -669,12 +671,13 @@ export async function listServiceUpdateStates(services: DiscoveredService[]): Pr
 export async function checkServiceUpdatesForCli(
   services: DiscoveredService[],
   serviceId?: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<UpdateCheckActionResult> {
   const registry = createServiceRegistry(services);
   const selected = serviceId ? [findService(registry, serviceId)] : registry.list();
   const checked = await Promise.all(
     selected.map(async (service) => {
-      const result = await checkServiceUpdate(service);
+      const result = await checkServiceUpdate(service, options);
       const update = await persistUpdateCheckResult(service, result);
       return {
         serviceId: service.manifest.id,
@@ -700,7 +703,7 @@ export async function downloadServiceUpdateCandidate(
   service: DiscoveredService,
   options: UpdateDownloadOptions = {},
 ): Promise<UpdateDownloadActionResult> {
-  const result = await checkServiceUpdate(service);
+  const result = await checkServiceUpdate(service, { signal: options.signal });
   if (
     options.expectedCandidateRevision &&
     !/^sha256:[0-9a-f]{64}$/iu.test(result.available?.assetDigest ?? "")
@@ -726,7 +729,7 @@ export async function downloadServiceUpdateCandidate(
     await downloadToFile(result.available.assetUrl, archivePath, {
       size: result.available.assetSize ?? null,
       digest: result.available.assetDigest ?? null,
-    });
+    }, options.signal);
   } catch (error) {
     await persistUpdateFailure(service, {
       reason: error instanceof Error ? error.message : "Failed to download update candidate.",
