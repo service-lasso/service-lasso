@@ -30,14 +30,18 @@ const absolutePathLikePattern = /^(?:[A-Za-z]:[\\/]|\\\\|\/)|file:\/\//iu;
 const stateQueues = new Map<string, Promise<void>>();
 const stateCache = new Map<string, { identity: string; state: OperationState }>();
 const activeOperations = new Map<string, {
+  workspaceRoot: string;
+  operationId: string;
+  runnerInstanceId: string;
   controller: AbortController;
   completion: Promise<McpOperationCompletion>;
 }>();
+const workspaceHeartbeats = new Map<string, { completion: Promise<void> }>();
 const STATE_VERSION = 1;
 const STATE_LOCK_TIMEOUT_MS = 15_000;
 const STATE_LOCK_STALE_MS = 60_000;
-const RUNNER_HEARTBEAT_INTERVAL_MS = 250;
-const RUNNER_HEARTBEAT_STALE_MS = 15_000;
+const RUNNER_HEARTBEAT_INTERVAL_MS = 5_000;
+const RUNNER_HEARTBEAT_STALE_MS = 30_000;
 const profileRank: Record<McpPermissionProfile, number> = {
   observer: 0,
   operator: 1,
@@ -274,7 +278,14 @@ export class McpOperationService {
     const controller = new AbortController();
     const activeKey = operationKey(this.workspaceRoot, operationId);
     const completion = this.runOperation(record, controller, input.execute);
-    activeOperations.set(activeKey, { controller, completion });
+    activeOperations.set(activeKey, {
+      workspaceRoot: this.workspaceRoot,
+      operationId,
+      runnerInstanceId: record.runnerInstanceId,
+      controller,
+      completion,
+    });
+    this.ensureWorkspaceHeartbeat();
 
     const requestCancellation = () => {
       if (!input.cancellationSupported) return;
@@ -503,20 +514,6 @@ export class McpOperationService {
     let response: McpGuardedActionResponse | null = null;
     let error: unknown | null = null;
     let lastProgressPersistedAt = Date.now();
-    let heartbeatStopped = false;
-    const heartbeat = (async () => {
-      while (!heartbeatStopped) {
-        await delay(RUNNER_HEARTBEAT_INTERVAL_MS, undefined, { ref: false });
-        if (heartbeatStopped) break;
-        await this.updateRecord(initial.operationId, (record) => {
-          if (record.runnerInstanceId !== initial.runnerInstanceId || isTerminal(record.status) || record.pendingTerminal) return;
-          record.heartbeatAt = this.now().toISOString();
-          if (record.status === "cancelling") {
-            controller.abort(new Error("MCP operation cancellation requested."));
-          }
-        }).catch(() => undefined);
-      }
-    })();
     try {
       response = await execute(controller.signal, async (update) => {
         const normalizedTargets = update.targetIds ? normalizeTargets(update.targetIds) : null;
@@ -570,11 +567,49 @@ export class McpOperationService {
     } catch (caught) {
       error ??= caught;
     } finally {
-      heartbeatStopped = true;
-      await heartbeat.catch(() => undefined);
       activeOperations.delete(activeKey);
     }
     return { response, error };
+  }
+
+  private ensureWorkspaceHeartbeat(): void {
+    if (workspaceHeartbeats.has(this.workspaceRoot)) return;
+    const heartbeat = { completion: Promise.resolve() };
+    workspaceHeartbeats.set(this.workspaceRoot, heartbeat);
+    heartbeat.completion = (async () => {
+      try {
+        for (;;) {
+          await delay(RUNNER_HEARTBEAT_INTERVAL_MS, undefined, { ref: false });
+          if (workspaceHeartbeats.get(this.workspaceRoot) !== heartbeat) return;
+          const active = [...activeOperations.values()].filter((entry) => entry.workspaceRoot === this.workspaceRoot);
+          if (active.length === 0) return;
+          const activeById = new Map(active.map((entry) => [entry.operationId, entry]));
+          await this.mutateState((state) => {
+            const heartbeatAt = this.now().toISOString();
+            for (const record of state.operations) {
+              const owned = activeById.get(record.operationId);
+              if (
+                !owned ||
+                record.runnerInstanceId !== owned.runnerInstanceId ||
+                isTerminal(record.status) ||
+                record.pendingTerminal
+              ) continue;
+              record.heartbeatAt = heartbeatAt;
+              if (record.status === "cancelling") {
+                owned.controller.abort(new Error("MCP operation cancellation requested."));
+              }
+            }
+          }).catch(() => undefined);
+        }
+      } finally {
+        if (workspaceHeartbeats.get(this.workspaceRoot) === heartbeat) {
+          workspaceHeartbeats.delete(this.workspaceRoot);
+          if ([...activeOperations.values()].some((entry) => entry.workspaceRoot === this.workspaceRoot)) {
+            this.ensureWorkspaceHeartbeat();
+          }
+        }
+      }
+    })();
   }
 
   private async stageTerminal(

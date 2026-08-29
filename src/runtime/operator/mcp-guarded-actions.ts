@@ -299,6 +299,48 @@ export async function assertMcpGuardedActionAuthorization(input: {
   }
 }
 
+export async function preflightMcpGuardedActionExecution(input: {
+  workspaceRoot: string;
+  operatingMode: "disabled" | "read-only" | "guarded";
+  authorization: McpHttpAuthorization | undefined;
+  action: McpGuardedActionName;
+  parameters: McpGuardedActionInput;
+}): Promise<{ guardedExecutionId: string }> {
+  const correlationId = `mcp-action-${randomUUID()}`;
+  await assertMcpGuardedActionAuthorization({
+    workspaceRoot: input.workspaceRoot,
+    operatingMode: input.operatingMode,
+    authorization: input.authorization,
+    action: input.action,
+    correlationId,
+  });
+  const authorization = input.authorization;
+  if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
+  try {
+    normalizeParameters(input.action, input.parameters);
+    const idempotencyKey = normalizeIdempotencyKey(input.parameters.idempotencyKey);
+    return {
+      guardedExecutionId: guardedActionExecutionId(
+        authorization.actor.actorId,
+        authorization.actor.clientId,
+        idempotencyKey,
+      ),
+    };
+  } catch (error) {
+    await audit(
+      input.workspaceRoot,
+      input.action,
+      "denied",
+      authorization.actor.actorId,
+      authorization.actor.clientId,
+      correlationId,
+      safeTargetIds(input.parameters),
+      error instanceof McpGuardedActionError ? error.code : "invalid_request",
+    );
+    throw error;
+  }
+}
+
 export async function readMcpGuardedActionExecution(input: {
   workspaceRoot: string;
   executionId: string;

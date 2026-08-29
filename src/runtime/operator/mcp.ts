@@ -7,12 +7,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import { assertMcpScopes, type McpHttpAuthorization, type McpOperatingMode } from "./mcp-auth.js";
 import {
-  assertMcpGuardedActionAuthorization,
   auditMcpGuardedActionSchemaDenial,
-  guardedActionExecutionId,
   guardedActionPolicy,
   invokeMcpGuardedAction,
   McpGuardedActionError,
+  preflightMcpGuardedActionExecution,
   readMcpGuardedActionExecution,
   type McpGuardedActionFacade,
   type McpGuardedActionInput,
@@ -1873,11 +1872,12 @@ export function createServiceLassoMcpServer(
             });
             let payload;
             if (parameters.execute === true && isDurableMcpAction(action) && operationService) {
-              await assertMcpGuardedActionAuthorization({
+              const executionPreflight = await preflightMcpGuardedActionExecution({
                 workspaceRoot: context.workspaceRoot!,
                 operatingMode,
                 authorization: options.authorization,
                 action,
+                parameters,
               });
               const authorization = options.authorization;
               if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
@@ -1890,11 +1890,7 @@ export function createServiceLassoMcpServer(
                     ? context.discovered.map((service) => service.manifest.id)
                     : [],
                 cancellationSupported: isSafelyCancellableMcpAction(action),
-                guardedExecutionId: guardedActionExecutionId(
-                  authorization.actor.actorId,
-                  authorization.actor.clientId,
-                  parameters.idempotencyKey ?? "",
-                ),
+                guardedExecutionId: executionPreflight.guardedExecutionId,
                 requestSignal: extra.signal,
                 execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),
               });

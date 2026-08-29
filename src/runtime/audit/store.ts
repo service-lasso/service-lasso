@@ -10,6 +10,7 @@ import type {
   AuditSafeMetadataValue,
 } from "../../contracts/api.js";
 import { assertSafeAuditMetadata } from "./events.js";
+import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 
 export interface AppendAuditEventInput {
   /** Optional deterministic identifier for idempotent terminal/outbox replay. */
@@ -243,27 +244,33 @@ export async function verifyAuditFile(filePath: string): Promise<AuditChainVerif
 async function appendAuditLine(filePath: string, auditDir: string, event: AuditEvent): Promise<AuditEvent> {
   const previousQueue = auditAppendQueues.get(auditDir) ?? Promise.resolve();
   const operation = previousQueue.catch(() => undefined).then(async () => {
-    const existing = await readAuditDir(auditDir);
-    const duplicate = existing.find((candidate) => candidate.id === event.id);
-    if (duplicate) return duplicate;
-    const previous = existing.at(-1);
-    const sequence = typeof previous?.sequence === "number" ? previous.sequence + 1 : 1;
-    const previousHash = previous?.eventHash || null;
-    const eventWithoutHash = {
-      ...event,
-      sequence,
-      previousHash,
-      chainStatus: "verified" as const,
-    };
-    const eventHash = computeAuditEventHash(eventWithoutHash, previousHash);
-    const nextEvent: AuditEvent = {
-      ...eventWithoutHash,
-      eventHash,
-    };
+    return await withCrossProcessFileLock(
+      path.join(auditDir, ".append.lock"),
+      async () => {
+        const existing = await readAuditDir(auditDir);
+        const duplicate = existing.find((candidate) => candidate.id === event.id);
+        if (duplicate) return duplicate;
+        const previous = existing.at(-1);
+        const sequence = typeof previous?.sequence === "number" ? previous.sequence + 1 : 1;
+        const previousHash = previous?.eventHash || null;
+        const eventWithoutHash = {
+          ...event,
+          sequence,
+          previousHash,
+          chainStatus: "verified" as const,
+        };
+        const eventHash = computeAuditEventHash(eventWithoutHash, previousHash);
+        const nextEvent: AuditEvent = {
+          ...eventWithoutHash,
+          eventHash,
+        };
 
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await appendFile(filePath, `${JSON.stringify(nextEvent)}\n`, "utf8");
-    return nextEvent;
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await appendFile(filePath, `${JSON.stringify(nextEvent)}\n`, "utf8");
+        return nextEvent;
+      },
+      { unavailableMessage: "Durable Audit append lock is unavailable." },
+    );
   });
   const settled = operation.then(() => undefined, () => undefined);
   auditAppendQueues.set(auditDir, settled);

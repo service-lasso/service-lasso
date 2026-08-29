@@ -33,7 +33,7 @@ const evidence = {
     "explicit unsupported and too-late cancellation outcomes",
     "actor and workspace isolation with Administrator override",
     "client disconnect survival and exactly-once idempotent replay",
-    "runtime restart reconciliation through the shared facade snapshot",
+    "runtime restart reconciliation only through a correlation-bound guarded execution record or explicit authoritative adapter",
     "bounded retention capacity and deterministic cleanup",
     "shared guarded-action and operation Audit correlation",
     "secret credential configuration path raw-output and unsafe-error exclusion",

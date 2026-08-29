@@ -182,6 +182,15 @@ async function pollOperation(client, operationId, expected, attempts = 1_000) {
   assert.fail(`Operation ${operationId} did not reach ${expected}.`);
 }
 
+async function pollServiceOperation(service, operationId, authorization, expected, attempts = 120) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const result = await service.get(operationId, authorization);
+    if (result.operation.status === expected) return result.operation;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  assert.fail(`Operation ${operationId} did not reach ${expected}.`);
+}
+
 async function waitFor(predicate, message, attempts = 500) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) return;
@@ -234,11 +243,22 @@ async function startOperationRunner(input) {
       resolve(JSON.parse(line).operationId);
     });
   });
+  let expectedTermination = false;
   const exited = new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(stderr)));
+    child.once("exit", (code, signal) => code === 0 || expectedTermination || signal
+      ? resolve()
+      : reject(new Error(stderr)));
   });
-  return { child, operationId, exited };
+  return {
+    child,
+    operationId,
+    exited,
+    stop() {
+      expectedTermination = true;
+      if (child.exitCode === null) child.kill();
+    },
+  };
 }
 
 async function startCancellableUpdateServer() {
@@ -591,20 +611,93 @@ test("#863 cross-process cancellation is runner-owned and terminal completion wi
     const service = new McpOperationService({ workspaceRoot });
     const cancelled = await service.cancel(cancelledRunner.operationId, auth);
     assert.equal(cancelled.cancellation.result, "requested");
-    assert.equal(cancelled.operation.status, "cancelled");
+    const cancelledTerminal = await pollServiceOperation(service, cancelledRunner.operationId, auth, "cancelled");
+    assert.equal(cancelledTerminal.outcome, "cancelled");
+    cancelledRunner.stop();
     await cancelledRunner.exited;
 
     const winningRunner = await startOperationRunner({ workspaceRoot, completeOnCancel: true });
     runners.push(winningRunner);
+    const racingCancellation = await service.cancel(winningRunner.operationId, auth);
+    assert.equal(["requested", "too_late"].includes(racingCancellation.cancellation.result), true);
+    const winningTerminal = await pollServiceOperation(service, winningRunner.operationId, auth, "succeeded");
+    assert.equal(winningTerminal.outcome, "succeeded");
     const tooLate = await service.cancel(winningRunner.operationId, auth);
     assert.equal(tooLate.cancellation.result, "too_late");
     assert.equal(tooLate.operation.status, "succeeded");
+    winningRunner.stop();
     await winningRunner.exited;
   } finally {
     for (const runner of runners) {
-      if (runner.child.exitCode === null) runner.child.kill();
+      runner.stop();
       await runner.exited.catch(() => undefined);
     }
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#863 one coalesced workspace heartbeat keeps concurrent operation runners live", async () => {
+  const { tempRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-operation-heartbeat-");
+  const auth = authorization("maintainer");
+  const gate = deferred();
+  const operationIds = [];
+  try {
+    const service = new McpOperationService({ workspaceRoot, requestBudgetMs: 25 });
+    for (let index = 0; index < 8; index += 1) {
+      const submission = await service.submit({
+        authorization: auth,
+        action: "update_check",
+        targetIds: [`fixture-service-${index}`],
+        cancellationSupported: true,
+        guardedExecutionId: createHash("sha256").update(`heartbeat-${index}`).digest("hex"),
+        execute: async () => {
+          await gate.promise;
+          return {
+            contractVersion: "service-lasso-mcp-guarded-action.v1",
+            generatedAt: new Date().toISOString(),
+            action: "update_check",
+            status: "succeeded",
+            ok: true,
+            correlationId: `mcp-action-heartbeat-${index}`,
+            preflight: {
+              planId: `mcp-plan-heartbeat-${index}`,
+              targets: [`fixture-service-${index}`],
+              effects: ["check fixture update"],
+              executable: true,
+              skippedReason: null,
+              requiredProfile: "maintainer",
+            },
+            confirmation: { required: false, id: null, status: "not_required", expiresAt: null },
+            idempotency: { keyId: `mcp-idempotency-heartbeat-${index}`, replayed: false },
+            summary: "Concurrent heartbeat fixture completed.",
+            result: { targets: [`fixture-service-${index}`], effects: ["check fixture update"], resultingState: [] },
+            safety: { mutating: true, redacted: true, omittedSensitiveFields: [] },
+          };
+        },
+      });
+      assert.equal(submission.kind, "accepted");
+      operationIds.push(submission.payload.operation.operationId);
+    }
+
+    let stored;
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      stored = await readPrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot));
+      if (
+        stored.operations.length === operationIds.length &&
+        stored.operations.every((operation) => Date.parse(operation.heartbeatAt) > Date.parse(operation.startedAt))
+      ) break;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    assert.equal(stored.operations.length, operationIds.length);
+    assert.equal(stored.operations.every((operation) => Date.parse(operation.heartbeatAt) > Date.parse(operation.startedAt)), true);
+
+    gate.resolve();
+    for (const operationId of operationIds) {
+      const terminal = await pollServiceOperation(service, operationId, auth, "succeeded");
+      assert.equal(terminal.outcome, "succeeded");
+    }
+  } finally {
+    gate.resolve();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
@@ -812,6 +905,34 @@ test("#863 guarded authorization is decided before any durable operation is crea
     assert.equal(listed.structuredContent.operations.length, 0);
     const audit = await readAuditEvents({ workspaceRoot });
     assert.equal(audit.events.some((event) => event.action === "mcp.action.denied" && event.reason === "insufficient_profile"), true);
+    assert.equal(audit.events.some((event) => event.action === "mcp.operation.started"), false);
+  } finally {
+    await connected.client.close();
+    await connected.server.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#863 missing durable idempotency is denied and audited before operation creation", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-operation-idempotency-preflight-");
+  const fixture = fixtureFacade();
+  const connected = await connectServer(context(servicesRoot, workspaceRoot, fixture.facade), authorization("maintainer"));
+  try {
+    const denied = await connected.client.callTool({
+      name: "service_lasso_check_updates",
+      arguments: { serviceId: "fixture-service", execute: true },
+    });
+    assert.equal(denied.isError, true);
+    assert.equal(JSON.parse(denied.content[0].text).error.code, "invalid_idempotency_key");
+    const listed = await connected.client.callTool({ name: "service_lasso_list_operations", arguments: {} });
+    assert.equal(listed.isError, undefined);
+    assert.equal(listed.structuredContent.operations.length, 0);
+    const audit = await readAuditEvents({ workspaceRoot });
+    assert.equal(audit.events.some((event) =>
+      event.action === "mcp.action.denied" &&
+      event.subject === "update_check" &&
+      event.reason === "invalid_idempotency_key"
+    ), true);
     assert.equal(audit.events.some((event) => event.action === "mcp.operation.started"), false);
   } finally {
     await connected.client.close();

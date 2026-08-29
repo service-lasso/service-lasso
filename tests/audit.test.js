@@ -2,11 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { appendAuditEvent, readAuditEvents } from "../dist/runtime/audit/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
+
+async function runAuditAppendChild(input) {
+  const child = spawn(process.execPath, ["tests/fixtures/audit-append-runner.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdin.end(JSON.stringify(input));
+  const exitCode = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  assert.equal(exitCode, 0, stderr);
+  return JSON.parse(stdout.trim());
+}
 
 async function getJson(url) {
   const response = await fetch(url);
@@ -464,6 +486,33 @@ test("audit store keeps service events in portable date-bucket JSONL files", asy
     assert.equal(result.chainStatus, "verified");
     assert.equal(result.pagination.total, 1);
     assert.equal(result.events[0].id, event.id);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#863 Audit appends are serialized across independent runtime processes", async () => {
+  const { tempRoot } = await makeTempServicesRoot("service-lasso-audit-cross-process-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const runnerCount = 4;
+  const eventsPerRunner = 12;
+  const startAt = Date.now() + 750;
+  try {
+    const completed = await Promise.all(Array.from({ length: runnerCount }, (_, runnerId) =>
+      runAuditAppendChild({ workspaceRoot, runnerId, count: eventsPerRunner, startAt })));
+    assert.deepEqual(completed.map((entry) => entry.count), Array(runnerCount).fill(eventsPerRunner));
+
+    const audit = await readAuditEvents({
+      workspaceRoot,
+      query: { action: "audit.cross-process", limit: runnerCount * eventsPerRunner },
+    });
+    assert.equal(audit.chainStatus, "verified");
+    assert.equal(audit.pagination.total, runnerCount * eventsPerRunner);
+    assert.equal(new Set(audit.events.map((event) => event.id)).size, runnerCount * eventsPerRunner);
+    assert.deepEqual(
+      audit.events.map((event) => event.sequence).sort((left, right) => left - right),
+      Array.from({ length: runnerCount * eventsPerRunner }, (_, index) => index + 1),
+    );
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }

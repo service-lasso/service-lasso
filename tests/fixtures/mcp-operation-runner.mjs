@@ -67,13 +67,5 @@ if (submission.kind !== "accepted") throw new Error("Cross-process fixture compl
 const operationId = submission.payload.operation.operationId;
 process.stdout.write(`${JSON.stringify({ operationId })}\n`);
 
-const keepAlive = setInterval(() => undefined, 1_000);
-try {
-  for (;;) {
-    const current = await service.get(operationId, authorization);
-    if (["succeeded", "failed", "cancelled", "skipped"].includes(current.operation.status)) break;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-} finally {
-  clearInterval(keepAlive);
-}
+setInterval(() => undefined, 1_000);
+await new Promise(() => undefined);
