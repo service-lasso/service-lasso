@@ -627,7 +627,7 @@ function canonicalFetch({
     };
   });
 
-  return async (url) => {
+  return async (url, options = {}) => {
     const parsed = new URL(url);
     if (parsed.pathname === "/") {
       return textResponse(200, "<html>Service Admin</html>");
@@ -675,6 +675,50 @@ function canonicalFetch({
           selectedGenerationId: generationId,
         },
       });
+    }
+    if (parsed.pathname === "/api/mcp/info") {
+      return jsonResponse(200, {
+        contractVersion: "service-lasso-mcp.v1",
+        protocolVersion: "2025-11-25",
+        supportedProtocolVersions: ["2025-11-25", "2024-11-05"],
+        sdk: { packageName: "@modelcontextprotocol/sdk", version: "1.30.0" },
+        policy: { operatingMode: "guarded" },
+      });
+    }
+    if (parsed.pathname === "/api/mcp" && options.method === "POST") {
+      const request = JSON.parse(options.body);
+      const tool = (name) => ({
+        name,
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        outputSchema: { type: "object", properties: {}, additionalProperties: false },
+      });
+      if (request.method === "tools/list") {
+        return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: { tools: [
+          tool("service_lasso_runtime_status"),
+          tool("service_lasso_list_services"),
+          tool("service_lasso_start_service"),
+        ] } });
+      }
+      if (request.method === "resources/list") {
+        return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: { resources: [
+          { uri: "servicelasso://runtime", name: "Runtime", mimeType: "application/json" },
+        ] } });
+      }
+      if (request.method === "tools/call" && request.params?.name === "service_lasso_runtime_status") {
+        return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
+          structuredContent: { runtime: { status: "ready" } },
+        } });
+      }
+      if (request.method === "tools/call" && request.params?.name === "service_lasso_list_services") {
+        return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
+          structuredContent: { services },
+        } });
+      }
+      if (request.method === "tools/call" && request.params?.name === "service_lasso_start_service") {
+        return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
+          structuredContent: { status: "skipped" },
+        } });
+      }
     }
     if (parsed.pathname === "/api/services") {
       return jsonResponse(200, { services });
@@ -1196,6 +1240,17 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
     assert.equal(result.ok, true);
     assert.equal(result.failures.length, 0);
     assert.equal(result.summary.services.length, canonicalFixtureServices.length);
+    assert.deepEqual(result.summary.mcp, {
+      endpoint: "http://demo.example.test:17883/api/mcp",
+      protocolVersion: "2025-11-25",
+      supportedProtocolVersions: ["2025-11-25", "2024-11-05"],
+      sdkVersion: "1.30.0",
+      operatingMode: "guarded",
+      toolCount: 3,
+      resourceCount: 1,
+      representativeReads: true,
+      guardedAction: { exercised: true, status: "skipped" },
+    });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

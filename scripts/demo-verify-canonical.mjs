@@ -130,6 +130,26 @@ async function fetchText(url, fetchImpl, timeoutMs) {
   }
 }
 
+async function fetchMcpJsonRpc(url, request, fetchImpl, timeoutMs) {
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await response.text();
+    const dataLine = text.split(/\r?\n/u).find((line) => line.startsWith("data:"));
+    const body = JSON.parse(dataLine ? dataLine.slice(5).trim() : text);
+    return { ok: response.status >= 200 && response.status < 300, status: response.status, body };
+  } catch (error) {
+    return { ok: false, status: null, error: error.message, body: null };
+  }
+}
+
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
@@ -431,7 +451,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   );
 
   const serviceAdminApiBase = normalizeUrlBase(resolved.serviceAdminUrl);
-  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices, runtimeInstance] = await Promise.all([
+  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices, runtimeInstance, mcpInfo] = await Promise.all([
     fetchText(resolved.serviceAdminUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(`${serviceAdminApiBase}/api/dashboard`, fetchImpl, resolved.timeoutMs),
     fetchJson(`${serviceAdminApiBase}/api/services`, fetchImpl, resolved.timeoutMs),
@@ -439,7 +459,95 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(`${runtimeMetadataUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${runtimeMetadataUrl}/api/mcp/info`, fetchImpl, resolved.timeoutMs),
   ]);
+
+  const mcpUrl = `${runtimeMetadataUrl}/api/mcp`;
+  const [mcpTools, mcpResources, mcpRuntimeRead, mcpServiceRead] = await Promise.all([
+    fetchMcpJsonRpc(mcpUrl, { jsonrpc: "2.0", id: "canonical-tools", method: "tools/list", params: {} }, fetchImpl, resolved.timeoutMs),
+    fetchMcpJsonRpc(mcpUrl, { jsonrpc: "2.0", id: "canonical-resources", method: "resources/list", params: {} }, fetchImpl, resolved.timeoutMs),
+    fetchMcpJsonRpc(mcpUrl, {
+      jsonrpc: "2.0",
+      id: "canonical-runtime-read",
+      method: "tools/call",
+      params: { name: "service_lasso_runtime_status", arguments: {} },
+    }, fetchImpl, resolved.timeoutMs),
+    fetchMcpJsonRpc(mcpUrl, {
+      jsonrpc: "2.0",
+      id: "canonical-services-read",
+      method: "tools/call",
+      params: { name: "service_lasso_list_services", arguments: { limit: 100 } },
+    }, fetchImpl, resolved.timeoutMs),
+  ]);
+
+  check(
+    checks,
+    "operator MCP discovery reports supported protocol and mode",
+    Boolean(
+      mcpInfo.ok
+      && mcpInfo.body?.contractVersion === "service-lasso-mcp.v1"
+      && typeof mcpInfo.body?.protocolVersion === "string"
+      && Array.isArray(mcpInfo.body?.supportedProtocolVersions)
+      && mcpInfo.body.supportedProtocolVersions.includes(mcpInfo.body.protocolVersion)
+      && ["read-only", "guarded"].includes(mcpInfo.body?.policy?.operatingMode)
+    ),
+    "mcp_discovery_unhealthy",
+    mcpInfo.ok ? `HTTP ${mcpInfo.status}` : `${runtimeMetadataUrl}/api/mcp/info: ${mcpInfo.error ?? `HTTP ${mcpInfo.status}`}`,
+  );
+  check(
+    checks,
+    "operator MCP advertises closed tool and resource discovery",
+    Boolean(
+      mcpTools.ok
+      && Array.isArray(mcpTools.body?.result?.tools)
+      && mcpTools.body.result.tools.length > 0
+      && mcpTools.body.result.tools.every((tool) => tool.inputSchema?.additionalProperties === false)
+      && mcpTools.body.result.tools.every((tool) => tool.outputSchema?.additionalProperties === false)
+      && mcpResources.ok
+      && Array.isArray(mcpResources.body?.result?.resources)
+    ),
+    "mcp_discovery_unhealthy",
+    `tools=HTTP ${mcpTools.status ?? "failed"}, resources=HTTP ${mcpResources.status ?? "failed"}`,
+  );
+  check(
+    checks,
+    "operator MCP representative runtime and service reads succeed",
+    Boolean(
+      mcpRuntimeRead.ok
+      && mcpRuntimeRead.body?.result?.structuredContent?.runtime?.status
+      && mcpServiceRead.ok
+      && Array.isArray(mcpServiceRead.body?.result?.structuredContent?.services)
+    ),
+    "mcp_read_unhealthy",
+    `runtime=HTTP ${mcpRuntimeRead.status ?? "failed"}, services=HTTP ${mcpServiceRead.status ?? "failed"}`,
+  );
+
+  let mcpGuardedAction = { exercised: false, status: "not_enabled" };
+  if (mcpInfo.body?.policy?.operatingMode === "guarded") {
+    const guarded = await fetchMcpJsonRpc(mcpUrl, {
+      jsonrpc: "2.0",
+      id: "canonical-guarded-action",
+      method: "tools/call",
+      params: { name: "service_lasso_start_service", arguments: { serviceId: "echo-service" } },
+    }, fetchImpl, resolved.timeoutMs);
+    const status = guarded.body?.result?.structuredContent?.status ?? null;
+    mcpGuardedAction = { exercised: true, status };
+    check(
+      checks,
+      "operator MCP canonical guarded action is non-destructive",
+      guarded.ok && status === "skipped",
+      "mcp_guarded_action_unhealthy",
+      guarded.ok ? `status=${status}` : `HTTP ${guarded.status ?? "failed"}`,
+    );
+  } else {
+    check(
+      checks,
+      "operator MCP canonical guarded action reports read-only mode",
+      mcpInfo.body?.policy?.operatingMode === "read-only",
+      "mcp_mode_unhealthy",
+      `mode=${mcpInfo.body?.policy?.operatingMode ?? "unavailable"}`,
+    );
+  }
 
   check(
     checks,
@@ -666,6 +774,17 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       workspaceRoot: resolved.workspaceRoot,
       generationId: runtimeInstance.body?.instance?.generationId ?? resolved.generationId ?? null,
       services: serviceSummaries,
+      mcp: {
+        endpoint: mcpUrl,
+        protocolVersion: mcpInfo.body?.protocolVersion ?? null,
+        supportedProtocolVersions: mcpInfo.body?.supportedProtocolVersions ?? [],
+        sdkVersion: mcpInfo.body?.sdk?.version ?? null,
+        operatingMode: mcpInfo.body?.policy?.operatingMode ?? null,
+        toolCount: mcpTools.body?.result?.tools?.length ?? 0,
+        resourceCount: mcpResources.body?.result?.resources?.length ?? 0,
+        representativeReads: mcpRuntimeRead.ok && mcpServiceRead.ok,
+        guardedAction: mcpGuardedAction,
+      },
     },
   };
 }
@@ -679,6 +798,7 @@ export function formatCanonicalVerifierResult(result) {
     `- serviceAdmin: ${summary.serviceAdminUrl ?? "unknown"}`,
     `- servicesRoot: ${summary.servicesRoot ?? "unknown"}`,
     `- workspaceRoot: ${summary.workspaceRoot ?? "unknown"}`,
+    `- mcp: endpoint=${summary.mcp?.endpoint ?? "unknown"} protocol=${summary.mcp?.protocolVersion ?? "unknown"} sdk=${summary.mcp?.sdkVersion ?? "unknown"} mode=${summary.mcp?.operatingMode ?? "unknown"} tools=${summary.mcp?.toolCount ?? 0} resources=${summary.mcp?.resourceCount ?? 0} reads=${summary.mcp?.representativeReads === true ? "passed" : "failed"} guarded=${summary.mcp?.guardedAction?.status ?? "unknown"}`,
   ];
 
   if (services.length > 0) {

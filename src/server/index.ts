@@ -184,6 +184,7 @@ import {
   MCP_MAX_REQUEST_BODY_BYTES,
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
   McpHttpPolicyError,
+  assertMcpHostAllowed,
   assertMcpJsonContentType,
   assertMcpOperatingModeAllowsRequest,
   assertMcpRateLimit,
@@ -3905,6 +3906,7 @@ async function routeRequestWithoutMutationCoordination(
 
   if (request.method === "GET" && url.pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH) {
     try {
+      assertMcpHostAllowed(request, config.mcpHttpIdentity);
       writeJson(response, 200, createMcpProtectedResourceMetadata(config.mcpHttpIdentity));
     } catch (error) {
       if (error instanceof McpHttpPolicyError) {
@@ -3920,6 +3922,7 @@ async function routeRequestWithoutMutationCoordination(
     let operatingMode;
     try {
       operatingMode = assertMcpTransportEnabled(config.mcpHttpIdentity);
+      assertMcpHostAllowed(request, config.mcpHttpIdentity);
     } catch (error) {
       if (error instanceof McpHttpPolicyError) {
         writeMcpPolicyError(response, error);
@@ -3946,6 +3949,7 @@ async function routeRequestWithoutMutationCoordination(
   if ((request.method === "GET" || request.method === "DELETE") && url.pathname === "/api/mcp") {
     try {
       assertMcpTransportEnabled(config.mcpHttpIdentity);
+      assertMcpHostAllowed(request, config.mcpHttpIdentity);
     } catch (error) {
       if (error instanceof McpHttpPolicyError) {
         writeMcpPolicyError(response, error);

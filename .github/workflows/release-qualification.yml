@@ -241,18 +241,44 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  qualify-mcp-product:
+    name: mcp-product-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run blocking MCP source conformance
+        run: npm run test:mcp:product
+
   qualify-release:
     if: ${{ always() }}
     needs:
       - qualify-products
       - qualify-broker-ipc
+      - qualify-mcp-product
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Require product and Broker IPC qualification
+      - name: Require product, Broker IPC, and MCP qualification
         shell: bash
         run: |
           set -euo pipefail
           test '${{ needs.qualify-products.result }}' = 'success'
           test '${{ needs.qualify-broker-ipc.result }}' = 'success'
+          test '${{ needs.qualify-mcp-product.result }}' = 'success'

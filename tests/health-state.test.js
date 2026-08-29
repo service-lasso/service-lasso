@@ -15,6 +15,7 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const execFile = promisify(execFileCallback);
+const PROCESS_FINALIZATION_TIMEOUT_MS = process.platform === "win32" ? 60_000 : 6_000;
 
 async function postJson(url, body) {
   const response = await fetch(url, {
@@ -30,6 +31,16 @@ async function postJson(url, body) {
     status: response.status,
     body: await response.json(),
   };
+}
+
+async function waitFor(readinessCheck, timeoutMs = PROCESS_FINALIZATION_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await readinessCheck();
+    if (result) return result;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
 async function runCli(args, cwd = path.resolve(".")) {
@@ -1263,9 +1274,10 @@ test("startup refuses unsupported future lifecycle state schema versions", async
 test("managed process exits update lifecycle and persisted runtime state", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot();
+  const exitFileRelativePath = "./runtime/exit.txt";
   const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "short-lived-service", {
-    autoExitMs: 150,
     exitCode: 7,
+    exitFileRelativePath,
   });
 
   const apiServer = await startApiServer({ port: 0, servicesRoot });
@@ -1279,7 +1291,11 @@ test("managed process exits update lifecycle and persisted runtime state", async
     assert.equal(start.body.state.running, true);
     assert.equal(start.body.state.runtime.pid > 0, true);
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await writeFile(path.join(serviceRoot, exitFileRelativePath), "exit");
+    await waitFor(async () => {
+      const stored = await readStoredState(serviceRoot);
+      return stored.runtime.running === false && stored.runtime.exitCode === 7;
+    });
 
     const detailResponse = await fetch(`${apiServer.url}/api/services/short-lived-service`);
     const detailBody = await detailResponse.json();

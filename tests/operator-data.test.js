@@ -8,6 +8,7 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 import { clearPersistedFixtureState, makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
 
 const servicesRoot = path.resolve("services");
+const PROCESS_FINALIZATION_TIMEOUT_MS = process.platform === "win32" ? 60_000 : 6_000;
 
 async function postJson(url, body = {}) {
   const response = await fetch(url, {
@@ -611,11 +612,12 @@ test("runtime logs archive previous runs and enforce bounded retention", async (
 test("service metrics surface persisted process evidence and survive runtime restart", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-metrics-");
-  await writeExecutableFixtureService(servicesRoot, "metric-service", {
+  const exitFileRelativePath = "./runtime/exit.txt";
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "metric-service", {
     stdoutLines: ["metric stdout"],
     stderrLines: ["metric stderr"],
-    autoExitMs: 2_500,
     exitCode: 3,
+    exitFileRelativePath,
   });
 
   const firstServer = await startApiServer({ port: 0, servicesRoot });
@@ -625,6 +627,7 @@ test("service metrics surface persisted process evidence and survive runtime res
     await postJson(`${firstServer.url}/api/services/metric-service/config`);
     const start = await postJson(`${firstServer.url}/api/services/metric-service/start`);
     assert.equal(start.status, 200);
+    await writeFile(path.join(serviceRoot, exitFileRelativePath), "exit");
 
     const metricsResponse = await waitFor(async () => {
       const response = await fetch(`${firstServer.url}/api/services/metric-service/metrics`);
@@ -638,7 +641,7 @@ test("service metrics surface persisted process evidence and survive runtime res
       }
 
       return null;
-    }, 6_000);
+    }, PROCESS_FINALIZATION_TIMEOUT_MS);
 
     assert.equal(metricsResponse.response.status, 200);
     assert.equal(metricsResponse.body.metrics.serviceId, "metric-service");
