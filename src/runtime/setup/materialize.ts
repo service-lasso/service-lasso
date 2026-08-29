@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { DiscoveredService, ServiceActionMaterialization } from "../../contracts/service.js";
 import { resolveServiceText, type ServiceTextResolutionOptions } from "../operator/variables.js";
@@ -61,11 +62,23 @@ function resolveTemplateSourcePath(serviceRoot: string, relativePath: string): {
   };
 }
 
-async function readTemplateSource(serviceRoot: string, sourcePath: string): Promise<string> {
+async function readTemplateSource(
+  serviceRoot: string,
+  sourcePath: string,
+  expectedTemplateDigests?: Readonly<Record<string, string>>,
+): Promise<string> {
   const resolved = resolveTemplateSourcePath(serviceRoot, sourcePath);
 
   try {
-    return await readFile(resolved.absolutePath, "utf8");
+    const content = await readFile(resolved.absolutePath, "utf8");
+    const expected = expectedTemplateDigests?.[resolved.relativePath];
+    if (expected) {
+      const actual = createHash("sha256").update(content).digest("hex");
+      if (actual !== expected) {
+        throw new Error(`Materialized template source changed after guarded preflight: ${resolved.relativePath}`);
+      }
+    }
+    return content;
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       throw new Error(`Materialized template source does not exist: ${resolved.relativePath}`);
@@ -82,6 +95,7 @@ async function materializeFiles(
   resolvedPorts: Record<string, number>,
   options: ServiceTextResolutionOptions = {},
   hooks?: MaterializationWriteHooks,
+  expectedTemplateDigests?: Readonly<Record<string, string>>,
 ): Promise<MaterializedArtifactResult> {
   const files = definition?.files ?? [];
   const materializedPaths: string[] = [];
@@ -98,7 +112,7 @@ async function materializeFiles(
   }
 
   for (const template of definition?.templates ?? []) {
-    const sourceContent = await readTemplateSource(service.serviceRoot, template.source);
+    const sourceContent = await readTemplateSource(service.serviceRoot, template.source, expectedTemplateDigests);
     const renderedRelativePath = resolveServiceText(template.target, service, sharedGlobalEnv, resolvedPorts, options);
     const renderedContent = resolveServiceText(sourceContent, service, sharedGlobalEnv, resolvedPorts, options);
     const { absolutePath, relativePath } = resolveArtifactPath(service.serviceRoot, renderedRelativePath);
@@ -121,8 +135,9 @@ export async function materializeInstallArtifacts(
   resolvedPorts: Record<string, number> = {},
   options: ServiceTextResolutionOptions = {},
   hooks?: MaterializationWriteHooks,
+  expectedTemplateDigests?: Readonly<Record<string, string>>,
 ): Promise<MaterializedArtifactResult> {
-  return materializeFiles(service, service.manifest.install, sharedGlobalEnv, resolvedPorts, options, hooks);
+  return materializeFiles(service, service.manifest.install, sharedGlobalEnv, resolvedPorts, options, hooks, expectedTemplateDigests);
 }
 
 export async function materializeConfigArtifacts(
@@ -131,6 +146,7 @@ export async function materializeConfigArtifacts(
   resolvedPorts: Record<string, number> = {},
   options: ServiceTextResolutionOptions = {},
   hooks?: MaterializationWriteHooks,
+  expectedTemplateDigests?: Readonly<Record<string, string>>,
 ): Promise<MaterializedArtifactResult> {
-  return materializeFiles(service, service.manifest.config, sharedGlobalEnv, resolvedPorts, options, hooks);
+  return materializeFiles(service, service.manifest.config, sharedGlobalEnv, resolvedPorts, options, hooks, expectedTemplateDigests);
 }

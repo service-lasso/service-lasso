@@ -19,6 +19,10 @@ const MCP_SUPPORTED_SCOPES = [
   MCP_READ_SCOPE,
   MCP_LOGS_READ_SCOPE,
   MCP_AUDIT_READ_SCOPE,
+  MCP_LIFECYCLE_WRITE_SCOPE,
+  MCP_CONFIG_WRITE_SCOPE,
+  MCP_UPDATE_WRITE_SCOPE,
+  MCP_RUNTIME_ADMIN_SCOPE,
 ] as const;
 const MCP_CURRENT_READ_ONLY_TOOLS = new Set([
   "service_lasso_runtime_status",
@@ -428,13 +432,22 @@ export function resolveMcpStdioAuthorization(
   if (!credential || credential.length > 16_384 || !actorId || !clientId) {
     throw new McpHttpPolicyError("mcp_stdio_credentials_not_configured", 503);
   }
-  const scopes = [MCP_READ_SCOPE, MCP_LOGS_READ_SCOPE];
+  const configuredScopes = normalized(env.SERVICE_LASSO_MCP_STDIO_SCOPES);
+  const scopes = configuredScopes
+    ? [...new Set(configuredScopes.split(/[\s,]+/u).filter(Boolean))]
+    : [MCP_READ_SCOPE, MCP_LOGS_READ_SCOPE];
+  if (
+    !scopes.includes(MCP_READ_SCOPE) ||
+    scopes.some((scope) => !(MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope))
+  ) {
+    throw new McpHttpPolicyError("mcp_stdio_scopes_invalid", 503);
+  }
   const actor: McpTrustedActor = {
     kind: "local-token",
     actorId,
     clientId,
     scopes,
-    permissionProfile: "observer",
+    permissionProfile: resolveMcpPermissionProfile(scopes),
   };
   return {
     actor,
@@ -583,6 +596,18 @@ export function requiredMcpScopesForRequest(input: unknown): string[] {
     const name = (message.params as Record<string, unknown>).name;
     if (name === "service_lasso_logs_summary") scopes.add(MCP_LOGS_READ_SCOPE);
     if (name === "service_lasso_audit_search") scopes.add(MCP_AUDIT_READ_SCOPE);
+    if (name === "service_lasso_start_service" || name === "service_lasso_stop_service" || name === "service_lasso_restart_service") {
+      scopes.add(MCP_LIFECYCLE_WRITE_SCOPE);
+    }
+    if (name === "service_lasso_install_service" || name === "service_lasso_configure_service" || name === "service_lasso_run_setup_step") {
+      scopes.add(MCP_CONFIG_WRITE_SCOPE);
+    }
+    if (name === "service_lasso_check_updates" || name === "service_lasso_download_update" || name === "service_lasso_install_update") {
+      scopes.add(MCP_UPDATE_WRITE_SCOPE);
+    }
+    if (name === "service_lasso_start_all" || name === "service_lasso_stop_all") {
+      scopes.add(MCP_RUNTIME_ADMIN_SCOPE);
+    }
   }
   return [...scopes];
 }

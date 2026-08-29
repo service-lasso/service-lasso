@@ -8,7 +8,7 @@ Included:
 - One MCP adapter in `service-lasso` that reuses runtime/operator facades
 - Read-only tools and resources, including secret metadata without values
 - A Streamable HTTP identity slice with OAuth protected-resource discovery, scopes, explicit transport modes, cumulative permission profiles, per-actor/client rate limits, and fail-closed server/Audit policy under `#860` / `AC-6C`
-- Complete strict read tools and resources under `#861`, followed by guarded actions, long-running operations, and release gates
+- Complete strict read tools and resources under `#861`, guarded lifecycle and maintenance actions under `#862`, followed by long-running operations and release gates
 - Documentation in `docs/reference/operator-mcp.md`
 
 Explicitly out of scope:
@@ -18,7 +18,7 @@ Explicitly out of scope:
 - Guessing a new transport/identity architecture beyond `#858` / `docs/reference/operator-mcp.md`
 - Service Admin MCP settings UI (`lasso-serviceadmin#423` is already closed)
 - Canonical demo recycle or keep-alive ownership from this spec
-- Mutating lifecycle tools (`#862`), durable long-running operations (`#863`), and release qualification (`#864`)
+- Durable long-running operations (`#863`) and release qualification (`#864`)
 - The inherited `#1067` missing SDK-registration baseline defect; `#860` must keep its identity boundary independently testable
 
 ## Acceptance Criteria
@@ -26,7 +26,7 @@ Explicitly out of scope:
 - `AC-6B`: MCP protocol plumbing uses the supported official TypeScript SDK with stdio and standards-compliant Streamable HTTP (`#859`). This criterion is not satisfied by handwritten JSON-RPC alone.
 - `AC-6C`: Streamable HTTP identity, OAuth protected-resource discovery, scopes, explicit disabled/read-only/guarded modes, per-actor/client rate limits, and server-side policy fail closed (`#860`). Observer credentials cannot mutate state. Permission profiles are derived from cumulative granted scopes, actors come from validated identity rather than tool arguments, and MCP execution stops safely when its Audit event cannot be persisted. Local stdio uses an opt-in credential-bearing adapter connected to the active runtime directly, without starting a competing process or looping back over HTTP.
 - `AC-6D`: The complete read-only operator surface covers runtime status, paginated services, health, routes, dependencies, bounded redacted logs, Audit search, updates, drift, recovery, and operations, with strict schemas and structured output (`#861`). `#1067` closes only when this criterion plus `AC-6G` meet the product bar for services, secret metadata, and logs.
-- `AC-6E`: Guarded lifecycle and maintenance tools call shared operator facades, enforce Observer/Operator/Maintainer/Administrator boundaries, and require actor-bound server confirmation (`#862`).
+- `AC-6E`: Guarded lifecycle and maintenance tools call the shared operator/application facade without HTTP loopback or duplicated lifecycle logic; perform metadata-only preflight; enforce the Observer/Operator/Maintainer/Administrator matrix; and require expiring, actor-, target-, parameter-, plan-, candidate-revision-, and single-use server confirmation for risky actions (`#862`). Confirmed plans bind endpoint allocations, manifest definitions, template bytes, resolved service/provider launch files, recursive setup-step, doctor, stop-override and update-hook execution files, and exact SHA-256 artifact/update candidates, then revalidate those bindings at the relevant materialization or immediate pre-spawn boundary. Launch evidence uses the supervisor's exact resolver, including basename and option-file inputs. Update installation rehashes confirmed archive bytes after pre-upgrade hooks and extracts only the verified in-memory bytes; its confirmation states only the stop and hook subprocess effects executable under the chosen force/policy path. Exact duplicate idempotency keys are claimed across runtime processes and replay the recorded safe result with truthful replay metadata without repeating mutation, while altered or token-like reuse fails closed. Synchronous completions return bounded resulting lifecycle state. Every allowed, schema-denied, policy-denied, skipped, failed, and replayed attempt writes durable Audit with a safe correlation id; terminal Audit outages retain a recoverable pending outcome rather than repeating a mutation. MCP exposes no generic shell, terminal/stdin, raw filesystem, raw configuration, or secret-value action.
 - `AC-6F`: Long-running install/update actions return a durable operation id that can be polled and cancelled (`#863`).
 - `AC-6G`: Security, redaction, conformance, packaging, and canonical demo acceptance gates run in the normal CI/release path (`#864`).
 
@@ -34,7 +34,8 @@ Explicitly out of scope:
 - Focused `tests/operator-mcp.test.js` coverage for tool/resource advertisement, secret-metadata shape, unknown-service errors, extra-argument rejection, and `assertNoSecretMaterial` redaction.
 - Focused `#860` coverage for OAuth discovery, Origin/content boundaries, token validation, scope denial, trusted actor derivation, explicit modes, cumulative permission profiles, independent actor/client rate limits, deterministic Audit-store failure, and redacted failures.
 - `tests/operator-mcp-read-surface.test.js` proves deterministic pagination, allowlisted output shaping, stable errors, schema/annotation contracts and secret/config/token/path regression sentinels for `#861` / `AC-6D`.
-- Later slices add guarded-action, durable-operation, packaged-app and canonical evidence under `#862`–`#864`.
+- `tests/operator-mcp-guarded-actions.test.js` proves the complete permission matrix, exact preflight targets/effects, confirmation expiry/alteration/replay/actor/target/parameter binding, shared launch-root/basename evidence, launch/setup/template/doctor/stop-hook/update-hook byte-alteration denial, post-hook immutable update-archive revalidation, a successful guarded install/restart, exactly-once idempotency, shared-facade lifecycle effects, durable Audit correlation, and sensitive-output rejection for `#862` / `AC-6E`.
+- Later slices add durable-operation, packaged-app and canonical evidence under `#863`–`#864`.
 - `#860` includes local stdio credential handling and smoke evidence. The adapter must reuse the active runtime directly; a second runtime owner or HTTP-loopback adapter would violate the architecture.
 
 ## Documentation Impact
@@ -48,9 +49,11 @@ Explicitly out of scope:
 - `node --test --test-concurrency=1 tests/operator-mcp-identity.test.js` for `#860` / `AC-6C`
 - `node --test --test-concurrency=1 tests/operator-mcp.test.js` for the inherited read-only MCP surface
 - `node --test tests/operator-mcp-read-surface.test.js` for strict `#861` read contracts and sensitive-output regression coverage
+- `node --test --test-concurrency=1 tests/operator-mcp-guarded-actions.test.js` for `#862` / `AC-6E`
 - No live tokens or secret values in fixtures, logs, or MCP responses
 
 ## Change Notes
+- 2026-08-29: `#862` / `AC-6E` begins from merged `#861` on the existing SDK server. The action contract is preflight-first, uses the shared application facade, derives authority from validated MCP identity, requires bound single-use server confirmation for risky mutations, records safe durable Audit, and preserves exactly-once behavior for duplicate idempotency keys. Durable operation records remain owned by `#863`; product conformance, packaged three-OS, Inspector, and canonical acceptance remain owned by `#864`.
 - 2026-08-25: `#861` completes the read-only inventory, detail, health, routes/Traefik, dependencies, logs, Audit, updates, config drift and recovery contracts with strict schemas, structured content, deterministic cursors, stable errors and path/value-safe allowlists. Operation status reports `feature_unavailable` until `#863` owns durable operation state.
 - 2026-08-25: `#860` / PR `#1137` is merged at `52884d4`, completing OAuth/policy plus the credential-gated active-runtime stdio adapter.
 - 2026-08-25: `#860` adds an opt-in local stdio credential path and smoke proof through the active runtime process. A protected environment capability plus bounded actor/client ids gate the SDK transport; the secret is neither protocol nor Audit data, while a safe startup Audit event records only derived identity metadata.

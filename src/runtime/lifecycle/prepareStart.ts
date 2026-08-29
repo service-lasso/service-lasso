@@ -14,6 +14,12 @@ import type {
   StartupArtifactAcquisitionHooks,
   StartupMaterializationKind,
 } from "../startup/materialization.js";
+import {
+  buildServiceExecutableMutationRevision,
+  buildServiceMutationDefinitionRevision,
+  type ExecutableInputFileDigest,
+} from "../setup/definition-revision.js";
+import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 
 export type PreparedStartSkipReason = "already_running" | "provider_role" | "not_startable";
 
@@ -78,6 +84,12 @@ export interface PreparedStartOptions extends Pick<
   "workspaceRoot" | "runtimeGenerationId" | "runtimeInstanceId" | "allocationRevision"
 > {
   plannedPortsByService?: Record<string, Record<string, number>>;
+  allowedMutationServiceIds?: ReadonlySet<string>;
+  expectedArtifactRevisionsByService?: Readonly<Record<string, string>>;
+  expectedDefinitionRevisionsByService?: Readonly<Record<string, string>>;
+  expectedTemplateDigestsByService?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  expectedExecutableRevisionsByService?: Readonly<Record<string, string>>;
+  expectedExecutableFilesByService?: Readonly<Record<string, readonly ExecutableInputFileDigest[]>>;
   materializationHooksFor?: (
     service: DiscoveredService,
     kind: StartupMaterializationKind,
@@ -95,6 +107,13 @@ function serviceActionOptions(serviceId: string, options: PreparedStartOptions):
     runtimeInstanceId: options.runtimeInstanceId,
     allocationRevision: options.allocationRevision,
     plannedPorts: options.plannedPortsByService?.[serviceId],
+    plannedPortsByService: options.plannedPortsByService,
+    expectedArtifactRevision: options.expectedArtifactRevisionsByService?.[serviceId],
+    allowedMutationServiceIds: options.allowedMutationServiceIds,
+    expectedDefinitionRevision: options.expectedDefinitionRevisionsByService?.[serviceId],
+    expectedTemplateDigests: options.expectedTemplateDigestsByService?.[serviceId],
+    expectedExecutableRevision: options.expectedExecutableRevisionsByService?.[serviceId],
+    expectedExecutableFiles: options.expectedExecutableFilesByService?.[serviceId],
   };
 }
 
@@ -105,6 +124,25 @@ export async function prepareAndStartService(
 ): Promise<PreparedStartResult> {
   const serviceId = service.manifest.id;
   const graph = new DependencyGraph(registry);
+  const expectedDefinitionRevision = options.expectedDefinitionRevisionsByService?.[serviceId];
+  if (
+    expectedDefinitionRevision &&
+    await buildServiceMutationDefinitionRevision(service) !== expectedDefinitionRevision
+  ) {
+    throw new LifecycleStateError(
+      `Cannot mutate service "${serviceId}" because its manifest-owned execution definition changed after guarded preflight.`,
+    );
+  }
+  const initialState = getLifecycleState(serviceId);
+
+  if (initialState.running || hasManagedProcess(serviceId)) {
+    return { result: null, skippedReason: "already_running", state: initialState };
+  }
+  if (options.allowedMutationServiceIds && !options.allowedMutationServiceIds.has(serviceId)) {
+    throw new LifecycleStateError(
+      `Cannot mutate service "${serviceId}" because it was not part of the approved lifecycle plan.`,
+    );
+  }
 
   for (const dependencyId of graph.getStartupOrder(serviceId)) {
     const dependency = registry.getById(dependencyId);
@@ -119,10 +157,6 @@ export async function prepareAndStartService(
 
   let state = await prepareServicePrerequisites(service, registry, options);
 
-  if (state.running || hasManagedProcess(serviceId)) {
-    return { result: null, skippedReason: "already_running", state };
-  }
-
   if (isProviderRole(service.manifest)) {
     return { result: null, skippedReason: "provider_role", state };
   }
@@ -132,7 +166,16 @@ export async function prepareAndStartService(
   }
 
   await options.onServiceStarting?.(service);
-  const result = await startService(service, registry, serviceActionOptions(serviceId, options));
+  const actionOptions = serviceActionOptions(serviceId, options);
+  if (options.allowedMutationServiceIds && !actionOptions.expectedExecutableRevision) {
+    actionOptions.expectedExecutableRevision = await buildServiceExecutableMutationRevision(
+      service,
+      registry,
+      actionOptions.plannedPorts,
+      collectRuntimeGlobalEnv(registry.list()),
+    );
+  }
+  const result = await startService(service, registry, actionOptions);
   await writeServiceState(service, result.state);
   state = result.state;
 

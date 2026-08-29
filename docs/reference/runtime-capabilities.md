@@ -11,7 +11,7 @@ The response includes:
 - option-derived flags for autostart, monitor, and update scheduler state
 - discovered service roles and default-baseline membership
 - Service Admin compatibility hints
-- the read-only operator MCP endpoint group
+- the operator MCP endpoint group, which is mutating-capable only when guarded mode and action policy permit it
 
 The endpoint exposes metadata only. It must not include raw environment values, provider credentials, secret payloads, tokens, cookies, private keys, or recovery material.
 

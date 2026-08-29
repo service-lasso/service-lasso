@@ -14,15 +14,21 @@ concurrency:
   group: release-qualification-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   qualify-products:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
 
     steps:
       - name: Check out repo
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
 
       - name: Set up Node
         uses: actions/setup-node@v5
@@ -37,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA::7}"
+          short_sha="${CANDIDATE_SHA::7}"
           date_utc="$(date -u +%Y.%-m.%-d)"
           echo "SERVICE_LASSO_RELEASE_VERSION=${date_utc}-${short_sha}" >> "$GITHUB_ENV"
 
@@ -49,6 +55,28 @@ jobs:
 
       - name: Run complete test suite
         run: npm test
+
+      - name: Write exact-head guarded MCP evidence
+        env:
+          MCP_GUARDED_ACTION_EVIDENCE_PATH: artifacts/mcp-guarded-actions.json
+        run: node scripts/write-mcp-guarded-action-evidence.mjs
+
+      - name: Upload exact-head guarded MCP evidence
+        id: guarded_mcp_artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: mcp-guarded-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mcp-guarded-actions.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Read back exact-head guarded MCP evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_GUARDED_ACTION_ARTIFACT_ID: ${{ steps.guarded_mcp_artifact.outputs.artifact-id }}
+          MCP_GUARDED_ACTION_ARTIFACT_NAME: mcp-guarded-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_GUARDED_ACTION_ARTIFACT_DIGEST: ${{ steps.guarded_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-guarded-action-artifact.mjs
 
       - name: Verify release artifacts
         run: npm run release:verify
@@ -109,6 +137,8 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
 
       - name: Set up Node
         uses: actions/setup-node@v5

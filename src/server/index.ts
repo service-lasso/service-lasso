@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { cp, readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
@@ -34,13 +35,24 @@ import type { DiscoveredService } from "../contracts/service.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
 import {
+  buildServiceStopExecutableMutationBinding,
   configService,
   installService,
   restartService,
   startService,
   stopService,
+  type ServiceStopExecutableMutationBinding,
 } from "../runtime/lifecycle/actions.js";
 import { prepareAndStartService, type PreparedStartSkipReason } from "../runtime/lifecycle/prepareStart.js";
+import { buildInstallArtifactCandidateBinding } from "../runtime/setup/acquire.js";
+import {
+  buildServiceMutationDefinitionBinding,
+  buildServiceMutationDefinitionRevision,
+  buildServiceExecutableMutationBinding,
+  buildServiceExecutableMutationRevision,
+  type ExecutableInputFileDigest,
+  type ServiceExecutableMutationBinding,
+} from "../runtime/setup/definition-revision.js";
 import { getLifecycleState, setLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import type { ServiceHealthResult } from "../runtime/health/types.js";
@@ -134,6 +146,7 @@ import {
 import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-safety-preflight.js";
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
+import { buildServiceConfigApplyPreflightReport } from "../runtime/operator/config-apply-preflight.js";
 import {
   listServiceConfigRevisions,
   readServiceConfigDocument,
@@ -159,6 +172,13 @@ import {
   type RunningServiceLassoMcpStdioAdapter,
   type ServiceLassoMcpStdioOptions,
 } from "../runtime/operator/mcp.js";
+import type {
+  McpGuardedActionFacade,
+  McpGuardedActionFacadeResult,
+  McpGuardedActionName,
+  McpGuardedActionParameters,
+  McpGuardedActionPlan,
+} from "../runtime/operator/mcp-guarded-actions.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
@@ -173,6 +193,7 @@ import {
   createMcpProtectedResourceMetadata,
   mcpPolicyErrorBody,
   requiredMcpScopesForRequest,
+  resolveMcpOperatingMode,
   resolveMcpStdioAuthorization,
   type McpHttpAuthorization,
   type McpHttpIdentityOptions,
@@ -242,9 +263,14 @@ import {
   transitionProcessOwnership,
 } from "../runtime/process/registry.js";
 import { explainPortConflict } from "../runtime/ports/conflicts.js";
-import { runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
+import { buildDoctorExecutableBindings, runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
-import { listSetupStepIds, runServiceSetup } from "../runtime/setup/steps.js";
+import {
+  buildSetupStepExecutableMutationBinding,
+  listSetupStepIds,
+  runServiceSetup,
+  type SetupStepExecutableMutationBinding,
+} from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
 import {
   enforcePermission,
@@ -260,7 +286,6 @@ import {
   readArchiveExportArtifact,
 } from "../runtime/files/archive-export.js";
 import { createRuntimeServiceMonitor, type RuntimeServiceMonitor } from "../runtime/recovery/monitor.js";
-import { readServiceUpdateState } from "../runtime/updates/state.js";
 import { createRuntimeUpdateScheduler, type RuntimeUpdateScheduler } from "../runtime/updates/scheduler.js";
 import {
   DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS,
@@ -317,11 +342,15 @@ import {
   type WorkflowRepoSource,
 } from "../platform/workflowSyncController.js";
 import {
+  buildUpdateCandidateRevision,
+  buildUpdateInstallCandidateBinding,
   checkServiceUpdatesForCli,
   downloadServiceUpdateCandidate,
   installServiceUpdateCandidate,
   listServiceUpdateStates,
 } from "../runtime/updates/actions.js";
+import { checkServiceUpdate } from "../runtime/updates/check.js";
+import { readServiceUpdateState } from "../runtime/updates/state.js";
 import {
   getServiceCatalogPackage,
   listServiceCatalogPackageReleases,
@@ -1151,6 +1180,42 @@ function writeMcpPolicyError(response: ServerResponse, error: McpHttpPolicyError
   writeJson(response, error.statusCode, mcpPolicyErrorBody(error));
 }
 
+const mcpGuardedToolActions: Readonly<Record<string, McpGuardedActionName>> = {
+  service_lasso_start_service: "service_start",
+  service_lasso_stop_service: "service_stop",
+  service_lasso_restart_service: "service_restart",
+  service_lasso_install_service: "service_install",
+  service_lasso_configure_service: "service_configure",
+  service_lasso_run_setup_step: "setup_step_run",
+  service_lasso_check_updates: "update_check",
+  service_lasso_download_update: "update_download",
+  service_lasso_install_update: "update_install",
+  service_lasso_start_all: "runtime_start_all",
+  service_lasso_stop_all: "runtime_stop_all",
+};
+
+function safeDeniedMcpGuardedAttempts(parsedBody: unknown): Array<{
+  action: McpGuardedActionName;
+  targetIds: string[];
+}> {
+  const messages = Array.isArray(parsedBody) ? parsedBody : [parsedBody];
+  return messages.slice(0, 50).flatMap((message) => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return [];
+    const record = message as Record<string, unknown>;
+    if (record.method !== "tools/call" || !record.params || typeof record.params !== "object" || Array.isArray(record.params)) return [];
+    const params = record.params as Record<string, unknown>;
+    const action = typeof params.name === "string" ? mcpGuardedToolActions[params.name] : undefined;
+    if (!action) return [];
+    const args = params.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments)
+      ? params.arguments as Record<string, unknown>
+      : {};
+    const serviceId = typeof args.serviceId === "string" && /^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(args.serviceId)
+      ? args.serviceId
+      : null;
+    return [{ action, targetIds: serviceId ? [serviceId] : [] }];
+  });
+}
+
 async function recordMcpAuthorizationAudit(
   config: ApiRouteConfig,
   request: IncomingMessage,
@@ -1158,6 +1223,7 @@ async function recordMcpAuthorizationAudit(
   statusCode: number,
   authorization?: McpHttpAuthorization,
   reason?: string,
+  parsedBody?: unknown,
 ): Promise<void> {
   try {
     const appender = config.mcpPolicyTestHooks?.appendAuditEvent ?? appendAuditEvent;
@@ -1183,6 +1249,30 @@ async function recordMcpAuthorizationAudit(
           }
         : {},
     });
+    if (outcome === "failure" && authorization) {
+      for (const attempt of safeDeniedMcpGuardedAttempts(parsedBody)) {
+        await appender({
+          workspaceRoot: config.workspaceRoot,
+          source: "runtime-mcp",
+          action: "mcp.action.denied",
+          actor: authorization.actor.actorId,
+          subject: attempt.action,
+          method: "MCP",
+          routeTemplate: `tool:${attempt.action}`,
+          outcome: "failure",
+          statusCode,
+          summary: "Guarded MCP action denied by the transport policy boundary.",
+          reason: reason ?? "denied",
+          correlationId: `mcp-action-${randomUUID()}`,
+          metadata: {
+            clientId: authorization.actor.clientId,
+            action: attempt.action,
+            targetIds: attempt.targetIds,
+            targetCount: attempt.targetIds.length,
+          },
+        });
+      }
+    }
   } catch {
     throw new McpHttpPolicyError("mcp_audit_unavailable", 503);
   }
@@ -1971,7 +2061,28 @@ async function executeLifecycleAction(
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
   requestContext?: { actor: PermissionActor; confirmed: boolean },
+  allowedMutationServiceIds?: ReadonlySet<string>,
+  expectedArtifactRevision?: string,
+  expectedArtifactRevisionsByService?: Readonly<Record<string, string>>,
+  expectedDefinitionRevision?: string,
+  expectedDefinitionRevisionsByService?: Readonly<Record<string, string>>,
+  expectedTemplateDigests?: Readonly<Record<string, string>>,
+  expectedTemplateDigestsByService?: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  expectedExecutableRevision?: string,
+  expectedExecutableRevisionsByService?: Readonly<Record<string, string>>,
+  expectedExecutableFiles?: readonly ExecutableInputFileDigest[],
+  expectedExecutableFilesByService?: Readonly<Record<string, readonly ExecutableInputFileDigest[]>>,
+  expectedStopExecutableBinding?: ServiceStopExecutableMutationBinding,
+  expectedDoctorExecutableBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>,
 ): Promise<LifecycleActionResponse> {
+  if (
+    expectedDefinitionRevision &&
+    await buildServiceMutationDefinitionRevision(service) !== expectedDefinitionRevision
+  ) {
+    throw new LifecycleStateError(
+      `Cannot mutate service "${service.manifest.id}" because its manifest-owned execution definition changed after guarded preflight.`,
+    );
+  }
   const plannedPorts = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan)[service.manifest.id] : undefined;
   const allocationOptions = {
     workspaceRoot,
@@ -1979,11 +2090,18 @@ async function executeLifecycleAction(
     runtimeInstanceId,
     plannedPorts,
     allocationRevision: allocationPlan?.allocationId,
+    expectedArtifactRevision,
+    expectedDefinitionRevision,
+    expectedTemplateDigests,
+    expectedExecutableRevision,
+    expectedExecutableFiles,
+    expectedStopExecutableBinding,
+    expectedDoctorExecutableBindings,
   };
   const result = await (async () => {
     switch (action) {
       case "install":
-        return await installService(service, registry);
+        return await installService(service, registry, allocationOptions);
       case "config":
         return await configService(service, registry, allocationOptions);
       case "start":
@@ -1994,9 +2112,15 @@ async function executeLifecycleAction(
           allocationPlan,
           runtimeGenerationId,
           runtimeInstanceId,
+          allowedMutationServiceIds,
+          expectedArtifactRevisionsByService,
+          expectedDefinitionRevisionsByService,
+          expectedTemplateDigestsByService,
+          expectedExecutableRevisionsByService,
+          expectedExecutableFilesByService,
         );
       case "stop":
-        return await stopService(service);
+        return await stopService(service, allocationOptions);
       case "restart":
         return await restartService(service, registry, allocationOptions);
       case "reload": {
@@ -2050,6 +2174,12 @@ async function executePreparedServiceStart(
   allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
+  allowedMutationServiceIds?: ReadonlySet<string>,
+  expectedArtifactRevisionsByService?: Readonly<Record<string, string>>,
+  expectedDefinitionRevisionsByService?: Readonly<Record<string, string>>,
+  expectedTemplateDigestsByService?: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  expectedExecutableRevisionsByService?: Readonly<Record<string, string>>,
+  expectedExecutableFilesByService?: Readonly<Record<string, readonly ExecutableInputFileDigest[]>>,
 ): Promise<Awaited<ReturnType<typeof startService>>> {
   const prepared = await prepareAndStartService(service, registry, {
     workspaceRoot,
@@ -2057,6 +2187,12 @@ async function executePreparedServiceStart(
     runtimeInstanceId,
     allocationRevision: allocationPlan?.allocationId,
     plannedPortsByService: allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined,
+    allowedMutationServiceIds,
+    expectedArtifactRevisionsByService,
+    expectedDefinitionRevisionsByService,
+    expectedTemplateDigestsByService,
+    expectedExecutableRevisionsByService,
+    expectedExecutableFilesByService,
   });
 
   if (prepared.result) {
@@ -2157,6 +2293,13 @@ async function executeRuntimeOrchestrationAction(
   ) => MaterializationWriteHooks,
   artifactAcquisitionHooksFor?: (service: DiscoveredService) => StartupArtifactAcquisitionHooks,
   setupTransactionHooks?: SetupTransactionHooks,
+  allowedMutationServiceIds?: ReadonlySet<string>,
+  expectedArtifactRevisionsByService?: Readonly<Record<string, string>>,
+  expectedDefinitionRevisionsByService?: Readonly<Record<string, string>>,
+  expectedTemplateDigestsByService?: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  expectedExecutableRevisionsByService?: Readonly<Record<string, string>>,
+  expectedExecutableFilesByService?: Readonly<Record<string, readonly ExecutableInputFileDigest[]>>,
+  expectedStopExecutableBindingsByService?: Readonly<Record<string, ServiceStopExecutableMutationBinding>>,
 ): Promise<RuntimeOrchestrationResponse> {
   const plannedPortsByService = allocationPlan ? servicePortsFromEndpointAllocation(allocationPlan) : undefined;
   const preparedStartOptions = {
@@ -2165,6 +2308,12 @@ async function executeRuntimeOrchestrationAction(
     runtimeInstanceId,
     allocationRevision: allocationPlan?.allocationId,
     plannedPortsByService,
+    allowedMutationServiceIds,
+    expectedArtifactRevisionsByService,
+    expectedDefinitionRevisionsByService,
+    expectedTemplateDigestsByService,
+    expectedExecutableRevisionsByService,
+    expectedExecutableFilesByService,
     materializationHooksFor,
     artifactAcquisitionHooksFor,
     setupTransactionHooks,
@@ -2298,7 +2447,15 @@ async function executeRuntimeOrchestrationAction(
       continue;
     }
 
-    const result = await stopService(service);
+    if (allowedMutationServiceIds && !allowedMutationServiceIds.has(serviceId)) {
+      throw new LifecycleStateError(
+        `Cannot mutate service "${serviceId}" because it was not part of the approved runtime plan.`,
+      );
+    }
+
+    const result = await stopService(service, {
+      expectedStopExecutableBinding: expectedStopExecutableBindingsByService?.[serviceId],
+    });
     results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
   }
 
@@ -2307,6 +2464,746 @@ async function executeRuntimeOrchestrationAction(
     ok: true,
     results,
     skipped,
+  };
+}
+
+function createMcpGuardedActionFacade(
+  runtimeModel: RuntimeModel,
+  config: RuntimeConfig & {
+    endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
+    runtimeGenerationId?: string | null;
+  },
+): McpGuardedActionFacade {
+  const serviceFor = (parameters: McpGuardedActionParameters): DiscoveredService => {
+    const service = parameters.serviceId ? runtimeModel.registry.getById(parameters.serviceId) : undefined;
+    if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
+    return service;
+  };
+
+  const dependencyStartTargets = (serviceId: string): string[] => {
+    const selected = new Set<string>();
+    const visit = (candidateId: string): void => {
+      if (selected.has(candidateId)) return;
+      selected.add(candidateId);
+      for (const dependencyId of runtimeModel.graph.getServiceDependencies(candidateId).dependencies) visit(dependencyId);
+    };
+    visit(serviceId);
+    return runtimeModel.graph.getGlobalStartupOrder()
+      .filter((candidateId) => selected.has(candidateId) && !getLifecycleState(candidateId).running);
+  };
+
+  const plannedPortEffects = (serviceId: string): string[] => {
+    if (!config.endpointAllocationPlan) return [];
+    return config.endpointAllocationPlan.endpoints
+      .filter((endpoint) => endpoint.ownerType === "service" && endpoint.ownerId === serviceId)
+      .sort((left, right) => left.endpointId.localeCompare(right.endpointId))
+      .map((endpoint) => `reserve endpoint ${endpoint.endpointId}=${endpoint.port} for ${serviceId}`);
+  };
+
+  const updateInstallSubprocessEffects = (
+    service: DiscoveredService,
+    binding: Awaited<ReturnType<typeof buildUpdateInstallCandidateBinding>>,
+    force: boolean,
+  ): string[] => {
+    const serviceId = service.manifest.id;
+    const effects: string[] = [];
+    if (!force && getLifecycleState(serviceId).running && binding.stopBinding.override) {
+      effects.push(`run manifest-owned stop override for ${serviceId}`);
+    }
+    for (const phase of ["preUpgrade", "postUpgrade", "rollback", "onFailure"] as const) {
+      const steps = service.manifest.hooks?.[phase] ?? [];
+      if (steps.length === 0) continue;
+      const prefix = phase === "rollback" || phase === "onFailure" ? "may run" : "run";
+      const suffix = phase === "rollback" || phase === "onFailure" ? " after an install failure" : "";
+      effects.push(`${prefix} ${steps.length} manifest-owned ${phase} hook step${steps.length === 1 ? "" : "s"} for ${serviceId}${suffix}`);
+    }
+    return effects;
+  };
+
+  const dryRunEffects = (steps: ReturnType<typeof buildRuntimeOrchestrationDryRunPlan>["steps"]): string[] =>
+    steps.flatMap((step) => [
+      `${step.action} ${step.serviceId}`,
+      ...step.prerequisites.map((prerequisite) => `${step.serviceId} prerequisite ${prerequisite}`),
+      ...step.expectedStateChanges.map((change) => `${step.serviceId} ${change}`),
+      ...(step.action === "start" ? plannedPortEffects(step.serviceId) : []),
+    ]);
+
+  const buildStartArtifactBindings = async (serviceIds: string[]): Promise<{
+    revisions: Record<string, string>;
+    definitionRevisions: Record<string, string>;
+    templateDigestsByService: Record<string, Readonly<Record<string, string>>>;
+    executableRevisionsByService: Record<string, string>;
+    executableFilesByService: Record<string, readonly ExecutableInputFileDigest[]>;
+    effects: string[];
+    blockers: string[];
+    revision: string;
+  }> => {
+    const revisions: Record<string, string> = {};
+    const definitionRevisions: Record<string, string> = {};
+    const templateDigestsByService: Record<string, Readonly<Record<string, string>>> = {};
+    const executableRevisionsByService: Record<string, string> = {};
+    const executableFilesByService: Record<string, readonly ExecutableInputFileDigest[]> = {};
+    const effects: string[] = [];
+    const blockers: string[] = [];
+    for (const serviceId of [...new Set(serviceIds)].sort()) {
+      const service = runtimeModel.registry.getById(serviceId);
+      if (!service) {
+        blockers.push(`${serviceId} install candidate service missing`);
+        continue;
+      }
+      const definitionBinding = await buildServiceMutationDefinitionBinding(service);
+      definitionRevisions[serviceId] = definitionBinding.revision;
+      templateDigestsByService[serviceId] = definitionBinding.templateDigests;
+      if (getLifecycleState(serviceId).installed) continue;
+      const binding = await buildInstallArtifactCandidateBinding(service);
+      if (!binding.executable) {
+        blockers.push(`${serviceId} ${binding.reason ?? "install artifact blocked"}`);
+        continue;
+      }
+      revisions[serviceId] = binding.revision;
+      effects.push(...binding.effects);
+    }
+    const allExecutableBindings = await runtimeExecutableBindings();
+    const allExecutableRevisions = Object.fromEntries(
+      Object.entries(allExecutableBindings).map(([serviceId, binding]) => [serviceId, binding.revision]),
+    );
+    for (const serviceId of [...new Set(serviceIds)].sort()) {
+      if (allExecutableBindings[serviceId]) {
+        executableFilesByService[serviceId] = allExecutableBindings[serviceId].files;
+      }
+      if (getLifecycleState(serviceId).installed && allExecutableRevisions[serviceId]) {
+        executableRevisionsByService[serviceId] = allExecutableRevisions[serviceId];
+      }
+    }
+    const revision = `service-start-${createHash("sha256").update(JSON.stringify({
+      allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+      targets: [...new Set(serviceIds)].sort(),
+      artifactRevisions: revisions,
+      definitionRevisions,
+      executableRevisions: allExecutableRevisions,
+    })).digest("hex")}`;
+    return {
+      revisions,
+      definitionRevisions,
+      templateDigestsByService,
+      executableRevisionsByService,
+      executableFilesByService,
+      effects,
+      blockers,
+      revision,
+    };
+  };
+
+  const resultingState = (serviceIds: string[]) => [...new Set(serviceIds)]
+    .filter((serviceId) => runtimeModel.registry.getById(serviceId) !== undefined)
+    .map((serviceId) => {
+      const state = getLifecycleState(serviceId);
+      return {
+        serviceId,
+        installed: state.installed,
+        configured: state.configured,
+        running: state.running,
+      };
+    });
+
+  const definitionRevisionsFor = async (serviceIds: string[]): Promise<Record<string, string>> =>
+    Object.fromEntries(await Promise.all([...new Set(serviceIds)].sort().map(async (serviceId) => {
+      const service = runtimeModel.registry.getById(serviceId);
+      if (!service) throw new ApiError("guarded_plan_changed", 409, "A guarded mutation target disappeared.");
+      return [serviceId, await buildServiceMutationDefinitionRevision(service)];
+    })));
+
+  const runtimeExecutableBindings = async (): Promise<Record<string, ServiceExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
+    runtimeModel.discovered.map(async (candidate) => [
+      candidate.manifest.id,
+      await buildServiceExecutableMutationBinding(
+        candidate,
+        runtimeModel.registry,
+        config.endpointAllocationPlan
+          ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[candidate.manifest.id]
+          : undefined,
+        collectRuntimeGlobalEnv(runtimeModel.discovered),
+      ),
+    ]),
+  ));
+
+  const runtimeExecutableRevisions = async (): Promise<Record<string, string>> => Object.fromEntries(
+    Object.entries(await runtimeExecutableBindings()).map(([serviceId, binding]) => [serviceId, binding.revision]),
+  );
+
+  const stopExecutableBindingsFor = async (
+    serviceIds: readonly string[],
+  ): Promise<Record<string, ServiceStopExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
+    [...new Set(serviceIds)].sort().map(async (serviceId) => {
+      const candidate = runtimeModel.registry.getById(serviceId);
+      if (!candidate) throw new ApiError("guarded_plan_changed", 409, "A guarded stop target disappeared.");
+      return [serviceId, await buildServiceStopExecutableMutationBinding(candidate)];
+    }),
+  ));
+
+  const setupStepPlan = (service: DiscoveredService, selectedStepId: string, force: boolean): {
+    targets: string[];
+    stepKeys: string[];
+    effects: string[];
+    blockers: string[];
+  } => {
+    const targets: string[] = [];
+    const stepKeys: string[] = [];
+    const effects: string[] = [];
+    const blockers: string[] = [];
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (candidate: DiscoveredService, stepId: string): void => {
+      const visitKey = `${candidate.manifest.id}:${stepId}`;
+      if (visited.has(visitKey)) return;
+      if (visiting.has(visitKey)) {
+        blockers.push(`${visitKey} setup dependency cycle`);
+        return;
+      }
+      const step = candidate.manifest.setup?.steps?.[stepId];
+      if (!step) {
+        blockers.push(`${visitKey} setup step missing`);
+        return;
+      }
+      const state = getLifecycleState(candidate.manifest.id);
+      if (!state.installed || !state.configured) {
+        blockers.push(`${candidate.manifest.id} must be installed and configured before setup`);
+        return;
+      }
+      const prior = state.setup.steps[stepId]?.lastRun;
+      if (!force && prior?.status === "succeeded" && step.rerun !== "always") {
+        visited.add(visitKey);
+        return;
+      }
+
+      visiting.add(visitKey);
+      for (const dependencyId of step.depend_on ?? []) {
+        const setupDependency = dependencyId.match(/^(.+):([^:]+)$/u);
+        if (setupDependency) {
+          const dependencyService = runtimeModel.registry.getById(setupDependency[1]);
+          if (!dependencyService) blockers.push(`${setupDependency[1]} setup service missing`);
+          else visit(dependencyService, setupDependency[2]);
+          continue;
+        }
+        const dependency = runtimeModel.registry.getById(dependencyId);
+        const dependencyState = dependency ? getLifecycleState(dependencyId) : null;
+        if (
+          !dependency ||
+          !dependencyState?.installed ||
+          !dependencyState.configured ||
+          (!isProviderRole(dependency.manifest) && !dependencyState.running)
+        ) {
+          blockers.push(`${dependencyId} setup dependency not ready`);
+        }
+      }
+      visiting.delete(visitKey);
+      visited.add(visitKey);
+      if (!targets.includes(candidate.manifest.id)) targets.push(candidate.manifest.id);
+      stepKeys.push(visitKey);
+      effects.push(`run manifest-owned setup step ${stepId} for ${candidate.manifest.id}`);
+    };
+    visit(service, selectedStepId);
+    return { targets, stepKeys, effects, blockers };
+  };
+
+  const setupExecutableBindingsFor = async (
+    stepKeys: readonly string[],
+  ): Promise<Record<string, SetupStepExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
+    stepKeys.map(async (stepKey) => {
+      const separator = stepKey.lastIndexOf(":");
+      const serviceId = stepKey.slice(0, separator);
+      const stepId = stepKey.slice(separator + 1);
+      const candidate = runtimeModel.registry.getById(serviceId);
+      if (!candidate || !stepId) throw new ApiError("guarded_plan_changed", 409, "A guarded setup execution target disappeared.");
+      return [
+        stepKey,
+        await buildSetupStepExecutableMutationBinding(
+          candidate,
+          runtimeModel.registry,
+          stepId,
+          config.endpointAllocationPlan
+            ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[serviceId]
+            : undefined,
+        ),
+      ];
+    }),
+  ));
+
+  const preflight = async (
+    action: McpGuardedActionName,
+    parameters: McpGuardedActionParameters,
+  ): Promise<McpGuardedActionPlan> => {
+    if (action === "runtime_start_all" || action === "runtime_stop_all") {
+      const runtimeAction = action === "runtime_start_all" ? "startAll" : "stopAll";
+      const plan = buildRuntimeOrchestrationDryRunPlan(runtimeAction, runtimeModel.graph, runtimeModel.registry);
+      const steps = plan.steps.filter((step) => step.status === "would_run");
+      const blockers = plan.steps.filter((step) => step.status === "blocked");
+      const stopExecutableBindings = action === "runtime_stop_all"
+        ? await stopExecutableBindingsFor(steps.map((step) => step.serviceId))
+        : {};
+      const artifactPlan = action === "runtime_start_all"
+        ? await buildStartArtifactBindings(steps.map((step) => step.serviceId))
+        : {
+            revisions: {},
+            definitionRevisions: Object.fromEntries(await Promise.all(steps.map(async (step) => {
+              const service = runtimeModel.registry.getById(step.serviceId);
+              return [step.serviceId, service ? await buildServiceMutationDefinitionRevision(service) : "missing"];
+            }))),
+            templateDigestsByService: {},
+            executableRevisionsByService: {},
+            executableFilesByService: {},
+            effects: Object.entries(stopExecutableBindings).flatMap(([serviceId, binding]) => (
+              binding.override ? [`run manifest-owned stop override for ${serviceId}`] : []
+            )),
+            blockers: [],
+            revision: `runtime-stop-${createHash("sha256").update(JSON.stringify({
+              targets: steps.map((step) => step.serviceId),
+              definitions: await Promise.all(steps.map(async (step) => {
+                const service = runtimeModel.registry.getById(step.serviceId);
+                return [step.serviceId, service ? await buildServiceMutationDefinitionRevision(service) : "missing"];
+              })),
+              stopExecutableRevisions: Object.fromEntries(
+                Object.entries(stopExecutableBindings).map(([serviceId, binding]) => [serviceId, binding.revision]),
+              ),
+            })).digest("hex")}`,
+          };
+      const allBlockers = [
+        ...blockers.map((step) => `${step.serviceId} blocked: ${step.reason ?? "blocked"}`),
+        ...artifactPlan.blockers,
+      ];
+      return {
+        action,
+        targets: allBlockers.length === 0 ? steps.map((step) => step.serviceId) : [],
+        effects: allBlockers.length === 0 ? [...dryRunEffects(steps), ...artifactPlan.effects] : allBlockers,
+        executable: allBlockers.length === 0 && steps.length > 0,
+        skippedReason: allBlockers.length > 0 ? "runtime_preflight_blocked" : steps.length > 0 ? null : "no_runtime_targets_require_mutation",
+        revision: artifactPlan.revision,
+      };
+    }
+
+    const service = serviceFor(parameters);
+    const serviceId = service.manifest.id;
+    const lifecycle = getLifecycleState(serviceId);
+    const definitionRevision = await buildServiceMutationDefinitionRevision(service);
+    if (action === "service_start") {
+      const selected = new Set(dependencyStartTargets(serviceId));
+      if (!lifecycle.running) selected.add(serviceId);
+      const runtimePlan = buildRuntimeOrchestrationDryRunPlan("startAll", runtimeModel.graph, runtimeModel.registry);
+      const selectedSteps = runtimePlan.steps.filter((step) => selected.has(step.serviceId));
+      const blockers = selectedSteps.filter((step) => step.status === "blocked");
+      const steps = selectedSteps.filter((step) => step.status === "would_run");
+      const artifactPlan = await buildStartArtifactBindings(steps.map((step) => step.serviceId));
+      const allBlockers = [
+        ...blockers.map((step) => `${step.serviceId} blocked: ${step.reason ?? "blocked"}`),
+        ...artifactPlan.blockers,
+      ];
+      return {
+        action,
+        targets: allBlockers.length === 0 ? steps.map((step) => step.serviceId) : [],
+        effects: allBlockers.length === 0 ? [...dryRunEffects(steps), ...artifactPlan.effects] : allBlockers,
+        executable: !lifecycle.running && allBlockers.length === 0 && steps.length > 0,
+        skippedReason: lifecycle.running ? "service_already_running" : allBlockers.length > 0 ? "service_start_preflight_blocked" : steps.length > 0 ? null : "service_not_startable",
+        revision: artifactPlan.revision,
+      };
+    }
+    if (action === "service_stop") {
+      const stopBinding = await buildServiceStopExecutableMutationBinding(service);
+      return {
+        action,
+        targets: lifecycle.running ? [serviceId] : [],
+        effects: lifecycle.running
+          ? [
+              `stop owned process for ${serviceId}`,
+              ...(stopBinding.override ? [`run manifest-owned stop override for ${serviceId}`] : []),
+            ]
+          : [],
+        executable: lifecycle.running,
+        skippedReason: lifecycle.running ? null : "service_not_running",
+        revision: `service-stop-${createHash("sha256").update(JSON.stringify({
+          definitionRevision,
+          stopExecutableRevision: stopBinding.revision,
+        })).digest("hex")}`,
+      };
+    }
+    if (action === "service_restart") {
+      const targets = [serviceId];
+      const restart = buildRestartSafetyPreflightReport(service, runtimeModel.registry);
+      const doctorExecutableBindings = await buildDoctorExecutableBindings(service);
+      return {
+        action,
+        targets,
+        effects: [
+          `restart ${serviceId} through lifecycle recovery`,
+          ...plannedPortEffects(serviceId),
+          ...restart.expectedOperatorImpact.slice(0, 20),
+        ],
+        executable: restart.status !== "blocked",
+        skippedReason: restart.status === "blocked" ? "restart_preflight_blocked" : null,
+        revision: `service-restart-${createHash("sha256").update(JSON.stringify({
+          allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+          definitionRevision,
+          executableRevisions: await runtimeExecutableRevisions(),
+          doctorExecutableRevisions: Object.fromEntries(
+            Object.entries(doctorExecutableBindings).map(([index, binding]) => [index, binding.revision]),
+          ),
+        })).digest("hex")}`,
+      };
+    }
+    if (action === "service_install") {
+      const artifactBinding = await buildInstallArtifactCandidateBinding(service);
+      const executable = !lifecycle.installed && artifactBinding.executable;
+      return {
+        action,
+        targets: executable ? [serviceId] : [],
+        effects: lifecycle.installed ? [] : artifactBinding.effects,
+        executable,
+        skippedReason: lifecycle.installed ? "service_already_installed" : artifactBinding.reason,
+        revision: artifactBinding.revision,
+      };
+    }
+    if (action === "service_configure") {
+      const report = await buildServiceConfigApplyPreflightReport(service, runtimeModel.discovered);
+      return {
+        action,
+        targets: report.status === "blocked" ? [] : [serviceId],
+        effects: [...plannedPortEffects(serviceId), ...report.expectedOperatorImpact.slice(0, 50)],
+        executable: report.status !== "blocked",
+        skippedReason: report.status === "blocked" ? "configuration_preflight_blocked" : null,
+        revision: `service-config-${createHash("sha256").update(JSON.stringify({
+          allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+          definitionRevision,
+        })).digest("hex")}`,
+      };
+    }
+    if (action === "setup_step_run") {
+      const stepId = parameters.stepId as string;
+      const declared = listSetupStepIds(service).includes(stepId);
+      if (!declared) throw new ApiError("setup_step_not_found", 404, "The requested setup step is not declared.");
+      const setupPlan = setupStepPlan(service, stepId, parameters.force === true);
+      const executable = setupPlan.blockers.length === 0 && setupPlan.effects.length > 0;
+      const setupDefinitionRevisions = await definitionRevisionsFor(executable ? setupPlan.targets : [serviceId]);
+      const setupExecutableBindings = executable ? await setupExecutableBindingsFor(setupPlan.stepKeys) : {};
+      return {
+        action,
+        targets: executable ? setupPlan.targets : [],
+        effects: setupPlan.blockers.length > 0 ? setupPlan.blockers : setupPlan.effects,
+        executable,
+        skippedReason: setupPlan.blockers.length > 0 ? "setup_preflight_blocked" : executable ? null : "setup_step_already_succeeded",
+        revision: `setup-step-${createHash("sha256").update(JSON.stringify({
+          definitionRevisions: setupDefinitionRevisions,
+          executableRevisions: Object.fromEntries(
+            Object.entries(setupExecutableBindings).map(([stepKey, binding]) => [stepKey, binding.revision]),
+          ),
+        })).digest("hex")}`,
+      };
+    }
+    if (action === "update_check") {
+      return {
+        action,
+        targets: [serviceId],
+        effects: [`check pinned update metadata for ${serviceId}`],
+        executable: true,
+        skippedReason: null,
+      };
+    }
+    if (action === "update_download") {
+      const candidate = await checkServiceUpdate(service);
+      const revision = buildUpdateCandidateRevision(candidate);
+      const candidateAvailable = candidate.status === "update_available" && candidate.available?.tag && candidate.available.matchedAssetName;
+      const exactDigestAvailable = /^sha256:[0-9a-f]{64}$/iu.test(candidate.available?.assetDigest ?? "");
+      const available = candidateAvailable && exactDigestAvailable;
+      return {
+        action,
+        targets: available ? [serviceId] : [],
+        effects: available
+          ? [
+              `verify candidate tag ${candidate.available?.tag ?? "unknown"} for ${serviceId}`,
+              `download candidate asset ${candidate.available?.matchedAssetName ?? "unknown"} for ${serviceId}`,
+            ]
+          : [],
+        executable: Boolean(available),
+        skippedReason: available
+          ? null
+          : candidateAvailable
+            ? "update_candidate_exact_digest_unavailable"
+            : "no_downloadable_update_candidate",
+        revision,
+      };
+    }
+    const updatePlan = await buildUpdateInstallDryRunPlan(service, { force: parameters.force });
+    const updateStep = updatePlan.steps[0];
+    const executable = updateStep?.status === "would_run";
+    const installBinding = executable
+      ? await buildUpdateInstallCandidateBinding(service, parameters.force === true, runtimeModel.registry)
+      : null;
+    return {
+      action,
+      targets: executable ? [serviceId] : [],
+      effects: executable && installBinding
+        ? [
+            ...(updateStep?.expectedStateChanges.slice(0, 40) ?? []),
+            ...updateInstallSubprocessEffects(service, installBinding, parameters.force === true),
+            `verify downloaded artifact sha256 ${installBinding.archiveSha256}`,
+            `verify downloaded artifact size ${installBinding.archiveSize} bytes`,
+          ]
+        : updateStep?.expectedStateChanges.slice(0, 50) ?? [],
+      executable,
+      skippedReason: executable ? null : updateStep?.reason ?? "update_install_preflight_blocked",
+      revision: installBinding?.revision ?? "update-install-no-executable-candidate",
+    };
+  };
+
+  const successful = (
+    action: McpGuardedActionName,
+    targets: string[],
+    summary: string,
+    status: McpGuardedActionFacadeResult["status"] = "succeeded",
+    stateTargets: string[] = targets,
+  ): McpGuardedActionFacadeResult => ({
+    ok: status !== "failed",
+    status,
+    targets,
+    effects: [`${action} completed through the shared Service Lasso application facade`],
+    summary,
+    resultingState: resultingState(stateTargets),
+  });
+
+  const execute = async (
+    action: McpGuardedActionName,
+    parameters: McpGuardedActionParameters,
+    approvedPlan: McpGuardedActionPlan,
+  ): Promise<McpGuardedActionFacadeResult> => {
+      const currentPlan = await preflight(action, parameters);
+      if (JSON.stringify(currentPlan) !== JSON.stringify(approvedPlan)) {
+        throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded action plan changed before execution.");
+      }
+      const startArtifactPlan = action === "service_start" || action === "runtime_start_all"
+        ? await buildStartArtifactBindings(approvedPlan.targets)
+        : null;
+      if (startArtifactPlan && (startArtifactPlan.blockers.length > 0 || startArtifactPlan.revision !== approvedPlan.revision)) {
+        throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded install candidates changed before execution.");
+      }
+      const runtimeDefinitionRevisions = action === "runtime_start_all" || action === "runtime_stop_all"
+        ? Object.fromEntries(await Promise.all(approvedPlan.targets.map(async (serviceId) => {
+            const service = runtimeModel.registry.getById(serviceId);
+            if (!service) throw new ApiError("guarded_plan_changed", 409, "A guarded runtime target disappeared before execution.");
+            return [serviceId, await buildServiceMutationDefinitionRevision(service)];
+          })))
+        : undefined;
+      const runtimeStopExecutableBindings = action === "runtime_stop_all"
+        ? await stopExecutableBindingsFor(approvedPlan.targets)
+        : undefined;
+      if (action === "runtime_stop_all") {
+        const currentRuntimeStopRevision = `runtime-stop-${createHash("sha256").update(JSON.stringify({
+          targets: approvedPlan.targets,
+          definitions: approvedPlan.targets.map((serviceId) => [serviceId, runtimeDefinitionRevisions?.[serviceId] ?? "missing"]),
+          stopExecutableRevisions: Object.fromEntries(
+            Object.entries(runtimeStopExecutableBindings ?? {}).map(([serviceId, binding]) => [serviceId, binding.revision]),
+          ),
+        })).digest("hex")}`;
+        if (currentRuntimeStopRevision !== approvedPlan.revision) {
+          throw new ApiError("guarded_plan_changed", 409, "The declared runtime stop executable inputs changed before execution.");
+        }
+      }
+      if (action === "runtime_start_all" || action === "runtime_stop_all") {
+        const result = await executeRuntimeOrchestrationAction(
+          action === "runtime_start_all" ? "startAll" : "stopAll",
+          runtimeModel,
+          config.workspaceRoot,
+          config.endpointAllocationPlan,
+          config.runtimeGenerationId,
+          resolveRuntimeInstanceId(config),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          new Set(approvedPlan.targets),
+          startArtifactPlan?.revisions,
+          startArtifactPlan?.definitionRevisions ?? runtimeDefinitionRevisions,
+          startArtifactPlan?.templateDigestsByService,
+          startArtifactPlan?.executableRevisionsByService,
+          startArtifactPlan?.executableFilesByService,
+          runtimeStopExecutableBindings,
+        );
+        const outcomes = [...result.results, ...(result.stopped ?? [])];
+        const targets = outcomes.map((entry) => entry.serviceId);
+        const ok = outcomes.every((entry) => entry.ok);
+        return successful(
+          action,
+          targets,
+          !ok ? "Runtime orchestration failed safely." : targets.length > 0 ? "Runtime orchestration completed." : "No runtime service required mutation.",
+          !ok ? "failed" : targets.length > 0 ? "succeeded" : "skipped",
+          approvedPlan.targets,
+        );
+      }
+
+      const service = serviceFor(parameters);
+      const serviceId = service.manifest.id;
+      if (
+        action === "service_start" || action === "service_stop" || action === "service_restart" ||
+        action === "service_install" || action === "service_configure"
+      ) {
+        const lifecycleAction = action.replace("service_", "").replace("configure", "config");
+        const currentDefinitionBinding = await buildServiceMutationDefinitionBinding(service);
+        if (action === "service_configure") {
+          const currentConfigureRevision = `service-config-${createHash("sha256").update(JSON.stringify({
+            allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+            definitionRevision: currentDefinitionBinding.revision,
+          })).digest("hex")}`;
+          if (currentConfigureRevision !== approvedPlan.revision) {
+            throw new ApiError("guarded_plan_changed", 409, "The manifest-owned configuration definition changed before execution.");
+          }
+        }
+        const currentExecutableBindings = action === "service_restart"
+          ? await runtimeExecutableBindings()
+          : undefined;
+        const currentStopExecutableBinding = action === "service_stop"
+          ? await buildServiceStopExecutableMutationBinding(service)
+          : undefined;
+        if (action === "service_stop") {
+          const currentStopRevision = `service-stop-${createHash("sha256").update(JSON.stringify({
+            definitionRevision: currentDefinitionBinding.revision,
+            stopExecutableRevision: currentStopExecutableBinding?.revision,
+          })).digest("hex")}`;
+          if (currentStopRevision !== approvedPlan.revision) {
+            throw new ApiError("guarded_plan_changed", 409, "The declared stop executable inputs changed before execution.");
+          }
+        }
+        const currentExecutableRevisions = currentExecutableBindings
+          ? Object.fromEntries(Object.entries(currentExecutableBindings).map(([candidateId, binding]) => [candidateId, binding.revision]))
+          : undefined;
+        const currentDoctorExecutableBindings = action === "service_restart"
+          ? await buildDoctorExecutableBindings(service)
+          : undefined;
+        if (action === "service_restart") {
+          const currentRestartRevision = `service-restart-${createHash("sha256").update(JSON.stringify({
+            allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+            definitionRevision: currentDefinitionBinding.revision,
+            executableRevisions: currentExecutableRevisions,
+            doctorExecutableRevisions: Object.fromEntries(
+              Object.entries(currentDoctorExecutableBindings ?? {}).map(([index, binding]) => [index, binding.revision]),
+            ),
+          })).digest("hex")}`;
+          if (currentRestartRevision !== approvedPlan.revision) {
+            throw new ApiError("guarded_plan_changed", 409, "The resolved restart executable inputs changed before execution.");
+          }
+        }
+        const result = await executeLifecycleAction(
+          lifecycleAction,
+          service,
+          runtimeModel.registry,
+          config.workspaceRoot,
+          config.endpointAllocationPlan,
+          config.runtimeGenerationId,
+          resolveRuntimeInstanceId(config),
+          undefined,
+          new Set(approvedPlan.targets),
+          action === "service_install" ? approvedPlan.revision : undefined,
+          startArtifactPlan?.revisions,
+          currentDefinitionBinding.revision,
+          startArtifactPlan?.definitionRevisions,
+          currentDefinitionBinding.templateDigests,
+          startArtifactPlan?.templateDigestsByService,
+          currentExecutableRevisions?.[serviceId],
+          startArtifactPlan?.executableRevisionsByService,
+          currentExecutableBindings?.[serviceId]?.files,
+          startArtifactPlan?.executableFilesByService,
+          currentStopExecutableBinding,
+          currentDoctorExecutableBindings,
+        );
+        return successful(action, [serviceId], result.ok ? "Service lifecycle action completed." : "Service lifecycle action failed safely.", result.ok ? "succeeded" : "failed", approvedPlan.targets);
+      }
+      if (action === "setup_step_run") {
+        const selectedStepId = parameters.stepId as string;
+        const currentSetupPlan = setupStepPlan(service, selectedStepId, parameters.force === true);
+        const setupDefinitionRevisions = await definitionRevisionsFor(approvedPlan.targets);
+        const setupExecutableBindings = await setupExecutableBindingsFor(currentSetupPlan.stepKeys);
+        const setupExecutableRevisions = Object.fromEntries(
+          Object.entries(setupExecutableBindings).map(([stepKey, binding]) => [stepKey, binding.revision]),
+        );
+        if (`setup-step-${createHash("sha256").update(JSON.stringify({
+          definitionRevisions: setupDefinitionRevisions,
+          executableRevisions: setupExecutableRevisions,
+        })).digest("hex")}` !== approvedPlan.revision) {
+          throw new ApiError("guarded_plan_changed", 409, "The manifest-owned setup definition changed before execution.");
+        }
+        const result = await runServiceSetup(service, runtimeModel.registry, {
+          stepId: parameters.stepId,
+          force: parameters.force,
+          expectedExecutableBindings: setupExecutableBindings,
+          lifecycleOptions: {
+            workspaceRoot: config.workspaceRoot,
+            runtimeGenerationId: config.runtimeGenerationId,
+            runtimeInstanceId: resolveRuntimeInstanceId(config),
+            allocationRevision: config.endpointAllocationPlan?.allocationId,
+            plannedPorts: config.endpointAllocationPlan
+              ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[serviceId]
+              : undefined,
+            plannedPortsByService: config.endpointAllocationPlan
+              ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)
+              : undefined,
+            allowedMutationServiceIds: new Set(approvedPlan.targets),
+          },
+        });
+        return successful(
+          action,
+          [serviceId],
+          !result.ok ? "Manifest-owned setup step failed safely." : result.runs.length > 0 ? "Manifest-owned setup step completed." : "Manifest-owned setup step was skipped.",
+          !result.ok ? "failed" : result.runs.length > 0 ? "succeeded" : "skipped",
+          approvedPlan.targets,
+        );
+      }
+      if (action === "update_check") {
+        const result = await checkServiceUpdatesForCli([service], serviceId);
+        const failed = result.services.some((entry) => entry.result.status === "check_failed" || entry.result.status === "unavailable");
+        return successful(action, [serviceId], failed ? "Service update check failed safely." : "Service update check completed.", failed ? "failed" : "succeeded");
+      }
+      if (action === "update_download") {
+        await downloadServiceUpdateCandidate(service, { expectedCandidateRevision: approvedPlan.revision });
+        return successful(action, [serviceId], "Service update download completed.");
+      }
+      const install = await installServiceUpdateCandidate(service, {
+        force: parameters.force,
+        registry: runtimeModel.registry,
+        workspaceRoot: config.workspaceRoot,
+        runtimeGenerationId: config.runtimeGenerationId ?? undefined,
+        runtimeInstanceId: resolveRuntimeInstanceId(config) ?? undefined,
+        allocationRevision: config.endpointAllocationPlan?.allocationId,
+        plannedPorts: config.endpointAllocationPlan
+          ? servicePortsFromEndpointAllocation(config.endpointAllocationPlan)[serviceId]
+          : undefined,
+        expectedCandidateRevision: approvedPlan.revision,
+      });
+      const restartFailed = install.restartRequired && !install.restartedAfterInstall;
+      return successful(
+        action,
+        [serviceId],
+        restartFailed ? "Service update installed, but the previously running service could not be restored." : "Service update installation completed.",
+        restartFailed ? "failed" : "succeeded",
+      );
+  };
+
+  return {
+    preflight,
+    execute: async (action, parameters, approvedPlan) => await withRuntimeMutationCoordination(
+      config.workspaceRoot,
+      async () => {
+        try {
+          return await execute(action, parameters, approvedPlan);
+        } catch {
+          return {
+            ok: false,
+            status: "failed",
+            targets: approvedPlan.targets,
+            effects: approvedPlan.effects,
+            summary: "The guarded action failed safely.",
+            resultingState: resultingState(approvedPlan.targets),
+          };
+        }
+      },
+    ),
+    snapshot: async (targets) => resultingState(targets),
   };
 }
 
@@ -2807,6 +3704,26 @@ async function routeWorkflowFacadeRequest(
 
 const API_TELEMETRY_BUFFER_LIMIT = 50;
 const BROKER_TELEMETRY_TIMEOUT_MS = 800;
+const runtimeMutationQueues = new Map<string, Promise<void>>();
+const runtimeMutationContext = new AsyncLocalStorage<string>();
+
+async function withRuntimeMutationCoordination<T>(workspaceRoot: string, work: () => Promise<T>): Promise<T> {
+  const coordinationKey = path.resolve(workspaceRoot);
+  if (runtimeMutationContext.getStore() === coordinationKey) return await work();
+
+  const previous = runtimeMutationQueues.get(coordinationKey) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.catch(() => undefined).then(() => gate);
+  runtimeMutationQueues.set(coordinationKey, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await runtimeMutationContext.run(coordinationKey, work);
+  } finally {
+    release();
+    if (runtimeMutationQueues.get(coordinationKey) === queued) runtimeMutationQueues.delete(coordinationKey);
+  }
+}
 
 function isMutatingHttpMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
@@ -2934,7 +3851,7 @@ async function runSecretsBrokerBootstrapStage<T>(
   }
 }
 
-async function routeRequest(
+async function routeRequestWithoutMutationCoordination(
   request: IncomingMessage,
   response: ServerResponse,
   config: ApiRouteConfig,
@@ -3006,6 +3923,8 @@ async function routeRequest(
         version: config.version,
         workspaceRoot: config.workspaceRoot,
         sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
+        guardedActionFacade: createMcpGuardedActionFacade(runtimeModel, config),
+        mcpOperatingMode: operatingMode,
       }, { operatingMode }),
     );
     return;
@@ -3033,8 +3952,9 @@ async function routeRequest(
   if (request.method === "POST" && url.pathname === "/api/mcp") {
     let authorization: McpHttpAuthorization | undefined;
     let parsedBody: unknown;
+    let operatingMode;
     try {
-      assertMcpTransportEnabled(config.mcpHttpIdentity);
+      operatingMode = assertMcpTransportEnabled(config.mcpHttpIdentity);
       assertMcpJsonContentType(request);
       authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
       assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
@@ -3044,7 +3964,7 @@ async function routeRequest(
     } catch (error) {
       if (error instanceof McpHttpPolicyError) {
         try {
-          await recordMcpAuthorizationAudit(config, request, "failure", error.statusCode, authorization, error.code);
+          await recordMcpAuthorizationAudit(config, request, "failure", error.statusCode, authorization, error.code, parsedBody);
         } catch (auditError) {
           writeMcpPolicyError(
             response,
@@ -3096,11 +4016,14 @@ async function routeRequest(
         version: config.version,
         workspaceRoot: config.workspaceRoot,
         sharedGlobalEnv: collectRuntimeGlobalEnv(runtimeModel.registry.list()),
+        guardedActionFacade: createMcpGuardedActionFacade(runtimeModel, config),
+        mcpOperatingMode: operatingMode,
       },
       request,
       response,
       parsedBody,
-      authorization.authInfo,
+      authorization,
+      operatingMode,
     );
     return;
   }
@@ -5945,6 +6868,31 @@ async function routeRequest(
   notFound(response);
 }
 
+async function routeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  config: ApiRouteConfig,
+  workflowRunFacadeState: WorkflowRunFacadeState,
+  apiRequestTelemetry: ApiRequestTelemetryPreview[],
+  getApiRequestTelemetryDroppedCount: () => number,
+  getTelemetryContinuousExportState: () => TelemetryContinuousExportRuntimeState | null,
+): Promise<void> {
+  const route = async () => await routeRequestWithoutMutationCoordination(
+    request,
+    response,
+    config,
+    workflowRunFacadeState,
+    apiRequestTelemetry,
+    getApiRequestTelemetryDroppedCount,
+    getTelemetryContinuousExportState,
+  );
+  if (!isMutatingHttpMethod(request.method ?? "GET")) {
+    await route();
+    return;
+  }
+  await withRuntimeMutationCoordination(config.workspaceRoot, route);
+}
+
 export function createApiServer(options: ApiServerOptions = {}): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
@@ -6823,6 +7771,7 @@ async function startApiServerGeneration(
   let mcpStdio: RunningServiceLassoMcpStdioAdapter | null = null;
   if (options.mcpStdio) {
     const authorization = resolveMcpStdioAuthorization(options.mcpStdio);
+    const operatingMode = resolveMcpOperatingMode({ env: options.mcpStdio.env });
     await appendAuditEvent({
       workspaceRoot: config.workspaceRoot,
       source: "runtime-mcp-stdio",
@@ -6847,9 +7796,15 @@ async function startApiServerGeneration(
         version: config.version,
         workspaceRoot: config.workspaceRoot,
         sharedGlobalEnv: collectRuntimeGlobalEnv(bootModel.registry.list()),
+        guardedActionFacade: createMcpGuardedActionFacade(bootModel, {
+          ...config,
+          endpointAllocationPlan: allocationPlan,
+          runtimeGenerationId,
+        }),
+        mcpOperatingMode: operatingMode,
       },
       authorization,
-      options.mcpStdio,
+      { ...options.mcpStdio, operatingMode },
     );
   }
 

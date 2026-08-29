@@ -7,6 +7,7 @@ import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform
 import { getLockedServiceEntry, readServiceLockfile, type ServiceLockfileEntry } from "../lockfile/service-lockfile.js";
 import { getServiceStatePaths } from "../state/paths.js";
 import type { StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
+import { buildServiceMutationDefinitionRevision } from "./definition-revision.js";
 
 export interface AcquiredArtifactState {
   sourceType: "github-release";
@@ -54,6 +55,75 @@ interface ResolvedArtifactDownload {
   releaseAssetNames: string[] | null;
 }
 
+export interface InstallArtifactCandidateBinding {
+  executable: boolean;
+  reason: string | null;
+  revision: string;
+  effects: string[];
+}
+
+async function installArtifactBinding(
+  service: DiscoveredService,
+  resolved: ResolvedArtifactDownload | null,
+): Promise<InstallArtifactCandidateBinding> {
+  const definitionRevision = await buildServiceMutationDefinitionRevision(service);
+  const artifact = service.manifest.artifact;
+  if (!artifact || !resolved) {
+    const revision = createHash("sha256").update(JSON.stringify({
+      serviceId: service.manifest.id,
+      manifest: service.manifest,
+      artifact: null,
+      definitionRevision,
+    })).digest("hex");
+    return {
+      executable: true,
+      reason: null,
+      revision: `service-install-${revision}`,
+      effects: [`apply manifest-owned install materialization for ${service.manifest.id}`],
+    };
+  }
+
+  const checksum = resolved.checksumSha256?.trim().toLowerCase() ?? null;
+  const checksumBound = checksum !== null && /^[0-9a-f]{64}$/u.test(checksum);
+  const identity = {
+    serviceId: service.manifest.id,
+    sourceRepo: artifact.source.repo,
+    releaseTag: resolved.releaseTag,
+    assetName: resolved.assetName,
+    assetUrl: resolved.assetUrl,
+    archiveType: getCurrentPlatformArtifact(artifact).definition.archiveType,
+    checksumSha256: checksum,
+    definitionRevision,
+    command: getCurrentPlatformArtifact(artifact).definition.command ?? null,
+    args: getCurrentPlatformArtifact(artifact).definition.args ?? [],
+  };
+  return {
+    executable: checksumBound,
+    reason: checksumBound ? null : "guarded_install_requires_pinned_sha256",
+    revision: `service-install-${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`,
+    effects: checksumBound
+      ? [
+          `download checksum-bound artifact ${resolved.assetName} for ${service.manifest.id}`,
+          `verify artifact sha256 ${checksum}`,
+          `apply manifest-owned install materialization for ${service.manifest.id}`,
+        ]
+      : [`block remote artifact install for ${service.manifest.id} because no pinned sha256 is available`],
+  };
+}
+
+export async function buildInstallArtifactCandidateBinding(
+  service: DiscoveredService,
+): Promise<InstallArtifactCandidateBinding> {
+  const artifact = service.manifest.artifact;
+  if (!artifact) return await installArtifactBinding(service, null);
+  const servicesRoot = path.dirname(service.serviceRoot);
+  const lockfile = await readServiceLockfile(servicesRoot);
+  const lockedEntry = lockfile ? getLockedServiceEntry(service, lockfile) : null;
+  const { definition } = getCurrentPlatformArtifact(artifact);
+  const resolved = await resolveGitHubReleaseDownload(artifact, definition, lockedEntry);
+  return await installArtifactBinding(service, resolved);
+}
+
 function normalizeApiBaseUrl(candidate: string | undefined): string {
   return (candidate?.trim() || "https://api.github.com").replace(/\/+$/, "");
 }
@@ -90,24 +160,24 @@ async function resolveGitHubReleaseDownload(
   platform: ServiceArtifactPlatform,
   lockedEntry: ServiceLockfileEntry | null,
 ): Promise<ResolvedArtifactDownload> {
-  if (lockedEntry?.assetUrl) {
+  if (lockedEntry?.assetUrl && !platform.checksum?.assetName) {
     return {
       assetName: lockedEntry.assetName,
       assetUrl: lockedEntry.assetUrl,
       releaseTag: lockedEntry.releaseTag,
-      checksumSha256: lockedEntry.checksumSha256,
+      checksumSha256: lockedEntry.checksumSha256 ?? platform.sha256 ?? platform.checksum?.value ?? null,
       checksumAssetName: null,
       checksumAssetUrl: null,
       releaseAssetNames: null,
     };
   }
 
-  if (platform.assetUrl) {
+  if (platform.assetUrl && !platform.checksum?.assetName) {
     return {
       assetName: platform.assetName ?? path.basename(new URL(platform.assetUrl).pathname),
       assetUrl: platform.assetUrl,
       releaseTag: artifact.source.tag ?? artifact.source.channel ?? null,
-      checksumSha256: platform.sha256 ?? null,
+      checksumSha256: platform.sha256 ?? platform.checksum?.value ?? null,
       checksumAssetName: null,
       checksumAssetUrl: null,
       releaseAssetNames: null,
@@ -154,11 +224,22 @@ async function resolveGitHubReleaseDownload(
     );
   }
 
+  let checksumSha256 = lockedEntry?.checksumSha256 ?? platform.sha256 ?? platform.checksum?.value ?? null;
+  if (!checksumSha256 && checksumAssetName && checksumAsset) {
+    const checksumContent = await downloadText(checksumAsset.browser_download_url);
+    checksumSha256 = findSha256InChecksumFile(
+      checksumContent,
+      asset.name,
+      checksumAssetName,
+      (payload.assets ?? []).map((candidate) => candidate.name),
+    );
+  }
+
   return {
     assetName: asset.name,
-    assetUrl: asset.browser_download_url,
+    assetUrl: lockedEntry?.assetUrl ?? platform.assetUrl ?? asset.browser_download_url,
     releaseTag: lockedEntry?.releaseTag ?? (typeof payload.tag_name === "string" ? payload.tag_name : artifact.source.tag ?? artifact.source.channel ?? null),
-    checksumSha256: lockedEntry?.checksumSha256 ?? platform.sha256 ?? null,
+    checksumSha256,
     checksumAssetName,
     checksumAssetUrl: checksumAsset?.browser_download_url ?? null,
     releaseAssetNames: (payload.assets ?? []).map((candidate) => candidate.name),
@@ -322,15 +403,10 @@ async function verifyArchiveChecksum(
     expected = normalizeSha256(checksum.value, `artifact "${assetName}"`);
     source = "manifest";
   } else {
-    if (!checksum.assetName || !resolved.checksumAssetUrl) {
-      throw new Error(`Artifact checksum asset "${checksum.assetName}" could not be resolved from release metadata.`);
+    if (!checksum.assetName || !resolved.checksumSha256) {
+      throw new Error(`Artifact checksum asset "${checksum.assetName}" could not be resolved to an exact SHA-256.`);
     }
-    expected = findSha256InChecksumFile(
-      await downloadText(resolved.checksumAssetUrl),
-      assetName,
-      checksum.assetName,
-      resolved.releaseAssetNames ?? [],
-    );
+    expected = normalizeSha256(resolved.checksumSha256, `artifact "${assetName}" from checksum asset "${checksum.assetName}"`);
     source = "release-asset";
   }
 
@@ -385,6 +461,7 @@ async function fileExists(targetPath: string): Promise<boolean> {
 export async function acquireInstallArtifact(
   service: DiscoveredService,
   hooks?: StartupArtifactAcquisitionHooks,
+  expectedCandidateRevision?: string,
 ): Promise<AcquiredArtifactState | null> {
   const artifact = service.manifest.artifact;
   if (!artifact) {
@@ -396,6 +473,12 @@ export async function acquireInstallArtifact(
   const lockedEntry = lockfile ? getLockedServiceEntry(service, lockfile) : null;
   const { definition } = getCurrentPlatformArtifact(artifact);
   const resolved = await resolveGitHubReleaseDownload(artifact, definition, lockedEntry);
+  if (expectedCandidateRevision) {
+    const binding = await installArtifactBinding(service, resolved);
+    if (!binding.executable || binding.revision !== expectedCandidateRevision) {
+      throw new Error(`The install artifact candidate for "${service.manifest.id}" changed after guarded preflight.`);
+    }
+  }
   const paths = getServiceStatePaths(service.serviceRoot);
   const releaseSegment = (resolved.releaseTag ?? "latest").replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.artifacts, releaseSegment, resolved.assetName);

@@ -105,7 +105,7 @@ export function getExpectedServiceLockfileEntry(
     assetName,
     assetUrl: trimOrNull(selected.definition.assetUrl),
     archiveType: selected.definition.archiveType,
-    checksumSha256: trimOrNull(selected.definition.sha256),
+    checksumSha256: trimOrNull(selected.definition.sha256) ?? trimOrNull(selected.definition.checksum?.value),
     dependencies: [...(service.manifest.depend_on ?? [])].sort(),
   };
 }

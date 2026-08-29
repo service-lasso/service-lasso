@@ -123,7 +123,7 @@ const endpointGroups: RuntimeEndpointGroupResponse[] = [
     label: "Operator MCP",
     methods: ["GET", "POST"],
     pathPrefix: "/api/mcp",
-    mutating: false,
+    mutating: true,
   },
   {
     id: "service-files",
