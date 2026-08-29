@@ -13,7 +13,11 @@ const token = required("GH_TOKEN");
 const runId = required("GITHUB_RUN_ID");
 const artifactId = required("MCP_GUARDED_ACTION_ARTIFACT_ID");
 const artifactName = required("MCP_GUARDED_ACTION_ARTIFACT_NAME");
-const expectedDigest = required("MCP_GUARDED_ACTION_ARTIFACT_DIGEST").toLowerCase();
+const uploadDigest = required("MCP_GUARDED_ACTION_ARTIFACT_DIGEST").toLowerCase();
+if (!/^(?:sha256:)?[0-9a-f]{64}$/u.test(uploadDigest)) {
+  throw new Error("Guarded-action upload digest must be a SHA-256 digest.");
+}
+const expectedDigest = uploadDigest.startsWith("sha256:") ? uploadDigest : `sha256:${uploadDigest}`;
 const candidateSha = required("CANDIDATE_SHA").toLowerCase();
 const githubApiUrl = (process.env.GITHUB_API_URL?.trim() || "https://api.github.com").replace(/\/$/u, "");
 const headers = {
