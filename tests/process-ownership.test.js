@@ -225,6 +225,9 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
   );
 
   assert.equal(inspectedCommand.includes("@{;"), false);
+  assert.equal(inspectedCommand.includes("System.Management.ManagementObjectSearcher"), true);
+  assert.equal(inspectedCommand.includes("System.Management.ManagementDateTimeConverter"), true);
+  assert.equal(inspectedCommand.includes("Get-CimInstance"), false);
   const defaultDeadlineDeltaMs = defaultDeadlineMs - defaultDeadlineStartedAt;
   assert.equal(defaultDeadlineDeltaMs >= 14_000, true);
   assert.equal(defaultDeadlineDeltaMs <= 16_000, true);

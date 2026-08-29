@@ -226,6 +226,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(stdioPreload, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?setWindowsProcessInspectionTimeoutForTests\(60_000\)[\s\S]*?delete process\.env\.SERVICE_LASSO_ENABLE_TEST_HOOKS/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
     assert.match(identitySource, /setWindowsProcessInspectionTimeoutForTests\(timeoutMs: number \| null\)[\s\S]*?SERVICE_LASSO_ENABLE_TEST_HOOKS[\s\S]*?MAX_WINDOWS_PROCESS_INSPECTION_TEST_TIMEOUT_MS/u);
+    assert.match(identitySource, /System\.Management\.ManagementObjectSearcher[\s\S]*?System\.Management\.ManagementDateTimeConverter/u);
+    assert.doesNotMatch(identitySource, /Get-CimInstance Win32_Process/u);
   } finally {
     const closed = once(server, "close");
     server.close();

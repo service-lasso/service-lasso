@@ -410,15 +410,21 @@ async function inspectWindowsProcess(
   options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal">,
 ): Promise<ProcessInspection> {
   const command = [
-    `$process = Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\"`,
-    "if ($null -eq $process) { exit 0 }",
-    "$result = [pscustomobject]@{",
-    "ProcessId = $process.ProcessId",
-    "CreationDate = $process.CreationDate.ToUniversalTime().ToString('o')",
-    "ExecutablePath = $process.ExecutablePath",
-    "CommandLine = $process.CommandLine",
+    `$query = 'SELECT ProcessId, CreationDate, ExecutablePath, CommandLine FROM Win32_Process WHERE ProcessId = ${pid}'`,
+    "$searcher = [System.Management.ManagementObjectSearcher]::new($query)",
+    "try {",
+    "  $process = @($searcher.Get())[0]",
+    "  if ($null -eq $process) { exit 0 }",
+    "  $result = [pscustomobject]@{",
+    "    ProcessId = [int]$process.ProcessId",
+    "    CreationDate = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$process.CreationDate).ToUniversalTime().ToString('o')",
+    "    ExecutablePath = [string]$process.ExecutablePath",
+    "    CommandLine = [string]$process.CommandLine",
+    "  }",
+    "  $result | ConvertTo-Json -Compress",
+    "} finally {",
+    "  $searcher.Dispose()",
     "}",
-    "$result | ConvertTo-Json -Compress",
   ].join("\n");
 
   try {
