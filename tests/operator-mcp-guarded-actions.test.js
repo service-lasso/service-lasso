@@ -398,9 +398,10 @@ test("#862 makes idempotency durable, exact, conflict-safe, and single-execution
     const parameters = executionParameters(plan, "concurrent-key-01");
     const first = preflight(workspaceRoot, facade, "service_start", parameters, { authorization: admin });
     const second = preflight(workspaceRoot, facade, "service_start", parameters, { authorization: admin });
+    const settledPromise = Promise.allSettled([first, second]);
     await new Promise((resolve) => setTimeout(resolve, 50));
     release();
-    const settled = await Promise.allSettled([first, second]);
+    const settled = await settledPromise;
     assert.equal(settled.filter((entry) => entry.status === "fulfilled").length, 1);
     assert.equal(settled.filter((entry) => entry.status === "rejected" && entry.reason?.code === "idempotency_in_progress").length, 1);
     assert.equal(state.executeCount, 1);

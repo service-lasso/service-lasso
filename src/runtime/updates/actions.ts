@@ -772,6 +772,18 @@ export async function installServiceUpdateCandidate(
     throw new UpdateInstallDeferredError(`Update install for "${service.manifest.id}" is blocked by policy. Use --force to override.`, update);
   }
 
+  await assertInstallWindowAllows(service, options);
+  const beforeInstallState = getLifecycleState(service.manifest.id);
+  const rollbackReadiness = await assertRollbackReadinessAllowsInstall(service, beforeInstallState, options);
+  let runningSafety: Awaited<ReturnType<typeof stopRunningServiceForInstall>> | null = null;
+  if (!options.expectedCandidateRevision) {
+    // Preserve the ordinary update contract: policy deferrals and any
+    // required stop happen before a network download. Guarded execution has
+    // an already-confirmed candidate and delays the stop until that candidate
+    // and its executable bindings have been revalidated below.
+    runningSafety = await stopRunningServiceForInstall(service, options);
+  }
+
   let update = await readServiceUpdateState(service);
   if (!update.downloadedCandidate) {
     if (options.expectedCandidateRevision) {
@@ -803,15 +815,11 @@ export async function installServiceUpdateCandidate(
     }
   }
 
-  await assertInstallWindowAllows(service, options);
-  const beforeInstallState = getLifecycleState(service.manifest.id);
-  const rollbackReadiness = await assertRollbackReadinessAllowsInstall(service, beforeInstallState, options);
   const platform = getCurrentPlatformArtifact(artifact);
   const paths = getServiceStatePaths(service.serviceRoot);
   const extractedPath = path.join(paths.extracted, "current");
-  let runningSafety!: Awaited<ReturnType<typeof stopRunningServiceForInstall>>;
   try {
-    runningSafety = await stopRunningServiceForInstall(service, options, guardedBinding?.stopBinding);
+    runningSafety ??= await stopRunningServiceForInstall(service, options, guardedBinding?.stopBinding);
     await assertHookPhaseAllowsUpgrade(service, "preUpgrade", "pre_upgrade_hook_failed", guardedBinding?.hookBindings);
     try {
       const archiveBytes = await readFile(verifiedArchivePath ?? candidate.archivePath);
