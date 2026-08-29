@@ -518,6 +518,44 @@ test("#863 Audit appends are serialized across independent runtime processes", a
   }
 });
 
+test("#863 a delayed pre-midnight process appends to the non-regressing Audit bucket", async () => {
+  const { tempRoot } = await makeTempServicesRoot("service-lasso-audit-rollover-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  try {
+    await runAuditAppendChild({
+      workspaceRoot,
+      runnerId: "post-midnight",
+      count: 1,
+      startAt: Date.now(),
+      timestamp: "2026-08-30T00:00:00.001Z",
+    });
+    await runAuditAppendChild({
+      workspaceRoot,
+      runnerId: "delayed-pre-midnight",
+      count: 1,
+      startAt: Date.now(),
+      timestamp: "2026-08-29T23:59:59.999Z",
+    });
+
+    const audit = await readAuditEvents({
+      workspaceRoot,
+      query: { action: "audit.cross-process", limit: 10 },
+    });
+    assert.equal(audit.chainStatus, "verified");
+    assert.equal(audit.pagination.total, 2);
+    assert.deepEqual(audit.events.map((event) => event.sequence).sort((left, right) => left - right), [1, 2]);
+    const auditDir = path.join(workspaceRoot, ".service-lasso", "audit", "runtime");
+    const newBucket = await readFile(path.join(auditDir, "2026-08-30.jsonl"), "utf8");
+    assert.equal(newBucket.trim().split(/\r?\n/u).length, 2);
+    await assert.rejects(
+      readFile(path.join(auditDir, "2026-08-29.jsonl"), "utf8"),
+      (error) => error?.code === "ENOENT",
+    );
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("audit API records update checks that mutate durable update state", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-update-");
