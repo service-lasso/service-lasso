@@ -11,7 +11,8 @@ import {
 
 const execFileAsync = promisify(execFileCallback);
 const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
-let currentProcessIdentityPromise: Promise<ProcessFingerprint> | null = null;
+const MAX_WINDOWS_PROCESS_INSPECTION_TEST_TIMEOUT_MS = 60_000;
+let windowsProcessInspectionTestTimeoutMs: number | null = null;
 
 export interface ProcessFingerprint {
   pid: number;
@@ -20,36 +21,21 @@ export interface ProcessFingerprint {
   commandHash: string;
 }
 
-/**
- * Resolve and cache the immutable identity of this exact process. The optional
- * absolute deadline is an internal test-harness allowance only; production
- * callers omit it and retain the fail-closed Windows default above.
- */
-export async function resolveCurrentProcessIdentity(
-  options: { deadlineMs?: number } = {},
-): Promise<ProcessFingerprint> {
-  if (options.deadlineMs !== undefined && !Number.isFinite(options.deadlineMs)) {
-    throw new Error("Current process identity deadline must be finite.");
+export function setWindowsProcessInspectionTimeoutForTests(timeoutMs: number | null): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Windows process inspection test timeout requires explicit test hooks.");
   }
-  const pending = currentProcessIdentityPromise ?? (async () => {
-    const inspection = await inspectProcess(
-      process.pid,
-      options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs },
+  if (
+    timeoutMs !== null &&
+    (!Number.isInteger(timeoutMs) ||
+      timeoutMs < WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS ||
+      timeoutMs > MAX_WINDOWS_PROCESS_INSPECTION_TEST_TIMEOUT_MS)
+  ) {
+    throw new RangeError(
+      `Windows process inspection test timeout must be null or an integer from ${WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS} to ${MAX_WINDOWS_PROCESS_INSPECTION_TEST_TIMEOUT_MS}.`,
     );
-    if (inspection.status !== "running") {
-      throw new Error(`Cannot verify current process identity: ${inspection.reason}`);
-    }
-    return inspection.identity;
-  })();
-  currentProcessIdentityPromise = pending;
-  try {
-    return await pending;
-  } catch (error) {
-    if (currentProcessIdentityPromise === pending) {
-      currentProcessIdentityPromise = null;
-    }
-    throw error;
   }
+  windowsProcessInspectionTestTimeoutMs = timeoutMs;
 }
 
 export type ProcessInspection =
@@ -539,7 +525,8 @@ export async function inspectProcess(
   if (platform === "win32") {
     return await inspectWindowsProcess(pid, dependencies.runCommand, {
       ...dependencies,
-      deadlineMs: dependencies.deadlineMs ?? Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+      deadlineMs: dependencies.deadlineMs ?? Date.now() +
+        (windowsProcessInspectionTestTimeoutMs ?? WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS),
     });
   }
   if (platform === "darwin") {

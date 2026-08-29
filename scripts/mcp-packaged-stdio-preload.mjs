@@ -20,8 +20,14 @@ if (
 if (process.platform === "win32") {
   const identityModulePath = path.join(installedRoot, "dist", "runtime", "process", "identity.js");
   const packagedIdentity = await import(pathToFileURL(identityModulePath).href);
-  if (typeof packagedIdentity.resolveCurrentProcessIdentity !== "function") {
-    throw new Error("Packaged stdio runtime is missing its current-process identity resolver.");
+  if (typeof packagedIdentity.setWindowsProcessInspectionTimeoutForTests !== "function") {
+    throw new Error("Packaged stdio runtime is missing its Windows inspection test bound.");
   }
-  await packagedIdentity.resolveCurrentProcessIdentity({ deadlineMs: Date.now() + 60_000 });
+  try {
+    packagedIdentity.setWindowsProcessInspectionTimeoutForTests(60_000);
+  } finally {
+    delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  }
+} else {
+  delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
 }

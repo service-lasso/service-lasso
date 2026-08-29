@@ -171,11 +171,16 @@ if (typeof packaged.startApiServer !== "function") {
 }
 const identityModulePath = path.join(installedRoot, "dist", "runtime", "process", "identity.js");
 const packagedIdentity = await import(pathToFileURL(identityModulePath).href);
-if (typeof packagedIdentity.resolveCurrentProcessIdentity !== "function") {
-  throw new Error("Fresh consumer package does not expose its internal current-process identity resolver.");
+if (typeof packagedIdentity.setWindowsProcessInspectionTimeoutForTests !== "function") {
+  throw new Error("Fresh consumer package does not expose its internal Windows inspection test bound.");
 }
 if (process.platform === "win32") {
-  await packagedIdentity.resolveCurrentProcessIdentity({ deadlineMs: Date.now() + 60_000 });
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  try {
+    packagedIdentity.setWindowsProcessInspectionTimeoutForTests(60_000);
+  } finally {
+    delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  }
 }
 
 const inspectorEnvironment = {
@@ -305,6 +310,7 @@ try {
     cwd: consumerRoot,
     env: isolatedRuntimeEnvironment({
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(stdioPreloadPath).href}`.trim(),
+      SERVICE_LASSO_ENABLE_TEST_HOOKS: "1",
       SERVICE_LASSO_MCP_ACCEPTANCE_INSTALLED_ROOT: installedRoot,
       SERVICE_LASSO_PORT: "0",
       SERVICE_LASSO_SERVICES_ROOT: configuration.servicesRoot,
@@ -352,6 +358,9 @@ try {
       streamableHttp: "passed",
       stdio: "passed",
       operatingModes: ["read-only", "guarded"],
+      identityInspectionPolicy: process.platform === "win32"
+        ? "real-host-60s-acceptance-bound"
+        : "product-default",
     },
     canonical: {
       discovery: "passed",

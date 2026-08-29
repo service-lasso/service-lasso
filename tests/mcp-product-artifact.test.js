@@ -46,6 +46,9 @@ function evidence(candidateSha, platform) {
       streamableHttp: "passed",
       stdio: "passed",
       operatingModes: ["read-only", "guarded"],
+      identityInspectionPolicy: platform === "win32"
+        ? "real-host-60s-acceptance-bound"
+        : "product-default",
     },
     canonical: {
       discovery: "passed",
@@ -76,6 +79,7 @@ test("#864 retained evidence rejects incomplete, inflated, unexpected, or malfor
     (value) => { value.packageArchiveSha256 = "not-a-digest"; },
     (value) => { value.canonical.discovery = "failed"; },
     (value) => { value.packagedRuntime.operatingModes.reverse(); },
+    (value) => { value.packagedRuntime.identityInspectionPolicy = "real-host-60s-acceptance-bound"; },
   ];
   for (const mutate of invalidMutations) {
     const invalid = structuredClone(valid);
@@ -91,6 +95,13 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
   const candidateSha = "0123456789abcdef0123456789abcdef01234567";
   const winEvidence = evidence(candidateSha, "win32");
   validateMcpProductEvidence(winEvidence, { candidateSha, platform: "win32" });
+  assert.throws(
+    () => validateMcpProductEvidence(
+      { ...winEvidence, packagedRuntime: { ...winEvidence.packagedRuntime, identityInspectionPolicy: "product-default" } },
+      { candidateSha, platform: "win32" },
+    ),
+    /closed acceptance contract/u,
+  );
   const zip = new AdmZip();
   zip.addFile("mcp-product-win32.json", Buffer.from(`${JSON.stringify(winEvidence)}\n`, "utf8"));
   const archive = zip.toBuffer();
@@ -209,12 +220,12 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
-    assert.match(packagedConsumer, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?resolveCurrentProcessIdentity\(\{ deadlineMs: Date\.now\(\) \+ 60_000 \}\)/u);
+    assert.match(packagedConsumer, /SERVICE_LASSO_ENABLE_TEST_HOOKS = "1"[\s\S]*?setWindowsProcessInspectionTimeoutForTests\(60_000\)[\s\S]*?delete process\.env\.SERVICE_LASSO_ENABLE_TEST_HOOKS/u);
     assert.match(packagedConsumer, /mcp-packaged-stdio-preload\.mjs/u);
     const stdioPreload = await readFile("scripts/mcp-packaged-stdio-preload.mjs", "utf8");
-    assert.match(stdioPreload, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?resolveCurrentProcessIdentity\(\{ deadlineMs: Date\.now\(\) \+ 60_000 \}\)/u);
+    assert.match(stdioPreload, /path\.join\(installedRoot, "dist", "runtime", "process", "identity\.js"\)[\s\S]*?setWindowsProcessInspectionTimeoutForTests\(60_000\)[\s\S]*?delete process\.env\.SERVICE_LASSO_ENABLE_TEST_HOOKS/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
-    assert.match(identitySource, /resolveCurrentProcessIdentity\([\s\S]*?options: \{ deadlineMs\?: number \}[\s\S]*?inspectProcess\([\s\S]*?process\.pid,[\s\S]*?\{ deadlineMs: options\.deadlineMs \}/u);
+    assert.match(identitySource, /setWindowsProcessInspectionTimeoutForTests\(timeoutMs: number \| null\)[\s\S]*?SERVICE_LASSO_ENABLE_TEST_HOOKS[\s\S]*?MAX_WINDOWS_PROCESS_INSPECTION_TEST_TIMEOUT_MS/u);
   } finally {
     const closed = once(server, "close");
     server.close();

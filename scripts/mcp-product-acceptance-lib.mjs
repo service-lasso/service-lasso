@@ -240,6 +240,7 @@ export function validateMcpProductEvidence(evidence, options = {}) {
       "streamableHttp",
       "stdio",
       "operatingModes",
+      "identityInspectionPolicy",
     ]) ||
     evidence.packagedRuntime?.sourceCheckoutRequired !== false ||
     evidence.packagedRuntime?.sourceCheckoutAccess !== "denied-by-node-permission-model" ||
@@ -248,6 +249,9 @@ export function validateMcpProductEvidence(evidence, options = {}) {
     evidence.packagedRuntime?.streamableHttp !== "passed" ||
     evidence.packagedRuntime?.stdio !== "passed" ||
     JSON.stringify(evidence.packagedRuntime?.operatingModes) !== JSON.stringify(["read-only", "guarded"]) ||
+    evidence.packagedRuntime?.identityInspectionPolicy !== (evidence.platform === "win32"
+      ? "real-host-60s-acceptance-bound"
+      : "product-default") ||
     !hasExactKeys(evidence.canonical, [
       "discovery",
       "representativeReads",

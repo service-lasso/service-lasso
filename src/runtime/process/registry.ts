@@ -5,7 +5,6 @@ import {
   classifyProcessIdentity,
   hashProcessCommandLine,
   inspectProcess,
-  resolveCurrentProcessIdentity,
   type ProcessFingerprint,
   type ProcessIdentityClassification,
   type ProcessInspection,
@@ -20,6 +19,7 @@ const LOCK_RETRY_MS = 20;
 const LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;
 const LEGACY_START_TOLERANCE_MS = 2_000;
+let workspaceLockOwnerIdentityPromise: Promise<ProcessFingerprint> | null = null;
 
 export type ProcessOwnerType = "runtime" | "service";
 export type ProcessOwnershipLifecycleState = "launching" | "running" | "stopping" | "stopped";
@@ -126,7 +126,22 @@ export function resolveWorkspaceProcessId(workspaceRoot: string): string {
 }
 
 async function resolveWorkspaceLockOwnerIdentity(): Promise<ProcessFingerprint> {
-  return await resolveCurrentProcessIdentity();
+  const pending = workspaceLockOwnerIdentityPromise ?? (async () => {
+    const inspection = await inspectProcess(process.pid);
+    if (inspection.status !== "running") {
+      throw new Error(`Cannot verify workspace lifecycle lock owner: ${inspection.reason}`);
+    }
+    return inspection.identity;
+  })();
+  workspaceLockOwnerIdentityPromise = pending;
+  try {
+    return await pending;
+  } catch (error) {
+    if (workspaceLockOwnerIdentityPromise === pending) {
+      workspaceLockOwnerIdentityPromise = null;
+    }
+    throw error;
+  }
 }
 
 function ownerKey(ownerType: ProcessOwnerType, ownerId: string): string {

@@ -1,15 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { rm } from "node:fs/promises";
-import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startApiServer } from "../dist/server/index.js";
+import {
+  inspectProcess,
+  setWindowsProcessInspectionTimeoutForTests,
+} from "../dist/runtime/process/identity.js";
 import { runInspector, supportedMcpVersions } from "../scripts/mcp-product-acceptance-lib.mjs";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
-
-const execFileAsync = promisify(execFile);
 
 function resultPayload(value) {
   return value?.result ?? value;
@@ -186,24 +186,68 @@ test("#864 official SDK and Inspector accept the guarded Streamable HTTP product
   }
 });
 
-test("#864 current-process identity cache coalesces concurrent real inspection", async () => {
-  const result = await execFileAsync(
-    process.execPath,
-    ["tests/fixtures/current-process-identity-runner.mjs", "concurrent-cache"],
-    { cwd: process.cwd(), timeout: 90_000, windowsHide: true },
-  );
-  assert.deepEqual(JSON.parse(result.stdout), { result: "shared-verified-identity" });
-  assert.equal(result.stderr, "");
-});
+test("#864 Windows acceptance inspection bound is explicitly gated, capped, and resettable", async () => {
+  const previousTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const inspectWithCapturedDeadline = async () => {
+    let deadlineMs = null;
+    const startedAt = Date.now();
+    const inspection = await inspectProcess(4242, {
+      platform: "win32",
+      runCommand: async (_command, _args, options) => {
+        deadlineMs = options?.deadlineMs ?? null;
+        return {
+          stdout: JSON.stringify({
+            ProcessId: 4242,
+            CreationDate: "2026-07-18T01:02:03.456Z",
+            ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+            CommandLine: '"C:\\Program Files\\nodejs\\node.exe" service.mjs',
+          }),
+        };
+      },
+    });
+    assert.equal(inspection.status, "running");
+    return { deadlineMs, startedAt };
+  };
 
-test("#864 failed Windows current-process identity prime clears its cache for a bounded retry", {
-  skip: process.platform !== "win32",
-}, async () => {
-  const result = await execFileAsync(
-    process.execPath,
-    ["tests/fixtures/current-process-identity-runner.mjs", "failed-prime-retry"],
-    { cwd: process.cwd(), timeout: 90_000, windowsHide: true },
+  delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  assert.throws(
+    () => setWindowsProcessInspectionTimeoutForTests(60_000),
+    /requires explicit test hooks/u,
   );
-  assert.deepEqual(JSON.parse(result.stdout), { result: "failed-prime-retried" });
-  assert.equal(result.stderr, "");
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  try {
+    for (const invalid of [14_999, 60_001, 15_000.5]) {
+      assert.throws(
+        () => setWindowsProcessInspectionTimeoutForTests(invalid),
+        /must be null or an integer/u,
+      );
+    }
+
+    setWindowsProcessInspectionTimeoutForTests(60_000);
+    const acceptanceBound = await inspectWithCapturedDeadline();
+    assert.equal(acceptanceBound.deadlineMs - acceptanceBound.startedAt >= 59_000, true);
+    assert.equal(acceptanceBound.deadlineMs - acceptanceBound.startedAt <= 61_000, true);
+
+    const explicitDeadlineMs = Date.now() + 25_000;
+    let receivedExplicitDeadlineMs = null;
+    await inspectProcess(4242, {
+      platform: "win32",
+      deadlineMs: explicitDeadlineMs,
+      runCommand: async (_command, _args, options) => {
+        receivedExplicitDeadlineMs = options?.deadlineMs ?? null;
+        return { stdout: "" };
+      },
+    });
+    assert.equal(receivedExplicitDeadlineMs, explicitDeadlineMs);
+
+    setWindowsProcessInspectionTimeoutForTests(null);
+    const productDefault = await inspectWithCapturedDeadline();
+    assert.equal(productDefault.deadlineMs - productDefault.startedAt >= 14_000, true);
+    assert.equal(productDefault.deadlineMs - productDefault.startedAt <= 16_000, true);
+  } finally {
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    setWindowsProcessInspectionTimeoutForTests(null);
+    if (previousTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousTestHooks;
+  }
 });
