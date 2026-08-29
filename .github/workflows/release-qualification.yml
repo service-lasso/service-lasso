@@ -78,6 +78,28 @@ jobs:
           MCP_GUARDED_ACTION_ARTIFACT_DIGEST: ${{ steps.guarded_mcp_artifact.outputs.artifact-digest }}
         run: node scripts/verify-mcp-guarded-action-artifact.mjs
 
+      - name: Write exact-head durable MCP operation evidence
+        env:
+          MCP_OPERATION_EVIDENCE_PATH: artifacts/mcp-operations.json
+        run: node scripts/write-mcp-operation-evidence.mjs
+
+      - name: Upload exact-head durable MCP operation evidence
+        id: durable_mcp_artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: mcp-operations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mcp-operations.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Read back exact-head durable MCP operation evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_OPERATION_ARTIFACT_ID: ${{ steps.durable_mcp_artifact.outputs.artifact-id }}
+          MCP_OPERATION_ARTIFACT_NAME: mcp-operations-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_OPERATION_ARTIFACT_DIGEST: ${{ steps.durable_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-operation-artifact.mjs
+
       - name: Verify release artifacts
         run: npm run release:verify
 

@@ -2,7 +2,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { constants as fsConstants } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, link, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import AdmZip from "adm-zip";
@@ -76,6 +76,7 @@ export interface UpdateDownloadActionResult {
 
 export interface UpdateDownloadOptions {
   expectedCandidateRevision?: string;
+  signal?: AbortSignal;
 }
 
 export function buildUpdateCandidateRevision(result: ServiceUpdateCheckResult): string {
@@ -416,13 +417,16 @@ async function downloadToFile(
   assetUrl: string,
   destinationPath: string,
   expected: { size: number | null; digest: string | null },
-): Promise<void> {
-  const response = await fetch(assetUrl);
+  signal?: AbortSignal,
+): Promise<{ commit: () => Promise<void>; rollback: () => Promise<void> }> {
+  signal?.throwIfAborted();
+  const response = await fetch(assetUrl, { signal });
   if (!response.ok) {
     throw new Error(`Failed to download update candidate from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
 
   const bytes = Buffer.from(await response.arrayBuffer());
+  signal?.throwIfAborted();
   if (expected.size !== null && bytes.length !== expected.size) {
     throw new Error(`Downloaded update candidate size did not match its confirmed provider metadata.`);
   }
@@ -434,7 +438,75 @@ async function downloadToFile(
     }
   }
   await mkdir(path.dirname(destinationPath), { recursive: true });
-  await writeFile(destinationPath, bytes);
+  signal?.throwIfAborted();
+  const temporaryPath = `${destinationPath}.partial-${randomUUID()}`;
+  let backupPath: string | null = null;
+  let installedIdentity: Awaited<ReturnType<typeof stat>> | null = null;
+  let settled = false;
+  const destinationOwnership = async (): Promise<"owned" | "missing" | "other"> => {
+    if (!installedIdentity) return "other";
+    try {
+      const current = await stat(destinationPath);
+      if (installedIdentity.ino !== 0 && current.ino !== 0) {
+        return installedIdentity.dev === current.dev && installedIdentity.ino === current.ino ? "owned" : "other";
+      }
+      return installedIdentity.size === current.size && installedIdentity.mtimeMs === current.mtimeMs ? "owned" : "other";
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return "missing";
+      throw error;
+    }
+  };
+  const rollback = async (): Promise<void> => {
+    if (settled) return;
+    if (backupPath) {
+      const ownership = installedIdentity ? await destinationOwnership() : "owned";
+      if (ownership === "owned" || ownership === "missing") {
+        await rename(backupPath, destinationPath);
+        backupPath = null;
+      }
+    } else if (await destinationOwnership() === "owned") {
+      await rm(destinationPath, { force: true });
+    }
+    if (backupPath) await rm(backupPath, { force: true });
+    await rm(temporaryPath, { force: true });
+    settled = true;
+  };
+  const commit = async (): Promise<void> => {
+    if (settled) return;
+    if (backupPath) {
+      await rm(backupPath, { force: true });
+      backupPath = null;
+    }
+    await rm(temporaryPath, { force: true });
+    settled = true;
+  };
+  try {
+    await writeFile(temporaryPath, bytes, { flag: "wx" });
+    const temporaryIdentity = await stat(temporaryPath);
+    signal?.throwIfAborted();
+    try {
+      await link(temporaryPath, destinationPath);
+      installedIdentity = temporaryIdentity;
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error;
+      const existing = await readFile(destinationPath);
+      if (existing.length === bytes.length && createHash("sha256").update(existing).digest().equals(createHash("sha256").update(bytes).digest())) {
+        await rm(temporaryPath, { force: true });
+        settled = true;
+        return { commit, rollback };
+      }
+      backupPath = `${destinationPath}.replaced-${randomUUID()}`;
+      await link(destinationPath, backupPath);
+      signal?.throwIfAborted();
+      await rename(temporaryPath, destinationPath);
+      installedIdentity = temporaryIdentity;
+    }
+    signal?.throwIfAborted();
+    return { commit, rollback };
+  } catch (error) {
+    await rollback();
+    throw error;
+  }
 }
 
 async function extractArchive(
@@ -669,12 +741,14 @@ export async function listServiceUpdateStates(services: DiscoveredService[]): Pr
 export async function checkServiceUpdatesForCli(
   services: DiscoveredService[],
   serviceId?: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<UpdateCheckActionResult> {
   const registry = createServiceRegistry(services);
   const selected = serviceId ? [findService(registry, serviceId)] : registry.list();
   const checked = await Promise.all(
     selected.map(async (service) => {
-      const result = await checkServiceUpdate(service);
+      const result = await checkServiceUpdate(service, options);
+      options.signal?.throwIfAborted();
       const update = await persistUpdateCheckResult(service, result);
       return {
         serviceId: service.manifest.id,
@@ -700,7 +774,9 @@ export async function downloadServiceUpdateCandidate(
   service: DiscoveredService,
   options: UpdateDownloadOptions = {},
 ): Promise<UpdateDownloadActionResult> {
-  const result = await checkServiceUpdate(service);
+  options.signal?.throwIfAborted();
+  const result = await checkServiceUpdate(service, { signal: options.signal });
+  options.signal?.throwIfAborted();
   if (
     options.expectedCandidateRevision &&
     !/^sha256:[0-9a-f]{64}$/iu.test(result.available?.assetDigest ?? "")
@@ -722,26 +798,34 @@ export async function downloadServiceUpdateCandidate(
   const paths = getServiceStatePaths(service.serviceRoot);
   const releaseSegment = result.available.tag.replace(/[^\w.-]+/g, "_");
   const archivePath = path.join(paths.updateCandidates, releaseSegment, result.available.matchedAssetName);
+  let update: ServiceUpdateState;
+  let archiveCommit: Awaited<ReturnType<typeof downloadToFile>> | null = null;
   try {
-    await downloadToFile(result.available.assetUrl, archivePath, {
+    archiveCommit = await downloadToFile(result.available.assetUrl, archivePath, {
       size: result.available.assetSize ?? null,
       digest: result.available.assetDigest ?? null,
+    }, options.signal);
+    options.signal?.throwIfAborted();
+    update = await persistDownloadedUpdateCandidate(service, {
+      tag: result.available.tag,
+      version: result.available.version,
+      assetName: result.available.matchedAssetName,
+      assetUrl: result.available.assetUrl,
+      archivePath,
+      extractedPath: null,
     });
+    await archiveCommit.commit();
   } catch (error) {
+    await archiveCommit?.rollback();
+    if (options.signal?.aborted || error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     await persistUpdateFailure(service, {
       reason: error instanceof Error ? error.message : "Failed to download update candidate.",
       sourceStatus: "download_failed",
     });
     throw error;
   }
-  const update = await persistDownloadedUpdateCandidate(service, {
-    tag: result.available.tag,
-    version: result.available.version,
-    assetName: result.available.matchedAssetName,
-    assetUrl: result.available.assetUrl,
-    archivePath,
-    extractedPath: null,
-  });
 
   return {
     action: "download",

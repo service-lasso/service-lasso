@@ -296,7 +296,7 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
     await client.connect(clientTransport);
     try {
       const advertisedTools = await client.listTools();
-      assert.equal(advertisedTools.tools.length, 14);
+      assert.equal(advertisedTools.tools.length, 15);
       assert.equal(advertisedTools.tools.every((tool) => tool.annotations?.readOnlyHint === true), true);
       assert.equal(advertisedTools.tools.every((tool) => tool.outputSchema?.additionalProperties === false), true);
 
@@ -364,8 +364,8 @@ test("MCP read contracts paginate deterministically and omit sensitive paths and
       (error) => error.code === "unknown_service",
     );
     await assert.rejects(
-      buildMcpOperationStatusPayload(context, "operation-1"),
-      (error) => error.code === "feature_unavailable",
+      buildMcpOperationStatusPayload(context, "mcp-operation-00000000-0000-4000-8000-000000000000"),
+      (error) => error.code === "authorization_required",
     );
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

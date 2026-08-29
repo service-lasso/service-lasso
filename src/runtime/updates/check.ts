@@ -298,9 +298,11 @@ function releasePathForTrack(repo: string, track: string): string {
 async function fetchGitHubRelease(
   source: ServiceArchiveArtifact["source"],
   track: string,
+  signal?: AbortSignal,
 ): Promise<GitHubReleaseResponse> {
   const response = await fetch(`${normalizeApiBaseUrl(source.api_base_url)}${releasePathForTrack(source.repo, track)}`, {
     headers: githubHeaders(),
+    signal,
   });
 
   if (!response.ok) {
@@ -364,7 +366,10 @@ function classifyUpdate(currentTag: string | null, availableTag: string | null):
   return { status: "update_available", reason: "Tracked release differs from the installed release tag." };
 }
 
-export async function checkServiceUpdate(service: DiscoveredService): Promise<ServiceUpdateCheckResult> {
+export async function checkServiceUpdate(
+  service: DiscoveredService,
+  options: { signal?: AbortSignal } = {},
+): Promise<ServiceUpdateCheckResult> {
   const checkedAt = new Date().toISOString();
   const installedArtifact = await readInstalledArtifact(service);
   const current = createCurrentSummary(service.manifest, installedArtifact);
@@ -419,7 +424,7 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
   const expectedAssetName = getExpectedAssetName(platform);
 
   try {
-    const release = await fetchGitHubRelease(artifact.source, track);
+    const release = await fetchGitHubRelease(artifact.source, track, options.signal);
     const assets = release.assets ?? [];
     const assetNames = assets.map((asset) => asset.name);
     const matchedAsset = expectedAssetName
@@ -510,6 +515,7 @@ export async function checkServiceUpdate(service: DiscoveredService): Promise<Se
       checkedAt,
     };
   } catch (error: unknown) {
+    if (options.signal?.aborted || error instanceof Error && error.name === "AbortError") throw error;
     return {
       serviceId: service.manifest.id,
       status: "check_failed",

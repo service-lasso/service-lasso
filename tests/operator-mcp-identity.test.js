@@ -438,7 +438,11 @@ test("#860 enforces guarded-mode profile evidence plus independent actor and cli
     const infoResponse = await fetch(apiServer.url + "/api/mcp/info");
     assert.equal(infoResponse.status, 200);
     const info = await infoResponse.json();
-    assert.deepEqual(info.policy, { operatingMode: "guarded", guardedToolsAvailable: true });
+    assert.deepEqual(info.policy, {
+      operatingMode: "guarded",
+      guardedToolsAvailable: true,
+      durableOperationsAvailable: true,
+    });
 
     const profileScopes = {
       observer: "service-lasso:read",

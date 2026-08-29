@@ -19,13 +19,14 @@ The runtime currently exposes:
 - cumulative Observer, Operator, Maintainer, and Administrator profile classification from validated scopes
 - independent fixed-window actor and client rate limits with safe `429` denial Audit events
 - fail-closed `503` behavior when the MCP authorization Audit event cannot be persisted
-- fourteen read-only tools with strict input/output schemas, titles, annotations, text compatibility content and `structuredContent`
-- eleven explicit guarded tools in `guarded` mode, each with a strict allowlisted schema, shared application facade, authoritative preflight and durable Audit
+- fifteen read-only tools with strict input/output schemas, titles, annotations, text compatibility content and `structuredContent`
+- twelve explicit guarded tools in `guarded` mode, each with a strict allowlisted schema, shared application facade, authoritative preflight and durable Audit
 - seven static read-only resources and seven service-scoped resource templates
 - an opt-in local stdio adapter connected directly to the active runtime process
 - bounded log output and response redaction
 - secret-metadata tool that never returns secret values
 - durable, actor/client-bound idempotency results and expiring single-use server confirmations for actions that require confirmation
+- durable long-running operation records with actor/workspace isolation, bounded retention, restart reconciliation, safe progress, and cancellation where the underlying action supports it
 
 The prototype was delivered by [issue #592](https://github.com/service-lasso/service-lasso/issues/592) and [PR #604](https://github.com/service-lasso/service-lasso/pull/604).
 
@@ -44,7 +45,8 @@ The prototype was delivered by [issue #592](https://github.com/service-lasso/ser
 | `service_lasso_update_status` | Installed, available and downloaded update state without URLs, paths or hook output. |
 | `service_lasso_config_drift` | Opaque config-artifact drift status without paths, values, hashes or previews. |
 | `service_lasso_recovery_status` | Cursor-paginated recovery history without commands, output or raw messages. |
-| `service_lasso_operation_status` | Reports stable `feature_unavailable` until durable operations are delivered by #863. |
+| `service_lasso_operation_status` | Read one actor-owned durable operation by opaque id; Administrators may inspect another actor explicitly. |
+| `service_lasso_list_operations` | List actor-owned operations with deterministic bounded pagination; Administrators may explicitly include all actors. |
 | `service_lasso_diagnostics_summary` | Dependency and secret-reference audit summaries. |
 | `service_lasso_secret_metadata` | Secret refs, assignment, rotation readiness, and Secrets Broker availability. Never secret values. |
 
@@ -79,10 +81,21 @@ Guarded tools are advertised only when `SERVICE_LASSO_MCP_MODE=guarded` and the 
 | `service_lasso_check_updates` | Maintainer; `service-lasso:update:write` | Not required |
 | `service_lasso_download_update`, `service_lasso_install_update` | Maintainer; `service-lasso:update:write` | Required |
 | `service_lasso_start_all`, `service_lasso_stop_all` | Administrator; `service-lasso:runtime:admin` | Required |
+| `service_lasso_cancel_operation` | The original action profile and scope; `service-lasso:read` is also required | Not applicable |
 
 Omit `execute` or set it to `false` to receive the authoritative plan. When confirmation is required, that response contains a server-issued confirmation id, phrase and expiry. Execute by resending the allowlisted action parameters with `execute: true`, a unique idempotency key, and the matching confirmation fields. The runtime recomputes the plan and rejects any actor, client, action, target, parameter, plan, candidate revision, phrase or expiry mismatch before mutation. A completed idempotency key returns the committed business result with truthful replay metadata and an opaque server key id; altered parameters conflict, and an in-progress or uncertain result is never repeated automatically. A terminal Audit outage leaves a durable pending outcome that a later identical request reconciles without repeating mutation.
 
 The action schemas accept service ids, declared setup-step ids and the update-install `force` flag only where applicable. There is no generic command, shell, terminal, raw configuration, environment, filesystem or secret input.
+
+### Durable operations
+
+Install, configuration, setup, update, and runtime-wide actions enter the durable operation model when they exceed the default one-second MCP request budget. A client receives `service-lasso-mcp-operation-accepted.v1` with an opaque operation id, then polls `service_lasso_operation_status` or uses `service_lasso_list_operations`. Fast completions keep the existing guarded-action response contract.
+
+Operation records contain only the action, status, bounded phase and progress, safe summary, timestamps, allowlisted target ids, one shared Audit correlation id, cancellation support, terminal outcome, and whether the caller owns the record. They never retain action parameters, idempotency keys, confirmation material, configuration bodies, paths, raw output, logs, credentials, secret values, or unbounded errors. State is scoped to the active workspace and protected with the runtime's private-state storage. An actor sees only its own records unless an Administrator explicitly requests cross-actor inspection.
+
+Only update checks and update downloads are safely cancellable. `service_lasso_cancel_operation` returns `requested`, `unsupported`, or `too_late`; a request cancellation signal uses the same safe path while the MCP request remains active. A live runner owns cancellation through its durable heartbeat, so another MCP process requests cancellation through state and cannot claim success merely from the action name. Client disconnect does not repeat or orphan the guarded mutation. After Core restart, a terminal result is accepted only from the operation's opaque, correlation-bound guarded execution record or an explicit authoritative adapter; ambient install, configuration, or running snapshots never prove that a particular operation completed. An unproven non-terminal operation remains honestly `detached` and expires as `interrupted` rather than consuming capacity forever.
+
+Terminal records are retained for 24 hours by default, with an implementation maximum of seven days and a bounded store of 48 records. Active runners publish a generation identity through one coalesced workspace heartbeat, so concurrent operations share one bounded encrypted-state update instead of multiplying writes per operation. Terminal Audit publication uses a deterministic event identity under the operation-state claim and a cross-process Audit append lock so reconciliation cannot duplicate an outcome or fork the hash chain. Cleanup and interrupted-operation reconciliation occur during later operation reads, lists, and mutations. The operation domain is independent of experimental MCP Tasks.
 
 Confirmation binds the manifest and template bytes plus the exact existing executable inputs resolved by the same launch resolver used by the process supervisor. That includes service/provider launch files, basename and option-file arguments, recursive setup steps, doctor steps, lifecycle stop overrides, and update hooks. Update-install plans state the stop-override and pre/post/failure-hook subprocess effects that can actually run; forced installs omit the inactive stop effect. After the pre-upgrade hook, the runtime rereads and rehashes the confirmed archive, then extracts only those immutable in-memory bytes so a path replacement cannot be legitimized as the installed candidate.
 
@@ -96,6 +109,7 @@ Every tool rejects additional properties at runtime. Read tools are annotated re
 | Log summaries | 20 | 50 |
 | Audit search | 50 | 100 |
 | Recovery history | 20 | 100 |
+| Durable operations | 50 | 100 |
 
 Read errors use stable codes such as `unknown_service`, `feature_unavailable`, `forbidden`, `invalid_cursor` and `invalid_request`. Guarded actions additionally distinguish mode, profile, scope, confirmation and idempotency failures. Errors contain a stable code and safe message, never an internal exception, root path, raw log/config value or credential.
 
@@ -112,7 +126,7 @@ Known limitations include:
 - MCP OAuth is opt-in; without complete OAuth configuration Streamable HTTP remains loopback-local and uses the runtime's trusted local actor
 - the read surface is stateless; clients should treat cursors as snapshot-relative and retry a fresh query after `invalid_cursor`
 - secret metadata reports Broker lifecycle availability but does not query live lockout counts
-- durable generic operation status and cancellation remain unavailable until #863; the read tool reports `feature_unavailable`
+- durable operations intentionally use the current tool contract rather than experimental MCP Tasks; a future Tasks adapter must preserve the same domain and safety behavior
 
 The production roadmap must correct these limitations without weakening the existing read-only and redaction guarantees.
 
@@ -262,7 +276,7 @@ The first SDK-backed migration slice keeps existing read-only tool and resource 
 | --- | --- |
 | Disabled | MCP transports are not available. |
 | Read-only | Inspection tools and resources are available according to read scopes. This is the default. |
-| Guarded | Read tools plus the eleven explicit lifecycle and maintenance tools are available, subject to validated scope/profile policy, preflight, idempotency, confirmation and Audit. |
+| Guarded | Read tools plus the twelve explicit lifecycle, maintenance, and cancellation tools are available, subject to validated scope/profile policy, preflight, idempotency, confirmation and Audit. |
 
 Enabling guarded mode does not grant permission by itself. Identity scopes and server policy still control every tool call.
 Read-only mode rejects any tool outside the current inspection allowlist before

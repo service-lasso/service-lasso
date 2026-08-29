@@ -175,6 +175,7 @@ import {
 import type {
   McpGuardedActionFacade,
   McpGuardedActionFacadeResult,
+  McpGuardedActionExecutionOptions,
   McpGuardedActionName,
   McpGuardedActionParameters,
   McpGuardedActionPlan,
@@ -2972,7 +2973,9 @@ function createMcpGuardedActionFacade(
     action: McpGuardedActionName,
     parameters: McpGuardedActionParameters,
     approvedPlan: McpGuardedActionPlan,
+    executionOptions: McpGuardedActionExecutionOptions = {},
   ): Promise<McpGuardedActionFacadeResult> => {
+      executionOptions.signal?.throwIfAborted();
       const currentPlan = await preflight(action, parameters);
       if (JSON.stringify(currentPlan) !== JSON.stringify(approvedPlan)) {
         throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded action plan changed before execution.");
@@ -3006,6 +3009,7 @@ function createMcpGuardedActionFacade(
         }
       }
       if (action === "runtime_start_all" || action === "runtime_stop_all") {
+        executionOptions.signal?.throwIfAborted();
         const result = await executeRuntimeOrchestrationAction(
           action === "runtime_start_all" ? "startAll" : "stopAll",
           runtimeModel,
@@ -3089,6 +3093,7 @@ function createMcpGuardedActionFacade(
             throw new ApiError("guarded_plan_changed", 409, "The resolved restart executable inputs changed before execution.");
           }
         }
+        executionOptions.signal?.throwIfAborted();
         const result = await executeLifecycleAction(
           lifecycleAction,
           service,
@@ -3128,6 +3133,7 @@ function createMcpGuardedActionFacade(
         })).digest("hex")}` !== approvedPlan.revision) {
           throw new ApiError("guarded_plan_changed", 409, "The manifest-owned setup definition changed before execution.");
         }
+        executionOptions.signal?.throwIfAborted();
         const result = await runServiceSetup(service, runtimeModel.registry, {
           stepId: parameters.stepId,
           force: parameters.force,
@@ -3155,14 +3161,21 @@ function createMcpGuardedActionFacade(
         );
       }
       if (action === "update_check") {
-        const result = await checkServiceUpdatesForCli([service], serviceId);
+        await executionOptions.reportProgress?.({ phase: "checking_update", progress: 45, summary: "Checking provider update metadata." });
+        const result = await checkServiceUpdatesForCli([service], serviceId, { signal: executionOptions.signal });
         const failed = result.services.some((entry) => entry.result.status === "check_failed" || entry.result.status === "unavailable");
         return successful(action, [serviceId], failed ? "Service update check failed safely." : "Service update check completed.", failed ? "failed" : "succeeded");
       }
       if (action === "update_download") {
-        await downloadServiceUpdateCandidate(service, { expectedCandidateRevision: approvedPlan.revision });
+        await executionOptions.reportProgress?.({ phase: "downloading_update", progress: 45, summary: "Downloading the confirmed update candidate." });
+        await downloadServiceUpdateCandidate(service, {
+          expectedCandidateRevision: approvedPlan.revision,
+          signal: executionOptions.signal,
+        });
+        await executionOptions.reportProgress?.({ phase: "verifying_update", progress: 80, summary: "Verifying the downloaded update candidate." });
         return successful(action, [serviceId], "Service update download completed.");
       }
+      executionOptions.signal?.throwIfAborted();
       const install = await installServiceUpdateCandidate(service, {
         force: parameters.force,
         registry: runtimeModel.registry,
@@ -3186,11 +3199,11 @@ function createMcpGuardedActionFacade(
 
   return {
     preflight,
-    execute: async (action, parameters, approvedPlan) => await withRuntimeMutationCoordination(
+    execute: async (action, parameters, approvedPlan, executionOptions) => await withRuntimeMutationCoordination(
       config.workspaceRoot,
       async () => {
         try {
-          return await execute(action, parameters, approvedPlan);
+          return await execute(action, parameters, approvedPlan, executionOptions);
         } catch {
           return {
             ok: false,

@@ -10,8 +10,13 @@ import type {
   AuditSafeMetadataValue,
 } from "../../contracts/api.js";
 import { assertSafeAuditMetadata } from "./events.js";
+import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 
 export interface AppendAuditEventInput {
+  /** Optional deterministic identifier for idempotent terminal/outbox replay. */
+  eventId?: string;
+  /** Internal clock override used by deterministic store tests. */
+  now?: () => Date;
   workspaceRoot?: string;
   serviceRoot?: string;
   source: string;
@@ -54,20 +59,12 @@ function auditDateSegment(timestamp: string): string {
   return timestamp.slice(0, 10);
 }
 
-function getRuntimeAuditPath(workspaceRoot: string, timestamp: string): string {
-  return path.join(workspaceRoot, ".service-lasso", "audit", "runtime", `${auditDateSegment(timestamp)}.jsonl`);
-}
-
 function getRuntimeAuditDir(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".service-lasso", "audit", "runtime");
 }
 
 function getServiceAuditDir(serviceRoot: string): string {
   return path.join(serviceRoot, ".state", "audit");
-}
-
-function getServiceAuditPath(serviceRoot: string, timestamp: string): string {
-  return path.join(getServiceAuditDir(serviceRoot), `${auditDateSegment(timestamp)}.jsonl`);
 }
 
 function stableCanonicalValue(input: unknown): unknown {
@@ -238,28 +235,45 @@ export async function verifyAuditFile(filePath: string): Promise<AuditChainVerif
   return verifyAuditFiles([filePath]);
 }
 
-async function appendAuditLine(filePath: string, auditDir: string, event: AuditEvent): Promise<AuditEvent> {
+async function appendAuditLine(auditDir: string, event: AuditEvent): Promise<AuditEvent> {
   const previousQueue = auditAppendQueues.get(auditDir) ?? Promise.resolve();
   const operation = previousQueue.catch(() => undefined).then(async () => {
-    const existing = await readAuditDir(auditDir);
-    const previous = existing.at(-1);
-    const sequence = typeof previous?.sequence === "number" ? previous.sequence + 1 : 1;
-    const previousHash = previous?.eventHash || null;
-    const eventWithoutHash = {
-      ...event,
-      sequence,
-      previousHash,
-      chainStatus: "verified" as const,
-    };
-    const eventHash = computeAuditEventHash(eventWithoutHash, previousHash);
-    const nextEvent: AuditEvent = {
-      ...eventWithoutHash,
-      eventHash,
-    };
+    return await withCrossProcessFileLock(
+      path.join(auditDir, ".append.lock"),
+      async () => {
+        const files = await listAuditFiles(auditDir);
+        const existing = (await Promise.all(files.map(async (filePath) => readAuditFile(filePath)))).flat();
+        const duplicate = existing.find((candidate) => candidate.id === event.id);
+        if (duplicate) return duplicate;
+        const previous = existing.at(-1);
+        const sequence = typeof previous?.sequence === "number" ? previous.sequence + 1 : 1;
+        const previousHash = previous?.eventHash || null;
+        const eventWithoutHash = {
+          ...event,
+          sequence,
+          previousHash,
+          chainStatus: "verified" as const,
+        };
+        const eventHash = computeAuditEventHash(eventWithoutHash, previousHash);
+        const nextEvent: AuditEvent = {
+          ...eventWithoutHash,
+          eventHash,
+        };
 
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await appendFile(filePath, `${JSON.stringify(nextEvent)}\n`, "utf8");
-    return nextEvent;
+        const requestedBucket = auditDateSegment(event.timestamp);
+        const latestBucket = files
+          .map((existingPath) => path.basename(existingPath))
+          .filter((name) => /^\d{4}-\d{2}-\d{2}\.jsonl$/u.test(name))
+          .map((name) => name.slice(0, 10))
+          .at(-1);
+        const appendBucket = latestBucket && latestBucket > requestedBucket ? latestBucket : requestedBucket;
+        const filePath = path.join(auditDir, `${appendBucket}.jsonl`);
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await appendFile(filePath, `${JSON.stringify(nextEvent)}\n`, "utf8");
+        return nextEvent;
+      },
+      { unavailableMessage: "Durable Audit append lock is unavailable." },
+    );
   });
   const settled = operation.then(() => undefined, () => undefined);
   auditAppendQueues.set(auditDir, settled);
@@ -278,23 +292,24 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     assertSafeAuditMetadata(input.metadata);
   }
 
-  const timestamp = new Date().toISOString();
+  if (input.eventId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(input.eventId)) {
+    throw new Error("Audit eventId must be a bounded safe identifier.");
+  }
+  const timestamp = (input.now?.() ?? new Date()).toISOString();
   const target =
     input.serviceRoot && input.serviceId
       ? {
           auditDir: getServiceAuditDir(input.serviceRoot),
-          filePath: getServiceAuditPath(input.serviceRoot, timestamp),
           chainId: `service:${input.serviceId}`,
         }
       : input.workspaceRoot
         ? {
             auditDir: getRuntimeAuditDir(input.workspaceRoot),
-            filePath: getRuntimeAuditPath(input.workspaceRoot, timestamp),
             chainId: "runtime",
           }
         : null;
   const event: AuditEvent = {
-    id: randomUUID(),
+    id: input.eventId ?? randomUUID(),
     timestamp,
     source: input.source,
     action: input.action,
@@ -320,7 +335,7 @@ export async function appendAuditEvent(input: AppendAuditEventInput): Promise<Au
     return event;
   }
 
-  return appendAuditLine(target.filePath, target.auditDir, event);
+  return appendAuditLine(target.auditDir, event);
 }
 
 function normalizeLimit(value: string | undefined): number {

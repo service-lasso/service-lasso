@@ -11,10 +11,23 @@ import {
   guardedActionPolicy,
   invokeMcpGuardedAction,
   McpGuardedActionError,
+  preflightMcpGuardedActionExecution,
+  readMcpGuardedActionExecution,
   type McpGuardedActionFacade,
   type McpGuardedActionInput,
   type McpGuardedActionName,
+  type McpGuardedActionProgressUpdate,
 } from "./mcp-guarded-actions.js";
+import {
+  MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+  MCP_OPERATION_CONTRACT_VERSION,
+  MAX_MCP_OPERATION_LIST_LIMIT,
+  McpOperationError,
+  McpOperationService,
+  isDurableMcpAction,
+  isSafelyCancellableMcpAction,
+  type McpOperationServiceOptions,
+} from "./mcp-operations.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { ServiceHealthResult } from "../health/types.js";
 import type { AuditQuery } from "../../contracts/api.js";
@@ -50,6 +63,11 @@ export interface ServiceLassoMcpContext {
 export interface ServiceLassoMcpServerOptions {
   authorization?: McpHttpAuthorization;
   operatingMode?: McpOperatingMode;
+  operationRequestBudgetMs?: number;
+  operationRetentionMs?: number;
+  operationNow?: () => Date;
+  operationRecoverDetached?: McpOperationServiceOptions["recoverDetached"];
+  operationCancelDetached?: McpOperationServiceOptions["cancelDetached"];
 }
 
 export interface ServiceLassoMcpStdioOptions {
@@ -108,6 +126,8 @@ type ServiceLassoMcpToolName =
   | "service_lasso_config_drift"
   | "service_lasso_recovery_status"
   | "service_lasso_operation_status"
+  | "service_lasso_list_operations"
+  | "service_lasso_cancel_operation"
   | "service_lasso_diagnostics_summary"
   | "service_lasso_secret_metadata"
   | "service_lasso_start_service"
@@ -313,7 +333,7 @@ const runtimeStatusOutputSchema = z.object({
     configDrift: z.literal(true),
     recovery: z.literal(true),
     guardedActions: z.boolean(),
-    durableOperations: z.literal(false),
+    durableOperations: z.boolean(),
   }).strict(),
   safety: safetyOutputSchema,
 }).strict();
@@ -604,14 +624,97 @@ const secretMetadataOutputSchema = z.object({
   safety: safetyOutputSchema,
 }).strict();
 
-const operationOutputSchema = z.object({
-  contractVersion: z.literal(CONTRACT_VERSION),
-  generatedAt: z.string(),
-  operationId: z.string(),
-  available: z.literal(false),
-  code: z.literal("feature_unavailable"),
-  safety: safetyOutputSchema,
+const operationRecordSchema = z.object({
+  operationId: z.string().regex(/^mcp-operation-[0-9a-f-]{36}$/u),
+  action: z.enum([
+    "service_start",
+    "service_stop",
+    "service_restart",
+    "service_install",
+    "service_configure",
+    "setup_step_run",
+    "update_check",
+    "update_download",
+    "update_install",
+    "runtime_start_all",
+    "runtime_stop_all",
+  ]),
+  status: z.enum(["queued", "running", "cancelling", "succeeded", "failed", "cancelled", "skipped"]),
+  phase: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u),
+  progress: z.number().int().min(0).max(100),
+  summary: z.string().max(300),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  updatedAt: z.string(),
+  completedAt: z.string().nullable(),
+  expiresAt: z.string(),
+  targetIds: z.array(requiredServiceIdSchema).max(100)
+    .refine((entries) => new Set(entries).size === entries.length),
+  correlationId: z.string().regex(/^mcp-operation-correlation-[0-9a-f-]{36}$/u),
+  cancellationSupported: z.boolean(),
+  outcome: z.enum(["succeeded", "failed", "cancelled", "skipped"]).nullable(),
+  ownership: z.enum(["own", "other"]),
 }).strict();
+
+const operationSafetySchema = z.object({
+  mutating: z.boolean(),
+  redacted: z.literal(true),
+  omittedSensitiveFields: z.array(z.string()),
+}).strict();
+
+const operationOutputSchema = z.object({
+  contractVersion: z.literal(MCP_OPERATION_CONTRACT_VERSION),
+  generatedAt: z.string(),
+  operation: operationRecordSchema,
+  safety: operationSafetySchema,
+}).strict();
+
+const operationListOutputSchema = z.object({
+  contractVersion: z.literal(MCP_OPERATION_CONTRACT_VERSION),
+  generatedAt: z.string(),
+  operations: z.array(operationRecordSchema).max(MAX_MCP_OPERATION_LIST_LIMIT),
+  pagination: paginationOutputSchema,
+  safety: operationSafetySchema,
+}).strict();
+
+const operationCancelOutputSchema = operationOutputSchema.extend({
+  cancellation: z.object({
+    result: z.enum(["requested", "unsupported", "too_late"]),
+    terminal: z.boolean(),
+  }).strict(),
+}).strict();
+
+const operationAcceptedOutputSchema = z.object({
+  contractVersion: z.literal(MCP_OPERATION_ACCEPTED_CONTRACT_VERSION),
+  generatedAt: z.string(),
+  accepted: z.literal(true),
+  operation: operationRecordSchema,
+  safety: operationSafetySchema,
+}).strict();
+
+// The MCP SDK currently normalizes tool output schemas as object schemas before
+// validation. Keep an object at the root while retaining the discriminated
+// branch validation so both synchronous guarded results and durable accepts are
+// checked strictly.
+const guardedOrOperationAcceptedOutputSchema = guardedActionOutputSchema.partial().extend({
+  contractVersion: z.enum([
+    "service-lasso-mcp-guarded-action.v1",
+    MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+  ]),
+  generatedAt: z.string(),
+  accepted: z.literal(true).optional(),
+  operation: operationRecordSchema.optional(),
+  safety: operationSafetySchema,
+}).strict().superRefine((value, context) => {
+  const result = value.contractVersion === MCP_OPERATION_ACCEPTED_CONTRACT_VERSION
+    ? operationAcceptedOutputSchema.safeParse(value)
+    : guardedActionOutputSchema.safeParse(value);
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      context.addIssue({ ...issue });
+    }
+  }
+});
 
 function outputJsonSchema(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema) as Record<string, unknown>;
@@ -795,14 +898,30 @@ const mcpTools: McpToolDefinition[] = [
   {
     name: "service_lasso_operation_status",
     title: "Operation status",
-    description: "Report the stable unavailable status for durable MCP operations until issue #863 lands.",
+    description: "Read one durable MCP operation owned by the validated actor; Administrators may inspect other actors by opaque id.",
     inputSchema: {
       type: "object",
-      properties: { operationId: { type: "string" } },
+      properties: { operationId: { type: "string", pattern: "^mcp-operation-[0-9a-f-]{36}$" } },
       required: ["operationId"],
       additionalProperties: false,
     },
     outputSchema: outputJsonSchema(operationOutputSchema),
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+  },
+  {
+    name: "service_lasso_list_operations",
+    title: "List operations",
+    description: "List durable MCP operations in this workspace for the validated actor; Administrators may explicitly include all actors.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        includeAllActors: { type: "boolean" },
+        cursor: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: MAX_MCP_OPERATION_LIST_LIMIT },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(operationListOutputSchema),
     annotations: READ_ONLY_TOOL_ANNOTATIONS,
   },
   {
@@ -858,6 +977,7 @@ function guardedToolDefinition(input: {
   force?: boolean;
   destructive: boolean;
   openWorld?: boolean;
+  durable?: boolean;
 }): McpToolDefinition {
   const properties: Record<string, unknown> = {
     ...(input.serviceId ? { serviceId: { type: "string", pattern: "^@?[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" } } : {}),
@@ -880,7 +1000,7 @@ function guardedToolDefinition(input: {
       } : {}),
       additionalProperties: false,
     },
-    outputSchema: outputJsonSchema(guardedActionOutputSchema),
+    outputSchema: outputJsonSchema(input.durable ? guardedOrOperationAcceptedOutputSchema : guardedActionOutputSchema),
     annotations: guardedAnnotations(input),
   };
 }
@@ -914,6 +1034,7 @@ const guardedMcpTools: McpToolDefinition[] = [
     serviceId: true,
     destructive: true,
     openWorld: true,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_configure_service",
@@ -921,6 +1042,7 @@ const guardedMcpTools: McpToolDefinition[] = [
     description: "Preflight or execute manifest-owned configuration without accepting raw configuration bodies.",
     serviceId: true,
     destructive: true,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_run_setup_step",
@@ -930,6 +1052,7 @@ const guardedMcpTools: McpToolDefinition[] = [
     stepId: true,
     destructive: true,
     openWorld: true,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_check_updates",
@@ -938,6 +1061,7 @@ const guardedMcpTools: McpToolDefinition[] = [
     serviceId: true,
     destructive: false,
     openWorld: true,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_download_update",
@@ -946,6 +1070,7 @@ const guardedMcpTools: McpToolDefinition[] = [
     serviceId: true,
     destructive: false,
     openWorld: true,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_install_update",
@@ -955,19 +1080,37 @@ const guardedMcpTools: McpToolDefinition[] = [
     force: true,
     destructive: true,
     openWorld: true,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_start_all",
     title: "Start all services",
     description: "Preflight or execute the confirmed dependency-ordered runtime start plan.",
     destructive: false,
+    durable: true,
   }),
   guardedToolDefinition({
     name: "service_lasso_stop_all",
     title: "Stop all services",
     description: "Preflight or execute the confirmed dependency-ordered runtime stop plan.",
     destructive: true,
+    durable: true,
   }),
+  {
+    name: "service_lasso_cancel_operation",
+    title: "Cancel operation",
+    description: "Request safe cancellation of one durable MCP operation. Unsupported and too-late requests are non-destructive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string", pattern: "^mcp-operation-[0-9a-f-]{36}$" },
+      },
+      required: ["operationId"],
+      additionalProperties: false,
+    },
+    outputSchema: outputJsonSchema(operationCancelOutputSchema),
+    annotations: guardedAnnotations({ destructive: false }),
+  },
 ];
 
 const guardedActionByToolName: Partial<Record<ServiceLassoMcpToolName, McpGuardedActionName>> = {
@@ -1084,7 +1227,7 @@ function generatedAt(): string {
 
 class McpReadError extends Error {
   constructor(
-    public readonly code: "unknown_service" | "feature_unavailable" | "forbidden" | "invalid_cursor" | "invalid_request" | McpGuardedActionError["code"],
+    public readonly code: "unknown_service" | "feature_unavailable" | "forbidden" | "invalid_cursor" | "invalid_request" | McpGuardedActionError["code"] | McpOperationError["code"],
     message: string,
   ) {
     super(message);
@@ -1095,6 +1238,9 @@ class McpReadError extends Error {
 function stableMcpError(error: unknown): McpReadError {
   if (error instanceof McpReadError) return error;
   if (error instanceof McpGuardedActionError) {
+    return new McpReadError(error.code, error.message);
+  }
+  if (error instanceof McpOperationError) {
     return new McpReadError(error.code, error.message);
   }
   if (error && typeof error === "object" && "code" in error && error.code === "mcp_insufficient_scope") {
@@ -1299,6 +1445,7 @@ export function getServiceLassoMcpCapabilities(
     policy: {
       operatingMode,
       guardedToolsAvailable,
+      durableOperationsAvailable: Boolean(context.workspaceRoot),
     },
     scope: {
       mutatingOperations: guardedToolsAvailable ? "guarded" : "omitted",
@@ -1312,6 +1459,7 @@ export function getServiceLassoMcpCapabilities(
           "route URLs strip username, password, query string, and fragment",
           "secret metadata returns refs, assignment, and rotation state only",
           "guarded action output contains allowlisted targets, effects, status, and correlation metadata only",
+          "durable operation output contains allowlisted state, progress, targets, timestamps, and safe summaries only",
         ],
       },
     },
@@ -1324,12 +1472,55 @@ export function getServiceLassoMcpCapabilities(
   };
 }
 
+function defaultOperationRecovery(
+  context: ServiceLassoMcpContext,
+): McpOperationServiceOptions["recoverDetached"] | undefined {
+  const workspaceRoot = context.workspaceRoot;
+  if (!workspaceRoot) return undefined;
+  return async (operation) => {
+    if (!operation.guardedExecutionId) return null;
+    let completed;
+    try {
+      completed = await readMcpGuardedActionExecution({
+        workspaceRoot,
+        executionId: operation.guardedExecutionId,
+        expectedCorrelationId: operation.correlationId,
+      });
+    } catch {
+      return null;
+    }
+    if (!completed) return null;
+    return {
+      status: completed.status === "skipped" || completed.status === "replayed"
+        ? "skipped"
+        : completed.ok
+          ? "succeeded"
+          : "failed",
+      phase: completed.status === "replayed" ? "replayed" : "guarded_result_reconciled",
+      progress: 100,
+      summary: completed.summary,
+    };
+  };
+}
+
+const defaultDetachedCancellation: NonNullable<McpOperationServiceOptions["cancelDetached"]> = async () => "unsupported";
+
 export function createServiceLassoMcpServer(
   context: ServiceLassoMcpContext,
   options: ServiceLassoMcpServerOptions = {},
 ): McpServer {
   const operatingMode = options.operatingMode ?? context.mcpOperatingMode ?? "read-only";
   const guardedToolsAvailable = operatingMode === "guarded" && Boolean(context.guardedActionFacade && context.workspaceRoot);
+  const operationService = context.workspaceRoot
+    ? new McpOperationService({
+        workspaceRoot: context.workspaceRoot,
+        requestBudgetMs: options.operationRequestBudgetMs,
+        retentionMs: options.operationRetentionMs,
+        now: options.operationNow,
+        recoverDetached: options.operationRecoverDetached ?? defaultOperationRecovery(context),
+        cancelDetached: options.operationCancelDetached ?? defaultDetachedCancellation,
+      })
+    : null;
   const server = new McpServer(
     {
       name: "service-lasso-operator",
@@ -1550,14 +1741,45 @@ export function createServiceLassoMcpServer(
     "service_lasso_operation_status",
     {
       title: "Operation status",
-      description: "Report the stable unavailable status for durable MCP operations until issue #863 lands.",
-      inputSchema: z.object({ operationId: z.string().trim().min(1).max(200) }).strict(),
+      description: "Read one durable MCP operation owned by the validated actor; Administrators may inspect other actors by opaque id.",
+      inputSchema: z.object({ operationId: z.string().regex(/^mcp-operation-[0-9a-f-]{36}$/u) }).strict(),
       outputSchema: operationOutputSchema,
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
     async ({ operationId }) => executeTool(
       ["service-lasso:read"],
-      async () => buildMcpOperationStatusPayload(context, operationId),
+      async () => {
+        if (!operationService) throw new McpReadError("feature_unavailable", "Durable MCP operation state is unavailable for this runtime.");
+        return await operationService.get(operationId, options.authorization) as unknown as Record<string, unknown>;
+      },
+    ),
+  );
+
+  server.registerTool(
+    "service_lasso_list_operations",
+    {
+      title: "List operations",
+      description: "List durable MCP operations in this workspace for the validated actor; Administrators may explicitly include all actors.",
+      inputSchema: z.object({
+        includeAllActors: z.boolean().optional(),
+        cursor: cursorInputSchema,
+        limit: z.number().int().min(1).max(MAX_MCP_OPERATION_LIST_LIMIT).optional(),
+      }).strict(),
+      outputSchema: operationListOutputSchema,
+      annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    },
+    async ({ includeAllActors, cursor, limit }) => executeTool(
+      ["service-lasso:read"],
+      async () => {
+        if (!operationService) throw new McpReadError("feature_unavailable", "Durable MCP operation state is unavailable for this runtime.");
+        const parsedCursor = cursor === undefined ? 0 : parseOpaqueCursor(cursor, Number.MAX_SAFE_INTEGER);
+        return await operationService.list({
+          authorization: options.authorization,
+          includeAllActors,
+          cursor: parsedCursor,
+          limit,
+        }) as unknown as Record<string, unknown>;
+      },
     ),
   );
 
@@ -1597,6 +1819,24 @@ export function createServiceLassoMcpServer(
   );
 
   if (guardedToolsAvailable) {
+    server.registerTool(
+      "service_lasso_cancel_operation",
+      {
+        title: "Cancel operation",
+        description: "Request safe cancellation of one durable MCP operation. Unsupported and too-late requests are non-destructive.",
+        inputSchema: z.object({ operationId: z.string().regex(/^mcp-operation-[0-9a-f-]{36}$/u) }).strict(),
+        outputSchema: operationCancelOutputSchema,
+        annotations: guardedAnnotations({ destructive: false }),
+      },
+      async ({ operationId }) => executeTool(
+        ["service-lasso:read"],
+        async () => {
+          if (!operationService) throw new McpReadError("feature_unavailable", "Durable MCP operation state is unavailable for this runtime.");
+          return await operationService.cancel(operationId, options.authorization) as unknown as Record<string, unknown>;
+        },
+      ),
+    );
+
     const registerGuardedAction = (
       toolName: ServiceLassoMcpToolName,
       action: McpGuardedActionName,
@@ -1610,19 +1850,54 @@ export function createServiceLassoMcpServer(
           title: definition.title,
           description: definition.description,
           inputSchema,
-          outputSchema: guardedActionOutputSchema,
+          outputSchema: isDurableMcpAction(action) ? guardedOrOperationAcceptedOutputSchema : guardedActionOutputSchema,
           annotations: definition.annotations,
         },
-        async (parameters) => {
+        async (parameters, extra) => {
           try {
-            const payload = await invokeMcpGuardedAction({
+            const invoke = async (
+              signal?: AbortSignal,
+              reportProgress?: (update: McpGuardedActionProgressUpdate) => Promise<void>,
+              correlationId?: string,
+            ) => await invokeMcpGuardedAction({
               workspaceRoot: context.workspaceRoot,
               operatingMode,
               authorization: options.authorization,
               facade: context.guardedActionFacade,
               action,
               parameters,
+              correlationId,
+              signal,
+              reportProgress,
             });
+            let payload;
+            if (parameters.execute === true && isDurableMcpAction(action) && operationService) {
+              const executionPreflight = await preflightMcpGuardedActionExecution({
+                workspaceRoot: context.workspaceRoot!,
+                operatingMode,
+                authorization: options.authorization,
+                action,
+                parameters,
+              });
+              const authorization = options.authorization;
+              if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
+              const submission = await operationService.submit({
+                authorization,
+                action,
+                targetIds: parameters.serviceId
+                  ? [parameters.serviceId]
+                  : (action === "runtime_start_all" || action === "runtime_stop_all")
+                    ? context.discovered.map((service) => service.manifest.id)
+                    : [],
+                cancellationSupported: isSafelyCancellableMcpAction(action),
+                guardedExecutionId: executionPreflight.guardedExecutionId,
+                requestSignal: extra.signal,
+                execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),
+              });
+              payload = submission.kind === "completed" ? submission.response : submission.payload;
+            } else {
+              payload = await invoke();
+            }
             return jsonToolResult(payload as unknown as Record<string, unknown>);
           } catch (error) {
             return jsonToolErrorResult(error);
@@ -1770,7 +2045,7 @@ export async function buildMcpRuntimeStatusPayload(context: ServiceLassoMcpConte
       configDrift: true as const,
       recovery: true as const,
       guardedActions: context.mcpOperatingMode === "guarded" && Boolean(context.guardedActionFacade && context.workspaceRoot),
-      durableOperations: false as const,
+      durableOperations: Boolean(context.workspaceRoot),
     },
     safety: {
       mutating: false as const,
@@ -2191,11 +2466,35 @@ export async function buildMcpRecoveryPayload(
   };
 }
 
-export async function buildMcpOperationStatusPayload(_context: ServiceLassoMcpContext, _operationId: string): Promise<never> {
-  throw new McpReadError(
-    "feature_unavailable",
-    "Durable MCP operation status is unavailable until issue #863 is implemented.",
-  );
+export async function buildMcpOperationStatusPayload(
+  context: ServiceLassoMcpContext,
+  operationId: string,
+  authorization?: McpHttpAuthorization,
+  options: Omit<McpOperationServiceOptions, "workspaceRoot"> = {},
+) {
+  if (!context.workspaceRoot) {
+    throw new McpReadError("feature_unavailable", "Durable MCP operation state is unavailable for this runtime.");
+  }
+  return await new McpOperationService({ workspaceRoot: context.workspaceRoot, ...options }).get(operationId, authorization);
+}
+
+export async function buildMcpOperationListPayload(
+  context: ServiceLassoMcpContext,
+  input: { includeAllActors?: boolean; cursor?: unknown; limit?: unknown } = {},
+  authorization?: McpHttpAuthorization,
+  options: Omit<McpOperationServiceOptions, "workspaceRoot"> = {},
+) {
+  if (!context.workspaceRoot) {
+    throw new McpReadError("feature_unavailable", "Durable MCP operation state is unavailable for this runtime.");
+  }
+  const cursor = input.cursor === undefined ? 0 : parseOpaqueCursor(input.cursor, Number.MAX_SAFE_INTEGER);
+  const limit = boundedLimit(input.limit, 50, MAX_MCP_OPERATION_LIST_LIMIT);
+  return await new McpOperationService({ workspaceRoot: context.workspaceRoot, ...options }).list({
+    authorization,
+    includeAllActors: input.includeAllActors,
+    cursor,
+    limit,
+  });
 }
 
 /**
@@ -2366,6 +2665,13 @@ async function callTool(context: ServiceLassoMcpContext, name: string, args: Rec
         throw new McpReadError("invalid_request", "operationId is required.");
       }
       return buildMcpOperationStatusPayload(context, args.operationId.trim());
+    case "service_lasso_list_operations":
+      assertAllowedMcpArguments(args, ["includeAllActors", "cursor", "limit"], "service_lasso_list_operations");
+      return buildMcpOperationListPayload(context, {
+        includeAllActors: args.includeAllActors === true,
+        cursor: args.cursor,
+        limit: args.limit,
+      });
     case "service_lasso_diagnostics_summary":
       assertAllowedMcpArguments(args, ["serviceId"], "service_lasso_diagnostics_summary");
       return buildMcpDiagnosticsSummaryPayload(context, serviceId);
@@ -2547,7 +2853,7 @@ export async function handleServiceLassoMcpJsonRpcRequest(
       const name = typeof params.name === "string" ? params.name : "";
       try {
         const payload = await callTool(context, name, safeArguments(request.params));
-        return success(request.id, jsonToolResult(payload));
+        return success(request.id, jsonToolResult(payload as unknown as Record<string, unknown>));
       } catch (error) {
         return success(request.id, jsonToolErrorResult(error));
       }

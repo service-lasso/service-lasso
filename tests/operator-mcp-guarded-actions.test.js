@@ -210,6 +210,38 @@ async function rpc(apiServer, request) {
   return { status: response.status, body };
 }
 
+async function assertDurableRpcOutcome(apiServer, rpcResult, expectedStatus) {
+  const initial = rpcResult.body.result;
+  if (initial?.isError === true) {
+    assert.equal(expectedStatus, "failed");
+    return { status: "failed", outcome: "failed" };
+  }
+  const payload = initial?.structuredContent;
+  if (payload?.contractVersion !== "service-lasso-mcp-operation-accepted.v1") {
+    assert.equal(payload?.status, expectedStatus, JSON.stringify(payload));
+    return payload;
+  }
+  const operationId = payload.operation.operationId;
+  for (let attempt = 0; attempt < 1_000; attempt += 1) {
+    const status = await rpc(apiServer, {
+      jsonrpc: "2.0",
+      id: `operation-${attempt}`,
+      method: "tools/call",
+      params: { name: "service_lasso_operation_status", arguments: { operationId } },
+    });
+    assert.equal(status.status, 200, JSON.stringify(status.body));
+    assert.ok(status.body.result, JSON.stringify(status.body));
+    assert.equal(status.body.result?.isError, undefined, JSON.stringify(status.body.result));
+    const operation = status.body.result.structuredContent.operation;
+    if (["succeeded", "failed", "cancelled", "skipped"].includes(operation.status)) {
+      assert.equal(operation.status, expectedStatus, JSON.stringify(operation));
+      return operation;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  assert.fail(`Durable operation ${operationId} did not reach ${expectedStatus}.`);
+}
+
 async function runRaceChild(input) {
   const child = spawn(process.execPath, ["tests/fixtures/mcp-guarded-action-race.mjs"], {
     cwd: process.cwd(),
@@ -679,15 +711,15 @@ test("#862 advertises only explicit strict guarded tools and executes them throu
   const admin = authorization("administrator");
   const capabilities = getServiceLassoMcpCapabilities(context, { operatingMode: "guarded" });
   const guardedDefinitions = capabilities.tools.filter((tool) => tool.annotations.readOnlyHint === false);
-  assert.equal(guardedDefinitions.length, 11);
+  assert.equal(guardedDefinitions.length, 12);
   assert.equal(guardedDefinitions.every((tool) => tool.inputSchema.additionalProperties === false), true);
   assert.equal(guardedDefinitions.every((tool) => tool.outputSchema.additionalProperties === false), true);
   assert.equal(guardedDefinitions.find((tool) => tool.name === "service_lasso_run_setup_step").inputSchema.required.includes("stepId"), true);
   assert.equal(guardedDefinitions.some((tool) => /shell|command|environment|raw/i.test(Object.keys(tool.inputSchema.properties).join(" "))), false);
-  assert.equal(getServiceLassoMcpCapabilities(context, { operatingMode: "read-only" }).tools.length, 14);
+  assert.equal(getServiceLassoMcpCapabilities(context, { operatingMode: "read-only" }).tools.length, 15);
   const unavailable = getServiceLassoMcpCapabilities({ ...context, guardedActionFacade: undefined }, { operatingMode: "guarded" });
   assert.equal(unavailable.policy.guardedToolsAvailable, false);
-  assert.equal(unavailable.tools.length, 14);
+  assert.equal(unavailable.tools.length, 15);
 
   const server = createServiceLassoMcpServer(context, { authorization: admin, operatingMode: "guarded" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -696,8 +728,8 @@ test("#862 advertises only explicit strict guarded tools and executes them throu
   await client.connect(clientTransport);
   try {
     const advertised = await client.listTools();
-    assert.equal(advertised.tools.length, 25);
-    assert.equal(advertised.tools.filter((tool) => tool.annotations?.readOnlyHint === false).length, 11);
+    assert.equal(advertised.tools.length, 27);
+    assert.equal(advertised.tools.filter((tool) => tool.annotations?.readOnlyHint === false).length, 12);
     const planResult = await client.callTool({
       name: "service_lasso_start_service",
       arguments: { serviceId: "fixture-service" },
@@ -911,7 +943,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(configPlan, "config-changed-key-01", { serviceId: "alpha-service" }),
       },
     });
-    assert.equal(changedDefinition.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedDefinition, "failed");
     assert.equal(await readFile(path.join(alphaRoot, "runtime", "generated-config.txt"), "utf8"), "confirmed config template\n");
 
     const setupPlanRpc = await rpc(apiServer, {
@@ -938,7 +970,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         }),
       },
     });
-    assert.equal(changedSetup.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedSetup, "failed");
     await assert.rejects(stat(setupMarkerPath), (error) => error?.code === "ENOENT");
     await writeFile(setupScriptPath, confirmedSetupScript, "utf8");
 
@@ -964,7 +996,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         }),
       },
     });
-    assert.equal(setupCompleted.body.result.structuredContent.status, "succeeded");
+    await assertDurableRpcOutcome(apiServer, setupCompleted, "succeeded");
     assert.equal(await readFile(setupMarkerPath, "utf8"), "guarded setup completed\n");
 
     const restartPlanRpc = await rpc(apiServer, {
@@ -1007,7 +1039,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(changedStopPlan, "stop-changed-key-01"),
       },
     });
-    assert.equal(changedStop.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedStop, "failed");
     assert.equal(getLifecycleState("alpha-service").running, true);
     assert.equal(getLifecycleState("bravo-service").running, true);
     await writeFile(stopScriptPath, confirmedStopScript, "utf8");
@@ -1033,7 +1065,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
       },
     });
     assert.equal(stopRpc.status, 200);
-    assert.equal(stopRpc.body.result.structuredContent.status, "succeeded");
+    await assertDurableRpcOutcome(apiServer, stopRpc, "succeeded");
     assert.equal(getLifecycleState("alpha-service").running, false);
     assert.equal(getLifecycleState("bravo-service").running, false);
 
@@ -1055,7 +1087,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(updatePlan, "update-changed-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(changedCandidate.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedCandidate, "failed");
     assert.equal(releaseServer.getDownloads(), 0);
 
     const updatePlanBRpc = await rpc(apiServer, {
@@ -1076,7 +1108,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(updatePlanB, "update-asset-changed-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(changedAsset.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedAsset, "failed");
     assert.equal(releaseServer.getDownloads(), 0);
 
     releaseServer.setIncludeDigest(false);
@@ -1109,8 +1141,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(updatePlanC, "update-download-replaced-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(replacedDuringDownload.body.result.structuredContent.status, "failed");
-    assert.equal(replacedDuringDownload.body.result.structuredContent.ok, false);
+    await assertDurableRpcOutcome(apiServer, replacedDuringDownload, "failed");
     assert.equal(releaseServer.getDownloads(), 1);
     await assert.rejects(stat(candidatePath), (error) => error?.code === "ENOENT");
 
@@ -1130,7 +1161,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(updatePlanD, "update-download-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(downloaded.body.result.structuredContent.status, "succeeded");
+    await assertDurableRpcOutcome(apiServer, downloaded, "succeeded");
     assert.equal(releaseServer.getDownloads(), 2);
 
     const updateServiceState = getLifecycleState("update-service");
@@ -1198,7 +1229,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(changedHookPlan, "install-hook-changed-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(changedHookInstall.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedHookInstall, "failed");
     assert.equal(getLifecycleState("update-service").running, true);
     await writeFile(updateHookPath, confirmedUpdateHook, "utf8");
 
@@ -1220,7 +1251,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(installPlan, "install-changed-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(changedInstall.body.result.isError, true);
+    await assertDurableRpcOutcome(apiServer, changedInstall, "failed");
     assert.equal(getLifecycleState("update-service").running, true);
     await assert.rejects(stat(path.join(updatePaths.extracted, "current")), (error) => error?.code === "ENOENT");
 
@@ -1246,7 +1277,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(verifiedDownloadPlan, "verified-download-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(verifiedDownload.body.result.structuredContent.status, "succeeded");
+    await assertDurableRpcOutcome(apiServer, verifiedDownload, "succeeded");
     const archiveMutationHook = [
       'import { readdir, writeFile } from "node:fs/promises";',
       'const directory = new URL("../.state/update-candidates/.verified/", import.meta.url);',
@@ -1269,7 +1300,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(immutableInstallPlan, "immutable-install-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(immutableInstall.body.result.structuredContent.status, "failed");
+    await assertDurableRpcOutcome(apiServer, immutableInstall, "failed");
     await assert.rejects(stat(path.join(updatePaths.extracted, "current")), (error) => error?.code === "ENOENT");
     await writeFile(updateHookPath, confirmedUpdateHook, "utf8");
     setLifecycleState("update-service", {
@@ -1292,11 +1323,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
         arguments: executionParameters(verifiedInstallPlan, "verified-install-key-01", { serviceId: "update-service" }),
       },
     });
-    assert.equal(
-      verifiedInstall.body.result.structuredContent.status,
-      "succeeded",
-      JSON.stringify(verifiedInstall.body.result.structuredContent),
-    );
+    await assertDurableRpcOutcome(apiServer, verifiedInstall, "succeeded");
     assert.equal(getLifecycleState("update-service").running, true);
   } finally {
     if (apiServer) {
