@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
@@ -29,6 +29,7 @@ export async function supportedMcpVersions() {
   ]);
   return {
     protocolVersion: LATEST_PROTOCOL_VERSION,
+    supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
     sdk: { packageName: "@modelcontextprotocol/sdk", version: sdk.version },
     inspector: { packageName: "@modelcontextprotocol/inspector", version: inspector.version },
   };
@@ -109,8 +110,9 @@ export async function runInspector({
   toolArgs,
   strict = false,
   timeoutMs = 60_000,
+  env,
 }) {
-  const args = [
+  const nodeArgs = [
     await inspectorEntrypoint(),
     "--cli",
     "--transport",
@@ -124,10 +126,10 @@ export async function runInspector({
     "--connect-timeout",
     "15000",
   ];
-  if (toolName) args.push("--tool-name", toolName);
-  if (toolArgs !== undefined) args.push("--tool-args-json", JSON.stringify(toolArgs));
-  if (strict) args.push("--strict");
-  const result = await runCommand(process.execPath, args, { timeoutMs });
+  if (toolName) nodeArgs.push("--tool-name", toolName);
+  if (toolArgs !== undefined) nodeArgs.push("--tool-args-json", JSON.stringify(toolArgs));
+  if (strict) nodeArgs.push("--strict");
+  const result = await runCommand(process.execPath, nodeArgs, { timeoutMs, env });
   const serialized = result.stdout.trim();
   if (!serialized) throw new Error("MCP Inspector returned no JSON output.");
   try {
@@ -139,24 +141,130 @@ export async function runInspector({
 
 export const MCP_PRODUCT_EVIDENCE_CONTRACT = "service-lasso.mcp-product-acceptance.v1";
 
+export const MCP_PACKAGED_COVERAGE_KEYS = Object.freeze([
+  "initializationAndNegotiation",
+  "initializedNotification",
+  "toolAndResourceDiscovery",
+  "closedSchemas",
+  "officialInspector",
+  "canonicalRepresentativeReads",
+  "guardedConfirmation",
+  "idempotentReplay",
+  "sensitiveOutputRejection",
+  "stdioTransport",
+  "freshConsumerIsolation",
+]);
+
+const MCP_PRODUCT_EVIDENCE_KEYS = Object.freeze([
+  "contractVersion",
+  "issue",
+  "spec",
+  "repository",
+  "workflowRunId",
+  "workflowRunAttempt",
+  "eventName",
+  "candidateSha",
+  "platform",
+  "architecture",
+  "nodeVersion",
+  "packageVersion",
+  "packageArchiveSha256",
+  "sdk",
+  "inspector",
+  "packagedRuntime",
+  "canonical",
+  "coverage",
+  "assertions",
+  "generatedAt",
+]);
+
+function hasExactKeys(value, expectedKeys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function isSafeIdentity(value, pattern, maximumLength = 200) {
+  return typeof value === "string" && value.length > 0 && value.length <= maximumLength && pattern.test(value);
+}
+
 export function validateMcpProductEvidence(evidence, options = {}) {
   const expectedSha = options.candidateSha?.toLowerCase();
   const expectedPlatform = options.platform;
+  const coverageIsClosed = hasExactKeys(evidence?.coverage, MCP_PACKAGED_COVERAGE_KEYS)
+    && MCP_PACKAGED_COVERAGE_KEYS.every((key) => evidence.coverage[key] === "passed");
+  const assertionsAreClosed = Array.isArray(evidence?.assertions)
+    && evidence.assertions.length === MCP_PACKAGED_COVERAGE_KEYS.length
+    && evidence.assertions.every((entry, index) => entry === MCP_PACKAGED_COVERAGE_KEYS[index]);
+  const generatedAt = typeof evidence?.generatedAt === "string" ? new Date(evidence.generatedAt) : null;
   if (
     !evidence ||
+    !hasExactKeys(evidence, MCP_PRODUCT_EVIDENCE_KEYS) ||
     evidence.contractVersion !== MCP_PRODUCT_EVIDENCE_CONTRACT ||
     evidence.issue !== 864 ||
     evidence.spec !== "SPEC-006 AC-6G" ||
+    !isSafeIdentity(evidence.repository, /^(?:local|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/u) ||
+    !isSafeIdentity(String(evidence.workflowRunId), /^(?:local|[0-9]+)$/u, 40) ||
+    !isSafeIdentity(String(evidence.workflowRunAttempt), /^(?:local|[0-9]+)$/u, 20) ||
+    !isSafeIdentity(evidence.eventName, /^[A-Za-z0-9_.-]+$/u, 80) ||
+    !/^[0-9a-f]{40}$/u.test(evidence.candidateSha) ||
     (expectedSha && String(evidence.candidateSha).toLowerCase() !== expectedSha) ||
+    !["win32", "linux", "darwin"].includes(evidence.platform) ||
     (expectedPlatform && evidence.platform !== expectedPlatform) ||
+    !isSafeIdentity(evidence.architecture, /^[A-Za-z0-9_.-]+$/u, 40) ||
+    !/^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9_.-]+)?$/u.test(evidence.nodeVersion) ||
+    !isSafeIdentity(evidence.packageVersion, /^[0-9A-Za-z][0-9A-Za-z._-]{0,99}$/u, 100) ||
+    !/^[0-9a-f]{64}$/u.test(evidence.packageArchiveSha256) ||
+    !hasExactKeys(evidence.sdk, ["packageName", "version", "protocolVersion", "supportedProtocolVersions"]) ||
+    evidence.sdk.packageName !== "@modelcontextprotocol/sdk" ||
+    evidence.sdk.version !== "1.30.0" ||
+    evidence.sdk.protocolVersion !== "2025-11-25" ||
+    JSON.stringify(evidence.sdk.supportedProtocolVersions) !== JSON.stringify([
+      "2025-11-25",
+      "2025-06-18",
+      "2025-03-26",
+      "2024-11-05",
+      "2024-10-07",
+    ]) ||
+    !hasExactKeys(evidence.inspector, ["packageName", "version", "result", "strictSchema"]) ||
+    evidence.inspector.packageName !== "@modelcontextprotocol/inspector" ||
+    evidence.inspector.version !== "2.4.0" ||
+    evidence.inspector.result !== "passed" ||
+    evidence.inspector.strictSchema !== "passed" ||
+    !hasExactKeys(evidence.packagedRuntime, [
+      "sourceCheckoutRequired",
+      "sourceCheckoutAccess",
+      "moduleResolution",
+      "workingDirectory",
+      "streamableHttp",
+      "stdio",
+      "operatingModes",
+    ]) ||
     evidence.packagedRuntime?.sourceCheckoutRequired !== false ||
+    evidence.packagedRuntime?.sourceCheckoutAccess !== "denied-by-node-permission-model" ||
+    evidence.packagedRuntime?.moduleResolution !== "fresh-consumer-node-modules" ||
+    evidence.packagedRuntime?.workingDirectory !== "fresh-consumer" ||
     evidence.packagedRuntime?.streamableHttp !== "passed" ||
     evidence.packagedRuntime?.stdio !== "passed" ||
-    evidence.inspector?.result !== "passed" ||
+    JSON.stringify(evidence.packagedRuntime?.operatingModes) !== JSON.stringify(["read-only", "guarded"]) ||
+    !hasExactKeys(evidence.canonical, [
+      "discovery",
+      "representativeReads",
+      "guardedLifecycle",
+      "exactlyOnce",
+      "terminalState",
+    ]) ||
+    evidence.canonical?.discovery !== "passed" ||
+    evidence.canonical?.representativeReads !== "passed" ||
     evidence.canonical?.guardedLifecycle !== "passed" ||
     evidence.canonical?.exactlyOnce !== true ||
-    !Array.isArray(evidence.assertions) ||
-    evidence.assertions.some((entry) => entry !== "passed")
+    evidence.canonical?.terminalState !== "running" ||
+    !coverageIsClosed ||
+    !assertionsAreClosed ||
+    !(generatedAt instanceof Date) ||
+    Number.isNaN(generatedAt.getTime()) ||
+    generatedAt.toISOString() !== evidence.generatedAt
   ) {
     throw new Error("MCP product evidence did not satisfy the closed acceptance contract.");
   }

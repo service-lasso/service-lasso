@@ -6,8 +6,75 @@ on:
     branches:
       - main
 
+env:
+  CANDIDATE_SHA: ${{ github.sha }}
+
 jobs:
+  qualify-mcp-packaged:
+    name: mcp-packaged (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: darwin
+    steps:
+      - name: Check out exact publication candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Compute candidate package version
+        shell: pwsh
+        run: |
+          $shortSha = $env:CANDIDATE_SHA.Substring(0, 7)
+          $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
+          "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify fresh-consumer packaged MCP before publication
+        env:
+          MCP_PRODUCT_EVIDENCE_PATH: artifacts/publish-mcp-product-${{ matrix.platform }}.json
+        run: npm run verify:mcp:packaged
+
+      - name: Upload exact-SHA publication MCP evidence
+        id: publish_mcp_artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: publish-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/publish-mcp-product-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Download and validate publication MCP evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_PRODUCT_PLATFORM: ${{ matrix.platform }}
+          MCP_PRODUCT_ARTIFACT_ID: ${{ steps.publish_mcp_artifact.outputs.artifact-id }}
+          MCP_PRODUCT_ARTIFACT_NAME: publish-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_PRODUCT_ARTIFACT_DIGEST: ${{ steps.publish_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-product-artifact.mjs
+
   publish-package:
+    needs:
+      - qualify-mcp-packaged
     runs-on: ubuntu-latest
     permissions:
       contents: read

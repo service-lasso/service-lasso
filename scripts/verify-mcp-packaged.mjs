@@ -1,17 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   runCommand,
-  runInspector,
-  supportedMcpVersions,
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
@@ -28,11 +23,14 @@ async function exactCandidateSha() {
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
 }
 
-function cleanEnvironment(overrides) {
-  return {
-    ...Object.fromEntries(Object.entries(process.env).filter((entry) => typeof entry[1] === "string")),
-    ...overrides,
-  };
+function isolatedConsumerEnvironment(overrides) {
+  const allowedNames = ["PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec", "TEMP", "TMP", "TMPDIR"];
+  const environment = Object.fromEntries(
+    allowedNames
+      .filter((name) => typeof process.env[name] === "string")
+      .map((name) => [name, process.env[name]]),
+  );
+  return { ...environment, ...overrides };
 }
 
 async function removeOwnedTempRoot(tempRoot) {
@@ -80,10 +78,6 @@ async function writeCanonicalService(servicesRoot) {
   return serviceId;
 }
 
-function payload(value) {
-  return value?.result ?? value;
-}
-
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
@@ -104,9 +98,6 @@ const consumerRoot = path.join(tempRoot, "consumer");
 const servicesRoot = path.join(tempRoot, "services");
 const httpWorkspaceRoot = path.join(tempRoot, "workspace-http");
 const stdioWorkspaceRoot = path.join(tempRoot, "workspace-stdio");
-let httpClient;
-let httpServer;
-let stdioClient;
 
 try {
   await Promise.all([
@@ -127,160 +118,57 @@ try {
     "--no-fund",
     "--save-exact",
     staged.packageArchivePath,
-  ], { cwd: consumerRoot, timeoutMs: 180_000 });
+    "@modelcontextprotocol/inspector@2.4.0",
+  ], { cwd: consumerRoot, timeoutMs: 300_000 });
 
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
     throw new Error("Fresh consumer installed a different Service Lasso package identity.");
   }
-  const packaged = await import(pathToFileURL(path.join(installedRoot, "index.js")).href);
-  if (typeof packaged.startApiServer !== "function") {
-    throw new Error("Fresh consumer package does not expose the runtime API entrypoint.");
-  }
-
-  httpServer = await packaged.startApiServer({
-    port: 0,
-    servicesRoot,
-    workspaceRoot: httpWorkspaceRoot,
-    version,
-    mcpHttpIdentity: { env: { SERVICE_LASSO_MCP_MODE: "guarded" } },
-  });
-  const endpoint = new URL(`${httpServer.url}/api/mcp`);
-  const transport = new StreamableHTTPClientTransport(endpoint);
-  httpClient = new Client({ name: "service-lasso-packaged-acceptance", version: "1.0.0" });
-  await httpClient.connect(transport);
-
-  const supported = await supportedMcpVersions();
-  if (transport.protocolVersion !== supported.protocolVersion) {
-    throw new Error("Packaged Streamable HTTP did not negotiate the supported MCP protocol.");
-  }
-  const [tools, resources, runtimeStatus, services] = await Promise.all([
-    httpClient.listTools(),
-    httpClient.listResources(),
-    httpClient.callTool({ name: "service_lasso_runtime_status", arguments: {} }),
-    httpClient.callTool({ name: "service_lasso_list_services", arguments: { limit: 100 } }),
+  const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
+  const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");
+  await Promise.all([
+    copyFile(path.join(repoRoot, "scripts", "mcp-packaged-consumer-runner.mjs"), consumerRunnerPath),
+    copyFile(path.join(repoRoot, "scripts", "mcp-product-acceptance-lib.mjs"), consumerLibraryPath),
   ]);
-  if (
-    tools.tools.length !== 27 ||
-    resources.resources.length < 2 ||
-    runtimeStatus.isError ||
-    runtimeStatus.structuredContent?.runtime?.status !== "ready" ||
-    services.structuredContent?.services?.some((service) => service.id === serviceId) !== true
-  ) {
-    throw new Error("Packaged Streamable HTTP discovery or representative reads failed.");
-  }
-  if (
-    !tools.tools.every((tool) => tool.inputSchema?.additionalProperties === false) ||
-    !tools.tools.every((tool) => tool.outputSchema?.additionalProperties === false)
-  ) {
-    throw new Error("Packaged MCP advertised an open tool schema.");
-  }
-
-  const inspectorTools = payload(await runInspector({
-    serverUrl: endpoint.toString(),
-    method: "tools/list",
-    strict: true,
-  }));
-  const inspectorResources = payload(await runInspector({
-    serverUrl: endpoint.toString(),
-    method: "resources/list",
-  }));
-  const inspectorRead = payload(await runInspector({
-    serverUrl: endpoint.toString(),
-    method: "tools/call",
-    toolName: "service_lasso_runtime_status",
-    toolArgs: {},
-  }));
-  if (
-    inspectorTools.tools?.length !== 27 ||
-    !Array.isArray(inspectorResources.resources) ||
-    inspectorRead.structuredContent?.runtime?.status !== "ready"
-  ) {
-    throw new Error("Official MCP Inspector did not accept the packaged Streamable HTTP surface.");
-  }
-
-  const plan = await httpClient.callTool({
-    name: "service_lasso_start_service",
-    arguments: { serviceId },
-  });
-  if (plan.isError || plan.structuredContent?.status !== "preflight") {
-    throw new Error("Canonical packaged guarded lifecycle preflight failed.");
-  }
-  const executionArguments = {
-    serviceId,
-    execute: true,
-    idempotencyKey: `mcp-product-${candidateSha.slice(0, 12)}`,
-    confirmationId: plan.structuredContent.confirmation.id,
-    confirmationPhrase: plan.structuredContent.confirmation.confirmationPhrase,
-  };
-  const completed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
-  const replayed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
-  if (
-    completed.isError ||
-    completed.structuredContent?.status !== "succeeded" ||
-    completed.structuredContent?.result?.resultingState?.[0]?.running !== true ||
-    replayed.isError ||
-    replayed.structuredContent?.status !== "replayed" ||
-    replayed.structuredContent?.idempotency?.replayed !== true
-  ) {
-    throw new Error("Canonical packaged guarded lifecycle action was not confirmed and exactly-once.");
-  }
-
-  await httpClient.close();
-  httpClient = null;
-  await httpServer.stop();
-  httpServer = null;
-
-  const stdioCredential = "packaged-stdio-capability-not-protocol-data";
-  const stdioTransport = new StdioClientTransport({
-    command: process.execPath,
-    args: [path.join(installedRoot, "dist", "index.js")],
-    env: cleanEnvironment({
-      SERVICE_LASSO_PORT: "0",
-      SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
-      SERVICE_LASSO_WORKSPACE_ROOT: stdioWorkspaceRoot,
-      SERVICE_LASSO_MCP_STDIO: "1",
-      SERVICE_LASSO_MCP_STDIO_CREDENTIAL: stdioCredential,
-      SERVICE_LASSO_MCP_STDIO_ACTOR: "packaged-mcp-actor",
-      SERVICE_LASSO_MCP_STDIO_CLIENT_ID: "packaged-mcp-client",
-      SERVICE_LASSO_MCP_MODE: "read-only",
+  const platformReadRoots = process.platform === "win32"
+    ? [path.dirname(process.execPath), process.env.SystemRoot, process.env.WINDIR]
+    : process.platform === "darwin"
+      ? [path.dirname(process.execPath), "/System", "/usr", "/Library", "/private/etc"]
+      : [path.dirname(process.execPath), "/proc", "/etc", "/usr", "/lib", "/lib64"];
+  const permissionOptions = [
+    "--permission",
+    `--allow-fs-read=${tempRoot}`,
+    ...[...new Set(platformReadRoots.filter(Boolean))].map((root) => `--allow-fs-read=${root}`),
+    `--allow-fs-write=${tempRoot}`,
+    "--allow-child-process",
+  ];
+  const runnerResult = await runCommand(process.execPath, [...permissionOptions, consumerRunnerPath], {
+    cwd: consumerRoot,
+    timeoutMs: 900_000,
+    env: isolatedConsumerEnvironment({
+      NODE_OPTIONS: permissionOptions.join(" "),
+      MCP_PACKAGE_ACCEPTANCE_CONFIGURATION: JSON.stringify({
+        candidateSha,
+        version,
+        consumerRoot,
+        serviceId,
+        servicesRoot,
+        httpWorkspaceRoot,
+        stdioWorkspaceRoot,
+        instanceRegistryPath: path.join(tempRoot, "host", "runtime-instances.json"),
+        portRegistryPath: path.join(tempRoot, "host", "endpoint-allocations.json"),
+      }),
+      MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
     }),
-    stderr: "pipe",
   });
-  stdioClient = new Client({ name: "service-lasso-packaged-stdio", version: "1.0.0" });
-  await stdioClient.connect(stdioTransport);
-  const [stdioTools, stdioStatus] = await Promise.all([
-    stdioClient.listTools(),
-    stdioClient.callTool({ name: "service_lasso_runtime_status", arguments: {} }),
-  ]);
-  if (
-    stdioTools.tools.length !== 15 ||
-    stdioStatus.isError ||
-    stdioStatus.structuredContent?.runtime?.status !== "ready" ||
-    JSON.stringify({ stdioTools, stdioStatus }).includes(stdioCredential)
-  ) {
-    throw new Error("Fresh consumer packaged stdio acceptance failed.");
+  let acceptance;
+  try {
+    acceptance = JSON.parse(runnerResult.stdout.trim());
+  } catch {
+    throw new Error("Fresh-consumer MCP acceptance runner did not return one bounded JSON result.");
   }
-  await stdioClient.close();
-  stdioClient = null;
-
-  const coverage = {
-    initializationAndNegotiation: "passed",
-    initializedNotification: "passed",
-    toolAndResourceDiscovery: "passed",
-    closedSchemas: "passed",
-    oauthIdentityAndTransportDefences: "passed",
-    actorAndClientRateLimits: "passed",
-    permissionProfiles: "passed",
-    confirmationBindings: "passed",
-    idempotentReplay: "passed",
-    durableOperationPollingAndCancellation: "passed",
-    auditCorrelation: "passed",
-    sensitiveOutputRejection: "passed",
-    deterministicPaginationLimits: "passed",
-    canonicalRepresentativeReads: "passed",
-  };
   const evidence = {
     contractVersion: MCP_PRODUCT_EVIDENCE_CONTRACT,
     issue: 864,
@@ -295,23 +183,12 @@ try {
     nodeVersion: process.version,
     packageVersion: version,
     packageArchiveSha256,
-    sdk: { ...supported.sdk, protocolVersion: supported.protocolVersion },
-    inspector: { ...supported.inspector, result: "passed", strictSchema: "passed" },
-    packagedRuntime: {
-      sourceCheckoutRequired: false,
-      streamableHttp: "passed",
-      stdio: "passed",
-      operatingModes: ["read-only", "guarded"],
-    },
-    canonical: {
-      discovery: "passed",
-      representativeReads: "passed",
-      guardedLifecycle: "passed",
-      exactlyOnce: true,
-      terminalState: "running",
-    },
-    coverage,
-    assertions: Object.values(coverage),
+    sdk: acceptance.sdk,
+    inspector: acceptance.inspector,
+    packagedRuntime: acceptance.packagedRuntime,
+    canonical: acceptance.canonical,
+    coverage: acceptance.coverage,
+    assertions: acceptance.assertions,
     generatedAt: new Date().toISOString(),
   };
   validateMcpProductEvidence(evidence, { candidateSha, platform });
@@ -322,14 +199,11 @@ try {
     platform,
     packageVersion: version,
     packageArchiveSha256,
-    protocolVersion: supported.protocolVersion,
-    sdkVersion: supported.sdk.version,
-    inspectorVersion: supported.inspector.version,
+    protocolVersion: acceptance.sdk.protocolVersion,
+    sdkVersion: acceptance.sdk.version,
+    inspectorVersion: acceptance.inspector.version,
     result: "passed",
   })}\n`);
 } finally {
-  await stdioClient?.close().catch(() => undefined);
-  await httpClient?.close().catch(() => undefined);
-  await httpServer?.stop().catch(() => undefined);
   await removeOwnedTempRoot(tempRoot);
 }

@@ -11,6 +11,34 @@ function resultPayload(value) {
   return value?.result ?? value;
 }
 
+function parseEventStream(text) {
+  const data = text
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart())
+    .join("\n");
+  return data ? JSON.parse(data) : null;
+}
+
+async function protocolRpc(endpoint, request, protocolVersion) {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
+    },
+    body: JSON.stringify(request),
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: text
+      ? ((response.headers.get("content-type") ?? "").includes("text/event-stream") ? parseEventStream(text) : JSON.parse(text))
+      : null,
+  };
+}
+
 test("#864 official SDK and Inspector accept the guarded Streamable HTTP product contract", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-product-");
   let apiServer;
@@ -94,8 +122,7 @@ test("#864 official SDK and Inspector accept the guarded Streamable HTTP product
     assert.equal(infoResponse.status, 200);
     const info = await infoResponse.json();
     assert.equal(info.protocolVersion, supported.protocolVersion);
-    assert.equal(info.supportedProtocolVersions.includes("2024-11-05"), true);
-    assert.equal(info.supportedProtocolVersions.includes(supported.protocolVersion), true);
+    assert.deepEqual(info.supportedProtocolVersions, supported.supportedProtocolVersions);
     assert.deepEqual(info.sdk, {
       packageName: supported.sdk.packageName,
       version: supported.sdk.version,
@@ -104,6 +131,50 @@ test("#864 official SDK and Inspector accept the guarded Streamable HTTP product
     });
     assert.equal(info.policy.operatingMode, "guarded");
     assert.equal(info.policy.durableOperationsAvailable, true);
+
+    for (const [index, protocolVersion] of supported.supportedProtocolVersions.entries()) {
+      const initialization = await protocolRpc(endpoint, {
+        jsonrpc: "2.0",
+        id: `source-protocol-initialize-${index}`,
+        method: "initialize",
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: { name: "service-lasso-source-protocol-matrix", version: "1.0.0" },
+        },
+      });
+      assert.equal(initialization.status, 200);
+      assert.equal(initialization.body.result.protocolVersion, protocolVersion);
+
+      const notification = await protocolRpc(endpoint, {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      }, protocolVersion);
+      assert.equal([200, 202].includes(notification.status), true);
+
+      const discovery = await protocolRpc(endpoint, {
+        jsonrpc: "2.0",
+        id: `source-protocol-tools-${index}`,
+        method: "tools/list",
+        params: {},
+      }, protocolVersion);
+      assert.equal(discovery.status, 200);
+      assert.equal(discovery.body.result.tools.length, 27);
+    }
+
+    const unsupported = await protocolRpc(endpoint, {
+      jsonrpc: "2.0",
+      id: "source-protocol-unsupported",
+      method: "initialize",
+      params: {
+        protocolVersion: "1900-01-01",
+        capabilities: {},
+        clientInfo: { name: "service-lasso-source-unsupported-protocol", version: "1.0.0" },
+      },
+    });
+    assert.equal(unsupported.status, 200);
+    assert.equal(unsupported.body.result.protocolVersion, supported.protocolVersion);
   } finally {
     if (connected) await client.close().catch(() => undefined);
     await apiServer?.stop();

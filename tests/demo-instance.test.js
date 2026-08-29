@@ -626,6 +626,13 @@ function canonicalFetch({
       },
     };
   });
+  const guardedConfirmation = {
+    id: "mcp-confirmation-11111111-1111-4111-8111-111111111111",
+    confirmationPhrase: "confirm service-restart echo-service",
+  };
+  const guardedCorrelationId = "mcp-correlation-canonical-demo";
+  let guardedIdempotencyKey = null;
+  let guardedExecutionCount = 0;
 
   return async (url, options = {}) => {
     const parsed = new URL(url);
@@ -692,11 +699,21 @@ function canonicalFetch({
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         outputSchema: { type: "object", properties: {}, additionalProperties: false },
       });
+      if (request.method === "initialize") {
+        return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
+          protocolVersion: request.params?.protocolVersion,
+          capabilities: { tools: {}, resources: {} },
+          serverInfo: { name: "service-lasso-operator", version: "fixture" },
+        } });
+      }
+      if (request.method === "notifications/initialized") {
+        return jsonResponse(202, {});
+      }
       if (request.method === "tools/list") {
         return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: { tools: [
           tool("service_lasso_runtime_status"),
           tool("service_lasso_list_services"),
-          tool("service_lasso_start_service"),
+          tool("service_lasso_restart_service"),
         ] } });
       }
       if (request.method === "resources/list") {
@@ -714,9 +731,40 @@ function canonicalFetch({
           structuredContent: { services },
         } });
       }
-      if (request.method === "tools/call" && request.params?.name === "service_lasso_start_service") {
+      if (request.method === "tools/call" && request.params?.name === "service_lasso_restart_service") {
+        const argumentsValue = request.params?.arguments ?? {};
+        if (argumentsValue.execute !== true) {
+          return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
+            structuredContent: {
+              status: "preflight",
+              confirmation: { required: true, ...guardedConfirmation },
+            },
+          } });
+        }
+        assert.equal(argumentsValue.confirmationId, guardedConfirmation.id);
+        assert.equal(argumentsValue.confirmationPhrase, guardedConfirmation.confirmationPhrase);
+        assert.equal(typeof argumentsValue.idempotencyKey, "string");
+        if (guardedIdempotencyKey === null) {
+          guardedIdempotencyKey = argumentsValue.idempotencyKey;
+          guardedExecutionCount += 1;
+          return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
+            structuredContent: {
+              status: "succeeded",
+              correlationId: guardedCorrelationId,
+              idempotency: { replayed: false },
+              result: { resultingState: [{ serviceId: "echo-service", running: true }] },
+            },
+          } });
+        }
+        assert.equal(argumentsValue.idempotencyKey, guardedIdempotencyKey);
+        assert.equal(guardedExecutionCount, 1);
         return jsonResponse(200, { jsonrpc: "2.0", id: request.id, result: {
-          structuredContent: { status: "skipped" },
+          structuredContent: {
+            status: "replayed",
+            correlationId: guardedCorrelationId,
+            idempotency: { replayed: true },
+            result: { resultingState: [{ serviceId: "echo-service", running: true }] },
+          },
         } });
       }
     }
@@ -1249,7 +1297,13 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
       toolCount: 3,
       resourceCount: 1,
       representativeReads: true,
-      guardedAction: { exercised: true, status: "skipped" },
+      guardedAction: {
+        exercised: true,
+        status: "succeeded",
+        replayStatus: "replayed",
+        exactlyOnce: true,
+        terminalState: "running",
+      },
     });
   } finally {
     await rm(tempDir, { recursive: true, force: true });

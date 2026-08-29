@@ -75,6 +75,7 @@ test("#860 serves MCP stdio from the active runtime with a redacted local creden
     })}\n`);
     const initialized = await waitFor(() => messages.find((message) => message.id === 1));
     assert.equal(initialized.result.serverInfo.name, "service-lasso-operator");
+    assert.equal(initialized.result.protocolVersion, "2024-11-05");
 
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
     const tools = await waitFor(() => messages.find((message) => message.id === 2));

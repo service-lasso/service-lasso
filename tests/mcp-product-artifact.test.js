@@ -7,27 +7,16 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
 import AdmZip from "adm-zip";
-import { MCP_PRODUCT_EVIDENCE_CONTRACT, validateMcpProductEvidence } from "../scripts/mcp-product-acceptance-lib.mjs";
+import {
+  MCP_PACKAGED_COVERAGE_KEYS,
+  MCP_PRODUCT_EVIDENCE_CONTRACT,
+  validateMcpProductEvidence,
+} from "../scripts/mcp-product-acceptance-lib.mjs";
 
 const execFileAsync = promisify(execFile);
 
 function evidence(candidateSha, platform) {
-  const coverage = Object.fromEntries([
-    "initializationAndNegotiation",
-    "initializedNotification",
-    "toolAndResourceDiscovery",
-    "closedSchemas",
-    "oauthIdentityAndTransportDefences",
-    "actorAndClientRateLimits",
-    "permissionProfiles",
-    "confirmationBindings",
-    "idempotentReplay",
-    "durableOperationPollingAndCancellation",
-    "auditCorrelation",
-    "sensitiveOutputRejection",
-    "deterministicPaginationLimits",
-    "canonicalRepresentativeReads",
-  ].map((name) => [name, "passed"]));
+  const coverage = Object.fromEntries(MCP_PACKAGED_COVERAGE_KEYS.map((name) => [name, "passed"]));
   return {
     contractVersion: MCP_PRODUCT_EVIDENCE_CONTRACT,
     issue: 864,
@@ -42,10 +31,18 @@ function evidence(candidateSha, platform) {
     nodeVersion: process.version,
     packageVersion: "2026.8.30-0123456",
     packageArchiveSha256: "a".repeat(64),
-    sdk: { packageName: "@modelcontextprotocol/sdk", version: "1.30.0", protocolVersion: "2025-11-25" },
+    sdk: {
+      packageName: "@modelcontextprotocol/sdk",
+      version: "1.30.0",
+      protocolVersion: "2025-11-25",
+      supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
+    },
     inspector: { packageName: "@modelcontextprotocol/inspector", version: "2.4.0", result: "passed", strictSchema: "passed" },
     packagedRuntime: {
       sourceCheckoutRequired: false,
+      sourceCheckoutAccess: "denied-by-node-permission-model",
+      moduleResolution: "fresh-consumer-node-modules",
+      workingDirectory: "fresh-consumer",
       streamableHttp: "passed",
       stdio: "passed",
       operatingModes: ["read-only", "guarded"],
@@ -58,10 +55,37 @@ function evidence(candidateSha, platform) {
       terminalState: "running",
     },
     coverage,
-    assertions: Object.values(coverage),
+    assertions: [...MCP_PACKAGED_COVERAGE_KEYS],
     generatedAt: "2026-08-30T00:00:00.000Z",
   };
 }
+
+test("#864 retained evidence rejects incomplete, inflated, unexpected, or malformed metadata", () => {
+  const candidateSha = "0123456789abcdef0123456789abcdef01234567";
+  const valid = evidence(candidateSha, "linux");
+  validateMcpProductEvidence(valid, { candidateSha, platform: "linux" });
+
+  const invalidMutations = [
+    (value) => { value.assertions = []; },
+    (value) => { delete value.coverage.officialInspector; },
+    (value) => { value.coverage.oauthIdentityAndTransportDefences = "passed"; },
+    (value) => { value.credentials = "not-allowed"; },
+    (value) => { value.sdk.unexpected = "passed"; },
+    (value) => { value.sdk.version = "1.29.0"; },
+    (value) => { value.inspector.version = "2.3.0"; },
+    (value) => { value.packageArchiveSha256 = "not-a-digest"; },
+    (value) => { value.canonical.discovery = "failed"; },
+    (value) => { value.packagedRuntime.operatingModes.reverse(); },
+  ];
+  for (const mutate of invalidMutations) {
+    const invalid = structuredClone(valid);
+    mutate(invalid);
+    assert.throws(
+      () => validateMcpProductEvidence(invalid, { candidateSha, platform: "linux" }),
+      /closed acceptance contract/u,
+    );
+  }
+});
 
 test("#864 retained evidence verifies downloaded content, exact SHA, three OSes, digest, and 90-day retention", async () => {
   const candidateSha = "0123456789abcdef0123456789abcdef01234567";
@@ -161,10 +185,22 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(workflow, /if-no-files-found: error[\s\S]*?retention-days: 90/u);
     assert.match(workflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     assert.match(workflow, /node scripts\/verify-mcp-product-acceptance-run\.mjs/u);
+    assert.match(workflow, /scripts\/mcp-packaged-consumer-runner\.mjs/u);
 
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
-    assert.match(releaseWorkflow, /needs:[\s\S]*?- qualify-mcp-product/u);
+    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
+    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+    assert.match(releaseWorkflow, /qualify-release:[\s\S]*?needs:[\s\S]*?- qualify-mcp-product[\s\S]*?- qualify-mcp-packaged/u);
+
+    for (const workflowPath of [".github/workflows/publish-package.yml", ".github/workflows/release-artifact.yml"]) {
+      const publicationWorkflow = await readFile(workflowPath, "utf8");
+      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
+      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+      assert.match(publicationWorkflow, /needs:[\s\S]*?- qualify-mcp-packaged/u);
+      assert.match(publicationWorkflow, /retention-days: 90/u);
+      assert.match(publicationWorkflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
+    }
   } finally {
     const closed = once(server, "close");
     server.close();
