@@ -138,9 +138,35 @@ function reportStage(stage) {
 }
 
 const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
+const SAFE_GUARDED_STATUSES = new Set(["preflight", "succeeded", "failed", "skipped", "replayed"]);
+const SAFE_TRACE_STATUSES = new Set(["running", "succeeded", "failed", "blocked"]);
+const SAFE_TRACE_PHASES = new Set([
+  "dependency_resolution",
+  "port_selection",
+  "artifact_acquisition",
+  "env_merge",
+  "process_spawn",
+  "health_check",
+  "terminal_outcome",
+]);
+const SAFE_READINESS_ATTRIBUTIONS = new Set([
+  "not_applicable",
+  "owned_listener",
+  "wrong_process_listener",
+  "wrong_generation_listener",
+  "listener_disappeared",
+  "listener_owner_unverifiable",
+  "ownership_evidence_mismatch",
+]);
 
 function stableDiagnosticCode(value) {
   return typeof value === "string" && SAFE_DIAGNOSTIC_CODE.test(value)
+    ? value
+    : "unclassified_error";
+}
+
+function allowlistedDiagnosticCode(value, allowed) {
+  return typeof value === "string" && allowed.has(value)
     ? value
     : "unclassified_error";
 }
@@ -156,7 +182,7 @@ function summarizeToolFailure(result) {
     isError: result.isError === true,
     status: result.structuredContent?.status === undefined || result.structuredContent?.status === null
       ? null
-      : stableDiagnosticCode(result.structuredContent.status),
+      : allowlistedDiagnosticCode(result.structuredContent.status, SAFE_GUARDED_STATUSES),
     errorCode: errorCode === null ? null : stableDiagnosticCode(errorCode),
   };
 }
@@ -426,14 +452,36 @@ try {
       const detail = await fetchBoundedDiagnosticJson(
         `${httpServer.url}/api/services/${encodeURIComponent(configuration.serviceId)}`,
       );
-      const trace = detail?.service?.lifecycle?.runtime?.startTrace?.current;
-      const failedEvent = [...(trace?.events ?? [])].reverse().find((event) => event?.status === "failed");
+      const runtime = detail?.service?.lifecycle?.runtime;
+      const trace = runtime?.startTrace?.current;
+      const failedEvent = [...(trace?.events ?? [])].reverse().find((event) =>
+        event?.status === "failed" && event?.phase !== "terminal_outcome"
+      );
+      const failedHealthchecks = failedEvent?.metadata?.healthcheckFailedIds;
       lifecycleDiagnostic = {
-        attemptStatus: stableDiagnosticCode(trace?.status),
-        phase: stableDiagnosticCode(failedEvent?.phase ?? trace?.currentPhase),
+        attemptStatus: allowlistedDiagnosticCode(trace?.status, SAFE_TRACE_STATUSES),
+        phase: allowlistedDiagnosticCode(failedEvent?.phase ?? trace?.currentPhase, SAFE_TRACE_PHASES),
+        exitClass: runtime?.exitCode === null
+          ? "none"
+          : typeof runtime?.exitCode === "number" && Number.isInteger(runtime.exitCode)
+            ? runtime.exitCode === 0 ? "zero" : "nonzero"
+            : "unclassified_error",
+        readinessAttribution: failedEvent?.metadata?.readinessAttribution === undefined ||
+          failedEvent?.metadata?.readinessAttribution === null
+          ? null
+          : allowlistedDiagnosticCode(failedEvent.metadata.readinessAttribution, SAFE_READINESS_ATTRIBUTIONS),
+        healthcheckFailed: Array.isArray(failedHealthchecks)
+          ? failedHealthchecks.length > 0
+          : null,
       };
     } catch {
-      lifecycleDiagnostic = { attemptStatus: null, phase: null };
+      lifecycleDiagnostic = {
+        attemptStatus: null,
+        phase: null,
+        exitClass: null,
+        readinessAttribution: null,
+        healthcheckFailed: null,
+      };
     }
     const summarize = (result) => ({
         ...summarizeToolFailure(result),

@@ -10,6 +10,28 @@ const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
 const PACKAGED_ACCEPTANCE_ERROR_PREFIX = "[mcp-package-acceptance-error] ";
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 5_000;
 const DEFAULT_DIAGNOSTIC_MAX_BYTES = 32 * 1024;
+const GUARDED_DIAGNOSTIC_STATUSES = new Set(["preflight", "succeeded", "failed", "skipped", "replayed", "unclassified_error"]);
+const GUARDED_DIAGNOSTIC_TRACE_STATUSES = new Set(["running", "succeeded", "failed", "blocked", "unclassified_error"]);
+const GUARDED_DIAGNOSTIC_TRACE_PHASES = new Set([
+  "dependency_resolution",
+  "port_selection",
+  "artifact_acquisition",
+  "env_merge",
+  "process_spawn",
+  "health_check",
+  "terminal_outcome",
+  "unclassified_error",
+]);
+const GUARDED_DIAGNOSTIC_READINESS = new Set([
+  "not_applicable",
+  "owned_listener",
+  "wrong_process_listener",
+  "wrong_generation_listener",
+  "listener_disappeared",
+  "listener_owner_unverifiable",
+  "ownership_evidence_mismatch",
+  "unclassified_error",
+]);
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "audit_event_not_found",
   "audit_probe_failed",
@@ -107,7 +129,7 @@ export function parsePackagedAcceptanceFailure(stderr) {
       !isRecord(parsed.result) ||
       !hasOnlyKeys(parsed.result, new Set(["isError", "status", "errorCode"])) ||
       typeof parsed.result.isError !== "boolean" ||
-      !(parsed.result.status === null || isSafeDiagnosticCode(parsed.result.status)) ||
+      !(parsed.result.status === null || GUARDED_DIAGNOSTIC_STATUSES.has(parsed.result.status)) ||
       !(parsed.result.errorCode === null || isSafeDiagnosticCode(parsed.result.errorCode))
     ) return null;
     diagnostic.result = {
@@ -145,7 +167,7 @@ export function parsePackagedAcceptanceFailure(stderr) {
       isRecord(value) &&
       hasOnlyKeys(value, new Set(["isError", "status", "errorCode", "replayed", "running"])) &&
       typeof value.isError === "boolean" &&
-      (value.status === null || isSafeDiagnosticCode(value.status)) &&
+      (value.status === null || GUARDED_DIAGNOSTIC_STATUSES.has(value.status)) &&
       (value.errorCode === null || isSafeDiagnosticCode(value.errorCode)) &&
       (value.replayed === null || typeof value.replayed === "boolean") &&
       (value.running === null || typeof value.running === "boolean");
@@ -156,9 +178,18 @@ export function parsePackagedAcceptanceFailure(stderr) {
       !isGuardedResult(parsed.guardedProbe.replayed) ||
       !(parsed.guardedProbe.sameCorrelation === null || typeof parsed.guardedProbe.sameCorrelation === "boolean") ||
       !isRecord(parsed.guardedProbe.lifecycle) ||
-      !hasOnlyKeys(parsed.guardedProbe.lifecycle, new Set(["attemptStatus", "phase"])) ||
-      !(parsed.guardedProbe.lifecycle.attemptStatus === null || isSafeDiagnosticCode(parsed.guardedProbe.lifecycle.attemptStatus)) ||
-      !(parsed.guardedProbe.lifecycle.phase === null || isSafeDiagnosticCode(parsed.guardedProbe.lifecycle.phase))
+      !hasOnlyKeys(parsed.guardedProbe.lifecycle, new Set([
+        "attemptStatus",
+        "phase",
+        "exitClass",
+        "readinessAttribution",
+        "healthcheckFailed",
+      ])) ||
+      !(parsed.guardedProbe.lifecycle.attemptStatus === null || GUARDED_DIAGNOSTIC_TRACE_STATUSES.has(parsed.guardedProbe.lifecycle.attemptStatus)) ||
+      !(parsed.guardedProbe.lifecycle.phase === null || GUARDED_DIAGNOSTIC_TRACE_PHASES.has(parsed.guardedProbe.lifecycle.phase)) ||
+      !(parsed.guardedProbe.lifecycle.exitClass === null || ["none", "zero", "nonzero", "unclassified_error"].includes(parsed.guardedProbe.lifecycle.exitClass)) ||
+      !(parsed.guardedProbe.lifecycle.readinessAttribution === null || GUARDED_DIAGNOSTIC_READINESS.has(parsed.guardedProbe.lifecycle.readinessAttribution)) ||
+      !(parsed.guardedProbe.lifecycle.healthcheckFailed === null || typeof parsed.guardedProbe.lifecycle.healthcheckFailed === "boolean")
     ) return null;
     diagnostic.guardedProbe = {
       completed: { ...parsed.guardedProbe.completed },

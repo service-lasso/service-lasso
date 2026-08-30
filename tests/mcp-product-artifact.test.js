@@ -71,6 +71,10 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     ...safe,
     auditProbe: { stage: "audit_probe", reason: "secret_token_value" },
   })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...safe,
+    result: { ...safe.result, status: "secret_token_value" },
+  })}`), null);
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}`), null);
   assert.equal(JSON.stringify(safe).includes(hostile), false);
   assert.ok(JSON.stringify(safe).length < 512);
@@ -82,7 +86,13 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
       completed: { isError: false, status: "succeeded", errorCode: null, replayed: false, running: true },
       replayed: { isError: false, status: "replayed", errorCode: null, replayed: true, running: true },
       sameCorrelation: true,
-      lifecycle: { attemptStatus: "ready", phase: "owned_readiness_proven" },
+      lifecycle: {
+        attemptStatus: "failed",
+        phase: "health_check",
+        exitClass: "nonzero",
+        readinessAttribution: "not_applicable",
+        healthcheckFailed: true,
+      },
     },
   };
   assert.deepEqual(
@@ -98,6 +108,34 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     guardedProbe: {
       ...guarded.guardedProbe,
       completed: { ...guarded.guardedProbe.completed, summary: hostile },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      completed: { ...guarded.guardedProbe.completed, status: "secret_token_value" },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: { ...guarded.guardedProbe.lifecycle, readinessAttribution: "secret_token_value" },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: { ...guarded.guardedProbe.lifecycle, attemptStatus: "secret_token_value" },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: { ...guarded.guardedProbe.lifecycle, phase: "secret_token_value" },
     },
   })}`), null);
   assert.equal(JSON.stringify(guarded).includes(hostile), false);
