@@ -287,6 +287,13 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(inspectorProvenanceVerifier, /Framework64[\s\S]*?v4\.0\.30319[\s\S]*?csc\.exe/u);
     assert.match(inspectorProvenanceVerifier, /Get-NormalizedAssemblyBytes[\s\S]*?peOffset \+ 8[\s\S]*?moduleVersionIdOffset/u);
     assert.match(inspectorProvenanceVerifier, /shippedBytes\[\$index\] -ne \$normalizedBytes\[\$index\]/u);
+    assert.match(inspectorProvenanceVerifier, /Assert-CanonicalProvenanceBytes/u);
+    assert.match(inspectorProvenanceVerifier, /Assert-ExactPropertyNames/u);
+    assert.match(inspectorProvenanceVerifier, /Test-ProvenanceJsonInteger/u);
+    assert.match(inspectorProvenanceVerifier, /Test-ProvenanceExactString[\s\S]*?actualCompilerOptions[\s\S]*?SourceSha256[\s\S]*?BinarySha256/u);
+    assert.match(inspectorProvenanceVerifier, /Invoke-ProvenanceNegativeTests[\s\S]*?extra property[\s\S]*?reordered properties[\s\S]*?string schema[\s\S]*?non-integral schema[\s\S]*?string binary length[\s\S]*?non-integral binary length[\s\S]*?compiler path[\s\S]*?compiler option[\s\S]*?source digest[\s\S]*?binary digest[\s\S]*?normalization declaration[\s\S]*?boolean compiler path[\s\S]*?boolean compiler option[\s\S]*?boolean source digest[\s\S]*?boolean normalization declaration/u);
+    assert.match(inspectorProvenanceVerifier, /first-bad last-good duplicate key[\s\S]*?UTF-8 BOM[\s\S]*?UTF-16 BOM/u);
+    assert.doesNotMatch(inspectorProvenanceVerifier, /actualJson -cne expectedJson/u);
     const managedLauncherSource = await readFile("src/runtime/execution/windows-managed-launcher.ps1", "utf8");
     assert.match(managedLauncherSource, /CreateJobObjectW[\s\S]*?SetInformationJobObject[\s\S]*?CreateProcessW[\s\S]*?AssignProcessToJobObject[\s\S]*?ResumeThread/u);
     assert.match(managedLauncherSource, /0x2000[\s\S]*?0x00000004/u);

@@ -42,6 +42,212 @@ function Get-Sha256Hex([byte[]]$Bytes) {
   }
 }
 
+function Assert-ExactPropertyNames($Object, [string[]]$ExpectedNames, [string]$Label) {
+  [string[]]$actualNames = @($Object.PSObject.Properties | ForEach-Object { $_.Name })
+  if ($actualNames.Length -ne $ExpectedNames.Length) {
+    throw "The Windows process-inspector $Label property set was invalid."
+  }
+  for ($index = 0; $index -lt $ExpectedNames.Length; $index += 1) {
+    if ($actualNames[$index] -cne $ExpectedNames[$index]) {
+      throw "The Windows process-inspector $Label property set was invalid."
+    }
+  }
+}
+
+function Test-ProvenanceJsonInteger($Value) {
+  return $Value -is [System.Int32] -or $Value -is [System.Int64]
+}
+
+function Test-ProvenanceExactString($Value, [string]$ExpectedValue) {
+  return $Value -is [System.String] -and [String]::Equals($Value, $ExpectedValue, [StringComparison]::Ordinal)
+}
+
+function Get-CanonicalProvenanceJson(
+  [string]$SourceSha256,
+  [string]$BinarySha256,
+  [int64]$BinaryByteLength
+) {
+  return @(
+    '{',
+    '  "schemaVersion": 1,',
+    '  "compiler": {',
+    '    "family": "Microsoft .NET Framework 4.8 C# compiler",',
+    '    "path": "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",',
+    '    "options": [',
+    '      "/nologo",',
+    '      "/target:exe",',
+    '      "/platform:anycpu",',
+    '      "/optimize+"',
+    '    ]',
+    '  },',
+    '  "source": {',
+    '    "path": "src/runtime/process/windows-process-inspector.cs",',
+    ('    "sha256": "{0}"' -f $SourceSha256),
+    '  },',
+    '  "binary": {',
+    '    "path": "src/runtime/process/windows-process-inspector.exe",',
+    ('    "sha256": "{0}",' -f $BinarySha256),
+    ('    "byteLength": {0},' -f $BinaryByteLength),
+    '    "peTimestamp": "zero",',
+    '    "moduleVersionId": "zero"',
+    '  }',
+    '}'
+  ) -join "`n"
+}
+
+function Assert-CanonicalProvenanceBytes([byte[]]$ActualBytes, [byte[]]$ExpectedBytes) {
+  if ($ActualBytes.Length -ne $ExpectedBytes.Length) {
+    throw "The Windows process-inspector provenance bytes were not canonical."
+  }
+  for ($index = 0; $index -lt $ExpectedBytes.Length; $index += 1) {
+    if ($ActualBytes[$index] -ne $ExpectedBytes[$index]) {
+      throw "The Windows process-inspector provenance bytes were not canonical."
+    }
+  }
+}
+
+function Assert-CanonicalProvenanceBytesRejected(
+  [byte[]]$CandidateBytes,
+  [byte[]]$ExpectedBytes,
+  [string]$CaseName
+) {
+  $rejected = $false
+  try {
+    Assert-CanonicalProvenanceBytes $CandidateBytes $ExpectedBytes
+  } catch {
+    $rejected = $true
+  }
+  if (-not $rejected) {
+    throw "The Windows process-inspector provenance byte negative case was accepted: $CaseName."
+  }
+}
+
+function Assert-ProvenanceManifest(
+  $ActualProvenance,
+  $ExpectedProvenance,
+  [string]$SourceSha256,
+  [string]$BinarySha256,
+  [int64]$BinaryByteLength
+) {
+  Assert-ExactPropertyNames $ActualProvenance @("schemaVersion", "compiler", "source", "binary") "provenance"
+  Assert-ExactPropertyNames $ActualProvenance.compiler @("family", "path", "options") "compiler provenance"
+  Assert-ExactPropertyNames $ActualProvenance.source @("path", "sha256") "source provenance"
+  Assert-ExactPropertyNames $ActualProvenance.binary @("path", "sha256", "byteLength", "peTimestamp", "moduleVersionId") "binary provenance"
+  $actualCompilerOptions = $ActualProvenance.compiler.options
+  $compilerOptionsMatch = $actualCompilerOptions -is [System.Array] -and $actualCompilerOptions.Length -eq $compilerOptions.Length
+  if ($compilerOptionsMatch) {
+    for ($index = 0; $index -lt $compilerOptions.Length; $index += 1) {
+      if (-not (Test-ProvenanceExactString $actualCompilerOptions[$index] $compilerOptions[$index])) {
+        $compilerOptionsMatch = $false
+        break
+      }
+    }
+  }
+  if (
+    -not (Test-ProvenanceJsonInteger $ActualProvenance.schemaVersion) -or
+    $ActualProvenance.schemaVersion -ne 1 -or
+    -not (Test-ProvenanceExactString $ActualProvenance.compiler.family $ExpectedProvenance.compiler.family) -or
+    -not (Test-ProvenanceExactString $ActualProvenance.compiler.path $ExpectedProvenance.compiler.path) -or
+    -not $compilerOptionsMatch -or
+    -not (Test-ProvenanceExactString $ActualProvenance.source.path $sourceRelativePath) -or
+    -not (Test-ProvenanceExactString $ActualProvenance.source.sha256 $SourceSha256) -or
+    -not (Test-ProvenanceExactString $ActualProvenance.binary.path $binaryRelativePath) -or
+    -not (Test-ProvenanceExactString $ActualProvenance.binary.sha256 $BinarySha256) -or
+    -not (Test-ProvenanceJsonInteger $ActualProvenance.binary.byteLength) -or
+    $ActualProvenance.binary.byteLength -ne $BinaryByteLength -or
+    -not (Test-ProvenanceExactString $ActualProvenance.binary.peTimestamp "zero") -or
+    -not (Test-ProvenanceExactString $ActualProvenance.binary.moduleVersionId "zero")
+  ) {
+    throw "The Windows process-inspector provenance manifest did not match source and binary content."
+  }
+}
+
+function Copy-ProvenanceObject($Provenance) {
+  return $Provenance | ConvertTo-Json -Depth 6 | ConvertFrom-Json
+}
+
+function Assert-ProvenanceRejected(
+  $Candidate,
+  $ExpectedProvenance,
+  [string]$SourceSha256,
+  [string]$BinarySha256,
+  [int64]$BinaryByteLength,
+  [string]$CaseName
+) {
+  $rejected = $false
+  try {
+    Assert-ProvenanceManifest $Candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength
+  } catch {
+    $rejected = $true
+  }
+  if (-not $rejected) {
+    throw "The Windows process-inspector provenance negative case was accepted: $CaseName."
+  }
+}
+
+function Invoke-ProvenanceNegativeTests(
+  $ActualProvenance,
+  $ExpectedProvenance,
+  [string]$SourceSha256,
+  [string]$BinarySha256,
+  [int64]$BinaryByteLength
+) {
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "extra property"
+
+  $candidate = [pscustomobject][ordered]@{
+    compiler = $ActualProvenance.compiler
+    schemaVersion = $ActualProvenance.schemaVersion
+    source = $ActualProvenance.source
+    binary = $ActualProvenance.binary
+  }
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "reordered properties"
+
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.schemaVersion = "1"
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "string schema"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.schemaVersion = 1.5
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "non-integral schema"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.binary.byteLength = "$BinaryByteLength"
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "string binary length"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.binary.byteLength = $BinaryByteLength + 0.5
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "non-integral binary length"
+
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.compiler.path = "untrusted/compiler.exe"
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "compiler path"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.compiler.options[0] = "/unsafe"
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "compiler option"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.source.sha256 = ("0" * 64)
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "source digest"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.binary.sha256 = ("0" * 64)
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "binary digest"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.binary.peTimestamp = "retained"
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "normalization declaration"
+
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.compiler.path = $true
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "boolean compiler path"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.compiler.options[0] = $true
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "boolean compiler option"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.source.sha256 = $true
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "boolean source digest"
+  $candidate = Copy-ProvenanceObject $ActualProvenance
+  $candidate.binary.peTimestamp = $true
+  Assert-ProvenanceRejected $candidate $ExpectedProvenance $SourceSha256 $BinarySha256 $BinaryByteLength "boolean normalization declaration"
+  return 15
+}
+
 function Find-UniqueByteSequence([byte[]]$Bytes, [byte[]]$Sequence) {
   $matches = New-Object Collections.Generic.List[int]
   for ($offset = 0; $offset -le $Bytes.Length - $Sequence.Length; $offset += 1) {
@@ -124,11 +330,13 @@ try {
       moduleVersionId = "zero"
     }
   }
+  $expectedCanonicalProvenanceJson = (Get-CanonicalProvenanceJson $sourceSha256 $binarySha256 $normalizedBytes.Length) + "`n"
+  $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+  [byte[]]$expectedCanonicalProvenanceBytes = $strictUtf8.GetBytes($expectedCanonicalProvenanceJson)
 
   if ($Update) {
     [IO.File]::WriteAllBytes($binaryPath, $normalizedBytes)
-    $provenanceJson = ($expectedProvenance | ConvertTo-Json -Depth 6).Replace("`r`n", "`n").Replace("`r", "`n")
-    [IO.File]::WriteAllText($provenancePath, $provenanceJson + "`n", (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllBytes($provenancePath, $expectedCanonicalProvenanceBytes)
   }
 
   if (-not [IO.File]::Exists($binaryPath) -or -not [IO.File]::Exists($provenancePath)) {
@@ -144,12 +352,23 @@ try {
     }
   }
 
-  $actualProvenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
-  $expectedJson = $expectedProvenance | ConvertTo-Json -Depth 6 -Compress
-  $actualJson = $actualProvenance | ConvertTo-Json -Depth 6 -Compress
-  if ($actualJson -cne $expectedJson) {
-    throw "The Windows process-inspector provenance manifest did not match source and binary content."
-  }
+  [byte[]]$actualProvenanceBytes = [IO.File]::ReadAllBytes($provenancePath)
+  Assert-CanonicalProvenanceBytes $actualProvenanceBytes $expectedCanonicalProvenanceBytes
+  $actualProvenanceJson = $strictUtf8.GetString($actualProvenanceBytes)
+  $duplicateKeyCandidate = $actualProvenanceJson.Replace(
+    '  "schemaVersion": 1,',
+    "  `"schemaVersion`": 2,`n  `"schemaVersion`": 1,"
+  )
+  Assert-CanonicalProvenanceBytesRejected ($strictUtf8.GetBytes($duplicateKeyCandidate)) $expectedCanonicalProvenanceBytes "first-bad last-good duplicate key"
+  $utf8WithBom = New-Object Text.UTF8Encoding($true, $true)
+  [byte[]]$utf8BomCandidate = @($utf8WithBom.GetPreamble()) + @($expectedCanonicalProvenanceBytes)
+  Assert-CanonicalProvenanceBytesRejected $utf8BomCandidate $expectedCanonicalProvenanceBytes "UTF-8 BOM"
+  $utf16WithBom = New-Object Text.UnicodeEncoding($false, $true, $true)
+  [byte[]]$utf16BomCandidate = @($utf16WithBom.GetPreamble()) + @($utf16WithBom.GetBytes($expectedCanonicalProvenanceJson))
+  Assert-CanonicalProvenanceBytesRejected $utf16BomCandidate $expectedCanonicalProvenanceBytes "UTF-16 BOM"
+  $actualProvenance = $actualProvenanceJson | ConvertFrom-Json
+  Assert-ProvenanceManifest $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length
+  $negativeCaseCount = 3 + (Invoke-ProvenanceNegativeTests $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length)
 
   [pscustomobject]@{
     result = "passed"
@@ -159,6 +378,7 @@ try {
     sourceSha256 = $sourceSha256
     binarySha256 = $binarySha256
     binaryByteLength = $normalizedBytes.Length
+    negativeCaseCount = $negativeCaseCount
   } | ConvertTo-Json -Compress
 } finally {
   if ([IO.Directory]::Exists($temporaryRoot)) {

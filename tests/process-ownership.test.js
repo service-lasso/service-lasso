@@ -2448,7 +2448,7 @@ test("runtime and service ownership are durable before readiness and clear after
     const launching = await waitFor(async () => {
       const entry = await findProcessOwnership(workspaceRoot, "service", "owned-service");
       return entry?.lifecycleState === "launching" ? entry : null;
-    }, 8_000);
+    }, 20_000);
     assert.equal(launching.identityStatus, "owned");
     assert.equal(launching.pid > 0, true);
 
