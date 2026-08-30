@@ -6,6 +6,102 @@ import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcont
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
+const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
+const PACKAGED_ACCEPTANCE_ERROR_PREFIX = "[mcp-package-acceptance-error] ";
+export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
+  "audit_event_not_found",
+  "audit_probe_failed",
+  "audit_reason_unclassified",
+  "confirmation_private_state_acl_failed",
+  "confirmation_private_state_commit_failed",
+  "confirmation_private_state_protect_failed",
+  "confirmation_private_state_protect_timeout",
+  "confirmation_private_state_protect_unavailable",
+  "confirmation_private_state_sid_failed",
+  "confirmation_private_state_system_utilities_unavailable",
+  "confirmation_private_state_unprotect_failed",
+  "confirmation_private_state_unprotect_timeout",
+  "confirmation_private_state_unprotect_unavailable",
+  "confirmation_state_unavailable",
+  "invalid_request",
+  "mcp_audit_unavailable",
+  "preflight_failed",
+]);
+const SAFE_AUDIT_DIAGNOSTIC_REASONS = new Set(MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS);
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value, allowed) {
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function isSafeDiagnosticCode(value) {
+  return typeof value === "string" && SAFE_DIAGNOSTIC_CODE.test(value);
+}
+
+export function parsePackagedAcceptanceFailure(stderr) {
+  if (typeof stderr !== "string") return null;
+  const diagnosticLines = stderr
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith(PACKAGED_ACCEPTANCE_ERROR_PREFIX));
+  if (diagnosticLines.length !== 1) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(diagnosticLines[0].slice(PACKAGED_ACCEPTANCE_ERROR_PREFIX.length));
+  } catch {
+    return null;
+  }
+  if (
+    !isRecord(parsed) ||
+    !hasOnlyKeys(parsed, new Set(["stage", "errorCode", "result", "componentProbe", "auditProbe"])) ||
+    !isSafeDiagnosticCode(parsed.stage) ||
+    !isSafeDiagnosticCode(parsed.errorCode)
+  ) {
+    return null;
+  }
+  const diagnostic = { stage: parsed.stage, errorCode: parsed.errorCode };
+  if (parsed.result !== undefined) {
+    if (
+      !isRecord(parsed.result) ||
+      !hasOnlyKeys(parsed.result, new Set(["isError", "status", "errorCode"])) ||
+      typeof parsed.result.isError !== "boolean" ||
+      !(parsed.result.status === null || isSafeDiagnosticCode(parsed.result.status)) ||
+      !(parsed.result.errorCode === null || isSafeDiagnosticCode(parsed.result.errorCode))
+    ) return null;
+    diagnostic.result = {
+      isError: parsed.result.isError,
+      status: parsed.result.status,
+      errorCode: parsed.result.errorCode,
+    };
+  }
+  if (parsed.componentProbe !== undefined) {
+    if (
+      !isRecord(parsed.componentProbe) ||
+      !hasOnlyKeys(parsed.componentProbe, new Set(["stage", "errorCode"])) ||
+      !isSafeDiagnosticCode(parsed.componentProbe.stage) ||
+      !(parsed.componentProbe.errorCode === null || isSafeDiagnosticCode(parsed.componentProbe.errorCode))
+    ) return null;
+    diagnostic.componentProbe = {
+      stage: parsed.componentProbe.stage,
+      errorCode: parsed.componentProbe.errorCode,
+    };
+  }
+  if (parsed.auditProbe !== undefined) {
+    if (
+      !isRecord(parsed.auditProbe) ||
+      !hasOnlyKeys(parsed.auditProbe, new Set(["stage", "reason"])) ||
+      parsed.auditProbe.stage !== "audit_probe" ||
+      !SAFE_AUDIT_DIAGNOSTIC_REASONS.has(parsed.auditProbe.reason)
+    ) return null;
+    diagnostic.auditProbe = {
+      stage: "audit_probe",
+      reason: parsed.auditProbe.reason,
+    };
+  }
+  return diagnostic;
+}
 
 async function readPackageManifest(packageName) {
   let directory = path.dirname(fileURLToPath(import.meta.resolve(`${packageName}/package.json`)));

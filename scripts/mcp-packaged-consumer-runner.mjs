@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
+  MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS,
   runInspector,
   supportedMcpVersions,
 } from "./mcp-product-acceptance-lib.mjs";
@@ -128,7 +129,10 @@ function isolatedRuntimeEnvironment(overrides) {
   return { ...environment, ...overrides };
 }
 
+let currentStage = "initialization";
+
 function reportStage(stage) {
+  currentStage = stableDiagnosticCode(stage);
   process.stderr.write(`[mcp-package-acceptance] ${stage}\n`);
 }
 
@@ -152,6 +156,45 @@ function summarizeToolFailure(result) {
     status: result.structuredContent?.status ?? null,
     errorCode: errorCode === null ? null : stableDiagnosticCode(errorCode),
   };
+}
+
+const SAFE_AUDIT_DIAGNOSTIC_REASONS = new Set(MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS);
+
+class SafeAcceptanceFailure extends Error {
+  constructor(diagnostic) {
+    super("Packaged MCP acceptance failed safely.");
+    this.name = "SafeAcceptanceFailure";
+    this.diagnostic = diagnostic;
+  }
+}
+
+async function diagnoseGuardedDenial(client, since) {
+  try {
+    const result = await client.callTool({
+      name: "service_lasso_audit_search",
+      arguments: {
+        action: "mcp.action.denied",
+        outcome: "failure",
+        source: "runtime-mcp",
+        since,
+        limit: 5,
+      },
+    }, undefined, { timeout: 5_000, maxTotalTimeout: 5_000 });
+    const event = [...(result.structuredContent?.events ?? [])].reverse().find((candidate) =>
+      candidate?.action === "mcp.action.denied" &&
+      candidate?.outcome === "failure" &&
+      candidate?.source === "runtime-mcp" &&
+      candidate?.subject === "service_start"
+    );
+    const reason = SAFE_AUDIT_DIAGNOSTIC_REASONS.has(event?.reason)
+      ? event.reason
+      : event
+        ? "audit_reason_unclassified"
+        : "audit_event_not_found";
+    return { stage: "audit_probe", reason };
+  } catch {
+    return { stage: "audit_probe", reason: "audit_probe_failed" };
+  }
 }
 
 async function diagnoseGuardedPreflightComponents(installedRoot, acceptanceConfiguration) {
@@ -321,16 +364,21 @@ try {
   }
 
   reportStage("guarded-preflight");
+  const guardedPreflightStartedAt = new Date().toISOString();
   const plan = await httpClient.callTool({
     name: "service_lasso_start_service",
     arguments: { serviceId: configuration.serviceId },
   });
   if (plan.isError || plan.structuredContent?.status !== "preflight") {
+    const auditProbe = await diagnoseGuardedDenial(httpClient, guardedPreflightStartedAt);
     const componentProbe = await diagnoseGuardedPreflightComponents(installedRoot, configuration);
-    throw new Error(`Canonical packaged guarded lifecycle preflight failed: ${JSON.stringify({
+    throw new SafeAcceptanceFailure({
+      stage: "guarded_preflight",
+      errorCode: "guarded_preflight_failed",
       result: summarizeToolFailure(plan),
       componentProbe,
-    })}`);
+      auditProbe,
+    });
   }
   const executionArguments = {
     serviceId: configuration.serviceId,
@@ -462,6 +510,12 @@ try {
     coverage,
     assertions: [...MCP_PACKAGED_COVERAGE_KEYS],
   })}\n`);
+} catch (error) {
+  const diagnostic = error instanceof SafeAcceptanceFailure
+    ? error.diagnostic
+    : { stage: stableDiagnosticCode(currentStage), errorCode: "acceptance_failed" };
+  process.stderr.write(`[mcp-package-acceptance-error] ${JSON.stringify(diagnostic)}\n`);
+  process.exitCode = 1;
 } finally {
   await stdioClient?.close().catch(() => undefined);
   await httpClient?.close().catch(() => undefined);

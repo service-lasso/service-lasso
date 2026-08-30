@@ -10,10 +10,34 @@ import AdmZip from "adm-zip";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PRODUCT_EVIDENCE_CONTRACT,
+  parsePackagedAcceptanceFailure,
   validateMcpProductEvidence,
 } from "../scripts/mcp-product-acceptance-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("#864 packaged failure diagnostics admit one strict bounded record and discard captured process detail", () => {
+  const safe = {
+    stage: "guarded_preflight",
+    errorCode: "guarded_preflight_failed",
+    result: { isError: true, status: null, errorCode: "invalid_request" },
+    componentProbe: { stage: "component_probe", errorCode: null },
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_system_utilities_unavailable" },
+  };
+  const hostile = "token=secret C:\\private\\workspace /opt/private command --password";
+  assert.deepEqual(
+    parsePackagedAcceptanceFailure(`${hostile}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n${hostile}`),
+    safe,
+  );
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({ ...safe, path: hostile })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...safe,
+    auditProbe: { stage: "audit_probe", reason: "secret_token_value" },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}`), null);
+  assert.equal(JSON.stringify(safe).includes(hostile), false);
+  assert.ok(JSON.stringify(safe).length < 512);
+});
 
 function evidence(candidateSha, platform) {
   const coverage = Object.fromEntries(MCP_PACKAGED_COVERAGE_KEYS.map((name) => [name, "passed"]));
@@ -205,6 +229,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       "src/runtime/execution/supervisor.ts",
       "src/runtime/execution/windows-managed-launcher.ps1",
       "src/runtime/lifecycle/actions.ts",
+      "src/runtime/security/private-json.ts",
       "src/runtime/process/identity.ts",
       "src/runtime/process/registry.ts",
       "src/runtime/process/tree.ts",
@@ -260,6 +285,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedConsumer, /SAFE_DIAGNOSTIC_CODE[\s\S]*?componentProbe/u);
     assert.doesNotMatch(packagedConsumer, /JSON\.stringify\(plan\)/u);
     assert.doesNotMatch(packagedConsumer, /setWindowsProcessInspectionTimeoutForTests|mcp-packaged-stdio-preload/u);
+    assert.match(packagedVerifier, /verificationFailure[\s\S]*?cleanup_failed[\s\S]*?mcp-package-verification-error/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
     assert.match(identitySource, /windows-process-inspector\.exe/u);
     assert.doesNotMatch(identitySource, /windows-process-inspector\.ps1|powershell\.exe/u);

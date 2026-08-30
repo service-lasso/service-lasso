@@ -112,7 +112,7 @@ Every tool rejects additional properties at runtime. Read tools are annotated re
 | Recovery history | 20 | 100 |
 | Durable operations | 50 | 100 |
 
-Read errors use stable codes such as `unknown_service`, `feature_unavailable`, `forbidden`, `invalid_cursor` and `invalid_request`. Guarded actions additionally distinguish mode, profile, scope, confirmation and idempotency failures. Errors contain a stable code and safe message, never an internal exception, root path, raw log/config value or credential.
+Read errors use stable codes such as `unknown_service`, `feature_unavailable`, `forbidden`, `invalid_cursor` and `invalid_request`. Guarded actions additionally distinguish mode, profile, scope, confirmation and idempotency failures. A confirmation-state persistence failure returns `confirmation_state_unavailable` before mutation and records a more specific allowlisted protected-state phase in durable Audit; neither surface exposes the underlying command, path, environment, plaintext, ciphertext or subprocess output. Errors contain a stable code and safe message, never an internal exception, root path, raw log/config value or credential.
 
 Streamable HTTP requires `service-lasso:read` for all tools, `service-lasso:logs:read` for `service_lasso_logs_summary`, `service-lasso:audit:read` for `service_lasso_audit_search`, and the action scope shown above for guarded tools. The protected-resource metadata advertises all seven supported scopes. The trusted local stdio adapter defaults to read and log scopes; guarded stdio scopes must be set explicitly.
 

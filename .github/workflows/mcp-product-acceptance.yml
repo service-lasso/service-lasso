@@ -29,6 +29,7 @@ on:
       - src/runtime/execution/windows-managed-launcher.ps1
       - src/runtime/lifecycle/actions.ts
       - src/runtime/operator/**
+      - src/runtime/security/private-json.ts
       - src/runtime/process/identity.ts
       - src/runtime/process/registry.ts
       - src/runtime/process/tree.ts
@@ -71,6 +72,7 @@ on:
       - src/runtime/execution/windows-managed-launcher.ps1
       - src/runtime/lifecycle/actions.ts
       - src/runtime/operator/**
+      - src/runtime/security/private-json.ts
       - src/runtime/process/identity.ts
       - src/runtime/process/registry.ts
       - src/runtime/process/tree.ts

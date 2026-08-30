@@ -10,10 +10,29 @@ const MAX_PRIVATE_JSON_BYTES = 64 * 1024;
 const MAX_PROTECTED_TEXT_BYTES = 256 * 1024;
 let currentWindowsSid: Promise<string> | null = null;
 
+export type PrivateJsonErrorCode =
+  | "private_state_acl_failed"
+  | "private_state_commit_failed"
+  | "private_state_protect_failed"
+  | "private_state_protect_timeout"
+  | "private_state_protect_unavailable"
+  | "private_state_sid_failed"
+  | "private_state_system_utilities_unavailable"
+  | "private_state_unprotect_failed"
+  | "private_state_unprotect_timeout"
+  | "private_state_unprotect_unavailable";
+
+export class PrivateJsonError extends Error {
+  constructor(public readonly code: PrivateJsonErrorCode, message: string) {
+    super(message);
+    this.name = "PrivateJsonError";
+  }
+}
+
 function windowsSystemExecutable(...segments: string[]): string {
   const root = process.env.SystemRoot ?? process.env.WINDIR;
   if (!root || !path.win32.isAbsolute(root)) {
-    throw new Error("Windows system utilities are unavailable.");
+    throw new PrivateJsonError("private_state_system_utilities_unavailable", "Windows private-state protection is unavailable.");
   }
   return path.win32.join(path.win32.normalize(root), ...segments);
 }
@@ -58,7 +77,9 @@ async function assertNoRedirectedAncestors(rootPath: string, targetPath: string)
   }
 }
 
-async function runPowerShellProtection(script: string, input: string): Promise<string> {
+async function runPowerShellProtection(operation: "protect" | "unprotect", script: string, input: string): Promise<string> {
+  const code = (suffix: "failed" | "timeout" | "unavailable"): PrivateJsonErrorCode =>
+    `private_state_${operation}_${suffix}` as PrivateJsonErrorCode;
   return await new Promise((resolve, reject) => {
     const child = spawn(windowsSystemExecutable("System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
       windowsHide: true,
@@ -71,7 +92,7 @@ async function runPowerShellProtection(script: string, input: string): Promise<s
       if (settled) return;
       settled = true;
       child.kill();
-      reject(new Error("Windows private-state protection timed out."));
+      reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
     }, 15_000);
     timeout.unref?.();
     child.stdout.on("data", (chunk: Buffer) => {
@@ -83,14 +104,17 @@ async function runPowerShellProtection(script: string, input: string): Promise<s
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      reject(new Error("Windows private-state protection is unavailable."));
+      reject(new PrivateJsonError(code("unavailable"), "Windows private-state protection is unavailable."));
     });
     child.once("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       if (code !== 0 || outputBytes > MAX_PROTECTED_TEXT_BYTES) {
-        reject(new Error("Windows private-state protection failed."));
+        reject(new PrivateJsonError(
+          operation === "protect" ? "private_state_protect_failed" : "private_state_unprotect_failed",
+          "Windows private-state protection failed.",
+        ));
         return;
       }
       resolve(Buffer.concat(stdout).toString("utf8").trim());
@@ -107,7 +131,7 @@ async function protectWindows(plaintext: Buffer): Promise<string> {
     "$protected = [Security.Cryptography.ProtectedData]::Protect($raw, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
     "[Console]::Out.Write([Convert]::ToBase64String($protected))",
   ].join("; ");
-  return await runPowerShellProtection(script, plaintext.toString("base64"));
+  return await runPowerShellProtection("protect", script, plaintext.toString("base64"));
 }
 
 async function unprotectWindows(ciphertext: string): Promise<Buffer> {
@@ -117,7 +141,7 @@ async function unprotectWindows(ciphertext: string): Promise<Buffer> {
     "$plain = [Security.Cryptography.ProtectedData]::Unprotect($raw, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
     "[Console]::Out.Write([Convert]::ToBase64String($plain))",
   ].join("; ");
-  return Buffer.from(await runPowerShellProtection(script, ciphertext), "base64");
+  return Buffer.from(await runPowerShellProtection("unprotect", script, ciphertext), "base64");
 }
 
 async function windowsSid(): Promise<string> {
@@ -126,23 +150,31 @@ async function windowsSid(): Promise<string> {
     maxBuffer: 16 * 1024,
   }).then(({ stdout }) => {
     const match = stdout.match(/,"(S-\d+(?:-\d+)+)"\s*$/iu);
-    if (!match) throw new Error("Cannot resolve the current Windows user for private state.");
+    if (!match) throw new PrivateJsonError("private_state_sid_failed", "Cannot resolve the current Windows user for private state.");
     return match[1];
+  }).catch((error: unknown) => {
+    if (error instanceof PrivateJsonError) throw error;
+    throw new PrivateJsonError("private_state_sid_failed", "Cannot resolve the current Windows user for private state.");
   });
   return await currentWindowsSid;
 }
 
 async function enforcePrivatePermissions(filePath: string): Promise<void> {
-  await chmod(filePath, 0o600);
-  if (process.platform !== "win32") return;
-  const sid = await windowsSid();
-  await execFileAsync(windowsSystemExecutable("System32", "icacls.exe"), [
-    filePath,
-    "/inheritance:r",
-    "/grant:r",
-    `*${sid}:(F)`,
-    "*S-1-5-18:(F)",
-  ], { windowsHide: true, maxBuffer: 64 * 1024 });
+  try {
+    await chmod(filePath, 0o600);
+    if (process.platform !== "win32") return;
+    const sid = await windowsSid();
+    await execFileAsync(windowsSystemExecutable("System32", "icacls.exe"), [
+      filePath,
+      "/inheritance:r",
+      "/grant:r",
+      `*${sid}:(F)`,
+      "*S-1-5-18:(F)",
+    ], { windowsHide: true, maxBuffer: 64 * 1024 });
+  } catch (error) {
+    if (error instanceof PrivateJsonError) throw error;
+    throw new PrivateJsonError("private_state_acl_failed", "Private state permissions could not be enforced.");
+  }
 }
 
 async function serializePrivateJson(value: unknown): Promise<Buffer> {
@@ -185,6 +217,9 @@ export async function writePrivateJson(rootPath: string, targetPath: string, val
     await enforcePrivatePermissions(tempPath);
     await rename(tempPath, targetPath);
     await enforcePrivatePermissions(targetPath);
+  } catch (error) {
+    if (error instanceof PrivateJsonError) throw error;
+    throw new PrivateJsonError("private_state_commit_failed", "Private state could not be committed.");
   } finally {
     bytes.fill(0);
     await handle?.close().catch(() => undefined);

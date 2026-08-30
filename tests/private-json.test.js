@@ -8,6 +8,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import {
+  PrivateJsonError,
   readPrivateJson,
   resolveCurrentWindowsSid,
   writePrivateJson,
@@ -96,6 +97,31 @@ test("Windows private JSON resolves security utilities outside untrusted PATH", 
     assert.ok(await resolveCurrentWindowsSid());
   } finally {
     process.env.PATH = originalPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows private JSON classifies missing trusted system utilities without exposing a path", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-json-system-root-"));
+  const target = path.join(root, "private", "state.json");
+  const originalSystemRoot = process.env.SystemRoot;
+  const originalWindir = process.env.WINDIR;
+  try {
+    delete process.env.SystemRoot;
+    delete process.env.WINDIR;
+    await assert.rejects(
+      writePrivateJson(root, target, { purpose: "typed-private-state-failure" }),
+      (error) => error instanceof PrivateJsonError &&
+        error.code === "private_state_system_utilities_unavailable" &&
+        !error.message.includes(root),
+    );
+  } finally {
+    if (originalSystemRoot === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = originalSystemRoot;
+    if (originalWindir === undefined) delete process.env.WINDIR;
+    else process.env.WINDIR = originalWindir;
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
+  parsePackagedAcceptanceFailure,
   runCommand,
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
@@ -150,6 +151,7 @@ const consumerRoot = path.join(tempRoot, "consumer");
 const servicesRoot = path.join(tempRoot, "services");
 const httpWorkspaceRoot = path.join(tempRoot, "workspace-http");
 const stdioWorkspaceRoot = path.join(tempRoot, "workspace-stdio");
+let verificationFailure = null;
 
 try {
   await Promise.all([
@@ -195,25 +197,37 @@ try {
     `--allow-fs-write=${tempRoot}`,
     "--allow-child-process",
   ];
-  const runnerResult = await runCommand(process.execPath, [...permissionOptions, consumerRunnerPath], {
-    cwd: consumerRoot,
-    timeoutMs: 900_000,
-    env: isolatedConsumerEnvironment({
-      NODE_OPTIONS: permissionOptions.join(" "),
-      MCP_PACKAGE_ACCEPTANCE_CONFIGURATION: JSON.stringify({
-        candidateSha,
-        version,
-        consumerRoot,
-        serviceId,
-        servicesRoot,
-        httpWorkspaceRoot,
-        stdioWorkspaceRoot,
-        instanceRegistryPath: path.join(tempRoot, "host", "runtime-instances.json"),
-        portRegistryPath: path.join(tempRoot, "host", "endpoint-allocations.json"),
+  let runnerResult;
+  try {
+    runnerResult = await runCommand(process.execPath, [...permissionOptions, consumerRunnerPath], {
+      cwd: consumerRoot,
+      timeoutMs: 900_000,
+      env: isolatedConsumerEnvironment({
+        NODE_OPTIONS: permissionOptions.join(" "),
+        MCP_PACKAGE_ACCEPTANCE_CONFIGURATION: JSON.stringify({
+          candidateSha,
+          version,
+          consumerRoot,
+          serviceId,
+          servicesRoot,
+          httpWorkspaceRoot,
+          stdioWorkspaceRoot,
+          instanceRegistryPath: path.join(tempRoot, "host", "runtime-instances.json"),
+          portRegistryPath: path.join(tempRoot, "host", "endpoint-allocations.json"),
+        }),
+        MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
       }),
-      MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
-    }),
-  });
+    });
+  } catch (error) {
+    const runner = parsePackagedAcceptanceFailure(error?.stderr);
+    const safe = new Error("Fresh-consumer MCP acceptance failed safely.");
+    safe.packagedAcceptanceDiagnostic = {
+      stage: "consumer_runner",
+      errorCode: runner ? "runner_reported_failure" : "runner_failed",
+      ...(runner ? { runner } : {}),
+    };
+    throw safe;
+  }
   let acceptance;
   try {
     acceptance = JSON.parse(runnerResult.stdout.trim());
@@ -255,6 +269,29 @@ try {
     inspectorVersion: acceptance.inspector.version,
     result: "passed",
   })}\n`);
+} catch (error) {
+  verificationFailure = error?.packagedAcceptanceDiagnostic ?? {
+    stage: "packaged_verification",
+    errorCode: "verification_failed",
+  };
 } finally {
-  await removeOwnedTempRoot(tempRoot);
+  try {
+    await removeOwnedTempRoot(tempRoot);
+  } catch {
+    verificationFailure = {
+      stage: "temp_cleanup",
+      errorCode: "cleanup_failed",
+      ...(verificationFailure
+        ? {
+            verificationStage: verificationFailure.stage,
+            verificationErrorCode: verificationFailure.errorCode,
+          }
+        : {}),
+    };
+  }
+}
+
+if (verificationFailure) {
+  process.stderr.write(`[mcp-package-verification-error] ${JSON.stringify(verificationFailure)}\n`);
+  process.exitCode = 1;
 }
