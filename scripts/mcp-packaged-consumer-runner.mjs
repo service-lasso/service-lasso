@@ -128,6 +128,10 @@ function isolatedRuntimeEnvironment(overrides) {
   return { ...environment, ...overrides };
 }
 
+function reportStage(stage) {
+  process.stderr.write(`[mcp-package-acceptance] ${stage}\n`);
+}
+
 const configuration = JSON.parse(requiredEnvironment("MCP_PACKAGE_ACCEPTANCE_CONFIGURATION"));
 const consumerRoot = process.cwd();
 const forbiddenSourceRoot = requiredEnvironment("MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT");
@@ -179,6 +183,7 @@ let httpClient;
 let httpServer;
 let stdioClient;
 try {
+  reportStage("http-start");
   httpServer = await packaged.startApiServer({
     port: 0,
     servicesRoot: configuration.servicesRoot,
@@ -191,6 +196,7 @@ try {
   httpClient = new Client({ name: "service-lasso-packaged-acceptance", version: "1.0.0" });
   await httpClient.connect(transport);
 
+  reportStage("http-read-surface");
   const supported = await supportedMcpVersions();
   if (transport.protocolVersion !== supported.protocolVersion) {
     throw new Error("Packaged Streamable HTTP did not negotiate the current MCP protocol.");
@@ -228,6 +234,7 @@ try {
     throw new Error("Packaged MCP strict denial leaked a rejected argument.");
   }
 
+  reportStage("http-inspector");
   const inspectorTools = payload(await runInspector({
     serverUrl: endpoint.toString(),
     method: "tools/list",
@@ -254,6 +261,7 @@ try {
     throw new Error("Official MCP Inspector did not accept the packaged Streamable HTTP surface.");
   }
 
+  reportStage("guarded-preflight");
   const plan = await httpClient.callTool({
     name: "service_lasso_start_service",
     arguments: { serviceId: configuration.serviceId },
@@ -268,7 +276,9 @@ try {
     confirmationId: plan.structuredContent.confirmation.id,
     confirmationPhrase: plan.structuredContent.confirmation.confirmationPhrase,
   };
+  reportStage("guarded-execute");
   const completed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
+  reportStage("guarded-replay");
   const replayed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
   if (
     completed.isError ||
@@ -281,7 +291,47 @@ try {
     replayed.structuredContent?.correlationId !== completed.structuredContent?.correlationId ||
     replayed.structuredContent?.result?.resultingState?.[0]?.running !== true
   ) {
-    throw new Error("Canonical packaged guarded lifecycle action was not confirmed and exactly-once.");
+    let lifecycleDiagnostic = null;
+    try {
+      const detailResponse = await fetch(
+        `${httpServer.url}/api/services/${encodeURIComponent(configuration.serviceId)}`,
+      );
+      const detail = await detailResponse.json();
+      const trace = detail?.service?.lifecycle?.runtime?.startTrace?.current;
+      const failedEvent = [...(trace?.events ?? [])].reverse().find((event) => event?.status === "failed");
+      const safeMessage = String(failedEvent?.message ?? trace?.message ?? "")
+        .replace(/[A-Za-z]:[\\/][^\s"']+/gu, "[REDACTED_PATH]")
+        .slice(0, 300);
+      lifecycleDiagnostic = {
+        attemptStatus: trace?.status ?? null,
+        phase: failedEvent?.phase ?? trace?.currentPhase ?? null,
+        message: safeMessage || null,
+      };
+    } catch {
+      lifecycleDiagnostic = { attemptStatus: null, phase: null, message: null };
+    }
+    const summarize = (result) => {
+      let errorCode = null;
+      try {
+        errorCode = JSON.parse(result.content?.[0]?.text ?? "null")?.error?.code ?? null;
+      } catch {
+        errorCode = "invalid_error_payload";
+      }
+      return {
+        isError: result.isError === true,
+        contractVersion: result.structuredContent?.contractVersion ?? null,
+        status: result.structuredContent?.status ?? null,
+        summary: result.structuredContent?.summary ?? null,
+        replayed: result.structuredContent?.idempotency?.replayed ?? null,
+        running: result.structuredContent?.result?.resultingState?.[0]?.running ?? null,
+        errorCode,
+      };
+    };
+    throw new Error(`Canonical packaged guarded lifecycle action was not confirmed and exactly-once: ${JSON.stringify({
+      completed: summarize(completed),
+      replayed: summarize(replayed),
+      lifecycleDiagnostic,
+    })}`);
   }
 
   await httpClient.close();
@@ -289,6 +339,7 @@ try {
   await httpServer.stop();
   httpServer = null;
 
+  reportStage("stdio-start");
   const stdioCredential = "packaged-stdio-capability-not-protocol-data";
   const stdioTransport = new StdioClientTransport({
     command: process.execPath,
@@ -324,6 +375,7 @@ try {
   }
   await stdioClient.close();
   stdioClient = null;
+  reportStage("complete");
 
   const coverage = Object.fromEntries(MCP_PACKAGED_COVERAGE_KEYS.map((key) => [key, "passed"]));
   process.stdout.write(`${JSON.stringify({

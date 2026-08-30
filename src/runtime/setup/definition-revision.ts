@@ -74,7 +74,7 @@ async function resolveBareExecutableOnPath(
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
   const extensions = process.platform === "win32" && !path.extname(executable)
-    ? (env.PATHEXT ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    ? ["", ...(env.PATHEXT ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)]
     : [""];
   const roots = [
     ...(process.platform === "win32" ? [cwd] : []),
@@ -88,6 +88,26 @@ async function resolveBareExecutableOnPath(
       } catch (error) {
         if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
       }
+    }
+  }
+  return null;
+}
+
+async function resolvePathLikeExecutable(
+  executable: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  const basePath = path.isAbsolute(executable) ? path.normalize(executable) : path.resolve(cwd, executable);
+  const extensions = process.platform === "win32" && !path.extname(basePath)
+    ? ["", ...(env.PATHEXT ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)]
+    : [""];
+  for (const extension of extensions) {
+    const candidate = `${basePath}${extension}`;
+    try {
+      if ((await stat(candidate)).isFile()) return candidate;
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
     }
   }
   return null;
@@ -110,10 +130,13 @@ async function resolvedExecutionFileCandidates(
     variableResolution,
   );
   const candidates: string[] = [];
-  if (path.isAbsolute(launch.executable)) {
-    candidates.push(path.normalize(launch.executable));
-  } else if (isPathLike(launch.executable)) {
-    candidates.push(path.resolve(launch.workingDirectory, launch.executable));
+  if (isPathLike(launch.executable)) {
+    const executablePath = await resolvePathLikeExecutable(
+      launch.executable,
+      launch.workingDirectory,
+      launch.environment,
+    );
+    if (executablePath) candidates.push(executablePath);
   } else {
     const executablePath = await resolveBareExecutableOnPath(
       launch.executable,
@@ -170,8 +193,10 @@ export async function buildExecutableInputFiles(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ExecutableInputFileDigest[]> {
   const candidates: string[] = [];
-  if (path.isAbsolute(executable)) candidates.push(path.normalize(executable));
-  else if (isPathLike(executable)) candidates.push(path.resolve(cwd, executable));
+  if (isPathLike(executable)) {
+    const executablePath = await resolvePathLikeExecutable(executable, cwd, env);
+    if (executablePath) candidates.push(executablePath);
+  }
   else {
     const executablePath = await resolveBareExecutableOnPath(executable, cwd, env);
     if (executablePath) candidates.push(executablePath);

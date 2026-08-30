@@ -197,6 +197,21 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(workflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     assert.match(workflow, /node scripts\/verify-mcp-product-acceptance-run\.mjs/u);
     assert.match(workflow, /scripts\/mcp-packaged-consumer-runner\.mjs/u);
+    for (const governedRuntimePath of [
+      "scripts/copy-runtime-assets.mjs",
+      "docs/reference/process-ownership-registry.md",
+      "src/runtime/execution/supervisor.ts",
+      "src/runtime/execution/windows-managed-launcher.ps1",
+      "src/runtime/lifecycle/actions.ts",
+      "src/runtime/process/identity.ts",
+      "src/runtime/process/registry.ts",
+      "src/runtime/process/tree.ts",
+      "src/runtime/process/windows-process-inspector.ps1",
+      "src/runtime/setup/definition-revision.ts",
+      "tests/process-ownership.test.js",
+    ]) {
+      assert.equal(workflow.split(`- ${governedRuntimePath}`).length - 1, 2);
+    }
 
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
@@ -222,9 +237,39 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
     assert.doesNotMatch(packagedConsumer, /setWindowsProcessInspectionTimeoutForTests|mcp-packaged-stdio-preload/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
-    assert.match(identitySource, /OpenProcess[\s\S]*?GetProcessTimes[\s\S]*?QueryFullProcessImageName[\s\S]*?NtQueryInformationProcess/u);
+    assert.match(identitySource, /windows-process-inspector\.ps1/u);
+    assert.match(identitySource, /System32[\s\S]*?WindowsPowerShell[\s\S]*?powershell\.exe/u);
     assert.doesNotMatch(identitySource, /setWindowsProcessInspectionTimeoutForTests|System\.Management\.ManagementObjectSearcher/u);
     assert.doesNotMatch(identitySource, /Get-CimInstance Win32_Process/u);
+    const nativeInspectorSource = await readFile("src/runtime/process/windows-process-inspector.ps1", "utf8");
+    assert.match(nativeInspectorSource, /Reflection\.Emit[\s\S]*?OpenProcess[\s\S]*?GetProcessTimes[\s\S]*?QueryFullProcessImageNameW[\s\S]*?NtQueryInformationProcess/u);
+    assert.match(nativeInspectorSource, /CreateToolhelp32Snapshot[\s\S]*?Process32FirstW[\s\S]*?Process32NextW/u);
+    assert.match(nativeInspectorSource, /Read-ServiceLassoParentProcessId[\s\S]*?NtQueryInformationProcess/u);
+    assert.match(nativeInspectorSource, /ParentProcessId[\s\S]*?Native process tree changed during inspection/u);
+    assert.match(nativeInspectorSource, /returnedLength -lt \$headerSize[\s\S]*?\$length -gt \$maximumLength[\s\S]*?\$maximumLength -gt \$availableLength/u);
+    assert.doesNotMatch(nativeInspectorSource, /Add-Type|Get-CimInstance|Win32_Process/u);
+    assert.equal(
+      await readFile("dist/runtime/process/windows-process-inspector.ps1", "utf8"),
+      nativeInspectorSource,
+    );
+    const managedLauncherSource = await readFile("src/runtime/execution/windows-managed-launcher.ps1", "utf8");
+    assert.match(managedLauncherSource, /CreateJobObjectW[\s\S]*?SetInformationJobObject[\s\S]*?CreateProcessW[\s\S]*?AssignProcessToJobObject[\s\S]*?ResumeThread/u);
+    assert.match(managedLauncherSource, /0x2000[\s\S]*?0x00000004/u);
+    assert.match(managedLauncherSource, /FileShare\]::Read/u);
+    assert.match(managedLauncherSource, /SHA256/u);
+    assert.match(managedLauncherSource, /GetFinalPathNameByHandleW[\s\S]*?requireExecutableBinding/u);
+    assert.match(managedLauncherSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
+    assert.match(managedLauncherSource, /Test-ServiceLassoGateToken[\s\S]*?ConvertTo-Json -Compress/u);
+    assert.doesNotMatch(managedLauncherSource, /Add-Type|Get-CimInstance|Win32_Process/u);
+    assert.equal(
+      await readFile("dist/runtime/execution/windows-managed-launcher.ps1", "utf8"),
+      managedLauncherSource,
+    );
+    const assetCopySource = await readFile("scripts/copy-runtime-assets.mjs", "utf8");
+    assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.ps1/u);
+    assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher\.ps1/u);
+    const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
+    assert.match(packageManifest.scripts.build, /copy-runtime-assets\.mjs/u);
   } finally {
     const closed = once(server, "close");
     server.close();

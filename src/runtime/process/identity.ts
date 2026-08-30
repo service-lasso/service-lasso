@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   isProcessControlDeadlineError,
@@ -11,6 +12,7 @@ import {
 
 const execFileAsync = promisify(execFileCallback);
 const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
+let windowsCurrentProcessInspectionPromise: Promise<ProcessInspection> | null = null;
 
 export interface ProcessFingerprint {
   pid: number;
@@ -36,11 +38,19 @@ export interface ProcessInspectorDependencies {
   readlink?: (filePath: string) => Promise<string>;
   deadlineMs?: number;
   signal?: AbortSignal;
+  windowsSystemRoot?: string;
   runCommand?: (
     command: string,
     args: string[],
     options?: { deadlineMs?: number; signal?: AbortSignal },
   ) => Promise<{ stdout: string }>;
+}
+
+function windowsSystemExecutable(systemRoot: string | undefined, ...segments: string[]): string {
+  if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
+    throw new Error("Windows system utilities are unavailable.");
+  }
+  return path.win32.join(path.win32.normalize(systemRoot), ...segments);
 }
 
 function normalizeCommandLine(commandLine: string | readonly string[]): string {
@@ -248,9 +258,21 @@ async function resolveLinuxProcessPath(pid: number): Promise<LinuxProcessPathRes
 interface WindowsProcessJson {
   Status?: unknown;
   ProcessId?: unknown;
+  ParentProcessId?: unknown;
   CreationDate?: unknown;
   ExecutablePath?: unknown;
   CommandLine?: unknown;
+}
+
+interface WindowsProcessTreeJson {
+  Status?: unknown;
+  RootStatus?: unknown;
+  Processes?: unknown;
+}
+
+export interface WindowsProcessTreeInspection {
+  rootStatus: "owned" | "exited";
+  members: ProcessFingerprint[];
 }
 
 function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection {
@@ -290,98 +312,13 @@ function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection
   }
 }
 
-const WINDOWS_NATIVE_PROCESS_INSPECTOR_SOURCE = [
-  "using System;",
-  "using System.ComponentModel;",
-  "using System.Runtime.InteropServices;",
-  "using System.Text;",
-  "namespace ServiceLasso.NativeProcess {",
-  "  public sealed class Evidence {",
-  "    public string Status { get; set; }",
-  "    public int ProcessId { get; set; }",
-  "    public string CreationDate { get; set; }",
-  "    public string ExecutablePath { get; set; }",
-  "    public string CommandLine { get; set; }",
-  "  }",
-  "  public static class Inspector {",
-  "    private const uint ProcessVmRead = 0x0010;",
-  "    private const uint ProcessQueryLimitedInformation = 0x1000;",
-  "    private const int ErrorInvalidParameter = 87;",
-  "    private const int ProcessCommandLineInformation = 60;",
-  "    private const int MaxCommandLineBytes = 1024 * 1024;",
-  "    [StructLayout(LayoutKind.Sequential)]",
-  "    private struct FileTime { public uint Low; public uint High; }",
-  "    [StructLayout(LayoutKind.Sequential)]",
-  "    private struct UnicodeString { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }",
-  "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
-  "    private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);",
-  "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
-  "    private static extern bool CloseHandle(IntPtr handle);",
-  "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
-  "    private static extern uint GetProcessId(IntPtr process);",
-  "    [DllImport(\"kernel32.dll\", SetLastError = true)]",
-  "    private static extern bool GetProcessTimes(IntPtr process, out FileTime creation, out FileTime exit, out FileTime kernel, out FileTime user);",
-  "    [DllImport(\"kernel32.dll\", CharSet = CharSet.Unicode, SetLastError = true)]",
-  "    private static extern bool QueryFullProcessImageName(IntPtr process, int flags, StringBuilder path, ref int size);",
-  "    [DllImport(\"ntdll.dll\")]",
-  "    private static extern int NtQueryInformationProcess(IntPtr process, int informationClass, IntPtr information, int informationLength, out int returnLength);",
-  "    public static Evidence Inspect(int processId) {",
-  "      IntPtr process = OpenProcess(ProcessQueryLimitedInformation | ProcessVmRead, false, processId);",
-  "      if (process == IntPtr.Zero) {",
-  "        int error = Marshal.GetLastWin32Error();",
-  "        if (error == ErrorInvalidParameter) return new Evidence { Status = \"not_running\" };",
-  "        throw new Win32Exception(error, \"Native process open failed.\");",
-  "      }",
-  "      try {",
-  "        uint actualProcessId = GetProcessId(process);",
-  "        if (actualProcessId != (uint)processId) throw new InvalidOperationException(\"Native process ID changed.\");",
-  "        FileTime creation; FileTime exit; FileTime kernel; FileTime user;",
-  "        if (!GetProcessTimes(process, out creation, out exit, out kernel, out user))",
-  "          throw new Win32Exception(Marshal.GetLastWin32Error(), \"Native process time query failed.\");",
-  "        long fileTime = unchecked((long)(((ulong)creation.High << 32) | creation.Low));",
-  "        StringBuilder imagePath = new StringBuilder(32768);",
-  "        int imagePathLength = imagePath.Capacity;",
-  "        if (!QueryFullProcessImageName(process, 0, imagePath, ref imagePathLength) || imagePathLength <= 0)",
-  "          throw new Win32Exception(Marshal.GetLastWin32Error(), \"Native process image query failed.\");",
-  "        string commandLine = ReadCommandLine(process);",
-  "        if (String.IsNullOrWhiteSpace(commandLine)) throw new InvalidOperationException(\"Native process command line was empty.\");",
-  "        return new Evidence {",
-  "          Status = \"running\", ProcessId = processId,",
-  "          CreationDate = DateTime.FromFileTimeUtc(fileTime).ToString(\"o\"),",
-  "          ExecutablePath = imagePath.ToString(), CommandLine = commandLine,",
-  "        };",
-  "      } finally {",
-  "        if (!CloseHandle(process)) throw new Win32Exception(Marshal.GetLastWin32Error(), \"Native process handle close failed.\");",
-  "      }",
-  "    }",
-  "    private static string ReadCommandLine(IntPtr process) {",
-  "      int requiredLength;",
-  "      NtQueryInformationProcess(process, ProcessCommandLineInformation, IntPtr.Zero, 0, out requiredLength);",
-  "      if (requiredLength <= 0 || requiredLength > MaxCommandLineBytes)",
-  "        throw new InvalidOperationException(\"Native process command line length was invalid.\");",
-  "      IntPtr buffer = Marshal.AllocHGlobal(requiredLength);",
-  "      try {",
-  "        int returnedLength;",
-  "        int status = NtQueryInformationProcess(process, ProcessCommandLineInformation, buffer, requiredLength, out returnedLength);",
-  "        if (status != 0 || returnedLength <= 0 || returnedLength > requiredLength)",
-  "          throw new InvalidOperationException(\"Native process command line query failed.\");",
-  "        UnicodeString value = (UnicodeString)Marshal.PtrToStructure(buffer, typeof(UnicodeString));",
-  "        long bufferStart = buffer.ToInt64();",
-  "        long bufferEnd = checked(bufferStart + requiredLength);",
-  "        long valueStart = value.Buffer.ToInt64();",
-  "        long valueEnd = checked(valueStart + value.Length);",
-  "        if (value.Length == 0 || value.Length > value.MaximumLength || value.Buffer == IntPtr.Zero || valueStart < bufferStart || valueEnd > bufferEnd)",
-  "          throw new InvalidOperationException(\"Native process command line evidence was invalid.\");",
-  "        return Marshal.PtrToStringUni(value.Buffer, value.Length / 2);",
-  "      } finally { Marshal.FreeHGlobal(buffer); }",
-  "    }",
-  "  }",
-  "}",
-].join("\n");
+const WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH = fileURLToPath(
+  new URL("./windows-process-inspector.ps1", import.meta.url),
+);
 
 export async function classifyWindowsProcessIdentityFast(
   expected: ProcessFingerprint,
-  dependencies: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "runCommand"> = {},
+  dependencies: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"> = {},
 ): Promise<ProcessIdentityClassification> {
   if (!Number.isInteger(expected.pid) || expected.pid <= 0) {
     return "not_running";
@@ -390,39 +327,54 @@ export async function classifyWindowsProcessIdentityFast(
   return classifyProcessIdentity(expected, inspection, "win32");
 }
 
+async function runWindowsNativeProcessInspector(
+  pid: number,
+  includeDescendants: boolean,
+  runCommand: ProcessInspectorDependencies["runCommand"],
+  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "windowsSystemRoot">,
+): Promise<{ exitCode: number | null; stdout: string }> {
+  const powershellExecutable = windowsSystemExecutable(
+    options.windowsSystemRoot ?? process.env.SystemRoot ?? process.env.WINDIR,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  return await runProcessControlCommand(
+    powershellExecutable,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-File",
+      WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH,
+      String(pid),
+      ...(includeDescendants ? ["-IncludeDescendants"] : []),
+    ],
+    {
+      captureOutput: true,
+      deadlineMs: options.deadlineMs,
+      signal: options.signal,
+      runner: runCommand
+        ? async (executable, args, helperOptions) => ({
+            exitCode: 0,
+            ...(await runCommand(executable, args, {
+              deadlineMs: options.deadlineMs,
+              signal: helperOptions.signal,
+            })),
+          })
+        : undefined,
+    },
+  );
+}
+
 async function inspectWindowsProcess(
   pid: number,
   runCommand: ProcessInspectorDependencies["runCommand"],
-  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal">,
+  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "windowsSystemRoot">,
 ): Promise<ProcessInspection> {
-  const command = [
-    '$source = @"',
-    WINDOWS_NATIVE_PROCESS_INSPECTOR_SOURCE,
-    '"@',
-    "Add-Type -TypeDefinition $source -Language CSharp",
-    `$result = [ServiceLasso.NativeProcess.Inspector]::Inspect(${pid})`,
-    "$result | ConvertTo-Json -Compress",
-  ].join("\n");
-
   try {
-    const result = await runProcessControlCommand(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", command],
-      {
-        captureOutput: true,
-        deadlineMs: options.deadlineMs,
-        signal: options.signal,
-        runner: runCommand
-          ? async (executable, args, helperOptions) => ({
-              exitCode: 0,
-              ...(await runCommand(executable, args, {
-                deadlineMs: options.deadlineMs,
-                signal: helperOptions.signal,
-              })),
-            })
-          : undefined,
-      },
-    );
+    const result = await runWindowsNativeProcessInspector(pid, false, runCommand, options);
     return result.exitCode === 0
       ? parseWindowsProcessJson(result.stdout, pid)
       : { status: "unknown", reason: "windows_process_helper_failed" };
@@ -432,6 +384,118 @@ async function inspectWindowsProcess(
     }
     return { status: "unknown", reason: `windows_process_inspection_failed:${errorReason(error)}` };
   }
+}
+
+export async function inspectWindowsProcessTree(
+  expectedRoot: ProcessFingerprint,
+  dependencies: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"> = {},
+): Promise<WindowsProcessTreeInspection> {
+  if (!Number.isInteger(expectedRoot.pid) || expectedRoot.pid <= 0) {
+    return { rootStatus: "exited", members: [] };
+  }
+  const result = await runWindowsNativeProcessInspector(
+    expectedRoot.pid,
+    true,
+    dependencies.runCommand,
+    {
+      ...dependencies,
+      deadlineMs: dependencies.deadlineMs ?? Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+    },
+  );
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    throw new Error("Native Windows process-tree inspection failed.");
+  }
+
+  let payload: WindowsProcessTreeJson;
+  try {
+    payload = JSON.parse(result.stdout) as WindowsProcessTreeJson;
+  } catch {
+    throw new Error("Native Windows process-tree evidence was malformed.");
+  }
+  if (
+    payload.Status !== "tree" ||
+    (payload.RootStatus !== "running" && payload.RootStatus !== "not_running") ||
+    !Array.isArray(payload.Processes)
+  ) {
+    throw new Error("Native Windows process-tree evidence was incomplete.");
+  }
+
+  const rows: Array<{ identity: ProcessFingerprint; parentPid: number | null }> = [];
+  const seen = new Set<number>();
+  for (const value of payload.Processes) {
+    if (!value || typeof value !== "object") {
+      throw new Error("Native Windows process-tree evidence was incomplete.");
+    }
+    const pid = Number((value as WindowsProcessJson).ProcessId);
+    if (!Number.isInteger(pid) || pid <= 0 || seen.has(pid)) {
+      throw new Error("Native Windows process-tree evidence was incomplete.");
+    }
+    const inspection = parseWindowsProcessJson(JSON.stringify(value), pid);
+    if (inspection.status !== "running") {
+      throw new Error("Native Windows process-tree evidence was incomplete.");
+    }
+    const parentPid = pid === expectedRoot.pid
+      ? null
+      : Number((value as WindowsProcessJson).ParentProcessId);
+    if (
+      pid !== expectedRoot.pid &&
+      (parentPid === null || !Number.isInteger(parentPid) || parentPid <= 0 || parentPid === pid)
+    ) {
+      throw new Error("Native Windows process-tree ancestry was invalid.");
+    }
+    seen.add(pid);
+    rows.push({ identity: inspection.identity, parentPid });
+  }
+
+  const byPid = new Map(rows.map((row) => [row.identity.pid, row]));
+  const root = byPid.get(expectedRoot.pid)?.identity;
+  if (payload.RootStatus === "running" && (
+    !root || classifyProcessIdentity(expectedRoot, { status: "running", identity: root }, "win32") !== "owned"
+  )) {
+    throw new Error("Native Windows process-tree root identity changed.");
+  }
+  if (payload.RootStatus === "not_running" && root) {
+    throw new Error("Native Windows process-tree root evidence was inconsistent.");
+  }
+
+  const rootCreatedAtMs = Date.parse(expectedRoot.createdAt);
+  if (!Number.isFinite(rootCreatedAtMs)) {
+    throw new Error("Native Windows process-tree root identity changed.");
+  }
+  for (const row of rows) {
+    if (row.identity.pid === expectedRoot.pid) {
+      continue;
+    }
+    if (Date.parse(row.identity.createdAt) < rootCreatedAtMs) {
+      throw new Error("Native Windows process-tree ancestry was invalid.");
+    }
+
+    const visited = new Set<number>([row.identity.pid]);
+    let current = row;
+    while (current.parentPid !== expectedRoot.pid) {
+      if (current.parentPid === null || visited.has(current.parentPid)) {
+        throw new Error("Native Windows process-tree ancestry was invalid.");
+      }
+      visited.add(current.parentPid);
+      const parent = byPid.get(current.parentPid);
+      if (!parent) {
+        throw new Error("Native Windows process-tree ancestry was invalid.");
+      }
+      if (Date.parse(current.identity.createdAt) < Date.parse(parent.identity.createdAt)) {
+        throw new Error("Native Windows process-tree ancestry was invalid.");
+      }
+      current = parent;
+    }
+  }
+
+  const members = rows.map((row) => row.identity);
+  return {
+    rootStatus: payload.RootStatus === "running" ? "owned" : "exited",
+    members: [
+      ...members.filter((member) => member.pid !== expectedRoot.pid).reverse(),
+      ...(root ? [root] : []),
+    ],
+  };
 }
 
 async function inspectDarwinProcess(
@@ -506,6 +570,31 @@ export async function inspectProcess(
     });
   }
   if (platform === "win32") {
+    const cacheCurrentProcessIdentity =
+      pid === process.pid &&
+      dependencies.platform === undefined &&
+      dependencies.runCommand === undefined &&
+      dependencies.deadlineMs === undefined &&
+      dependencies.signal === undefined &&
+      dependencies.windowsSystemRoot === undefined;
+    if (cacheCurrentProcessIdentity) {
+      const pending = windowsCurrentProcessInspectionPromise ?? inspectWindowsProcess(pid, undefined, {
+        deadlineMs: Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+      });
+      windowsCurrentProcessInspectionPromise = pending;
+      try {
+        const inspection = await pending;
+        if (inspection.status !== "running" && windowsCurrentProcessInspectionPromise === pending) {
+          windowsCurrentProcessInspectionPromise = null;
+        }
+        return inspection;
+      } catch (error) {
+        if (windowsCurrentProcessInspectionPromise === pending) {
+          windowsCurrentProcessInspectionPromise = null;
+        }
+        throw error;
+      }
+    }
     return await inspectWindowsProcess(pid, dependencies.runCommand, {
       ...dependencies,
       deadlineMs: dependencies.deadlineMs ?? Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,

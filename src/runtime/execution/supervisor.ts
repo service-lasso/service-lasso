@@ -1,7 +1,9 @@
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
@@ -17,7 +19,13 @@ import {
   transitionProcessOwnership,
   type ProcessOwnershipEntry,
 } from "../process/registry.js";
-import { inspectProcess, type ProcessFingerprint, type ProcessInspection } from "../process/identity.js";
+import {
+  classifyProcessIdentity,
+  inspectProcess,
+  inspectWindowsProcessTree,
+  type ProcessFingerprint,
+  type ProcessInspection,
+} from "../process/identity.js";
 import {
   isProcessControlDeadlineError,
   processControlDeadline,
@@ -38,6 +46,16 @@ export interface ManagedProcessHandle {
   startedAt: string;
   command: string;
   logs: ServiceRuntimeLogPaths;
+}
+
+export class ManagedProcessEnrollmentContainmentError extends AggregateError {
+  readonly handle: ManagedProcessHandle;
+
+  constructor(errors: readonly unknown[], message: string, handle: ManagedProcessHandle) {
+    super(errors, message);
+    this.name = "ManagedProcessEnrollmentContainmentError";
+    this.handle = handle;
+  }
 }
 
 interface ManagedProcessRecord {
@@ -116,13 +134,33 @@ interface StartProcessOptions {
   runtimeGenerationId?: string | null;
   runtimeInstanceId?: string | null;
   allocationRevision?: string | null;
-  verifyBeforeSpawn?: () => Promise<void>;
+  verifyBeforeSpawn?: () => Promise<readonly ManagedLaunchFileBinding[] | void>;
+  guardedExecutableLaunch?: boolean;
   onExit?: (payload: {
     service: DiscoveredService;
     exitCode: number | null;
     signal: NodeJS.Signals | null;
     wasStopping: boolean;
   }) => Promise<void> | void;
+}
+
+interface ManagedLaunchFileBinding {
+  file: string;
+  sha256: string;
+  size: number;
+}
+
+function sameManagedLaunchFileBindings(
+  left: readonly ManagedLaunchFileBinding[],
+  right: readonly ManagedLaunchFileBinding[],
+): boolean {
+  return left.length === right.length && left.every((binding, index) => {
+    const candidate = right[index];
+    return candidate !== undefined &&
+      normalizeWindowsLaunchPath(binding.file) === normalizeWindowsLaunchPath(candidate.file) &&
+      binding.sha256 === candidate.sha256 &&
+      binding.size === candidate.size;
+  });
 }
 
 interface AdoptManagedProcessOptions {
@@ -141,9 +179,18 @@ const managedProcessShutdownQuiescers = new Set<(
   serviceIds: ReadonlySet<string>,
 ) => Promise<void> | void>();
 const ADOPTED_PROCESS_POLL_INTERVAL_MS = 250;
-const WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS = 1_000;
+const WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS = 15_000;
+const WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS = 5_000;
+const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
+const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
+const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
+const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher.ps1", import.meta.url));
+const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
 let managedProcessRootInspector = inspectProcess;
+let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
+let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
+let managedProcessAfterReleaseHook: (() => Promise<void> | void) | null = null;
 
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
@@ -161,6 +208,33 @@ export function setManagedProcessRootInspectorForTests(
     throw new Error("Managed process-root test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessRootInspector = inspector ?? inspectProcess;
+}
+
+export function setManagedProcessEnrollmentHookForTests(
+  hook: ((child: ChildProcess) => Promise<void> | void) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process-enrollment test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessEnrollmentHook = hook;
+}
+
+export function setManagedProcessFilesBoundHookForTests(
+  hook: (() => Promise<void> | void) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed file-binding test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessFilesBoundHook = hook;
+}
+
+export function setManagedProcessAfterReleaseHookForTests(
+  hook: (() => Promise<void> | void) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed post-release test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessAfterReleaseHook = hook;
 }
 
 export function registerManagedProcessShutdownQuiescer(
@@ -439,6 +513,236 @@ function buildCommandString(executable: string, args: string[]): string {
   return [executable, ...args].join(" ");
 }
 
+interface WindowsManagedLaunchState {
+  rootPath: string;
+  gatePath: string;
+  filesBoundPath: string;
+  continuePath: string;
+  ackPath: string;
+  releaseToken: string;
+  filesBoundToken: string;
+  continueToken: string;
+  ackToken: string;
+  powershellExecutable: string;
+  environment: NodeJS.ProcessEnv;
+}
+
+function normalizeWindowsLaunchPath(value: string): string {
+  return path.win32.normalize(value.replaceAll("/", "\\")).toLowerCase();
+}
+
+function windowsPathEnvironmentValue(environment: NodeJS.ProcessEnv): string {
+  return Object.entries(environment).find(([key]) => key.toLowerCase() === "path")?.[1] ?? "";
+}
+
+async function resolveWindowsExecutableCandidate(
+  executable: string,
+  workingDirectory: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  const pathExt = Object.entries(environment).find(([key]) => key.toLowerCase() === "pathext")?.[1] ??
+    process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
+  const extensions = path.win32.extname(executable) ? [""] : ["", ...pathExt.split(";").filter(Boolean)];
+  const pathLike = path.win32.isAbsolute(executable) ||
+    executable.startsWith(".") ||
+    executable.includes("/") ||
+    executable.includes("\\");
+  const roots = pathLike
+    ? [workingDirectory]
+    : [
+        workingDirectory,
+        ...windowsPathEnvironmentValue(environment).split(";").map((entry) => entry.replace(/^"|"$/gu, "")).filter(Boolean),
+      ];
+  for (const root of roots) {
+    for (const extension of extensions) {
+      const candidate = path.win32.isAbsolute(executable)
+        ? path.win32.normalize(`${executable}${extension}`)
+        : path.win32.resolve(root, `${executable}${extension}`);
+      try {
+        if ((await stat(candidate)).isFile()) {
+          return candidate;
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function windowsArgumentFileCandidate(argument: string, workingDirectory: string): {
+  candidate: string;
+  prefix: string;
+} | null {
+  const equalsIndex = argument.indexOf("=");
+  const value = equalsIndex > 0 ? argument.slice(equalsIndex + 1) : argument;
+  if (!value || (equalsIndex < 0 && value.startsWith("-")) || /^[a-z][a-z0-9+.-]*:\/\//iu.test(value)) {
+    return null;
+  }
+  return {
+    candidate: path.win32.isAbsolute(value)
+      ? path.win32.normalize(value)
+      : path.win32.resolve(workingDirectory, value),
+    prefix: equalsIndex > 0 ? argument.slice(0, equalsIndex + 1) : "",
+  };
+}
+
+async function createWindowsManagedLaunchState(
+  executable: string,
+  args: string[],
+  workingDirectory: string,
+  environment: NodeJS.ProcessEnv,
+  approvedFiles: readonly ManagedLaunchFileBinding[],
+  workspaceRoot: string,
+  requireExecutableBinding: boolean,
+): Promise<WindowsManagedLaunchState> {
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
+    throw new Error("Windows managed launcher requires an absolute system root.");
+  }
+  const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
+  await mkdir(launchStateRoot, { recursive: true });
+  const rootPath = await mkdtemp(path.join(launchStateRoot, "service-lasso-managed-launch-"));
+  const gatePath = path.join(rootPath, "release.gate");
+  const filesBoundPath = path.join(rootPath, "files-bound.gate");
+  const continuePath = path.join(rootPath, "continue.gate");
+  const ackPath = path.join(rootPath, "launched.pid");
+  const releaseToken = randomBytes(32).toString("hex");
+  const filesBoundToken = randomBytes(32).toString("hex");
+  const continueToken = randomBytes(32).toString("hex");
+  const ackToken = randomBytes(32).toString("hex");
+  const bindingIndexByPath = new Map(approvedFiles.map((binding, index) => [
+    normalizeWindowsLaunchPath(binding.file),
+    index,
+  ]));
+  const executableCandidate = await resolveWindowsExecutableCandidate(
+    executable,
+    workingDirectory,
+    environment,
+  );
+  const executableBindingIndex = executableCandidate === null
+    ? -1
+    : bindingIndexByPath.get(normalizeWindowsLaunchPath(executableCandidate)) ?? -1;
+  const argumentBindings = args.flatMap((argument, index) => {
+    const file = windowsArgumentFileCandidate(argument, workingDirectory);
+    if (!file) {
+      return [];
+    }
+    const bindingIndex = bindingIndexByPath.get(normalizeWindowsLaunchPath(file.candidate));
+    return bindingIndex === undefined ? [] : [{ index, prefix: file.prefix, bindingIndex }];
+  });
+  const payload = Buffer.from(JSON.stringify({
+    executable,
+    args,
+    workingDirectory,
+    ackPath,
+    filesBoundPath,
+    continuePath,
+    releaseToken,
+    filesBoundToken,
+    continueToken,
+    ackToken,
+    approvedFiles,
+    executableBindingIndex,
+    requireExecutableBinding,
+    argumentBindings,
+  }), "utf8").toString("base64");
+  return {
+    rootPath,
+    gatePath,
+    filesBoundPath,
+    continuePath,
+    ackPath,
+    releaseToken,
+    filesBoundToken,
+    continueToken,
+    ackToken,
+    powershellExecutable: path.win32.join(
+      path.win32.normalize(systemRoot),
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    ),
+    environment: {
+      ...environment,
+      SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: payload,
+      SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
+    },
+  };
+}
+
+async function removeWindowsManagedLaunchState(state: WindowsManagedLaunchState | null): Promise<void> {
+  if (!state) {
+    return;
+  }
+  await rm(state.rootPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+}
+
+async function bindWindowsManagedLauncherFiles(
+  child: ChildProcess,
+  state: WindowsManagedLaunchState,
+): Promise<void> {
+  const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
+  await withProcessControlDeadline(async (signal) => {
+    await writeFile(state.gatePath, state.releaseToken, "utf8");
+    while (!signal.aborted) {
+      if (probeManagedChildHandle(child) !== "owned") {
+        throw new Error("Windows managed launcher exited before executable files were bound.");
+      }
+      try {
+        const token = (await readFile(state.filesBoundPath, "utf8")).trim();
+        if (token === state.filesBoundToken) {
+          break;
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+      await adoptedProcessPollDelay(signal, 25);
+    }
+  }, { deadlineMs });
+}
+
+async function continueWindowsManagedLauncher(
+  child: ChildProcess,
+  state: WindowsManagedLaunchState,
+): Promise<void> {
+  const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
+  await withProcessControlDeadline(async (signal) => {
+    await managedProcessFilesBoundHook?.();
+    await writeFile(state.continuePath, state.continueToken, "utf8");
+    while (!signal.aborted) {
+      if (probeManagedChildHandle(child) !== "owned") {
+        throw new Error("Windows managed launcher exited before the service launch was acknowledged.");
+      }
+      try {
+        const acknowledgmentText = await readFile(state.ackPath, "utf8");
+        try {
+          const acknowledgment = JSON.parse(acknowledgmentText) as { token?: unknown; pid?: unknown };
+          if (
+            acknowledgment.token === state.ackToken &&
+            Number.isInteger(acknowledgment.pid) &&
+            Number(acknowledgment.pid) > 0
+          ) {
+            return;
+          }
+        } catch {
+          // A pre-created or partially written acknowledgement is not authority.
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+      await adoptedProcessPollDelay(signal, 25);
+    }
+  }, { deadlineMs });
+}
+
 function buildProcessEnvironment(
   service: DiscoveredService,
   executionPlan: ProviderExecutionPlan,
@@ -584,6 +888,70 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
   return service.manifest.stdin?.enabled === true;
 }
 
+function probeManagedChildHandle(child: ChildProcess): "owned" | "exited" | "unverifiable" {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return "exited";
+  }
+  let probeError = false;
+  const captureProbeError = () => {
+    probeError = true;
+  };
+  child.prependOnceListener("error", captureProbeError);
+  try {
+    // ChildProcess.kill(0) probes the exact native process handle retained by
+    // Node, so a reused numeric PID cannot authorize ownership or taskkill.
+    const alive = child.kill(0);
+    return probeError ? "unverifiable" : alive ? "owned" : "exited";
+  } catch {
+    return "unverifiable";
+  } finally {
+    child.removeListener("error", captureProbeError);
+  }
+}
+
+function mergeProcessFingerprints(...groups: ProcessFingerprint[][]): ProcessFingerprint[] {
+  const byPid = new Map<number, ProcessFingerprint>();
+  for (const identity of groups.flat()) {
+    byPid.set(identity.pid, identity);
+  }
+  return [...byPid.values()];
+}
+
+async function inspectKnownWindowsTreeMembers(
+  rootIdentity: ProcessFingerprint,
+  knownMembers: ProcessFingerprint[],
+  deadlineMs: number,
+  signal: AbortSignal,
+): Promise<{
+  members: ProcessFingerprint[];
+  inspectProcess: (pid: number) => Promise<ProcessInspection>;
+}> {
+  const currentTree = await inspectWindowsProcessTree(rootIdentity, { deadlineMs, signal });
+  const currentByPid = new Map(currentTree.members.map((identity) => [identity.pid, identity]));
+  const inspectionByPid = new Map<number, ProcessInspection>(currentTree.members.map((identity) => [
+    identity.pid,
+    { status: "running", identity },
+  ]));
+  for (const expected of knownMembers) {
+    const actual = currentByPid.get(expected.pid);
+    if (!actual) {
+      inspectionByPid.set(expected.pid, { status: "not_running", reason: "process_not_running" });
+      continue;
+    }
+    if (classifyProcessIdentity(expected, { status: "running", identity: actual }, "win32") !== "owned") {
+      throw new Error(`Cannot verify process ${expected.pid} while controlling its process tree.`);
+    }
+    inspectionByPid.set(expected.pid, { status: "running", identity: actual });
+  }
+  return {
+    members: currentTree.members,
+    inspectProcess: async (pid) => inspectionByPid.get(pid) ?? {
+      status: "not_running",
+      reason: "process_not_running",
+    },
+  };
+}
+
 function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
@@ -591,26 +959,8 @@ function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved
     processGroup: record.processGroup,
     knownMembers: record.knownTreeMembers,
     rootExitObserved,
-    rootOwnershipProbe: () => {
-      if (record.child.exitCode !== null || record.child.signalCode !== null) {
-        return "exited";
-      }
-      let probeError = false;
-      const captureProbeError = () => {
-        probeError = true;
-      };
-      record.child.prependOnceListener("error", captureProbeError);
-      try {
-        // ChildProcess.kill(0) probes the exact native process handle retained
-        // by Node, so a reused numeric PID cannot authorize taskkill.
-        const alive = record.child.kill(0);
-        return probeError ? "unverifiable" : alive ? "owned" : "exited";
-      } catch {
-        return "unverifiable";
-      } finally {
-        record.child.removeListener("error", captureProbeError);
-      }
-    },
+    rootOwnershipProbe: () => probeManagedChildHandle(record.child),
+    forceImmediately: process.platform === "win32" && rootExitObserved,
   };
 }
 
@@ -650,11 +1000,29 @@ async function terminateManagedProcessTree(
         );
       }
       return await withProcessControlDeadline(
-        async (signal) => await managedProcessTreeTerminator(
-          managedProcessTreeTarget(record, rootExitObserved),
-          remainingProcessControlMs(deadlineMs),
-          { deadlineMs, signal },
-        ),
+        async (signal) => {
+          const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
+          if (
+            process.platform === "win32" &&
+            rootExitObserved &&
+            record.rootIdentity &&
+            record.knownTreeMembers.length > 0
+          ) {
+            const snapshot = await inspectKnownWindowsTreeMembers(
+              record.rootIdentity,
+              record.knownTreeMembers,
+              deadlineMs,
+              signal,
+            );
+            record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+            dependencies.inspectProcess = snapshot.inspectProcess;
+          }
+          return await managedProcessTreeTerminator(
+            managedProcessTreeTarget(record, rootExitObserved),
+            remainingProcessControlMs(deadlineMs),
+            dependencies,
+          );
+        },
         { deadlineMs },
       );
     })();
@@ -684,7 +1052,10 @@ function adoptedProcessTreeTarget(record: AdoptedProcessRecord): OwnedProcessTre
   };
 }
 
-async function adoptedProcessPollDelay(signal?: AbortSignal): Promise<void> {
+async function adoptedProcessPollDelay(
+  signal?: AbortSignal,
+  delayMs = ADOPTED_PROCESS_POLL_INTERVAL_MS,
+): Promise<void> {
   // Keep this bounded timer referenced: shutdown explicitly awaits the adopted
   // monitor finalizer, and an unref'ed timer can otherwise leave that promise
   // pending after the owned process tree becomes the last active handle.
@@ -697,7 +1068,7 @@ async function adoptedProcessPollDelay(signal?: AbortSignal): Promise<void> {
       signal?.removeEventListener("abort", finish);
       resolve();
     };
-    const timer = setTimeout(finish, ADOPTED_PROCESS_POLL_INTERVAL_MS);
+    const timer = setTimeout(finish, delayMs);
     signal?.addEventListener("abort", finish, { once: true });
     if (signal?.aborted) {
       finish();
@@ -709,6 +1080,14 @@ async function refreshAdoptedProcessTreeMembers(
   record: AdoptedProcessRecord,
   options: { deadlineMs?: number; signal?: AbortSignal } = {},
 ): Promise<void> {
+  if (process.platform === "win32") {
+    const inspection = await inspectWindowsProcessTree(record.rootIdentity, options);
+    if (inspection.rootStatus !== "owned") {
+      throw new Error(`Cannot refresh exited adopted process "${record.service.manifest.id}".`);
+    }
+    record.knownTreeMembers = inspection.members;
+    return;
+  }
   const members = await captureOwnedProcessTreeMembers({
     rootPid: record.pid,
     rootIdentity: record.rootIdentity,
@@ -725,21 +1104,36 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
   }
 
   const serviceId = record.service.manifest.id;
+  let refreshDelayMs = WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS;
   while (managedProcesses.get(serviceId) === record && !record.stopping && !record.treeTerminationPromise) {
+    await adoptedProcessPollDelay(record.treeMonitorAbortController.signal, refreshDelayMs);
+    if (
+      managedProcesses.get(serviceId) !== record ||
+      record.stopping ||
+      record.treeTerminationPromise ||
+      record.treeMonitorAbortController.signal.aborted
+    ) {
+      return;
+    }
+    let inspectionFailed = false;
     try {
-      const members = await captureOwnedProcessTreeMembers(managedProcessTreeTarget(record), {
+      if (!record.rootIdentity) {
+        throw new Error(`Managed process "${serviceId}" has no verified root identity.`);
+      }
+      const inspection = await inspectWindowsProcessTree(record.rootIdentity, {
         deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         signal: record.treeMonitorAbortController.signal,
       });
-      if (members.length > 0) {
-        record.knownTreeMembers = members;
+      if (inspection.members.length > 0) {
+        record.knownTreeMembers = inspection.members;
       }
     } catch {
       // Process inspection can fail transiently; retain the last verified snapshot.
+      inspectionFailed = true;
     }
-    if (!record.stopping && !record.treeMonitorAbortController.signal.aborted) {
-      await adoptedProcessPollDelay(record.treeMonitorAbortController.signal);
-    }
+    refreshDelayMs = inspectionFailed
+      ? WINDOWS_TREE_MONITOR_RETRY_DELAY_MS
+      : WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS;
   }
 }
 
@@ -751,10 +1145,25 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
 
   record.stopping = true;
   try {
-    await terminateOwnedProcessTree({
-      ...adoptedProcessTreeTarget(record),
-      processGroup: { kind: "none", id: null },
-    }, 5_000);
+    const deadlineMs = processControlDeadline(5_000);
+    await withProcessControlDeadline(async (signal) => {
+      const dependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs, signal };
+      if (process.platform === "win32" && record.knownTreeMembers.length > 0) {
+        const snapshot = await inspectKnownWindowsTreeMembers(
+          record.rootIdentity,
+          record.knownTreeMembers,
+          deadlineMs,
+          signal,
+        );
+        record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+        dependencies.inspectProcess = snapshot.inspectProcess;
+      }
+      return await terminateOwnedProcessTree({
+        ...adoptedProcessTreeTarget(record),
+        processGroup: { kind: "none", id: null },
+        rootExitObserved: process.platform === "win32",
+      }, remainingProcessControlMs(deadlineMs), dependencies);
+    }, { deadlineMs });
   } catch (error) {
     record.stopping = false;
     throw error;
@@ -795,7 +1204,10 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
 async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void> {
   const serviceId = record.service.manifest.id;
   while (adoptedProcesses.get(serviceId) === record && !record.stopping) {
-    await adoptedProcessPollDelay(record.monitorAbortController.signal);
+    await adoptedProcessPollDelay(
+      record.monitorAbortController.signal,
+      process.platform === "win32" ? WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS : ADOPTED_PROCESS_POLL_INTERVAL_MS,
+    );
     if (adoptedProcesses.get(serviceId) !== record || record.stopping) {
       return;
     }
@@ -998,19 +1410,44 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   const { paths: logPaths, streams: logStreams } = await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
   const stdinEnabled = serviceEnablesStdin(service);
 
+  let approvedLaunchFiles: readonly ManagedLaunchFileBinding[] = [];
   try {
-    await options.verifyBeforeSpawn?.();
+    approvedLaunchFiles = await options.verifyBeforeSpawn?.() ?? [];
   } catch (error) {
     await closeRuntimeLogStreams(logStreams);
     throw error;
   }
-  const child = spawn(executable, args, {
+  const useWindowsManagedLauncher = process.platform === "win32" && Boolean(workspaceRoot);
+  let windowsManagedLaunchState: WindowsManagedLaunchState | null = null;
+  try {
+    windowsManagedLaunchState = useWindowsManagedLauncher
+      ? await createWindowsManagedLaunchState(
+          executable,
+          args,
+          workingDirectory,
+          environment,
+          approvedLaunchFiles,
+          workspaceRoot as string,
+          options.guardedExecutableLaunch === true || options.verifyBeforeSpawn !== undefined,
+        )
+      : null;
+  } catch (error) {
+    await closeRuntimeLogStreams(logStreams);
+    throw error;
+  }
+  const child = spawn(
+    windowsManagedLaunchState?.powershellExecutable ?? executable,
+    windowsManagedLaunchState
+      ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WINDOWS_MANAGED_LAUNCHER_PATH]
+      : args,
+    {
     cwd: workingDirectory,
-    env: environment,
+    env: windowsManagedLaunchState?.environment ?? environment,
     stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
     windowsHide: true,
-  });
+    },
+  );
 
   const exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.once("close", (exitCode, signal) => {
@@ -1030,12 +1467,15 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     await spawnPromise;
   } catch (error) {
     await closeRuntimeLogStreams(logStreams);
+    await removeWindowsManagedLaunchState(windowsManagedLaunchState);
     throw error;
   }
 
   const rootPid = child.pid ?? 0;
-  const processGroup = createSpawnProcessGroup(rootPid);
-  const rootInspection = rootPid > 0 ? await managedProcessRootInspector(rootPid) : null;
+  const processGroup = windowsManagedLaunchState
+    ? { kind: "windows-job" as const, id: String(rootPid) }
+    : createSpawnProcessGroup(rootPid);
+  const rootInspection = rootPid > 0 && !workspaceRoot ? await managedProcessRootInspector(rootPid) : null;
   let rootIdentity = rootInspection?.status === "running" ? rootInspection.identity : null;
 
   const record: ManagedProcessRecord = {
@@ -1065,8 +1505,72 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   };
   attachRuntimeLogCapture(record);
 
+  let managedRecordActivated = false;
+  const activateManagedRecord = () => {
+    if (managedRecordActivated) {
+      return;
+    }
+    managedRecordActivated = true;
+    managedProcesses.set(serviceId, record);
+    record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
+    const logFinalizePromise = record.finalizePromise;
+    const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
+      const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
+        ? record.stopDeadlineMs
+        : processControlDeadline(UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS);
+      await terminateManagedProcessTree(
+        record,
+        UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS,
+        true,
+        true,
+        finalizationDeadlineMs,
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      record.exitCode = exitCode;
+      record.exitSignal = signal;
+
+      const finalizeLifecycle = async () => {
+        if (record.workspaceRoot) {
+          await transitionProcessOwnership(
+            record.workspaceRoot,
+            "service",
+            serviceId,
+            "stopped",
+            "not_running",
+            child.pid,
+          );
+        }
+
+        const current = managedProcesses.get(serviceId);
+        if (current?.child === child) {
+          managedProcesses.delete(serviceId);
+        }
+
+        if (onExit) {
+          await onExit({
+            service,
+            exitCode,
+            signal,
+            wasStopping: record.stopping,
+          });
+        }
+      };
+      if (record.workspaceRoot) {
+        await withSerializedWorkspaceFinalization(record.workspaceRoot, finalizeLifecycle);
+      } else {
+        await finalizeLifecycle();
+      }
+    });
+    record.finalizePromise = Promise.all([
+      logFinalizePromise,
+      lifecycleFinalizePromise,
+    ]).then(() => undefined);
+    trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise);
+  };
+
   if (workspaceRoot) {
     try {
+      await managedProcessEnrollmentHook?.(child);
       const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
       const ownership = await recordProcessOwnership(workspaceRoot, {
         ownerType: "service",
@@ -1084,66 +1588,134 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         lifecycleState: "launching",
         source: "spawn",
         processGroup,
+        verifyInspectedProcess: (identity) => {
+          if (probeManagedChildHandle(child) !== "owned") {
+            return false;
+          }
+          rootIdentity = identity;
+          record.rootIdentity = identity;
+          return true;
+        },
       });
+      if (!ownership.identity) {
+        throw new Error(`Cannot start managed process "${serviceId}": verified ownership identity is missing.`);
+      }
       rootIdentity = ownership.identity;
       record.rootIdentity = ownership.identity;
+      if (process.platform === "win32") {
+        const initialTree = await inspectWindowsProcessTree(ownership.identity, {
+          deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
+        });
+        record.knownTreeMembers = initialTree.members;
+        if (initialTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
+          throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
+        }
+        if (windowsManagedLaunchState) {
+          await bindWindowsManagedLauncherFiles(child, windowsManagedLaunchState);
+          const confirmedLaunchFiles = await options.verifyBeforeSpawn?.() ?? [];
+          if (!sameManagedLaunchFileBindings(approvedLaunchFiles, confirmedLaunchFiles)) {
+            throw new Error(`Cannot start managed process "${serviceId}": executable bindings changed during enrollment.`);
+          }
+          await continueWindowsManagedLauncher(child, windowsManagedLaunchState);
+          await managedProcessAfterReleaseHook?.();
+        }
+        await adoptedProcessPollDelay(undefined);
+        const stabilizedTree = await inspectWindowsProcessTree(ownership.identity, {
+          deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
+        });
+        record.knownTreeMembers = mergeProcessFingerprints(initialTree.members, stabilizedTree.members);
+        if (stabilizedTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
+          throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
+        }
+        await removeWindowsManagedLaunchState(windowsManagedLaunchState);
+        windowsManagedLaunchState = null;
+      }
     } catch (error) {
-      await terminateOwnedProcessTree({ rootPid, rootIdentity, processGroup }, 250).catch(() => undefined);
-      await exitPromise;
-      await record.finalizePromise;
+      let containmentError: unknown = null;
+      if (rootIdentity) {
+        const verifiedRootIdentity = rootIdentity;
+        if (process.platform === "win32" && record.knownTreeMembers.length === 0) {
+          const emergencyTree = await inspectWindowsProcessTree(verifiedRootIdentity, {
+            deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
+          }).catch(() => null);
+          if (emergencyTree) {
+            record.knownTreeMembers = emergencyTree.members;
+          }
+        }
+        const rootStatus = probeManagedChildHandle(child);
+        try {
+          const containmentDeadlineMs = processControlDeadline(5_000);
+          await withProcessControlDeadline(async (signal) => {
+            const dependencies: Parameters<typeof terminateOwnedProcessTree>[2] = {
+              deadlineMs: containmentDeadlineMs,
+              signal,
+            };
+            if (process.platform === "win32" && record.knownTreeMembers.length > 0) {
+              const snapshot = await inspectKnownWindowsTreeMembers(
+                verifiedRootIdentity,
+                record.knownTreeMembers,
+                containmentDeadlineMs,
+                signal,
+              );
+              record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+              dependencies.inspectProcess = snapshot.inspectProcess;
+            }
+            return await managedProcessTreeTerminator({
+              rootPid,
+              rootIdentity: verifiedRootIdentity,
+              processGroup,
+              knownMembers: record.knownTreeMembers,
+              rootExitObserved: rootStatus === "exited",
+              rootOwnershipProbe: () => probeManagedChildHandle(child),
+              forceImmediately: process.platform === "win32",
+              preferFastWindowsRootIdentity: process.platform === "win32",
+            }, remainingProcessControlMs(containmentDeadlineMs), dependencies);
+          }, { deadlineMs: containmentDeadlineMs });
+        } catch (cleanupError) {
+          containmentError = cleanupError;
+        }
+      } else if (child.exitCode === null && child.signalCode === null) {
+        if (!child.kill("SIGKILL")) {
+          containmentError = new Error("Managed launch wrapper could not be terminated after ownership enrollment failed.");
+        }
+      }
+      await removeWindowsManagedLaunchState(windowsManagedLaunchState);
+      windowsManagedLaunchState = null;
+      if (!containmentError) {
+        try {
+          const exitDeadlineMs = processControlDeadline(5_000);
+          await withProcessControlDeadline(async () => await exitPromise, { deadlineMs: exitDeadlineMs });
+          await withProcessControlDeadline(async () => await record.finalizePromise, { deadlineMs: exitDeadlineMs });
+        } catch (exitError) {
+          containmentError = exitError;
+        }
+      }
+      if (containmentError) {
+        activateManagedRecord();
+        throw new ManagedProcessEnrollmentContainmentError(
+          [error, containmentError],
+          `Cannot start managed process "${serviceId}": ownership enrollment and containment both failed.`,
+          {
+            pid: child.pid ?? 0,
+            startedAt,
+            command,
+            logs: logPaths,
+          },
+        );
+      }
+      await transitionProcessOwnership(
+        workspaceRoot,
+        "service",
+        serviceId,
+        "stopped",
+        "not_running",
+        rootPid,
+      );
       throw error;
     }
   }
 
-  managedProcesses.set(serviceId, record);
-  record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
-  const logFinalizePromise = record.finalizePromise;
-  const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
-    const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
-      ? record.stopDeadlineMs
-      : processControlDeadline(5_000);
-    await terminateManagedProcessTree(record, 5_000, true, true, finalizationDeadlineMs);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    record.exitCode = exitCode;
-    record.exitSignal = signal;
-
-    const finalizeLifecycle = async () => {
-      if (record.workspaceRoot) {
-        await transitionProcessOwnership(
-          record.workspaceRoot,
-          "service",
-          serviceId,
-          "stopped",
-          "not_running",
-          child.pid,
-        );
-      }
-
-      const current = managedProcesses.get(serviceId);
-      if (current?.child === child) {
-        managedProcesses.delete(serviceId);
-      }
-
-      if (onExit) {
-        await onExit({
-          service,
-          exitCode,
-          signal,
-          wasStopping: record.stopping,
-        });
-      }
-    };
-    if (record.workspaceRoot) {
-      await withSerializedWorkspaceFinalization(record.workspaceRoot, finalizeLifecycle);
-    } else {
-      await finalizeLifecycle();
-    }
-  });
-  record.finalizePromise = Promise.all([
-    logFinalizePromise,
-    lifecycleFinalizePromise,
-  ]).then(() => undefined);
-  trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise);
+  activateManagedRecord();
 
   return {
     pid: child.pid ?? 0,
@@ -1155,7 +1727,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
 export async function stopManagedProcess(
   serviceId: string,
-  timeoutMs = 5_000,
+  timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
@@ -1209,11 +1781,11 @@ async function stopAdoptedProcess(
   const finalizer = managedProcessFinalizers.get(serviceId);
   await beginManagedProcessStop(serviceId, deadlineMs);
   let terminationTarget = adoptedProcessTreeTarget(record);
+  const terminationDependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs };
   if (process.platform !== "win32") {
     // POSIX process-group signaling needs this fresh registry check before it
-    // targets a numeric group. On Windows, terminateOwnedProcessTree performs
-    // the same fail-closed fingerprint check immediately before taskkill;
-    // repeating CIM here can consume the caller's entire absolute deadline.
+    // targets a numeric group. Windows uses one native full-tree snapshot below
+    // as the immediate pre-taskkill root and member classification.
     const ownership = await withProcessControlDeadline(
       async () => await findProcessOwnership(record.workspaceRoot, "service", serviceId),
       { deadlineMs },
@@ -1233,11 +1805,29 @@ async function stopAdoptedProcess(
         processGroup: { kind: "none" as const, id: null },
       };
     }
+  } else if (record.knownTreeMembers.length > 0) {
+    await withProcessControlDeadline(async (signal) => {
+      const snapshot = await inspectKnownWindowsTreeMembers(
+        record.rootIdentity,
+        record.knownTreeMembers,
+        deadlineMs,
+        signal,
+      );
+      record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+      terminationTarget = adoptedProcessTreeTarget(record);
+      terminationDependencies.signal = signal;
+      terminationDependencies.inspectProcess = snapshot.inspectProcess;
+      terminationDependencies.classifyWindowsProcessIdentityFast = async (identity) => classifyProcessIdentity(
+        identity,
+        await snapshot.inspectProcess(identity.pid),
+        "win32",
+      );
+    }, { deadlineMs });
   }
   const termination = await terminateOwnedProcessTree(
     terminationTarget,
     remainingProcessControlMs(deadlineMs),
-    { deadlineMs },
+    terminationDependencies,
   );
 
   await withProcessControlDeadline(

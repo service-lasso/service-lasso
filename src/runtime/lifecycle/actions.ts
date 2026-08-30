@@ -10,6 +10,7 @@ import { LifecycleStateError } from "../../server/errors.js";
 import {
   beginManagedProcessStop,
   hasManagedProcess,
+  ManagedProcessEnrollmentContainmentError,
   registerManagedProcessShutdownQuiescer,
   startManagedProcess,
   stopManagedProcess,
@@ -1344,22 +1345,27 @@ export async function startService(
         ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
         : {}
   );
-  const verifyApprovedExecutable = options.expectedExecutableRevision
-    ? async (): Promise<void> => {
+  const guardedExecutableLaunch =
+    options.expectedExecutableFiles !== undefined || options.expectedExecutableRevision !== undefined;
+  const verifyApprovedExecutable = guardedExecutableLaunch
+    ? async () => {
         await verifyExecutableInputFiles(options.expectedExecutableFiles ?? []);
-        const currentRevision = await buildServiceExecutableMutationRevision(
-          service,
-          registry,
-          resolvedPorts,
-          sharedGlobalEnv,
-          variableResolution,
-          secureLaunchEnv,
-        );
-        if (currentRevision !== options.expectedExecutableRevision) {
-          throw new LifecycleStateError(
-            `Cannot start service "${serviceId}" because its resolved executable inputs changed after guarded preflight.`,
+        if (options.expectedExecutableRevision !== undefined) {
+          const currentRevision = await buildServiceExecutableMutationRevision(
+            service,
+            registry,
+            resolvedPorts,
+            sharedGlobalEnv,
+            variableResolution,
+            secureLaunchEnv,
           );
+          if (currentRevision !== options.expectedExecutableRevision) {
+            throw new LifecycleStateError(
+              `Cannot start service "${serviceId}" because its resolved executable inputs changed after guarded preflight.`,
+            );
+          }
         }
+        return options.expectedExecutableFiles ?? [];
       }
     : undefined;
   const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
@@ -1456,6 +1462,7 @@ export async function startService(
       runtimeInstanceId: options.runtimeInstanceId,
       allocationRevision,
       verifyBeforeSpawn: verifyApprovedExecutable,
+      guardedExecutableLaunch,
       onExit: async ({ exitCode, signal, wasStopping }) => {
         if (wasStopping) {
           return;
@@ -1467,7 +1474,39 @@ export async function startService(
     const message = `Cannot start service "${serviceId}" because process spawn failed: ${
       error instanceof Error ? error.message : String(error)
     }`;
-    revokeServiceScopedBrokerIdentities(serviceId);
+    if (error instanceof ManagedProcessEnrollmentContainmentError) {
+      const retainedHandle = error.handle;
+      const retainedState = updateRuntimeState(serviceId, (state) => ({
+        ...state,
+        running: true,
+        runtime: {
+          ...state.runtime,
+          generationId: options.runtimeGenerationId ?? null,
+          pid: retainedHandle.pid,
+          startedAt: retainedHandle.startedAt,
+          finishedAt: null,
+          exitCode: null,
+          command: retainedHandle.command,
+          provider: executionPlan.provider,
+          providerServiceId: executionPlan.providerServiceId,
+          lastTermination: null,
+          allocationRevision,
+          ports: resolvedPorts,
+          endpoints: resolveServiceEndpoints(service, resolvedPorts),
+          logs: {
+            runId: retainedHandle.logs.runId,
+            logPath: retainedHandle.logs.logPath,
+            stdoutPath: retainedHandle.logs.stdoutPath,
+            stderrPath: retainedHandle.logs.stderrPath,
+          },
+          metrics: applyProcessLaunchMetrics(state, "start", retainedHandle.startedAt),
+          brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
+        },
+      }));
+      await writeServiceState(service, retainedState);
+    } else {
+      revokeServiceScopedBrokerIdentities(serviceId);
+    }
     recordStartTraceEvent(serviceId, trace, "process_spawn", "failed", message, {
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
@@ -1679,9 +1718,30 @@ export async function restartService(
   await assertDoctorPreflightAllowsRestart(service, options.expectedDoctorExecutableBindings);
 
   if (current.running) {
-    await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId);
+    const finishedAt = new Date().toISOString();
+    const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
+      now: new Date(finishedAt),
+    });
+    const revokedIdentity =
+      revokedIdentities.at(-1) ?? current.runtime.brokerIdentity;
+    const stoppedState = updateRuntimeState(serviceId, (state) => ({
+      ...state,
+      running: false,
+      runtime: {
+        ...state.runtime,
+        pid: null,
+        finishedAt,
+        exitCode: stopped?.exitCode ?? state.runtime.exitCode ?? 0,
+        lastTermination: "stopped",
+        metrics: applyRunCompletionMetrics(state, finishedAt, "stopped"),
+        brokerIdentity: revokedIdentity,
+      },
+    }));
+    await writeServiceState(service, stoppedState);
+  } else {
+    revokeServiceScopedBrokerIdentities(serviceId);
   }
-  revokeServiceScopedBrokerIdentities(serviceId);
 
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
@@ -1706,27 +1766,12 @@ export async function restartService(
         : {}
   );
   const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
-  updateRuntimeState(serviceId, (state) => ({
-    ...state,
-    runtime: {
-      ...state.runtime,
-      variables: {},
-    },
-  }));
-  const handle = await startManagedProcess({
-    service,
-    executionPlan,
-    sharedGlobalEnv,
-    resolvedPorts,
-    secureEnv: secureLaunchEnv,
-    variableResolution,
-    workspaceRoot: options.workspaceRoot,
-    runtimeInstanceId: options.runtimeInstanceId,
-    runtimeGenerationId: options.runtimeGenerationId,
-    allocationRevision,
-    verifyBeforeSpawn: options.expectedExecutableRevision
-      ? async (): Promise<void> => {
-          await verifyExecutableInputFiles(options.expectedExecutableFiles ?? []);
+  const guardedExecutableLaunch =
+    options.expectedExecutableFiles !== undefined || options.expectedExecutableRevision !== undefined;
+  const verifyApprovedExecutable = guardedExecutableLaunch
+    ? async () => {
+        await verifyExecutableInputFiles(options.expectedExecutableFiles ?? []);
+        if (options.expectedExecutableRevision !== undefined) {
           const currentRevision = await buildServiceExecutableMutationRevision(
             service,
             registry,
@@ -1741,14 +1786,77 @@ export async function restartService(
             );
           }
         }
-      : undefined,
-    onExit: async ({ exitCode, signal, wasStopping }) => {
-      if (wasStopping) {
-        return;
+        return options.expectedExecutableFiles ?? [];
       }
-      await superviseUnexpectedProcessExit(service, exitCode, signal, registry, options);
+    : undefined;
+  updateRuntimeState(serviceId, (state) => ({
+    ...state,
+    runtime: {
+      ...state.runtime,
+      variables: {},
     },
-  });
+  }));
+  let handle: Awaited<ReturnType<typeof startManagedProcess>>;
+  try {
+    handle = await startManagedProcess({
+      service,
+      executionPlan,
+      sharedGlobalEnv,
+      resolvedPorts,
+      secureEnv: secureLaunchEnv,
+      variableResolution,
+      workspaceRoot: options.workspaceRoot,
+      runtimeInstanceId: options.runtimeInstanceId,
+      runtimeGenerationId: options.runtimeGenerationId,
+      allocationRevision,
+      verifyBeforeSpawn: verifyApprovedExecutable,
+      guardedExecutableLaunch,
+      onExit: async ({ exitCode, signal, wasStopping }) => {
+        if (wasStopping) {
+          return;
+        }
+        await superviseUnexpectedProcessExit(service, exitCode, signal, registry, options);
+      },
+    });
+  } catch (error) {
+    const message = `Cannot restart service "${serviceId}" because process spawn failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    if (error instanceof ManagedProcessEnrollmentContainmentError) {
+      const retainedHandle = error.handle;
+      const retainedState = updateRuntimeState(serviceId, (state) => ({
+        ...state,
+        running: true,
+        runtime: {
+          ...state.runtime,
+          generationId: options.runtimeGenerationId ?? null,
+          pid: retainedHandle.pid,
+          startedAt: retainedHandle.startedAt,
+          finishedAt: null,
+          exitCode: null,
+          command: retainedHandle.command,
+          provider: executionPlan.provider,
+          providerServiceId: executionPlan.providerServiceId,
+          lastTermination: null,
+          allocationRevision,
+          ports: resolvedPorts,
+          endpoints: resolveServiceEndpoints(service, resolvedPorts),
+          logs: {
+            runId: retainedHandle.logs.runId,
+            logPath: retainedHandle.logs.logPath,
+            stdoutPath: retainedHandle.logs.stdoutPath,
+            stderrPath: retainedHandle.logs.stderrPath,
+          },
+          metrics: applyProcessLaunchMetrics(state, "restart", retainedHandle.startedAt),
+          brokerIdentity: scopedBrokerIdentity?.metadata ?? null,
+        },
+      }));
+      await writeServiceState(service, retainedState);
+    } else {
+      revokeServiceScopedBrokerIdentities(serviceId);
+    }
+    throw new LifecycleStateError(message);
+  }
 
   updateRuntimeState(serviceId, (state) => ({
     ...state,

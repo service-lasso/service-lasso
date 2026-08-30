@@ -12,8 +12,10 @@ on:
       - .governance/project/PROJECT_INTENT.md
       - .governance/specs/SPEC-006-operator-mcp.md
       - docs/reference/operator-mcp.md
+      - docs/reference/process-ownership-registry.md
       - package.json
       - package-lock.json
+      - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
@@ -21,8 +23,17 @@ on:
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
+      - src/runtime/execution/supervisor.ts
+      - src/runtime/execution/windows-managed-launcher.ps1
+      - src/runtime/lifecycle/actions.ts
       - src/runtime/operator/**
+      - src/runtime/process/identity.ts
+      - src/runtime/process/registry.ts
+      - src/runtime/process/tree.ts
+      - src/runtime/process/windows-process-inspector.ps1
+      - src/runtime/setup/definition-revision.ts
       - src/server/**
+      - tests/process-ownership.test.js
       - tests/operator-mcp*.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
@@ -39,8 +50,10 @@ on:
       - .governance/project/PROJECT_INTENT.md
       - .governance/specs/SPEC-006-operator-mcp.md
       - docs/reference/operator-mcp.md
+      - docs/reference/process-ownership-registry.md
       - package.json
       - package-lock.json
+      - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
@@ -48,8 +61,17 @@ on:
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
+      - src/runtime/execution/supervisor.ts
+      - src/runtime/execution/windows-managed-launcher.ps1
+      - src/runtime/lifecycle/actions.ts
       - src/runtime/operator/**
+      - src/runtime/process/identity.ts
+      - src/runtime/process/registry.ts
+      - src/runtime/process/tree.ts
+      - src/runtime/process/windows-process-inspector.ps1
+      - src/runtime/setup/definition-revision.ts
       - src/server/**
+      - tests/process-ownership.test.js
       - tests/operator-mcp*.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
