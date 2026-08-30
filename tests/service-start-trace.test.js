@@ -177,6 +177,10 @@ test("service start trace API records failed start without leaking request mater
     assert.equal(result.body.trace.status, "failed");
     assert.equal(result.body.trace.events.at(-2).phase, "process_spawn");
     assert.equal(result.body.trace.events.at(-2).status, "failed");
+    assert.equal(
+      result.body.trace.events.at(-2).metadata.processStartFailurePhase,
+      process.platform === "win32" ? "target_acknowledgement" : "wrapper_spawn",
+    );
     assert.equal(result.body.trace.events.at(-1).phase, "terminal_outcome");
     assert.equal(result.body.history[0].status, "failed");
     assert.doesNotMatch(JSON.stringify(result.body), /raw-client-secret/);

@@ -158,6 +158,21 @@ const SAFE_READINESS_ATTRIBUTIONS = new Set([
   "listener_owner_unverifiable",
   "ownership_evidence_mismatch",
 ]);
+const SAFE_PROCESS_START_FAILURE_PHASES = new Set([
+  "prelaunch_verification",
+  "launch_state_creation",
+  "wrapper_spawn",
+  "ownership_enrollment",
+  "ownership_recording",
+  "initial_tree_inspection",
+  "launch_file_binding",
+  "binding_revalidation",
+  "target_acknowledgement",
+  "post_release_hook",
+  "stabilization_delay",
+  "stabilized_tree_inspection",
+  "launch_state_cleanup",
+]);
 
 function stableDiagnosticCode(value) {
   return typeof value === "string" && SAFE_DIAGNOSTIC_CODE.test(value)
@@ -473,6 +488,13 @@ try {
         healthcheckFailed: Array.isArray(failedHealthchecks)
           ? failedHealthchecks.length > 0
           : null,
+        processStartFailurePhase: failedEvent?.metadata?.processStartFailurePhase === undefined ||
+          failedEvent?.metadata?.processStartFailurePhase === null
+          ? null
+          : allowlistedDiagnosticCode(
+              failedEvent.metadata.processStartFailurePhase,
+              SAFE_PROCESS_START_FAILURE_PHASES,
+            ),
       };
     } catch {
       lifecycleDiagnostic = {
@@ -481,6 +503,7 @@ try {
         exitClass: null,
         readinessAttribution: null,
         healthcheckFailed: null,
+        processStartFailurePhase: null,
       };
     }
     const summarize = (result) => ({

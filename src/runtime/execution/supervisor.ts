@@ -48,14 +48,52 @@ export interface ManagedProcessHandle {
   logs: ServiceRuntimeLogPaths;
 }
 
+export type ManagedProcessStartFailurePhase =
+  | "prelaunch_verification"
+  | "launch_state_creation"
+  | "wrapper_spawn"
+  | "ownership_enrollment"
+  | "ownership_recording"
+  | "initial_tree_inspection"
+  | "launch_file_binding"
+  | "binding_revalidation"
+  | "target_acknowledgement"
+  | "post_release_hook"
+  | "stabilization_delay"
+  | "stabilized_tree_inspection"
+  | "launch_state_cleanup";
+
+export class ManagedProcessStartError extends Error {
+  readonly failurePhase: ManagedProcessStartFailurePhase;
+
+  constructor(failurePhase: ManagedProcessStartFailurePhase, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "ManagedProcessStartError";
+    this.failurePhase = failurePhase;
+  }
+}
+
 export class ManagedProcessEnrollmentContainmentError extends AggregateError {
   readonly handle: ManagedProcessHandle;
+  readonly failurePhase: ManagedProcessStartFailurePhase;
 
-  constructor(errors: readonly unknown[], message: string, handle: ManagedProcessHandle) {
+  constructor(
+    errors: readonly unknown[],
+    message: string,
+    handle: ManagedProcessHandle,
+    failurePhase: ManagedProcessStartFailurePhase,
+  ) {
     super(errors, message);
     this.name = "ManagedProcessEnrollmentContainmentError";
     this.handle = handle;
+    this.failurePhase = failurePhase;
   }
+}
+
+export function managedProcessStartFailurePhase(error: unknown): ManagedProcessStartFailurePhase | null {
+  return error instanceof ManagedProcessStartError || error instanceof ManagedProcessEnrollmentContainmentError
+    ? error.failurePhase
+    : null;
 }
 
 interface ManagedProcessRecord {
@@ -191,6 +229,8 @@ let managedProcessRootInspector = inspectProcess;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
 let managedProcessAfterReleaseHook: (() => Promise<void> | void) | null = null;
+let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
+let managedProcessSpawner: typeof spawn = spawn;
 
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
@@ -235,6 +275,22 @@ export function setManagedProcessAfterReleaseHookForTests(
     throw new Error("Managed post-release test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessAfterReleaseHook = hook;
+}
+
+export function setManagedProcessLaunchStateRemoverForTests(
+  remover: ((state: WindowsManagedLaunchState) => Promise<void>) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed launch-state removal test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessLaunchStateRemover = remover ?? removeWindowsManagedLaunchStateDirectory;
+}
+
+export function setManagedProcessSpawnerForTests(spawner: typeof spawn | null): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process spawn test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessSpawner = spawner ?? spawn;
 }
 
 export function registerManagedProcessShutdownQuiescer(
@@ -674,11 +730,14 @@ async function createWindowsManagedLaunchState(
   };
 }
 
-async function removeWindowsManagedLaunchState(state: WindowsManagedLaunchState | null): Promise<void> {
-  if (!state) {
-    return;
-  }
+async function removeWindowsManagedLaunchStateDirectory(state: WindowsManagedLaunchState): Promise<void> {
   await rm(state.rootPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+}
+
+async function removeWindowsManagedLaunchState(state: WindowsManagedLaunchState | null): Promise<void> {
+  if (state) {
+    await managedProcessLaunchStateRemover(state);
+  }
 }
 
 async function bindWindowsManagedLauncherFiles(
@@ -1415,7 +1474,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     approvedLaunchFiles = await options.verifyBeforeSpawn?.() ?? [];
   } catch (error) {
     await closeRuntimeLogStreams(logStreams);
-    throw error;
+    throw new ManagedProcessStartError("prelaunch_verification", error);
   }
   const useWindowsManagedLauncher = process.platform === "win32" && Boolean(workspaceRoot);
   let windowsManagedLaunchState: WindowsManagedLaunchState | null = null;
@@ -1433,42 +1492,50 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       : null;
   } catch (error) {
     await closeRuntimeLogStreams(logStreams);
-    throw error;
+    throw new ManagedProcessStartError("launch_state_creation", error);
   }
-  const child = spawn(
-    windowsManagedLaunchState?.powershellExecutable ?? executable,
-    windowsManagedLaunchState
-      ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WINDOWS_MANAGED_LAUNCHER_PATH]
-      : args,
-    {
-    cwd: workingDirectory,
-    env: windowsManagedLaunchState?.environment ?? environment,
-    stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
-    detached: process.platform !== "win32",
-    windowsHide: true,
-    },
-  );
+  let child: ChildProcess;
+  let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  try {
+    child = managedProcessSpawner(
+      windowsManagedLaunchState?.powershellExecutable ?? executable,
+      windowsManagedLaunchState
+        ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WINDOWS_MANAGED_LAUNCHER_PATH]
+        : args,
+      {
+        cwd: workingDirectory,
+        env: windowsManagedLaunchState?.environment ?? environment,
+        stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+        windowsHide: true,
+      },
+    );
 
-  const exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once("close", (exitCode, signal) => {
-      resolve({
-        exitCode: typeof exitCode === "number" ? exitCode : null,
-        signal,
+    exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.once("close", (exitCode, signal) => {
+        resolve({
+          exitCode: typeof exitCode === "number" ? exitCode : null,
+          signal,
+        });
       });
     });
-  });
 
-  const spawnPromise = new Promise<void>((resolve, reject) => {
-    child.once("spawn", () => resolve());
-    child.once("error", reject);
-  });
-
-  try {
+    const spawnPromise = new Promise<void>((resolve, reject) => {
+      child.once("spawn", () => resolve());
+      child.once("error", reject);
+    });
     await spawnPromise;
   } catch (error) {
-    await closeRuntimeLogStreams(logStreams);
-    await removeWindowsManagedLaunchState(windowsManagedLaunchState);
-    throw error;
+    const cleanupErrors: unknown[] = [];
+    await closeRuntimeLogStreams(logStreams).catch((cleanupError) => cleanupErrors.push(cleanupError));
+    await removeWindowsManagedLaunchState(windowsManagedLaunchState)
+      .catch((cleanupError) => cleanupErrors.push(cleanupError));
+    throw new ManagedProcessStartError(
+      "wrapper_spawn",
+      cleanupErrors.length > 0
+        ? new AggregateError([error, ...cleanupErrors], "Managed process wrapper spawn and cleanup failed.")
+        : error,
+    );
   }
 
   const rootPid = child.pid ?? 0;
@@ -1569,9 +1636,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   };
 
   if (workspaceRoot) {
+    let startFailurePhase: ManagedProcessStartFailurePhase = "ownership_enrollment";
     try {
+      startFailurePhase = "ownership_enrollment";
       await managedProcessEnrollmentHook?.(child);
       const network = buildServiceNetwork(service, sharedGlobalEnv, resolvedPorts);
+      startFailurePhase = "ownership_recording";
       const ownership = await recordProcessOwnership(workspaceRoot, {
         ownerType: "service",
         ownerId: serviceId,
@@ -1603,6 +1673,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       rootIdentity = ownership.identity;
       record.rootIdentity = ownership.identity;
       if (process.platform === "win32") {
+        startFailurePhase = "initial_tree_inspection";
         const initialTree = await inspectWindowsProcessTree(ownership.identity, {
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         });
@@ -1611,15 +1682,21 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
           throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
         }
         if (windowsManagedLaunchState) {
+          startFailurePhase = "launch_file_binding";
           await bindWindowsManagedLauncherFiles(child, windowsManagedLaunchState);
+          startFailurePhase = "binding_revalidation";
           const confirmedLaunchFiles = await options.verifyBeforeSpawn?.() ?? [];
           if (!sameManagedLaunchFileBindings(approvedLaunchFiles, confirmedLaunchFiles)) {
             throw new Error(`Cannot start managed process "${serviceId}": executable bindings changed during enrollment.`);
           }
+          startFailurePhase = "target_acknowledgement";
           await continueWindowsManagedLauncher(child, windowsManagedLaunchState);
+          startFailurePhase = "post_release_hook";
           await managedProcessAfterReleaseHook?.();
         }
+        startFailurePhase = "stabilization_delay";
         await adoptedProcessPollDelay(undefined);
+        startFailurePhase = "stabilized_tree_inspection";
         const stabilizedTree = await inspectWindowsProcessTree(ownership.identity, {
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         });
@@ -1627,10 +1704,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         if (stabilizedTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
           throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
         }
+        startFailurePhase = "launch_state_cleanup";
         await removeWindowsManagedLaunchState(windowsManagedLaunchState);
         windowsManagedLaunchState = null;
       }
     } catch (error) {
+      const startError = error instanceof ManagedProcessStartError
+        ? error
+        : new ManagedProcessStartError(startFailurePhase, error);
       let containmentError: unknown = null;
       if (rootIdentity) {
         const verifiedRootIdentity = rootIdentity;
@@ -1679,7 +1760,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
           containmentError = new Error("Managed launch wrapper could not be terminated after ownership enrollment failed.");
         }
       }
-      await removeWindowsManagedLaunchState(windowsManagedLaunchState);
+      const launchStateCleanupErrors: unknown[] = [];
+      await removeWindowsManagedLaunchState(windowsManagedLaunchState).catch((cleanupError) => {
+        launchStateCleanupErrors.push(cleanupError);
+      });
       windowsManagedLaunchState = null;
       if (!containmentError) {
         try {
@@ -1693,7 +1777,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       if (containmentError) {
         activateManagedRecord();
         throw new ManagedProcessEnrollmentContainmentError(
-          [error, containmentError],
+          [startError, containmentError, ...launchStateCleanupErrors],
           `Cannot start managed process "${serviceId}": ownership enrollment and containment both failed.`,
           {
             pid: child.pid ?? 0,
@@ -1701,6 +1785,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             command,
             logs: logPaths,
           },
+          startFailurePhase,
         );
       }
       await transitionProcessOwnership(
@@ -1711,7 +1796,16 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         "not_running",
         rootPid,
       );
-      throw error;
+      if (launchStateCleanupErrors.length > 0) {
+        throw new ManagedProcessStartError(
+          startFailurePhase,
+          new AggregateError(
+            [startError, ...launchStateCleanupErrors],
+            `Cannot start managed process "${serviceId}": launch-state cleanup also failed.`,
+          ),
+        );
+      }
+      throw startError;
     }
   }
 

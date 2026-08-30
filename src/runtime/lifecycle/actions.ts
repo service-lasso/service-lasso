@@ -11,6 +11,7 @@ import {
   beginManagedProcessStop,
   hasManagedProcess,
   ManagedProcessEnrollmentContainmentError,
+  managedProcessStartFailurePhase,
   registerManagedProcessShutdownQuiescer,
   startManagedProcess,
   stopManagedProcess,
@@ -1510,6 +1511,7 @@ export async function startService(
     recordStartTraceEvent(serviceId, trace, "process_spawn", "failed", message, {
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
+      processStartFailurePhase: managedProcessStartFailurePhase(error) ?? "unclassified_error",
     });
     finishStartTrace(serviceId, trace, "failed", message);
     throw new LifecycleStateError(message);

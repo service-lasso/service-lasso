@@ -44,6 +44,7 @@ on:
       - src/server/**
       - tests/process-ownership.test.js
       - tests/private-json.test.js
+      - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
@@ -92,6 +93,7 @@ on:
       - src/server/**
       - tests/process-ownership.test.js
       - tests/private-json.test.js
+      - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js

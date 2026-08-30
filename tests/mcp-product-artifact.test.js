@@ -92,6 +92,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
         exitClass: "nonzero",
         readinessAttribution: "not_applicable",
         healthcheckFailed: true,
+        processStartFailurePhase: "launch_state_cleanup",
       },
     },
   };
@@ -136,6 +137,13 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     guardedProbe: {
       ...guarded.guardedProbe,
       lifecycle: { ...guarded.guardedProbe.lifecycle, phase: "secret_token_value" },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: { ...guarded.guardedProbe.lifecycle, processStartFailurePhase: "secret_token_value" },
     },
   })}`), null);
   assert.equal(JSON.stringify(guarded).includes(hostile), false);
@@ -346,6 +354,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       "src/runtime/setup/definition-revision.ts",
       "tests/process-ownership.test.js",
       "tests/private-json.test.js",
+      "tests/service-start-trace.test.js",
     ]) {
       assert.equal(workflow.split(`- ${governedRuntimePath}`).length - 1, 2);
     }

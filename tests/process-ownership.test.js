@@ -24,9 +24,12 @@ import { startApiServer } from "../dist/server/index.js";
 import {
   adoptManagedProcess,
   hasManagedProcess,
+  managedProcessStartFailurePhase,
   setManagedProcessAfterReleaseHookForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
+  setManagedProcessLaunchStateRemoverForTests,
+  setManagedProcessSpawnerForTests,
   setManagedProcessTreeTerminatorForTests,
   startManagedProcess,
   stopAllManagedProcesses,
@@ -1379,13 +1382,52 @@ test("Windows enrollment gate prevents service descendants before the first owne
         executionPlan: createDirectExecutionPlan(service.manifest),
         workspaceRoot,
       }),
-      /process_not_running|process handle changed/u,
+      (error) => {
+        assert.match(error.message, /process_not_running|process handle changed/u);
+        assert.equal(managedProcessStartFailurePhase(error), "ownership_recording");
+        return true;
+      },
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
     await assert.rejects(readFile(pidFilePath, "utf8"), { code: "ENOENT" });
     assert.equal(await findProcessOwnership(workspaceRoot, "service", "enrollment-gate-service"), null);
   } finally {
     setManagedProcessEnrollmentHookForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("synchronous wrapper spawn failures retain their typed phase and clean pre-enrollment state", async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-sync-spawn-failure-");
+  await writeExecutableFixtureService(servicesRoot, "sync-spawn-failure-service");
+
+  try {
+    setManagedProcessSpawnerForTests(() => {
+      throw new Error("injected synchronous spawn failure");
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "wrapper_spawn");
+        assert.match(error.message, /injected synchronous spawn failure/u);
+        return true;
+      },
+    );
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "sync-spawn-failure-service"), null);
+    assert.equal(hasManagedProcess("sync-spawn-failure-service"), false);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -1746,7 +1788,12 @@ test("Windows enrollment containment failure returns boundedly and retains truth
           return bindings;
         },
       }),
-      (error) => error instanceof AggregateError && /containment both failed/u.test(error.message),
+      (error) => {
+        assert.equal(error instanceof AggregateError, true);
+        assert.match(error.message, /containment both failed/u);
+        assert.equal(managedProcessStartFailurePhase(error), "binding_revalidation");
+        return true;
+      },
     );
     assert.equal(Date.now() - startedAt < 20_000, true);
     assert.equal(verificationCount, 2);
@@ -1771,6 +1818,94 @@ test("Windows enrollment containment failure returns boundedly and retains truth
   } finally {
     setManagedProcessTreeTerminatorForTests(null);
     await stopManagedProcess("enrollment-containment-failure-service", 10_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows launch-state cleanup failure preserves the owning start phase and stopped reconciliation", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launch-cleanup-failure-");
+  await writeExecutableFixtureService(servicesRoot, "launch-cleanup-failure-service");
+
+  try {
+    setManagedProcessAfterReleaseHookForTests(async () => {
+      throw new Error("injected post-release failure");
+    });
+    setManagedProcessLaunchStateRemoverForTests(async () => {
+      throw new Error("injected launch-state cleanup failure");
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "post_release_hook");
+        assert.match(error.message, /launch-state cleanup also failed/u);
+        return true;
+      },
+    );
+    const stopped = await findProcessOwnership(workspaceRoot, "service", "launch-cleanup-failure-service");
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+    assert.equal(hasManagedProcess("launch-cleanup-failure-service"), false);
+  } finally {
+    setManagedProcessAfterReleaseHookForTests(null);
+    setManagedProcessLaunchStateRemoverForTests(null);
+    await stopManagedProcess("launch-cleanup-failure-service", 10_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows primary launch-state cleanup failure is typed and reconciles stopped ownership", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-primary-launch-cleanup-failure-");
+  await writeExecutableFixtureService(servicesRoot, "primary-launch-cleanup-failure-service");
+
+  try {
+    setManagedProcessLaunchStateRemoverForTests(async () => {
+      throw new Error("injected primary launch-state cleanup failure");
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "launch_state_cleanup");
+        assert.match(error.message, /launch-state cleanup also failed/u);
+        return true;
+      },
+    );
+    const stopped = await findProcessOwnership(
+      workspaceRoot,
+      "service",
+      "primary-launch-cleanup-failure-service",
+    );
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+    assert.equal(hasManagedProcess("primary-launch-cleanup-failure-service"), false);
+  } finally {
+    setManagedProcessLaunchStateRemoverForTests(null);
+    await stopManagedProcess("primary-launch-cleanup-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -1805,6 +1940,12 @@ test("API preserves and can stop truthful running state after enrollment contain
     assert.equal(start.response.status, 409);
     const retainedState = getLifecycleState("api-containment-failure-service");
     assert.equal(retainedState.running, true);
+    assert.equal(
+      retainedState.runtime.startTrace.current.events.find((event) =>
+        event.phase === "process_spawn" && event.status === "failed"
+      ).metadata.processStartFailurePhase,
+      "post_release_hook",
+    );
     assert.equal(retainedState.runtime.pid > 0, true);
     assert.equal(hasManagedProcess("api-containment-failure-service"), true);
     const persisted = await readStoredState(serviceRoot);

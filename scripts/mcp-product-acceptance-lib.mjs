@@ -32,6 +32,22 @@ const GUARDED_DIAGNOSTIC_READINESS = new Set([
   "ownership_evidence_mismatch",
   "unclassified_error",
 ]);
+const GUARDED_DIAGNOSTIC_PROCESS_START_PHASES = new Set([
+  "prelaunch_verification",
+  "launch_state_creation",
+  "wrapper_spawn",
+  "ownership_enrollment",
+  "ownership_recording",
+  "initial_tree_inspection",
+  "launch_file_binding",
+  "binding_revalidation",
+  "target_acknowledgement",
+  "post_release_hook",
+  "stabilization_delay",
+  "stabilized_tree_inspection",
+  "launch_state_cleanup",
+  "unclassified_error",
+]);
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "audit_event_not_found",
   "audit_probe_failed",
@@ -184,12 +200,15 @@ export function parsePackagedAcceptanceFailure(stderr) {
         "exitClass",
         "readinessAttribution",
         "healthcheckFailed",
+        "processStartFailurePhase",
       ])) ||
       !(parsed.guardedProbe.lifecycle.attemptStatus === null || GUARDED_DIAGNOSTIC_TRACE_STATUSES.has(parsed.guardedProbe.lifecycle.attemptStatus)) ||
       !(parsed.guardedProbe.lifecycle.phase === null || GUARDED_DIAGNOSTIC_TRACE_PHASES.has(parsed.guardedProbe.lifecycle.phase)) ||
       !(parsed.guardedProbe.lifecycle.exitClass === null || ["none", "zero", "nonzero", "unclassified_error"].includes(parsed.guardedProbe.lifecycle.exitClass)) ||
       !(parsed.guardedProbe.lifecycle.readinessAttribution === null || GUARDED_DIAGNOSTIC_READINESS.has(parsed.guardedProbe.lifecycle.readinessAttribution)) ||
-      !(parsed.guardedProbe.lifecycle.healthcheckFailed === null || typeof parsed.guardedProbe.lifecycle.healthcheckFailed === "boolean")
+      !(parsed.guardedProbe.lifecycle.healthcheckFailed === null || typeof parsed.guardedProbe.lifecycle.healthcheckFailed === "boolean") ||
+      !(parsed.guardedProbe.lifecycle.processStartFailurePhase === null ||
+        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase))
     ) return null;
     diagnostic.guardedProbe = {
       completed: { ...parsed.guardedProbe.completed },
