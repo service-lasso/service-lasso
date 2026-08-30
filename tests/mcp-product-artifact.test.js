@@ -243,6 +243,18 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
+    assert.match(
+      packagedVerifier,
+      /const windowsSystemRoot = process\.env\.SystemRoot \?\? process\.env\.WINDIR;[\s\S]*?process\.platform === "win32" && \(!windowsSystemRoot \|\| !path\.win32\.isAbsolute\(windowsSystemRoot\)\)/u,
+    );
+    assert.match(
+      packagedVerifier,
+      /const executable = process\.platform === "win32"[\s\S]*?path\.win32\.join\(path\.win32\.normalize\(windowsSystemRoot\), "System32", "WindowsPowerShell", "v1\.0", "powershell\.exe"\)[\s\S]*?: process\.execPath;/u,
+    );
+    assert.match(
+      packagedVerifier,
+      /const args = process\.platform === "win32"[\s\S]*?"-NoLogo",[\s\S]*?"-NoProfile",[\s\S]*?"-NonInteractive",[\s\S]*?"-Command",[\s\S]*?"\[Threading\.Thread\]::Sleep\(\[Threading\.Timeout\]::Infinite\)"[\s\S]*?: \["runtime\/canonical-service\.mjs"\];/u,
+    );
     const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
     assert.match(packagedConsumer, /SAFE_DIAGNOSTIC_CODE[\s\S]*?componentProbe/u);

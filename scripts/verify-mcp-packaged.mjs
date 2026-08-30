@@ -83,6 +83,22 @@ async function writeCanonicalService(servicesRoot) {
   const serviceId = "canonical-mcp-service";
   const serviceRoot = path.join(servicesRoot, serviceId);
   const runtimeRoot = path.join(serviceRoot, "runtime");
+  const windowsSystemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (process.platform === "win32" && (!windowsSystemRoot || !path.win32.isAbsolute(windowsSystemRoot))) {
+    throw new Error("Windows packaged MCP acceptance requires an absolute system root.");
+  }
+  const executable = process.platform === "win32"
+    ? path.win32.join(path.win32.normalize(windowsSystemRoot), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    : process.execPath;
+  const args = process.platform === "win32"
+    ? [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "[Threading.Thread]::Sleep([Threading.Timeout]::Infinite)",
+      ]
+    : ["runtime/canonical-service.mjs"];
   await mkdir(runtimeRoot, { recursive: true });
   await writeFile(
     path.join(runtimeRoot, "canonical-service.mjs"),
@@ -101,8 +117,8 @@ async function writeCanonicalService(servicesRoot) {
       id: serviceId,
       name: "Canonical packaged MCP service",
       description: "Finite metadata-only packaged acceptance fixture.",
-      executable: process.execPath,
-      args: ["runtime/canonical-service.mjs"],
+      executable,
+      args,
       healthcheck: { type: "process" },
     }, null, 2)}\n`,
     "utf8",
