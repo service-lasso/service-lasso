@@ -7,6 +7,8 @@ const assets = [
   "runtime/execution/windows-managed-launcher.ps1",
   "runtime/process/windows-process-inspector.exe",
   "runtime/process/windows-process-inspector.provenance.json",
+  "runtime/security/windows-dpapi-helper.exe",
+  "runtime/security/windows-dpapi-helper.provenance.json",
 ];
 
 for (const relativePath of assets) {

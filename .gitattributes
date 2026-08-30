@@ -2,3 +2,7 @@ scripts/verify-windows-process-inspector.ps1 text eol=lf
 src/runtime/process/windows-process-inspector.cs text eol=lf
 src/runtime/process/windows-process-inspector.exe binary
 src/runtime/process/windows-process-inspector.provenance.json text eol=lf
+scripts/verify-windows-dpapi-helper.ps1 text eol=lf
+src/runtime/security/windows-dpapi-helper.cs text eol=lf
+src/runtime/security/windows-dpapi-helper.exe binary
+src/runtime/security/windows-dpapi-helper.provenance.json text eol=lf

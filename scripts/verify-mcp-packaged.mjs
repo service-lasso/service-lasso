@@ -24,7 +24,7 @@ async function exactCandidateSha() {
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
 }
 
-async function verifyWindowsProcessInspectorProvenance() {
+async function runWindowsProvenanceVerifier(scriptName, label) {
   if (process.platform !== "win32") {
     return;
   }
@@ -46,11 +46,19 @@ async function verifyWindowsProcessInspectorProvenance() {
       "-NoProfile",
       "-NonInteractive",
       "-File",
-      path.join(repoRoot, "scripts", "verify-windows-process-inspector.ps1"),
+      path.join(repoRoot, "scripts", scriptName),
     ],
     { cwd: repoRoot, timeoutMs: 60_000 },
   );
-  process.stderr.write(`[mcp-package-provenance] ${verification.stdout.trim()}\n`);
+  process.stderr.write(`[mcp-package-provenance:${label}] ${verification.stdout.trim()}\n`);
+}
+
+async function verifyWindowsProcessInspectorProvenance() {
+  await runWindowsProvenanceVerifier("verify-windows-process-inspector.ps1", "process-inspector");
+}
+
+async function verifyWindowsDpapiHelperProvenance() {
+  await runWindowsProvenanceVerifier("verify-windows-dpapi-helper.ps1", "dpapi-helper");
 }
 
 function isolatedConsumerEnvironment(overrides) {
@@ -128,6 +136,7 @@ async function writeCanonicalService(servicesRoot) {
 }
 
 await verifyWindowsProcessInspectorProvenance();
+await verifyWindowsDpapiHelperProvenance();
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
@@ -178,6 +187,22 @@ try {
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
     throw new Error("Fresh consumer installed a different Service Lasso package identity.");
+  }
+  const [installedDpapiHelper, installedDpapiProvenance, reviewedDpapiHelper, reviewedDpapiProvenance] = await Promise.all([
+    readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "security", "windows-dpapi-helper.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "security", "windows-dpapi-helper.provenance.json")),
+  ]);
+  try {
+    if (!installedDpapiHelper.equals(reviewedDpapiHelper) || !installedDpapiProvenance.equals(reviewedDpapiProvenance)) {
+      throw new Error("Fresh consumer installed unbound Windows DPAPI helper assets.");
+    }
+  } finally {
+    installedDpapiHelper.fill(0);
+    installedDpapiProvenance.fill(0);
+    reviewedDpapiHelper.fill(0);
+    reviewedDpapiProvenance.fill(0);
   }
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
   const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");

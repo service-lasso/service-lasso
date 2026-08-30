@@ -1,13 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const MAX_PRIVATE_JSON_BYTES = 64 * 1024;
 const MAX_PROTECTED_TEXT_BYTES = 256 * 1024;
+const WINDOWS_DPAPI_OPERATION_TIMEOUT_MS = 15_000;
+const WINDOWS_DPAPI_HELPER_BYTES = 5_120;
+const WINDOWS_DPAPI_HELPER_PROVENANCE_BYTES = 722;
+const WINDOWS_DPAPI_HELPER_SHA256 = "74608ed9e4733e2102417c9b1b6cc4482b97c99c635e3889f3d90eabdaee3739";
+const WINDOWS_DPAPI_HELPER_PROVENANCE_SHA256 = "3b78a4f86988d257347304c836205e57c5049f9b08caf93ba36c7c8c37ad329e";
 let currentWindowsSid: Promise<string> | null = null;
 
 export type PrivateJsonErrorCode =
@@ -77,23 +83,125 @@ async function assertNoRedirectedAncestors(rootPath: string, targetPath: string)
   }
 }
 
-async function runPowerShellProtection(operation: "protect" | "unprotect", script: string, input: string): Promise<string> {
+function isCanonicalBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/u.test(value)) return false;
+  return Buffer.from(value, "base64").toString("base64") === value;
+}
+
+async function assertWindowsDpapiHelperIntegrity(signal: AbortSignal): Promise<string> {
+  const helperPath = fileURLToPath(new URL("./windows-dpapi-helper.exe", import.meta.url));
+  const provenancePath = fileURLToPath(new URL("./windows-dpapi-helper.provenance.json", import.meta.url));
+  const readExactRegularAsset = async (assetPath: string, expectedBytes: number): Promise<Buffer> => {
+    signal.throwIfAborted();
+    const beforeOpen = await lstat(assetPath);
+    signal.throwIfAborted();
+    if (!beforeOpen.isFile() || beforeOpen.isSymbolicLink() || beforeOpen.size !== expectedBytes) {
+      throw new Error("Windows DPAPI helper asset identity was invalid.");
+    }
+    const handle = await open(assetPath, constants.O_RDONLY);
+    let bytes: Buffer | null = null;
+    try {
+      signal.throwIfAborted();
+      const afterOpen = await handle.stat();
+      signal.throwIfAborted();
+      if (!afterOpen.isFile() || afterOpen.size !== expectedBytes) {
+        throw new Error("Windows DPAPI helper asset identity changed while opening.");
+      }
+      bytes = await handle.readFile({ signal });
+      signal.throwIfAborted();
+      const afterRead = await handle.stat();
+      signal.throwIfAborted();
+      if (!afterRead.isFile() || afterRead.size !== expectedBytes || bytes.length !== expectedBytes) {
+        bytes.fill(0);
+        bytes = null;
+        throw new Error("Windows DPAPI helper asset length was invalid.");
+      }
+      return bytes;
+    } catch (error) {
+      bytes?.fill(0);
+      throw error;
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
+  };
+  let helperBytes: Buffer | null = null;
+  let provenanceBytes: Buffer | null = null;
+  try {
+    helperBytes = await readExactRegularAsset(helperPath, WINDOWS_DPAPI_HELPER_BYTES);
+    provenanceBytes = await readExactRegularAsset(provenancePath, WINDOWS_DPAPI_HELPER_PROVENANCE_BYTES);
+    const helperSha256 = createHash("sha256").update(helperBytes).digest("hex");
+    const provenanceSha256 = createHash("sha256").update(provenanceBytes).digest("hex");
+    if (
+      helperSha256 !== WINDOWS_DPAPI_HELPER_SHA256 ||
+      provenanceSha256 !== WINDOWS_DPAPI_HELPER_PROVENANCE_SHA256
+    ) {
+      throw new Error("Windows DPAPI helper integrity verification failed.");
+    }
+    return helperPath;
+  } finally {
+    helperBytes?.fill(0);
+    provenanceBytes?.fill(0);
+  }
+}
+
+async function runWindowsDpapiHelper(operation: "protect" | "unprotect", input: string): Promise<string> {
   const code = (suffix: "failed" | "timeout" | "unavailable"): PrivateJsonErrorCode =>
     `private_state_${operation}_${suffix}` as PrivateJsonErrorCode;
+  const deadline = Date.now() + WINDOWS_DPAPI_OPERATION_TIMEOUT_MS;
+  const integrityAbort = new AbortController();
+  let integrityTimeout: NodeJS.Timeout;
+  const integrityDeadline = new Promise<never>((_resolve, reject) => {
+    integrityTimeout = setTimeout(() => {
+      integrityAbort.abort();
+      reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
+    }, WINDOWS_DPAPI_OPERATION_TIMEOUT_MS);
+    integrityTimeout.unref?.();
+  });
+  let helperPath: string;
+  try {
+    helperPath = await Promise.race([
+      assertWindowsDpapiHelperIntegrity(integrityAbort.signal),
+      integrityDeadline,
+    ]);
+  } catch (error) {
+    const timedOut = integrityAbort.signal.aborted ||
+      (error instanceof PrivateJsonError && error.code === code("timeout"));
+    integrityAbort.abort();
+    if (timedOut) {
+      throw new PrivateJsonError(code("timeout"), "Windows private-state protection timed out.");
+    }
+    throw new PrivateJsonError(code("unavailable"), "Windows private-state protection is unavailable.");
+  } finally {
+    clearTimeout(integrityTimeout!);
+  }
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new PrivateJsonError(code("timeout"), "Windows private-state protection timed out.");
+  }
   return await new Promise((resolve, reject) => {
-    const child = spawn(windowsSystemExecutable("System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+    const child = spawn(helperPath, [operation], {
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
     let outputBytes = 0;
     let settled = false;
+    const remainingAfterSpawnMs = deadline - Date.now();
+    if (remainingAfterSpawnMs <= 0) {
+      settled = true;
+      child.once("error", () => undefined);
+      child.stdout.resume();
+      child.stderr.resume();
+      child.kill();
+      reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
+      return;
+    }
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
       child.kill();
       reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
-    }, 15_000);
+    }, remainingAfterSpawnMs);
     timeout.unref?.();
     child.stdout.on("data", (chunk: Buffer) => {
       outputBytes += chunk.length;
@@ -110,14 +218,15 @@ async function runPowerShellProtection(operation: "protect" | "unprotect", scrip
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      if (code !== 0 || outputBytes > MAX_PROTECTED_TEXT_BYTES) {
+      const output = Buffer.concat(stdout).toString("utf8");
+      if (code !== 0 || outputBytes > MAX_PROTECTED_TEXT_BYTES || !isCanonicalBase64(output)) {
         reject(new PrivateJsonError(
           operation === "protect" ? "private_state_protect_failed" : "private_state_unprotect_failed",
           "Windows private-state protection failed.",
         ));
         return;
       }
-      resolve(Buffer.concat(stdout).toString("utf8").trim());
+      resolve(output);
     });
     child.stdin.on("error", () => undefined);
     child.stdin.end(input);
@@ -125,23 +234,11 @@ async function runPowerShellProtection(operation: "protect" | "unprotect", scrip
 }
 
 async function protectWindows(plaintext: Buffer): Promise<string> {
-  const script = [
-    "Add-Type -AssemblyName System.Security",
-    "$raw = [Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())",
-    "$protected = [Security.Cryptography.ProtectedData]::Protect($raw, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
-    "[Console]::Out.Write([Convert]::ToBase64String($protected))",
-  ].join("; ");
-  return await runPowerShellProtection("protect", script, plaintext.toString("base64"));
+  return await runWindowsDpapiHelper("protect", plaintext.toString("base64"));
 }
 
 async function unprotectWindows(ciphertext: string): Promise<Buffer> {
-  const script = [
-    "Add-Type -AssemblyName System.Security",
-    "$raw = [Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())",
-    "$plain = [Security.Cryptography.ProtectedData]::Unprotect($raw, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
-    "[Console]::Out.Write([Convert]::ToBase64String($plain))",
-  ].join("; ");
-  return Buffer.from(await runPowerShellProtection("unprotect", script, ciphertext), "base64");
+  return Buffer.from(await runWindowsDpapiHelper("unprotect", ciphertext), "base64");
 }
 
 async function windowsSid(): Promise<string> {

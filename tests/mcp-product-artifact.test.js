@@ -225,11 +225,15 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       ".gitattributes",
       "scripts/copy-runtime-assets.mjs",
       "scripts/verify-windows-process-inspector.ps1",
+      "scripts/verify-windows-dpapi-helper.ps1",
       "docs/reference/process-ownership-registry.md",
       "src/runtime/execution/supervisor.ts",
       "src/runtime/execution/windows-managed-launcher.ps1",
       "src/runtime/lifecycle/actions.ts",
       "src/runtime/security/private-json.ts",
+      "src/runtime/security/windows-dpapi-helper.cs",
+      "src/runtime/security/windows-dpapi-helper.exe",
+      "src/runtime/security/windows-dpapi-helper.provenance.json",
       "src/runtime/process/identity.ts",
       "src/runtime/process/registry.ts",
       "src/runtime/process/tree.ts",
@@ -238,6 +242,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       "src/runtime/process/windows-process-inspector.provenance.json",
       "src/runtime/setup/definition-revision.ts",
       "tests/process-ownership.test.js",
+      "tests/private-json.test.js",
     ]) {
       assert.equal(workflow.split(`- ${governedRuntimePath}`).length - 1, 2);
     }
@@ -246,6 +251,10 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(gitAttributes, /windows-process-inspector\.provenance\.json text eol=lf/u);
     assert.match(gitAttributes, /windows-process-inspector\.ps1 text eol=lf/u);
     assert.match(gitAttributes, /windows-process-inspector\.exe binary/u);
+    assert.match(gitAttributes, /windows-dpapi-helper\.cs text eol=lf/u);
+    assert.match(gitAttributes, /windows-dpapi-helper\.provenance\.json text eol=lf/u);
+    assert.match(gitAttributes, /windows-dpapi-helper\.ps1 text eol=lf/u);
+    assert.match(gitAttributes, /windows-dpapi-helper\.exe binary/u);
 
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
@@ -268,6 +277,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
+    assert.match(packagedVerifier, /verifyWindowsDpapiHelperProvenance[\s\S]*?verify-windows-dpapi-helper\.ps1/u);
+    assert.doesNotMatch(packagedVerifier, /-Behavioral/u);
     assert.match(
       packagedVerifier,
       /const windowsSystemRoot = process\.env\.SystemRoot \?\? process\.env\.WINDIR;[\s\S]*?process\.platform === "win32" && \(!windowsSystemRoot \|\| !path\.win32\.isAbsolute\(windowsSystemRoot\)\)/u,
@@ -291,6 +302,44 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.doesNotMatch(identitySource, /windows-process-inspector\.ps1|powershell\.exe/u);
     assert.doesNotMatch(identitySource, /setWindowsProcessInspectionTimeoutForTests|System\.Management\.ManagementObjectSearcher/u);
     assert.doesNotMatch(identitySource, /Get-CimInstance Win32_Process/u);
+    const privateJsonSource = await readFile("src/runtime/security/private-json.ts", "utf8");
+    assert.match(privateJsonSource, /windows-dpapi-helper\.exe[\s\S]*?\[operation\]/u);
+    assert.match(privateJsonSource, /WINDOWS_DPAPI_HELPER_BYTES = 5_120[\s\S]*?WINDOWS_DPAPI_HELPER_PROVENANCE_BYTES = 722/u);
+    assert.match(privateJsonSource, /lstat\(assetPath\)[\s\S]*?!beforeOpen\.isFile\(\)[\s\S]*?beforeOpen\.isSymbolicLink\(\)[\s\S]*?afterOpen\.size !== expectedBytes/u);
+    assert.match(privateJsonSource, /integrityDeadline = new Promise<never>[\s\S]*?integrityAbort\.abort\(\)[\s\S]*?Promise\.race/u);
+    assert.match(privateJsonSource, /signal\.throwIfAborted\(\)[\s\S]*?lstat\(assetPath\)[\s\S]*?signal\.throwIfAborted\(\)[\s\S]*?open\(assetPath/u);
+    assert.match(privateJsonSource, /spawn\(helperPath[\s\S]*?remainingAfterSpawnMs = deadline - Date\.now\(\)[\s\S]*?setTimeout[\s\S]*?remainingAfterSpawnMs/u);
+    assert.doesNotMatch(privateJsonSource, /Add-Type|ProtectedData|powershell\.exe/u);
+    const dpapiHelperSource = await readFile("src/runtime/security/windows-dpapi-helper.cs", "utf8");
+    assert.match(dpapiHelperSource, /ProtectedData\.Protect[\s\S]*?DataProtectionScope\.CurrentUser/u);
+    assert.match(dpapiHelperSource, /ProtectedData\.Unprotect[\s\S]*?DataProtectionScope\.CurrentUser/u);
+    assert.match(dpapiHelperSource, /MaximumInputCharacters[\s\S]*?IsCanonicalBase64[\s\S]*?Array\.Clear/u);
+    assert.doesNotMatch(dpapiHelperSource, /Reflection\.Emit|Add-Type|Process\.Start|PowerShell/u);
+    const dpapiHelperBinary = await readFile("src/runtime/security/windows-dpapi-helper.exe");
+    const dpapiHelperProvenance = JSON.parse(
+      await readFile("src/runtime/security/windows-dpapi-helper.provenance.json", "utf8"),
+    );
+    const dpapiProvenanceBytes = await readFile("src/runtime/security/windows-dpapi-helper.provenance.json");
+    assert.equal(dpapiHelperProvenance.source.sha256, createHash("sha256").update(dpapiHelperSource).digest("hex"));
+    assert.equal(dpapiHelperProvenance.binary.sha256, createHash("sha256").update(dpapiHelperBinary).digest("hex"));
+    assert.equal(dpapiHelperProvenance.binary.byteLength, dpapiHelperBinary.byteLength);
+    assert.equal(dpapiHelperProvenance.binary.peTimestamp, "zero");
+    assert.equal(dpapiHelperProvenance.binary.moduleVersionId, "zero");
+    assert.match(privateJsonSource, new RegExp(dpapiHelperProvenance.binary.sha256, "u"));
+    assert.match(privateJsonSource, new RegExp(createHash("sha256").update(dpapiProvenanceBytes).digest("hex"), "u"));
+    assert.deepEqual(
+      await readFile("dist/runtime/security/windows-dpapi-helper.exe"),
+      dpapiHelperBinary,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile("dist/runtime/security/windows-dpapi-helper.provenance.json", "utf8")),
+      dpapiHelperProvenance,
+    );
+    const dpapiProvenanceVerifier = await readFile("scripts/verify-windows-dpapi-helper.ps1", "utf8");
+    assert.match(dpapiProvenanceVerifier, /Get-NormalizedAssemblyBytes[\s\S]*?peOffset \+ 8[\s\S]*?moduleVersionIdOffset/u);
+    assert.match(dpapiProvenanceVerifier, /Assert-ExactBytes[\s\S]*?Invoke-Helper[\s\S]*?protect[\s\S]*?unprotect/u);
+    assert.match(dpapiProvenanceVerifier, /if \(\$Behavioral\)[\s\S]*?contractCases = 8/u);
+    assert.match(packagedVerifier, /installedDpapiHelper[\s\S]*?installedDpapiProvenance[\s\S]*?reviewedDpapiHelper[\s\S]*?reviewedDpapiProvenance/u);
     const nativeInspectorSource = await readFile("src/runtime/process/windows-process-inspector.cs", "utf8");
     assert.match(nativeInspectorSource, /DllImport[\s\S]*?OpenProcess[\s\S]*?GetProcessTimes[\s\S]*?QueryFullProcessImageName[\s\S]*?NtQueryInformationProcess/u);
     assert.match(nativeInspectorSource, /CreateToolhelp32Snapshot[\s\S]*?Process32First[\s\S]*?Process32Next/u);
@@ -356,6 +405,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     const assetCopySource = await readFile("scripts/copy-runtime-assets.mjs", "utf8");
     assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.exe/u);
     assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.provenance\.json/u);
+    assert.match(assetCopySource, /runtime\/security\/windows-dpapi-helper\.exe/u);
+    assert.match(assetCopySource, /runtime\/security\/windows-dpapi-helper\.provenance\.json/u);
     assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher\.ps1/u);
     const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
     assert.match(packageManifest.scripts.build, /copy-runtime-assets\.mjs/u);
