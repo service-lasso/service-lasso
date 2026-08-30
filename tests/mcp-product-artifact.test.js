@@ -245,6 +245,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
     const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
+    assert.match(packagedConsumer, /SAFE_DIAGNOSTIC_CODE[\s\S]*?componentProbe/u);
+    assert.doesNotMatch(packagedConsumer, /JSON\.stringify\(plan\)/u);
     assert.doesNotMatch(packagedConsumer, /setWindowsProcessInspectionTimeoutForTests|mcp-packaged-stdio-preload/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
     assert.match(identitySource, /windows-process-inspector\.exe/u);

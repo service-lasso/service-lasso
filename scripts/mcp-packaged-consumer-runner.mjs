@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -130,6 +130,65 @@ function isolatedRuntimeEnvironment(overrides) {
 
 function reportStage(stage) {
   process.stderr.write(`[mcp-package-acceptance] ${stage}\n`);
+}
+
+const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
+
+function stableDiagnosticCode(value) {
+  return typeof value === "string" && SAFE_DIAGNOSTIC_CODE.test(value)
+    ? value
+    : "unclassified_error";
+}
+
+function summarizeToolFailure(result) {
+  let errorCode = null;
+  try {
+    errorCode = JSON.parse(result.content?.[0]?.text ?? "null")?.error?.code ?? null;
+  } catch {
+    errorCode = "invalid_error_payload";
+  }
+  return {
+    isError: result.isError === true,
+    status: result.structuredContent?.status ?? null,
+    errorCode: errorCode === null ? null : stableDiagnosticCode(errorCode),
+  };
+}
+
+async function diagnoseGuardedPreflightComponents(installedRoot, acceptanceConfiguration) {
+  let stage = "module_import";
+  try {
+    const moduleUrl = (relativePath) => pathToFileURL(path.join(installedRoot, "dist", ...relativePath)).href;
+    const [discoveryModule, graphModule, definitionModule, acquisitionModule, variablesModule] = await Promise.all([
+      import(moduleUrl(["runtime", "discovery", "discoverServices.js"])),
+      import(moduleUrl(["runtime", "manager", "DependencyGraph.js"])),
+      import(moduleUrl(["runtime", "setup", "definition-revision.js"])),
+      import(moduleUrl(["runtime", "setup", "acquire.js"])),
+      import(moduleUrl(["runtime", "operator", "variables.js"])),
+    ]);
+    stage = "service_discovery";
+    const discovered = await discoveryModule.discoverServices(acceptanceConfiguration.servicesRoot);
+    const service = discovered.find((candidate) => candidate.manifest.id === acceptanceConfiguration.serviceId);
+    if (!service) return { stage, errorCode: "service_not_found" };
+    const registry = graphModule.createServiceRegistry(discovered);
+
+    stage = "definition_binding";
+    await definitionModule.buildServiceMutationDefinitionBinding(service);
+    stage = "install_binding";
+    await acquisitionModule.buildInstallArtifactCandidateBinding(service);
+    stage = "executable_binding";
+    await definitionModule.buildServiceExecutableMutationBinding(
+      service,
+      registry,
+      {},
+      variablesModule.collectRuntimeGlobalEnv(discovered),
+    );
+    return { stage: "component_probe", errorCode: null };
+  } catch (error) {
+    return {
+      stage,
+      errorCode: stableDiagnosticCode(error?.code),
+    };
+  }
 }
 
 const configuration = JSON.parse(requiredEnvironment("MCP_PACKAGE_ACCEPTANCE_CONFIGURATION"));
@@ -267,7 +326,11 @@ try {
     arguments: { serviceId: configuration.serviceId },
   });
   if (plan.isError || plan.structuredContent?.status !== "preflight") {
-    throw new Error("Canonical packaged guarded lifecycle preflight failed.");
+    const componentProbe = await diagnoseGuardedPreflightComponents(installedRoot, configuration);
+    throw new Error(`Canonical packaged guarded lifecycle preflight failed: ${JSON.stringify({
+      result: summarizeToolFailure(plan),
+      componentProbe,
+    })}`);
   }
   const executionArguments = {
     serviceId: configuration.serviceId,
@@ -310,23 +373,15 @@ try {
     } catch {
       lifecycleDiagnostic = { attemptStatus: null, phase: null, message: null };
     }
-    const summarize = (result) => {
-      let errorCode = null;
-      try {
-        errorCode = JSON.parse(result.content?.[0]?.text ?? "null")?.error?.code ?? null;
-      } catch {
-        errorCode = "invalid_error_payload";
-      }
-      return {
+    const summarize = (result) => ({
+        ...summarizeToolFailure(result),
         isError: result.isError === true,
         contractVersion: result.structuredContent?.contractVersion ?? null,
         status: result.structuredContent?.status ?? null,
         summary: result.structuredContent?.summary ?? null,
         replayed: result.structuredContent?.idempotency?.replayed ?? null,
         running: result.structuredContent?.result?.resultingState?.[0]?.running ?? null,
-        errorCode,
-      };
-    };
+      });
     throw new Error(`Canonical packaged guarded lifecycle action was not confirmed and exactly-once: ${JSON.stringify({
       completed: summarize(completed),
       replayed: summarize(replayed),
