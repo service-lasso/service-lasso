@@ -1,0 +1,4 @@
+scripts/verify-windows-process-inspector.ps1 text eol=lf
+src/runtime/process/windows-process-inspector.cs text eol=lf
+src/runtime/process/windows-process-inspector.exe binary
+src/runtime/process/windows-process-inspector.provenance.json text eol=lf

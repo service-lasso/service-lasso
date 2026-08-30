@@ -198,6 +198,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(workflow, /node scripts\/verify-mcp-product-acceptance-run\.mjs/u);
     assert.match(workflow, /scripts\/mcp-packaged-consumer-runner\.mjs/u);
     for (const governedRuntimePath of [
+      ".gitattributes",
       "scripts/copy-runtime-assets.mjs",
       "scripts/verify-windows-process-inspector.ps1",
       "docs/reference/process-ownership-registry.md",
@@ -215,6 +216,11 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     ]) {
       assert.equal(workflow.split(`- ${governedRuntimePath}`).length - 1, 2);
     }
+    const gitAttributes = await readFile(".gitattributes", "utf8");
+    assert.match(gitAttributes, /windows-process-inspector\.cs text eol=lf/u);
+    assert.match(gitAttributes, /windows-process-inspector\.provenance\.json text eol=lf/u);
+    assert.match(gitAttributes, /windows-process-inspector\.ps1 text eol=lf/u);
+    assert.match(gitAttributes, /windows-process-inspector\.exe binary/u);
 
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);

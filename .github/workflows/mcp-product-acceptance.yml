@@ -6,6 +6,7 @@ on:
     branches:
       - develop
     paths:
+      - .gitattributes
       - .github/workflows/mcp-product-acceptance.yml
       - .github/workflows/release-qualification.yml
       - .governance/project/BACKLOG.md
@@ -47,6 +48,7 @@ on:
     branches:
       - develop
     paths:
+      - .gitattributes
       - .github/workflows/mcp-product-acceptance.yml
       - .github/workflows/release-qualification.yml
       - .governance/project/BACKLOG.md
