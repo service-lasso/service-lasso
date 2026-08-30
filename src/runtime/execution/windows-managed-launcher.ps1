@@ -3,28 +3,47 @@ param()
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$nativeAssemblyPath = Join-Path $PSScriptRoot "windows-managed-launcher-native.exe"
-if (-not [IO.File]::Exists($nativeAssemblyPath)) {
-  throw "Managed launcher native assembly was missing."
-}
-[byte[]]$nativeAssemblyBytes = [IO.File]::ReadAllBytes($nativeAssemblyPath)
-if ($nativeAssemblyBytes.Length -ne 5120) {
-  throw "Managed launcher native assembly length was invalid."
-}
-$nativeAssemblySha256 = [Security.Cryptography.SHA256]::Create()
+$launcherProgressToken = [Environment]::GetEnvironmentVariable(
+  "SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN",
+  "Process"
+)
+$launcherProgressHmac = $null
 try {
-  $nativeAssemblyDigest = [BitConverter]::ToString(
-    $nativeAssemblySha256.ComputeHash($nativeAssemblyBytes)
-  ).Replace("-", "").ToLowerInvariant()
-} finally {
-  $nativeAssemblySha256.Dispose()
+  if ($launcherProgressToken -match '^[0-9a-f]{64}$') {
+    [byte[]]$launcherProgressKey = [Text.Encoding]::UTF8.GetBytes($launcherProgressToken)
+    try {
+      $launcherProgressHmac = New-Object Security.Cryptography.HMACSHA256 -ArgumentList (,$launcherProgressKey)
+    } finally {
+      [Array]::Clear($launcherProgressKey, 0, $launcherProgressKey.Length)
+    }
+  }
+} catch {
+  $launcherProgressHmac = $null
 }
-if ($nativeAssemblyDigest -cne "343fc52e95562e110f0deaedbe2b8ef04b1f0258f487494d94b3cb3c9d7e25cd") {
-  throw "Managed launcher native assembly digest was invalid."
+
+function Set-ServiceLassoLauncherProgress([string]$Phase) {
+  try {
+    if (
+      $launcherProgressToken -match '^[0-9a-f]{64}$' -and
+      $null -ne $launcherProgressHmac -and
+      $Phase -match '^launcher_[a-z_]{1,48}$'
+    ) {
+      [byte[]]$launcherProgressPhase = [Text.Encoding]::UTF8.GetBytes($Phase)
+      try {
+        $launcherProgressDigest = [BitConverter]::ToString(
+          $launcherProgressHmac.ComputeHash($launcherProgressPhase)
+        ).Replace("-", "").ToLowerInvariant()
+      } finally {
+        [Array]::Clear($launcherProgressPhase, 0, $launcherProgressPhase.Length)
+      }
+      [Console]::Error.WriteLine(
+        "__SERVICE_LASSO_LAUNCHER_PROGRESS__:" + $Phase + ":" + $launcherProgressDigest
+      )
+    }
+  } catch {
+    # Diagnostic progress is best-effort and cannot change launch behavior.
+  }
 }
-$nativeAssembly = [Reflection.Assembly]::Load($nativeAssemblyBytes)
-$native = $nativeAssembly.GetType("ServiceLassoManagedLauncherNative", $true, $false)
-[Array]::Clear($nativeAssemblyBytes, 0, $nativeAssemblyBytes.Length)
 
 $jobHandle = [IntPtr]::Zero
 $processHandle = [IntPtr]::Zero
@@ -79,6 +98,32 @@ function Test-ServiceLassoGateToken([string]$Path, [string]$ExpectedToken) {
 }
 
 try {
+  Set-ServiceLassoLauncherProgress "launcher_initialization"
+  Set-ServiceLassoLauncherProgress "launcher_native_asset_validation"
+  $nativeAssemblyPath = Join-Path $PSScriptRoot "windows-managed-launcher-native.exe"
+  if (-not [IO.File]::Exists($nativeAssemblyPath)) {
+    throw "Managed launcher native assembly was missing."
+  }
+  [byte[]]$nativeAssemblyBytes = [IO.File]::ReadAllBytes($nativeAssemblyPath)
+  if ($nativeAssemblyBytes.Length -ne 5120) {
+    throw "Managed launcher native assembly length was invalid."
+  }
+  $nativeAssemblySha256 = [Security.Cryptography.SHA256]::Create()
+  try {
+    $nativeAssemblyDigest = [BitConverter]::ToString(
+      $nativeAssemblySha256.ComputeHash($nativeAssemblyBytes)
+    ).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $nativeAssemblySha256.Dispose()
+  }
+  if ($nativeAssemblyDigest -cne "343fc52e95562e110f0deaedbe2b8ef04b1f0258f487494d94b3cb3c9d7e25cd") {
+    throw "Managed launcher native assembly digest was invalid."
+  }
+  $nativeAssembly = [Reflection.Assembly]::Load($nativeAssemblyBytes)
+  $native = $nativeAssembly.GetType("ServiceLassoManagedLauncherNative", $true, $false)
+  [Array]::Clear($nativeAssemblyBytes, 0, $nativeAssemblyBytes.Length)
+
+  Set-ServiceLassoLauncherProgress "launcher_payload_validation"
   $encodedPayload = [Environment]::GetEnvironmentVariable("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD", "Process")
   $gatePath = [Environment]::GetEnvironmentVariable("SERVICE_LASSO_MANAGED_LAUNCH_GATE", "Process")
   if ([String]::IsNullOrWhiteSpace($encodedPayload) -or [String]::IsNullOrWhiteSpace($gatePath)) {
@@ -101,7 +146,9 @@ try {
   }
   [Environment]::SetEnvironmentVariable("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD", $null, "Process")
   [Environment]::SetEnvironmentVariable("SERVICE_LASSO_MANAGED_LAUNCH_GATE", $null, "Process")
+  [Environment]::SetEnvironmentVariable("SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN", $null, "Process")
 
+  Set-ServiceLassoLauncherProgress "launcher_gate_observation"
   $gateDeadline = [DateTime]::UtcNow.AddSeconds(45)
   while (-not (Test-ServiceLassoGateToken $gatePath ([string]$payload.releaseToken))) {
     if ([DateTime]::UtcNow -ge $gateDeadline) {
@@ -126,6 +173,7 @@ try {
     ) {
       throw "Managed launch file evidence was invalid."
     }
+    Set-ServiceLassoLauncherProgress "launcher_file_open"
     $boundFile = [IO.File]::Open(
       $approvedPath,
       [IO.FileMode]::Open,
@@ -136,6 +184,7 @@ try {
     if ($boundFile.Length -ne $approvedSize) {
       throw "Managed launch file size changed."
     }
+    Set-ServiceLassoLauncherProgress "launcher_file_hash"
     $sha256 = [Security.Cryptography.SHA256]::Create()
     try {
       $actualSha256 = [BitConverter]::ToString($sha256.ComputeHash($boundFile)).Replace("-", "").ToLowerInvariant()
@@ -145,6 +194,7 @@ try {
     if ($actualSha256 -ne $approvedSha256) {
       throw "Managed launch file digest changed."
     }
+    Set-ServiceLassoLauncherProgress "launcher_file_final_path"
     $finalPathBuffer = New-Object Text.StringBuilder 32768
     $finalPathLength = $native::GetFinalPathNameByHandleW(
       $boundFile.SafeFileHandle.DangerousGetHandle(),
@@ -191,6 +241,17 @@ try {
       throw "Managed argument binding was invalid."
     }
     $resolvedArgs[$argumentIndex] = ([string]$argumentBinding.prefix) + $boundPath
+  }
+  Set-ServiceLassoLauncherProgress "launcher_binding_publication"
+  $launcherProgressToken = $null
+  try {
+    if ($null -ne $launcherProgressHmac) {
+      $launcherProgressHmac.Dispose()
+    }
+  } catch {
+    # Diagnostic cleanup cannot change launch behavior.
+  } finally {
+    $launcherProgressHmac = $null
   }
   [IO.File]::WriteAllText(
     [string]$payload.filesBoundPath,
@@ -314,6 +375,16 @@ try {
 } catch {
   exit 1
 } finally {
+  $launcherProgressToken = $null
+  try {
+    if ($null -ne $launcherProgressHmac) {
+      $launcherProgressHmac.Dispose()
+    }
+  } catch {
+    # Diagnostic cleanup cannot change containment behavior.
+  } finally {
+    $launcherProgressHmac = $null
+  }
   foreach ($boundFile in $boundFiles) {
     $boundFile.Dispose()
   }

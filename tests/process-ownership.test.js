@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import {
   classifyWindowsProcessIdentityFast,
@@ -23,6 +23,7 @@ import {
 import { startApiServer } from "../dist/server/index.js";
 import {
   adoptManagedProcess,
+  filterWindowsManagedLauncherProgressLineForTests,
   hasManagedProcess,
   managedProcessStartFailurePhase,
   setManagedProcessAfterReleaseHookForTests,
@@ -1400,6 +1401,48 @@ test("Windows enrollment gate prevents service descendants before the first owne
   }
 });
 
+test("Windows launcher progress authenticates split records and suppresses malformed or partial internals", () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const token = "ab".repeat(32);
+  const phase = "launcher_file_hash";
+  const digest = createHmac("sha256", token).update(phase, "utf8").digest("hex");
+  const checkpoint = `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:${digest}`;
+  const sinks = { stderr: [], combined: [], variables: [] };
+  let observedPhase = null;
+  let buffer = "";
+  const route = (line, flushRemainder = false) => {
+    const result = filterWindowsManagedLauncherProgressLineForTests(token, line, flushRemainder);
+    observedPhase = result.phase ?? observedPhase;
+    if (!result.suppressed) {
+      sinks.stderr.push(line);
+      sinks.combined.push(line);
+      sinks.variables.push(line);
+    }
+  };
+
+  try {
+    assert.doesNotMatch(checkpoint, new RegExp(token, "u"));
+    for (const chunk of [checkpoint.slice(0, 11), checkpoint.slice(11, 47), `${checkpoint.slice(47)}\n`]) {
+      buffer += chunk;
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) route(line);
+    }
+    route("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_file_open:" + "0".repeat(64));
+    route("__SERVICE_LASSO_LAUNCHER_PROG", true);
+    assert.deepEqual(sinks, { stderr: [], combined: [], variables: [] });
+    assert.equal(observedPhase, phase);
+    assert.deepEqual(
+      filterWindowsManagedLauncherProgressLineForTests(null, checkpoint),
+      { suppressed: true, phase: null },
+    );
+  } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  }
+});
+
 test("synchronous wrapper spawn failures retain their typed phase and clean pre-enrollment state", async () => {
   resetLifecycleState();
   const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
@@ -1483,6 +1526,7 @@ setInterval(() => {}, 1000);
     assert.doesNotMatch(stdout, /launcher-stderr/u);
     assert.match(stderr, /launcher-stderr:verified-stdio/u);
     assert.doesNotMatch(stderr, /launcher-stdout/u);
+    assert.doesNotMatch(stderr, /__SERVICE_LASSO_LAUNCHER_PROGRESS__/u);
   } finally {
     await stopManagedProcess("launch-stdio-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
@@ -1538,7 +1582,14 @@ setInterval(() => {}, 1000);
           return [executableBinding, approvedBinding];
         },
       }),
-      /Windows managed launcher exited before (?:executable files were bound|the service launch was acknowledged)/u,
+      (error) => {
+        assert.match(
+          error.message,
+          /Windows managed launcher exited before (?:executable files were bound|the service launch was acknowledged)/u,
+        );
+        assert.equal(managedProcessStartFailurePhase(error), "launcher_file_hash");
+        return true;
+      },
     );
     assert.equal(verificationCount, 1);
     await assert.rejects(readFile(markerPath, "utf8"), { code: "ENOENT" });

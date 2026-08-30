@@ -172,6 +172,14 @@ const SAFE_PROCESS_START_FAILURE_PHASES = new Set([
   "stabilization_delay",
   "stabilized_tree_inspection",
   "launch_state_cleanup",
+  "launcher_initialization",
+  "launcher_native_asset_validation",
+  "launcher_payload_validation",
+  "launcher_gate_observation",
+  "launcher_file_open",
+  "launcher_file_hash",
+  "launcher_file_final_path",
+  "launcher_binding_publication",
 ]);
 
 function stableDiagnosticCode(value) {

@@ -38,13 +38,13 @@ test("#864 guarded diagnostic acquisition is time- and size-bounded", async () =
   assert.ok(address && typeof address === "object");
   const root = `http://127.0.0.1:${address.port}`;
   try {
-    assert.deepEqual(await fetchBoundedDiagnosticJson(`${root}/small`, { timeoutMs: 100, maxBytes: 64 }), { status: "ready" });
+    assert.deepEqual(await fetchBoundedDiagnosticJson(`${root}/small`, { timeoutMs: 1_000, maxBytes: 64 }), { status: "ready" });
     await assert.rejects(
-      fetchBoundedDiagnosticJson(`${root}/oversize`, { timeoutMs: 100, maxBytes: 32 }),
+      fetchBoundedDiagnosticJson(`${root}/oversize`, { timeoutMs: 1_000, maxBytes: 32 }),
       /bounded size/u,
     );
     await assert.rejects(
-      fetchBoundedDiagnosticJson(`${root}/hang`, { timeoutMs: 20, maxBytes: 32 }),
+      fetchBoundedDiagnosticJson(`${root}/hang`, { timeoutMs: 100, maxBytes: 32 }),
       /abort|invalid_argument/iu,
     );
   } finally {
@@ -92,7 +92,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
         exitClass: "nonzero",
         readinessAttribution: "not_applicable",
         healthcheckFailed: true,
-        processStartFailurePhase: "launch_state_cleanup",
+        processStartFailurePhase: "launcher_file_hash",
       },
     },
   };

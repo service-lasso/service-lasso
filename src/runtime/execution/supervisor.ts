@@ -1,5 +1,5 @@
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -61,7 +61,15 @@ export type ManagedProcessStartFailurePhase =
   | "post_release_hook"
   | "stabilization_delay"
   | "stabilized_tree_inspection"
-  | "launch_state_cleanup";
+  | "launch_state_cleanup"
+  | "launcher_initialization"
+  | "launcher_native_asset_validation"
+  | "launcher_payload_validation"
+  | "launcher_gate_observation"
+  | "launcher_file_open"
+  | "launcher_file_hash"
+  | "launcher_file_final_path"
+  | "launcher_binding_publication";
 
 export class ManagedProcessStartError extends Error {
   readonly failurePhase: ManagedProcessStartFailurePhase;
@@ -113,6 +121,8 @@ interface ManagedProcessRecord {
   };
   stdoutBuffer: string;
   stderrBuffer: string;
+  launcherProgressToken: string | null;
+  launcherProgressPhase: ManagedProcessStartFailurePhase | null;
   variableCapturePromise: Promise<void>;
   workspaceRoot: string | null;
   rootIdentity: ProcessFingerprint | null;
@@ -470,6 +480,51 @@ function captureOutputVariableMatches(
     .catch(() => undefined);
 }
 
+const WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX = "__SERVICE_LASSO_LAUNCHER_PROGRESS__:";
+
+function filterWindowsManagedLauncherProgressLine(
+  token: string | null,
+  line: string,
+  flushRemainder: boolean,
+): { suppressed: boolean; phase: ManagedProcessStartFailurePhase | null } {
+  if (!line.startsWith(WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX)) {
+    return {
+      suppressed: flushRemainder && line.length > 0 && WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX.startsWith(line),
+      phase: null,
+    };
+  }
+  const fields = line.slice(WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX.length).split(":");
+  if (
+    token === null ||
+    fields.length !== 2 ||
+    !/^[0-9a-f]{64}$/u.test(token) ||
+    !/^[0-9a-f]{64}$/u.test(fields[1] ?? "")
+  ) {
+    return { suppressed: true, phase: null };
+  }
+  const phase = fields[0] as ManagedProcessStartFailurePhase;
+  if (!WINDOWS_MANAGED_LAUNCHER_PROGRESS_PHASES.has(phase)) {
+    return { suppressed: true, phase: null };
+  }
+  const expected = createHmac("sha256", token).update(phase, "utf8").digest();
+  const actual = Buffer.from(fields[1] as string, "hex");
+  return {
+    suppressed: true,
+    phase: actual.length === expected.length && timingSafeEqual(actual, expected) ? phase : null,
+  };
+}
+
+export function filterWindowsManagedLauncherProgressLineForTests(
+  token: string | null,
+  line: string,
+  flushRemainder = false,
+): { suppressed: boolean; phase: ManagedProcessStartFailurePhase | null } {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed launcher-progress test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  return filterWindowsManagedLauncherProgressLine(token, line, flushRemainder);
+}
+
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
     const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
@@ -479,6 +534,15 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     const remainder = flushRemainder ? "" : (parts.pop() ?? "");
 
     for (const line of parts) {
+      const launcherProgress = level === "stderr"
+        ? filterWindowsManagedLauncherProgressLine(record.launcherProgressToken, line, flushRemainder)
+        : { suppressed: false, phase: null };
+      if (launcherProgress.phase !== null) {
+        record.launcherProgressPhase = launcherProgress.phase;
+      }
+      if (launcherProgress.suppressed) {
+        continue;
+      }
       outputStream.write(`${line}\n`);
       writeCombinedLogEntry(record.logStreams.combined, level, line);
       captureOutputVariableMatches(record, level, line);
@@ -579,6 +643,7 @@ interface WindowsManagedLaunchState {
   filesBoundToken: string;
   continueToken: string;
   ackToken: string;
+  progressToken: string;
   powershellExecutable: string;
   environment: NodeJS.ProcessEnv;
 }
@@ -669,6 +734,7 @@ async function createWindowsManagedLaunchState(
   const filesBoundToken = randomBytes(32).toString("hex");
   const continueToken = randomBytes(32).toString("hex");
   const ackToken = randomBytes(32).toString("hex");
+  const progressToken = randomBytes(32).toString("hex");
   const bindingIndexByPath = new Map(approvedFiles.map((binding, index) => [
     normalizeWindowsLaunchPath(binding.file),
     index,
@@ -715,6 +781,7 @@ async function createWindowsManagedLaunchState(
     filesBoundToken,
     continueToken,
     ackToken,
+    progressToken,
     powershellExecutable: path.win32.join(
       path.win32.normalize(systemRoot),
       "System32",
@@ -726,6 +793,7 @@ async function createWindowsManagedLaunchState(
       ...environment,
       SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: payload,
       SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
+      SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN: progressToken,
     },
   };
 }
@@ -740,30 +808,47 @@ async function removeWindowsManagedLaunchState(state: WindowsManagedLaunchState 
   }
 }
 
+const WINDOWS_MANAGED_LAUNCHER_PROGRESS_PHASES = new Set<ManagedProcessStartFailurePhase>([
+  "launcher_initialization",
+  "launcher_native_asset_validation",
+  "launcher_payload_validation",
+  "launcher_gate_observation",
+  "launcher_file_open",
+  "launcher_file_hash",
+  "launcher_file_final_path",
+  "launcher_binding_publication",
+]);
+
 async function bindWindowsManagedLauncherFiles(
   child: ChildProcess,
   state: WindowsManagedLaunchState,
+  launcherProgressPhase: () => ManagedProcessStartFailurePhase | null,
 ): Promise<void> {
   const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
-  await withProcessControlDeadline(async (signal) => {
-    await writeFile(state.gatePath, state.releaseToken, "utf8");
-    while (!signal.aborted) {
-      if (probeManagedChildHandle(child) !== "owned") {
-        throw new Error("Windows managed launcher exited before executable files were bound.");
-      }
-      try {
-        const token = (await readFile(state.filesBoundPath, "utf8")).trim();
-        if (token === state.filesBoundToken) {
-          break;
+  try {
+    await withProcessControlDeadline(async (signal) => {
+      await writeFile(state.gatePath, state.releaseToken, "utf8");
+      while (!signal.aborted) {
+        if (probeManagedChildHandle(child) !== "owned") {
+          throw new Error("Windows managed launcher exited before executable files were bound.");
         }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw error;
+        try {
+          const token = (await readFile(state.filesBoundPath, "utf8")).trim();
+          if (token === state.filesBoundToken) {
+            break;
+          }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+          }
         }
+        await adoptedProcessPollDelay(signal, 25);
       }
-      await adoptedProcessPollDelay(signal, 25);
-    }
-  }, { deadlineMs });
+    }, { deadlineMs });
+  } catch (error) {
+    const progress = launcherProgressPhase();
+    throw progress ? new ManagedProcessStartError(progress, error) : error;
+  }
 }
 
 async function continueWindowsManagedLauncher(
@@ -1558,6 +1643,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     logStreams,
     stdoutBuffer: "",
     stderrBuffer: "",
+    launcherProgressToken: windowsManagedLaunchState?.progressToken ?? null,
+    launcherProgressPhase: null,
     variableCapturePromise: Promise.resolve(),
     workspaceRoot: workspaceRoot ?? null,
     rootIdentity,
@@ -1683,7 +1770,17 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         }
         if (windowsManagedLaunchState) {
           startFailurePhase = "launch_file_binding";
-          await bindWindowsManagedLauncherFiles(child, windowsManagedLaunchState);
+          try {
+            await bindWindowsManagedLauncherFiles(
+              child,
+              windowsManagedLaunchState,
+              () => record.launcherProgressPhase,
+            );
+          } finally {
+            record.launcherProgressToken = null;
+            windowsManagedLaunchState.progressToken = "";
+            delete windowsManagedLaunchState.environment.SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN;
+          }
           startFailurePhase = "binding_revalidation";
           const confirmedLaunchFiles = await options.verifyBeforeSpawn?.() ?? [];
           if (!sameManagedLaunchFileBindings(approvedLaunchFiles, confirmedLaunchFiles)) {
@@ -1712,6 +1809,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       const startError = error instanceof ManagedProcessStartError
         ? error
         : new ManagedProcessStartError(startFailurePhase, error);
+      const classifiedStartFailurePhase = managedProcessStartFailurePhase(startError) ?? startFailurePhase;
       let containmentError: unknown = null;
       if (rootIdentity) {
         const verifiedRootIdentity = rootIdentity;
@@ -1785,7 +1883,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             command,
             logs: logPaths,
           },
-          startFailurePhase,
+          classifiedStartFailurePhase,
         );
       }
       await transitionProcessOwnership(
@@ -1798,7 +1896,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       );
       if (launchStateCleanupErrors.length > 0) {
         throw new ManagedProcessStartError(
-          startFailurePhase,
+          classifiedStartFailurePhase,
           new AggregateError(
             [startError, ...launchStateCleanupErrors],
             `Cannot start managed process "${serviceId}": launch-state cleanup also failed.`,
