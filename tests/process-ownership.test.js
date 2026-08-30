@@ -267,24 +267,22 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
   );
 
   const inspectedSource = await readFile(
-    path.resolve("src", "runtime", "process", "windows-process-inspector.ps1"),
+    path.resolve("src", "runtime", "process", "windows-process-inspector.cs"),
     "utf8",
   );
-  assert.equal(inspectedExecutable, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-  assert.deepEqual(inspectorArguments.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-File"]);
+  assert.match(inspectedExecutable, /windows-process-inspector\.exe$/u);
+  assert.deepEqual(inspectorArguments, ["4242"]);
   assert.equal(inspectorArguments.at(-1), "4242");
-  assert.match(inspectorArguments.at(-2), /windows-process-inspector\.ps1$/u);
-  assert.equal(inspectedSource.includes("@{;"), false);
+  assert.equal(inspectedSource.includes("DllImport"), true);
   assert.equal(inspectedSource.includes("OpenProcess"), true);
   assert.equal(inspectedSource.includes("GetProcessTimes"), true);
   assert.equal(inspectedSource.includes("QueryFullProcessImageName"), true);
   assert.equal(inspectedSource.includes("NtQueryInformationProcess"), true);
-  assert.equal(inspectedSource.includes("Reflection.Emit"), true);
-  assert.equal(inspectedSource.includes("Add-Type"), false);
-  assert.equal(inspectedSource.includes("$returnedLength -lt $headerSize"), true);
-  assert.equal(inspectedSource.includes("$bufferEnd = $bufferStart + [int64]$returnedLength"), true);
-  assert.equal(inspectedSource.includes("($length % 2) -ne 0"), true);
-  assert.equal(inspectedSource.includes("$maximumLength -gt $availableLength"), true);
+  assert.equal(inspectedSource.includes("Reflection.Emit"), false);
+  assert.equal(inspectedSource.includes("returnedLength < headerSize"), true);
+  assert.equal(inspectedSource.includes("bufferEnd = bufferStart + returnedLength"), true);
+  assert.equal(inspectedSource.includes("length % 2 != 0"), true);
+  assert.equal(inspectedSource.includes("maximumLength > availableLength"), true);
   assert.equal(inspectedSource.includes("System.Management.ManagementObjectSearcher"), false);
   assert.equal(inspectedSource.includes("Get-CimInstance"), false);
   const defaultDeadlineDeltaMs = defaultDeadlineMs - defaultDeadlineStartedAt;
@@ -309,10 +307,10 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
       return { stdout: JSON.stringify({ Status: "not_running" }) };
     },
   });
-  assert.equal(unsafeLookupInvoked, false);
+  assert.equal(unsafeLookupInvoked, true);
   assert.deepEqual(unsafeLookup, {
-    status: "unknown",
-    reason: "windows_process_inspection_failed:Windows system utilities are unavailable.",
+    status: "not_running",
+    reason: "process_not_running",
   });
 
   const unverified = await inspectProcess(
@@ -442,8 +440,10 @@ test("Windows native identity adapter matches immutable process incarnation fiel
     executablePath: "C:\\Program Files\\nodejs\\node.exe",
     commandHash: hashProcessCommandLine(commandLine),
   };
+  let inspectorExecutable = "";
   let inspectorArguments = [];
-  const runCommand = async (_command, args) => {
+  const runCommand = async (command, args) => {
+    inspectorExecutable = command;
     inspectorArguments = args;
     return {
       stdout: JSON.stringify({
@@ -457,7 +457,7 @@ test("Windows native identity adapter matches immutable process incarnation fiel
   };
 
   assert.equal(await classifyWindowsProcessIdentityFast(expected, { runCommand, windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT }), "owned");
-  assert.match(inspectorArguments.at(-2), /windows-process-inspector\.ps1$/u);
+  assert.match(inspectorExecutable, /windows-process-inspector\.exe$/u);
   assert.equal(inspectorArguments.at(-1), "4242");
   assert.equal(
     await classifyWindowsProcessIdentityFast({
@@ -528,7 +528,7 @@ test("Windows native tree adapter binds every member and fails closed on changed
   assert.equal(inspected.rootStatus, "owned");
   assert.deepEqual(inspected.members.map((member) => member.pid), [4343, 4242]);
   assert.equal(inspected.members[0].commandHash, hashProcessCommandLine(childCommandLine));
-  assert.equal(inspectorArguments.at(-1), "-IncludeDescendants");
+  assert.equal(inspectorArguments.at(-1), "--include-descendants");
 
   const exited = await inspectWindowsProcessTree(root, {
     windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,

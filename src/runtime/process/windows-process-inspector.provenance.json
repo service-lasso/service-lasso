@@ -1,0 +1,24 @@
+{
+    "schemaVersion":  1,
+    "compiler":  {
+                     "family":  "Microsoft .NET Framework 4.8 C# compiler",
+                     "path":  "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+                     "options":  [
+                                     "/nologo",
+                                     "/target:exe",
+                                     "/platform:anycpu",
+                                     "/optimize+"
+                                 ]
+                 },
+    "source":  {
+                   "path":  "src/runtime/process/windows-process-inspector.cs",
+                   "sha256":  "ab30c08954dc9976efcb2d129e8d68fa57e424f336bbc440dd326d06d1bf4fa2"
+               },
+    "binary":  {
+                   "path":  "src/runtime/process/windows-process-inspector.exe",
+                   "sha256":  "fd907409b75d8b08e9ed228b9e08b4587b0518b0e17476352c62beeff14eb475",
+                   "byteLength":  11776,
+                   "peTimestamp":  "zero",
+                   "moduleVersionId":  "zero"
+               }
+}

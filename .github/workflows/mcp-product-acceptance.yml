@@ -20,6 +20,7 @@ on:
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
+      - scripts/verify-windows-process-inspector.ps1
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
@@ -30,7 +31,9 @@ on:
       - src/runtime/process/identity.ts
       - src/runtime/process/registry.ts
       - src/runtime/process/tree.ts
-      - src/runtime/process/windows-process-inspector.ps1
+      - src/runtime/process/windows-process-inspector.cs
+      - src/runtime/process/windows-process-inspector.exe
+      - src/runtime/process/windows-process-inspector.provenance.json
       - src/runtime/setup/definition-revision.ts
       - src/server/**
       - tests/process-ownership.test.js
@@ -58,6 +61,7 @@ on:
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
+      - scripts/verify-windows-process-inspector.ps1
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
@@ -68,7 +72,9 @@ on:
       - src/runtime/process/identity.ts
       - src/runtime/process/registry.ts
       - src/runtime/process/tree.ts
-      - src/runtime/process/windows-process-inspector.ps1
+      - src/runtime/process/windows-process-inspector.cs
+      - src/runtime/process/windows-process-inspector.exe
+      - src/runtime/process/windows-process-inspector.provenance.json
       - src/runtime/setup/definition-revision.ts
       - src/server/**
       - tests/process-ownership.test.js

@@ -23,6 +23,35 @@ async function exactCandidateSha() {
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
 }
 
+async function verifyWindowsProcessInspectorProvenance() {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
+    throw new Error("Packaged MCP acceptance requires an absolute Windows system root.");
+  }
+  const powershellExecutable = path.win32.join(
+    path.win32.normalize(systemRoot),
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const verification = await runCommand(
+    powershellExecutable,
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-File",
+      path.join(repoRoot, "scripts", "verify-windows-process-inspector.ps1"),
+    ],
+    { cwd: repoRoot, timeoutMs: 60_000 },
+  );
+  process.stderr.write(`[mcp-package-provenance] ${verification.stdout.trim()}\n`);
+}
+
 function isolatedConsumerEnvironment(overrides) {
   const allowedNames = ["PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec", "TEMP", "TMP", "TMPDIR"];
   const environment = Object.fromEntries(
@@ -81,6 +110,7 @@ async function writeCanonicalService(servicesRoot) {
   return serviceId;
 }
 
+await verifyWindowsProcessInspectorProvenance();
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");

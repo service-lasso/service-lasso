@@ -254,7 +254,7 @@ test("Windows adoption ignores a descendant that exits after the process-table s
   assert.deepEqual(members, [identity]);
 });
 
-test("Windows full-table CIM inspection is aborted at the shared deadline without signaling any process", async () => {
+test("Windows full-table native inspection is aborted at the shared deadline without signaling any process", async () => {
   const inspected = [];
   let fullTableAbortObserved = false;
   const startedAt = Date.now();
@@ -283,7 +283,7 @@ test("Windows full-table CIM inspection is aborted at the shared deadline withou
   assert.deepEqual(new Set(inspected), new Set([identity.pid]));
 });
 
-test("Windows per-PID CIM inspection is aborted at the shared deadline before taskkill", async () => {
+test("Windows per-PID native inspection is aborted at the shared deadline before taskkill", async () => {
   const childIdentity = { ...identity, pid: identity.pid + 1, commandHash: "b".repeat(64) };
   const inspected = [];
   const commands = [];
@@ -319,7 +319,7 @@ test("Windows per-PID CIM inspection is aborted at the shared deadline before ta
   assert.deepEqual(commands, []);
 });
 
-test("Windows per-PID CIM helper is killed and observed closed inside its absolute deadline", async () => {
+test("Windows per-PID native helper is killed and observed closed inside its absolute deadline", async () => {
   let helperAbortObserved = false;
   let helperCloseObserved = false;
   let helperPid = null;
@@ -328,6 +328,7 @@ test("Windows per-PID CIM helper is killed and observed closed inside its absolu
   await assert.rejects(
     inspectOwnedProcess(identity.pid, {
       platform: "win32",
+      windowsSystemRoot: "C:\\Windows",
       deadlineMs: Date.now() + 500,
       runCommand: async (_command, _args, { signal } = {}) => {
         const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {

@@ -199,6 +199,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(workflow, /scripts\/mcp-packaged-consumer-runner\.mjs/u);
     for (const governedRuntimePath of [
       "scripts/copy-runtime-assets.mjs",
+      "scripts/verify-windows-process-inspector.ps1",
       "docs/reference/process-ownership-registry.md",
       "src/runtime/execution/supervisor.ts",
       "src/runtime/execution/windows-managed-launcher.ps1",
@@ -206,7 +207,9 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       "src/runtime/process/identity.ts",
       "src/runtime/process/registry.ts",
       "src/runtime/process/tree.ts",
-      "src/runtime/process/windows-process-inspector.ps1",
+      "src/runtime/process/windows-process-inspector.cs",
+      "src/runtime/process/windows-process-inspector.exe",
+      "src/runtime/process/windows-process-inspector.provenance.json",
       "src/runtime/setup/definition-revision.ts",
       "tests/process-ownership.test.js",
     ]) {
@@ -233,25 +236,57 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
+    assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
     const packagedConsumer = await readFile("scripts/mcp-packaged-consumer-runner.mjs", "utf8");
     assert.match(packagedConsumer, /"NODE_OPTIONS", "PSModulePath"/u);
     assert.doesNotMatch(packagedConsumer, /setWindowsProcessInspectionTimeoutForTests|mcp-packaged-stdio-preload/u);
     const identitySource = await readFile("src/runtime/process/identity.ts", "utf8");
-    assert.match(identitySource, /windows-process-inspector\.ps1/u);
-    assert.match(identitySource, /System32[\s\S]*?WindowsPowerShell[\s\S]*?powershell\.exe/u);
+    assert.match(identitySource, /windows-process-inspector\.exe/u);
+    assert.doesNotMatch(identitySource, /windows-process-inspector\.ps1|powershell\.exe/u);
     assert.doesNotMatch(identitySource, /setWindowsProcessInspectionTimeoutForTests|System\.Management\.ManagementObjectSearcher/u);
     assert.doesNotMatch(identitySource, /Get-CimInstance Win32_Process/u);
-    const nativeInspectorSource = await readFile("src/runtime/process/windows-process-inspector.ps1", "utf8");
-    assert.match(nativeInspectorSource, /Reflection\.Emit[\s\S]*?OpenProcess[\s\S]*?GetProcessTimes[\s\S]*?QueryFullProcessImageNameW[\s\S]*?NtQueryInformationProcess/u);
-    assert.match(nativeInspectorSource, /CreateToolhelp32Snapshot[\s\S]*?Process32FirstW[\s\S]*?Process32NextW/u);
-    assert.match(nativeInspectorSource, /Read-ServiceLassoParentProcessId[\s\S]*?NtQueryInformationProcess/u);
+    const nativeInspectorSource = await readFile("src/runtime/process/windows-process-inspector.cs", "utf8");
+    assert.match(nativeInspectorSource, /DllImport[\s\S]*?OpenProcess[\s\S]*?GetProcessTimes[\s\S]*?QueryFullProcessImageName[\s\S]*?NtQueryInformationProcess/u);
+    assert.match(nativeInspectorSource, /CreateToolhelp32Snapshot[\s\S]*?Process32First[\s\S]*?Process32Next/u);
+    assert.match(nativeInspectorSource, /ReadParentProcessId[\s\S]*?NtQueryInformationProcess/u);
     assert.match(nativeInspectorSource, /ParentProcessId[\s\S]*?Native process tree changed during inspection/u);
-    assert.match(nativeInspectorSource, /returnedLength -lt \$headerSize[\s\S]*?\$length -gt \$maximumLength[\s\S]*?\$maximumLength -gt \$availableLength/u);
-    assert.doesNotMatch(nativeInspectorSource, /Add-Type|Get-CimInstance|Win32_Process/u);
-    assert.equal(
-      await readFile("dist/runtime/process/windows-process-inspector.ps1", "utf8"),
-      nativeInspectorSource,
+    assert.match(nativeInspectorSource, /returnedLength < headerSize[\s\S]*?length > maximumLength[\s\S]*?maximumLength > availableLength/u);
+    assert.doesNotMatch(nativeInspectorSource, /Reflection\.Emit|Add-Type|Get-CimInstance|Win32_Process/u);
+    const nativeInspectorBinary = await readFile("src/runtime/process/windows-process-inspector.exe");
+    assert.equal(nativeInspectorBinary.byteLength > 8_000, true);
+    const inspectorProvenance = JSON.parse(
+      await readFile("src/runtime/process/windows-process-inspector.provenance.json", "utf8"),
     );
+    assert.equal(inspectorProvenance.compiler.path, "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe");
+    assert.deepEqual(inspectorProvenance.compiler.options, [
+      "/nologo",
+      "/target:exe",
+      "/platform:anycpu",
+      "/optimize+",
+    ]);
+    assert.equal(
+      inspectorProvenance.source.sha256,
+      createHash("sha256").update(nativeInspectorSource).digest("hex"),
+    );
+    assert.equal(
+      inspectorProvenance.binary.sha256,
+      createHash("sha256").update(nativeInspectorBinary).digest("hex"),
+    );
+    assert.equal(inspectorProvenance.binary.byteLength, nativeInspectorBinary.byteLength);
+    assert.equal(inspectorProvenance.binary.peTimestamp, "zero");
+    assert.equal(inspectorProvenance.binary.moduleVersionId, "zero");
+    assert.deepEqual(
+      await readFile("dist/runtime/process/windows-process-inspector.exe"),
+      nativeInspectorBinary,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile("dist/runtime/process/windows-process-inspector.provenance.json", "utf8")),
+      inspectorProvenance,
+    );
+    const inspectorProvenanceVerifier = await readFile("scripts/verify-windows-process-inspector.ps1", "utf8");
+    assert.match(inspectorProvenanceVerifier, /Framework64[\s\S]*?v4\.0\.30319[\s\S]*?csc\.exe/u);
+    assert.match(inspectorProvenanceVerifier, /Get-NormalizedAssemblyBytes[\s\S]*?peOffset \+ 8[\s\S]*?moduleVersionIdOffset/u);
+    assert.match(inspectorProvenanceVerifier, /shippedBytes\[\$index\] -ne \$normalizedBytes\[\$index\]/u);
     const managedLauncherSource = await readFile("src/runtime/execution/windows-managed-launcher.ps1", "utf8");
     assert.match(managedLauncherSource, /CreateJobObjectW[\s\S]*?SetInformationJobObject[\s\S]*?CreateProcessW[\s\S]*?AssignProcessToJobObject[\s\S]*?ResumeThread/u);
     assert.match(managedLauncherSource, /0x2000[\s\S]*?0x00000004/u);
@@ -266,7 +301,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       managedLauncherSource,
     );
     const assetCopySource = await readFile("scripts/copy-runtime-assets.mjs", "utf8");
-    assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.ps1/u);
+    assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.exe/u);
+    assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.provenance\.json/u);
     assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher\.ps1/u);
     const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
     assert.match(packageManifest.scripts.build, /copy-runtime-assets\.mjs/u);

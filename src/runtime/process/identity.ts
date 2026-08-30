@@ -46,13 +46,6 @@ export interface ProcessInspectorDependencies {
   ) => Promise<{ stdout: string }>;
 }
 
-function windowsSystemExecutable(systemRoot: string | undefined, ...segments: string[]): string {
-  if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
-    throw new Error("Windows system utilities are unavailable.");
-  }
-  return path.win32.join(path.win32.normalize(systemRoot), ...segments);
-}
-
 function normalizeCommandLine(commandLine: string | readonly string[]): string {
   const value = typeof commandLine === "string" ? commandLine : commandLine.join(" ");
   return value.replace(/\s+/g, " ").trim();
@@ -313,7 +306,7 @@ function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection
 }
 
 const WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH = fileURLToPath(
-  new URL("./windows-process-inspector.ps1", import.meta.url),
+  new URL("./windows-process-inspector.exe", import.meta.url),
 );
 
 export async function classifyWindowsProcessIdentityFast(
@@ -333,23 +326,11 @@ async function runWindowsNativeProcessInspector(
   runCommand: ProcessInspectorDependencies["runCommand"],
   options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "windowsSystemRoot">,
 ): Promise<{ exitCode: number | null; stdout: string }> {
-  const powershellExecutable = windowsSystemExecutable(
-    options.windowsSystemRoot ?? process.env.SystemRoot ?? process.env.WINDIR,
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe",
-  );
   return await runProcessControlCommand(
-    powershellExecutable,
+    WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH,
     [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-File",
-      WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH,
       String(pid),
-      ...(includeDescendants ? ["-IncludeDescendants"] : []),
+      ...(includeDescendants ? ["--include-descendants"] : []),
     ],
     {
       captureOutput: true,
