@@ -1,7 +1,7 @@
 import path from "node:path";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createWriteStream, type WriteStream } from "node:fs";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { lstat, mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { constants, createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { DiscoveredService } from "../../contracts/service.js";
@@ -232,14 +232,21 @@ const WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS = 5_000;
 const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
 const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
 const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
-const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher.ps1", import.meta.url));
+const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher-native.exe", import.meta.url));
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 33_280;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
+const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
+const WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES = 128;
+let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
 let managedProcessRootInspector = inspectProcess;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
 let managedProcessAfterReleaseHook: (() => Promise<void> | void) | null = null;
 let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
+let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null = null;
+let managedProcessPostResumeDelayMs = 0;
 let managedProcessSpawner: typeof spawn = spawn;
 
 export function setManagedProcessTreeTerminatorForTests(
@@ -294,6 +301,33 @@ export function setManagedProcessLaunchStateRemoverForTests(
     throw new Error("Managed launch-state removal test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessLaunchStateRemover = remover ?? removeWindowsManagedLaunchStateDirectory;
+}
+
+export function setWindowsManagedLauncherPathForTests(launcherPath: string | null): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Windows managed-launcher path hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  windowsManagedLauncherPath = launcherPath ?? WINDOWS_MANAGED_LAUNCHER_PATH;
+}
+
+export function setManagedProcessLaunchStateCreatedHookForTests(
+  hook: (() => Promise<void> | void) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed launch-state creation hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessLaunchStateCreatedHook = hook;
+}
+
+export function setManagedProcessPostResumeDelayForTests(delayMs: number | null): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed post-resume delay hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const effectiveDelayMs = delayMs ?? 0;
+  if (!Number.isInteger(effectiveDelayMs) || effectiveDelayMs < 0 || effectiveDelayMs > 1_000) {
+    throw new Error("Managed post-resume delay hooks require an integer from 0 through 1000 milliseconds.");
+  }
+  managedProcessPostResumeDelayMs = effectiveDelayMs;
 }
 
 export function setManagedProcessSpawnerForTests(spawner: typeof spawn | null): void {
@@ -644,12 +678,97 @@ interface WindowsManagedLaunchState {
   continueToken: string;
   ackToken: string;
   progressToken: string;
-  powershellExecutable: string;
+  launcherExecutable: string;
   environment: NodeJS.ProcessEnv;
+}
+
+async function assertWindowsManagedLauncherIntegrity(
+  launcherExecutable: string,
+  signal: AbortSignal,
+): Promise<void> {
+  let launcherBytes: Buffer | null = null;
+  signal.throwIfAborted();
+  const [beforeOpen, canonicalPath] = await Promise.all([
+    lstat(launcherExecutable),
+    realpath(launcherExecutable),
+  ]);
+  signal.throwIfAborted();
+  if (
+    !beforeOpen.isFile() ||
+    beforeOpen.isSymbolicLink() ||
+    beforeOpen.size !== WINDOWS_MANAGED_LAUNCHER_BYTES ||
+    normalizeWindowsLaunchPath(canonicalPath) !== normalizeWindowsLaunchPath(path.resolve(launcherExecutable))
+  ) {
+    throw new Error("Windows managed launcher asset identity was invalid.");
+  }
+  const handle = await open(launcherExecutable, constants.O_RDONLY);
+  try {
+    signal.throwIfAborted();
+    const afterOpen = await handle.stat();
+    signal.throwIfAborted();
+    if (!afterOpen.isFile() || afterOpen.size !== WINDOWS_MANAGED_LAUNCHER_BYTES) {
+      throw new Error("Windows managed launcher asset identity changed while opening.");
+    }
+    launcherBytes = await handle.readFile({ signal });
+    signal.throwIfAborted();
+    const afterRead = await handle.stat();
+    signal.throwIfAborted();
+    if (
+      !afterRead.isFile() ||
+      afterRead.size !== WINDOWS_MANAGED_LAUNCHER_BYTES ||
+      launcherBytes.byteLength !== WINDOWS_MANAGED_LAUNCHER_BYTES ||
+      createHash("sha256").update(launcherBytes).digest("hex") !== WINDOWS_MANAGED_LAUNCHER_SHA256
+    ) {
+      throw new Error("Windows managed launcher asset integrity verification failed.");
+    }
+  } finally {
+    launcherBytes?.fill(0);
+    await handle.close().catch(() => undefined);
+  }
+}
+
+async function verifyWindowsManagedLauncherIntegrity(launcherExecutable: string): Promise<void> {
+  const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
+  await withProcessControlDeadline(
+    async (signal) => await assertWindowsManagedLauncherIntegrity(launcherExecutable, signal),
+    { deadlineMs },
+  );
 }
 
 function normalizeWindowsLaunchPath(value: string): string {
   return path.win32.normalize(value.replaceAll("/", "\\")).toLowerCase();
+}
+
+function isWindowsLoaderSensitiveEnvironmentName(name: string): boolean {
+  const normalized = name.toUpperCase();
+  return normalized.startsWith("COR_") ||
+    normalized.startsWith("CORECLR_") ||
+    normalized.startsWith("COMPLUS_") ||
+    normalized.startsWith("APPDOMAIN_MANAGER");
+}
+
+function splitWindowsManagedLaunchEnvironment(environment: NodeJS.ProcessEnv): {
+  bootstrapEnvironment: NodeJS.ProcessEnv;
+  targetEnvironmentOverrides: Array<{ name: string; value: string }>;
+} {
+  const bootstrapEnvironment = { ...environment };
+  const targetEnvironmentOverrides: Array<{ name: string; value: string }> = [];
+  const overrideNames = new Set<string>();
+  for (const [name, value] of Object.entries(environment)) {
+    if (!isWindowsLoaderSensitiveEnvironmentName(name)) continue;
+    delete bootstrapEnvironment[name];
+    if (typeof value !== "string") continue;
+    const normalizedName = name.toUpperCase();
+    if (overrideNames.has(normalizedName)) {
+      throw new Error("Windows target environment contains ambiguous loader-sensitive names.");
+    }
+    overrideNames.add(normalizedName);
+    targetEnvironmentOverrides.push({ name, value });
+  }
+  if (targetEnvironmentOverrides.length > WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES) {
+    throw new Error("Windows target environment contains too many loader-sensitive entries.");
+  }
+  return { bootstrapEnvironment, targetEnvironmentOverrides };
 }
 
 function windowsPathEnvironmentValue(environment: NodeJS.ProcessEnv): string {
@@ -719,10 +838,9 @@ async function createWindowsManagedLaunchState(
   workspaceRoot: string,
   requireExecutableBinding: boolean,
 ): Promise<WindowsManagedLaunchState> {
-  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
-  if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
-    throw new Error("Windows managed launcher requires an absolute system root.");
-  }
+  const launcherExecutable = windowsManagedLauncherPath;
+  await verifyWindowsManagedLauncherIntegrity(launcherExecutable);
+  const { bootstrapEnvironment, targetEnvironmentOverrides } = splitWindowsManagedLaunchEnvironment(environment);
   const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
   await mkdir(launchStateRoot, { recursive: true });
   const rootPath = await mkdtemp(path.join(launchStateRoot, "service-lasso-managed-launch-"));
@@ -770,7 +888,12 @@ async function createWindowsManagedLaunchState(
     executableBindingIndex,
     requireExecutableBinding,
     argumentBindings,
+    targetEnvironmentOverrides,
+    postResumeDelayMilliseconds: managedProcessPostResumeDelayMs,
   }), "utf8").toString("base64");
+  if (payload.length > WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS) {
+    throw new Error("Windows managed launcher payload was oversized.");
+  }
   return {
     rootPath,
     gatePath,
@@ -782,15 +905,9 @@ async function createWindowsManagedLaunchState(
     continueToken,
     ackToken,
     progressToken,
-    powershellExecutable: path.win32.join(
-      path.win32.normalize(systemRoot),
-      "System32",
-      "WindowsPowerShell",
-      "v1.0",
-      "powershell.exe",
-    ),
+    launcherExecutable,
     environment: {
-      ...environment,
+      ...bootstrapEnvironment,
       SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: payload,
       SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
       SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN: progressToken,
@@ -1575,6 +1692,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
           options.guardedExecutableLaunch === true || options.verifyBeforeSpawn !== undefined,
         )
       : null;
+    await managedProcessLaunchStateCreatedHook?.();
   } catch (error) {
     await closeRuntimeLogStreams(logStreams);
     throw new ManagedProcessStartError("launch_state_creation", error);
@@ -1582,19 +1700,32 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   let child: ChildProcess;
   let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   try {
-    child = managedProcessSpawner(
-      windowsManagedLaunchState?.powershellExecutable ?? executable,
-      windowsManagedLaunchState
-        ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", WINDOWS_MANAGED_LAUNCHER_PATH]
-        : args,
-      {
-        cwd: workingDirectory,
-        env: windowsManagedLaunchState?.environment ?? environment,
-        stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32",
-        windowsHide: true,
-      },
-    );
+    if (windowsManagedLaunchState) {
+      await verifyWindowsManagedLauncherIntegrity(windowsManagedLaunchState.launcherExecutable);
+      child = managedProcessSpawner(
+        windowsManagedLaunchState.launcherExecutable,
+        [],
+        {
+          cwd: workingDirectory,
+          env: windowsManagedLaunchState.environment,
+          stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
+          detached: false,
+          windowsHide: true,
+        },
+      );
+    } else {
+      child = managedProcessSpawner(
+        executable,
+        args,
+        {
+          cwd: workingDirectory,
+          env: environment,
+          stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
+          detached: process.platform !== "win32",
+          windowsHide: true,
+        },
+      );
+    }
 
     exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.once("close", (exitCode, signal) => {

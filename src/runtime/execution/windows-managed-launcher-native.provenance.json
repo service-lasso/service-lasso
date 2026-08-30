@@ -7,17 +7,18 @@
       "/nologo",
       "/target:exe",
       "/platform:anycpu",
-      "/optimize+"
+      "/optimize+",
+      "/reference:System.Web.Extensions.dll"
     ]
   },
   "source": {
     "path": "src/runtime/execution/windows-managed-launcher-native.cs",
-    "sha256": "40b0b9d4e8cee7725e34629ba6952870df6af6396861f6875f1a418a75590be0"
+    "sha256": "4da1d8194442779b304601ae512eb8802761fc414f6805a66ac44f035ac7db73"
   },
   "binary": {
     "path": "src/runtime/execution/windows-managed-launcher-native.exe",
-    "sha256": "343fc52e95562e110f0deaedbe2b8ef04b1f0258f487494d94b3cb3c9d7e25cd",
-    "byteLength": 5120,
+    "sha256": "c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd",
+    "byteLength": 33280,
     "peTimestamp": "zero",
     "moduleVersionId": "zero"
   }

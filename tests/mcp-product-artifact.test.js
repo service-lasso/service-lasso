@@ -339,10 +339,10 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       "scripts/verify-windows-dpapi-helper.ps1",
       "docs/reference/process-ownership-registry.md",
       "src/runtime/execution/supervisor.ts",
-      "src/runtime/execution/windows-managed-launcher.ps1",
       "src/runtime/execution/windows-managed-launcher-native.cs",
       "src/runtime/execution/windows-managed-launcher-native.exe",
       "src/runtime/execution/windows-managed-launcher-native.provenance.json",
+      "src/runtime/execution/windows-managed-launcher.ps1",
       "src/runtime/lifecycle/actions.ts",
       "src/runtime/security/private-json.ts",
       "src/runtime/security/windows-dpapi-helper.cs",
@@ -508,19 +508,6 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(inspectorProvenanceVerifier, /Invoke-ProvenanceNegativeTests[\s\S]*?extra property[\s\S]*?reordered properties[\s\S]*?string schema[\s\S]*?non-integral schema[\s\S]*?string binary length[\s\S]*?non-integral binary length[\s\S]*?compiler path[\s\S]*?compiler option[\s\S]*?source digest[\s\S]*?binary digest[\s\S]*?normalization declaration[\s\S]*?boolean compiler path[\s\S]*?boolean compiler option[\s\S]*?boolean source digest[\s\S]*?boolean normalization declaration/u);
     assert.match(inspectorProvenanceVerifier, /first-bad last-good duplicate key[\s\S]*?UTF-8 BOM[\s\S]*?UTF-16 BOM/u);
     assert.doesNotMatch(inspectorProvenanceVerifier, /actualJson -cne expectedJson/u);
-    const managedLauncherSource = await readFile("src/runtime/execution/windows-managed-launcher.ps1", "utf8");
-    assert.match(managedLauncherSource, /windows-managed-launcher-native\.exe[\s\S]*?343fc52e95562e110f0deaedbe2b8ef04b1f0258f487494d94b3cb3c9d7e25cd/u);
-    assert.match(managedLauncherSource, /0x2000[\s\S]*?0x00000004/u);
-    assert.match(managedLauncherSource, /FileShare\]::Read/u);
-    assert.match(managedLauncherSource, /SHA256/u);
-    assert.match(managedLauncherSource, /GetFinalPathNameByHandleW[\s\S]*?requireExecutableBinding/u);
-    assert.match(managedLauncherSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
-    assert.match(managedLauncherSource, /Test-ServiceLassoGateToken[\s\S]*?ConvertTo-Json -Compress/u);
-    assert.doesNotMatch(managedLauncherSource, /Reflection\.Emit|Add-Type|Get-CimInstance|Win32_Process/u);
-    assert.equal(
-      await readFile("dist/runtime/execution/windows-managed-launcher.ps1", "utf8"),
-      managedLauncherSource,
-    );
     const managedLauncherNativeSource = await readFile(
       "src/runtime/execution/windows-managed-launcher-native.cs",
       "utf8",
@@ -529,7 +516,18 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       managedLauncherNativeSource,
       /DllImport[\s\S]*?CreateJobObjectW[\s\S]*?SetInformationJobObject[\s\S]*?CreateProcessW[\s\S]*?AssignProcessToJobObject[\s\S]*?ResumeThread/u,
     );
-    assert.match(managedLauncherNativeSource, /GetFinalPathNameByHandleW[\s\S]*?CloseHandle/u);
+    assert.match(managedLauncherNativeSource, /0x00000004[\s\S]*?0x00002000/u);
+    assert.match(managedLauncherNativeSource, /ParseLaunchPayload[\s\S]*?ValidateStrictJsonSyntax[\s\S]*?DeserializeObject[\s\S]*?RequireExactKeys/u);
+    assert.match(managedLauncherNativeSource, /ParseJsonObject[\s\S]*?keys\.Add[\s\S]*?duplicate property/u);
+    assert.match(managedLauncherNativeSource, /ValidatePayload/u);
+    assert.match(managedLauncherNativeSource, /RequireString[\s\S]*?IndexOf\('\\0'\)[\s\S]*?RequireInt[\s\S]*?RequireBoolean/u);
+    assert.match(managedLauncherNativeSource, /FileShare\.Read[\s\S]*?SHA256\.Create/u);
+    assert.match(managedLauncherNativeSource, /GetFinalPathNameByHandleW[\s\S]*?requireExecutableBinding/u);
+    assert.match(managedLauncherNativeSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
+    assert.match(managedLauncherNativeSource, /HMACSHA256[\s\S]*?RetireProgress[\s\S]*?ClearLaunchEnvironment/u);
+    assert.match(managedLauncherNativeSource, /AssertBootstrapEnvironmentSanitized[\s\S]*?ApplyTargetEnvironmentOverrides[\s\S]*?CreateProcessW[\s\S]*?ClearTargetEnvironmentOverrides/u);
+    assert.match(managedLauncherNativeSource, /targetAssignedToJob = true[\s\S]*?ContainManagedJobBeforeFileRelease[\s\S]*?boundFile\.Dispose/u);
+    assert.match(managedLauncherNativeSource, /ContainManagedJobBeforeFileRelease[\s\S]*?TerminateJobObject[\s\S]*?ActiveProcesses == 0/u);
     assert.doesNotMatch(managedLauncherNativeSource, /Reflection\.Emit|Add-Type|Process\.Start|PowerShell/u);
     const managedLauncherNative = await readFile("src/runtime/execution/windows-managed-launcher-native.exe");
     const managedLauncherNativeProvenance = JSON.parse(
@@ -546,6 +544,13 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.equal(managedLauncherNativeProvenance.binary.byteLength, managedLauncherNative.byteLength);
     assert.equal(managedLauncherNativeProvenance.binary.peTimestamp, "zero");
     assert.equal(managedLauncherNativeProvenance.binary.moduleVersionId, "zero");
+    assert.deepEqual(managedLauncherNativeProvenance.compiler.options, [
+      "/nologo",
+      "/target:exe",
+      "/platform:anycpu",
+      "/optimize+",
+      "/reference:System.Web.Extensions.dll",
+    ]);
     assert.deepEqual(
       await readFile("dist/runtime/execution/windows-managed-launcher-native.exe"),
       managedLauncherNative,
@@ -554,15 +559,30 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       JSON.parse(await readFile("dist/runtime/execution/windows-managed-launcher-native.provenance.json", "utf8")),
       managedLauncherNativeProvenance,
     );
+    await assert.rejects(
+      readFile("src/runtime/execution/windows-managed-launcher.ps1"),
+      { code: "ENOENT" },
+    );
+    await assert.rejects(
+      readFile("dist/runtime/execution/windows-managed-launcher.ps1"),
+      { code: "ENOENT" },
+    );
     assert.match(packagedVerifier, /installedManagedLauncherNative[\s\S]*?reviewedManagedLauncherNativeProvenance/u);
+    assert.match(packagedVerifier, /requirePathAbsent[\s\S]*?Retired installed PowerShell launcher/u);
+    const supervisorSource = await readFile("src/runtime/execution/supervisor.ts", "utf8");
+    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd/u);
+    assert.match(supervisorSource, /assertWindowsManagedLauncherIntegrity[\s\S]*?lstat[\s\S]*?realpath[\s\S]*?open[\s\S]*?handle\.stat[\s\S]*?handle\.readFile[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
+    assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(windowsManagedLaunchState\.launcherExecutable\)[\s\S]*?managedProcessSpawner/u);
+    assert.match(supervisorSource, /isWindowsLoaderSensitiveEnvironmentName[\s\S]*?COR_[\s\S]*?CORECLR_[\s\S]*?COMPLUS_[\s\S]*?APPDOMAIN_MANAGER[\s\S]*?targetEnvironmentOverrides/u);
+    assert.doesNotMatch(supervisorSource, /windows-managed-launcher\.ps1|WindowsPowerShell[\s\S]*?WINDOWS_MANAGED_LAUNCHER_PATH/u);
     const assetCopySource = await readFile("scripts/copy-runtime-assets.mjs", "utf8");
     assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.exe/u);
     assert.match(assetCopySource, /runtime\/process\/windows-process-inspector\.provenance\.json/u);
     assert.match(assetCopySource, /runtime\/security\/windows-dpapi-helper\.exe/u);
     assert.match(assetCopySource, /runtime\/security\/windows-dpapi-helper\.provenance\.json/u);
-    assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher\.ps1/u);
     assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher-native\.exe/u);
     assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher-native\.provenance\.json/u);
+    assert.match(assetCopySource, /retiredAssets[\s\S]*?runtime\/execution\/windows-managed-launcher\.ps1[\s\S]*?rm/u);
     const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
     assert.match(packageManifest.scripts.build, /copy-runtime-assets\.mjs/u);
   } finally {

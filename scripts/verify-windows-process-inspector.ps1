@@ -37,6 +37,9 @@ $compilerOptions = @(
   "/platform:anycpu",
   "/optimize+"
 )
+if ($ManagedLauncherNative) {
+  $compilerOptions += "/reference:System.Web.Extensions.dll"
+}
 
 if (-not [IO.Path]::IsPathRooted($compilerPath) -or -not [IO.File]::Exists($compilerPath)) {
   throw "The trusted Windows .NET Framework C# compiler was unavailable."
@@ -80,17 +83,21 @@ function Get-CanonicalProvenanceJson(
   [string]$BinarySha256,
   [int64]$BinaryByteLength
 ) {
-  return @(
+  $compilerOptionLines = @()
+  for ($index = 0; $index -lt $compilerOptions.Length; $index += 1) {
+    $suffix = if ($index -lt $compilerOptions.Length - 1) { ',' } else { '' }
+    $compilerOptionLines += ('      "{0}"{1}' -f $compilerOptions[$index], $suffix)
+  }
+  $provenanceLines = @(
     '{',
     '  "schemaVersion": 1,',
     '  "compiler": {',
     '    "family": "Microsoft .NET Framework 4.8 C# compiler",',
     '    "path": "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",',
-    '    "options": [',
-    '      "/nologo",',
-    '      "/target:exe",',
-    '      "/platform:anycpu",',
-    '      "/optimize+"',
+    '    "options": ['
+  )
+  $provenanceLines += $compilerOptionLines
+  $provenanceLines += @(
     '    ]',
     '  },',
     '  "source": {',
@@ -105,7 +112,8 @@ function Get-CanonicalProvenanceJson(
     '    "moduleVersionId": "zero"',
     '  }',
     '}'
-  ) -join "`n"
+  )
+  return $provenanceLines -join "`n"
 }
 
 function Assert-CanonicalProvenanceBytes([byte[]]$ActualBytes, [byte[]]$ExpectedBytes) {

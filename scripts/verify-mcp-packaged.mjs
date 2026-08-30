@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,16 @@ async function exactCandidateSha() {
   const configured = process.env.CANDIDATE_SHA?.trim().toLowerCase();
   if (configured) return configured;
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
+}
+
+async function requirePathAbsent(candidatePath, label) {
+  try {
+    await lstat(candidatePath);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`${label} must be absent.`);
 }
 
 async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) {
@@ -147,6 +157,16 @@ async function writeCanonicalService(servicesRoot) {
 await verifyWindowsProcessInspectorProvenance();
 await verifyWindowsManagedLauncherNativeProvenance();
 await verifyWindowsDpapiHelperProvenance();
+await Promise.all([
+  requirePathAbsent(
+    path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher.ps1"),
+    "Retired source PowerShell launcher",
+  ),
+  requirePathAbsent(
+    path.join(repoRoot, "dist", "runtime", "execution", "windows-managed-launcher.ps1"),
+    "Retired staged PowerShell launcher",
+  ),
+]);
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
@@ -198,6 +218,10 @@ try {
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
     throw new Error("Fresh consumer installed a different Service Lasso package identity.");
   }
+  await requirePathAbsent(
+    path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher.ps1"),
+    "Retired installed PowerShell launcher",
+  );
   const [
     installedDpapiHelper,
     installedDpapiProvenance,

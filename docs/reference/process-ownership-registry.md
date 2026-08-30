@@ -98,8 +98,13 @@ Normal stop signals that group, waits for the complete non-zombie group to
 exit, escalates to `SIGKILL` after the bounded timeout, and fails without
 clearing ownership if the tree still cannot be confirmed stopped.
 
-New Windows service launches use a published static launcher started through
-the absolute System32 Windows PowerShell path. The launcher waits behind
+New Windows service launches use a published, exact-hash static .NET Framework
+launcher without a PowerShell bootstrap. The supervisor rejects redirected,
+missing, oversized, or digest-mismatched launcher assets both while creating
+launch state and immediately before the synchronous spawn. Loader-sensitive
+CLR, CoreCLR, COMPlus, and AppDomain-manager variables are excluded from the
+trusted bootstrap and restored only for creation of the intended target. The
+launcher accepts only a bounded, duplicate-free, closed-schema payload and waits behind
 unpredictable, phase-specific release, files-bound, continuation, and
 acknowledgement tokens; pre-created workspace files do not authorize progress.
 It creates a kill-on-close Job Object, creates the real service suspended,
@@ -110,16 +115,17 @@ the inputs while those handles are held, then process creation consumes the
 canonical executable and file-argument paths obtained from the same handles.
 An explicitly guarded launch fails closed unless the executable itself resolves
 to one of those approved, held files, including when the approved set is empty.
-If enrollment fails before release, no service code has run; if the launcher
-exits after release, closing the Job terminates its whole tree.
+If enrollment fails before release, no service code has run. After release,
+approved-file handles remain locked until an unassigned suspended target is
+terminated or Job accounting proves that every assigned process is contained.
 
 Older persisted services may have no group record. For those services, the
 runtime snapshots the root's child and grandchild relationships and captures a
 full identity fingerprint for every descendant. Each fingerprint is checked
 again immediately before signalling, so a reused descendant PID is not killed.
 
-On Windows, the supervisor independently verifies the retained launcher handle
-and its immutable root identity. It enumerates ancestry with Toolhelp, queries
+On Windows, the supervisor independently verifies the exact launcher bytes
+immediately before spawn and the launched process's immutable root identity. It enumerates ancestry with Toolhelp, queries
 each process's immutable inherited-parent PID through the same handle used for
 creation time, image and command evidence, and rejects snapshot/handle drift.
 A normal Windows stop has a bounded 15-second convergence window and uses

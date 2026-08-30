@@ -27,10 +27,10 @@ on:
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
       - src/runtime/execution/supervisor.ts
-      - src/runtime/execution/windows-managed-launcher.ps1
       - src/runtime/execution/windows-managed-launcher-native.cs
       - src/runtime/execution/windows-managed-launcher-native.exe
       - src/runtime/execution/windows-managed-launcher-native.provenance.json
+      - src/runtime/execution/windows-managed-launcher.ps1
       - src/runtime/lifecycle/actions.ts
       - src/runtime/operator/**
       - src/runtime/security/private-json.ts
@@ -79,10 +79,10 @@ on:
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
       - src/runtime/execution/supervisor.ts
-      - src/runtime/execution/windows-managed-launcher.ps1
       - src/runtime/execution/windows-managed-launcher-native.cs
       - src/runtime/execution/windows-managed-launcher-native.exe
       - src/runtime/execution/windows-managed-launcher-native.provenance.json
+      - src/runtime/execution/windows-managed-launcher.ps1
       - src/runtime/lifecycle/actions.ts
       - src/runtime/operator/**
       - src/runtime/security/private-json.ts

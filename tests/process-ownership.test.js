@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import {
   classifyWindowsProcessIdentityFast,
   classifyProcessIdentity,
@@ -29,9 +29,12 @@ import {
   setManagedProcessAfterReleaseHookForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
+  setManagedProcessLaunchStateCreatedHookForTests,
   setManagedProcessLaunchStateRemoverForTests,
+  setManagedProcessPostResumeDelayForTests,
   setManagedProcessSpawnerForTests,
   setManagedProcessTreeTerminatorForTests,
+  setWindowsManagedLauncherPathForTests,
   startManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
@@ -1443,6 +1446,190 @@ test("Windows launcher progress authenticates split records and suppresses malfo
   }
 });
 
+test("Windows managed launcher rejects missing, oversized, corrupt, and redirected native assets before spawn", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launcher-integrity-");
+  const nativeBytes = await readFile(path.resolve("dist/runtime/execution/windows-managed-launcher-native.exe"));
+  const fixtureRoot = path.join(tempRoot, "launcher-assets");
+  const missingPath = path.join(fixtureRoot, "missing", "launcher.exe");
+  const oversizedPath = path.join(fixtureRoot, "oversized", "launcher.exe");
+  const corruptPath = path.join(fixtureRoot, "corrupt", "launcher.exe");
+  const trustedRoot = path.join(fixtureRoot, "trusted");
+  const redirectedRoot = path.join(fixtureRoot, "redirected");
+  const redirectedPath = path.join(redirectedRoot, "launcher.exe");
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service");
+    await Promise.all([
+      mkdir(path.dirname(oversizedPath), { recursive: true }),
+      mkdir(path.dirname(corruptPath), { recursive: true }),
+      mkdir(trustedRoot, { recursive: true }),
+    ]);
+    await writeFile(oversizedPath, Buffer.concat([nativeBytes, Buffer.from([0])]));
+    const corruptBytes = Buffer.from(nativeBytes);
+    corruptBytes[corruptBytes.length - 1] ^= 0xff;
+    await writeFile(corruptPath, corruptBytes);
+    await writeFile(path.join(trustedRoot, "launcher.exe"), nativeBytes);
+    await symlink(trustedRoot, redirectedRoot, "junction");
+    const [service] = await discoverServices(servicesRoot);
+
+    for (const launcherPath of [missingPath, oversizedPath, corruptPath, redirectedPath]) {
+      setWindowsManagedLauncherPathForTests(launcherPath);
+      await assert.rejects(
+        startManagedProcess({
+          service,
+          executionPlan: createDirectExecutionPlan(service.manifest),
+          workspaceRoot,
+        }),
+        (error) => {
+          assert.equal(managedProcessStartFailurePhase(error), "launch_state_creation");
+          return true;
+        },
+      );
+      assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
+      assert.equal(hasManagedProcess(service.manifest.id), false);
+    }
+  } finally {
+    setWindowsManagedLauncherPathForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows managed launcher revalidates its native asset after launch-state creation", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launcher-revalidation-");
+  const launcherPath = path.join(tempRoot, "launcher.exe");
+  const nativeBytes = await readFile(path.resolve("dist/runtime/execution/windows-managed-launcher-native.exe"));
+  const corruptBytes = Buffer.from(nativeBytes);
+  corruptBytes[corruptBytes.length - 1] ^= 0xff;
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "launcher-revalidation-service");
+    await writeFile(launcherPath, nativeBytes);
+    setWindowsManagedLauncherPathForTests(await realpath(launcherPath));
+    setManagedProcessLaunchStateCreatedHookForTests(async () => {
+      await writeFile(launcherPath, corruptBytes);
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "wrapper_spawn", error.message);
+        assert.match(error.message, /integrity verification failed/u);
+        return true;
+      },
+    );
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
+    assert.equal(hasManagedProcess(service.manifest.id), false);
+  } finally {
+    setManagedProcessLaunchStateCreatedHookForTests(null);
+    setWindowsManagedLauncherPathForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows managed launcher rejects non-closed or mistyped payload envelopes", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const { tempRoot } = await makeTempServicesRoot("service-lasso-launcher-payload-");
+  const launcherPath = path.resolve("dist/runtime/execution/windows-managed-launcher-native.exe");
+  const gatePath = path.join(tempRoot, "release.gate");
+  const basePayload = {
+    executable: process.execPath,
+    args: [],
+    workingDirectory: tempRoot,
+    ackPath: path.join(tempRoot, "launched.pid"),
+    filesBoundPath: path.join(tempRoot, "files-bound.gate"),
+    continuePath: path.join(tempRoot, "continue.gate"),
+    releaseToken: "11".repeat(32),
+    filesBoundToken: "22".repeat(32),
+    continueToken: "33".repeat(32),
+    ackToken: "44".repeat(32),
+    approvedFiles: [],
+    executableBindingIndex: -1,
+    requireExecutableBinding: false,
+    argumentBindings: [],
+    targetEnvironmentOverrides: [],
+    postResumeDelayMilliseconds: 0,
+  };
+  const canonicalPayload = JSON.stringify(basePayload);
+  const duplicatePayload = canonicalPayload.replace(
+    '{"executable":',
+    `{"executable":${JSON.stringify(process.execPath)},"executable":`,
+  );
+  const invalidPayloads = [
+    JSON.stringify({ ...basePayload, unexpected: true }),
+    JSON.stringify({ ...basePayload, args: [null] }),
+    JSON.stringify({ ...basePayload, args: ["before\u0000after"] }),
+    JSON.stringify({ ...basePayload, ackPath: "\\rooted-but-not-qualified" }),
+    JSON.stringify({ ...basePayload, executableBindingIndex: "-1" }),
+    JSON.stringify({
+      ...basePayload,
+      approvedFiles: [{ file: process.execPath, sha256: "aa".repeat(32), size: 1, unexpected: true }],
+    }),
+    JSON.stringify({
+      ...basePayload,
+      args: ["value"],
+      approvedFiles: [{ file: process.execPath, sha256: "aa".repeat(32), size: 1 }],
+      argumentBindings: [{ index: 0, prefix: null, bindingIndex: 0 }],
+    }),
+    JSON.stringify({ ...basePayload, targetEnvironmentOverrides: [{ name: "COR_ENABLE_PROFILING", value: null }] }),
+    duplicatePayload,
+  ];
+  const bootstrapEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/^(?:COR_|CORECLR_|COMPLUS_|APPDOMAIN_MANAGER)/iu.test(name)),
+  );
+
+  try {
+    for (const payloadJson of invalidPayloads) {
+      const result = await new Promise((resolve, reject) => {
+        const child = spawn(launcherPath, [], {
+          cwd: tempRoot,
+          env: {
+            ...bootstrapEnvironment,
+            SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: Buffer.from(payloadJson, "utf8").toString("base64"),
+            SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
+            SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN: "55".repeat(32),
+          },
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        const timeout = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error("Invalid managed-launch payload was not rejected boundedly."));
+        }, 5_000);
+        child.once("error", reject);
+        child.once("close", (exitCode, signal) => {
+          clearTimeout(timeout);
+          resolve({ exitCode, signal });
+        });
+      });
+      assert.deepEqual(result, { exitCode: 1, signal: null });
+      await assert.rejects(readFile(basePayload.filesBoundPath, "utf8"), { code: "ENOENT" });
+    }
+  } finally {
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("synchronous wrapper spawn failures retain their typed phase and clean pre-enrollment state", async () => {
   resetLifecycleState();
   const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
@@ -1535,6 +1722,100 @@ setInterval(() => {}, 1000);
   }
 });
 
+test("Windows managed launcher round-trips empty, quoted, spaced, trailing-slash, and Unicode arguments", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launch-argv-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "launch-argv-service");
+  const markerPath = path.join(serviceRoot, "runtime", "argv.json");
+  const expectedArgs = [
+    "",
+    "two words",
+    'quote"inside',
+    "trailing\\",
+    "space and trailing\\",
+    "forward/",
+    "Unicode-雪-🦝",
+  ];
+  let handle;
+
+  try {
+    await writeFile(scriptPath, `
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(markerPath)}, JSON.stringify(process.argv.slice(2)), "utf8");
+setInterval(() => {}, 1000);
+`.trim(), "utf8");
+    const manifestPath = path.join(serviceRoot, "service.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.args = [path.relative(serviceRoot, scriptPath), ...expectedArgs];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await waitFor(async () => {
+      try {
+        return JSON.parse(await readFile(markerPath, "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), expectedArgs);
+  } finally {
+    await stopManagedProcess("launch-argv-service", 10_000).catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows managed launcher strips loader controls from bootstrap and restores them only for the target", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launch-environment-");
+  const loaderEnvironment = {
+    cOr_EnAbLe_PrOfIlInG: "1",
+    CoR_ProFiLeR: "{11111111-1111-1111-1111-111111111111}",
+    CoreClr_Profiler_Path: "C:\\missing\\service-lasso-profiler.dll",
+    comPlus_ServiceLassoProbe: "target-complus",
+    AppDomain_Manager_Type: "TargetOnlyManager",
+  };
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "launch-environment-service", {
+    env: loaderEnvironment,
+    captureEnvKeys: Object.keys(loaderEnvironment),
+  });
+  const snapshotPath = path.join(serviceRoot, "runtime", "env.json");
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await waitFor(async () => {
+      try {
+        return JSON.parse(await readFile(snapshotPath, "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.deepEqual(JSON.parse(await readFile(snapshotPath, "utf8")), loaderEnvironment);
+  } finally {
+    await stopManagedProcess("launch-environment-service", 10_000).catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("Windows managed launcher rejects same-size approved script changes after guarded preflight", {
   skip: process.platform !== "win32",
 }, async () => {
@@ -1599,6 +1880,109 @@ setInterval(() => {}, 1000);
   } finally {
     setManagedProcessEnrollmentHookForTests(null);
     await stopManagedProcess("launch-byte-binding-service", 5_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows managed launcher holds approved files through post-resume acknowledgment failure containment", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launch-ack-containment-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "launch-ack-containment-service");
+  const markerPath = path.join(serviceRoot, "runtime", "ack-containment.marker");
+  const approvedScript = `
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(markerPath)}, JSON.stringify({ pid: process.pid }), "utf8");
+const launchState = "approved";
+void launchState;
+setInterval(() => {}, 1000);
+`.trim();
+  const changedScript = approvedScript.replace('"approved"', '"mutated!"');
+  let mutationAttempts = 0;
+  let mutationPromise = null;
+  let stopMutation = false;
+
+  try {
+    assert.equal(Buffer.byteLength(changedScript), Buffer.byteLength(approvedScript));
+    await writeFile(scriptPath, approvedScript, "utf8");
+    const executableBytes = await readFile(process.execPath);
+    const bindings = [
+      {
+        file: process.execPath,
+        sha256: createHash("sha256").update(executableBytes).digest("hex"),
+        size: executableBytes.byteLength,
+      },
+      {
+        file: scriptPath,
+        sha256: createHash("sha256").update(approvedScript).digest("hex"),
+        size: Buffer.byteLength(approvedScript),
+      },
+    ];
+    setManagedProcessFilesBoundHookForTests(async () => {
+      const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
+      const stateDirectories = await readdir(launchStateRoot, { withFileTypes: true });
+      const stateDirectory = stateDirectories.find((entry) => entry.isDirectory());
+      assert.ok(stateDirectory);
+      await mkdir(path.join(launchStateRoot, stateDirectory.name, "launched.pid"));
+      mutationPromise = (async () => {
+        while (!stopMutation) {
+          mutationAttempts += 1;
+          try {
+            await writeFile(scriptPath, changedScript, "utf8");
+            const targetEvidence = JSON.parse(await readFile(markerPath, "utf8"));
+            let targetIsRunning = true;
+            try {
+              process.kill(targetEvidence.pid, 0);
+            } catch (error) {
+              if (error?.code !== "ESRCH") throw error;
+              targetIsRunning = false;
+            }
+            return { targetEvidence, targetIsRunning };
+          } catch (error) {
+            if (!error || typeof error !== "object" || !["EACCES", "EBUSY", "EPERM"].includes(error.code)) {
+              throw error;
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        throw new Error("Mutation retry stopped before the launch file was released.");
+      })();
+    });
+    setManagedProcessPostResumeDelayForTests(1_000);
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+        verifyBeforeSpawn: async () => bindings,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "target_acknowledgement");
+        return true;
+      },
+    );
+    assert.ok(mutationPromise);
+    const mutationObservation = await mutationPromise;
+    assert.equal(mutationAttempts > 1, true);
+    assert.equal(await readFile(scriptPath, "utf8"), changedScript);
+    assert.equal(Number.isInteger(mutationObservation.targetEvidence.pid) && mutationObservation.targetEvidence.pid > 0, true);
+    assert.equal(mutationObservation.targetIsRunning, false);
+    const stopped = await findProcessOwnership(workspaceRoot, "service", "launch-ack-containment-service");
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+  } finally {
+    stopMutation = true;
+    await mutationPromise?.catch(() => undefined);
+    setManagedProcessPostResumeDelayForTests(null);
+    setManagedProcessFilesBoundHookForTests(null);
+    await stopManagedProcess("launch-ack-containment-service", 5_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
