@@ -9,12 +9,13 @@ The runtime currently exposes:
 - MCP Streamable HTTP requests at `POST /api/mcp`
 - discovery and compatibility metadata at `GET /api/mcp/info`
 - a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
-- protocol revision `2024-11-05` on the compatibility metadata surface
+- negotiated protocol revision `2025-11-25`, with the complete SDK-supported set advertised by `GET /api/mcp/info` (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`)
 - `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
+- `@modelcontextprotocol/inspector` `2.4.0` pinned as the blocking official Inspector client
 - RFC 9728 protected-resource metadata at `GET /.well-known/oauth-protected-resource` when MCP OAuth is fully configured
 - asymmetric JWT signature, issuer, expiry, configured-audience, and scope validation for configured Streamable HTTP
 - trusted actor/client derivation from validated token claims; MCP arguments never supply actor authority
-- exact Origin allowlisting, JSON content-type enforcement, and a 1 MiB request-body limit before protocol handling
+- exact Origin allowlisting, loopback-or-resource Host authority enforcement against DNS rebinding, JSON content-type enforcement, and a 1 MiB request-body limit before protocol handling
 - explicit `disabled`, `read-only` (default), and `guarded` transport modes, with a fail-closed read-only tool allowlist
 - cumulative Observer, Operator, Maintainer, and Administrator profile classification from validated scopes
 - independent fixed-window actor and client rate limits with safe `429` denial Audit events
@@ -28,7 +29,7 @@ The runtime currently exposes:
 - durable, actor/client-bound idempotency results and expiring single-use server confirmations for actions that require confirmation
 - durable long-running operation records with actor/workspace isolation, bounded retention, restart reconciliation, safe progress, and cancellation where the underlying action supports it
 
-The prototype was delivered by [issue #592](https://github.com/service-lasso/service-lasso/issues/592) and [PR #604](https://github.com/service-lasso/service-lasso/pull/604).
+The original prototype was delivered by [issue #592](https://github.com/service-lasso/service-lasso/issues/592) and [PR #604](https://github.com/service-lasso/service-lasso/pull/604). The production programme is governed by `SPEC-006` and issues `#858`–`#864`; the release gate now tests the current surface from both source and a fresh package consumer.
 
 ### Current tools
 
@@ -111,13 +112,45 @@ Every tool rejects additional properties at runtime. Read tools are annotated re
 | Recovery history | 20 | 100 |
 | Durable operations | 50 | 100 |
 
-Read errors use stable codes such as `unknown_service`, `feature_unavailable`, `forbidden`, `invalid_cursor` and `invalid_request`. Guarded actions additionally distinguish mode, profile, scope, confirmation and idempotency failures. Errors contain a stable code and safe message, never an internal exception, root path, raw log/config value or credential.
+Read errors use stable codes such as `unknown_service`, `feature_unavailable`, `forbidden`, `invalid_cursor` and `invalid_request`. Guarded actions additionally distinguish mode, profile, scope, confirmation and idempotency failures. A confirmation-state persistence failure returns `confirmation_state_unavailable` before mutation and records a more specific allowlisted protected-state phase in durable Audit; neither surface exposes the underlying command, path, environment, plaintext, ciphertext or subprocess output. Errors contain a stable code and safe message, never an internal exception, root path, raw log/config value or credential.
 
 Streamable HTTP requires `service-lasso:read` for all tools, `service-lasso:logs:read` for `service_lasso_logs_summary`, `service-lasso:audit:read` for `service_lasso_audit_search`, and the action scope shown above for guarded tools. The protected-resource metadata advertises all seven supported scopes. The trusted local stdio adapter defaults to read and log scopes; guarded stdio scopes must be set explicitly.
 
-## Current limitations
+## Product acceptance and retained evidence
 
-The current surface must not be treated as the final production MCP boundary.
+The blocking source gate is:
+
+```text
+npm run test:mcp:product
+```
+
+It builds Core and runs the complete focused MCP matrix: official SDK and Inspector initialization, notifications and discovery; every protocol revision advertised by the pinned SDK plus unsupported-revision fallback; stdio; OAuth and transport policy; read schemas and limits; permission profiles; confirmation and idempotency; durable operation polling and cancellation; Audit correlation; redaction; and the artifact verifier itself. `Release Qualification` has dedicated source and Windows/Linux/macOS fresh-package jobs, and its aggregate cannot succeed unless both gates pass.
+
+The packaged gate is:
+
+```text
+npm run verify:mcp:packaged
+```
+
+It stages the publish payload, installs its tarball plus the pinned Inspector into a fresh consumer directory, and launches a consumer-owned driver whose working directory and module resolution are confined to that consumer tree. The gate then drives every advertised revision, the official Inspector and SDK over Streamable HTTP, performs representative reads and a strict redaction denial, completes one server-confirmed service start, proves an identical idempotency replay did not repeat the mutation, stops owned processes, and starts the installed runtime entrypoint again through stdio with the same isolated working directory. Windows identity inspection opens one process handle and reads the real PID, creation time, executable image, and command line through bounded Win32 APIs before hashing and discarding the command line. A helper failure, access denial, timeout, empty or malformed output, or partial evidence is unknown ownership; only an explicit successful absent-process result is not running. Windows confirmation state uses a separate package-adjacent managed helper that calls CurrentUser DPAPI directly with null entropy, bounded canonical base64 on stdin/stdout, no error detail, and cleared sensitive buffers. Core checks the reviewed helper and provenance digests before sending plaintext, while the package gate statically reproduces those assets without prewarming DPAPI and proves the installed copies are byte-identical. Existing DPAPI envelope compatibility, atomic writes, ACLs, stable public/Audit errors and the end-to-end 15-second protection deadline stay unchanged. Packaged HTTP and stdio use the unchanged 15-second product default with no acceptance timeout override or injected identity. The retained record identifies the native Windows product-default policy. The `MCP Product Acceptance` workflow and the blocking release/publish paths run this on Windows, Linux, and macOS.
+
+Each OS uploads exactly one 90-day `mcp-product-acceptance-<platform>-<run>-<attempt>` artifact. The file is an exact, recursively closed metadata record: exact candidate SHA, platform, package/archive digest, Node/SDK/Inspector/protocol versions, and only the packaged assertions that lane directly executed. Source-only OAuth, rate-limit, permission, cancellation and Audit classifications are not stamped into packaged evidence. The record contains no protocol capture, command, credential, request body, raw log, configuration, environment value, local path, or secret. Each lane reads the artifact back through the GitHub API, downloads it, verifies the archive digest and sole file, validates the closed content contract, and checks exact-SHA binding, size, expiry, and retention. The aggregate independently requires one verified artifact for each OS.
+
+`npm run demo:verify-canonical -- --host=<client-visible-host>` now connects an initialized official SDK client and reports the MCP endpoint, negotiated and supported protocol revisions, SDK version, operating mode, tool/resource counts, representative read result, and guarded-action result. In guarded mode it first requires closed discovery and successful reads, preflights a restart of canonical `echo-service`, supplies the server-issued confirmation, executes once, repeats the identical idempotency request, and requires `succeeded` then `replayed` with the same correlation and a running terminal state. In the default read-only mode it reports that guarded execution was not enabled.
+
+### Inspector smoke
+
+With a local runtime already listening, the same non-interactive Inspector command used by the gate can be run directly:
+
+```text
+npm exec -- @modelcontextprotocol/inspector --cli --transport http --server-url http://127.0.0.1:18080/api/mcp --method tools/list --strict --format json
+```
+
+Use `--method resources/list` for resource discovery or add `--method tools/call --tool-name service_lasso_runtime_status --tool-args-json {}` for a representative read. For OAuth-protected endpoints, use the Inspector's protected stored-auth flow or supply an operator-managed header; never place a bearer value in repository files, evidence, or chat transcripts.
+
+## Supported boundaries and known limitations
+
+The current surface is release-gated and supported within the documented transport, identity, tool, and packaging boundary. It does not claim future MCP capabilities that are not implemented.
 
 Known limitations include:
 
@@ -128,7 +161,7 @@ Known limitations include:
 - secret metadata reports Broker lifecycle availability but does not query live lockout counts
 - durable operations intentionally use the current tool contract rather than experimental MCP Tasks; a future Tasks adapter must preserve the same domain and safety behavior
 
-The production roadmap must correct these limitations without weakening the existing read-only and redaction guarantees.
+Future work may extend these capabilities only without weakening the current identity, confirmation, Audit, packaging, and redaction guarantees.
 
 ## Streamable HTTP identity boundary
 
@@ -169,6 +202,8 @@ browser origins. The configured resource origin is always allowed. Requests
 without an `Origin` header remain valid for non-browser MCP clients; any
 present Origin must match the allowlist exactly. OAuth/resource URLs require
 HTTPS, except loopback HTTP for local development and deterministic tests.
+
+Every MCP HTTP route also validates the request Host authority before authentication. Loopback authorities are accepted for local operation. An OAuth deployment additionally accepts only the exact authority in `SERVICE_LASSO_MCP_RESOURCE_URI`. Attacker-controlled, malformed, duplicated, credential-bearing, or path-bearing authorities fail with `mcp_host_not_allowed`; a public hostname that merely resolves to loopback cannot become a local-root MCP client.
 
 Partial OAuth configuration fails closed. When OAuth is configured:
 
@@ -250,6 +285,18 @@ the desktop/client process's protected environment or equivalent OS-managed
 secret facility; do not put them in manifests, command arguments, logs, or
 MCP request bodies.
 
+A packaged local client launches the installed runtime entrypoint with these protected process settings:
+
+```text
+SERVICE_LASSO_MCP_STDIO=1
+SERVICE_LASSO_MCP_STDIO_CREDENTIAL=<OS-managed capability>
+SERVICE_LASSO_MCP_STDIO_ACTOR=<bounded local actor id>
+SERVICE_LASSO_MCP_STDIO_CLIENT_ID=<bounded local client id>
+SERVICE_LASSO_MCP_STDIO_SCOPES=service-lasso:read,service-lasso:logs:read
+```
+
+Set `SERVICE_LASSO_SERVICES_ROOT` and `SERVICE_LASSO_WORKSPACE_ROOT` to the intended operator workspace before launching `node_modules/@service-lasso/service-lasso/dist/index.js`. The packaged acceptance gate exercises this exact installed entrypoint. Add guarded scopes only when the client must mutate and the runtime mode is explicitly `guarded`.
+
 ### Streamable HTTP
 
 Streamable HTTP supports authenticated LAN or remote clients.
@@ -269,6 +316,28 @@ Production requirements include:
 Human-readable discovery moves to `GET /api/mcp/info`. The existing `/api/mcp` behaviour receives a documented compatibility period while clients migrate.
 
 The first SDK-backed migration slice keeps existing read-only tool and resource names stable for `POST /api/mcp` clients. Clients must send an MCP-compatible `Accept` header, such as `application/json, text/event-stream`. Plain `GET /api/mcp` no longer returns discovery JSON; callers should use `GET /api/mcp/info` for operator-facing metadata.
+
+### Upgrade from the read-only prototype
+
+- Keep using the existing `/api/mcp` server; do not configure a second MCP process or a Service Admin MCP endpoint.
+- Replace human discovery calls to `GET /api/mcp` with `GET /api/mcp/info`; protocol calls remain `POST /api/mcp`.
+- Update clients to negotiate from the advertised supported protocol set. `2025-11-25` is current; `2024-11-05` remains accepted for compatible clients.
+- Leave `SERVICE_LASSO_MCP_MODE` unset for the previous read-only behaviour. Set it to `guarded` only after supplying the cumulative scopes required by the chosen permission profile.
+- Treat MCP approval UI as advisory. Mutations now require authoritative preflight, server confirmation where applicable, an idempotency key, and durable Audit.
+- Replace the old unavailable operation placeholder with `service_lasso_operation_status`, `service_lasso_list_operations`, and `service_lasso_cancel_operation` according to the durable operation contract.
+- Stdio now requires the explicit protected process capability and actor/client ids above. It attaches to the active runtime and must not be used to start another owner for the same workspace.
+
+### Troubleshooting
+
+| Result | Meaning and correction |
+| --- | --- |
+| `mcp_host_not_allowed` | Use a loopback authority locally or the exact authority from the configured resource URI. Do not use a DNS alias that resolves to loopback. |
+| `mcp_origin_not_allowed` | Add the exact browser origin to `SERVICE_LASSO_MCP_ALLOWED_ORIGINS`; paths and wildcard origins are invalid. |
+| `mcp_unauthorized` / `mcp_insufficient_scope` | Complete OAuth discovery and provide a valid token with the advertised audience and required cumulative scopes. |
+| `mcp_read_only_mode` | Keep the call read-only or explicitly enable guarded mode and the required profile/scope. |
+| confirmation errors | Run preflight again; confirmations are short-lived, single-use, and bound to actor, client, target, parameters, plan, candidate revision, and phrase. |
+| operation `detached` | The client disconnected or Core restarted; poll the same opaque operation id. Do not submit a new mutation. |
+| Inspector strict-schema exit | Treat it as a release blocker. Do not suppress the result or remove closed-world schema constraints. |
 
 ## Operating modes
 

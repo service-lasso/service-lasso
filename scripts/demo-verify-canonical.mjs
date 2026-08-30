@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   canonicalDemoRequiredServiceIds,
   defaultDemoServicesRoot,
@@ -128,6 +130,74 @@ async function fetchText(url, fetchImpl, timeoutMs) {
   } catch (error) {
     return { ok: false, status: null, error: error.message, body: "" };
   }
+}
+
+async function fetchMcpJsonRpc(url, request, fetchImpl, timeoutMs) {
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await response.text();
+    const dataLine = text.split(/\r?\n/u).find((line) => line.startsWith("data:"));
+    const serialized = dataLine ? dataLine.slice(5).trim() : text;
+    const body = serialized ? JSON.parse(serialized) : null;
+    return { ok: response.status >= 200 && response.status < 300, status: response.status, body };
+  } catch (error) {
+    return { ok: false, status: null, error: error.message, body: null };
+  }
+}
+
+async function connectCanonicalMcpClient(url, deps, timeoutMs) {
+  if (deps.fetch) {
+    const initialization = await fetchMcpJsonRpc(url, {
+      jsonrpc: "2.0",
+      id: "canonical-initialize",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "service-lasso-canonical-verifier", version: "1.0.0" },
+      },
+    }, deps.fetch, timeoutMs);
+    if (!initialization.ok || typeof initialization.body?.result?.protocolVersion !== "string") {
+      throw new Error("Canonical MCP fixture initialization failed.");
+    }
+    const initialized = await fetchMcpJsonRpc(url, {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+      params: {},
+    }, deps.fetch, timeoutMs);
+    if (!initialized.ok) throw new Error("Canonical MCP fixture rejected the initialized notification.");
+    const call = async (method, params, id) => {
+      const result = await fetchMcpJsonRpc(url, { jsonrpc: "2.0", id, method, params }, deps.fetch, timeoutMs);
+      if (!result.ok || result.body?.error) throw new Error(`Canonical MCP fixture call failed: ${method}.`);
+      return result.body?.result;
+    };
+    return {
+      protocolVersion: initialization.body.result.protocolVersion,
+      listTools: async () => await call("tools/list", {}, "canonical-tools"),
+      listResources: async () => await call("resources/list", {}, "canonical-resources"),
+      callTool: async (request, id) => await call("tools/call", request, id),
+      close: async () => undefined,
+    };
+  }
+
+  const transport = new StreamableHTTPClientTransport(new URL(url));
+  const client = new Client({ name: "service-lasso-canonical-verifier", version: "1.0.0" });
+  await client.connect(transport);
+  return {
+    protocolVersion: transport.protocolVersion,
+    listTools: async () => await client.listTools(),
+    listResources: async () => await client.listResources(),
+    callTool: async (request) => await client.callTool(request),
+    close: async () => await client.close(),
+  };
 }
 
 async function readJson(filePath) {
@@ -431,7 +501,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   );
 
   const serviceAdminApiBase = normalizeUrlBase(resolved.serviceAdminUrl);
-  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices, runtimeInstance] = await Promise.all([
+  const [serviceAdmin, serviceAdminDashboard, serviceAdminServices, runtimeHealth, runtimeSummary, runtimeServices, runtimeInstance, mcpInfo] = await Promise.all([
     fetchText(resolved.serviceAdminUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(`${serviceAdminApiBase}/api/dashboard`, fetchImpl, resolved.timeoutMs),
     fetchJson(`${serviceAdminApiBase}/api/services`, fetchImpl, resolved.timeoutMs),
@@ -439,7 +509,139 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     fetchJson(resolved.runtimeSummaryUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(resolved.runtimeServicesUrl, fetchImpl, resolved.timeoutMs),
     fetchJson(`${runtimeMetadataUrl}/api/runtime/instance`, fetchImpl, resolved.timeoutMs),
+    fetchJson(`${runtimeMetadataUrl}/api/mcp/info`, fetchImpl, resolved.timeoutMs),
   ]);
+
+  const mcpUrl = `${runtimeMetadataUrl}/api/mcp`;
+  const mcpClient = await connectCanonicalMcpClient(mcpUrl, deps, resolved.timeoutMs);
+  let mcpTools;
+  let mcpResources;
+  let mcpRuntimeRead;
+  let mcpServiceRead;
+  let mcpGuardedAction = { exercised: false, status: "not_enabled" };
+  try {
+    [mcpTools, mcpResources, mcpRuntimeRead, mcpServiceRead] = await Promise.all([
+      mcpClient.listTools(),
+      mcpClient.listResources(),
+      mcpClient.callTool({ name: "service_lasso_runtime_status", arguments: {} }, "canonical-runtime-read"),
+      mcpClient.callTool({ name: "service_lasso_list_services", arguments: { limit: 100 } }, "canonical-services-read"),
+    ]);
+
+    if (mcpInfo.body?.policy?.operatingMode === "guarded") {
+      if (
+        mcpClient.protocolVersion !== mcpInfo.body?.protocolVersion
+        || !Array.isArray(mcpTools?.tools)
+        || mcpTools.tools.length === 0
+        || !mcpTools.tools.every((tool) => tool.inputSchema?.additionalProperties === false)
+        || !mcpTools.tools.every((tool) => tool.outputSchema?.additionalProperties === false)
+        || !Array.isArray(mcpResources?.resources)
+        || !mcpRuntimeRead?.structuredContent?.runtime?.status
+        || !Array.isArray(mcpServiceRead?.structuredContent?.services)
+      ) {
+        throw new Error("Canonical MCP discovery and read preconditions failed before guarded execution.");
+      }
+      const plan = await mcpClient.callTool({
+        name: "service_lasso_restart_service",
+        arguments: { serviceId: "echo-service" },
+      }, "canonical-guarded-plan").then((result) => result?.structuredContent);
+      const executionArguments = {
+        serviceId: "echo-service",
+        execute: true,
+        idempotencyKey: `canonical-demo-${Date.now().toString(36)}-${process.pid}`,
+        confirmationId: plan?.confirmation?.id,
+        confirmationPhrase: plan?.confirmation?.confirmationPhrase,
+      };
+      const completed = plan?.status === "preflight"
+        ? await mcpClient.callTool({
+          name: "service_lasso_restart_service",
+          arguments: executionArguments,
+        }, "canonical-guarded-execution").then((result) => result?.structuredContent)
+        : null;
+      const replayed = completed
+        ? await mcpClient.callTool({
+          name: "service_lasso_restart_service",
+          arguments: executionArguments,
+        }, "canonical-guarded-replay").then((result) => result?.structuredContent)
+        : null;
+      const exactlyOnce = Boolean(
+        plan?.status === "preflight"
+        && plan?.confirmation?.required === true
+        && typeof plan?.confirmation?.id === "string"
+        && typeof plan?.confirmation?.confirmationPhrase === "string"
+        && completed?.status === "succeeded"
+        && completed?.idempotency?.replayed === false
+        && completed?.result?.resultingState?.some((service) => service.serviceId === "echo-service" && service.running === true)
+        && replayed?.status === "replayed"
+        && replayed?.idempotency?.replayed === true
+        && replayed?.correlationId === completed?.correlationId
+        && replayed?.result?.resultingState?.some((service) => service.serviceId === "echo-service" && service.running === true)
+      );
+      mcpGuardedAction = {
+        exercised: true,
+        status: completed?.status ?? null,
+        replayStatus: replayed?.status ?? null,
+        exactlyOnce,
+        terminalState: exactlyOnce ? "running" : null,
+      };
+      check(
+        checks,
+        "operator MCP canonical guarded action is server-confirmed and exactly-once",
+        exactlyOnce,
+        "mcp_guarded_action_unhealthy",
+        `plan=${plan?.status ?? "failed"}, execution=${completed?.status ?? "failed"}, replay=${replayed?.status ?? "failed"}`,
+      );
+    }
+  } finally {
+    await mcpClient.close().catch(() => undefined);
+  }
+
+  check(
+    checks,
+    "operator MCP discovery reports supported protocol and mode",
+    Boolean(
+      mcpInfo.ok
+      && mcpInfo.body?.contractVersion === "service-lasso-mcp.v1"
+      && typeof mcpInfo.body?.protocolVersion === "string"
+      && Array.isArray(mcpInfo.body?.supportedProtocolVersions)
+      && mcpInfo.body.supportedProtocolVersions.includes(mcpInfo.body.protocolVersion)
+      && mcpClient.protocolVersion === mcpInfo.body.protocolVersion
+      && ["read-only", "guarded"].includes(mcpInfo.body?.policy?.operatingMode)
+    ),
+    "mcp_discovery_unhealthy",
+    mcpInfo.ok ? `HTTP ${mcpInfo.status}` : `${runtimeMetadataUrl}/api/mcp/info: ${mcpInfo.error ?? `HTTP ${mcpInfo.status}`}`,
+  );
+  check(
+    checks,
+    "operator MCP advertises closed tool and resource discovery",
+    Boolean(
+      Array.isArray(mcpTools?.tools)
+      && mcpTools.tools.length > 0
+      && mcpTools.tools.every((tool) => tool.inputSchema?.additionalProperties === false)
+      && mcpTools.tools.every((tool) => tool.outputSchema?.additionalProperties === false)
+      && Array.isArray(mcpResources?.resources)
+    ),
+    "mcp_discovery_unhealthy",
+    `tools=${mcpTools?.tools?.length ?? "failed"}, resources=${mcpResources?.resources?.length ?? "failed"}`,
+  );
+  check(
+    checks,
+    "operator MCP representative runtime and service reads succeed",
+    Boolean(
+      mcpRuntimeRead?.structuredContent?.runtime?.status
+      && Array.isArray(mcpServiceRead?.structuredContent?.services)
+    ),
+    "mcp_read_unhealthy",
+    `runtime=${mcpRuntimeRead?.structuredContent?.runtime?.status ?? "failed"}, services=${mcpServiceRead?.structuredContent?.services?.length ?? "failed"}`,
+  );
+  if (mcpInfo.body?.policy?.operatingMode !== "guarded") {
+    check(
+      checks,
+      "operator MCP canonical guarded action reports read-only mode",
+      mcpInfo.body?.policy?.operatingMode === "read-only",
+      "mcp_mode_unhealthy",
+      `mode=${mcpInfo.body?.policy?.operatingMode ?? "unavailable"}`,
+    );
+  }
 
   check(
     checks,
@@ -666,6 +868,20 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       workspaceRoot: resolved.workspaceRoot,
       generationId: runtimeInstance.body?.instance?.generationId ?? resolved.generationId ?? null,
       services: serviceSummaries,
+      mcp: {
+        endpoint: mcpUrl,
+        protocolVersion: mcpInfo.body?.protocolVersion ?? null,
+        supportedProtocolVersions: mcpInfo.body?.supportedProtocolVersions ?? [],
+        sdkVersion: mcpInfo.body?.sdk?.version ?? null,
+        operatingMode: mcpInfo.body?.policy?.operatingMode ?? null,
+        toolCount: mcpTools?.tools?.length ?? 0,
+        resourceCount: mcpResources?.resources?.length ?? 0,
+        representativeReads: Boolean(
+          mcpRuntimeRead?.structuredContent?.runtime?.status
+          && Array.isArray(mcpServiceRead?.structuredContent?.services)
+        ),
+        guardedAction: mcpGuardedAction,
+      },
     },
   };
 }
@@ -679,6 +895,7 @@ export function formatCanonicalVerifierResult(result) {
     `- serviceAdmin: ${summary.serviceAdminUrl ?? "unknown"}`,
     `- servicesRoot: ${summary.servicesRoot ?? "unknown"}`,
     `- workspaceRoot: ${summary.workspaceRoot ?? "unknown"}`,
+    `- mcp: endpoint=${summary.mcp?.endpoint ?? "unknown"} protocol=${summary.mcp?.protocolVersion ?? "unknown"} sdk=${summary.mcp?.sdkVersion ?? "unknown"} mode=${summary.mcp?.operatingMode ?? "unknown"} tools=${summary.mcp?.toolCount ?? 0} resources=${summary.mcp?.resourceCount ?? 0} reads=${summary.mcp?.representativeReads === true ? "passed" : "failed"} guarded=${summary.mcp?.guardedAction?.status ?? "unknown"}`,
   ];
 
   if (services.length > 0) {

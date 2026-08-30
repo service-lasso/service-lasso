@@ -3,7 +3,7 @@ import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { appendAuditEvent } from "../audit/store.js";
-import { readPrivateJson, writePrivateJson } from "../security/private-json.js";
+import { PrivateJsonError, readPrivateJson, writePrivateJson } from "../security/private-json.js";
 import type { McpHttpAuthorization, McpPermissionProfile } from "./mcp-auth.js";
 
 export const MCP_GUARDED_ACTION_NAMES = [
@@ -223,6 +223,7 @@ export type McpGuardedActionErrorCode =
   | "confirmation_phrase_mismatch"
   | "confirmation_plan_mismatch"
   | "confirmation_required"
+  | "confirmation_state_unavailable"
   | "confirmation_target_mismatch"
   | "confirmation_capacity"
   | "feature_unavailable"
@@ -568,9 +569,17 @@ export async function invokeMcpGuardedAction(input: {
         authorization.actor.clientId,
         correlationId,
         plan.targets,
-        error instanceof McpGuardedActionError ? error.code : "confirmation_state_unavailable",
+        error instanceof McpGuardedActionError
+          ? error.code
+          : error instanceof PrivateJsonError
+            ? `confirmation_${error.code}`
+            : "confirmation_state_unavailable",
       );
-      throw error;
+      if (error instanceof McpGuardedActionError) throw error;
+      throw new McpGuardedActionError(
+        "confirmation_state_unavailable",
+        "The guarded action confirmation state is unavailable; no mutation was attempted.",
+      );
     }
     await audit(workspaceRoot, input.action, "preflight", authorization.actor.actorId, authorization.actor.clientId, correlationId, plan.targets, plan.executable ? "planned" : "skipped");
     return response({

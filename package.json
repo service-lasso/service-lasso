@@ -13,7 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 tests/**/*.test.js",
     "dev": "npm run build && node --enable-source-maps dist/index.js",
@@ -23,6 +23,8 @@
     "package:stage": "npm run build && node scripts/publish-package.mjs",
     "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
     "verify:package-consumer": "npm run build && node scripts/verify-package-consumer.mjs",
+    "test:mcp:product": "npm run build && node --test --test-concurrency=1 tests/operator-mcp.test.js tests/operator-mcp-identity.test.js tests/operator-mcp-stdio.test.js tests/operator-mcp-read-surface.test.js tests/operator-mcp-guarded-actions.test.js tests/operator-mcp-operations.test.js tests/operator-mcp-product-acceptance.test.js tests/mcp-product-artifact.test.js",
+    "verify:mcp:packaged": "npm run build && node scripts/verify-mcp-packaged.mjs",
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
     "verify:real-app-e2e": "npm run build && node scripts/verify-real-app-e2e.mjs",
     "verify:auth-e2e": "npm run build && node scripts/verify-auth-e2e.mjs",
@@ -69,6 +71,7 @@
     "@docusaurus/core": "3.10.2",
     "@docusaurus/preset-classic": "3.10.2",
     "@mdx-js/react": "^3.1.1",
+    "@modelcontextprotocol/inspector": "2.4.0",
     "@types/adm-zip": "^0.5.7",
     "@types/node": "^24.5.2",
     "react": "^18.3.1",

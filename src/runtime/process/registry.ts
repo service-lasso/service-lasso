@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import {
   classifyProcessIdentity,
@@ -75,6 +75,7 @@ export interface RecordProcessOwnershipInput {
   lifecycleState: "launching" | "running";
   source: ProcessOwnershipEntry["source"];
   processGroup?: ProcessOwnershipEntry["processGroup"];
+  verifyInspectedProcess?: (identity: ProcessFingerprint) => boolean;
   expectedPrior?: {
     generationId: string | null;
     allocationRevision: string | null;
@@ -463,6 +464,9 @@ export async function recordProcessOwnership(
   if (inspection.status !== "running") {
     throw new Error(`Cannot persist process ownership for ${input.ownerType} "${input.ownerId}": ${inspection.reason}.`);
   }
+  if (input.verifyInspectedProcess && !input.verifyInspectedProcess(inspection.identity)) {
+    throw new Error(`Cannot persist process ownership for ${input.ownerType} "${input.ownerId}": retained process handle changed.`);
+  }
   if (
     input.expectedPrior &&
     classifyProcessIdentity(input.expectedPrior.identity, inspection, inspectorDependencies.platform) !== "owned"
@@ -472,6 +476,9 @@ export async function recordProcessOwnership(
 
   let recorded!: ProcessOwnershipEntry;
   await mutateRegistry(workspaceRoot, (registry, now) => {
+    if (input.verifyInspectedProcess && !input.verifyInspectedProcess(inspection.identity)) {
+      throw new Error(`Cannot persist process ownership for ${input.ownerType} "${input.ownerId}": retained process handle changed.`);
+    }
     const prior = registry.entries.find(
       (entry) => entry.ownerType === input.ownerType && entry.ownerId === input.ownerId,
     );
@@ -582,21 +589,22 @@ export async function reconcileRegisteredProcess(
   return status;
 }
 
-function legacyExecutableMatches(
+async function legacyExecutableMatches(
   expectedExecutablePath: string | null | undefined,
   command: string,
   actualExecutablePath: string,
   platform: NodeJS.Platform,
-): boolean {
+): Promise<boolean> {
   const normalize = (value: string) => {
     const normalized = platform === "win32"
       ? path.win32.normalize(value.trim())
       : path.normalize(value.trim());
     return platform === "win32" ? normalized.toLowerCase() : normalized;
   };
-  const actual = normalize(actualExecutablePath);
+  const canonicalize = async (value: string) => normalize(await realpath(value).catch(() => value));
+  const actual = await canonicalize(actualExecutablePath);
   if (expectedExecutablePath) {
-    return normalize(expectedExecutablePath) === actual;
+    return await canonicalize(expectedExecutablePath) === actual;
   }
   const normalizedCommand = platform === "win32" ? command.trim().toLowerCase() : command.trim();
   return normalizedCommand.startsWith(actual);
@@ -621,7 +629,7 @@ export async function migrateLegacyProcessOwnership(
   const startMatches = Number.isFinite(recordedStart) &&
     Number.isFinite(actualStart) &&
     Math.abs(recordedStart - actualStart) <= LEGACY_START_TOLERANCE_MS;
-  const executableMatches = legacyExecutableMatches(
+  const executableMatches = await legacyExecutableMatches(
     input.expectedExecutablePath,
     input.command,
     inspection.identity.executablePath,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { rm } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -111,6 +111,35 @@ async function postMcp(apiServer, options = {}) {
   };
 }
 
+async function postMcpWithHost(apiServer, host, token) {
+  const endpoint = new URL(apiServer.url + "/api/mcp");
+  const body = JSON.stringify({ jsonrpc: "2.0", id: "host-boundary", method: "tools/list", params: {} });
+  return await new Promise((resolve, reject) => {
+    const request = httpRequest({
+      hostname: endpoint.hostname,
+      port: endpoint.port,
+      path: endpoint.pathname,
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(body),
+        host,
+      },
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({
+        status: response.statusCode,
+        text: Buffer.concat(chunks).toString("utf8"),
+      }));
+    });
+    request.once("error", reject);
+    request.end(body);
+  });
+}
+
 test("#860 protects Streamable HTTP with OAuth discovery, trusted identity, scopes, and content boundaries", async () => {
   assert.notEqual(audience, resource);
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-identity-");
@@ -161,6 +190,13 @@ test("#860 protects Streamable HTTP with OAuth discovery, trusted identity, scop
 
     const deniedOrigin = await postMcp(apiServer, { token: validToken, origin: "https://untrusted.example" });
     assert.equal(deniedOrigin.status, 403);
+
+    const deniedRebindingHost = await postMcpWithHost(apiServer, "attacker-controlled.example", validToken);
+    assert.equal(deniedRebindingHost.status, 403);
+    assert.equal(JSON.parse(deniedRebindingHost.text).error, "mcp_host_not_allowed");
+
+    const canonicalResourceHost = await postMcpWithHost(apiServer, "mcp.example", validToken);
+    assert.equal(canonicalResourceHost.status, 200);
 
     const deniedContentType = await postMcp(apiServer, { token: validToken, contentType: "text/plain" });
     assert.equal(deniedContentType.status, 415);

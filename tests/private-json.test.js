@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import {
+  PrivateJsonError,
   readPrivateJson,
   resolveCurrentWindowsSid,
   writePrivateJson,
@@ -85,7 +87,7 @@ test("Windows private JSON resolves security utilities outside untrusted PATH", 
   const originalPath = process.env.PATH;
   try {
     await mkdir(trap);
-    for (const executable of ["whoami.exe", "icacls.exe", "powershell.exe"]) {
+    for (const executable of ["whoami.exe", "icacls.exe", "powershell.exe", "windows-dpapi-helper.exe"]) {
       await writeFile(path.join(trap, executable), "untrusted path executable");
     }
     process.env.PATH = trap;
@@ -96,6 +98,105 @@ test("Windows private JSON resolves security utilities outside untrusted PATH", 
     assert.ok(await resolveCurrentWindowsSid());
   } finally {
     process.env.PATH = originalPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows private JSON invokes the packaged DPAPI helper without PowerShell", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const source = await readFile("src/runtime/security/private-json.ts", "utf8");
+  assert.match(source, /windows-dpapi-helper\.exe/u);
+  assert.match(source, /\[operation\]/u);
+  assert.doesNotMatch(source, /Add-Type|ProtectedData|powershell\.exe/u);
+  assert.deepEqual(
+    await readFile("dist/runtime/security/windows-dpapi-helper.exe"),
+    await readFile("src/runtime/security/windows-dpapi-helper.exe"),
+  );
+});
+
+test("Windows private JSON rejects missing or altered DPAPI helper assets before persistence", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-json-helper-integrity-"));
+  const moduleRoot = path.join(root, "isolated-module");
+  const target = path.join(root, "private", "state.json");
+  const helperPath = path.join(moduleRoot, "windows-dpapi-helper.exe");
+  const provenancePath = path.join(moduleRoot, "windows-dpapi-helper.provenance.json");
+  const missingPath = `${helperPath}.missing-test`;
+  await mkdir(moduleRoot);
+  await Promise.all([
+    copyFile("dist/runtime/security/private-json.js", path.join(moduleRoot, "private-json.js")),
+    copyFile("dist/runtime/security/windows-dpapi-helper.exe", helperPath),
+    copyFile("dist/runtime/security/windows-dpapi-helper.provenance.json", provenancePath),
+  ]);
+  const isolated = await import(`${pathToFileURL(path.join(moduleRoot, "private-json.js")).href}?test=${randomUUID()}`);
+  const helperBytes = await readFile(helperPath);
+  const provenanceBytes = await readFile(provenancePath);
+  const assertUnavailable = async () => {
+    await assert.rejects(
+      isolated.writePrivateJson(root, target, { purpose: "helper-integrity" }),
+      (error) => error instanceof isolated.PrivateJsonError &&
+        error.code === "private_state_protect_unavailable" &&
+        !error.message.includes(root),
+    );
+    await assert.rejects(readFile(target), { code: "ENOENT" });
+  };
+  try {
+    const alteredHelper = Buffer.from(helperBytes);
+    alteredHelper[alteredHelper.length - 1] ^= 1;
+    await writeFile(helperPath, alteredHelper);
+    await assertUnavailable();
+    await writeFile(helperPath, helperBytes);
+
+    await writeFile(helperPath, Buffer.alloc(helperBytes.length + 1));
+    await assertUnavailable();
+    await writeFile(helperPath, helperBytes);
+
+    const alteredProvenance = Buffer.from(provenanceBytes);
+    alteredProvenance[alteredProvenance.length - 2] ^= 1;
+    await writeFile(provenancePath, alteredProvenance);
+    await assertUnavailable();
+    await writeFile(provenancePath, provenanceBytes);
+
+    const redirectedTarget = path.join(moduleRoot, "redirected-helper-target");
+    await rm(helperPath);
+    await mkdir(redirectedTarget);
+    await symlink(redirectedTarget, helperPath, "junction");
+    await assertUnavailable();
+    await rm(helperPath, { recursive: true, force: true });
+    await writeFile(helperPath, helperBytes);
+
+    await rename(helperPath, missingPath);
+    await assertUnavailable();
+  } finally {
+    helperBytes.fill(0);
+    provenanceBytes.fill(0);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows private JSON classifies missing trusted system utilities without exposing a path", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-json-system-root-"));
+  const target = path.join(root, "private", "state.json");
+  const originalSystemRoot = process.env.SystemRoot;
+  const originalWindir = process.env.WINDIR;
+  try {
+    delete process.env.SystemRoot;
+    delete process.env.WINDIR;
+    await assert.rejects(
+      writePrivateJson(root, target, { purpose: "typed-private-state-failure" }),
+      (error) => error instanceof PrivateJsonError &&
+        error.code === "private_state_system_utilities_unavailable" &&
+        !error.message.includes(root),
+    );
+  } finally {
+    if (originalSystemRoot === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = originalSystemRoot;
+    if (originalWindir === undefined) delete process.env.WINDIR;
+    else process.env.WINDIR = originalWindir;
     await rm(root, { recursive: true, force: true });
   }
 });

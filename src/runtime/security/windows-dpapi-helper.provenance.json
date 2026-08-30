@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "compiler": {
+    "family": "Microsoft .NET Framework 4.8 C# compiler",
+    "path": "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+    "options": [
+      "/nologo",
+      "/target:exe",
+      "/platform:anycpu",
+      "/optimize+",
+      "/reference:System.Security.dll"
+    ]
+  },
+  "source": {
+    "path": "src/runtime/security/windows-dpapi-helper.cs",
+    "sha256": "345bc64f6c0209aea1fc44f959a53b12640288b629561278982ae978423d1b07"
+  },
+  "binary": {
+    "path": "src/runtime/security/windows-dpapi-helper.exe",
+    "sha256": "74608ed9e4733e2102417c9b1b6cc4482b97c99c635e3889f3d90eabdaee3739",
+    "byteLength": 5120,
+    "peTimestamp": "zero",
+    "moduleVersionId": "zero"
+  }
+}

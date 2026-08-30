@@ -183,6 +183,68 @@ async function preflight(workspaceRoot, facade, action = "service_start", parame
   });
 }
 
+test("#864 confirmation-state failures are stable, audited, and non-mutating", async () => {
+  const { tempRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-confirmation-state-failure-");
+  const guarded = fixtureFacade();
+  const statePath = guardedActionStatePath(workspaceRoot);
+  try {
+    await mkdir(statePath, { recursive: true });
+    await assert.rejects(
+      preflight(workspaceRoot, guarded.facade),
+      (error) => error?.code === "confirmation_state_unavailable" &&
+        !JSON.stringify({ code: error.code, message: error.message }).includes(tempRoot),
+    );
+    assert.equal(guarded.state.executeCount, 0);
+    const audit = await readAuditEvents({ workspaceRoot });
+    const denial = audit.events.find((event) =>
+      event.source === "runtime-mcp" &&
+      event.action === "mcp.action.denied" &&
+      event.subject === "service_start"
+    );
+    assert.equal(denial?.reason, "confirmation_state_unavailable");
+    assert.equal(JSON.stringify(denial).includes(tempRoot), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#864 Windows protected-state phases reach Audit without leaking detail", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const { tempRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-confirmation-protection-failure-");
+  const guarded = fixtureFacade();
+  const originalSystemRoot = process.env.SystemRoot;
+  const originalWindir = process.env.WINDIR;
+  try {
+    delete process.env.SystemRoot;
+    delete process.env.WINDIR;
+    await assert.rejects(
+      preflight(workspaceRoot, guarded.facade),
+      (error) => error?.code === "confirmation_state_unavailable" &&
+        !JSON.stringify({ code: error.code, message: error.message }).includes(tempRoot),
+    );
+    assert.equal(guarded.state.executeCount, 0);
+    const audit = await readAuditEvents({ workspaceRoot });
+    const denial = audit.events.find((event) =>
+      event.source === "runtime-mcp" &&
+      event.action === "mcp.action.denied" &&
+      event.subject === "service_start"
+    );
+    assert.equal(denial?.reason, "confirmation_private_state_system_utilities_unavailable");
+    const serialized = JSON.stringify(denial);
+    assert.equal(serialized.includes(tempRoot), false);
+    assert.equal(serialized.includes("SystemRoot"), false);
+    assert.equal(serialized.includes("WINDIR"), false);
+    assert.equal(serialized.includes("ciphertext"), false);
+  } finally {
+    if (originalSystemRoot === undefined) delete process.env.SystemRoot;
+    else process.env.SystemRoot = originalSystemRoot;
+    if (originalWindir === undefined) delete process.env.WINDIR;
+    else process.env.WINDIR = originalWindir;
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 function executionParameters(plan, idempotencyKey, overrides = {}) {
   return {
     serviceId: "fixture-service",

@@ -35,6 +35,7 @@ import {
 // The stubborn fixture ignores SIGTERM, so forced tree cleanup and lifecycle
 // finalization share this one explicit caller-owned convergence deadline.
 const PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS = 5_000;
+const FIXTURE_CLEANUP_TIMEOUT_MS = process.platform === "win32" ? 60_000 : PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS;
 
 async function postJson(url, body) {
   const response = await fetch(url, {
@@ -71,7 +72,6 @@ async function waitFor(predicate, timeoutMs = 1_000) {
 }
 
 const SUPERVISION_SETTLE_TIMEOUT_MS = process.platform === "win32" ? 10_000 : 2_000;
-const SUPERVISION_CLEANUP_TIMEOUT_MS = 5_000;
 
 async function writeCrashOnceService(servicesRoot, serviceId, restartPolicy) {
   const serviceRoot = path.join(servicesRoot, serviceId);
@@ -1001,11 +1001,11 @@ test("enabled crash restart policy starts service again through readiness", asyn
       true,
     );
   } finally {
-    await stopManagedProcess("crash-once-service", 100).catch(() => null);
+    await stopManagedProcess("crash-once-service", FIXTURE_CLEANUP_TIMEOUT_MS);
     await waitForManagedProcessFinalization(
       "crash-once-service",
-      Date.now() + SUPERVISION_CLEANUP_TIMEOUT_MS,
-    ).catch(() => undefined);
+      Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS,
+    );
     resetLifecycleState();
     await rm(tempRoot, {
       recursive: true,
@@ -1449,9 +1449,13 @@ test("managed process captures outputvarregex matches into runtime state", async
       scope: "runtime",
     });
   } finally {
-    await stopManagedProcess("outputvar-service", 100).catch(() => null);
+    await stopManagedProcess("outputvar-service", FIXTURE_CLEANUP_TIMEOUT_MS);
+    await waitForManagedProcessFinalization(
+      "outputvar-service",
+      Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS,
+    );
     resetLifecycleState();
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -1600,9 +1604,13 @@ test("managed process spawn resolves path-list env to strings with secure env pr
       [],
     );
   } finally {
-    await stopManagedProcess("path-list-spawn-env", 100).catch(() => null);
+    await stopManagedProcess("path-list-spawn-env", FIXTURE_CLEANUP_TIMEOUT_MS);
+    await waitForManagedProcessFinalization(
+      "path-list-spawn-env",
+      Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS,
+    );
     resetLifecycleState();
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 

@@ -24,7 +24,7 @@ Each active process record includes:
 - the resolved executable path;
 - a SHA-256 hash of the process command line;
 - the allocation revision, allocated ports, and safe endpoints known at launch;
-- the owned process-tree boundary (`posix` process group, future Windows Job Object, or explicit no-group fallback);
+- the owned process-tree boundary (`posix` process group, Windows Job Object, or explicit no-group fallback);
 - lifecycle and identity status, with created and updated timestamps.
 
 Raw command lines and environment variables are never written to this file.
@@ -74,7 +74,7 @@ compares all durable identity fields:
 Creation time is required because operating systems reuse PIDs. PID equality by
 itself never authorises termination.
 
-Windows inspection uses CIM process metadata. Linux inspection uses `/proc`
+Windows identity inspection uses one native process handle for PID, creation time, executable image, and command-line evidence. Linux inspection uses `/proc`
 identity data, with a bounded `ps` fallback, and macOS uses `ps` metadata.
 
 ## Legacy state migration
@@ -98,16 +98,46 @@ Normal stop signals that group, waits for the complete non-zombie group to
 exit, escalates to `SIGKILL` after the bounded timeout, and fails without
 clearing ownership if the tree still cannot be confirmed stopped.
 
+New Windows service launches use a published, exact-hash static .NET Framework
+launcher without a PowerShell bootstrap. The supervisor rejects redirected,
+missing, oversized, or digest-mismatched launcher assets both while creating
+launch state and immediately before the synchronous spawn. Loader-sensitive
+CLR, CoreCLR, COMPlus, and AppDomain-manager variables are excluded from the
+trusted bootstrap and restored only for creation of the intended target. The
+launcher accepts only a bounded, duplicate-free, closed-schema payload and waits behind
+unpredictable, phase-specific release, files-bound, continuation, and
+acknowledgement tokens; pre-created workspace files do not authorize progress.
+It creates a kill-on-close Job Object, creates the real service suspended,
+assigns it to the Job, and only then resumes it. Guarded
+executable inputs are opened by the launcher at their approved size and SHA-256
+digest while write/delete sharing remains denied. The final guard reverifies
+the inputs while those handles are held, then process creation consumes the
+canonical executable and file-argument paths obtained from the same handles.
+An explicitly guarded launch fails closed unless the executable itself resolves
+to one of those approved, held files, including when the approved set is empty.
+If enrollment fails before release, no service code has run. After release,
+approved-file handles remain locked until an unassigned suspended target is
+terminated or Job accounting proves that every assigned process is contained.
+
 Older persisted services may have no group record. For those services, the
 runtime snapshots the root's child and grandchild relationships and captures a
 full identity fingerprint for every descendant. Each fingerprint is checked
 again immediately before signalling, so a reused descendant PID is not killed.
 
-On Windows, Node does not expose a native Job Object API in this runtime. The
-supervisor therefore verifies the recorded root identity and uses synchronous
-`taskkill /PID <pid> /T`, adding `/F` only after the graceful timeout. The
-Windows/Linux matrix in `.github/workflows/lifecycle-process-tree.yml` runs the
-same root/child/grandchild behavior proof on both platforms.
+On Windows, the supervisor independently verifies the exact launcher bytes
+immediately before spawn and the launched process's immutable root identity. It enumerates ancestry with Toolhelp, queries
+each process's immutable inherited-parent PID through the same handle used for
+creation time, image and command evidence, and rejects snapshot/handle drift.
+A normal Windows stop has a bounded 15-second convergence window and uses
+`taskkill /PID <pid> /T`, adding `/F` only after the graceful timeout; explicit
+shorter caller deadlines remain authoritative. Job closure is the OS
+containment boundary if a descendant is created or the root exits between
+monitor snapshots. Freshly verified descendants are merged into the root-exit
+termination set. If containment cannot be proved, the operation returns
+boundedly, both start and restart persist truthful live lifecycle state, and
+the retained process remains stoppable through the API rather than clearing the registry. The Windows/Linux matrix in
+`.github/workflows/lifecycle-process-tree.yml` runs the same
+root/child/grandchild behavior proof on both platforms.
 
 ## Scope of this contract
 

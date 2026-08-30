@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
 import { assertMcpScopes, type McpHttpAuthorization, type McpOperatingMode } from "./mcp-auth.js";
 import {
@@ -190,7 +191,7 @@ interface McpJsonRpcResponse {
 }
 
 const CONTRACT_VERSION = "service-lasso-mcp.v1";
-const MCP_PROTOCOL_VERSION = "2024-11-05";
+const MCP_PROTOCOL_VERSION = LATEST_PROTOCOL_VERSION;
 const MCP_SDK_PACKAGE = "@modelcontextprotocol/sdk";
 const MCP_SDK_VERSION = "1.30.0";
 const REDACTION_VALUE = "[REDACTED]";
@@ -1432,6 +1433,7 @@ export function getServiceLassoMcpCapabilities(
   return {
     contractVersion: CONTRACT_VERSION,
     protocolVersion: MCP_PROTOCOL_VERSION,
+    supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
     sdk: {
       packageName: MCP_SDK_PACKAGE,
       version: MCP_SDK_VERSION,
@@ -2829,8 +2831,13 @@ export async function handleServiceLassoMcpJsonRpcRequest(
     }
 
     if (request.method === "initialize") {
+      const requestedProtocolVersion = request.params && typeof request.params === "object"
+        ? (request.params as Record<string, unknown>).protocolVersion
+        : undefined;
       return success(request.id, {
-        protocolVersion: MCP_PROTOCOL_VERSION,
+        protocolVersion: typeof requestedProtocolVersion === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requestedProtocolVersion)
+          ? requestedProtocolVersion
+          : MCP_PROTOCOL_VERSION,
         capabilities: {
           tools: {},
           resources: {},

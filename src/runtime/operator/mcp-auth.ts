@@ -387,6 +387,41 @@ export function assertMcpOriginAllowed(
   return config;
 }
 
+/**
+ * MCP is a privileged loopback surface by default. Reject an attacker-owned
+ * Host before authentication so a browser cannot use DNS rebinding to turn an
+ * origin on the public web into a local-root MCP client. OAuth deployments may
+ * additionally use only the exact authority advertised by the protected
+ * resource URL.
+ */
+export function assertMcpHostAllowed(
+  request: IncomingMessage,
+  options: McpHttpIdentityOptions = {},
+): McpOAuthConfiguration {
+  const config = resolveMcpOAuthConfiguration(options);
+  const rawHost = request.headers.host;
+  if (typeof rawHost !== "string" || !rawHost || rawHost.length > 255 || /[\s,\\/@#?]/u.test(rawHost)) {
+    throw new McpHttpPolicyError("mcp_host_not_allowed", 403);
+  }
+
+  let authority: URL;
+  try {
+    authority = new URL(`http://${rawHost}`);
+  } catch {
+    throw new McpHttpPolicyError("mcp_host_not_allowed", 403);
+  }
+  if (authority.pathname !== "/" || authority.search || authority.hash || authority.username || authority.password) {
+    throw new McpHttpPolicyError("mcp_host_not_allowed", 403);
+  }
+  if (isLoopbackHostname(authority.hostname)) return config;
+
+  if (config.enabled && config.resource) {
+    const resource = new URL(config.resource);
+    if (authority.host.toLowerCase() === resource.host.toLowerCase()) return config;
+  }
+  throw new McpHttpPolicyError("mcp_host_not_allowed", 403);
+}
+
 export function assertMcpJsonContentType(request: IncomingMessage): void {
   const contentType = normalized(firstHeader(request.headers["content-type"]));
   if (contentType?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -577,6 +612,7 @@ export async function authorizeMcpHttpRequest(
   options: McpHttpIdentityOptions = {},
 ): Promise<McpHttpAuthorization> {
   assertMcpTransportEnabled(options);
+  assertMcpHostAllowed(request, options);
   const config = assertMcpOriginAllowed(request, options);
   const authorization = config.enabled
     ? await verifyMcpBearerToken(request, config)
