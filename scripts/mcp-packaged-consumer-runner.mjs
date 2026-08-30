@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS,
+  fetchBoundedDiagnosticJson,
   runInspector,
   supportedMcpVersions,
 } from "./mcp-product-acceptance-lib.mjs";
@@ -153,7 +154,9 @@ function summarizeToolFailure(result) {
   }
   return {
     isError: result.isError === true,
-    status: result.structuredContent?.status ?? null,
+    status: result.structuredContent?.status === undefined || result.structuredContent?.status === null
+      ? null
+      : stableDiagnosticCode(result.structuredContent.status),
     errorCode: errorCode === null ? null : stableDiagnosticCode(errorCode),
   };
 }
@@ -388,9 +391,25 @@ try {
     confirmationPhrase: plan.structuredContent.confirmation.confirmationPhrase,
   };
   reportStage("guarded-execute");
-  const completed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
+  let completed;
+  try {
+    completed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
+  } catch {
+    throw new SafeAcceptanceFailure({
+      stage: "guarded_execute",
+      errorCode: "guarded_execute_transport_failed",
+    });
+  }
   reportStage("guarded-replay");
-  const replayed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
+  let replayed;
+  try {
+    replayed = await httpClient.callTool({ name: "service_lasso_start_service", arguments: executionArguments });
+  } catch {
+    throw new SafeAcceptanceFailure({
+      stage: "guarded_replay",
+      errorCode: "guarded_replay_transport_failed",
+    });
+  }
   if (
     completed.isError ||
     completed.structuredContent?.status !== "succeeded" ||
@@ -404,37 +423,40 @@ try {
   ) {
     let lifecycleDiagnostic = null;
     try {
-      const detailResponse = await fetch(
+      const detail = await fetchBoundedDiagnosticJson(
         `${httpServer.url}/api/services/${encodeURIComponent(configuration.serviceId)}`,
       );
-      const detail = await detailResponse.json();
       const trace = detail?.service?.lifecycle?.runtime?.startTrace?.current;
       const failedEvent = [...(trace?.events ?? [])].reverse().find((event) => event?.status === "failed");
-      const safeMessage = String(failedEvent?.message ?? trace?.message ?? "")
-        .replace(/[A-Za-z]:[\\/][^\s"']+/gu, "[REDACTED_PATH]")
-        .slice(0, 300);
       lifecycleDiagnostic = {
-        attemptStatus: trace?.status ?? null,
-        phase: failedEvent?.phase ?? trace?.currentPhase ?? null,
-        message: safeMessage || null,
+        attemptStatus: stableDiagnosticCode(trace?.status),
+        phase: stableDiagnosticCode(failedEvent?.phase ?? trace?.currentPhase),
       };
     } catch {
-      lifecycleDiagnostic = { attemptStatus: null, phase: null, message: null };
+      lifecycleDiagnostic = { attemptStatus: null, phase: null };
     }
     const summarize = (result) => ({
         ...summarizeToolFailure(result),
-        isError: result.isError === true,
-        contractVersion: result.structuredContent?.contractVersion ?? null,
-        status: result.structuredContent?.status ?? null,
-        summary: result.structuredContent?.summary ?? null,
-        replayed: result.structuredContent?.idempotency?.replayed ?? null,
-        running: result.structuredContent?.result?.resultingState?.[0]?.running ?? null,
+        replayed: typeof result.structuredContent?.idempotency?.replayed === "boolean"
+          ? result.structuredContent.idempotency.replayed
+          : null,
+        running: typeof result.structuredContent?.result?.resultingState?.[0]?.running === "boolean"
+          ? result.structuredContent.result.resultingState[0].running
+          : null,
       });
-    throw new Error(`Canonical packaged guarded lifecycle action was not confirmed and exactly-once: ${JSON.stringify({
-      completed: summarize(completed),
-      replayed: summarize(replayed),
-      lifecycleDiagnostic,
-    })}`);
+    throw new SafeAcceptanceFailure({
+      stage: "guarded_replay",
+      errorCode: "guarded_replay_contract_failed",
+      guardedProbe: {
+        completed: summarize(completed),
+        replayed: summarize(replayed),
+        sameCorrelation: typeof completed.structuredContent?.correlationId === "string" &&
+          typeof replayed.structuredContent?.correlationId === "string"
+          ? replayed.structuredContent.correlationId === completed.structuredContent.correlationId
+          : null,
+        lifecycle: lifecycleDiagnostic,
+      },
+    });
   }
 
   await httpClient.close();

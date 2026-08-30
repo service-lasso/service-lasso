@@ -8,6 +8,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
 const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
 const PACKAGED_ACCEPTANCE_ERROR_PREFIX = "[mcp-package-acceptance-error] ";
+const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 5_000;
+const DEFAULT_DIAGNOSTIC_MAX_BYTES = 32 * 1024;
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "audit_event_not_found",
   "audit_probe_failed",
@@ -41,6 +43,44 @@ function isSafeDiagnosticCode(value) {
   return typeof value === "string" && SAFE_DIAGNOSTIC_CODE.test(value);
 }
 
+export async function fetchBoundedDiagnosticJson(url, options = {}) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DIAGNOSTIC_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? DEFAULT_DIAGNOSTIC_MAX_BYTES;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  timeout.unref?.();
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error("Diagnostic response was unavailable.");
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      await response.body.cancel().catch(() => undefined);
+      throw new Error("Diagnostic response exceeded the bounded size.");
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("Diagnostic response exceeded the bounded size.");
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(Buffer.concat(chunks, totalBytes).toString("utf8"));
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+}
+
 export function parsePackagedAcceptanceFailure(stderr) {
   if (typeof stderr !== "string") return null;
   const diagnosticLines = stderr
@@ -55,7 +95,7 @@ export function parsePackagedAcceptanceFailure(stderr) {
   }
   if (
     !isRecord(parsed) ||
-    !hasOnlyKeys(parsed, new Set(["stage", "errorCode", "result", "componentProbe", "auditProbe"])) ||
+    !hasOnlyKeys(parsed, new Set(["stage", "errorCode", "result", "componentProbe", "auditProbe", "guardedProbe"])) ||
     !isSafeDiagnosticCode(parsed.stage) ||
     !isSafeDiagnosticCode(parsed.errorCode)
   ) {
@@ -98,6 +138,33 @@ export function parsePackagedAcceptanceFailure(stderr) {
     diagnostic.auditProbe = {
       stage: "audit_probe",
       reason: parsed.auditProbe.reason,
+    };
+  }
+  if (parsed.guardedProbe !== undefined) {
+    const isGuardedResult = (value) =>
+      isRecord(value) &&
+      hasOnlyKeys(value, new Set(["isError", "status", "errorCode", "replayed", "running"])) &&
+      typeof value.isError === "boolean" &&
+      (value.status === null || isSafeDiagnosticCode(value.status)) &&
+      (value.errorCode === null || isSafeDiagnosticCode(value.errorCode)) &&
+      (value.replayed === null || typeof value.replayed === "boolean") &&
+      (value.running === null || typeof value.running === "boolean");
+    if (
+      !isRecord(parsed.guardedProbe) ||
+      !hasOnlyKeys(parsed.guardedProbe, new Set(["completed", "replayed", "sameCorrelation", "lifecycle"])) ||
+      !isGuardedResult(parsed.guardedProbe.completed) ||
+      !isGuardedResult(parsed.guardedProbe.replayed) ||
+      !(parsed.guardedProbe.sameCorrelation === null || typeof parsed.guardedProbe.sameCorrelation === "boolean") ||
+      !isRecord(parsed.guardedProbe.lifecycle) ||
+      !hasOnlyKeys(parsed.guardedProbe.lifecycle, new Set(["attemptStatus", "phase"])) ||
+      !(parsed.guardedProbe.lifecycle.attemptStatus === null || isSafeDiagnosticCode(parsed.guardedProbe.lifecycle.attemptStatus)) ||
+      !(parsed.guardedProbe.lifecycle.phase === null || isSafeDiagnosticCode(parsed.guardedProbe.lifecycle.phase))
+    ) return null;
+    diagnostic.guardedProbe = {
+      completed: { ...parsed.guardedProbe.completed },
+      replayed: { ...parsed.guardedProbe.replayed },
+      sameCorrelation: parsed.guardedProbe.sameCorrelation,
+      lifecycle: { ...parsed.guardedProbe.lifecycle },
     };
   }
   return diagnostic;

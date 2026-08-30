@@ -10,11 +10,48 @@ import AdmZip from "adm-zip";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PRODUCT_EVIDENCE_CONTRACT,
+  fetchBoundedDiagnosticJson,
   parsePackagedAcceptanceFailure,
   validateMcpProductEvidence,
 } from "../scripts/mcp-product-acceptance-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("#864 guarded diagnostic acquisition is time- and size-bounded", async () => {
+  const server = createServer((request, response) => {
+    if (request.url === "/small") {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ status: "ready" }));
+      return;
+    }
+    if (request.url === "/oversize") {
+      response.setHeader("content-type", "application/json");
+      response.write(`{"value":"${"x".repeat(64)}`);
+      response.end('"}');
+      return;
+    }
+    // Keep the response open so the caller's diagnostic-only deadline owns it.
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const root = `http://127.0.0.1:${address.port}`;
+  try {
+    assert.deepEqual(await fetchBoundedDiagnosticJson(`${root}/small`, { timeoutMs: 100, maxBytes: 64 }), { status: "ready" });
+    await assert.rejects(
+      fetchBoundedDiagnosticJson(`${root}/oversize`, { timeoutMs: 100, maxBytes: 32 }),
+      /bounded size/u,
+    );
+    await assert.rejects(
+      fetchBoundedDiagnosticJson(`${root}/hang`, { timeoutMs: 20, maxBytes: 32 }),
+      /abort|invalid_argument/iu,
+    );
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("#864 packaged failure diagnostics admit one strict bounded record and discard captured process detail", () => {
   const safe = {
@@ -37,6 +74,34 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}`), null);
   assert.equal(JSON.stringify(safe).includes(hostile), false);
   assert.ok(JSON.stringify(safe).length < 512);
+
+  const guarded = {
+    stage: "guarded_replay",
+    errorCode: "guarded_replay_contract_failed",
+    guardedProbe: {
+      completed: { isError: false, status: "succeeded", errorCode: null, replayed: false, running: true },
+      replayed: { isError: false, status: "replayed", errorCode: null, replayed: true, running: true },
+      sameCorrelation: true,
+      lifecycle: { attemptStatus: "ready", phase: "owned_readiness_proven" },
+    },
+  };
+  assert.deepEqual(
+    parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(guarded)}`),
+    guarded,
+  );
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: { ...guarded.guardedProbe, message: hostile },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      completed: { ...guarded.guardedProbe.completed, summary: hostile },
+    },
+  })}`), null);
+  assert.equal(JSON.stringify(guarded).includes(hostile), false);
+  assert.ok(JSON.stringify(guarded).length < 768);
 });
 
 function evidence(candidateSha, platform) {
