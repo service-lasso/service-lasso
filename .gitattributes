@@ -6,3 +6,6 @@ scripts/verify-windows-dpapi-helper.ps1 text eol=lf
 src/runtime/security/windows-dpapi-helper.cs text eol=lf
 src/runtime/security/windows-dpapi-helper.exe binary
 src/runtime/security/windows-dpapi-helper.provenance.json text eol=lf
+src/runtime/execution/windows-managed-launcher-native.cs text eol=lf
+src/runtime/execution/windows-managed-launcher-native.exe binary
+src/runtime/execution/windows-managed-launcher-native.provenance.json text eol=lf

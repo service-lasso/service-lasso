@@ -24,7 +24,7 @@ async function exactCandidateSha() {
   return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
 }
 
-async function runWindowsProvenanceVerifier(scriptName, label) {
+async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) {
   if (process.platform !== "win32") {
     return;
   }
@@ -47,6 +47,7 @@ async function runWindowsProvenanceVerifier(scriptName, label) {
       "-NonInteractive",
       "-File",
       path.join(repoRoot, "scripts", scriptName),
+      ...scriptArgs,
     ],
     { cwd: repoRoot, timeoutMs: 60_000 },
   );
@@ -55,6 +56,14 @@ async function runWindowsProvenanceVerifier(scriptName, label) {
 
 async function verifyWindowsProcessInspectorProvenance() {
   await runWindowsProvenanceVerifier("verify-windows-process-inspector.ps1", "process-inspector");
+}
+
+async function verifyWindowsManagedLauncherNativeProvenance() {
+  await runWindowsProvenanceVerifier(
+    "verify-windows-process-inspector.ps1",
+    "managed-launcher-native",
+    ["-ManagedLauncherNative"],
+  );
 }
 
 async function verifyWindowsDpapiHelperProvenance() {
@@ -136,6 +145,7 @@ async function writeCanonicalService(servicesRoot) {
 }
 
 await verifyWindowsProcessInspectorProvenance();
+await verifyWindowsManagedLauncherNativeProvenance();
 await verifyWindowsDpapiHelperProvenance();
 const candidateSha = await exactCandidateSha();
 if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
@@ -188,21 +198,43 @@ try {
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
     throw new Error("Fresh consumer installed a different Service Lasso package identity.");
   }
-  const [installedDpapiHelper, installedDpapiProvenance, reviewedDpapiHelper, reviewedDpapiProvenance] = await Promise.all([
+  const [
+    installedDpapiHelper,
+    installedDpapiProvenance,
+    reviewedDpapiHelper,
+    reviewedDpapiProvenance,
+    installedManagedLauncherNative,
+    installedManagedLauncherNativeProvenance,
+    reviewedManagedLauncherNative,
+    reviewedManagedLauncherNativeProvenance,
+  ] = await Promise.all([
     readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.exe")),
     readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.provenance.json")),
     readFile(path.join(repoRoot, "src", "runtime", "security", "windows-dpapi-helper.exe")),
     readFile(path.join(repoRoot, "src", "runtime", "security", "windows-dpapi-helper.provenance.json")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-native.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
   ]);
   try {
-    if (!installedDpapiHelper.equals(reviewedDpapiHelper) || !installedDpapiProvenance.equals(reviewedDpapiProvenance)) {
-      throw new Error("Fresh consumer installed unbound Windows DPAPI helper assets.");
+    if (
+      !installedDpapiHelper.equals(reviewedDpapiHelper) ||
+      !installedDpapiProvenance.equals(reviewedDpapiProvenance) ||
+      !installedManagedLauncherNative.equals(reviewedManagedLauncherNative) ||
+      !installedManagedLauncherNativeProvenance.equals(reviewedManagedLauncherNativeProvenance)
+    ) {
+      throw new Error("Fresh consumer installed unbound Windows native helper assets.");
     }
   } finally {
     installedDpapiHelper.fill(0);
     installedDpapiProvenance.fill(0);
     reviewedDpapiHelper.fill(0);
     reviewedDpapiProvenance.fill(0);
+    installedManagedLauncherNative.fill(0);
+    installedManagedLauncherNativeProvenance.fill(0);
+    reviewedManagedLauncherNative.fill(0);
+    reviewedManagedLauncherNativeProvenance.fill(0);
   }
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
   const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");

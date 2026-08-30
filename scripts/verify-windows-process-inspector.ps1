@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [switch]$Update
+  [switch]$Update,
+  [switch]$ManagedLauncherNative
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,9 +12,21 @@ if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sourceRelativePath = "src/runtime/process/windows-process-inspector.cs"
-$binaryRelativePath = "src/runtime/process/windows-process-inspector.exe"
-$provenanceRelativePath = "src/runtime/process/windows-process-inspector.provenance.json"
+$sourceRelativePath = if ($ManagedLauncherNative) {
+  "src/runtime/execution/windows-managed-launcher-native.cs"
+} else {
+  "src/runtime/process/windows-process-inspector.cs"
+}
+$binaryRelativePath = if ($ManagedLauncherNative) {
+  "src/runtime/execution/windows-managed-launcher-native.exe"
+} else {
+  "src/runtime/process/windows-process-inspector.exe"
+}
+$provenanceRelativePath = if ($ManagedLauncherNative) {
+  "src/runtime/execution/windows-managed-launcher-native.provenance.json"
+} else {
+  "src/runtime/process/windows-process-inspector.provenance.json"
+}
 $sourcePath = Join-Path $repoRoot $sourceRelativePath
 $binaryPath = Join-Path $repoRoot $binaryRelativePath
 $provenancePath = Join-Path $repoRoot $provenanceRelativePath
@@ -81,11 +94,11 @@ function Get-CanonicalProvenanceJson(
     '    ]',
     '  },',
     '  "source": {',
-    '    "path": "src/runtime/process/windows-process-inspector.cs",',
+    ('    "path": "{0}",' -f $sourceRelativePath),
     ('    "sha256": "{0}"' -f $SourceSha256),
     '  },',
     '  "binary": {',
-    '    "path": "src/runtime/process/windows-process-inspector.exe",',
+    ('    "path": "{0}",' -f $binaryRelativePath),
     ('    "sha256": "{0}",' -f $BinarySha256),
     ('    "byteLength": {0},' -f $BinaryByteLength),
     '    "peTimestamp": "zero",',
@@ -294,10 +307,10 @@ function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
   return $bytes
 }
 
-$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-inspector-provenance-" + [Guid]::NewGuid().ToString("N"))
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-provenance-" + [Guid]::NewGuid().ToString("N"))
 try {
   $null = New-Item -ItemType Directory -Path $temporaryRoot
-  $compiledPath = Join-Path $temporaryRoot "windows-process-inspector.exe"
+  $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
   $compilerArguments = @($compilerOptions) + @(
     "/out:$compiledPath",
     $sourcePath

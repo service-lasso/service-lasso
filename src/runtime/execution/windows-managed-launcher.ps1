@@ -3,68 +3,28 @@ param()
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-function Add-ServiceLassoNativeMethod {
-  param(
-    [Reflection.Emit.TypeBuilder]$TypeBuilder,
-    [string]$Name,
-    [string]$Library,
-    [Type]$ReturnType,
-    [Type[]]$ParameterTypes,
-    [bool]$SetLastError,
-    [Runtime.InteropServices.CharSet]$CharSet
-  )
-
-  $attributes = [Reflection.MethodAttributes]::Public -bor
-    [Reflection.MethodAttributes]::Static -bor
-    [Reflection.MethodAttributes]::PinvokeImpl
-  $method = $TypeBuilder.DefineMethod($Name, $attributes, $ReturnType, $ParameterTypes)
-  $constructor = [Runtime.InteropServices.DllImportAttribute].GetConstructor([Type[]]@([String]))
-  $fields = [Reflection.FieldInfo[]]@(
-    [Runtime.InteropServices.DllImportAttribute].GetField("EntryPoint"),
-    [Runtime.InteropServices.DllImportAttribute].GetField("SetLastError"),
-    [Runtime.InteropServices.DllImportAttribute].GetField("PreserveSig"),
-    [Runtime.InteropServices.DllImportAttribute].GetField("CallingConvention"),
-    [Runtime.InteropServices.DllImportAttribute].GetField("CharSet")
-  )
-  $values = [Object[]]@(
-    $Name,
-    $SetLastError,
-    $true,
-    [Runtime.InteropServices.CallingConvention]::Winapi,
-    $CharSet
-  )
-  $attribute = New-Object Reflection.Emit.CustomAttributeBuilder(
-    $constructor,
-    [Object[]]@($Library),
-    $fields,
-    $values
-  )
-  $method.SetCustomAttribute($attribute)
-  $method.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig)
+$nativeAssemblyPath = Join-Path $PSScriptRoot "windows-managed-launcher-native.exe"
+if (-not [IO.File]::Exists($nativeAssemblyPath)) {
+  throw "Managed launcher native assembly was missing."
 }
-
-$assemblyName = New-Object Reflection.AssemblyName("ServiceLasso.ManagedLauncher")
-$assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly(
-  $assemblyName,
-  [Reflection.Emit.AssemblyBuilderAccess]::Run
-)
-$module = $assembly.DefineDynamicModule("ServiceLasso.ManagedLauncher")
-$builder = $module.DefineType(
-  "ServiceLasso.ManagedLauncher.Native",
-  [Reflection.TypeAttributes]"Public, Sealed, Abstract"
-)
-Add-ServiceLassoNativeMethod $builder "CreateJobObjectW" "kernel32.dll" ([IntPtr]) ([Type[]]@([IntPtr], [String])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "SetInformationJobObject" "kernel32.dll" ([Bool]) ([Type[]]@([IntPtr], [Int32], [IntPtr], [UInt32])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "CreateProcessW" "kernel32.dll" ([Bool]) ([Type[]]@([String], [Text.StringBuilder], [IntPtr], [IntPtr], [Bool], [UInt32], [IntPtr], [String], [IntPtr], [IntPtr])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "AssignProcessToJobObject" "kernel32.dll" ([Bool]) ([Type[]]@([IntPtr], [IntPtr])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "ResumeThread" "kernel32.dll" ([UInt32]) ([Type[]]@([IntPtr])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "WaitForSingleObject" "kernel32.dll" ([UInt32]) ([Type[]]@([IntPtr], [UInt32])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "GetExitCodeProcess" "kernel32.dll" ([Bool]) ([Type[]]@([IntPtr], [UInt32].MakeByRefType())) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "TerminateProcess" "kernel32.dll" ([Bool]) ([Type[]]@([IntPtr], [UInt32])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "GetStdHandle" "kernel32.dll" ([IntPtr]) ([Type[]]@([Int32])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "GetFinalPathNameByHandleW" "kernel32.dll" ([UInt32]) ([Type[]]@([IntPtr], [Text.StringBuilder], [UInt32], [UInt32])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-Add-ServiceLassoNativeMethod $builder "CloseHandle" "kernel32.dll" ([Bool]) ([Type[]]@([IntPtr])) $true ([Runtime.InteropServices.CharSet]::Unicode)
-$native = $builder.CreateType()
+[byte[]]$nativeAssemblyBytes = [IO.File]::ReadAllBytes($nativeAssemblyPath)
+if ($nativeAssemblyBytes.Length -ne 5120) {
+  throw "Managed launcher native assembly length was invalid."
+}
+$nativeAssemblySha256 = [Security.Cryptography.SHA256]::Create()
+try {
+  $nativeAssemblyDigest = [BitConverter]::ToString(
+    $nativeAssemblySha256.ComputeHash($nativeAssemblyBytes)
+  ).Replace("-", "").ToLowerInvariant()
+} finally {
+  $nativeAssemblySha256.Dispose()
+}
+if ($nativeAssemblyDigest -cne "343fc52e95562e110f0deaedbe2b8ef04b1f0258f487494d94b3cb3c9d7e25cd") {
+  throw "Managed launcher native assembly digest was invalid."
+}
+$nativeAssembly = [Reflection.Assembly]::Load($nativeAssemblyBytes)
+$native = $nativeAssembly.GetType("ServiceLassoManagedLauncherNative", $true, $false)
+[Array]::Clear($nativeAssemblyBytes, 0, $nativeAssemblyBytes.Length)
 
 $jobHandle = [IntPtr]::Zero
 $processHandle = [IntPtr]::Zero
