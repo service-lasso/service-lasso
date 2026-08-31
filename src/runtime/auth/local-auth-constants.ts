@@ -34,7 +34,22 @@ export const TRUSTED_INGRESS_HEADER = "x-service-lasso-trusted-ingress";
 export const TRUSTED_INGRESS_VALUE = "serviceadmin-loopback";
 export const SERVICEADMIN_PROXY_HEADER = "x-service-lasso-proxy";
 export const SERVICEADMIN_PROXY_VALUE = "serviceadmin";
+/** Exact internal-proxy marker the packaged Admin sets on loopback Core requests. */
+export const SERVICEADMIN_INTERNAL_PROXY_HEADER = "x-service-lasso-internal-proxy";
 export const LOCAL_ADMIN_TOKEN_HEADER = "x-service-lasso-admin-token";
+
+/** Traefik protected-route identity headers. Trusted only from exact loopback ingress. */
+export const TRAEFIK_USER_HEADER = "x-service-lasso-user";
+export const TRAEFIK_WORKSPACE_HEADER = "x-service-lasso-workspace";
+export const TRAEFIK_ROLES_HEADER = "x-service-lasso-roles";
+export const TRAEFIK_ACTOR_HEADER = "x-service-lasso-actor";
+
+/** Canonical / Admin-normalized identity headers Core also accepts from trusted ingress. */
+export const ZITADEL_USER_ID_HEADER = "x-service-lasso-zitadel-user-id";
+export const USER_ID_HEADER = "x-service-lasso-user-id";
+export const WORKSPACE_ID_HEADER = "x-service-lasso-workspace-id";
+export const ZITADEL_ROLES_HEADER = "x-service-lasso-zitadel-roles";
+export const ZITADEL_GROUPS_HEADER = "x-service-lasso-zitadel-groups";
 
 export const LOCAL_OPERATOR_STATE_RELATIVE_PATH = ".service-lasso/local-operator-auth.json";
 

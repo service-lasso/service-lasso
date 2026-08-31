@@ -163,7 +163,10 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
   const registry = createServiceRegistry(discovered);
   const requestedServiceIds = [...(options.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)];
   const serviceOrder = resolveBaselineOrder(registry, requestedServiceIds);
-  const setup = await readRuntimeSetupStatus({ workspaceRoot: runtimeConfig.workspaceRoot });
+  const setup = await readRuntimeSetupStatus({
+    workspaceRoot: runtimeConfig.workspaceRoot,
+    bindHost: process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
+  });
   const blockNormalAutostart = shouldBlockNormalAutostart(setup);
   const summaries: BaselineServiceSummary[] = [];
 
