@@ -312,12 +312,20 @@ function shouldAppendTransition(
     previous.reason !== next.reason;
 }
 
+export interface RecordedHealthTransition {
+  history: ServiceHealthHistoryState;
+  appended: boolean;
+  previousStatus: ServiceHealthTransitionStatus | null;
+  nextStatus: ServiceHealthTransitionStatus;
+}
+
 async function recordServiceHealthTransitionWithoutQueue(
   service: DiscoveredService,
   health: ServiceHealthResult,
   limit = DEFAULT_HEALTH_HISTORY_LIMIT,
-): Promise<ServiceHealthHistoryState> {
+): Promise<RecordedHealthTransition> {
   const existing = await readServiceHealthHistory(service);
+  const previousStatus = existing.transitions.at(-1)?.status ?? null;
   const status = statusFromHealth(health);
   const transition: ServiceHealthTransitionEvent = {
     serviceId: service.manifest.id,
@@ -330,24 +338,42 @@ async function recordServiceHealthTransitionWithoutQueue(
   };
 
   if (!shouldAppendTransition(existing, transition)) {
-    return await writeServiceHealthHistory(service, {
-      ...existing,
-      updatedAt: transition.at,
-    });
+    return {
+      history: await writeServiceHealthHistory(service, {
+        ...existing,
+        updatedAt: transition.at,
+      }),
+      appended: false,
+      previousStatus,
+      nextStatus: status,
+    };
   }
 
-  return await writeServiceHealthHistory(service, {
-    serviceId: service.manifest.id,
-    updatedAt: transition.at,
-    transitions: [...existing.transitions, transition].slice(-Math.max(1, limit)),
-  });
+  return {
+    history: await writeServiceHealthHistory(service, {
+      serviceId: service.manifest.id,
+      updatedAt: transition.at,
+      transitions: [...existing.transitions, transition].slice(-Math.max(1, limit)),
+    }),
+    appended: true,
+    previousStatus,
+    nextStatus: status,
+  };
 }
 
-export async function recordServiceHealthTransition(
+/**
+ * Records a health observation and reports whether a durable transition was appended.
+ *
+ * @param service Discovered service whose health history is persisted.
+ * @param health Latest evaluated health result.
+ * @param limit Maximum retained transition count.
+ * @returns History plus previous/next status and whether a new transition was stored.
+ */
+export async function recordServiceHealthTransitionResult(
   service: DiscoveredService,
   health: ServiceHealthResult,
   limit = DEFAULT_HEALTH_HISTORY_LIMIT,
-): Promise<ServiceHealthHistoryState> {
+): Promise<RecordedHealthTransition> {
   const paths = getServiceStatePaths(service.serviceRoot);
   const previousAppend = healthHistoryAppendQueues.get(paths.health) ?? Promise.resolve();
   const appendOperation = previousAppend
@@ -364,6 +390,14 @@ export async function recordServiceHealthTransition(
       healthHistoryAppendQueues.delete(paths.health);
     }
   }
+}
+
+export async function recordServiceHealthTransition(
+  service: DiscoveredService,
+  health: ServiceHealthResult,
+  limit = DEFAULT_HEALTH_HISTORY_LIMIT,
+): Promise<ServiceHealthHistoryState> {
+  return (await recordServiceHealthTransitionResult(service, health, limit)).history;
 }
 
 function transitionTime(value: ServiceHealthTransitionEvent | null): number {

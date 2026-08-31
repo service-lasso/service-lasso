@@ -7,6 +7,7 @@ import {
   UpdateInstallDeferredError,
 } from "./actions.js";
 import { persistUpdateCheckResult } from "./state.js";
+import { emitInboxFromUpdateSchedulerEvent } from "../operator/inbox-emit.js";
 
 export type UpdateSchedulerEventAction = "check" | "download" | "install" | "skip";
 export type UpdateSchedulerEventReason =
@@ -162,7 +163,11 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
     const events: UpdateSchedulerEvent[] = [];
 
     for (const service of options.registry.list()) {
-      events.push(await inspectService(service, runOptions.force === true));
+      const event = await inspectService(service, runOptions.force === true);
+      events.push(event);
+      if (options.workspaceRoot) {
+        await emitInboxFromUpdateSchedulerEvent(options.workspaceRoot, event);
+      }
     }
 
     return events;

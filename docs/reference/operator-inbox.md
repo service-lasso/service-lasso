@@ -69,8 +69,9 @@ Runtime code should prefer the shared producer helpers instead of hand-building 
 - `emitOperatorInboxWorkflowEvent` for scheduled workflow/action run outcomes
 - `emitOperatorInboxUpdateEvent` for update available, downloaded, installed, failed, deferred, and restart-required notices
 - `emitOperatorInboxDiagnosticsEvent` for diagnostics bundle, export, and archive completion notices
+- `emitOperatorInboxBrokerEvent` for Secrets Broker needs-attention when Core already reports the Broker as not discovered, not running, or vault-not-ready
 
-The runtime currently records durable Inbox items when startup completes, service lifecycle actions produce meaningful state, scheduled service actions finish, update check/download/install actions produce operator-facing update state, archive exports complete, and diagnostics bundles are prepared. Producers must keep correlation keys stable for recurring conditions and should emit a new item only for meaningful state transitions.
+The runtime currently records durable Inbox items when startup completes, first-run setup is required or completed, service lifecycle actions fail, health status actually transitions, scheduled service actions finish, update check/download/install actions produce operator-facing update state, archive exports complete, diagnostics bundles are prepared, and Core already reports Secrets Broker attention. Producers keep correlation keys stable for recurring conditions, update the same item in place, and skip poll-driven repeats. Generated text is metadata only: secrets, tokens, filesystem paths, and raw logs are redacted or omitted.
 
 ## Service Admin Contract
 

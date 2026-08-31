@@ -56,7 +56,7 @@ import {
 import { getLifecycleState, setLifecycleState } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import type { ServiceHealthResult } from "../runtime/health/types.js";
-import { readServiceHealthHistory, recordServiceHealthTransition } from "../runtime/health/history.js";
+import { readServiceHealthHistory, recordServiceHealthTransitionResult } from "../runtime/health/history.js";
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { buildPersistedServiceMeta, writeServiceMeta } from "../runtime/state/meta.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
@@ -215,7 +215,6 @@ import {
   bulkMutateOperatorInboxItems,
   countOperatorInboxItems,
   emitOperatorInboxDiagnosticsEvent,
-  emitOperatorInboxServiceEvent,
   emitOperatorInboxSystemEvent,
   emitOperatorInboxUpdateEvent,
   emitOperatorInboxWorkflowEvent,
@@ -235,6 +234,17 @@ import {
   type OperatorInboxType,
   type OperatorInboxVisibility,
 } from "../runtime/operator/inbox.js";
+import {
+  emitInboxBrokerAttentionFromKnownFacts,
+  emitInboxForHealthTransition,
+  emitInboxForLifecycleAction,
+  emitInboxLifecycleFailure,
+  emitInboxRuntimeSetup,
+  emitInboxRuntimeSetupCompleted,
+  emitInboxUpdateFailure,
+  emitInboxUpdateInstallOutcome,
+  knownBrokerFactsFromRuntime,
+} from "../runtime/operator/inbox-emit.js";
 import { buildDiagnosticsBundle } from "../runtime/diagnostics/bundle.js";
 import { ProviderNotReadyError, resolveProviderExecution } from "../runtime/providers/resolveProvider.js";
 import { buildRuntimeDoctorStatus } from "../runtime/doctor/status.js";
@@ -2242,29 +2252,18 @@ async function buildLifecycleActionResponse(
     service,
     sharedGlobalEnv,
   );
-  const healthHistory = await recordServiceHealthTransition(service, health);
+  const healthTransition = await recordServiceHealthTransitionResult(service, health);
   const provider = resolveReadyProviderForResponse(service, registry);
   if (workspaceRoot) {
-    const recovered = result.ok && result.action === "start" && latestState.runtime.lastTermination !== "crashed";
-    if (!result.ok || recovered || !health.healthy) {
-      await emitOperatorInboxServiceEvent(workspaceRoot, {
-        serviceId: service.manifest.id,
-        kind: !result.ok
-          ? "lifecycle.failed"
-          : !health.healthy
-            ? "health.unhealthy"
-            : "lifecycle.recovered",
-        summary: result.ok
-          ? health.healthy
-            ? `Service "${service.manifest.id}" is running.`
-            : `Service "${service.manifest.id}" reported unhealthy after ${result.action}.`
-          : result.message,
-        severity: !result.ok ? "error" : !health.healthy ? "warning" : "success",
-        route: "/services/" + encodeURIComponent(service.manifest.id),
-        correlationKey: result.action,
-        observedAt: latestState.runtime.finishedAt ?? latestState.runtime.startedAt ?? undefined,
-      });
-    }
+    await emitInboxForLifecycleAction(workspaceRoot, {
+      serviceId: service.manifest.id,
+      action: result.action,
+      ok: result.ok,
+      running: latestState.running,
+      health,
+      healthTransition,
+      observedAt: latestState.runtime.finishedAt ?? latestState.runtime.startedAt ?? undefined,
+    });
   }
 
   return {
@@ -2274,7 +2273,7 @@ async function buildLifecycleActionResponse(
     message: result.message,
     state: result.state,
     health,
-    healthHistory,
+    healthHistory: healthTransition.history,
     statePaths: persisted.paths,
     provider,
   };
@@ -4840,6 +4839,16 @@ async function routeRequestWithoutMutationCoordination(
       verifyLocalSecret: bootstrappedLocalAuth.verifyLocalSecret,
     });
 
+    const completedSetup = await readRuntimeSetupStatus({
+      workspaceRoot: config.workspaceRoot,
+      bindHost: config.bindHost,
+    });
+    await emitInboxRuntimeSetupCompleted(config.workspaceRoot);
+    await emitInboxBrokerAttentionFromKnownFacts(
+      config.workspaceRoot,
+      knownBrokerFactsFromRuntime(runtimeModel.registry, completedSetup),
+    );
+
     writeJson(response, 201, {
       bootstrap: {
         ok: bootstrap.ok,
@@ -4847,10 +4856,7 @@ async function routeRequestWithoutMutationCoordination(
         provisionedSecretCount: provisionedSecrets.length,
       },
       setup: {
-        ...toPublicRuntimeSetupStatus(await readRuntimeSetupStatus({
-          workspaceRoot: config.workspaceRoot,
-          bindHost: config.bindHost,
-        })),
+        ...toPublicRuntimeSetupStatus(completedSetup),
         auth: bootstrappedAuth,
       },
     });
@@ -5553,8 +5559,14 @@ async function routeRequestWithoutMutationCoordination(
     if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "health") {
       const lifecycle = getLifecycleState(serviceId);
       const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
-      const history = await recordServiceHealthTransition(service, health);
-      writeJson(response, 200, createServiceHealthResponse(serviceId, health, history));
+      const recorded = await recordServiceHealthTransitionResult(service, health);
+      await emitInboxForHealthTransition(config.workspaceRoot, {
+        serviceId,
+        running: lifecycle.running,
+        health,
+        transition: recorded,
+      });
+      writeJson(response, 200, createServiceHealthResponse(serviceId, health, recorded.history));
       return;
     }
 
@@ -5994,6 +6006,11 @@ async function routeRequestWithoutMutationCoordination(
           summary: "Failed to download update candidate.",
           reason: getAuditFailureReason(error),
         });
+        await emitInboxUpdateFailure(
+          config.workspaceRoot,
+          serviceId,
+          `Update download failed for service "${serviceId}".`,
+        );
         throw error;
       }
       return;
@@ -6007,14 +6024,7 @@ async function routeRequestWithoutMutationCoordination(
           registry: runtimeModel.registry,
           workspaceRoot: config.workspaceRoot,
         });
-        await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
-          serviceId,
-          status: "installed",
-          summary: `Update candidate installed for service "${serviceId}".`,
-          updateId: result.state.installArtifacts.artifact?.tag ?? result.update.provenance?.tag,
-          route: "/services/" + encodeURIComponent(serviceId) + "/updates",
-          observedAt: result.update.updatedAt,
-        });
+        await emitInboxUpdateInstallOutcome(config.workspaceRoot, result);
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
@@ -6045,6 +6055,11 @@ async function routeRequestWithoutMutationCoordination(
           summary: "Failed to install update candidate.",
           reason: getAuditFailureReason(error),
         });
+        await emitInboxUpdateFailure(
+          config.workspaceRoot,
+          serviceId,
+          `Update install failed for service "${serviceId}".`,
+        );
         throw error;
       }
       return;
@@ -6211,6 +6226,7 @@ async function routeRequestWithoutMutationCoordination(
           summary: `Failed to execute lifecycle action ${action}.`,
           reason: getAuditFailureReason(error),
         });
+        await emitInboxLifecycleFailure(config.workspaceRoot, serviceId, action);
         throw error;
       }
       return;
@@ -7754,6 +7770,14 @@ async function startApiServerGeneration(
       route: "/api/dashboard",
       correlationKey: runtimeGenerationId,
     });
+    const setupAfterCommit = await readRuntimeSetupStatus({
+      workspaceRoot: config.workspaceRoot,
+    });
+    await emitInboxRuntimeSetup(config.workspaceRoot, setupAfterCommit);
+    await emitInboxBrokerAttentionFromKnownFacts(
+      config.workspaceRoot,
+      knownBrokerFactsFromRuntime(bootModel.registry, setupAfterCommit),
+    );
   } catch (error) {
     const generationCommitted = transaction.journal.phase === "generation_committed" &&
       transaction.journal.completedActions.includes("generation_committed");

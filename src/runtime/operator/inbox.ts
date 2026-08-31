@@ -165,6 +165,18 @@ export interface OperatorInboxDiagnosticsEvent {
   observedAt?: string;
 }
 
+export type OperatorInboxBrokerAttentionReason = "not_discovered" | "not_running" | "vault_not_ready" | "healthy";
+
+export interface OperatorInboxBrokerEvent {
+  status: "needs_attention" | "recovered";
+  reason: OperatorInboxBrokerAttentionReason;
+  summary: string;
+  route?: string;
+  observedAt?: string;
+}
+
+const BROKER_ATTENTION_DEDUPE_KEY = "broker:needs-attention:current";
+
 const inboxWriteQueues = new Map<string, Promise<void>>();
 
 const INBOX_TYPES: OperatorInboxType[] = ["system", "workflow", "service", "update", "security", "help", "error"];
@@ -210,6 +222,9 @@ function sanitizeText(value: string): string {
     .replace(/([\w.-]*(?:password|passwd|secret|token|key|credential|cookie)[\w.-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
     .replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
     .replace(/(gh[pousr]_[A-Za-z0-9_]+)/g, "[redacted]")
+    .replace(/\b[A-Za-z]:\\[^\s"'`,;]+/g, "[path]")
+    .replace(/\\\\[^\s"'`,;]+/g, "[path]")
+    .replace(/(^|[\s"'`=(])(\/(?:Users|home|tmp|var|opt|private|root|etc)\/[^\s"'`,;]+)/g, "$1[path]")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -855,6 +870,51 @@ export async function emitOperatorInboxDiagnosticsEvent(
           availability: "available",
         }
       : null,
+    observedAt: event.observedAt,
+  });
+}
+
+/**
+ * Emits or updates the single Secrets Broker needs-attention Inbox item.
+ * Recovered notices only refresh an existing item so healthy runtimes do not
+ * create a new Inbox row on every boot.
+ *
+ * @param workspaceRoot Workspace whose `.state/operator-inbox.json` is updated.
+ * @param event Broker attention or recovery facts already known to Core.
+ * @returns Persisted Inbox state after the upsert, or the current state when a
+ *   recovered event has no prior needs-attention item.
+ */
+export async function emitOperatorInboxBrokerEvent(
+  workspaceRoot: string,
+  event: OperatorInboxBrokerEvent,
+): Promise<OperatorInboxStateFile> {
+  const route = event.route ?? "/api/setup/status";
+  const needsAttention = event.status === "needs_attention";
+  if (!needsAttention) {
+    const existing = await readOperatorInbox(workspaceRoot);
+    const prior = existing.items.find((item) => item.dedupeKey === BROKER_ATTENTION_DEDUPE_KEY);
+    if (!prior) {
+      return existing;
+    }
+  }
+
+  return await upsertOperatorInboxItem(workspaceRoot, {
+    dedupeKey: BROKER_ATTENTION_DEDUPE_KEY,
+    title: needsAttention ? "Secrets Broker needs attention" : "Secrets Broker recovered",
+    summary: event.summary,
+    type: needsAttention ? "error" : "system",
+    severity: needsAttention ? "error" : "success",
+    source: "broker",
+    relatedTarget: {
+      serviceId: "@secretsbroker",
+      route,
+    },
+    action: {
+      label: "Review Broker",
+      target: route,
+      kind: "link",
+      availability: "available",
+    },
     observedAt: event.observedAt,
   });
 }
