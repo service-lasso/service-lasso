@@ -221,6 +221,11 @@ export interface ServiceSetupStep {
   env?: ServiceEnvMap;
   timeoutSeconds?: number;
   rerun?: ServiceSetupRerunPolicy;
+  /**
+   * Files or directories expected to exist after a successful run.
+   * `rerun: "ifMissing"` skips when every declared path is present.
+   */
+  creates?: string[];
   outputs?: string[];
 }
 

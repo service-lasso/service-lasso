@@ -63,12 +63,34 @@ export interface ServiceSetupStepRunState {
   };
 }
 
+export type SetupOutputGuardKind = "file" | "directory";
+
+/**
+ * Secret-free result of one declared `creates` file or directory guard.
+ */
+export interface SetupOutputGuardResult {
+  declared: string;
+  relativePath: string;
+  present: boolean;
+  kind: SetupOutputGuardKind | null;
+}
+
+/**
+ * Latest output-guard evaluation recorded on setup step state.
+ */
+export interface SetupOutputGuardSnapshot {
+  evaluatedAt: string;
+  satisfied: boolean;
+  results: SetupOutputGuardResult[];
+}
+
 export interface ServiceSetupState {
   updatedAt: string | null;
   steps: Record<string, {
     status: SetupStepStatus;
     lastRun: ServiceSetupStepRunState | null;
     history: ServiceSetupStepRunState[];
+    outputGuards?: SetupOutputGuardSnapshot;
   }>;
 }
 

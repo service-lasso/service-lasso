@@ -279,6 +279,7 @@ import { buildDoctorExecutableBindings, runAndRecordDoctorPreflight } from "../r
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
 import {
   buildSetupStepExecutableMutationBinding,
+  decideSetupStepSkip,
   listSetupStepIds,
   runServiceSetup,
   type SetupStepExecutableMutationBinding,
@@ -2642,19 +2643,20 @@ function createMcpGuardedActionFacade(
     }),
   ));
 
-  const setupStepPlan = (service: DiscoveredService, selectedStepId: string, force: boolean): {
+  const setupStepPlan = async (service: DiscoveredService, selectedStepId: string, force: boolean): Promise<{
     targets: string[];
     stepKeys: string[];
     effects: string[];
     blockers: string[];
-  } => {
+  }> => {
     const targets: string[] = [];
     const stepKeys: string[] = [];
     const effects: string[] = [];
     const blockers: string[] = [];
     const visiting = new Set<string>();
     const visited = new Set<string>();
-    const visit = (candidate: DiscoveredService, stepId: string): void => {
+    const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
+    const visit = async (candidate: DiscoveredService, stepId: string): Promise<void> => {
       const visitKey = `${candidate.manifest.id}:${stepId}`;
       if (visited.has(visitKey)) return;
       if (visiting.has(visitKey)) {
@@ -2671,9 +2673,15 @@ function createMcpGuardedActionFacade(
         blockers.push(`${candidate.manifest.id} must be installed and configured before setup`);
         return;
       }
-      const prior = state.setup.steps[stepId]?.lastRun;
-      if (!force && prior?.status === "succeeded" && step.rerun !== "always") {
-        visited.add(visitKey);
+      const resolvedPorts = Object.keys(state.runtime.ports).length > 0 ? state.runtime.ports : candidate.manifest.ports ?? {};
+      try {
+        const skip = await decideSetupStepSkip(candidate, stepId, step, force, sharedGlobalEnv, resolvedPorts);
+        if (skip.skip) {
+          visited.add(visitKey);
+          return;
+        }
+      } catch (error) {
+        blockers.push(error instanceof Error ? error.message : `${visitKey} output guards could not be evaluated`);
         return;
       }
 
@@ -2683,7 +2691,7 @@ function createMcpGuardedActionFacade(
         if (setupDependency) {
           const dependencyService = runtimeModel.registry.getById(setupDependency[1]);
           if (!dependencyService) blockers.push(`${setupDependency[1]} setup service missing`);
-          else visit(dependencyService, setupDependency[2]);
+          else await visit(dependencyService, setupDependency[2]);
           continue;
         }
         const dependency = runtimeModel.registry.getById(dependencyId);
@@ -2703,7 +2711,7 @@ function createMcpGuardedActionFacade(
       stepKeys.push(visitKey);
       effects.push(`run manifest-owned setup step ${stepId} for ${candidate.manifest.id}`);
     };
-    visit(service, selectedStepId);
+    await visit(service, selectedStepId);
     return { targets, stepKeys, effects, blockers };
   };
 
@@ -2880,7 +2888,7 @@ function createMcpGuardedActionFacade(
       const stepId = parameters.stepId as string;
       const declared = listSetupStepIds(service).includes(stepId);
       if (!declared) throw new ApiError("setup_step_not_found", 404, "The requested setup step is not declared.");
-      const setupPlan = setupStepPlan(service, stepId, parameters.force === true);
+      const setupPlan = await setupStepPlan(service, stepId, parameters.force === true);
       const executable = setupPlan.blockers.length === 0 && setupPlan.effects.length > 0;
       const setupDefinitionRevisions = await definitionRevisionsFor(executable ? setupPlan.targets : [serviceId]);
       const setupExecutableBindings = executable ? await setupExecutableBindingsFor(setupPlan.stepKeys) : {};
@@ -3121,7 +3129,7 @@ function createMcpGuardedActionFacade(
       }
       if (action === "setup_step_run") {
         const selectedStepId = parameters.stepId as string;
-        const currentSetupPlan = setupStepPlan(service, selectedStepId, parameters.force === true);
+        const currentSetupPlan = await setupStepPlan(service, selectedStepId, parameters.force === true);
         const setupDefinitionRevisions = await definitionRevisionsFor(approvedPlan.targets);
         const setupExecutableBindings = await setupExecutableBindingsFor(currentSetupPlan.stepKeys);
         const setupExecutableRevisions = Object.fromEntries(

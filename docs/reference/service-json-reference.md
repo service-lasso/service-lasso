@@ -1213,6 +1213,7 @@ Examples:
       },
       "timeoutSeconds": 120,
       "rerun": "ifMissing",
+      "creates": ["${SERVICE_DATA_PATH}/dependencies.marker"],
       "outputs": ["data/dependencies.marker"]
     },
     "load-sample": {
@@ -1241,6 +1242,7 @@ Runtime behavior:
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
 - `rerun` supports `ifMissing`, `manual`, and `always`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+- Optional `creates` lists at most 32 file or directory paths expected after success. Paths resolve Service Lasso variables, must stay inside the service root, and are existence guards for `rerun: ifMissing`: present outputs skip, missing or deleted-after-success outputs rerun. Setup state records the latest secret-free guard snapshot (`declared`, service-root-relative path, `present`, `kind`).
 - Optional `outputs` lists at most 32 service-root-relative regular files that the step may create or replace. Transactional runtime startup records bounded private preimages before execution and restores/removes only unchanged transaction postimages on rollback. An executed step without `outputs` remains backward-compatible, but a later startup rollback fails closed because its filesystem side effects cannot be verified.
 
 CLI:

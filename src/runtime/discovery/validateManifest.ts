@@ -867,6 +867,13 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
         );
       }
 
+      const creates = step.creates;
+      if (creates !== undefined && (!Array.isArray(creates) || creates.length === 0 || creates.length > 32)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.creates" to be a non-empty array with at most 32 file or directory paths.`,
+        );
+      }
+
       const execservice = step.execservice;
       if (execservice !== undefined && (typeof execservice !== "string" || execservice.trim().length === 0)) {
         throw new Error(
@@ -906,6 +913,20 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
             1,
           ),
           rerun: rawRerun as ServiceSetupRerunPolicy | undefined,
+          ...(Array.isArray(creates)
+            ? {
+                creates: creates.map((created, index) => {
+                  if (typeof created !== "string") {
+                    throw new Error(`Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.creates.${index}" to be a string.`);
+                  }
+                  return assertServiceRootRelativePath(
+                    created,
+                    `setup.steps.${normalizedStepId}.creates.${index}`,
+                    manifestPath,
+                  );
+                }),
+              }
+            : {}),
           ...(Array.isArray(outputs)
             ? {
                 outputs: outputs.map((output, index) => {

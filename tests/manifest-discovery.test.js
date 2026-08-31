@@ -2043,6 +2043,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
               },
               timeoutSeconds: 120,
               rerun: "ifMissing",
+              creates: ["${SERVICE_DATA_PATH}/schema.marker"],
               outputs: ["data/schema.marker"],
             },
             "load-sample": {
@@ -2076,6 +2077,7 @@ test("loadServiceManifest accepts bounded setup lifecycle steps", async () => {
       },
       timeoutSeconds: 120,
       rerun: "ifMissing",
+      creates: ["${SERVICE_DATA_PATH}/schema.marker"],
       outputs: ["data/schema.marker"],
     });
     assert.deepEqual(manifest.setup?.steps["load-sample"], {
@@ -2110,6 +2112,31 @@ test("loadServiceManifest rejects setup outputs outside the service root", async
             executable: process.execPath,
             args: ["-e", "process.exit(0)"],
             outputs: ["../outside.txt"],
+          },
+        },
+      },
+    }));
+    await assert.rejects(loadServiceManifest(manifestPath), /stay inside the service root/);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects setup creates outside the service root", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "unsafe-setup-creates", "service.json");
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, JSON.stringify({
+      id: "unsafe-setup-creates",
+      name: "Unsafe Setup Creates",
+      description: "Reject escaped output-guard paths.",
+      setup: {
+        steps: {
+          generate: {
+            executable: process.execPath,
+            args: ["-e", "process.exit(0)"],
+            creates: ["../outside.txt"],
           },
         },
       },

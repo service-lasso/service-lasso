@@ -87,7 +87,7 @@ Rules:
 - `execservice` runs the setup step through a provider such as `@node`, `@python`, or `@java`.
 - `cwd` optionally picks the working directory for the setup command. It uses the same variable selectors as `commandline` and `env`, defaults to the service root, and must resolve to an existing directory inside the service root.
 - `commandline.win32`, `commandline.linux`, and `commandline.darwin` override `commandline.default`.
-- `rerun: "ifMissing"` is the default bootstrap-friendly behavior.
+- `rerun: "ifMissing"` is the default bootstrap-friendly behavior. Declare `creates` when the step should skip only while those files or directories still exist.
 - `rerun: "manual"` is for destructive or sample/demo steps that should only run when explicitly requested.
 
 Keep setup steps visible in the manifest even when the implementation delegates to `scripts/lasso-<service>.mjs` or platform scripts under `scripts/setup/`. The manifest remains the operator-readable contract; helper code owns the detailed orchestration, idempotence checks, readiness polling, exit codes, logging, and sensitive-value handling.
