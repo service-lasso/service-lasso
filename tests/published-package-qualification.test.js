@@ -416,7 +416,7 @@ test("AC-4BZ.1 cleanup refuses targets outside its exact runner-temp ownership b
   }
 });
 
-test("published dependency releases retain exact five-asset checksum inventories", () => {
+test("published dependency releases retain exact eight-asset checksum and SBOM inventories", () => {
   assert.deepEqual(
     releaseServiceAssets(ADMIN_RELEASE).sort(),
     [
@@ -424,8 +424,23 @@ test("published dependency releases retain exact five-asset checksum inventories
       "@serviceadmin-linux.tar.gz",
       "@serviceadmin-win32.zip",
       "SHA256SUMS.txt",
+      "serviceadmin-darwin.cdx.json",
+      "serviceadmin-linux.cdx.json",
+      "serviceadmin-win32.cdx.json",
       "service.json",
     ].sort(),
   );
-  assert.equal(releaseServiceAssets(BROKER_RELEASE).length, 5);
+  assert.deepEqual(
+    releaseServiceAssets(BROKER_RELEASE).sort(),
+    [
+      "SHA256SUMS.txt",
+      "secretsbroker-darwin.cdx.json",
+      "secretsbroker-darwin.tar.gz",
+      "secretsbroker-linux.cdx.json",
+      "secretsbroker-linux.tar.gz",
+      "secretsbroker-win32.cdx.json",
+      "secretsbroker-win32.zip",
+      "service.json",
+    ].sort(),
+  );
 });

@@ -20,18 +20,27 @@ export const ADMIN_RELEASE = Object.freeze({
   platforms: Object.freeze({
     win32: Object.freeze({
       asset: "@serviceadmin-win32.zip",
+      sbom: "serviceadmin-win32.cdx.json",
       sha256:
         "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
+      sbomSha256:
+        "2b31de0f3113da920b55215d8bcd217a6d13f34164b406ab3e3930da3bf0ca97",
     }),
     linux: Object.freeze({
       asset: "@serviceadmin-linux.tar.gz",
+      sbom: "serviceadmin-linux.cdx.json",
       sha256:
         "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
+      sbomSha256:
+        "5f9109a5ce15f244efae2bef937005bf9ec79474ce2de17280fbaac58c5e830a",
     }),
     darwin: Object.freeze({
       asset: "@serviceadmin-darwin.tar.gz",
+      sbom: "serviceadmin-darwin.cdx.json",
       sha256:
         "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
+      sbomSha256:
+        "cb37461f20f0a8174f7ce52c642f6252778861c12dfc3323fb5a88692181cc21",
     }),
   }),
 });
@@ -48,21 +57,30 @@ export const BROKER_RELEASE = Object.freeze({
   platforms: Object.freeze({
     win32: Object.freeze({
       asset: "secretsbroker-win32.zip",
+      sbom: "secretsbroker-win32.cdx.json",
       binary: "secretsbroker.exe",
       sha256:
         "e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966",
+      sbomSha256:
+        "8a24cf1f0304a300632b644aff7d9609fcf507ca538484ebe24f6496703722c2",
     }),
     linux: Object.freeze({
       asset: "secretsbroker-linux.tar.gz",
+      sbom: "secretsbroker-linux.cdx.json",
       binary: "secretsbroker",
       sha256:
         "3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295",
+      sbomSha256:
+        "53a5cf142d2c31b04739b07c15e07c43ca118b786cf70888a01ca0df98c5b7f3",
     }),
     darwin: Object.freeze({
       asset: "secretsbroker-darwin.tar.gz",
+      sbom: "secretsbroker-darwin.cdx.json",
       binary: "secretsbroker",
       sha256:
         "567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5",
+      sbomSha256:
+        "3ce84fb0d59cc1c584b3844d7d3d0094b4a08d78e79864a690f11a698015782a",
     }),
   }),
 });
@@ -135,7 +153,10 @@ export function coreReleaseAssets(tag) {
 
 export function releaseServiceAssets(release) {
   return [
-    ...Object.values(release.platforms).map(({ asset }) => asset),
+    ...Object.values(release.platforms).flatMap(({ asset, sbom }) => [
+      asset,
+      sbom,
+    ]),
     "service.json",
     "SHA256SUMS.txt",
   ];
