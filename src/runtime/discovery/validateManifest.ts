@@ -45,7 +45,7 @@ const updateModes = new Set(["disabled", "notify", "download", "install"]);
 const updateRunningServicePolicies = new Set(["skip", "require-stopped", "stop-start", "restart"]);
 const updateWindowDays = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const serviceRoles = new Set(["service", "provider"]);
-const setupRerunPolicies = new Set(["manual", "ifMissing", "always"]);
+const setupRerunPolicies = new Set(["manual", "ifMissing", "always", "ifChanged"]);
 const actionModes = new Set(["built-in", "command", "workflow", "handler"]);
 const actionRequiredStates = new Set(["any", "running", "stopped"]);
 const actionConcurrencyPolicies = new Set(["skip-if-running", "allow-parallel"]);
@@ -874,6 +874,13 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
         );
       }
 
+      const fingerprint = step.fingerprint;
+      if (fingerprint !== undefined && (!Array.isArray(fingerprint) || fingerprint.length === 0 || fingerprint.length > 32)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.fingerprint" to be a non-empty array with at most 32 input templates.`,
+        );
+      }
+
       const execservice = step.execservice;
       if (execservice !== undefined && (typeof execservice !== "string" || execservice.trim().length === 0)) {
         throw new Error(
@@ -891,7 +898,13 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
       const rawRerun = step.rerun;
       if (rawRerun !== undefined && (typeof rawRerun !== "string" || !setupRerunPolicies.has(rawRerun))) {
         throw new Error(
-          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.rerun" to be one of "manual", "ifMissing", or "always".`,
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.rerun" to be one of "manual", "ifMissing", "always", or "ifChanged".`,
+        );
+      }
+
+      if (rawRerun === "ifChanged" && (!Array.isArray(fingerprint) || fingerprint.length === 0)) {
+        throw new Error(
+          `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.fingerprint" when rerun is "ifChanged".`,
         );
       }
 
@@ -924,6 +937,22 @@ function readSetupPolicy(value: unknown, manifestPath: string): ServiceManifest[
                     `setup.steps.${normalizedStepId}.creates.${index}`,
                     manifestPath,
                   );
+                }),
+              }
+            : {}),
+          ...(Array.isArray(fingerprint)
+            ? {
+                fingerprint: fingerprint.map((entry, index) => {
+                  if (typeof entry !== "string") {
+                    throw new Error(`Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.fingerprint.${index}" to be a string.`);
+                  }
+                  const declared = entry.trim();
+                  if (declared.length === 0) {
+                    throw new Error(
+                      `Invalid service manifest at ${manifestPath}: expected "setup.steps.${normalizedStepId}.fingerprint.${index}" to be a non-empty input template.`,
+                    );
+                  }
+                  return declared;
                 }),
               }
             : {}),

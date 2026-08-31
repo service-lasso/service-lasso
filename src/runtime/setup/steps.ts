@@ -11,7 +11,7 @@ import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
-import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupOutputGuardSnapshot, SetupStepStatus } from "../lifecycle/types.js";
+import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupInputFingerprintSnapshot, SetupOutputGuardSnapshot, SetupStepStatus } from "../lifecycle/types.js";
 import { startService, type ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
@@ -28,6 +28,10 @@ import {
   evaluateSetupOutputGuards,
   type SetupSkipDecision,
 } from "./output-guards.js";
+import {
+  evaluateSetupInputFingerprintIfDeclared,
+  SetupInputFingerprintError,
+} from "./input-fingerprint.js";
 
 export interface SetupStepRunResult {
   ok: boolean;
@@ -347,10 +351,12 @@ function recordSetupRun(
   serviceId: string,
   run: ServiceSetupStepRunState,
   outputGuards?: SetupOutputGuardSnapshot,
+  inputFingerprint?: SetupInputFingerprintSnapshot,
 ): ServiceLifecycleState {
   const current = getLifecycleState(serviceId);
   const existing = current.setup.steps[run.stepId];
   const nextGuards = outputGuards ?? existing?.outputGuards;
+  const nextFingerprint = inputFingerprint ?? existing?.inputFingerprint;
   return setLifecycleState(serviceId, {
     ...current,
     lastAction: "setup",
@@ -364,6 +370,7 @@ function recordSetupRun(
           lastRun: run,
           history: [...(existing?.history ?? []), run].slice(-20),
           ...(nextGuards ? { outputGuards: nextGuards } : {}),
+          ...(nextFingerprint ? { inputFingerprint: nextFingerprint } : {}),
         },
       },
     },
@@ -371,26 +378,31 @@ function recordSetupRun(
 }
 
 /**
- * Persist guard metadata without changing step success history.
+ * Persist skip-time metadata without changing step success history.
  */
-function recordSetupOutputGuards(
+function recordSetupStepAnnotations(
   serviceId: string,
   stepId: string,
-  outputGuards: SetupOutputGuardSnapshot,
+  outputGuards: SetupOutputGuardSnapshot | null,
+  inputFingerprint: SetupInputFingerprintSnapshot | null,
 ): ServiceLifecycleState {
   const current = getLifecycleState(serviceId);
   const existing = current.setup.steps[stepId];
+  const nextGuards = outputGuards ?? existing?.outputGuards;
+  const nextFingerprint = inputFingerprint ?? existing?.inputFingerprint;
+  const updatedAt = inputFingerprint?.evaluatedAt ?? outputGuards?.evaluatedAt ?? current.setup.updatedAt;
   return setLifecycleState(serviceId, {
     ...current,
     setup: {
-      updatedAt: outputGuards.evaluatedAt,
+      updatedAt,
       steps: {
         ...current.setup.steps,
         [stepId]: {
           status: existing?.status ?? "skipped",
           lastRun: existing?.lastRun ?? null,
           history: existing?.history ?? [],
-          outputGuards,
+          ...(nextGuards ? { outputGuards: nextGuards } : {}),
+          ...(nextFingerprint ? { inputFingerprint: nextFingerprint } : {}),
         },
       },
     },
@@ -579,7 +591,7 @@ export async function runSetupStep(
     skipDecision = await decideSetupStepSkip(service, stepId, step, options.force === true, sharedGlobalEnv, resolvedPorts);
   } catch (error) {
     visiting.delete(visitKey);
-    const message = error instanceof Error ? error.message : `Setup step "${stepId}" output guards could not be evaluated.`;
+    const message = error instanceof Error ? error.message : `Setup step "${stepId}" skip policy could not be evaluated.`;
     const run = await createFailedSetupRun(service, stepId, "", message);
     const nextState = recordSetupRun(serviceId, run);
     return {
@@ -594,9 +606,15 @@ export async function runSetupStep(
   }
   if (skipDecision.skip && skipDecision.reason) {
     const now = new Date().toISOString();
-    const nextState = skipDecision.outputGuards
-      ? recordSetupOutputGuards(serviceId, stepId, skipDecision.outputGuards)
-      : getLifecycleState(serviceId);
+    const nextState =
+      skipDecision.outputGuards || skipDecision.inputFingerprint
+        ? recordSetupStepAnnotations(
+            serviceId,
+            stepId,
+            skipDecision.outputGuards,
+            skipDecision.inputFingerprint,
+          )
+        : getLifecycleState(serviceId);
     const prior = nextState.setup.steps[stepId]?.lastRun;
     const run: ServiceSetupStepRunState = prior
       ? { ...prior, status: "skipped", message: skipDecision.reason }
@@ -743,6 +761,31 @@ export async function runSetupStep(
   );
   const status = guarded.status;
   const message = guarded.message;
+  let inputFingerprint = skipDecision.inputFingerprint;
+  if (status === "succeeded") {
+    try {
+      inputFingerprint = evaluateSetupInputFingerprintIfDeclared(service, step, sharedGlobalEnv, resolvedPorts);
+    } catch (error) {
+      visiting.delete(visitKey);
+      const fingerprintMessage =
+        error instanceof SetupInputFingerprintError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : `Setup step "${stepId}" fingerprint could not be evaluated.`;
+      const failedRun = await createFailedSetupRun(service, stepId, command, fingerprintMessage, cwd);
+      const nextState = recordSetupRun(serviceId, failedRun, guarded.outputGuards);
+      return {
+        ok: false,
+        action: "setup",
+        serviceId,
+        stepId,
+        state: nextState,
+        run: failedRun,
+        message: fingerprintMessage,
+      };
+    }
+  }
   const run: ServiceSetupStepRunState = {
     runId,
     serviceId,
@@ -758,7 +801,12 @@ export async function runSetupStep(
     message,
     logs,
   };
-  const nextState = recordSetupRun(serviceId, run, guarded.outputGuards);
+  const nextState = recordSetupRun(
+    serviceId,
+    run,
+    guarded.outputGuards,
+    inputFingerprint ?? undefined,
+  );
   visiting.delete(visitKey);
 
   return {
