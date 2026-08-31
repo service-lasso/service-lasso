@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload exact-head guarded MCP evidence
         id: guarded_mcp_artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mcp-guarded-actions-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/mcp-guarded-actions.json
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload exact-head durable MCP operation evidence
         id: durable_mcp_artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mcp-operations-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/mcp-operations.json
@@ -123,7 +123,7 @@ jobs:
 
       - name: Upload qualification manifests
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-qualification-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -229,7 +229,7 @@ jobs:
 
       - name: Upload Broker IPC qualification evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: broker-ipc-qualification-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/broker-ipc-${{ runner.os }}.json
@@ -306,7 +306,7 @@ jobs:
 
       - name: Upload exact-SHA release MCP evidence
         id: release_mcp_artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/mcp-product-${{ matrix.platform }}.json
