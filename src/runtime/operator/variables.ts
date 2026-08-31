@@ -577,6 +577,15 @@ export function buildServiceVariables(
           },
         ]
       : []),
+    ...(installArtifact?.tag
+      ? [
+          {
+            key: "SERVICE_ARTIFACT_TAG",
+            value: installArtifact.tag,
+            scope: "derived" as const,
+          },
+        ]
+      : []),
     ...buildPortVariables(resolvedPorts),
     ...mergeEndpointSelectorVariables(service, resolvedPorts, options.endpointSelectorValues),
   ];

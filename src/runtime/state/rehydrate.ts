@@ -9,6 +9,7 @@ import type {
   ServiceStartTraceEvent,
   ServiceStartTraceEventStatus,
   ServiceStartTracePhase,
+  SetupInputFingerprintSnapshot,
   SetupOutputGuardKind,
   SetupOutputGuardSnapshot,
   SetupStepStatus,
@@ -116,6 +117,7 @@ interface StoredSetupState {
     lastRun?: ServiceSetupStepRunState | null;
     history?: ServiceSetupStepRunState[];
     outputGuards?: unknown;
+    inputFingerprint?: unknown;
   }>;
 }
 
@@ -457,6 +459,49 @@ function parseSetupOutputGuards(value: unknown): SetupOutputGuardSnapshot | unde
   };
 }
 
+/**
+ * Rehydrate a secret-free fingerprint snapshot. Reject records that look like they stored resolved values.
+ */
+function parseSetupInputFingerprint(value: unknown): SetupInputFingerprintSnapshot | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as {
+    algorithm?: unknown;
+    hash?: unknown;
+    declared?: unknown;
+    evaluatedAt?: unknown;
+    resolved?: unknown;
+  };
+  if (record.resolved !== undefined) {
+    return undefined;
+  }
+  if (record.algorithm !== "sha256" || typeof record.hash !== "string" || typeof record.evaluatedAt !== "string") {
+    return undefined;
+  }
+  if (!/^[a-f0-9]{64}$/.test(record.hash)) {
+    return undefined;
+  }
+  if (!Array.isArray(record.declared) || record.declared.length === 0 || record.declared.length > 32) {
+    return undefined;
+  }
+  const declared: string[] = [];
+  for (const entry of record.declared) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      return undefined;
+    }
+    declared.push(entry);
+  }
+
+  return {
+    algorithm: "sha256",
+    hash: record.hash,
+    declared,
+    evaluatedAt: record.evaluatedAt,
+  };
+}
+
 function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState["setup"] {
   if (!setup?.steps || typeof setup.steps !== "object") {
     return { updatedAt: null, steps: {} };
@@ -473,6 +518,7 @@ function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState[
             : [];
           const lastRun = parseSetupRun(step.lastRun) ?? history.at(-1) ?? null;
           const outputGuards = parseSetupOutputGuards(step.outputGuards);
+          const inputFingerprint = parseSetupInputFingerprint(step.inputFingerprint);
           return [
             stepId,
             {
@@ -480,6 +526,7 @@ function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState[
               lastRun,
               history,
               ...(outputGuards ? { outputGuards } : {}),
+              ...(inputFingerprint ? { inputFingerprint } : {}),
             },
           ];
         }),
