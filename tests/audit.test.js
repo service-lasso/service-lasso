@@ -3,11 +3,28 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
+import { exampleWorkflowRunFacadeState } from "../dist/platform/workflowRunFacade.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { appendAuditEvent, readAuditEvents } from "../dist/runtime/audit/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService, writeManifest } from "./test-helpers.js";
+
+/** Sentinels that durable audit JSONL and GET /api/audit bodies must never persist. */
+const FORBIDDEN_AUDIT_MATERIAL = [
+  "ACTUAL_SECRET",
+  "RAW_SECRET",
+  "BEGIN PRIVATE KEY",
+  "PASSWORD=",
+  "CLIENT_SECRET=",
+  "REFRESH_TOKEN=",
+  "BOT_TOKEN=",
+  "Authorization",
+  "RAW_REQUEST_BODY",
+  "RAW_CONFIG_PAYLOAD",
+  "RAW_STDIN_PAYLOAD",
+  "RAW_LOG_LINE",
+];
 
 async function runAuditAppendChild(input) {
   const child = spawn(process.execPath, ["tests/fixtures/audit-append-runner.mjs"], {
@@ -166,6 +183,71 @@ function createAuditInput(overrides = {}) {
     statusCode: 200,
     summary: "Runtime test completed",
     ...overrides,
+  };
+}
+
+/**
+ * Recursively collect audit JSONL contents under a workspace or service root.
+ * @param {string} root
+ * @returns {Promise<string>}
+ */
+async function readAuditJsonlTree(root) {
+  const chunks = [];
+
+  async function walk(current) {
+    const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
+        continue;
+      }
+      const isAuditPath = fullPath.includes(`${path.sep}audit${path.sep}`) || entry.name.includes("audit");
+      if (!isAuditPath) {
+        continue;
+      }
+      chunks.push(await readFile(fullPath, "utf8"));
+    }
+  }
+
+  await walk(root);
+  return chunks.join("\n");
+}
+
+/**
+ * Fail when serialized audit material contains a forbidden secret or raw-payload sentinel.
+ * @param {string} serialized
+ * @param {string} label
+ */
+function assertAuditIsMetadataOnly(serialized, label) {
+  for (const sentinel of FORBIDDEN_AUDIT_MATERIAL) {
+    assert.equal(serialized.includes(sentinel), false, `${label} leaked ${sentinel}`);
+  }
+}
+
+/**
+ * Send JSON while attaching secret-bearing headers that must never be audited.
+ * @param {"POST" | "PUT" | "PATCH"} method
+ * @param {string} url
+ * @param {Record<string, unknown>} [body]
+ * @param {Record<string, string>} [headers]
+ */
+async function sendJsonWithSecretHeaders(method, url, body = {}, headers = {}) {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer ACTUAL_SECRET",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    body: await response.json(),
   };
 }
 
@@ -621,6 +703,439 @@ test("audit API records update download and install failures without unsafe requ
   } finally {
     await apiServer.stop().catch(() => undefined);
     await releaseServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("#757 copied service-root audit JSONL survives copy then move", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-audit-copy-");
+  const serviceRoot = path.join(servicesRoot, "copied-service");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const event = await appendAuditEvent(createAuditInput({
+      serviceRoot,
+      serviceId: "copied-service",
+      source: "service",
+      action: "service.lifecycle.install",
+      summary: "Service copied-service installed",
+    }));
+
+    const copiedRoot = path.join(servicesRoot, "copied-service-duplicate");
+    await cp(serviceRoot, copiedRoot, { recursive: true });
+    const copied = await readAuditEvents({
+      serviceRoots: [copiedRoot],
+      query: { serviceId: "copied-service" },
+    });
+    assert.equal(copied.chainStatus, "verified");
+    assert.equal(copied.pagination.total, 1);
+    assert.equal(copied.events[0].id, event.id);
+
+    const movedRoot = path.join(servicesRoot, "copied-service-moved");
+    await rename(copiedRoot, movedRoot);
+    const moved = await readAuditEvents({
+      serviceRoots: [movedRoot],
+      query: { serviceId: "copied-service" },
+    });
+    assert.equal(moved.chainStatus, "verified");
+    assert.equal(moved.pagination.total, 1);
+    assert.equal(moved.events[0].id, event.id);
+    assertAuditIsMetadataOnly(JSON.stringify(moved), "copied service audit read");
+    assertAuditIsMetadataOnly(await readAuditJsonlTree(movedRoot), "copied service audit jsonl");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#757 GET /api/audit filters and paginates durable metadata-only events", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-audit-filter-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "filter-service");
+
+  try {
+    await appendAuditEvent({
+      workspaceRoot,
+      source: "runtime",
+      action: "runtime.probe.alpha",
+      actor: "operator-filter-a",
+      outcome: "success",
+      statusCode: 200,
+      summary: "Runtime probe alpha",
+      now: () => new Date("2026-08-31T10:00:00.000Z"),
+    });
+    await appendAuditEvent({
+      workspaceRoot,
+      source: "runtime",
+      action: "runtime.probe.beta",
+      actor: "operator-filter-b",
+      outcome: "failure",
+      statusCode: 409,
+      summary: "Runtime probe beta failed",
+      now: () => new Date("2026-08-31T11:00:00.000Z"),
+    });
+    await appendAuditEvent({
+      serviceRoot,
+      serviceId: "filter-service",
+      source: "service",
+      action: "service.lifecycle.install",
+      actor: "operator-filter-a",
+      outcome: "success",
+      statusCode: 200,
+      summary: "Service filter-service installed",
+      now: () => new Date("2026-08-31T12:00:00.000Z"),
+    });
+
+    const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    try {
+      const byAction = await getJson(`${apiServer.url}/api/audit?action=runtime.probe.alpha`);
+      assert.equal(byAction.status, 200);
+      assert.equal(byAction.body.pagination.total, 1);
+      assert.equal(byAction.body.events[0].action, "runtime.probe.alpha");
+
+      const byActor = await getJson(`${apiServer.url}/api/audit?actor=operator-filter-b`);
+      assert.equal(byActor.status, 200);
+      assert.equal(byActor.body.pagination.total, 1);
+      assert.equal(byActor.body.events[0].actor, "operator-filter-b");
+
+      const byOutcome = await getJson(`${apiServer.url}/api/audit?outcome=failure`);
+      assert.equal(byOutcome.status, 200);
+      assert.equal(byOutcome.body.pagination.total, 1);
+      assert.equal(byOutcome.body.events[0].outcome, "failure");
+
+      const bySource = await getJson(`${apiServer.url}/api/audit?source=service`);
+      assert.equal(bySource.status, 200);
+      assert.equal(bySource.body.pagination.total, 1);
+      assert.equal(bySource.body.events[0].serviceId, "filter-service");
+
+      const since = await getJson(`${apiServer.url}/api/audit?since=2026-08-31T11:00:00.000Z`);
+      assert.equal(since.status, 200);
+      assert.equal(since.body.pagination.total, 2);
+
+      const until = await getJson(`${apiServer.url}/api/audit?until=2026-08-31T10:00:00.000Z`);
+      assert.equal(until.status, 200);
+      assert.equal(until.body.pagination.total, 1);
+      assert.equal(until.body.events[0].action, "runtime.probe.alpha");
+
+      const page = await getJson(`${apiServer.url}/api/audit?limit=1`);
+      assert.equal(page.status, 200);
+      assert.equal(page.body.events.length, 1);
+      assert.equal(page.body.pagination.total, 3);
+      assert.equal(page.body.nextCursor, "1");
+
+      const nextPage = await getJson(`${apiServer.url}/api/audit?limit=1&cursor=${page.body.nextCursor}`);
+      assert.equal(nextPage.status, 200);
+      assert.equal(nextPage.body.events.length, 1);
+      assert.equal(nextPage.body.nextCursor, "2");
+      assert.notEqual(nextPage.body.events[0].id, page.body.events[0].id);
+
+      const secretQuery = await getJson(`${apiServer.url}/api/audit?query=ACTUAL_SECRET`);
+      assert.equal(secretQuery.status, 200);
+      assert.equal(secretQuery.body.pagination.total, 0);
+
+      assertAuditIsMetadataOnly(JSON.stringify([
+        byAction.body,
+        byActor.body,
+        byOutcome.body,
+        bySource.body,
+        since.body,
+        until.body,
+        page.body,
+        nextPage.body,
+        secretQuery.body,
+      ]), "GET /api/audit filter responses");
+      assertAuditIsMetadataOnly(await readAuditJsonlTree(tempRoot), "filter audit jsonl");
+    } finally {
+      await apiServer.stop().catch(() => undefined);
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+    resetLifecycleState();
+  }
+});
+
+test("#757 mutating actions append durable metadata-only audit events after restart", async () => {
+  resetLifecycleState();
+  const previousToken = process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = "SERVICE_LASSO_TEST_BRIDGE_TOKEN";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-audit-regression-");
+  const workflowState = JSON.parse(JSON.stringify(exampleWorkflowRunFacadeState));
+  workflowState.runs[0].status = "failed";
+  workflowState.runs[0].engine.status = "error";
+  const secretPayload = [
+    "ACTUAL_SECRET",
+    "RAW_SECRET",
+    "-----BEGIN PRIVATE KEY-----",
+    "PASSWORD=hunter2",
+    "CLIENT_SECRET=raw-client",
+    "REFRESH_TOKEN=raw-refresh",
+    "BOT_TOKEN=raw-bot",
+    "RAW_REQUEST_BODY",
+    "RAW_CONFIG_PAYLOAD",
+    "RAW_STDIN_PAYLOAD",
+    "RAW_LOG_LINE",
+  ].join(" ");
+
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "audit-regression-service", {
+    healthcheck: { type: "process" },
+    actions: {
+      "dangerous-regression": {
+        mode: "command",
+        command: process.execPath,
+        args: ["-e", "process.exit(0)"],
+        requiresConfirmation: true,
+      },
+    },
+  });
+  await writeAuditScript(serviceRoot);
+  let apiServer = await startApiServer({
+    port: 0,
+    servicesRoot,
+    workspaceRoot,
+    workflowRunFacadeState: workflowState,
+  });
+
+  try {
+    const install = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/services/audit-regression-service/install`);
+    assert.equal(install.status, 200);
+
+    const runtime = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/runtime/actions/stopAll`);
+    assert.equal(runtime.status, 200);
+
+    const meta = await sendJsonWithSecretHeaders("PATCH", `${apiServer.url}/api/services/audit-regression-service/meta`, {
+      actor: "operator-ui",
+      reason: "pin favorite",
+      favorite: true,
+    });
+    assert.equal(meta.status, 200);
+
+    const currentConfig = await getJson(`${apiServer.url}/api/services/audit-regression-service/config`);
+    assert.equal(currentConfig.status, 200);
+    const editedConfig = {
+      ...JSON.parse(currentConfig.body.content),
+      env: {
+        SECRET_TOKEN: secretPayload,
+      },
+    };
+    const save = await sendJsonWithSecretHeaders("PUT", `${apiServer.url}/api/services/audit-regression-service/config`, {
+      actor: "operator-ui",
+      reason: "metadata-only regression coverage",
+      content: JSON.stringify(editedConfig, null, 2),
+    });
+    assert.equal(save.status, 200);
+
+    const invalidSave = await sendJsonWithSecretHeaders("PUT", `${apiServer.url}/api/services/audit-regression-service/config`, {
+      actor: "operator-ui",
+      reason: "invalid config still audits safely",
+      content: `{"id":"audit-regression-service","env":{"SECRET_TOKEN":"${secretPayload}"`,
+    });
+    assert.equal(invalidSave.status, 400);
+
+    const missingConfirmation = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/services/audit-regression-service/actions/dangerous-regression/runs`,
+      { actor: "operator-ui" },
+    );
+    assert.equal(missingConfirmation.status, 409);
+
+    const stdin = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/services/audit-regression-service/stdin`, {
+      input: secretPayload,
+      actor: "operator-ui",
+    });
+    assert.equal(stdin.status, 409);
+
+    const queueRecord = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/operator/actions/record`, {
+      dedupeKey: "recovery:audit-regression-service:doctor",
+      severity: "warning",
+      source: {
+        kind: "recovery",
+        serviceId: "audit-regression-service",
+        reference: "doctor",
+      },
+      title: "Recovery doctor warning",
+      summary: secretPayload,
+      evidence: [
+        {
+          label: "unsafe-detail",
+          value: secretPayload,
+        },
+      ],
+      observedAt: "2026-08-31T18:00:00.000Z",
+    });
+    assert.equal(queueRecord.status, 200);
+    const actionId = queueRecord.body.queue.items[0].id;
+
+    const queueAck = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/operator/actions/${encodeURIComponent(actionId)}/acknowledge`,
+      { actor: "operator-ui", reason: "reviewed without persisting payload" },
+    );
+    assert.equal(queueAck.status, 200);
+
+    const failedQueue = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/operator/actions/record`, {
+      summary: secretPayload,
+    });
+    assert.equal(failedQueue.status, 400);
+
+    const issued = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/operator/confirmations`,
+      {
+        command: "restart audit-regression-service",
+        actor: {
+          source: "chat-bridge",
+          channel: "telegram",
+          chatId: "-5128051597",
+          senderId: "42",
+          senderDisplay: "Operator",
+          sourceMessageId: "2001",
+          roles: ["operator"],
+        },
+        planId: "restart-plan-regression",
+        plan: {
+          dryRun: true,
+          action: "restart",
+          serviceId: "audit-regression-service",
+          generatedAt: "2026-08-31T00:00:00.000Z",
+          steps: [
+            {
+              serviceId: "audit-regression-service",
+              action: "restart",
+              status: "would_run",
+            },
+          ],
+        },
+      },
+      { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" },
+    );
+    assert.equal(issued.status, 201);
+
+    const confirmed = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/confirm`,
+      {
+        actor: {
+          source: "chat-bridge",
+          channel: "telegram",
+          chatId: "-5128051597",
+          senderId: "42",
+          senderDisplay: "Operator",
+          sourceMessageId: "2001",
+          roles: ["operator"],
+        },
+        plan: {
+          dryRun: true,
+          action: "restart",
+          serviceId: "audit-regression-service",
+          generatedAt: "2026-08-31T00:00:00.000Z",
+          steps: [
+            {
+              serviceId: "audit-regression-service",
+              action: "restart",
+              status: "would_run",
+            },
+          ],
+        },
+        confirmationPhrase: issued.body.confirmationPhrase,
+      },
+      { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" },
+    );
+    assert.equal(confirmed.status, 200);
+
+    const failedConfirmation = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/operator/confirmations`, {
+      command: "restart audit-regression-service",
+      actor: { actorId: "spoofed-operator" },
+    });
+    assert.ok(failedConfirmation.status >= 400);
+
+    const workspaceId = "wks_local_demo";
+    const workflowId = encodeURIComponent("official.core.maintenance/backup-check");
+    const started = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`,
+      { input: { dryRun: true, note: "metadata-only" } },
+    );
+    assert.equal(started.status, 200);
+
+    const failedWorkflow = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`,
+      { input: { dryRun: true } },
+      { "x-service-lasso-entitlements": "workspace:read" },
+    );
+    assert.equal(failedWorkflow.status, 403);
+
+    const invalidWorkflowBody = await sendJsonWithSecretHeaders(
+      "POST",
+      `${apiServer.url}/api/platform/workspaces/${workspaceId}/workflows/${workflowId}/runs`,
+      { input: secretPayload },
+    );
+    assert.equal(invalidWorkflowBody.status, 400);
+
+    await apiServer.stop();
+    apiServer = await startApiServer({
+      port: 0,
+      servicesRoot,
+      workspaceRoot,
+      workflowRunFacadeState: workflowState,
+    });
+
+    const audit = await getJson(`${apiServer.url}/api/audit?limit=100`);
+    assert.equal(audit.status, 200);
+    assert.equal(audit.body.source, "runtime-audit");
+    assert.equal(audit.body.rawMaterialReturned, false);
+    const actions = new Set(audit.body.events.map((event) => event.action));
+    for (const required of [
+      "runtime.stopAll",
+      "service.lifecycle.install",
+      "service.meta.update",
+      "service.config.save",
+      "service.action.run",
+      "service.stdin.write",
+      "operator.action.record",
+      "operator.action.acknowledge",
+      "operator.confirmation.issue",
+      "operator.confirmation.confirm",
+      "workflow.run.start",
+    ]) {
+      assert.equal(actions.has(required), true, `missing audited action ${required}`);
+    }
+
+    const configEvent = audit.body.events.find((event) => event.action === "service.config.save" && event.outcome === "success");
+    assert.equal(configEvent.relatedRevisionId, save.body.backup.id);
+    assert.equal(configEvent.metadata.validationStatus, "valid");
+
+    const configFailure = audit.body.events.find((event) => event.action === "service.config.save" && event.outcome === "failure");
+    assert.equal(configFailure.metadata.validationStatus, "invalid");
+
+    const queueEvent = audit.body.events.find((event) => event.action === "operator.action.record" && event.outcome === "success");
+    assert.equal(queueEvent.subject, actionId);
+
+    const queueFailure = audit.body.events.find((event) => event.action === "operator.action.record" && event.outcome === "failure");
+    assert.equal(queueFailure.outcome, "failure");
+
+    const confirmationIssue = audit.body.events.find((event) => event.action === "operator.confirmation.issue" && event.outcome === "success");
+    assert.equal(confirmationIssue.subject, issued.body.confirmation.id);
+
+    const workflowStart = audit.body.events.find((event) => event.action === "workflow.run.start" && event.outcome === "success");
+    assert.equal(workflowStart.subject, started.body.run.facadeRunId);
+
+    const workflowFailure = audit.body.events.find((event) => event.action === "workflow.run.start" && event.outcome === "failure");
+    assert.equal(workflowFailure.outcome, "failure");
+
+    const stdinEvent = audit.body.events.find((event) => event.action === "service.stdin.write");
+    assert.equal(stdinEvent.outcome, "failure");
+    assert.equal(typeof stdinEvent.metadata.byteLength, "number");
+
+    assertAuditIsMetadataOnly(JSON.stringify(audit.body), "GET /api/audit after restart");
+    assertAuditIsMetadataOnly(await readAuditJsonlTree(tempRoot), "durable audit jsonl after mutations");
+  } finally {
+    await apiServer.stop().catch(() => undefined);
+    if (previousToken === undefined) {
+      delete process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+    } else {
+      process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = previousToken;
+    }
     await rm(tempRoot, { recursive: true, force: true });
     resetLifecycleState();
   }

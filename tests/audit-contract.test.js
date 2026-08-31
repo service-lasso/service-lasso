@@ -86,3 +86,65 @@ test("audit event builder rejects unsafe top-level and metadata field names", ()
     /Unsafe audit field "authorization"/,
   );
 });
+
+test("#757 audit contract serialization omits secret and raw-payload sentinels", () => {
+  const event = buildAuditEvent({
+    id: "audit_regression_1",
+    timestamp: "2026-08-31T00:00:00.000Z",
+    source: "runtime",
+    actor: {
+      type: "operator",
+      id: "operator:test",
+      source: "web",
+      display: "Operator",
+    },
+    action: "runtime.reload",
+    outcome: "success",
+    subjectType: "runtime",
+    routeTemplate: "/api/runtime/actions/:action",
+    method: "POST",
+    statusCode: 200,
+    summary: createAuditSummary(["Runtime", "reload", "completed"]),
+    correlationId: "corr_757",
+    metadata: {
+      targetCount: 1,
+      changedFieldCount: 0,
+      policyDecision: "allowed",
+      configPath: "service.json",
+      validationStatus: "valid",
+    },
+    chainStatus: "verified",
+  });
+
+  const serialized = JSON.stringify(event);
+  for (const sentinel of [
+    "ACTUAL_SECRET",
+    "RAW_SECRET",
+    "BEGIN PRIVATE KEY",
+    "PASSWORD=",
+    "CLIENT_SECRET=",
+    "REFRESH_TOKEN=",
+    "BOT_TOKEN=",
+    "Authorization",
+    "RAW_REQUEST_BODY",
+    "RAW_CONFIG_PAYLOAD",
+    "RAW_STDIN_PAYLOAD",
+    "RAW_LOG_LINE",
+  ]) {
+    assert.equal(serialized.includes(sentinel), false, `contract event leaked ${sentinel}`);
+  }
+
+  assert.throws(
+    () =>
+      buildAuditEvent({
+        source: "service",
+        actor: { type: "operator", id: "operator:test" },
+        action: "service.config.save",
+        outcome: "success",
+        subjectType: "service-config",
+        summary: "unsafe body field",
+        body: "RAW_REQUEST_BODY",
+      }),
+    /Unsafe audit field "body"/,
+  );
+});
