@@ -4,11 +4,27 @@ import { builtInAccessGroupTemplates } from "../../platform/security-model.js";
 import {
   LOCAL_ADMIN_TOKEN_HEADER,
   ORIGINAL_CLIENT_ADDRESS_HEADER,
-  TRUSTED_INGRESS_HEADER,
-  TRUSTED_INGRESS_VALUE,
+  SERVICEADMIN_INTERNAL_PROXY_HEADER,
   SERVICEADMIN_PROXY_HEADER,
   SERVICEADMIN_PROXY_VALUE,
+  TRAEFIK_ACTOR_HEADER,
+  TRAEFIK_ROLES_HEADER,
+  TRAEFIK_USER_HEADER,
+  TRAEFIK_WORKSPACE_HEADER,
+  TRUSTED_INGRESS_HEADER,
+  TRUSTED_INGRESS_VALUE,
+  USER_ID_HEADER,
+  WORKSPACE_ID_HEADER,
+  ZITADEL_GROUPS_HEADER,
+  ZITADEL_ROLES_HEADER,
+  ZITADEL_USER_ID_HEADER,
 } from "./local-auth-constants.js";
+
+/** Trusted-ingress identity that is absent, complete, or fail-closed. */
+type TrustedIngressIdentity =
+  | { status: "absent" }
+  | { status: "ok"; actor: RuntimeAuthPolicyStatus["actor"] }
+  | { status: "invalid"; reason: "trusted_ingress_identity_missing" | "trusted_ingress_identity_mismatch" };
 
 export type RuntimeAuthActorKind = "local-root" | "zitadel" | "local-token";
 export type RuntimeAuthMode = RuntimeAuthActorKind | "blocked";
@@ -173,8 +189,87 @@ export function getEffectiveClientAddress(
 }
 
 function isTrustedServiceAdminProxy(request: IncomingMessage): boolean {
-  return isLoopbackAddress(request.socket.remoteAddress) &&
-    normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-internal-proxy"])) === "serviceadmin";
+  return (
+    isLoopbackAddress(request.socket.remoteAddress) &&
+    normalizeHeaderValue(firstHeader(request.headers[SERVICEADMIN_INTERNAL_PROXY_HEADER])) ===
+      SERVICEADMIN_PROXY_VALUE
+  );
+}
+
+/**
+ * Unique non-empty identity claims. Empty when none were presented.
+ */
+function uniqueIdentityClaims(...values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+/**
+ * Traefik User/Actor plus canonical/Admin-normalized user ids from a trusted
+ * ingress request. Multiple distinct values are a mismatch.
+ */
+function presentedIngressUserIds(request: IncomingMessage): string[] {
+  return uniqueIdentityClaims(
+    normalizeHeaderValue(firstHeader(request.headers[TRAEFIK_USER_HEADER])),
+    normalizeHeaderValue(firstHeader(request.headers[TRAEFIK_ACTOR_HEADER])),
+    normalizeHeaderValue(firstHeader(request.headers[ZITADEL_USER_ID_HEADER])),
+    normalizeHeaderValue(firstHeader(request.headers[USER_ID_HEADER])),
+  );
+}
+
+/**
+ * Traefik workspace plus the canonical workspace id. Distinct values mismatch.
+ */
+function presentedIngressWorkspaceIds(request: IncomingMessage): string[] {
+  return uniqueIdentityClaims(
+    normalizeHeaderValue(firstHeader(request.headers[TRAEFIK_WORKSPACE_HEADER])),
+    normalizeHeaderValue(firstHeader(request.headers[WORKSPACE_ID_HEADER])),
+  );
+}
+
+/**
+ * Resolve Traefik / canonical identity only from exact loopback trusted ingress.
+ * Missing or conflicting claims fail closed instead of falling through to local-root.
+ */
+function resolveTrustedIngressIdentity(
+  request: IncomingMessage,
+  zitadelEnabled: boolean,
+): TrustedIngressIdentity {
+  if (!zitadelEnabled || !isTrustedLoopbackIngress(request)) {
+    return { status: "absent" };
+  }
+
+  const userIds = presentedIngressUserIds(request);
+  const workspaceIds = presentedIngressWorkspaceIds(request);
+  const traefikRoles = normalizeRoleClaims(request.headers[TRAEFIK_ROLES_HEADER]);
+  const canonicalRoles = normalizeRoleClaims(
+    request.headers[ZITADEL_ROLES_HEADER],
+    request.headers[ZITADEL_GROUPS_HEADER],
+  );
+  const rolesDisagree =
+    traefikRoles.length > 0 &&
+    canonicalRoles.length > 0 &&
+    (traefikRoles.length !== canonicalRoles.length ||
+      traefikRoles.some((role) => !canonicalRoles.includes(role)));
+
+  if (userIds.length > 1 || workspaceIds.length > 1 || rolesDisagree) {
+    return { status: "invalid", reason: "trusted_ingress_identity_mismatch" };
+  }
+  const [userId] = userIds;
+  if (userId === undefined) {
+    return { status: "invalid", reason: "trusted_ingress_identity_missing" };
+  }
+
+  const roles = traefikRoles.length > 0 ? traefikRoles : canonicalRoles;
+  return {
+    status: "ok",
+    actor: {
+      authenticated: true,
+      kind: "zitadel",
+      actorId: userId,
+      roles,
+      permissions: permissionsForRoles(roles),
+    },
+  };
 }
 
 function presentedLocalSecret(request: IncomingMessage): string | undefined {
@@ -205,31 +300,6 @@ function resolveLocalTokenActor(
     actorId: "local-admin-token",
     roles: ["owner"],
     permissions: ["*"],
-  };
-}
-
-function resolveZitadelActor(
-  request: IncomingMessage,
-  zitadelEnabled: boolean,
-): RuntimeAuthPolicyStatus["actor"] | null {
-  if (!zitadelEnabled || !isTrustedLoopbackIngress(request)) return null;
-
-  const userId =
-    normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-zitadel-user-id"])) ??
-    normalizeHeaderValue(firstHeader(request.headers["x-service-lasso-user-id"]));
-  if (!userId) return null;
-
-  const roles = normalizeRoleClaims(
-    request.headers["x-service-lasso-zitadel-roles"],
-    request.headers["x-service-lasso-zitadel-groups"],
-  );
-
-  return {
-    authenticated: true,
-    kind: "zitadel",
-    actorId: userId,
-    roles,
-    permissions: permissionsForRoles(roles),
   };
 }
 
@@ -273,16 +343,29 @@ export function resolveRuntimeRequestAuth(
   const forceSso = options.forceSso === true;
   const clientAddress = getEffectiveClientAddress(request, trustProxyHeaders);
   const local = isLoopbackAddress(clientAddress);
-  const remoteAuthRequired = !local;
   const tokenActor = resolveLocalTokenActor(request, envToken, options.verifyLocalSecret);
-  const zitadelActor = resolveZitadelActor(request, zitadelEnabled && trustedServiceAdminProxy);
-
+  const ingressIdentity = resolveTrustedIngressIdentity(
+    request,
+    zitadelEnabled && trustedServiceAdminProxy,
+  );
+  const zitadelActor = ingressIdentity.status === "ok" ? ingressIdentity.actor : null;
+  const unauthenticatedActor: RuntimeAuthPolicyStatus["actor"] = {
+    authenticated: false,
+    kind: null,
+    actorId: null,
+    roles: [],
+    permissions: [],
+  };
   /**
-   * Loopback always allows local-token, ZITADEL, or implicit local-root.
-   * FORCE_SSO may require ZITADEL only for remote clients.
+   * Claimed trusted ingress with missing or mismatched Traefik identity is
+   * never local-root. Loopback without that claim still allows local-token,
+   * ZITADEL, or implicit local-root. FORCE_SSO applies only to remote clients.
    */
+  const remoteAuthRequired = !local || ingressIdentity.status === "invalid";
   let actor: RuntimeAuthPolicyStatus["actor"];
-  if (local) {
+  if (ingressIdentity.status === "invalid") {
+    actor = unauthenticatedActor;
+  } else if (local) {
     actor = tokenActor ?? zitadelActor ?? {
       authenticated: true,
       kind: "local-root" as const,
@@ -291,19 +374,28 @@ export function resolveRuntimeRequestAuth(
       permissions: ["*"],
     };
   } else if (forceSso) {
-    actor = zitadelActor ?? { authenticated: false, kind: null, actorId: null, roles: [], permissions: [] };
+    actor = zitadelActor ?? unauthenticatedActor;
   } else {
-    actor = zitadelActor ?? tokenActor ?? { authenticated: false, kind: null, actorId: null, roles: [], permissions: [] };
+    actor = zitadelActor ?? tokenActor ?? unauthenticatedActor;
   }
 
   const blockers: string[] = [];
-  if (remoteAuthRequired && !actor.authenticated) {
+  if (ingressIdentity.status === "invalid") {
+    blockers.push(ingressIdentity.reason);
+  } else if (remoteAuthRequired && !actor.authenticated) {
     blockers.push(forceSso ? "force_sso_required" : "remote_auth_required");
   }
-  if (remoteAuthRequired && forceSso && !zitadelEnabled) {
+  if (ingressIdentity.status !== "invalid" && remoteAuthRequired && forceSso && !zitadelEnabled) {
     blockers.push("force_sso_without_provider");
   }
-  if (remoteAuthRequired && !forceSso && !zitadelEnabled && !localTokenConfigured && !localOperatorConfigured) {
+  if (
+    ingressIdentity.status !== "invalid" &&
+    remoteAuthRequired &&
+    !forceSso &&
+    !zitadelEnabled &&
+    !localTokenConfigured &&
+    !localOperatorConfigured
+  ) {
     blockers.push("remote_auth_policy_not_configured");
   }
 
@@ -332,6 +424,12 @@ export function resolveRuntimeRequestAuth(
 }
 
 export function assertRuntimeRequestAuthorized(auth: RuntimeAuthPolicyStatus): void {
+  if (
+    auth.blockers.includes("trusted_ingress_identity_missing") ||
+    auth.blockers.includes("trusted_ingress_identity_mismatch")
+  ) {
+    throw new Error(auth.blockers[0] ?? "trusted_ingress_identity_invalid");
+  }
   if (!auth.policy.remoteAuthRequired || auth.actor.authenticated) {
     return;
   }

@@ -118,7 +118,9 @@ export async function bootstrapLocalVault(
 }
 
 export async function readRuntimeSetupStatus(options: RuntimeSetupStatusOptions): Promise<RuntimeSetupStatus> {
-  const bindHost = options.bindHost ?? process.env.SERVICE_LASSO_HOST ?? "0.0.0.0";
+  // Packaged Core is loopback-only by default (AC-4BX). A missing bindHost
+  // must not report 0.0.0.0 / localOnly=false.
+  const bindHost = options.bindHost ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
   const vaultPath = resolveVaultPath(options);
   let credentialsReady = false;
   try {

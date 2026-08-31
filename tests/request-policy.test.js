@@ -192,3 +192,25 @@ test("legacy missing first-run flags default to acknowledged on loopback", () =>
   assert.equal(auth.policy.firstRunPending, false);
   assert.equal(auth.policy.credentialsAcknowledged, true);
 });
+
+test("Traefik identity through trusted ingress does not grant local-root to a LAN client", () => {
+  const auth = resolveRuntimeRequestAuth(
+    fakeRequest("127.0.0.1", {
+      [ORIGINAL_CLIENT_ADDRESS_HEADER]: "10.20.30.40",
+      [SERVICEADMIN_PROXY_HEADER]: SERVICEADMIN_PROXY_VALUE,
+      [TRUSTED_INGRESS_HEADER]: TRUSTED_INGRESS_VALUE,
+      "x-service-lasso-internal-proxy": "serviceadmin",
+      "x-service-lasso-user": "usr_protected_ingress",
+      "x-service-lasso-roles": "operator",
+    }),
+    {
+      bindHost: "127.0.0.1",
+      env: {},
+    },
+  );
+  assert.equal(auth.request.local, false);
+  assert.equal(auth.actor.kind, "zitadel");
+  assert.equal(auth.actor.actorId, "usr_protected_ingress");
+  assert.deepEqual(auth.actor.roles, ["operator"]);
+  assert.deepEqual(auth.blockers, []);
+});

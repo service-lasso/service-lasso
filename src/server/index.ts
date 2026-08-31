@@ -1316,8 +1316,12 @@ async function rejectUnauthorizedRemoteRequest(
       forceSso: auth.policy.forceSso,
     },
   });
-  const message =
-    auth.blockers.includes("force_sso_required")
+  const identityDenied =
+    auth.blockers.includes("trusted_ingress_identity_missing") ||
+    auth.blockers.includes("trusted_ingress_identity_mismatch");
+  const message = identityDenied
+    ? "Trusted ingress identity is missing, spoofed, or mismatched."
+    : auth.blockers.includes("force_sso_required")
       ? "Remote Service Lasso API access requires SSO because FORCE_SSO is enabled."
       : "Remote Service Lasso API access requires Zitadel authentication or an explicit local operator proof.";
   throw new ApiError(
@@ -7610,6 +7614,7 @@ async function startApiServerGeneration(
     }
     const setupAfterStartup = await readRuntimeSetupStatus({
       workspaceRoot: config.workspaceRoot,
+      bindHost,
     });
     // A listener without a startup orchestration pass must remain available to
     // start the Broker. Fail-closed onboarding belongs after that pass (or in
@@ -7747,6 +7752,7 @@ async function startApiServerGeneration(
     });
     const setupAfterCommit = await readRuntimeSetupStatus({
       workspaceRoot: config.workspaceRoot,
+      bindHost,
     });
     await emitInboxRuntimeSetup(config.workspaceRoot, setupAfterCommit);
     await emitInboxBrokerAttentionFromKnownFacts(

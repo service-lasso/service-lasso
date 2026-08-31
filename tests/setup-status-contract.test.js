@@ -84,3 +84,21 @@ test("an initialized vault with a missing OS wrapper remains outside first-run m
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
+
+test("setup trust boundary defaults to loopback when bind host is omitted", async () => {
+  const previousHost = process.env.SERVICE_LASSO_HOST;
+  delete process.env.SERVICE_LASSO_HOST;
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-default-bind-"));
+  try {
+    const status = await readRuntimeSetupStatus({ workspaceRoot });
+    assert.equal(status.trustBoundary.bindHost, "127.0.0.1");
+    assert.equal(status.trustBoundary.localOnly, true);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+    if (previousHost === undefined) {
+      delete process.env.SERVICE_LASSO_HOST;
+    } else {
+      process.env.SERVICE_LASSO_HOST = previousHost;
+    }
+  }
+});
