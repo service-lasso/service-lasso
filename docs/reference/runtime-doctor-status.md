@@ -31,9 +31,10 @@ This foundation slice reports safe metadata only:
 - runtime and service process ownership registry entries with identity classifications;
 - port reservation ledger entries and non-stale endpoint conflicts;
 - missing or disabled dependency blockers;
-- evidence file paths for the runtime instance, process registry, and port reservation ledger.
+- evidence file paths for the runtime instance, process registry, generation registry, startup transaction, endpoint allocation, and port reservation ledger;
+- persistence classifications for those workspace lifecycle documents (`missing`, `current`, `legacy`, `corrupt`, `unsupported-old`, `unsupported-new`, `redirected`, `oversized`, `migration-interrupted`) with safe absolute paths only.
 
-The payload omits command lines, raw environment values, rendered config contents, and secret-bearing material.
+The payload omits command lines, raw environment values, rendered config contents, and secret-bearing material. Malformed, partially migrated, or forward-version lifecycle state never becomes process-termination authority.
 
 ## Stable Classifications
 

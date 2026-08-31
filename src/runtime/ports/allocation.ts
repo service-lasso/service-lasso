@@ -1,6 +1,6 @@
 import dgram from "node:dgram";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { normalizeServiceEndpoints } from "../operator/endpoints.js";
 import {
   classifyRegisteredProcess,
   readProcessOwnershipRegistry,
+  resolveWorkspaceProcessId,
 } from "../process/registry.js";
 import {
   classifyProcessIdentity,
@@ -22,9 +23,17 @@ import {
   reconcilePortReservationLedger,
   type PortReservationInput,
 } from "./reservations.js";
+import {
+  ENDPOINT_ALLOCATION_POLICY,
+  ENDPOINT_ALLOCATION_SCHEMA_V2,
+  isRedirectedOrSpecialFile,
+  readLifecycleDocument,
+  writeLifecycleDocument,
+} from "../state/lifecycle-persistence.js";
 
 const DEFAULT_BIND = "127.0.0.1";
 const DEFAULT_DYNAMIC_PORT_START = 4000;
+const HOST_ALLOCATION_REGISTRY_MAX_BYTES = 8 * 1024 * 1024;
 const HOST_REGISTRY_LOCK_TIMEOUT_MS = 10_000;
 const HOST_REGISTRY_LOCK_STALE_MS = 30_000;
 const HOST_REGISTRY_LOCK_RETRY_MS = 20;
@@ -254,8 +263,28 @@ export function getHostEndpointAllocationRegistryPath(): string {
   return path.join(os.homedir(), ".service-lasso", "endpoint-allocations.json");
 }
 
+async function lstatRegularFileIfPresent(filePath: string): Promise<boolean> {
+  try {
+    const info = await lstat(filePath);
+    if (isRedirectedOrSpecialFile(info) || !info.isFile()) {
+      throw new Error("Allocation registry file is redirected or an unsupported filesystem object.");
+    }
+    if (info.size > HOST_ALLOCATION_REGISTRY_MAX_BYTES) {
+      throw new Error("Allocation registry file exceeds the bounded size.");
+    }
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
+  await lstatRegularFileIfPresent(filePath);
+  await lstatRegularFileIfPresent(`${filePath}.bak`);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   const handle = await open(tempPath, "wx", 0o600);
   try {
@@ -286,6 +315,7 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 async function readJsonWithBackup(filePath: string): Promise<unknown | null> {
   for (const candidate of [filePath, `${filePath}.bak`]) {
     try {
+      if (!await lstatRegularFileIfPresent(candidate)) continue;
       return JSON.parse(await readFile(candidate, "utf8")) as unknown;
     } catch {
       // Try the crash-recovery backup before treating the registry as absent.
@@ -596,7 +626,7 @@ export async function claimRuntimeEndpointAllocation(
     const claimed = { ...plan, updatedAt: now } satisfies RuntimeEndpointAllocationPlan;
     // Updating the workspace timestamp is non-authoritative. Persist it before
     // the host owner swap so any write failure leaves the host claim untouched.
-    await atomicWriteJson(getRuntimeEndpointAllocationPlanPath(plan.workspaceRoot), claimed);
+    await writeWorkspaceAllocationPlan(plan.workspaceRoot, claimed);
     await atomicWriteJson(getHostEndpointAllocationRegistryPath(), {
       version: 1,
       updatedAt: now,
@@ -908,7 +938,7 @@ export async function planAndReserveRuntimeEndpoints(
       updatedAt: now,
       allocations: [...retained, ...hostEntries],
     } satisfies HostEndpointAllocationRegistry);
-    await atomicWriteJson(getRuntimeEndpointAllocationPlanPath(options.workspaceRoot), plan);
+    await writeWorkspaceAllocationPlan(options.workspaceRoot, plan);
     await reconcilePortReservationLedger(
       options.workspaceRoot,
       toLegacyReservations(plan),
@@ -931,11 +961,11 @@ export async function releaseRuntimeEndpointAllocation(plan: RuntimeEndpointAllo
       updatedAt: now,
       allocations: registry.allocations.filter((entry) => entry.allocationId !== plan.allocationId),
     } satisfies HostEndpointAllocationRegistry);
-    await atomicWriteJson(getRuntimeEndpointAllocationPlanPath(plan.workspaceRoot), {
+    await writeWorkspaceAllocationPlan(plan.workspaceRoot, {
       ...plan,
       phase: "released",
       updatedAt: now,
-    } satisfies RuntimeEndpointAllocationPlan);
+    });
     await reconcilePortReservationLedger(
       plan.workspaceRoot,
       [],
@@ -947,8 +977,8 @@ export async function releaseRuntimeEndpointAllocation(plan: RuntimeEndpointAllo
   }
 }
 
-function normalizePlan(value: unknown): RuntimeEndpointAllocationPlan | null {
-  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.endpoints)) return null;
+function normalizePlanPayload(value: unknown): RuntimeEndpointAllocationPlan | null {
+  if (!isRecord(value) || !Array.isArray(value.endpoints)) return null;
   if (
     typeof value.allocationId !== "string" ||
     typeof value.laneId !== "string" ||
@@ -975,8 +1005,69 @@ function normalizePlan(value: unknown): RuntimeEndpointAllocationPlan | null {
   };
 }
 
+function serializeAllocationPlan(workspaceRoot: string, plan: RuntimeEndpointAllocationPlan): unknown {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  return {
+    schemaVersion: ENDPOINT_ALLOCATION_SCHEMA_V2,
+    version: 2,
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
+    allocationId: plan.allocationId,
+    laneId: plan.laneId,
+    generationId: plan.generationId,
+    servicesRoot: plan.servicesRoot,
+    workspaceRoot: plan.workspaceRoot,
+    phase: plan.phase,
+    attempt: plan.attempt,
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+    endpoints: plan.endpoints,
+  };
+}
+
+function parseCurrentAllocationPlan(workspaceRoot: string, value: unknown): RuntimeEndpointAllocationPlan | null {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== ENDPOINT_ALLOCATION_SCHEMA_V2
+    || value.version !== 2
+    || typeof value.workspaceId !== "string"
+    || value.workspaceId !== resolveWorkspaceProcessId(canonicalWorkspaceRoot)
+    || typeof value.canonicalWorkspaceRoot !== "string"
+    || !samePath(value.canonicalWorkspaceRoot, canonicalWorkspaceRoot)
+  ) {
+    return null;
+  }
+  const plan = normalizePlanPayload(value);
+  if (!plan || !samePath(plan.workspaceRoot, workspaceRoot)) return null;
+  return plan;
+}
+
+function parseLegacyAllocationPlan(workspaceRoot: string, value: unknown): RuntimeEndpointAllocationPlan | null {
+  if (!isRecord(value) || value.version !== 1) return null;
+  const plan = normalizePlanPayload(value);
+  if (!plan || !samePath(plan.workspaceRoot, workspaceRoot)) return null;
+  return plan;
+}
+
+async function writeWorkspaceAllocationPlan(
+  workspaceRoot: string,
+  plan: RuntimeEndpointAllocationPlan,
+): Promise<void> {
+  await writeLifecycleDocument(workspaceRoot, ENDPOINT_ALLOCATION_POLICY, plan, {
+    parseCurrent: (value) => parseCurrentAllocationPlan(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyAllocationPlan(workspaceRoot, value),
+    serialize: (document) => serializeAllocationPlan(workspaceRoot, document),
+  });
+}
+
 export async function readRuntimeEndpointAllocationPlan(workspaceRoot: string): Promise<RuntimeEndpointAllocationPlan | null> {
-  return normalizePlan(await readJsonWithBackup(getRuntimeEndpointAllocationPlanPath(workspaceRoot)));
+  const result = await readLifecycleDocument(workspaceRoot, ENDPOINT_ALLOCATION_POLICY, {
+    parseCurrent: (value) => parseCurrentAllocationPlan(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyAllocationPlan(workspaceRoot, value),
+    serialize: (document) => serializeAllocationPlan(workspaceRoot, document),
+  });
+  return result.document;
 }
 
 export function servicePortsFromEndpointAllocation(

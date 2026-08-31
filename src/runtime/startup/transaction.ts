@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
+import { resolveWorkspaceProcessId } from "../process/registry.js";
+import {
+  STARTUP_TRANSACTION_POLICY,
+  STARTUP_TRANSACTION_SCHEMA_V2,
+  readLifecycleDocument,
+  writeLifecycleDocument,
+} from "../state/lifecycle-persistence.js";
 
 export const STARTUP_TRANSACTION_PHASES = [
   "preflight_reconciliation",
@@ -16,7 +22,10 @@ export type StartupTransactionPhase = typeof STARTUP_TRANSACTION_PHASES[number];
 export type StartupTransactionStatus = "active" | "committed" | "rolled_back" | "blocked";
 
 export interface StartupTransactionJournal {
-  version: 1;
+  schemaVersion: typeof STARTUP_TRANSACTION_SCHEMA_V2;
+  version: 2;
+  workspaceId: string;
+  canonicalWorkspaceRoot: string;
   transactionId: string;
   generationId: string;
   instanceId: string;
@@ -109,29 +118,50 @@ function digests(value: unknown): Record<string, string> {
   return result;
 }
 
-function normalizeJournal(value: unknown): StartupTransactionJournal | null {
-  if (!isRecord(value) || value.version !== 1 || !isPhase(value.phase) || !isStatus(value.status)) return null;
-  const requiredStrings = [
-    value.transactionId,
-    value.generationId,
-    value.instanceId,
-    value.servicesRoot,
-    value.workspaceRoot,
-    value.startedAt,
-    value.updatedAt,
-  ];
-  if (requiredStrings.some((entry) => typeof entry !== "string" || !entry)) return null;
+function wrapJournal(
+  workspaceRoot: string,
+  value: Omit<StartupTransactionJournal, "schemaVersion" | "version" | "workspaceId" | "canonicalWorkspaceRoot"> & {
+    workspaceRoot: string;
+  },
+): StartupTransactionJournal {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
   return {
-    version: 1,
-    transactionId: value.transactionId as string,
-    generationId: value.generationId as string,
-    instanceId: value.instanceId as string,
-    servicesRoot: path.resolve(value.servicesRoot as string),
-    workspaceRoot: path.resolve(value.workspaceRoot as string),
+    schemaVersion: STARTUP_TRANSACTION_SCHEMA_V2,
+    version: 2,
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
+    ...value,
+    servicesRoot: path.resolve(value.servicesRoot),
+    workspaceRoot: canonicalWorkspaceRoot,
+  };
+}
+
+function journalPayload(value: Record<string, unknown>): Omit<
+  StartupTransactionJournal,
+  "schemaVersion" | "version" | "workspaceId" | "canonicalWorkspaceRoot"
+> | null {
+  if (!isPhase(value.phase) || !isStatus(value.status)) return null;
+  if (
+    typeof value.transactionId !== "string" || !value.transactionId
+    || typeof value.generationId !== "string" || !value.generationId
+    || typeof value.instanceId !== "string" || !value.instanceId
+    || typeof value.servicesRoot !== "string" || !value.servicesRoot
+    || typeof value.workspaceRoot !== "string" || !value.workspaceRoot
+    || typeof value.startedAt !== "string" || !value.startedAt
+    || typeof value.updatedAt !== "string" || !value.updatedAt
+  ) {
+    return null;
+  }
+  return {
+    transactionId: value.transactionId,
+    generationId: value.generationId,
+    instanceId: value.instanceId,
+    servicesRoot: path.resolve(value.servicesRoot),
+    workspaceRoot: path.resolve(value.workspaceRoot),
     status: value.status,
     phase: value.phase,
-    startedAt: value.startedAt as string,
-    updatedAt: value.updatedAt as string,
+    startedAt: value.startedAt,
+    updatedAt: value.updatedAt,
     finishedAt: typeof value.finishedAt === "string" ? value.finishedAt : null,
     allocationRevision: typeof value.allocationRevision === "string" ? value.allocationRevision : null,
     completedActions: strings(value.completedActions),
@@ -145,47 +175,46 @@ function normalizeJournal(value: unknown): StartupTransactionJournal | null {
   };
 }
 
+function parseCurrentJournal(workspaceRoot: string, value: unknown): StartupTransactionJournal | null {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== STARTUP_TRANSACTION_SCHEMA_V2
+    || value.version !== 2
+    || typeof value.workspaceId !== "string"
+    || value.workspaceId !== resolveWorkspaceProcessId(canonicalWorkspaceRoot)
+    || typeof value.canonicalWorkspaceRoot !== "string"
+    || !samePath(value.canonicalWorkspaceRoot, canonicalWorkspaceRoot)
+  ) {
+    return null;
+  }
+  const payload = journalPayload(value);
+  if (!payload || !samePath(payload.workspaceRoot, workspaceRoot)) return null;
+  return wrapJournal(workspaceRoot, payload);
+}
+
+function parseLegacyJournal(workspaceRoot: string, value: unknown): StartupTransactionJournal | null {
+  if (!isRecord(value) || value.version !== 1) return null;
+  const payload = journalPayload(value);
+  if (!payload || !samePath(payload.workspaceRoot, workspaceRoot)) return null;
+  return wrapJournal(workspaceRoot, payload);
+}
+
 async function atomicWriteJournal(journal: StartupTransactionJournal): Promise<void> {
-  const filePath = getStartupTransactionJournalPath(journal.workspaceRoot);
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-  const handle = await open(tempPath, "wx", 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(journal, null, 2)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await copyFile(filePath, `${filePath}.bak`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      await unlink(tempPath).catch(() => undefined);
-      throw error;
-    }
-  }
-  await rename(tempPath, filePath);
-  if (process.platform !== "win32") {
-    const directory = await open(path.dirname(filePath), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
-  }
+  const canonical = wrapJournal(journal.workspaceRoot, journal);
+  await writeLifecycleDocument(journal.workspaceRoot, STARTUP_TRANSACTION_POLICY, canonical, {
+    parseCurrent: (value) => parseCurrentJournal(journal.workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyJournal(journal.workspaceRoot, value),
+    serialize: (document) => document,
+  });
 }
 
 export async function readStartupTransactionJournal(workspaceRoot: string): Promise<StartupTransactionJournal | null> {
-  const filePath = getStartupTransactionJournalPath(workspaceRoot);
-  for (const candidate of [filePath, `${filePath}.bak`]) {
-    try {
-      const normalized = normalizeJournal(JSON.parse(await readFile(candidate, "utf8")) as unknown);
-      if (normalized && samePath(normalized.workspaceRoot, workspaceRoot)) return normalized;
-    } catch {
-      // Fall through to the crash-recovery backup.
-    }
-  }
-  return null;
+  const result = await readLifecycleDocument(workspaceRoot, STARTUP_TRANSACTION_POLICY, {
+    parseCurrent: (value) => parseCurrentJournal(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyJournal(workspaceRoot, value),
+  });
+  return result.document;
 }
 
 export async function beginStartupTransaction(input: {
@@ -201,8 +230,7 @@ export async function beginStartupTransaction(input: {
     throw new StartupTransactionRecoveryRequiredError(prior);
   }
   const now = (input.now ?? new Date()).toISOString();
-  const journal: StartupTransactionJournal = {
-    version: 1,
+  const journal: StartupTransactionJournal = wrapJournal(input.workspaceRoot, {
     transactionId: randomUUID(),
     generationId: input.generationId,
     instanceId: input.instanceId,
@@ -220,7 +248,7 @@ export async function beginStartupTransaction(input: {
     materializationDigests: {},
     failureCode: null,
     recoveredFromTransactionId: input.recoveredFromTransactionId ?? null,
-  };
+  });
   await atomicWriteJournal(journal);
   return journal;
 }

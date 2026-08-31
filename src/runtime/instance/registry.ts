@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,8 +9,19 @@ import type { RuntimeConfig } from "../config.js";
 import {
   classifyRegisteredProcess,
   findProcessOwnership,
+  resolveWorkspaceProcessId,
   withWorkspaceLifecycleLock,
 } from "../process/registry.js";
+import {
+  RUNTIME_GENERATION_POLICY,
+  RUNTIME_GENERATION_SCHEMA_V2,
+  RUNTIME_INSTANCE_POLICY,
+  RUNTIME_INSTANCE_SCHEMA_V2,
+  MAX_LIFECYCLE_ARRAY_LENGTH,
+  isRedirectedOrSpecialFile,
+  readLifecycleDocument,
+  writeLifecycleDocument,
+} from "../state/lifecycle-persistence.js";
 import type {
   RuntimeGenerationPhase,
   RuntimeGenerationRecord,
@@ -27,6 +38,7 @@ const execFileAsync = promisify(execFileCallback);
 const INSTANCE_FILE_NAME = "runtime-instance.json";
 const GENERATION_REGISTRY_FILE_NAME = "runtime-generations.json";
 const INSTANCE_REGISTRY_FILE_NAME = "instances.json";
+const HOST_REGISTRY_MAX_BYTES = 8 * 1024 * 1024;
 const HOST_REGISTRY_LOCK_TIMEOUT_MS = 5_000;
 const HOST_REGISTRY_LOCK_STALE_MS = 30_000;
 const HOST_REGISTRY_LOCK_RETRY_MS = 20;
@@ -65,10 +77,21 @@ export interface RuntimeLaneSelectionOptions {
 }
 
 interface RuntimeGenerationRegistryFile {
-  version: 1;
+  schemaVersion: typeof RUNTIME_GENERATION_SCHEMA_V2;
+  version: 2;
+  workspaceId: string;
+  canonicalWorkspaceRoot: string;
   updatedAt: string;
   activeGenerationId: string | null;
   generations: RuntimeGenerationRecord[];
+}
+
+interface RuntimeInstanceStateDocument {
+  schemaVersion: typeof RUNTIME_INSTANCE_SCHEMA_V2;
+  version: 2;
+  workspaceId: string;
+  canonicalWorkspaceRoot: string;
+  instance: RuntimeInstanceRecord;
 }
 
 export class RuntimeGenerationConflictError extends Error {
@@ -200,9 +223,30 @@ function normalizeSource(value: unknown): RuntimeSourceIdentity {
   return { branch, commit };
 }
 
+async function lstatRegularFileIfPresent(filePath: string, maxBytes: number): Promise<boolean> {
+  try {
+    const info = await lstat(filePath);
+    if (isRedirectedOrSpecialFile(info) || !info.isFile()) {
+      throw new Error("Host registry file is redirected or an unsupported filesystem object.");
+    }
+    if (info.size > maxBytes) {
+      throw new Error("Host registry file exceeds the bounded size.");
+    }
+    return true;
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 async function readJsonIfPresent(filePath: string): Promise<unknown | null> {
   for (const candidate of [filePath, `${filePath}.bak`]) {
     try {
+      if (!await lstatRegularFileIfPresent(candidate, HOST_REGISTRY_MAX_BYTES)) {
+        continue;
+      }
       return JSON.parse(await readFile(candidate, "utf8")) as unknown;
     } catch {
       // Try the crash-recovery backup before treating state as absent.
@@ -213,7 +257,12 @@ async function readJsonIfPresent(filePath: string): Promise<unknown | null> {
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
+  await lstatRegularFileIfPresent(filePath, HOST_REGISTRY_MAX_BYTES);
+  await lstatRegularFileIfPresent(`${filePath}.bak`, HOST_REGISTRY_MAX_BYTES);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  if (await lstatRegularFileIfPresent(tempPath, HOST_REGISTRY_MAX_BYTES).catch(() => false)) {
+    await unlink(tempPath);
+  }
   const handle = await open(tempPath, "wx", 0o600);
   try {
     await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -330,28 +379,43 @@ function normalizeGenerationRecord(input: unknown): RuntimeGenerationRecord | nu
 }
 
 function emptyGenerationRegistry(workspaceRoot: string): RuntimeGenerationRegistryFile {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
   return {
-    version: 1,
+    schemaVersion: RUNTIME_GENERATION_SCHEMA_V2,
+    version: 2,
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
     updatedAt: new Date(0).toISOString(),
     activeGenerationId: null,
     generations: [],
   };
 }
 
-function normalizeGenerationRegistry(input: unknown, workspaceRoot: string): RuntimeGenerationRegistryFile {
-  if (!isRecord(input) || input.version !== 1 || !Array.isArray(input.generations)) {
-    return emptyGenerationRegistry(workspaceRoot);
+function generationsFromInput(input: unknown, workspaceRoot: string): RuntimeGenerationRecord[] {
+  if (!isRecord(input) || !Array.isArray(input.generations) || input.generations.length > MAX_LIFECYCLE_ARRAY_LENGTH) {
+    return [];
   }
-  const generations = input.generations
+  return input.generations
     .map((entry) => normalizeGenerationRecord(entry))
     .filter((entry): entry is RuntimeGenerationRecord => entry !== null)
     .filter((entry) => samePath(entry.workspaceRoot, workspaceRoot));
-  const activeGenerationId = typeof input.activeGenerationId === "string" &&
-    generations.some((entry) => entry.generationId === input.activeGenerationId && ACTIVE_GENERATION_PHASES.has(entry.phase))
+}
+
+function wrapGenerationRegistry(
+  workspaceRoot: string,
+  input: { updatedAt?: unknown; activeGenerationId?: unknown },
+  generations: RuntimeGenerationRecord[],
+): RuntimeGenerationRegistryFile {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  const activeGenerationId = typeof input.activeGenerationId === "string"
+    && generations.some((entry) => entry.generationId === input.activeGenerationId && ACTIVE_GENERATION_PHASES.has(entry.phase))
     ? input.activeGenerationId
     : null;
   return {
-    version: 1,
+    schemaVersion: RUNTIME_GENERATION_SCHEMA_V2,
+    version: 2,
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
     updatedAt: typeof input.updatedAt === "string" && parseIsoTime(input.updatedAt) !== null
       ? new Date(input.updatedAt).toISOString()
       : new Date(0).toISOString(),
@@ -360,9 +424,47 @@ function normalizeGenerationRegistry(input: unknown, workspaceRoot: string): Run
   };
 }
 
+function parseCurrentGenerationRegistry(workspaceRoot: string, input: unknown): RuntimeGenerationRegistryFile | null {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  if (
+    !isRecord(input)
+    || input.schemaVersion !== RUNTIME_GENERATION_SCHEMA_V2
+    || input.version !== 2
+    || typeof input.workspaceId !== "string"
+    || input.workspaceId !== resolveWorkspaceProcessId(canonicalWorkspaceRoot)
+    || typeof input.canonicalWorkspaceRoot !== "string"
+    || !samePath(input.canonicalWorkspaceRoot, canonicalWorkspaceRoot)
+  ) {
+    return null;
+  }
+  return wrapGenerationRegistry(workspaceRoot, input, generationsFromInput(input, workspaceRoot));
+}
+
+function parseLegacyGenerationRegistry(workspaceRoot: string, input: unknown): RuntimeGenerationRegistryFile | null {
+  if (!isRecord(input) || input.version !== 1) {
+    return null;
+  }
+  return wrapGenerationRegistry(workspaceRoot, input, generationsFromInput(input, workspaceRoot));
+}
+
 async function readGenerationRegistryFile(workspaceRoot: string): Promise<RuntimeGenerationRegistryFile> {
-  const filePath = getRuntimeGenerationRegistryPath(workspaceRoot);
-  return normalizeGenerationRegistry(await readJsonIfPresent(filePath), workspaceRoot);
+  const result = await readLifecycleDocument(workspaceRoot, RUNTIME_GENERATION_POLICY, {
+    parseCurrent: (value) => parseCurrentGenerationRegistry(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyGenerationRegistry(workspaceRoot, value),
+  });
+  return result.document ?? emptyGenerationRegistry(workspaceRoot);
+}
+
+async function writeGenerationRegistryFile(
+  workspaceRoot: string,
+  registry: RuntimeGenerationRegistryFile,
+): Promise<void> {
+  const canonical = wrapGenerationRegistry(workspaceRoot, registry, registry.generations);
+  await writeLifecycleDocument(workspaceRoot, RUNTIME_GENERATION_POLICY, canonical, {
+    parseCurrent: (value) => parseCurrentGenerationRegistry(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyGenerationRegistry(workspaceRoot, value),
+    serialize: (document) => document,
+  });
 }
 
 export async function readRuntimeGenerationRegistry(
@@ -465,12 +567,12 @@ export async function beginRuntimeGeneration(
       source,
     };
     generations.push(record);
-    await atomicWriteJson(getRuntimeGenerationRegistryPath(config.workspaceRoot), {
-      version: 1,
+    await writeGenerationRegistryFile(config.workspaceRoot, {
+      ...emptyGenerationRegistry(config.workspaceRoot),
       updatedAt: now,
       activeGenerationId: record.generationId,
       generations,
-    } satisfies RuntimeGenerationRegistryFile);
+    });
     return record;
   });
 }
@@ -527,12 +629,12 @@ export async function recoverRuntimeGeneration(
       finishedAt: null,
       source,
     };
-    await atomicWriteJson(getRuntimeGenerationRegistryPath(config.workspaceRoot), {
-      version: 1,
+    await writeGenerationRegistryFile(config.workspaceRoot, {
+      ...registry,
       updatedAt: now,
       activeGenerationId: generationId,
       generations: registry.generations.map((entry) => entry.generationId === generationId ? recovered : entry),
-    } satisfies RuntimeGenerationRegistryFile);
+    });
     return recovered;
   });
 }
@@ -573,12 +675,12 @@ export async function publishRuntimeGeneration(
       : registry.activeGenerationId === generationId
         ? null
         : registry.activeGenerationId;
-    await atomicWriteJson(getRuntimeGenerationRegistryPath(config.workspaceRoot), {
-      version: 1,
+    await writeGenerationRegistryFile(config.workspaceRoot, {
+      ...registry,
       updatedAt: now,
       activeGenerationId,
       generations,
-    } satisfies RuntimeGenerationRegistryFile);
+    });
     return updated;
   });
 }
@@ -765,8 +867,67 @@ export async function readRuntimeInstanceRegistry(): Promise<RuntimeInstanceRegi
   };
 }
 
+function wrapInstanceStateDocument(
+  workspaceRoot: string,
+  instance: RuntimeInstanceRecord,
+): RuntimeInstanceStateDocument {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  return {
+    schemaVersion: RUNTIME_INSTANCE_SCHEMA_V2,
+    version: 2,
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
+    instance,
+  };
+}
+
+function parseCurrentInstanceState(workspaceRoot: string, input: unknown): RuntimeInstanceStateDocument | null {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  if (
+    !isRecord(input)
+    || input.schemaVersion !== RUNTIME_INSTANCE_SCHEMA_V2
+    || input.version !== 2
+    || typeof input.workspaceId !== "string"
+    || input.workspaceId !== resolveWorkspaceProcessId(canonicalWorkspaceRoot)
+    || typeof input.canonicalWorkspaceRoot !== "string"
+    || !samePath(input.canonicalWorkspaceRoot, canonicalWorkspaceRoot)
+  ) {
+    return null;
+  }
+  const instance = normalizeInstanceRecord(input.instance);
+  if (!instance || !samePath(instance.workspaceRoot, workspaceRoot)) {
+    return null;
+  }
+  return wrapInstanceStateDocument(workspaceRoot, instance);
+}
+
+function parseLegacyInstanceState(workspaceRoot: string, input: unknown): RuntimeInstanceStateDocument | null {
+  const instance = normalizeInstanceRecord(input);
+  if (!instance || !samePath(instance.workspaceRoot, workspaceRoot)) {
+    return null;
+  }
+  return wrapInstanceStateDocument(workspaceRoot, instance);
+}
+
+async function readInstanceStateRecord(config: RuntimeConfig): Promise<RuntimeInstanceRecord | null> {
+  const result = await readLifecycleDocument(config.workspaceRoot, RUNTIME_INSTANCE_POLICY, {
+    parseCurrent: (value) => parseCurrentInstanceState(config.workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyInstanceState(config.workspaceRoot, value),
+  });
+  return result.document?.instance ?? null;
+}
+
+async function writeInstanceStateRecord(config: RuntimeConfig, instance: RuntimeInstanceRecord): Promise<void> {
+  const document = wrapInstanceStateDocument(config.workspaceRoot, instance);
+  await writeLifecycleDocument(config.workspaceRoot, RUNTIME_INSTANCE_POLICY, document, {
+    parseCurrent: (value) => parseCurrentInstanceState(config.workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyInstanceState(config.workspaceRoot, value),
+    serialize: (value) => value,
+  });
+}
+
 export async function readRuntimeInstanceState(config: RuntimeConfig): Promise<RuntimeInstanceRecord | null> {
-  const record = normalizeInstanceRecord(await readJsonIfPresent(getRuntimeInstanceStatePath(config.workspaceRoot)));
+  const record = await readInstanceStateRecord(config);
   return record ? await classifyRecord(record) : null;
 }
 
@@ -775,7 +936,7 @@ export async function registerRuntimeInstance(
   options: RuntimeInstanceRegistrationOptions,
 ): Promise<RuntimeInstanceRecord> {
   const record = createInstanceRecord(config, options);
-  await atomicWriteJson(getRuntimeInstanceStatePath(config.workspaceRoot), record);
+  await writeInstanceStateRecord(config, record);
   await mutateHostRegistry((records) => [
     ...records.filter((entry) => instanceKey(entry) !== instanceKey(record)),
     record,
@@ -787,12 +948,12 @@ export async function refreshRuntimeInstanceLease(
   config: RuntimeConfig,
   options: RuntimeInstanceLeaseRefreshOptions = {},
 ): Promise<RuntimeInstanceRecord | null> {
-  const current = normalizeInstanceRecord(await readJsonIfPresent(getRuntimeInstanceStatePath(config.workspaceRoot)));
+  const current = await readInstanceStateRecord(config);
   if (!current || options.generationId && current.generationId !== options.generationId || TERMINAL_GENERATION_PHASES.has(current.phase)) {
     return current;
   }
   const refreshed = refreshInstanceRecord(current, options);
-  await atomicWriteJson(getRuntimeInstanceStatePath(config.workspaceRoot), refreshed);
+  await writeInstanceStateRecord(config, refreshed);
   await mutateHostRegistry((records) => [
     ...records.filter((entry) => instanceKey(entry) !== instanceKey(refreshed)),
     refreshed,
@@ -801,7 +962,7 @@ export async function refreshRuntimeInstanceLease(
 }
 
 export async function markRuntimeInstanceStopped(config: RuntimeConfig, generationId?: string): Promise<void> {
-  const current = normalizeInstanceRecord(await readJsonIfPresent(getRuntimeInstanceStatePath(config.workspaceRoot)));
+  const current = await readInstanceStateRecord(config);
   if (!current || generationId && current.generationId !== generationId) {
     return;
   }
@@ -814,7 +975,7 @@ export async function markRuntimeInstanceStopped(config: RuntimeConfig, generati
     staleReason: "stopped",
     updatedAt: now,
   };
-  await atomicWriteJson(getRuntimeInstanceStatePath(config.workspaceRoot), stopped);
+  await writeInstanceStateRecord(config, stopped);
   await mutateHostRegistry((records) => [
     ...records.filter((entry) => instanceKey(entry) !== instanceKey(stopped)),
     stopped,

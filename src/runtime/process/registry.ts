@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
+import { open, readFile, realpath, stat, unlink } from "node:fs/promises";
 import path from "node:path";
+import {
+  PROCESS_OWNERSHIP_POLICY,
+  PROCESS_OWNERSHIP_SCHEMA_V2,
+  MAX_LIFECYCLE_ARRAY_LENGTH,
+  MAX_LIFECYCLE_LOCK_BYTES,
+  MAX_LIFECYCLE_STRING_CHARS,
+  assertSafeLifecycleArtifact,
+  readLifecycleDocument,
+  resolveVerifiedStateDirectory,
+  writeLifecycleDocument,
+} from "../state/lifecycle-persistence.js";
 import {
   classifyProcessIdentity,
   hashProcessCommandLine,
@@ -11,10 +22,11 @@ import {
   type ProcessInspectorDependencies,
 } from "./identity.js";
 
-export const PROCESS_REGISTRY_VERSION = 1;
+export const PROCESS_REGISTRY_VERSION = 2;
 const PROCESS_REGISTRY_FILE_NAME = "processes.json";
 const PROCESS_REGISTRY_BACKUP_FILE_NAME = "processes.json.bak";
 const WORKSPACE_LIFECYCLE_LOCK_FILE_NAME = "workspace-lifecycle.lock";
+const MAX_OWNER_ID_CHARS = 200;
 const LOCK_RETRY_MS = 20;
 const LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;
@@ -56,7 +68,10 @@ export interface ProcessOwnershipEntry {
 }
 
 export interface ProcessOwnershipRegistry {
+  schemaVersion: typeof PROCESS_OWNERSHIP_SCHEMA_V2;
   version: typeof PROCESS_REGISTRY_VERSION;
+  workspaceId: string;
+  canonicalWorkspaceRoot: string;
   updatedAt: string;
   entries: ProcessOwnershipEntry[];
 }
@@ -149,8 +164,31 @@ function ownerKey(ownerType: ProcessOwnerType, ownerId: string): string {
   return `${ownerType}:${ownerId}`;
 }
 
-function emptyRegistry(now = new Date().toISOString()): ProcessOwnershipRegistry {
-  return { version: PROCESS_REGISTRY_VERSION, updatedAt: now, entries: [] };
+function sameWorkspacePath(left: string, right: string): boolean {
+  const normalize = (value: string) => {
+    const resolved = path.resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  return normalize(left) === normalize(right);
+}
+
+function boundedString(value: unknown, maxChars: number = MAX_LIFECYCLE_STRING_CHARS): string | null {
+  if (typeof value !== "string" || !value.trim() || value.length > maxChars) {
+    return null;
+  }
+  return value;
+}
+
+function emptyRegistry(workspaceRoot: string, now = new Date().toISOString()): ProcessOwnershipRegistry {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  return {
+    schemaVersion: PROCESS_OWNERSHIP_SCHEMA_V2,
+    version: PROCESS_REGISTRY_VERSION,
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
+    updatedAt: now,
+    entries: [],
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -205,6 +243,7 @@ function normalizeFingerprint(value: unknown): ProcessFingerprint | null {
     !Number.isFinite(Date.parse(value.createdAt)) ||
     typeof value.executablePath !== "string" ||
     !value.executablePath ||
+    value.executablePath.length > MAX_LIFECYCLE_STRING_CHARS ||
     typeof value.commandHash !== "string" ||
     !/^[a-f0-9]{64}$/.test(value.commandHash)
   ) {
@@ -242,26 +281,29 @@ function normalizeProcessGroup(value: unknown, pid: number | null): ProcessOwner
   return { kind: "none", id: null };
 }
 
-function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
+function normalizeEntry(value: unknown, expectedWorkspaceId: string): ProcessOwnershipEntry | null {
   if (!isRecord(value)) {
     return null;
   }
   const ownerType = value.ownerType === "runtime" || value.ownerType === "service" ? value.ownerType : null;
   const identity = normalizeFingerprint(value.identity);
   const pid = typeof value.pid === "number" && Number.isInteger(value.pid) && value.pid > 0 ? value.pid : null;
+  const ownerId = boundedString(value.ownerId, MAX_OWNER_ID_CHARS);
+  const workspaceId = boundedString(value.workspaceId, MAX_OWNER_ID_CHARS);
+  const ownerRoot = boundedString(value.ownerRoot);
   if (
     !ownerType ||
-    typeof value.ownerId !== "string" ||
-    !value.ownerId.trim() ||
-    typeof value.workspaceId !== "string" ||
-    !value.workspaceId.trim() ||
-    typeof value.ownerRoot !== "string" ||
-    !value.ownerRoot.trim() ||
+    !ownerId ||
+    !workspaceId ||
+    workspaceId !== expectedWorkspaceId ||
+    !ownerRoot ||
     !isLifecycleState(value.lifecycleState) ||
     !isIdentityStatus(value.identityStatus) ||
     (value.source !== "spawn" && value.source !== "runtime" && value.source !== "legacy-verified") ||
     typeof value.recordedAt !== "string" ||
-    typeof value.updatedAt !== "string"
+    value.recordedAt.length > MAX_LIFECYCLE_STRING_CHARS ||
+    typeof value.updatedAt !== "string" ||
+    value.updatedAt.length > MAX_LIFECYCLE_STRING_CHARS
   ) {
     return null;
   }
@@ -270,19 +312,39 @@ function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
   }
 
   const allocation = isRecord(value.allocation) ? value.allocation : {};
+  const serviceId = value.serviceId === null || value.serviceId === undefined
+    ? null
+    : boundedString(value.serviceId, MAX_OWNER_ID_CHARS);
+  const generationId = value.generationId === null || value.generationId === undefined
+    ? null
+    : boundedString(value.generationId, MAX_OWNER_ID_CHARS);
+  const runtimeInstanceId = value.runtimeInstanceId === null || value.runtimeInstanceId === undefined
+    ? null
+    : boundedString(value.runtimeInstanceId, MAX_OWNER_ID_CHARS);
+  if (value.serviceId !== undefined && value.serviceId !== null && serviceId === null) {
+    return null;
+  }
+  if (value.generationId !== undefined && value.generationId !== null && generationId === null) {
+    return null;
+  }
+  if (value.runtimeInstanceId !== undefined && value.runtimeInstanceId !== null && runtimeInstanceId === null) {
+    return null;
+  }
   return {
     ownerType,
-    ownerId: value.ownerId,
-    serviceId: typeof value.serviceId === "string" ? value.serviceId : null,
-    generationId: typeof value.generationId === "string" ? value.generationId : null,
-    workspaceId: value.workspaceId,
-    runtimeInstanceId: typeof value.runtimeInstanceId === "string" ? value.runtimeInstanceId : null,
+    ownerId,
+    serviceId,
+    generationId,
+    workspaceId,
+    runtimeInstanceId,
     pid,
     identity,
-    ownerRoot: path.resolve(value.ownerRoot),
+    ownerRoot: path.resolve(ownerRoot),
     processGroup: normalizeProcessGroup(value.processGroup, pid),
     allocation: {
-      revision: typeof allocation.revision === "string" ? allocation.revision : null,
+      revision: typeof allocation.revision === "string" && allocation.revision.length <= MAX_OWNER_ID_CHARS
+        ? allocation.revision
+        : null,
       ports: normalizePorts(allocation.ports),
       endpoints: normalizeEndpoints(allocation.endpoints),
     },
@@ -294,66 +356,101 @@ function normalizeEntry(value: unknown): ProcessOwnershipEntry | null {
   };
 }
 
-function normalizeRegistry(value: unknown): ProcessOwnershipRegistry | null {
-  if (!isRecord(value) || value.version !== PROCESS_REGISTRY_VERSION || !Array.isArray(value.entries)) {
+function parseProcessOwnershipEntries(value: unknown, workspaceId: string): ProcessOwnershipEntry[] | null {
+  if (!Array.isArray(value) || value.length > MAX_LIFECYCLE_ARRAY_LENGTH) {
     return null;
   }
-  const entries = value.entries.map(normalizeEntry).filter((entry): entry is ProcessOwnershipEntry => entry !== null);
+  const entries = value
+    .map((entry) => normalizeEntry(entry, workspaceId))
+    .filter((entry): entry is ProcessOwnershipEntry => entry !== null);
+  return entries;
+}
+
+function wrapProcessOwnershipRegistry(
+  workspaceRoot: string,
+  updatedAt: string,
+  entries: ProcessOwnershipEntry[],
+): ProcessOwnershipRegistry {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
   return {
+    schemaVersion: PROCESS_OWNERSHIP_SCHEMA_V2,
     version: PROCESS_REGISTRY_VERSION,
-    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString(),
+    workspaceId: resolveWorkspaceProcessId(canonicalWorkspaceRoot),
+    canonicalWorkspaceRoot,
+    updatedAt,
     entries,
   };
 }
 
-async function readRegistryFile(filePath: string): Promise<ProcessOwnershipRegistry | null> {
-  try {
-    return normalizeRegistry(JSON.parse(await readFile(filePath, "utf8")) as unknown);
-  } catch {
+function parseCurrentProcessOwnershipRegistry(workspaceRoot: string, value: unknown): ProcessOwnershipRegistry | null {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  const workspaceId = resolveWorkspaceProcessId(canonicalWorkspaceRoot);
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== PROCESS_OWNERSHIP_SCHEMA_V2
+    || value.version !== PROCESS_REGISTRY_VERSION
+    || typeof value.workspaceId !== "string"
+    || value.workspaceId !== workspaceId
+    || typeof value.canonicalWorkspaceRoot !== "string"
+    || !sameWorkspacePath(value.canonicalWorkspaceRoot, canonicalWorkspaceRoot)
+    || !Array.isArray(value.entries)
+  ) {
     return null;
   }
+  const entries = parseProcessOwnershipEntries(value.entries, workspaceId);
+  if (!entries) {
+    return null;
+  }
+  return wrapProcessOwnershipRegistry(
+    workspaceRoot,
+    typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString(),
+    entries,
+  );
+}
+
+function parseLegacyProcessOwnershipRegistry(workspaceRoot: string, value: unknown): ProcessOwnershipRegistry | null {
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  const workspaceId = resolveWorkspaceProcessId(canonicalWorkspaceRoot);
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.entries)) {
+    return null;
+  }
+  const entries = parseProcessOwnershipEntries(value.entries, workspaceId);
+  if (!entries) {
+    return null;
+  }
+  return wrapProcessOwnershipRegistry(
+    workspaceRoot,
+    typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString(),
+    entries,
+  );
 }
 
 export async function readProcessOwnershipRegistry(workspaceRoot: string): Promise<ProcessOwnershipRegistry> {
-  const primary = await readRegistryFile(getProcessRegistryPath(workspaceRoot));
-  if (primary) {
-    return primary;
-  }
-  return (await readRegistryFile(getProcessRegistryBackupPath(workspaceRoot))) ?? emptyRegistry();
+  const result = await readLifecycleDocument(workspaceRoot, PROCESS_OWNERSHIP_POLICY, {
+    parseCurrent: (value) => parseCurrentProcessOwnershipRegistry(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyProcessOwnershipRegistry(workspaceRoot, value),
+  });
+  return result.document ?? emptyRegistry(workspaceRoot);
 }
 
 async function atomicWriteRegistry(workspaceRoot: string, registry: ProcessOwnershipRegistry): Promise<void> {
-  const registryPath = getProcessRegistryPath(workspaceRoot);
-  const backupPath = getProcessRegistryBackupPath(workspaceRoot);
-  await mkdir(path.dirname(registryPath), { recursive: true });
-  const tempPath = `${registryPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-  const handle = await open(tempPath, "wx", 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(registry, null, 2)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-
-  try {
-    await copyFile(registryPath, backupPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      await unlink(tempPath).catch(() => undefined);
-      throw error;
-    }
-  }
-  await rename(tempPath, registryPath);
+  const canonical = wrapProcessOwnershipRegistry(workspaceRoot, registry.updatedAt, registry.entries);
+  await writeLifecycleDocument(workspaceRoot, PROCESS_OWNERSHIP_POLICY, canonical, {
+    parseCurrent: (value) => parseCurrentProcessOwnershipRegistry(workspaceRoot, value),
+    parseLegacy: (value) => parseLegacyProcessOwnershipRegistry(workspaceRoot, value),
+    serialize: (document) => document,
+  });
 }
 
 async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() => Promise<void>> {
   const lockPath = getWorkspaceLifecycleLockPath(workspaceRoot);
-  await mkdir(path.dirname(lockPath), { recursive: true });
+  await resolveVerifiedStateDirectory(workspaceRoot, PROCESS_OWNERSHIP_POLICY);
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   const token = randomUUID();
   const ownerIdentity = await resolveWorkspaceLockOwnerIdentity();
 
   while (true) {
+    await assertSafeLifecycleArtifact(workspaceRoot, lockPath, "lock", "process-ownership", MAX_LIFECYCLE_LOCK_BYTES);
     try {
       const handle = await open(lockPath, "wx", 0o600);
       try {
@@ -370,6 +467,7 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
       }
       return async () => {
         try {
+          await assertSafeLifecycleArtifact(workspaceRoot, lockPath, "lock", "process-ownership", MAX_LIFECYCLE_LOCK_BYTES);
           const current = JSON.parse(await readFile(lockPath, "utf8")) as { token?: unknown };
           if (current.token === token) {
             await unlink(lockPath);
@@ -385,6 +483,16 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
         throw error;
       }
       try {
+        const lockInfo = await assertSafeLifecycleArtifact(
+          workspaceRoot,
+          lockPath,
+          "lock",
+          "process-ownership",
+          MAX_LIFECYCLE_LOCK_BYTES,
+        );
+        if (!lockInfo) {
+          continue;
+        }
         const lockStat = await stat(lockPath);
         let ownership: ProcessIdentityClassification | "legacy_or_invalid" = "legacy_or_invalid";
         try {
@@ -412,7 +520,7 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
         throw statError;
       }
       if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for workspace lifecycle lock: ${lockPath}`);
+        throw new Error("Timed out waiting for workspace lifecycle lock.");
       }
       await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
     }
@@ -446,7 +554,10 @@ async function mutateRegistry(
 function replaceEntry(registry: ProcessOwnershipRegistry, entry: ProcessOwnershipEntry, now: string): ProcessOwnershipRegistry {
   const key = ownerKey(entry.ownerType, entry.ownerId);
   return {
+    schemaVersion: PROCESS_OWNERSHIP_SCHEMA_V2,
     version: PROCESS_REGISTRY_VERSION,
+    workspaceId: registry.workspaceId,
+    canonicalWorkspaceRoot: registry.canonicalWorkspaceRoot,
     updatedAt: now,
     entries: [
       ...registry.entries.filter((candidate) => ownerKey(candidate.ownerType, candidate.ownerId) !== key),

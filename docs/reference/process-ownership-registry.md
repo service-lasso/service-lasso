@@ -50,10 +50,23 @@ fingerprint.
 Registry updates use the workspace lifecycle lock, a temporary file, file sync,
 and atomic rename. Lock ownership carries the same verifiable process identity
 plus a unique token, so an exited or PID-reused owner can be recovered without
-one process releasing another process's lock. The previous valid document is retained as
+one process releasing another process's lock. The workspace `.service-lasso`
+directory and the registry, backup, lock, journal, and temp files must be
+regular directories or files: symbolic links, junctions, reparse points, and
+other special files are refused. POSIX hosts apply owner-only `0700`/`0600`
+mode bits; on Windows the runtime still requests those modes at create time and
+relies on the current-user NTFS ACL of the workspace (these documents are
+secret-free and are not DPAPI-wrapped).
+
+The current document schema is `service-lasso.process-ownership.v2`. Numeric
+`version: 1` documents remain readable and migrate atomically to v2 on the next
+trusted write, preserving a bounded `processes.json.v1.bak` pre-migration copy.
+Unsupported newer documents are left untouched and cannot authorise termination
+or replacement. The previous valid current-schema document is retained as
 `processes.json.bak`; readers use that backup if an interrupted primary write is
 invalid. Stale lock files are bounded and recovered rather than waited on
-indefinitely.
+indefinitely. An interrupted v1→v2 migration journal completes or retries from
+the verified backup and never silently downgrades newer state.
 
 The record written for an exiting process is conditional on its expected PID.
 This prevents a delayed exit callback from an older process clearing the

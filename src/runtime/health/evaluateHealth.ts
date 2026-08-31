@@ -11,6 +11,23 @@ import type { ServiceHealthcheck, ServiceHealthcheckResult, ServiceHealthResult 
 import { isProviderRole } from "../roles.js";
 import { resolveServiceText } from "../operator/variables.js";
 
+/**
+ * Resolves healthcheck port selectors. Running services use allocated runtime
+ * ports; services that are not bound yet keep declared manifest ports so
+ * operator-authored selectors still target the declared probe.
+ */
+function portsForHealthcheck(
+  manifest: ServiceManifest,
+  lifecycle: ServiceLifecycleState,
+): Record<string, number> {
+  const allocated = lifecycle.runtime.ports;
+  const declared = manifest.ports ?? {};
+  if (lifecycle.running && Object.keys(allocated).length > 0) {
+    return allocated;
+  }
+  return { ...allocated, ...declared };
+}
+
 function inferSingleTcpPort(resolvedPorts: Record<string, number>): number | string {
   const validPorts = [...new Set(Object.values(resolvedPorts).filter((port) => Number.isInteger(port) && port > 0 && port <= 65535))];
 
@@ -37,7 +54,7 @@ async function evaluateHealthcheck(
     return checkProcessHealth(lifecycle);
   }
 
-  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : manifest.ports ?? {};
+  const resolvedPorts = portsForHealthcheck(manifest, lifecycle);
 
   if (healthcheck.type === "http") {
     return checkHttpHealth({

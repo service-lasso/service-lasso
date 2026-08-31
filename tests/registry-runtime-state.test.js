@@ -264,9 +264,11 @@ test("runtime instance API and CLI expose distinct local instance records", asyn
     assert.ok(firstBody.instance.leaseTtlMs > 0);
 
     const instanceFile = JSON.parse(await readFile(getRuntimeInstanceStatePath(firstWorkspaceRoot), "utf8"));
-    assert.equal(instanceFile.instanceId, firstBody.instance.instanceId);
-    assert.equal(instanceFile.generationId, firstBody.instance.generationId);
-    assert.equal(instanceFile.apiUrl, firstServer.url);
+    assert.equal(instanceFile.schemaVersion, "service-lasso.runtime-instance.v2");
+    assert.equal(instanceFile.version, 2);
+    assert.equal(instanceFile.instance.instanceId, firstBody.instance.instanceId);
+    assert.equal(instanceFile.instance.generationId, firstBody.instance.generationId);
+    assert.equal(instanceFile.instance.apiUrl, firstServer.url);
 
     const cli = await execFileAsync(
       process.execPath,
@@ -886,5 +888,70 @@ test("start does not restart dependencies that are already running", async () =>
     await apiServer.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("AC-4BL generation registry accepts legacy v1 documents and migrates on the next write", async () => {
+  resetLifecycleState();
+  const fixture = await makeTempServicesRoot("service-lasso-880-generation-v1-");
+  const workspaceRoot = path.join(fixture.tempRoot, "workspace");
+  const previousRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(fixture.tempRoot, "host-registry", "instances.json");
+
+  try {
+    const generationPath = getRuntimeGenerationRegistryPath(workspaceRoot);
+    await mkdir(path.dirname(generationPath), { recursive: true });
+    const generationId = "123e4567-e89b-42d3-a456-426614174000";
+    await writeFile(
+      generationPath,
+      `${JSON.stringify({
+        version: 1,
+        updatedAt: "2026-08-31T00:00:00.000Z",
+        activeGenerationId: null,
+        generations: [
+          {
+            generationId,
+            instanceId: "sl_legacy",
+            servicesRoot: fixture.servicesRoot,
+            workspaceRoot,
+            runtimeRoot: path.resolve("."),
+            pid: 1,
+            phase: "stopped",
+            startedAt: "2026-08-31T00:00:00.000Z",
+            updatedAt: "2026-08-31T00:00:00.000Z",
+            finishedAt: "2026-08-31T00:00:01.000Z",
+            allocationRevision: null,
+            endpoints: [],
+            source: { branch: null, commit: null },
+          },
+        ],
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const beforeWrite = await readRuntimeGenerationRegistry(workspaceRoot);
+    assert.equal(beforeWrite.generations.some((entry) => entry.generationId === generationId), true);
+    const stillLegacy = JSON.parse(await readFile(generationPath, "utf8"));
+    assert.equal(stillLegacy.version, 1);
+
+    await beginRuntimeGeneration({
+      servicesRoot: fixture.servicesRoot,
+      workspaceRoot,
+      version: "0.0.0-test",
+    });
+    const migrated = JSON.parse(await readFile(generationPath, "utf8"));
+    assert.equal(migrated.schemaVersion, "service-lasso.runtime-generation.v2");
+    assert.equal(migrated.version, 2);
+    assert.equal(migrated.generations.some((entry) => entry.generationId === generationId), true);
+    const backup = JSON.parse(await readFile(`${generationPath}.v1.bak`, "utf8"));
+    assert.equal(backup.version, 1);
+  } finally {
+    if (previousRegistryPath === undefined) {
+      delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    } else {
+      process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousRegistryPath;
+    }
+    resetLifecycleState();
+    await rm(fixture.tempRoot, { recursive: true, force: true });
   }
 });

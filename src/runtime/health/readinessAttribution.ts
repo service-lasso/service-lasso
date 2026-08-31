@@ -79,9 +79,12 @@ function resolveNetworkTarget(
   lifecycle: ServiceLifecycleState,
   sharedGlobalEnv: Record<string, string>,
 ): TcpTarget | null {
-  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0
-    ? lifecycle.runtime.ports
-    : service.manifest.ports ?? {};
+  const allocated = lifecycle.runtime.ports;
+  const declared = service.manifest.ports ?? {};
+  // Stopped services keep declared manifest ports so probes target the operator-authored bind.
+  const resolvedPorts = lifecycle.running && Object.keys(allocated).length > 0
+    ? allocated
+    : { ...allocated, ...declared };
   if (healthcheck.type === "http") {
     try {
       const target = new URL(resolveServiceText(healthcheck.url, service, sharedGlobalEnv, resolvedPorts));

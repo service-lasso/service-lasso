@@ -24,6 +24,21 @@ import {
   type StartupTransactionJournal,
 } from "./transaction.js";
 
+/**
+ * Builds a startup-order index for cutover sorting. Missing dependency ids are
+ * not a cutover-planning failure; callers still refuse cycles.
+ */
+function globalStartupOrderIndex(graph: DependencyGraph): Map<string, number> {
+  try {
+    return new Map(graph.getGlobalStartupOrder().map((serviceId, index) => [serviceId, index]));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Unknown service id:")) {
+      return new Map();
+    }
+    throw error;
+  }
+}
+
 export type EndpointCutoverAction = "rematerialize" | "reload" | "restart";
 export type EndpointCutoverStatus = "applied" | "noop";
 
@@ -223,8 +238,7 @@ export function planEndpointCutover(
   );
   const impactedServices = mergeImpactedServices(graph, impacts);
   const selectorConsumerIds = uniqueSorted(impacts.flatMap((impact) => impact.selectorConsumerIds));
-  const startupOrder = graph.getGlobalStartupOrder();
-  const orderIndex = new Map(startupOrder.map((serviceId, index) => [serviceId, index]));
+  const orderIndex = globalStartupOrderIndex(graph);
   const cutoverOrder = [...new Set([
     ...changedOwners.map((owner) => owner.ownerId),
     ...impactedServices.map((service) => service.id),
@@ -517,7 +531,7 @@ function mergeImpactedServices(
       });
     }
   }
-  const orderIndex = new Map(graph.getGlobalStartupOrder().map((serviceId, index) => [serviceId, index]));
+  const orderIndex = globalStartupOrderIndex(graph);
   return [...byId.values()].sort(
     (left, right) =>
       (orderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
