@@ -57,6 +57,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /retainedContent = 'metadata_only'/);
   assert.match(workflow, /uses: actions\/upload-artifact@v6[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/);
   assert.match(workflow, /mutationRetry = \$false/);
+  assert.match(workflow, /comprehensive_lifecycle/);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true|--force|Start-Sleep|screenshots|videos/i);
   assert.match(workflow, /test '\$\{\{ needs\.packaged-admin-lifecycle\.result \}\}' = 'success'/);
 });

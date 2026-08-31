@@ -8,6 +8,12 @@ import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
+/**
+ * Issues a JSON HTTP request against the in-process runtime API.
+ *
+ * @param {string} url
+ * @param {{ method?: string, body?: object, headers?: Record<string, string> }} [options]
+ */
 async function requestJson(url, { method = "GET", body, headers = {} } = {}) {
   const response = await fetch(url, {
     method,
@@ -22,6 +28,13 @@ async function requestJson(url, { method = "GET", body, headers = {} } = {}) {
   };
 }
 
+/**
+ * Trusted Service Admin loopback-proxy headers for a ZITADEL role actor.
+ *
+ * @param {string} actorId
+ * @param {string} role
+ * @returns {Record<string, string>}
+ */
 const trustedHeaders = (actorId, role) => ({
   "x-service-lasso-internal-proxy": "serviceadmin",
   "x-service-lasso-proxy": "serviceadmin",
@@ -30,6 +43,53 @@ const trustedHeaders = (actorId, role) => ({
   "x-service-lasso-zitadel-user-id": actorId,
   "x-service-lasso-zitadel-roles": role,
 });
+
+/**
+ * Trusted proxy headers for a remote unauthenticated caller.
+ * Used to prove typed deny without granting local-root.
+ *
+ * @returns {Record<string, string>}
+ */
+const unauthenticatedRemoteHeaders = () => ({
+  "x-service-lasso-internal-proxy": "serviceadmin",
+  "x-service-lasso-proxy": "serviceadmin",
+  "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
+  "x-service-lasso-client-address": "192.0.2.61",
+});
+
+/**
+ * Indexes dashboard actions by kind for packaged Admin UI decision proof.
+ *
+ * @param {{ kind: string }[]} actions
+ * @returns {Map<string, object>}
+ */
+function dashboardActionsByKind(actions) {
+  return new Map(actions.map((action) => [action.kind, action]));
+}
+
+/**
+ * Returns the permission projection fields consumed by Service Admin controls.
+ *
+ * @param {object | undefined} action
+ */
+function packagedActionDecision(action) {
+  assert.ok(action, "expected dashboard action for the current trusted actor");
+  return {
+    permission: action.permission,
+    granted: action.granted,
+    requiresConfirmation: action.requiresConfirmation,
+    unavailableReason: action.unavailableReason,
+  };
+}
+
+/**
+ * Counts restart mutations recorded on the lifecycle state.
+ *
+ * @param {{ actionHistory?: string[] } | undefined} state
+ */
+function restartMutationCount(state) {
+  return (state?.actionHistory ?? []).filter((action) => action === "restart").length;
+}
 
 async function startTestApiServer(options) {
   const server = createApiServer({ ...options, host: "0.0.0.0" });
@@ -179,3 +239,155 @@ test("lifecycle routes project and enforce config and declared reload permission
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("packaged Admin contract: trusted confirmed one-shot restart and typed deny", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-lifecycle-restart-decisions-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "restart-service");
+  await writeExecutableFixtureService(servicesRoot, "provider-utility", { role: "provider" });
+
+  const apiServer = await startTestApiServer({
+    servicesRoot,
+    workspaceRoot,
+  });
+  const route = `${apiServer.url}/api/services/restart-service`;
+  const viewerHeaders = trustedHeaders("usr_viewer", "viewer");
+
+  try {
+    const localDashboard = await requestJson(`${apiServer.url}/api/dashboard/services/restart-service`);
+    assert.equal(localDashboard.status, 200);
+    const localActions = dashboardActionsByKind(localDashboard.body.service.actions);
+    assert.deepEqual(
+      packagedActionDecision(localActions.get("install")),
+      { permission: "service:install", granted: true, requiresConfirmation: false, unavailableReason: null },
+    );
+    assert.deepEqual(
+      packagedActionDecision(localActions.get("config")),
+      { permission: "service:configure", granted: true, requiresConfirmation: false, unavailableReason: null },
+    );
+    assert.deepEqual(
+      packagedActionDecision(localActions.get("start")),
+      { permission: "service:start", granted: true, requiresConfirmation: false, unavailableReason: null },
+    );
+    assert.deepEqual(
+      packagedActionDecision(localActions.get("stop")),
+      { permission: "service:stop", granted: true, requiresConfirmation: true, unavailableReason: null },
+    );
+    assert.deepEqual(
+      packagedActionDecision(localActions.get("restart")),
+      { permission: "service:restart", granted: true, requiresConfirmation: true, unavailableReason: null },
+    );
+    assert.deepEqual(
+      packagedActionDecision(localActions.get("reload")),
+      { permission: "service:reload", granted: true, requiresConfirmation: true, unavailableReason: null },
+    );
+
+    const providerDashboard = await requestJson(`${apiServer.url}/api/dashboard/services/provider-utility`);
+    assert.equal(providerDashboard.status, 200);
+    const providerKinds = providerDashboard.body.service.actions.map((action) => action.kind);
+    assert.equal(providerKinds.includes("start"), false);
+    assert.equal(providerKinds.includes("stop"), false);
+    assert.equal(providerKinds.includes("restart"), false);
+    assert.equal(providerKinds.includes("reload"), false);
+    assert.equal(providerKinds.includes("install"), true);
+    assert.equal(providerKinds.includes("config"), true);
+
+    for (const action of ["install", "config", "start"]) {
+      const result = await requestJson(`${route}/${action}`, { method: "POST", body: {} });
+      assert.equal(result.status, 200, `${action} should succeed for local-root`);
+    }
+
+    const started = await requestJson(`${apiServer.url}/api/services/restart-service`);
+    assert.equal(started.status, 200);
+    assert.equal(started.body.service.lifecycle.running, true);
+    const startedPid = started.body.service.lifecycle.runtime.pid;
+    assert.equal(typeof startedPid, "number");
+    assert.equal(restartMutationCount(started.body.service.lifecycle), 0);
+
+    const startedDashboard = await requestJson(`${apiServer.url}/api/dashboard/services/restart-service`);
+    assert.equal(startedDashboard.status, 200);
+    assert.equal(startedDashboard.body.service.status, "running");
+    assert.equal(startedDashboard.body.service.runtimeHealth.pid, startedPid);
+
+    const missingConfirmation = await requestJson(`${route}/restart`, { method: "POST", body: {} });
+    assert.equal(missingConfirmation.status, 409);
+    assert.equal(missingConfirmation.body.error, "confirmation_required");
+
+    const spoofedActor = await requestJson(`${route}/restart`, {
+      method: "POST",
+      body: { confirm: true, actor: { type: "local-root", id: "spoofed-root", permissions: ["*"] } },
+    });
+    assert.equal(spoofedActor.status, 400);
+    assert.equal(spoofedActor.body.error, "invalid_body");
+
+    const viewerDashboard = await requestJson(`${apiServer.url}/api/dashboard/services/restart-service`, {
+      headers: viewerHeaders,
+    });
+    assert.equal(viewerDashboard.status, 200);
+    const viewerActions = dashboardActionsByKind(viewerDashboard.body.service.actions);
+    assert.deepEqual(
+      packagedActionDecision(viewerActions.get("restart")),
+      {
+        permission: "service:restart",
+        granted: false,
+        requiresConfirmation: true,
+        unavailableReason: "permission_not_granted",
+      },
+    );
+
+    const viewerRestart = await requestJson(`${route}/restart`, {
+      method: "POST",
+      body: { confirm: true },
+      headers: viewerHeaders,
+    });
+    assert.equal(viewerRestart.status, 403);
+    assert.equal(viewerRestart.body.error, "permission_denied");
+
+    const anonymousRestart = await requestJson(`${route}/restart`, {
+      method: "POST",
+      body: { confirm: true, actor: { type: "local-root", id: "spoofed-root", permissions: ["*"] } },
+      headers: unauthenticatedRemoteHeaders(),
+    });
+    assert.equal(anonymousRestart.status, 401);
+    assert.equal(anonymousRestart.body.error, "remote_auth_required");
+
+    const deniedState = await requestJson(`${apiServer.url}/api/services/restart-service`);
+    assert.equal(deniedState.status, 200);
+    assert.equal(deniedState.body.service.lifecycle.running, true);
+    assert.equal(deniedState.body.service.lifecycle.runtime.pid, startedPid);
+    assert.equal(restartMutationCount(deniedState.body.service.lifecycle), 0);
+
+    const confirmedRestart = await requestJson(`${route}/restart`, { method: "POST", body: { confirm: true } });
+    assert.equal(confirmedRestart.status, 200);
+    assert.equal(confirmedRestart.body.action, "restart");
+    assert.equal(confirmedRestart.body.ok, true);
+    assert.equal(confirmedRestart.body.state.running, true);
+    assert.equal(confirmedRestart.body.state.lastAction, "restart");
+    assert.equal(restartMutationCount(confirmedRestart.body.state), 1);
+    assert.equal(typeof confirmedRestart.body.state.runtime.pid, "number");
+    assert.notEqual(confirmedRestart.body.state.runtime.pid, startedPid);
+
+    const refreshed = await requestJson(`${apiServer.url}/api/dashboard/services/restart-service`);
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.service.status, "running");
+    assert.equal(refreshed.body.service.runtimeHealth.pid, confirmedRestart.body.state.runtime.pid);
+    const refreshedRestart = packagedActionDecision(dashboardActionsByKind(refreshed.body.service.actions).get("restart"));
+    assert.equal(refreshedRestart.granted, true);
+    assert.equal(refreshedRestart.requiresConfirmation, true);
+
+    const audit = await readAuditEvents({ serviceRoots: [serviceRoot], query: { limit: 100 } });
+    const decisions = audit.events.filter((event) => event.action === "permission.decision");
+    const restartResults = audit.events.filter((event) => event.action === "service.lifecycle.restart");
+    assert.ok(decisions.some((event) => event.actor === "local-root" && event.metadata.permission === "service:restart" && event.reason === "confirmation_required"));
+    assert.ok(decisions.some((event) => event.actor === "usr_viewer" && event.metadata.permission === "service:restart" && event.reason === "permission_not_granted"));
+    assert.ok(decisions.some((event) => event.actor === "local-root" && event.metadata.permission === "service:restart" && event.outcome === "success"));
+    assert.equal(restartResults.filter((event) => event.outcome === "success").length, 1);
+    assert.equal(JSON.stringify(audit.events).includes("spoofed-root"), false);
+  } finally {
+    await requestJson(`${route}/stop`, { method: "POST", body: { confirm: true } }).catch(() => undefined);
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
