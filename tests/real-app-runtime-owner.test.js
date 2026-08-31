@@ -27,6 +27,7 @@ test("real-app reachability uses authoritative negotiated service ports", () => 
 });
 
 const fixtureSource = String.raw`
+  import { createHash } from "node:crypto";
   import { mkdir, writeFile } from "node:fs/promises";
   import http from "node:http";
   import path from "node:path";
@@ -47,15 +48,21 @@ const fixtureSource = String.raw`
     const stateRoot = path.join(workspaceRoot, ".service-lasso");
     await mkdir(stateRoot, { recursive: true });
     await writeFile(path.join(stateRoot, "runtime-instance.json"), JSON.stringify({
-      instanceId: "fixture-instance",
-      generationId: "fixture-generation",
-      servicesRoot,
-      workspaceRoot,
-      pid: process.pid,
-      apiPort: port,
-      apiUrl: "http://127.0.0.1:" + port,
-      phase: "running",
-      status: "active"
+      schemaVersion: "service-lasso.runtime-instance.v2",
+      version: 2,
+      workspaceId: "slw_" + createHash("sha256").update(path.resolve(workspaceRoot)).digest("hex").slice(0, 16),
+      canonicalWorkspaceRoot: path.resolve(workspaceRoot),
+      instance: {
+        instanceId: "fixture-instance",
+        generationId: "fixture-generation",
+        servicesRoot,
+        workspaceRoot,
+        pid: process.pid,
+        apiPort: port,
+        apiUrl: "http://127.0.0.1:" + port,
+        phase: "running",
+        status: "active"
+      }
     }));
     process.send({ type: "ready", port });
     if (mode === "delayed-bootstrap") {

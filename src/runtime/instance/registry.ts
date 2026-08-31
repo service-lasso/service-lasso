@@ -392,7 +392,7 @@ function emptyGenerationRegistry(workspaceRoot: string): RuntimeGenerationRegist
 }
 
 function generationsFromInput(input: unknown, workspaceRoot: string): RuntimeGenerationRecord[] {
-  if (!isRecord(input) || !Array.isArray(input.generations) || input.generations.length > MAX_LIFECYCLE_ARRAY_LENGTH) {
+  if (!isRecord(input) || !Array.isArray(input.generations)) {
     return [];
   }
   return input.generations
@@ -401,15 +401,41 @@ function generationsFromInput(input: unknown, workspaceRoot: string): RuntimeGen
     .filter((entry) => samePath(entry.workspaceRoot, workspaceRoot));
 }
 
+function boundedGenerationHistory(
+  generations: RuntimeGenerationRecord[],
+  activeGenerationId: string | null,
+): RuntimeGenerationRecord[] {
+  const active = activeGenerationId
+    ? generations.find((entry) =>
+        entry.generationId === activeGenerationId && ACTIVE_GENERATION_PHASES.has(entry.phase),
+      )
+    : undefined;
+  const remaining = MAX_LIFECYCLE_ARRAY_LENGTH - (active ? 1 : 0);
+  const terminalTail = generations
+    .filter((entry) => entry !== active)
+    .slice(-remaining);
+  const retained = new Set<RuntimeGenerationRecord>([
+    ...terminalTail,
+    ...(active ? [active] : []),
+  ]);
+  return generations.filter((entry) => retained.has(entry));
+}
+
 function wrapGenerationRegistry(
   workspaceRoot: string,
   input: { updatedAt?: unknown; activeGenerationId?: unknown },
   generations: RuntimeGenerationRecord[],
 ): RuntimeGenerationRegistryFile {
   const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
-  const activeGenerationId = typeof input.activeGenerationId === "string"
-    && generations.some((entry) => entry.generationId === input.activeGenerationId && ACTIVE_GENERATION_PHASES.has(entry.phase))
+  const requestedActiveGenerationId = typeof input.activeGenerationId === "string"
     ? input.activeGenerationId
+    : null;
+  const boundedGenerations = boundedGenerationHistory(generations, requestedActiveGenerationId);
+  const activeGenerationId = requestedActiveGenerationId
+    && boundedGenerations.some((entry) =>
+      entry.generationId === requestedActiveGenerationId && ACTIVE_GENERATION_PHASES.has(entry.phase),
+    )
+    ? requestedActiveGenerationId
     : null;
   return {
     schemaVersion: RUNTIME_GENERATION_SCHEMA_V2,
@@ -420,7 +446,7 @@ function wrapGenerationRegistry(
       ? new Date(input.updatedAt).toISOString()
       : new Date(0).toISOString(),
     activeGenerationId,
-    generations,
+    generations: boundedGenerations,
   };
 }
 
@@ -434,6 +460,8 @@ function parseCurrentGenerationRegistry(workspaceRoot: string, input: unknown): 
     || input.workspaceId !== resolveWorkspaceProcessId(canonicalWorkspaceRoot)
     || typeof input.canonicalWorkspaceRoot !== "string"
     || !samePath(input.canonicalWorkspaceRoot, canonicalWorkspaceRoot)
+    || !Array.isArray(input.generations)
+    || input.generations.length > MAX_LIFECYCLE_ARRAY_LENGTH
   ) {
     return null;
   }
@@ -441,7 +469,12 @@ function parseCurrentGenerationRegistry(workspaceRoot: string, input: unknown): 
 }
 
 function parseLegacyGenerationRegistry(workspaceRoot: string, input: unknown): RuntimeGenerationRegistryFile | null {
-  if (!isRecord(input) || input.version !== 1) {
+  if (
+    !isRecord(input)
+    || input.version !== 1
+    || !Array.isArray(input.generations)
+    || input.generations.length > (RUNTIME_GENERATION_POLICY.legacyMaxArrayLength ?? MAX_LIFECYCLE_ARRAY_LENGTH)
+  ) {
     return null;
   }
   return wrapGenerationRegistry(workspaceRoot, input, generationsFromInput(input, workspaceRoot));

@@ -540,6 +540,32 @@ test("Windows native tree adapter binds every member and fails closed on changed
   assert.equal(inspected.members[0].commandHash, hashProcessCommandLine(childCommandLine));
   assert.equal(inspectorArguments.at(-1), "--include-descendants");
 
+  let transientAttempts = 0;
+  const retried = await inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      transientAttempts += 1;
+      return {
+        stdout: JSON.stringify({
+          Status: "tree",
+          RootStatus: "running",
+          Processes: [{
+            Status: "running",
+            ProcessId: root.pid,
+            CreationDate: root.createdAt,
+            ExecutablePath: root.executablePath,
+            CommandLine: rootCommandLine,
+          }, {
+            ...childEvidence,
+            ParentProcessId: transientAttempts === 1 ? childEvidence.ProcessId : root.pid,
+          }],
+        }),
+      };
+    },
+  });
+  assert.equal(transientAttempts, 2);
+  assert.equal(retried.rootStatus, "owned");
+
   const exited = await inspectWindowsProcessTree(root, {
     windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
     runCommand: async () => ({

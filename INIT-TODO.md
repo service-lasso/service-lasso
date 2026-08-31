@@ -11,5 +11,7 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 
 ## Open Items
 - Long-lived branch model is `develop` for governed implementation and `main` for promoted releases. Feature/fix branches merge back through PR, are archived with the `archive/` prefix after merge, and the workspace returns to clean `develop` before the next issue.
-- Keep branch-protection and GitHub workflow settings aligned with the strict workflow artifacts in `.github/` whenever repository visibility or plan settings change.
+- Keep issue `#1164` security settings, active ruleset, branch protection,
+  CODEOWNERS, immutable Action pins, CodeQL/dependency review, Dependabot, and
+  approval-gated release environment aligned and verified by API readback.
 - Product/bootstrap adoption work is complete; use `.governance/project/BACKLOG.md` and the active service repos for any newly discovered follow-up work instead of treating this file as a live implementation queue.

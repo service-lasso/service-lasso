@@ -1,6 +1,7 @@
 # Core 1.0 repository and release authority (#1164, SPEC-007 AC-7F).
-# Required reviews apply to every path, including workflow and owner files.
+# Required reviews apply to every path, including workflow, governance, security, and owner files.
 * @wildone
 /.github/ @wildone
-/CODEOWNERS @wildone
 /.github/CODEOWNERS @wildone
+/.governance/ @wildone
+/SECURITY.md @wildone

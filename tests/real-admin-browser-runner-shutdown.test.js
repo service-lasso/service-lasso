@@ -203,10 +203,10 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       endpoint.endpointId === "readiness"
     );
     assert.equal(sampleConfigState.configured, false);
-    assert.deepEqual(sampleRuntimeState.ports, {});
     assert.equal(endpointAllocation.phase, "reserved");
     assert.equal(sampleReadiness?.resolution, "automatic");
     assert.ok(Number.isInteger(sampleReadiness?.port) && sampleReadiness.port > 0);
+    assert.deepEqual(sampleRuntimeState.ports, { readiness: sampleReadiness.port });
 
     child.send({ type: "service-lasso-real-admin-shutdown" });
     closed = await waitForExit(child, 30_000);

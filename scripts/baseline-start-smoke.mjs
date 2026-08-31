@@ -4,7 +4,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { writePrivateJson } from "../dist/runtime/security/private-json.js";
+import {
+  resolveCurrentWindowsSid,
+  writePrivateJson,
+} from "../dist/runtime/security/private-json.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
@@ -16,6 +19,12 @@ async function writeReadyBrokerCredentials(workspaceRoot) {
   const transport = process.platform === "win32"
     ? { kind: "windows-named-pipe", socketPath: `\\\\.\\pipe\\service-lasso-secretsbroker-${workspaceId}` }
     : { kind: "unix-socket", socketPath: path.join(os.tmpdir(), `service-lasso-secretsbroker-${workspaceId}.sock`) };
+  const transportBinding = process.platform === "win32"
+    ? { kind: "windows-sid", subject: await resolveCurrentWindowsSid() }
+    : { kind: "unix-uid", subject: typeof process.getuid === "function" ? String(process.getuid()) : null };
+  if (!transportBinding.subject) {
+    throw new Error("Baseline Secrets Broker fixture requires the current host transport identity.");
+  }
   await mkdir(brokerRoot, { recursive: true });
   await writeFile(storePath, "{}\n", { mode: 0o600 });
   await writePrivateJson(privateRoot, path.join(brokerRoot, "runtime-credentials.json"), {
@@ -26,7 +35,7 @@ async function writeReadyBrokerCredentials(workspaceRoot) {
     launchSigningKey: "b".repeat(43),
     masterKey: "c".repeat(43),
     transport,
-    transportBinding: null,
+    transportBinding,
     storePath,
     auditPath: path.join(brokerRoot, "audit.jsonl"),
     eventsPath: path.join(brokerRoot, "events.jsonl"),

@@ -9,7 +9,10 @@ import {
   verifyStagedArtifact,
 } from "../scripts/release-artifact-lib.mjs";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 
 test("bounded release artifact can be staged and verified", async () => {
   const outputRoot = await createTemporaryOutputRoot();
@@ -22,7 +25,10 @@ test("bounded release artifact can be staged and verified", async () => {
 
     assert.match(staged.artifactName, /^service-lasso-[0-9A-Za-z.-]+$/);
     assert.equal(staged.manifest.entrypoints.runtime, "dist/index.js");
-    assert.equal(staged.manifest.entrypoints.corePackage, "packages/core/index.js");
+    assert.equal(
+      staged.manifest.entrypoints.corePackage,
+      "packages/core/index.js",
+    );
     assert.deepEqual(
       staged.platformArchives.map((archive) => archive.archiveName),
       [
@@ -33,6 +39,11 @@ test("bounded release artifact can be staged and verified", async () => {
     );
     for (const archive of staged.platformArchives) {
       await stat(archive.archivePath);
+    }
+    assert.equal(staged.archiveSBOMs.length, 4);
+    for (const sbom of staged.archiveSBOMs) {
+      await stat(sbom.sbomPath);
+      assert.match(sbom.sha256, /^[a-f0-9]{64}$/);
     }
 
     const verified = await verifyStagedArtifact({

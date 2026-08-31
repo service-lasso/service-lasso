@@ -2,9 +2,6 @@ name: Publish Package
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 env:
   CANDIDATE_SHA: ${{ github.sha }}
@@ -98,6 +95,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Reject production dependency vulnerabilities
+        run: npm audit --omit=dev --audit-level=low
+
+      - name: Reject high-severity tooling vulnerabilities
+        run: npm audit --audit-level=high
+
       - name: Compute publish version
         id: publish_version
         run: |
@@ -140,7 +143,7 @@ jobs:
         working-directory: artifacts/npm/${{ steps.publish_version.outputs.artifact_name }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --tag latest
+        run: npm publish --provenance --access public --tag latest
 
       - name: Verify published package from npm
         env:

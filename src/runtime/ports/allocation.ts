@@ -640,7 +640,29 @@ export async function claimRuntimeEndpointAllocation(
   }
 }
 
-async function probeTcpPort(port: number, host: string): Promise<boolean> {
+function localInterfaceAddresses(family: "IPv4" | "IPv6"): string[] {
+  const addresses = Object.values(os.networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .filter((entry) => entry.family === family)
+    .map((entry) => normalizeHost(entry.address));
+  return [...new Set(addresses)];
+}
+
+function overlappingProbeHosts(host: string): string[] {
+  const normalized = normalizeHost(host);
+  if (normalized === "::") {
+    return [...new Set(["::", "::1", ...localInterfaceAddresses("IPv6"), "0.0.0.0", "127.0.0.1", ...localInterfaceAddresses("IPv4")])];
+  }
+  if (normalized === "0.0.0.0" || normalized === "*") {
+    return [...new Set(["0.0.0.0", "127.0.0.1", ...localInterfaceAddresses("IPv4")])];
+  }
+  if (normalized.includes(":")) {
+    return [...new Set([normalized, "::"])];
+  }
+  return [...new Set([normalized, "0.0.0.0"])];
+}
+
+async function probeTcpPortOnHost(port: number, host: string): Promise<boolean> {
   const server = net.createServer();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -657,7 +679,14 @@ async function probeTcpPort(port: number, host: string): Promise<boolean> {
   }
 }
 
-async function probeUdpPort(port: number, host: string): Promise<boolean> {
+async function probeTcpPort(port: number, host: string): Promise<boolean> {
+  for (const probeHost of overlappingProbeHosts(host)) {
+    if (!(await probeTcpPortOnHost(port, probeHost))) return false;
+  }
+  return true;
+}
+
+async function probeUdpPortOnHost(port: number, host: string): Promise<boolean> {
   const socket = dgram.createSocket(host.includes(":") ? "udp6" : "udp4");
   try {
     await new Promise<void>((resolve, reject) => {
@@ -670,6 +699,13 @@ async function probeUdpPort(port: number, host: string): Promise<boolean> {
   } finally {
     await new Promise<void>((resolve) => socket.close(() => resolve())).catch(() => undefined);
   }
+}
+
+async function probeUdpPort(port: number, host: string): Promise<boolean> {
+  for (const probeHost of overlappingProbeHosts(host)) {
+    if (!(await probeUdpPortOnHost(port, probeHost))) return false;
+  }
+  return true;
 }
 
 async function defaultProbePort(request: Pick<RuntimeEndpointAllocationRequest, "host" | "transport"> & { port: number }): Promise<boolean> {

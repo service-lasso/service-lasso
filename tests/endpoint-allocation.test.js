@@ -102,6 +102,31 @@ test("wildcard and loopback bindings overlap during one allocation plan", async 
   });
 });
 
+test("wildcard API allocation rejects a port occupied by a specific local listener", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-wildcard-listener-", { start: 18193, end: 18194 }, async (fixture) => {
+    const listener = net.createServer();
+    listener.listen(18193, "127.0.0.1");
+    await once(listener, "listening");
+    try {
+      const apiServer = await startApiServer({
+        port: 18193,
+        host: "0.0.0.0",
+        servicesRoot: fixture.servicesRoot,
+        workspaceRoot: fixture.workspaceRoot,
+      });
+      try {
+        assert.equal(apiServer.port, 18194);
+        const security = await fetch(`${apiServer.url}/api/runtime/security`).then((response) => response.json());
+        assert.equal(security.auth.policy.bindHost, "0.0.0.0");
+      } finally {
+        await apiServer.stop();
+      }
+    } finally {
+      await new Promise((resolve) => listener.close(() => resolve()));
+    }
+  });
+});
+
 test("fixed endpoints fail preflight while occupied preferred endpoints move", async () => {
   await withAllocationEnvironment("service-lasso-allocation-policy-", { start: 18200, end: 18202 }, async (fixture) => {
     await writeExecutableFixtureService(fixture.servicesRoot, "fixed-service", {
@@ -366,6 +391,49 @@ test("a post-reservation API bind race replans within the configured finite limi
         assert.equal(racedPort, 18250);
         assert.equal(apiServer.port, 18251);
         assert.equal(apiServer.endpointAllocationPlan.attempt, 2);
+      } finally {
+        await apiServer.stop();
+      }
+    } finally {
+      if (racingListener.listening) {
+        await new Promise((resolve) => racingListener.close(() => resolve()));
+      }
+      if (previousHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousHooks;
+      if (previousLimit === undefined) delete process.env.SERVICE_LASSO_BIND_RETRY_LIMIT;
+      else process.env.SERVICE_LASSO_BIND_RETRY_LIMIT = previousLimit;
+    }
+  });
+});
+
+test("a specific-address bind race cannot capture a wildcard API advertised selector", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-selector-race-", { start: 18253, end: 18254 }, async (fixture) => {
+    const previousHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    const previousLimit = process.env.SERVICE_LASSO_BIND_RETRY_LIMIT;
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    process.env.SERVICE_LASSO_BIND_RETRY_LIMIT = "1";
+    const racingListener = net.createServer((socket) => {
+      socket.end("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", () => socket.destroy());
+    });
+    try {
+      const apiServer = await startApiServer({
+        port: 18253,
+        host: "0.0.0.0",
+        servicesRoot: fixture.servicesRoot,
+        workspaceRoot: fixture.workspaceRoot,
+        endpointAllocationTestHooks: {
+          beforeApiBind: async ({ attempt }) => {
+            if (attempt !== 1) return;
+            racingListener.listen(18253, "127.0.0.1");
+            await once(racingListener, "listening");
+          },
+        },
+      });
+      try {
+        assert.equal(apiServer.port, 18254);
+        assert.equal(apiServer.endpointAllocationPlan.attempt, 2);
+        const setup = await fetch(`${apiServer.url}/api/setup/status`).then((response) => response.json());
+        assert.equal(setup.setup.trustBoundary.bindHost, "0.0.0.0");
       } finally {
         await apiServer.stop();
       }

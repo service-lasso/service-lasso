@@ -236,7 +236,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("@traefik")?.artifact?.source.repo, "service-lasso/lasso-traefik");
   assert.equal(byId.get("@traefik")?.artifact?.source.tag, "2026.7.26-f13b89c");
   assert.equal(byId.get("@secretsbroker")?.artifact?.source.repo, "service-lasso/lasso-secretsbroker");
-  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.25-41f7206");
+  assert.equal(byId.get("@secretsbroker")?.artifact?.source.tag, "2026.8.31-f340883");
   assert.equal(byId.get("@secretsbroker")?.ports?.service, undefined);
   assert.equal(byId.get("@secretsbroker")?.env?.SECRETSBROKER_MODE, "production");
   assert.equal(byId.get("@secretsbroker")?.env?.SECRETSBROKER_TRANSPORT, "auto");

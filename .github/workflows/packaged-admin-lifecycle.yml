@@ -44,28 +44,28 @@ jobs:
             admin_sha256: 9cf43a9ee2a7881834bb3d1141cba148d02ccb8d6e69e0cb1e1ade4941e1bd71
             broker_asset: secretsbroker-linux.tar.gz
             broker_binary: secretsbroker
-            broker_sha256: 952856d8b4d82772de2e3aa2b66708a2f154565a13941f4c723216f3a2765807
+            broker_sha256: 3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295
           - os: windows-latest
             admin_platform: win32
             admin_asset: "@serviceadmin-win32.zip"
             admin_sha256: 839729e1818f9ff4c0ed33e44c580c2f19582f204b4e003ef0fde9456280e31d
             broker_asset: secretsbroker-win32.zip
             broker_binary: secretsbroker.exe
-            broker_sha256: 1bb86e6b03026e535c24b1dd00368022334f67d66d6f3af118251d29b5db7b8b
+            broker_sha256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
           - os: macos-latest
             admin_platform: darwin
             admin_asset: "@serviceadmin-darwin.tar.gz"
             admin_sha256: 7bdb7ca27488265e5ff00bdae3e23b53679f5423cece8495de6943ee66a781c1
             broker_asset: secretsbroker-darwin.tar.gz
             broker_binary: secretsbroker
-            broker_sha256: 735fb84fb6139ff36f25907f1f56d00cd731375b338cea1657c4944f899cf3c6
+            broker_sha256: 567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5
     env:
       ADMIN_RELEASE_ID: "377559666"
       ADMIN_RELEASE_TAG: "2026.8.27-b393c70"
       ADMIN_REVISION: "b393c70ba834d0da6c1cdb0039f304dd14bf9e79"
-      BROKER_RELEASE_ID: "376535953"
-      BROKER_RELEASE_TAG: "2026.8.25-41f7206"
-      BROKER_REVISION: "41f7206f90a624582fa53397304b8d6c3536b24b"
+      BROKER_RELEASE_ID: "379635299"
+      BROKER_RELEASE_TAG: "2026.8.31-f340883"
+      BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"
 
     steps:
       - name: Check out candidate Core

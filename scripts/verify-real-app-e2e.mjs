@@ -18,6 +18,7 @@ const sourceServicesRoot = path.join(repoRoot, "services");
 const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
 const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
 const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service"];
+const REAL_APP_PUBLICATION_TIMEOUT_MS = 10 * 60_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -187,6 +188,7 @@ function startCli({ servicesRoot, workspaceRoot, port, servicePortStart }) {
   );
 
   const bootstrapOutput = observeBoundedJsonObject(child.stdout);
+  void bootstrapOutput.value.catch(() => undefined);
   let stderrBytes = 0;
   child.stderr?.on("data", (chunk) => {
     stderrBytes += chunk.length;
@@ -391,7 +393,12 @@ try {
   await rebaseManifestPorts(servicesRoot);
   verificationStep = "start_runtime";
   cli = startCli({ servicesRoot, workspaceRoot, port: apiPort, servicePortStart: apiPort + 1 });
-  activeRuntimeIdentity = await discoverOwningRuntime({ owner: cli, servicesRoot, workspaceRoot });
+  activeRuntimeIdentity = await discoverOwningRuntime({
+    owner: cli,
+    servicesRoot,
+    workspaceRoot,
+    publishTimeoutMs: REAL_APP_PUBLICATION_TIMEOUT_MS,
+  });
   activeRuntimeOwner = cli;
   apiUrl = activeRuntimeIdentity.apiUrl;
   const health = activeRuntimeIdentity.health;

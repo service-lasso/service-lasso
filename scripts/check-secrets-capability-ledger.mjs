@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const ledgerUrl = new URL("../docs/reference/secrets-capability-ledger.json", import.meta.url);
-const maturities = new Set(["planned", "read-only", "dry-run", "executable", "validated"]);
+const maturities = new Set(["planned", "read-only", "dry-run", "executable", "validated", "excluded"]);
 const releaseWaves = new Set(["release-1", "release-2", "release-3", "release-4", "enterprise"]);
 const expectedCapabilityIds = new Set([
   "vault-bootstrap-root-custody",
@@ -174,6 +174,16 @@ if (!Array.isArray(ledger.capabilities) || ledger.capabilities.length === 0) {
       );
       if (!hasRealProcessEvidence) {
         errors.push(`${path} claims validated maturity without real-process evidence`);
+      }
+    }
+
+    if (entry.maturity === "excluded") {
+      const hasDecisionEvidence = entry.evidence?.some((evidence) => evidence.kind === "release-decision");
+      if (!hasDecisionEvidence) {
+        errors.push(`${path} claims excluded maturity without release-decision evidence`);
+      }
+      if (entry.blocker !== null) {
+        errors.push(`${path} excluded maturity must not carry an implementation blocker`);
       }
     }
   });

@@ -2,20 +2,29 @@ export const SUPPORTED_RELEASE_PLATFORMS = ["win32", "linux", "darwin"];
 
 export function getExpectedReleaseAssetNames(version) {
   if (!version || typeof version !== "string") {
-    throw new Error("A release version/tag is required to compute expected release asset names.");
+    throw new Error(
+      "A release version/tag is required to compute expected release asset names.",
+    );
   }
 
-  return [
+  const archives = [
     `service-lasso-${version}.tar.gz`,
     `service-lasso-bundled-${version}.tar.gz`,
     ...SUPPORTED_RELEASE_PLATFORMS.map((platform) =>
-      platform === "win32" ? `service-lasso-${version}-${platform}.zip` : `service-lasso-${version}-${platform}.tar.gz`,
+      platform === "win32"
+        ? `service-lasso-${version}-${platform}.zip`
+        : `service-lasso-${version}-${platform}.tar.gz`,
     ),
     ...SUPPORTED_RELEASE_PLATFORMS.map((platform) =>
       platform === "win32"
         ? `service-lasso-bundled-${version}-${platform}.zip`
         : `service-lasso-bundled-${version}-${platform}.tar.gz`,
     ),
+  ];
+  return [
+    ...archives,
+    ...archives.map((name) => `${name}.cdx.json`),
+    "SHA256SUMS.txt",
   ];
 }
 

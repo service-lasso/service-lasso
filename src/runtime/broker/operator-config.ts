@@ -67,12 +67,21 @@ export function resolveSecretsBrokerPort(
   service: DiscoveredService,
 ): number | null {
   const lifecycle = getLifecycleState(service.manifest.id);
+  const manifestPort = service.manifest.ports?.service;
+  if (
+    !lifecycle.running &&
+    typeof manifestPort === "number" &&
+    Number.isInteger(manifestPort) &&
+    manifestPort > 0
+  ) {
+    return manifestPort;
+  }
+
   const runtimePort = lifecycle.runtime.ports.service;
   if (typeof runtimePort === "number" && Number.isInteger(runtimePort) && runtimePort > 0) {
     return runtimePort;
   }
 
-  const manifestPort = service.manifest.ports?.service;
   if (typeof manifestPort === "number" && Number.isInteger(manifestPort) && manifestPort > 0) {
     return manifestPort;
   }

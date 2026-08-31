@@ -336,9 +336,13 @@ export class DependencyGraph {
     try {
       globalStartupOrder = this.getGlobalStartupOrder();
     } catch (error) {
-      throw new Error(
-        `Dependency cycle detected while resolving endpoint cutover impact for "${providerServiceId}": ${error instanceof Error ? error.message : String(error)}`,
-      );
+      if (error instanceof Error && error.message.startsWith("Unknown service id:")) {
+        globalStartupOrder = this.#sortServiceIds(this.#registry.list().map((service) => service.manifest.id));
+      } else {
+        throw new Error(
+          `Dependency cycle detected while resolving endpoint cutover impact for "${providerServiceId}": ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     const orderIndex = new Map(globalStartupOrder.map((serviceId, index) => [serviceId, index]));

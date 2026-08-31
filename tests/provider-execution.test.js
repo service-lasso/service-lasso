@@ -411,6 +411,7 @@ test("java provider-backed lifecycle action records bounded provider evidence", 
       id: "@java",
       name: "Java Runtime",
       description: "Java provider shim for lifecycle proof",
+      role: "provider",
       executable: process.execPath,
       env: {
         JAVA_HOME: "test-java-home",

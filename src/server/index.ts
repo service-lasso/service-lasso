@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { cp, readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
@@ -465,6 +465,21 @@ export interface ApiServerOptions {
     brokerRuntime: SecretsBrokerRuntimeContext;
   };
 }
+
+const RUNTIME_API_OWNERSHIP_PROBE_PATH = "/.well-known/service-lasso/runtime-ownership";
+const RUNTIME_API_OWNERSHIP_CHALLENGE_HEADER = "x-service-lasso-runtime-challenge";
+const RUNTIME_API_OWNERSHIP_PROOF_HEADER = "x-service-lasso-runtime-proof";
+const RUNTIME_API_OWNERSHIP_PROBE_TIMEOUT_MS = 2_000;
+const runtimeApiOwnershipChallengeSymbol = Symbol("service-lasso.runtime-api-ownership-challenge");
+
+interface RuntimeApiOwnershipChallenge {
+  active: boolean;
+  key: Buffer;
+}
+
+type RuntimeApiServer = Server & {
+  [runtimeApiOwnershipChallengeSymbol]?: RuntimeApiOwnershipChallenge;
+};
 
 interface ApiRequestTelemetryState {
   requests: ApiRequestTelemetryPreview[];
@@ -3722,11 +3737,21 @@ function isMutatingHttpMethod(method: string): boolean {
 }
 
 function servicePortValue(service: DiscoveredService, lifecycle: ReturnType<typeof getLifecycleState>): number | null {
+  const manifestPort = service.manifest.ports?.service;
+  if (
+    service.manifest.id === SECRETSBROKER_SERVICE_ID &&
+    !lifecycle.running &&
+    typeof manifestPort === "number" &&
+    Number.isInteger(manifestPort) &&
+    manifestPort > 0
+  ) {
+    return manifestPort;
+  }
+
   const runtimePort = lifecycle.runtime.ports.service;
   if (Number.isInteger(runtimePort) && runtimePort > 0) {
     return runtimePort;
   }
-  const manifestPort = service.manifest.ports?.service;
   if (typeof manifestPort === "number" && Number.isInteger(manifestPort) && manifestPort > 0) {
     return manifestPort;
   }
@@ -6934,8 +6959,27 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
   const apiRequestTelemetry = apiRequestTelemetryState.requests;
   const getTelemetryContinuousExportState = () => options.telemetryExportScheduler?.getStatus() ?? null;
+  const ownershipChallenge: RuntimeApiOwnershipChallenge = {
+    active: true,
+    key: randomBytes(32),
+  };
 
-  return createServer((request, response) => {
+  const server: RuntimeApiServer = createServer((request, response) => {
+    if (request.method === "GET" && request.url === RUNTIME_API_OWNERSHIP_PROBE_PATH) {
+      const challenge = firstHeader(request.headers[RUNTIME_API_OWNERSHIP_CHALLENGE_HEADER]);
+      if (!ownershipChallenge.active || !challenge) {
+        notFound(response);
+        return;
+      }
+      response.statusCode = 204;
+      response.setHeader("cache-control", "no-store");
+      response.setHeader(
+        RUNTIME_API_OWNERSHIP_PROOF_HEADER,
+        createHmac("sha256", ownershipChallenge.key).update(challenge, "utf8").digest("hex"),
+      );
+      response.end();
+      return;
+    }
     const startedAt = performance.now();
     const method = request.method ?? "GET";
     const route = classifyTelemetryRoute(new URL(request.url ?? "/", "http://localhost").pathname);
@@ -6974,6 +7018,10 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       writeJson(response, body.statusCode, body);
     });
   });
+  Object.defineProperty(server, runtimeApiOwnershipChallengeSymbol, {
+    value: ownershipChallenge,
+  });
+  return server;
 }
 
 async function closeApiServer(server: Server): Promise<void> {
@@ -7005,6 +7053,46 @@ function runtimeBindRetryLimit(): number {
 
 function isAddressInUse(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE");
+}
+
+class RuntimeApiSelectorOwnershipError extends Error {
+  readonly code = "EADDRINUSE";
+
+  constructor() {
+    super("Runtime API advertised selector did not resolve to the candidate listener.");
+    this.name = "RuntimeApiSelectorOwnershipError";
+  }
+}
+
+async function proveRuntimeApiSelectorOwnership(server: Server, selectorUrl: string): Promise<void> {
+  const ownershipChallenge = (server as RuntimeApiServer)[runtimeApiOwnershipChallengeSymbol];
+  if (!ownershipChallenge?.active) {
+    throw new RuntimeApiSelectorOwnershipError();
+  }
+  const challenge = randomUUID();
+  const expectedProof = createHmac("sha256", ownershipChallenge.key).update(challenge, "utf8").digest("hex");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RUNTIME_API_OWNERSHIP_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${selectorUrl.replace(/\/$/u, "")}${RUNTIME_API_OWNERSHIP_PROBE_PATH}`, {
+      headers: { [RUNTIME_API_OWNERSHIP_CHALLENGE_HEADER]: challenge },
+      redirect: "error",
+      signal: controller.signal,
+    });
+    const providedProof = response.headers.get(RUNTIME_API_OWNERSHIP_PROOF_HEADER) ?? "";
+    const expectedBuffer = Buffer.from(expectedProof, "utf8");
+    const providedBuffer = Buffer.from(providedProof, "utf8");
+    if (response.status !== 204 || expectedBuffer.length !== providedBuffer.length || !timingSafeEqual(expectedBuffer, providedBuffer)) {
+      throw new RuntimeApiSelectorOwnershipError();
+    }
+  } catch (error) {
+    if (error instanceof RuntimeApiSelectorOwnershipError) throw error;
+    throw new RuntimeApiSelectorOwnershipError();
+  } finally {
+    clearTimeout(timeout);
+    ownershipChallenge.active = false;
+    ownershipChallenge.key.fill(0);
+  }
 }
 
 const BASELINE_BOOTSTRAP_INTENT_ACTION = "baseline_bootstrap_intended";
@@ -7452,6 +7540,7 @@ async function startApiServerGeneration(
       }
       candidateServer.listen(apiEndpoint.port, bindHost);
       await once(candidateServer, "listening");
+      await proveRuntimeApiSelectorOwnership(candidateServer, apiEndpoint.selectors.url);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
         nextStartupPhase(transaction.journal.phase, "process_spawned"),
