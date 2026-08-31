@@ -1,4 +1,4 @@
-import type { ServiceLifecycleState, SetupOutputGuardSnapshot } from "./types.js";
+import type { ServiceLifecycleState, SetupInputFingerprintSnapshot, SetupOutputGuardSnapshot } from "./types.js";
 
 const lifecycleState = new Map<string, ServiceLifecycleState>();
 
@@ -7,6 +7,15 @@ function cloneSetupOutputGuards(snapshot: SetupOutputGuardSnapshot): SetupOutput
     evaluatedAt: snapshot.evaluatedAt,
     satisfied: snapshot.satisfied,
     results: snapshot.results.map((result) => ({ ...result })),
+  };
+}
+
+function cloneSetupInputFingerprint(snapshot: SetupInputFingerprintSnapshot): SetupInputFingerprintSnapshot {
+  return {
+    algorithm: snapshot.algorithm,
+    hash: snapshot.hash,
+    declared: [...snapshot.declared],
+    evaluatedAt: snapshot.evaluatedAt,
   };
 }
 
@@ -21,6 +30,7 @@ function cloneSetupState(setup: ServiceLifecycleState["setup"]): ServiceLifecycl
           lastRun: step.lastRun ? { ...step.lastRun, logs: { ...step.lastRun.logs } } : null,
           history: step.history.map((run) => ({ ...run, logs: { ...run.logs } })),
           ...(step.outputGuards ? { outputGuards: cloneSetupOutputGuards(step.outputGuards) } : {}),
+          ...(step.inputFingerprint ? { inputFingerprint: cloneSetupInputFingerprint(step.inputFingerprint) } : {}),
         },
       ]),
     ),

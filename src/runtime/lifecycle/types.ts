@@ -84,6 +84,17 @@ export interface SetupOutputGuardSnapshot {
   results: SetupOutputGuardResult[];
 }
 
+/**
+ * Secret-free hash of a setup step's declared fingerprint inputs.
+ * Resolved values are never persisted.
+ */
+export interface SetupInputFingerprintSnapshot {
+  algorithm: "sha256";
+  hash: string;
+  declared: string[];
+  evaluatedAt: string;
+}
+
 export interface ServiceSetupState {
   updatedAt: string | null;
   steps: Record<string, {
@@ -91,6 +102,7 @@ export interface ServiceSetupState {
     lastRun: ServiceSetupStepRunState | null;
     history: ServiceSetupStepRunState[];
     outputGuards?: SetupOutputGuardSnapshot;
+    inputFingerprint?: SetupInputFingerprintSnapshot;
   }>;
 }
 

@@ -144,7 +144,7 @@ export interface ServiceLifecycleHooks {
   onFailure?: ServiceHookStep[];
 }
 
-export type ServiceSetupRerunPolicy = "manual" | "ifMissing" | "always";
+export type ServiceSetupRerunPolicy = "manual" | "ifMissing" | "always" | "ifChanged";
 
 export type ServiceActionMode = "built-in" | "command" | "workflow" | "handler";
 export type ServiceActionRequiredState = "any" | "running" | "stopped";
@@ -226,6 +226,10 @@ export interface ServiceSetupStep {
    * `rerun: "ifMissing"` skips when every declared path is present.
    */
   creates?: string[];
+  /**
+   * Input templates hashed for `rerun: "ifChanged"`. Runtime stores the hash only.
+   */
+  fingerprint?: string[];
   outputs?: string[];
 }
 

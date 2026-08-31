@@ -43,6 +43,19 @@ Declare jobs under `setup.steps`:
         "args": ["jobs/load-sample/basic_upload.py"],
         "timeoutSeconds": 300,
         "rerun": "manual"
+      },
+      "build-runtime-config": {
+        "description": "Rebuild optimized runtime config when inputs change.",
+        "executable": "${SERVICE_ARTIFACT_COMMAND}",
+        "args": ["build"],
+        "timeoutSeconds": 300,
+        "rerun": "ifChanged",
+        "fingerprint": [
+          "${SERVICE_ARTIFACT_ROOT}",
+          "${DATABASE_URL}",
+          "${CONFIG_FILE_PATH}",
+          "${SERVICE_ARTIFACT_TAG}"
+        ]
       }
     }
   }
@@ -59,8 +72,9 @@ Common fields:
 - `cwd`: optional working directory for the setup command. It supports normal Service Lasso variable selectors, resolves relative paths from the service root, must stay inside the service root, and must exist before the command runs.
 - `env`: setup-step environment additions.
 - `timeoutSeconds`: maximum runtime before the step is failed.
-- `rerun`: `ifMissing`, `manual`, or `always`.
+- `rerun`: `ifMissing`, `manual`, `always`, or `ifChanged`.
 - `creates`: optional bounded file or directory paths expected after success. Service Lasso variables are resolved; `rerun: ifMissing` skips when every path exists and reruns when any path is missing or was deleted after a prior success. Guard results are stored as secret-free setup-state metadata.
+- `fingerprint`: optional bounded input templates for `rerun: ifChanged`. Service Lasso variables are resolved; the runtime stores a SHA-256 hash only, never the raw resolved values. The installed artifact release tag is included in the hash so an artifact-version change reruns the step.
 - `outputs`: optional bounded service-root-relative file paths created or replaced by the step. Declaring outputs lets transactional runtime startup restore pre-existing content or remove transaction-created files safely; undeclared command side effects are never guessed or deleted.
 
 ## Runtime Behavior
@@ -77,6 +91,7 @@ Runtime behavior is intentionally different from daemon startup:
 - Setup step dependencies wait for the referenced setup step result before execution.
 - Stdout, stderr, exit code, timeout, start/end time, and status are persisted under `.state/setup.json`.
 - Baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps, including steps whose declared `creates` outputs are still present.
+- `rerun: ifChanged` skips a previously successful step when its fingerprint hash is unchanged, and reruns when declared inputs or the installed artifact release tag change.
 
 ## CLI and API
 

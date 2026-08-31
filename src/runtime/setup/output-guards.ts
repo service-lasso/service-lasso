@@ -2,8 +2,13 @@ import path from "node:path";
 import { stat } from "node:fs/promises";
 import type { DiscoveredService, ServiceSetupStep } from "../../contracts/service.js";
 import { getLifecycleState } from "../lifecycle/store.js";
-import type { SetupOutputGuardResult, SetupOutputGuardSnapshot } from "../lifecycle/types.js";
+import type { SetupInputFingerprintSnapshot, SetupOutputGuardResult, SetupOutputGuardSnapshot } from "../lifecycle/types.js";
 import { resolveServiceText } from "../operator/variables.js";
+import {
+  evaluateSetupInputFingerprintIfDeclared,
+  setupStepHonorsInputFingerprint,
+  SetupInputFingerprintError,
+} from "./input-fingerprint.js";
 
 /**
  * Thrown when a declared `creates` path cannot be used as an output guard.
@@ -19,6 +24,7 @@ export interface SetupSkipDecision {
   skip: boolean;
   reason: string | null;
   outputGuards: SetupOutputGuardSnapshot | null;
+  inputFingerprint: SetupInputFingerprintSnapshot | null;
 }
 
 /**
@@ -92,7 +98,7 @@ export async function evaluateSetupOutputGuards(
 }
 
 /**
- * Decide whether a setup step should skip based on rerun policy and `creates`.
+ * Decide whether a setup step should skip based on rerun policy, `creates`, and fingerprint.
  */
 export async function decideSetupStepSkip(
   service: DiscoveredService,
@@ -102,8 +108,36 @@ export async function decideSetupStepSkip(
   sharedGlobalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
 ): Promise<SetupSkipDecision> {
+  let inputFingerprint: SetupInputFingerprintSnapshot | null = null;
+  try {
+    inputFingerprint = evaluateSetupInputFingerprintIfDeclared(service, step, sharedGlobalEnv, resolvedPorts);
+  } catch (error) {
+    if (error instanceof SetupInputFingerprintError) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Setup step fingerprint could not be evaluated.";
+    throw new SetupInputFingerprintError(message);
+  }
+
   if (force || step.rerun === "always") {
-    return { skip: false, reason: null, outputGuards: null };
+    return { skip: false, reason: null, outputGuards: null, inputFingerprint };
+  }
+
+  if (setupStepHonorsInputFingerprint(step)) {
+    if (!inputFingerprint) {
+      throw new SetupInputFingerprintError("Setup step rerun \"ifChanged\" requires a fingerprint declaration.");
+    }
+    const prior = getLifecycleState(service.manifest.id).setup.steps[stepId];
+    if (prior?.status === "succeeded" && prior.inputFingerprint?.hash === inputFingerprint.hash) {
+      return {
+        skip: true,
+        reason: "setup step inputs unchanged",
+        outputGuards: null,
+        inputFingerprint,
+      };
+    }
+
+    return { skip: false, reason: null, outputGuards: null, inputFingerprint };
   }
 
   if (setupStepHonorsCreatesGuards(step)) {
@@ -113,20 +147,22 @@ export async function decideSetupStepSkip(
         skip: true,
         reason: "setup step creates already exist",
         outputGuards,
+        inputFingerprint,
       };
     }
 
-    return { skip: false, reason: null, outputGuards };
+    return { skip: false, reason: null, outputGuards, inputFingerprint };
   }
 
   const prior = getLifecycleState(service.manifest.id).setup.steps[stepId];
   if (!prior || prior.status !== "succeeded") {
-    return { skip: false, reason: null, outputGuards: null };
+    return { skip: false, reason: null, outputGuards: null, inputFingerprint };
   }
 
   return {
     skip: true,
     reason: step.rerun === "manual" ? "manual step already succeeded" : "setup step already succeeded",
     outputGuards: null,
+    inputFingerprint,
   };
 }
