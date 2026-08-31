@@ -20,7 +20,15 @@ import type { ServiceBrokerWritebackOperation } from "../../contracts/service.js
 import path from "node:path";
 import { resolveServiceEndpoints } from "../operator/endpoints.js";
 import { buildServiceNetwork } from "../operator/network.js";
-import { migrateLegacyProcessOwnership } from "../process/registry.js";
+import {
+  classifyRegisteredProcess,
+  findProcessOwnership,
+  migrateLegacyProcessOwnership,
+  reconcileRegisteredProcess,
+  resolveWorkspaceProcessId,
+  transitionProcessOwnership,
+  type ProcessOwnershipEntry,
+} from "../process/registry.js";
 import type { ProcessInspectorDependencies, ProcessIdentityClassification } from "../process/identity.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
@@ -679,30 +687,58 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
   };
 }
 
-function buildBlockedRehydrateState(
+/**
+ * Compare service roots without leaking path casing or separator differences on Windows.
+ */
+function ownerRootsAgree(left: string, right: string): boolean {
+  const normalize = (value: string): string => {
+    const resolved = path.resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  return normalize(left) === normalize(right);
+}
+
+/**
+ * Secret-free command evidence for adoption. Full command lines never belong in
+ * restored lifecycle state when the only durable identity is a hash.
+ */
+function safeAdoptedCommand(state: ServiceLifecycleState, ownership: ProcessOwnershipEntry): string {
+  const recorded = state.runtime.command?.trim();
+  if (recorded) {
+    return recorded;
+  }
+  return ownership.identity?.executablePath ?? "owned-process";
+}
+
+function buildReconcileEvidenceState(
   service: DiscoveredService,
   state: ServiceLifecycleState,
   status: ProcessIdentityClassification,
-  pid: number,
+  pid: number | null,
   reason: string,
 ): ServiceLifecycleState {
   const now = new Date().toISOString();
   const serviceId = service.manifest.id;
+  const blocked = status === "unknown_owner";
   const message =
     status === "unknown_owner"
-      ? `Persisted process owner for service "${serviceId}" could not be verified; inspect PID ${pid} and stop the external process before restarting this service.`
-      : `Persisted process owner for service "${serviceId}" was not adopted because ownership verification returned ${status}.`;
+      ? `Persisted process owner for service "${serviceId}" could not be verified; inspect PID ${pid ?? "unknown"} and stop the external process before restarting this service.`
+      : status === "identity_mismatch"
+        ? `Persisted process owner for service "${serviceId}" no longer matches the live PID; the live process was left untouched.`
+        : status === "not_running"
+          ? `Persisted process owner for service "${serviceId}" is no longer running; retained ports remain a start preference.`
+          : `Persisted process owner for service "${serviceId}" was not adopted because ownership verification returned ${status}.`;
   const attempt: ServiceStartTraceAttempt = {
     attemptId: `rehydrate-${serviceId}-${now.replace(/[:.]/g, "-")}`,
     serviceId,
     action: "start",
     startedAt: now,
     finishedAt: now,
-    status: "blocked",
+    status: blocked ? "blocked" : "succeeded",
     events: [{
       order: 1,
       phase: "process_spawn",
-      status: "blocked",
+      status: blocked ? "blocked" : "completed",
       serviceId,
       startedAt: now,
       finishedAt: now,
@@ -711,7 +747,11 @@ function buildBlockedRehydrateState(
         processOwnerStatus: status,
         previousPid: pid,
         reason,
-        nextSafeAction: "Inspect the persisted PID owner and stop the external process before starting a replacement.",
+        nextSafeAction: blocked
+          ? "Inspect the persisted PID owner and stop the external process before starting a replacement."
+          : status === "identity_mismatch"
+            ? "Leave the live process running and start a replacement only after allocating a free endpoint."
+            : "Start this service again; preferred ports are retained and will be renegotiated if occupied.",
       },
     }],
   };
@@ -731,6 +771,160 @@ function buildBlockedRehydrateState(
       },
     },
   };
+}
+
+function buildBlockedRehydrateState(
+  service: DiscoveredService,
+  state: ServiceLifecycleState,
+  status: ProcessIdentityClassification,
+  pid: number,
+  reason: string,
+): ServiceLifecycleState {
+  return buildReconcileEvidenceState(service, state, status, pid, reason);
+}
+
+/**
+ * Adopt a verified registry owner and restore running state, ports, and endpoints.
+ */
+async function adoptVerifiedRegistryOwner(
+  service: DiscoveredService,
+  state: ServiceLifecycleState,
+  ownership: ProcessOwnershipEntry,
+  workspaceRoot: string,
+): Promise<ServiceLifecycleState> {
+  const serviceId = service.manifest.id;
+  if (!ownership.pid || !ownership.identity) {
+    throw new Error(`Cannot adopt service "${serviceId}" because verified ownership evidence is missing.`);
+  }
+  const ports = Object.keys(ownership.allocation.ports).length > 0
+    ? ownership.allocation.ports
+    : state.runtime.ports;
+  const startedAt = state.runtime.startedAt ?? ownership.identity.createdAt;
+  const command = safeAdoptedCommand(state, ownership);
+  if (!hasManagedProcess(serviceId)) {
+    await adoptManagedProcess({
+      service,
+      pid: ownership.pid,
+      startedAt,
+      command,
+      workspaceRoot,
+    });
+  }
+  return setLifecycleState(serviceId, {
+    ...state,
+    running: true,
+    runtime: {
+      ...state.runtime,
+      pid: ownership.pid,
+      startedAt,
+      finishedAt: null,
+      exitCode: null,
+      command,
+      lastTermination: null,
+      allocationRevision: ownership.allocation.revision ?? state.runtime.allocationRevision,
+      ports,
+      endpoints: resolveServiceEndpoints(service, ports),
+    },
+  });
+}
+
+export interface PersistedOwnerReconcileResult {
+  status: ProcessIdentityClassification;
+  state: ServiceLifecycleState;
+}
+
+/**
+ * Reconcile one service against the workspace process registry.
+ *
+ * Matching live identity is adopted. Missing processes clear the PID and keep
+ * ports as a preference. A different live process is `identity_mismatch` and is
+ * never terminated. Unverifiable identity remains `unknown_owner` and fails closed.
+ */
+export async function reconcilePersistedServiceOwner(
+  service: DiscoveredService,
+  state: ServiceLifecycleState,
+  options: RehydrateProcessOwnershipOptions,
+): Promise<PersistedOwnerReconcileResult> {
+  const workspaceRoot = options.workspaceRoot;
+  if (!workspaceRoot) {
+    return { status: "not_running", state };
+  }
+  const serviceId = service.manifest.id;
+  if (hasManagedProcess(serviceId) && getLifecycleState(serviceId).running) {
+    return { status: "owned", state: getLifecycleState(serviceId) };
+  }
+
+  const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
+  if (!ownership?.pid || !ownership.identity) {
+    return { status: "not_running", state };
+  }
+
+  const expectedWorkspaceId = resolveWorkspaceProcessId(workspaceRoot);
+  if (ownership.workspaceId !== expectedWorkspaceId) {
+    const blockedState = setLifecycleState(
+      serviceId,
+      buildReconcileEvidenceState(
+        service,
+        state,
+        "unknown_owner",
+        ownership.pid,
+        "workspace_instance_mismatch",
+      ),
+    );
+    await writeServiceState(service, blockedState);
+    return { status: "unknown_owner", state: blockedState };
+  }
+
+  if (!ownerRootsAgree(ownership.ownerRoot, service.serviceRoot)) {
+    await transitionProcessOwnership(
+      workspaceRoot,
+      "service",
+      serviceId,
+      "stopped",
+      "identity_mismatch",
+    );
+    const mismatchState = setLifecycleState(
+      serviceId,
+      buildReconcileEvidenceState(
+        service,
+        state,
+        "identity_mismatch",
+        ownership.pid,
+        "service_root_mismatch",
+      ),
+    );
+    await writeServiceState(service, mismatchState);
+    return { status: "identity_mismatch", state: mismatchState };
+  }
+
+  const status = await classifyRegisteredProcess(ownership, options.processInspectorDependencies);
+  if (status === "owned") {
+    const adoptedState = await adoptVerifiedRegistryOwner(service, state, ownership, workspaceRoot);
+    await writeServiceState(service, adoptedState);
+    return { status: "owned", state: adoptedState };
+  }
+
+  if (status === "unknown_owner") {
+    const blockedState = setLifecycleState(
+      serviceId,
+      buildReconcileEvidenceState(service, state, status, ownership.pid, "identity_unverifiable"),
+    );
+    await writeServiceState(service, blockedState);
+    return { status, state: blockedState };
+  }
+
+  await reconcileRegisteredProcess(
+    workspaceRoot,
+    "service",
+    serviceId,
+    options.processInspectorDependencies,
+  );
+  const clearedState = setLifecycleState(
+    serviceId,
+    buildReconcileEvidenceState(service, state, status, ownership.pid, `process_${status}`),
+  );
+  await writeServiceState(service, clearedState);
+  return { status, state: clearedState };
 }
 
 export async function rehydrateLifecycleState(
@@ -757,12 +951,24 @@ export async function rehydrateLifecycleState(
 
     setLifecycleState(serviceId, nextState);
 
-    const legacyRuntime = snapshot.runtime as StoredRuntimeState | null;
-    if (
-      options.workspaceRoot &&
+    const mayAdopt =
+      Boolean(options.workspaceRoot) &&
       (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
       !options.excludeAdoptServiceIds?.has(serviceId) &&
-      !hasManagedProcess(serviceId) &&
+      !hasManagedProcess(serviceId);
+    const registryOwner = mayAdopt && options.workspaceRoot
+      ? await findProcessOwnership(options.workspaceRoot, "service", serviceId)
+      : null;
+    if (mayAdopt && options.workspaceRoot && registryOwner?.pid && registryOwner.identity) {
+      const reconciled = await reconcilePersistedServiceOwner(service, nextState, options);
+      rehydratedState = reconciled.state;
+      return rehydratedState;
+    }
+
+    const legacyRuntime = snapshot.runtime as StoredRuntimeState | null;
+    if (
+      mayAdopt &&
+      options.workspaceRoot &&
       legacyRuntime?.running === true &&
       typeof legacyRuntime.pid === "number" &&
       Number.isInteger(legacyRuntime.pid) &&

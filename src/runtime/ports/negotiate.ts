@@ -57,6 +57,13 @@ async function isPortFree(port: number, host = DEFAULT_PORT_HOST): Promise<boole
 
 export interface ServicePortNegotiationOptions {
   workspaceRoot?: string;
+  /**
+   * When true, retained lifecycle ports are kept only if still free. Occupied
+   * preferences are skipped and a new port is chosen. Occupancy never
+   * authorises terminating the live listener. Config keeps the default
+   * retain-even-if-occupied behaviour so health probes can occupy the target.
+   */
+  probeOccupiedPreferences?: boolean;
 }
 
 async function collectReservedPorts(
@@ -87,6 +94,11 @@ async function collectReservedPorts(
   return reservedPorts;
 }
 
+/**
+ * Assign ports for a service start. Retained lifecycle ports are a preference:
+ * they are kept when still free and skipped when occupied. Occupancy never
+ * authorises terminating the live listener.
+ */
 export async function negotiateServicePorts(
   service: DiscoveredService,
   services: DiscoveredService[],
@@ -104,13 +116,20 @@ export async function negotiateServicePorts(
 
   for (const [name, desiredPort] of Object.entries(desiredPorts)) {
     const existingPort = currentPorts[name];
-    if (isUsablePort(existingPort) && isPortInsideRange(existingPort, portRange)) {
+    const existingIsUsable = isUsablePort(existingPort) && isPortInsideRange(existingPort, portRange);
+    if (
+      existingIsUsable &&
+      (!options.probeOccupiedPreferences ||
+        (!reservedPorts.has(existingPort) && await isPortFree(existingPort)))
+    ) {
       negotiatedPorts[name] = existingPort;
       reservedPorts.add(existingPort);
       continue;
     }
 
-    let candidatePort = nextCandidatePort(desiredPort, portRange);
+    let candidatePort = existingIsUsable
+      ? existingPort
+      : nextCandidatePort(desiredPort, portRange);
     const maxCandidatePort = portRange?.end ?? 65535;
     while (reservedPorts.has(candidatePort) || !(await isPortFree(candidatePort))) {
       candidatePort += 1;
