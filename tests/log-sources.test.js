@@ -6,6 +6,26 @@ import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 
+/**
+ * Builds a log-read URL the way current Service Admin tabs do:
+ * `GET /api/logs/read` with `type=<sourceId>` encoded by URLSearchParams.
+ *
+ * @param {string} baseUrl
+ * @param {string} serviceId
+ * @param {string} sourceId
+ * @param {Record<string, string>} [extra]
+ * @returns {string}
+ */
+function adminLogReadUrl(baseUrl, serviceId, sourceId, extra = {}) {
+  const params = new URLSearchParams({
+    service: serviceId,
+    type: sourceId,
+    limit: "50",
+    ...extra,
+  });
+  return `${baseUrl}/api/logs/read?${params.toString()}`;
+}
+
 test("log-info exposes builtin declared and discovered service-owned log sources", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-log-sources-");
@@ -157,6 +177,115 @@ test("manifest validation rejects unsafe declared log source paths", async () =>
       /logSources\[0\]\.path.*service root/i,
     );
   } finally {
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("log-read honors NGINX-style advertised ids via Admin type= and source= queries", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-nginx-log-read-");
+  const serviceRoot = await writeManifest(servicesRoot, "nginx-log-service", {
+    id: "nginx-log-service",
+    name: "NGINX Log Service",
+    description: "Fixture for advertised access/error log-read ids.",
+    logSources: [
+      {
+        id: "missing-access",
+        label: "Missing access log",
+        type: "file",
+        path: "logs/missing-access.log",
+      },
+    ],
+  });
+  await mkdir(path.join(serviceRoot, "logs"), { recursive: true });
+  await writeFile(path.join(serviceRoot, "logs", "access.log"), "nginx access hit\n");
+  await writeFile(path.join(serviceRoot, "logs", "error.log"), "nginx error line\n");
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+
+  try {
+    const infoResponse = await fetch(`${apiServer.url}/api/services/log-info?service=nginx-log-service&type=default`);
+    const infoBody = await infoResponse.json();
+    assert.equal(infoResponse.status, 200);
+    assert.ok(
+      infoBody.sources.some(
+        (source) => source.id === "discovered:logs/access.log" && source.relativePath === "logs/access.log",
+      ),
+    );
+    assert.ok(
+      infoBody.sources.some(
+        (source) => source.id === "discovered:logs/error.log" && source.relativePath === "logs/error.log",
+      ),
+    );
+
+    const accessByDiscoveredId = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "discovered:logs/access.log"));
+    const accessByDiscoveredBody = await accessByDiscoveredId.json();
+    assert.equal(accessByDiscoveredId.status, 200);
+    assert.equal(accessByDiscoveredBody.source.id, "discovered:logs/access.log");
+    assert.ok(accessByDiscoveredBody.lines.some((line) => line.includes("nginx access hit")));
+
+    const accessByRelativePath = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "logs/access.log"));
+    const accessByRelativeBody = await accessByRelativePath.json();
+    assert.equal(accessByRelativePath.status, 200);
+    assert.equal(accessByRelativeBody.source.id, "discovered:logs/access.log");
+    assert.deepEqual(accessByRelativeBody.lines, accessByDiscoveredBody.lines);
+
+    const errorByRelativePath = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "logs/error.log"));
+    const errorByRelativeBody = await errorByRelativePath.json();
+    assert.equal(errorByRelativePath.status, 200);
+    assert.equal(errorByRelativeBody.source.id, "discovered:logs/error.log");
+    assert.ok(errorByRelativeBody.lines.some((line) => line.includes("nginx error line")));
+
+    const accessBySourceParam = new URLSearchParams({
+      service: "nginx-log-service",
+      type: "default",
+      source: "logs/access.log",
+      limit: "50",
+    });
+    const accessBySource = await fetch(`${apiServer.url}/api/logs/read?${accessBySourceParam.toString()}`);
+    const accessBySourceBody = await accessBySource.json();
+    assert.equal(accessBySource.status, 200);
+    assert.deepEqual(accessBySourceBody.lines, accessByDiscoveredBody.lines);
+
+    const discoveredSourceParam = new URLSearchParams({
+      service: "nginx-log-service",
+      source: "discovered:logs/access.log",
+      limit: "50",
+    });
+    const discoveredSource = await fetch(`${apiServer.url}/api/logs/read?${discoveredSourceParam.toString()}`);
+    const discoveredSourceBody = await discoveredSource.json();
+    assert.equal(discoveredSource.status, 200);
+    assert.deepEqual(discoveredSourceBody.lines, accessByDiscoveredBody.lines);
+
+    const missingAdvertised = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "logs/missing-access.log"));
+    const missingAdvertisedBody = await missingAdvertised.json();
+    assert.equal(missingAdvertised.status, 200);
+    assert.equal(missingAdvertisedBody.available, false);
+    assert.equal(missingAdvertisedBody.totalLines, 0);
+    assert.deepEqual(missingAdvertisedBody.lines, []);
+
+    const unknownSource = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "logs/not-advertised.log"));
+    const unknownSourceBody = await unknownSource.json();
+    assert.equal(unknownSource.status, 404);
+    assert.equal(unknownSourceBody.error, "log_source_not_found");
+
+    const traversal = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "logs/../error.log"));
+    const traversalBody = await traversal.json();
+    assert.equal(traversal.status, 404);
+    assert.equal(traversalBody.error, "log_source_not_found");
+
+    const combinedRead = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "combined"));
+    const combinedBody = await combinedRead.json();
+    assert.equal(combinedRead.status, 200);
+    assert.equal(combinedBody.type, "default");
+    assert.equal(combinedBody.source.id, "default");
+
+    const stdoutRead = await fetch(adminLogReadUrl(apiServer.url, "nginx-log-service", "stdout"));
+    const stdoutBody = await stdoutRead.json();
+    assert.equal(stdoutRead.status, 200);
+    assert.equal(stdoutBody.type, "stdout");
+  } finally {
+    await apiServer.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

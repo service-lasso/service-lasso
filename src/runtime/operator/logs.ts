@@ -696,6 +696,30 @@ function buildLogChunkPayload(
 }
 
 /**
+ * True when a log-read query names this advertised source.
+ * Matches the advertised `id` (including `discovered:<relativePath>`) or the
+ * service-relative path Admin tabs still send as `type=logs/access.log`.
+ * Rejects `..` segments so unknown/unsafe ids fail closed as 404.
+ */
+function advertisedSourceMatches(source: ServiceLogSourceInfo, sourceId: string): boolean {
+  const requested = normalizeRelativePath(sourceId.trim());
+  if (requested === "" || requested.split("/").some((segment) => segment === "..")) {
+    return false;
+  }
+
+  if (source.id === requested) {
+    return true;
+  }
+
+  const relativePath = source.relativePath;
+  if (relativePath === undefined || relativePath === "") {
+    return false;
+  }
+
+  return relativePath === requested || `discovered:${relativePath}` === requested;
+}
+
+/**
  * Resolve a declared or discovered log source by advertised id.
  * Missing files stay readable as an empty chunk; unknown ids fail closed.
  */
@@ -706,7 +730,7 @@ export async function resolveAdvertisedLogSource(
 ): Promise<ServiceLogSourceInfo> {
   const runtimeLogPaths = getServiceRuntimeLogPaths(service.serviceRoot, runId);
   const sources = await buildLogSources(service, { ...runtimeLogPaths, runId });
-  const source = sources.find((entry) => entry.id === sourceId);
+  const source = sources.find((entry) => advertisedSourceMatches(entry, sourceId));
   if (!source) {
     throw new ApiError("log_source_not_found", 404, `Unknown log source "${sourceId}".`);
   }
