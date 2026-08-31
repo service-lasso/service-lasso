@@ -77,6 +77,7 @@ import {
 } from "../setup/materialize.js";
 import type { MaterializationWriteHooks, StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 import { writeServiceState } from "../state/writeState.js";
+import { reconcilePersistedServiceOwner } from "../state/rehydrate.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "./store.js";
 import type {
@@ -1209,7 +1210,7 @@ export async function startService(
     cancelScheduledSupervisionRestart(serviceId);
   }
   const trace = beginStartTrace(serviceId, "start");
-  const current = getLifecycleState(serviceId);
+  let current = getLifecycleState(serviceId);
   if (!current.installed) {
     failStartTraceAndThrow(
       serviceId,
@@ -1225,6 +1226,56 @@ export async function startService(
       "artifact_acquisition",
       `Cannot start service "${serviceId}" before config.`,
     );
+  }
+  // Registry-first adopt: a live verified owner must not be duplicated on start.
+  if (options.workspaceRoot && !current.running && !hasManagedProcess(serviceId)) {
+    const reconciled = await reconcilePersistedServiceOwner(service, current, {
+      workspaceRoot: options.workspaceRoot,
+      runtimeGenerationId: options.runtimeGenerationId,
+      runtimeInstanceId: options.runtimeInstanceId,
+      allocationRevision: options.allocationRevision,
+    });
+    current = reconciled.state;
+    if (reconciled.status === "unknown_owner") {
+      failStartTraceAndThrow(
+        serviceId,
+        trace,
+        "process_spawn",
+        `Cannot start service "${serviceId}" because its persisted process owner could not be verified.`,
+        {
+          processOwnerStatus: "unknown_owner",
+          previousPid: current.runtime.startTrace.current?.events[0]?.metadata.previousPid ?? null,
+        },
+      );
+    }
+    if (reconciled.status === "owned") {
+      recordStartTraceEvent(
+        serviceId,
+        trace,
+        "process_spawn",
+        "completed",
+        "Adopted the verified persisted process owner instead of launching a duplicate.",
+        {
+          processOwnerStatus: "owned",
+          pid: current.runtime.pid,
+        },
+      );
+      finishStartTrace(serviceId, trace, "succeeded", "Adopted verified persisted process owner.");
+      const adopted = getLifecycleState(serviceId);
+      const adoptedResult = applyState(serviceId, "start", () => ({
+        nextState: {
+          ...adopted,
+          running: true,
+          runtime: {
+            ...adopted.runtime,
+            generationId: options.runtimeGenerationId ?? adopted.runtime.generationId,
+          },
+        },
+        message: "Adopted verified persisted process owner.",
+      }));
+      await writeServiceState(service, adoptedResult.state);
+      return adoptedResult;
+    }
   }
   if (current.running) {
     failStartTraceAndThrow(
@@ -1339,12 +1390,10 @@ export async function startService(
     ...(brokerLaunchEnv ?? {}),
     ...(scopedBrokerIdentity?.env ?? {}),
   };
-  const resolvedPorts = options.plannedPorts ?? (
-    Object.keys(current.runtime.ports).length > 0
-      ? current.runtime.ports
-      : registry
-        ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
-        : {}
+  const resolvedPorts = options.plannedPorts ?? await negotiateServicePorts(
+    service,
+    registry?.list() ?? [],
+    { workspaceRoot: options.workspaceRoot, probeOccupiedPreferences: true },
   );
   const guardedExecutableLaunch =
     options.expectedExecutableFiles !== undefined || options.expectedExecutableRevision !== undefined;
@@ -1760,12 +1809,10 @@ export async function restartService(
     ...(brokerLaunchEnv ?? {}),
     ...(scopedBrokerIdentity?.env ?? {}),
   };
-  const resolvedPorts = options.plannedPorts ?? (
-    Object.keys(current.runtime.ports).length > 0
-      ? current.runtime.ports
-      : registry
-        ? await negotiateServicePorts(service, registry.list(), { workspaceRoot: options.workspaceRoot })
-        : {}
+  const resolvedPorts = options.plannedPorts ?? await negotiateServicePorts(
+    service,
+    registry?.list() ?? [],
+    { workspaceRoot: options.workspaceRoot, probeOccupiedPreferences: true },
   );
   const allocationRevision = options.allocationRevision ?? await reserveServicePorts(options.workspaceRoot, service, resolvedPorts);
   const guardedExecutableLaunch =

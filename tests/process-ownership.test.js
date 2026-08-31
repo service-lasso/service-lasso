@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import net from "node:net";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -42,6 +43,8 @@ import {
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { startService, stopService } from "../dist/runtime/lifecycle/actions.js";
+import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
@@ -3054,6 +3057,211 @@ test("runtime and service ownership are durable before readiness and clear after
     } else {
       process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousInstanceRegistryPath;
     }
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+async function occupyLoopbackPort(port) {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+  return server;
+}
+
+async function writeInstalledRuntimeState(serviceRoot, runtime) {
+  const stateRoot = path.join(serviceRoot, ".state");
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+  await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+  await writeFile(path.join(stateRoot, "runtime.json"), JSON.stringify(runtime), "utf8");
+}
+
+test("runtime restart adopts a registry owner even when runtime.json discarded running state", async () => {
+  resetLifecycleState();
+  const preferredPort = 18241;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-registry-adopt-alive-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "registry-adopt-alive", {
+    ports: { service: preferredPort },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  let apiServer;
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "registry-adopt-alive",
+      serviceId: "registry-adopt-alive",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      ports: { service: preferredPort },
+      lifecycleState: "running",
+      source: "spawn",
+    });
+    await writeInstalledRuntimeState(serviceRoot, {
+      running: false,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      ports: { service: preferredPort },
+      lastAction: "start",
+      actionHistory: ["install", "config", "start"],
+    });
+
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const detail = await fetch(`${apiServer.url}/api/services/registry-adopt-alive`);
+    const detailBody = await detail.json();
+    assert.equal(detail.status, 200);
+    assert.equal(detailBody.service.lifecycle.running, true);
+    assert.equal(detailBody.service.lifecycle.runtime.pid, child.pid);
+    assert.deepEqual(detailBody.service.lifecycle.runtime.ports, { service: preferredPort });
+    assert.equal(hasManagedProcess("registry-adopt-alive"), true);
+
+    const health = await fetch(`${apiServer.url}/api/services/registry-adopt-alive/health`);
+    const healthBody = await health.json();
+    assert.equal(health.status, 200);
+    assert.equal(healthBody.health.healthy, true);
+
+    const doctor = await fetch(`${apiServer.url}/api/runtime/doctor`);
+    const doctorBody = await doctor.json();
+    const serviceOwner = doctorBody.doctor.ownership.services.find((entry) => entry.ownerId === "registry-adopt-alive");
+    assert.equal(serviceOwner.identityStatus, "owned");
+    assert.equal(serviceOwner.pid, child.pid);
+
+    const start = await postJson(`${apiServer.url}/api/services/registry-adopt-alive/start`);
+    assert.equal(start.response.status, 409);
+    assert.equal(hasManagedProcess("registry-adopt-alive"), true);
+    assert.equal(getLifecycleState("registry-adopt-alive").runtime.pid, child.pid);
+    assert.equal(child.exitCode, null);
+
+    const stopped = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`, { confirm: true });
+    assert.equal(stopped.response.status, 200);
+    await waitFor(() => child.exitCode !== null || child.signalCode !== null);
+    assert.equal(hasManagedProcess("registry-adopt-alive"), false);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-adopt-alive");
+    assert.equal(ownership.lifecycleState, "stopped");
+    assert.equal(ownership.pid, null);
+  } finally {
+    await apiServer?.stop();
+    await stopAllManagedProcesses().catch(() => null);
+    child.kill("SIGKILL");
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("start renegotiates a retained port when the old process is gone and the preference is occupied", async () => {
+  resetLifecycleState();
+  const preferredPort = 18242;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-registry-port-renegotiate-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "registry-port-renegotiate", {
+    ports: { service: preferredPort },
+  });
+  const occupant = await occupyLoopbackPort(preferredPort);
+
+  try {
+    await writeInstalledRuntimeState(serviceRoot, {
+      running: false,
+      pid: 424242,
+      startedAt: "2026-08-31T00:00:00.000Z",
+      command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`,
+      ports: { service: preferredPort },
+      lastAction: "start",
+      actionHistory: ["install", "config", "start"],
+    });
+    const discovered = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(discovered[0], { workspaceRoot });
+    assert.equal(rehydrated.running, false);
+    assert.equal(rehydrated.runtime.pid, null);
+    assert.deepEqual(rehydrated.runtime.ports, { service: preferredPort });
+
+    const registry = createServiceRegistry(discovered);
+    const started = await startService(discovered[0], registry, { workspaceRoot });
+    assert.equal(started.ok, true);
+    assert.equal(started.state.running, true);
+    assert.notEqual(started.state.runtime.ports.service, preferredPort);
+    assert.equal(occupant.listening, true);
+
+    await stopService(discovered[0], { workspaceRoot });
+  } finally {
+    await new Promise((resolve) => occupant.close(resolve));
+    await stopManagedProcess("registry-port-renegotiate", 500).catch(() => null);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("registry identity mismatch clears stale ownership without terminating the live process", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-registry-identity-mismatch-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "registry-identity-mismatch", {
+    ports: { service: 18243 },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "registry-identity-mismatch",
+      serviceId: "registry-identity-mismatch",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      ports: { service: 18243 },
+      lifecycleState: "running",
+      source: "spawn",
+    });
+    const registryPath = getProcessRegistryPath(workspaceRoot);
+    const registry = JSON.parse(await readFile(registryPath, "utf8"));
+    registry.entries[0].identity.commandHash = hashProcessCommandLine("unrelated-process-command");
+    await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+    await writeInstalledRuntimeState(serviceRoot, {
+      running: false,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      ports: { service: 18243 },
+      lastAction: "start",
+      actionHistory: ["install", "config", "start"],
+    });
+
+    const [service] = await discoverServices(servicesRoot);
+    const rehydrated = await rehydrateLifecycleState(service, { workspaceRoot });
+    assert.equal(rehydrated.running, false);
+    assert.equal(rehydrated.runtime.pid, null);
+    assert.equal(rehydrated.runtime.startTrace.current.events[0].metadata.processOwnerStatus, "identity_mismatch");
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    assert.equal(hasManagedProcess("registry-identity-mismatch"), false);
+
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-identity-mismatch");
+    assert.equal(ownership.identityStatus, "identity_mismatch");
+    assert.equal(ownership.pid, null);
+  } finally {
+    child.kill("SIGKILL");
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
