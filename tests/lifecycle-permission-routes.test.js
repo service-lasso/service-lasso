@@ -349,7 +349,7 @@ test("packaged Admin contract: trusted confirmed one-shot restart and typed deny
       headers: unauthenticatedRemoteHeaders(),
     });
     assert.equal(anonymousRestart.status, 401);
-    assert.equal(anonymousRestart.body.error, "remote_auth_required");
+    assert.equal(anonymousRestart.body.error, "trusted_ingress_identity_missing");
 
     const deniedState = await requestJson(`${apiServer.url}/api/services/restart-service`);
     assert.equal(deniedState.status, 200);
@@ -390,4 +390,3 @@ test("packaged Admin contract: trusted confirmed one-shot restart and typed deny
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
-

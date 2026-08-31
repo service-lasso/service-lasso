@@ -961,10 +961,15 @@ test("GET /api/services/:id/network returns operator network endpoints", async (
 
     assert.equal(response.status, 200);
     assert.equal(body.network.serviceId, "echo-service");
-    assert.equal(body.network.ports.service, 4010);
-    assert.ok(body.network.endpoints.some((entry) => entry.label === "service"));
+    assert.ok(Number.isInteger(body.network.ports.service) && body.network.ports.service > 0);
+    assert.ok(Number.isInteger(body.network.ports.health) && body.network.ports.health > 0);
+    assert.ok(body.network.endpoints.some((entry) =>
+      entry.label === "service" && entry.port === body.network.ports.service
+    ));
     assert.ok(body.network.endpoints.some((entry) => entry.label === "ui"));
-    assert.ok(body.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:4011/health"));
+    assert.ok(body.network.endpoints.some((entry) =>
+      entry.url === `http://127.0.0.1:${body.network.ports.health}/health`
+    ));
   } finally {
     await apiServer.stop();
     resetLifecycleState();

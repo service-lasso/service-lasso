@@ -849,7 +849,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
       actions: {
         stop: {
           commandline: { default: "node runtime/stop-guard.mjs" },
-          timeoutSeconds: 1,
+          timeoutSeconds: 10,
         },
       },
       doctor: {

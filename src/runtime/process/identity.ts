@@ -12,7 +12,8 @@ import {
 
 const execFileAsync = promisify(execFileCallback);
 const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
-let windowsCurrentProcessInspectionPromise: Promise<ProcessInspection> | null = null;
+let windowsCurrentProcessInspectionPromise: Promise<ProcessInspection> | null =
+  null;
 
 export interface ProcessFingerprint {
   pid: number;
@@ -34,7 +35,10 @@ export type ProcessIdentityClassification =
 
 export interface ProcessInspectorDependencies {
   platform?: NodeJS.Platform;
-  readFile?: (filePath: string, encoding?: BufferEncoding) => Promise<string | Buffer>;
+  readFile?: (
+    filePath: string,
+    encoding?: BufferEncoding,
+  ) => Promise<string | Buffer>;
   readlink?: (filePath: string) => Promise<string>;
   deadlineMs?: number;
   signal?: AbortSignal;
@@ -47,18 +51,27 @@ export interface ProcessInspectorDependencies {
 }
 
 function normalizeCommandLine(commandLine: string | readonly string[]): string {
-  const value = typeof commandLine === "string" ? commandLine : commandLine.join(" ");
+  const value =
+    typeof commandLine === "string" ? commandLine : commandLine.join(" ");
   return value.replace(/\s+/g, " ").trim();
 }
 
-export function hashProcessCommandLine(commandLine: string | readonly string[]): string {
-  return createHash("sha256").update(normalizeCommandLine(commandLine)).digest("hex");
+export function hashProcessCommandLine(
+  commandLine: string | readonly string[],
+): string {
+  return createHash("sha256")
+    .update(normalizeCommandLine(commandLine))
+    .digest("hex");
 }
 
-function normalizeExecutablePath(value: string, platform: NodeJS.Platform = process.platform): string {
-  const normalized = platform === "win32"
-    ? path.win32.normalize(value.trim())
-    : path.normalize(value.trim());
+function normalizeExecutablePath(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const normalized =
+    platform === "win32"
+      ? path.win32.normalize(value.trim())
+      : path.normalize(value.trim());
   return platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
@@ -81,7 +94,10 @@ function parseLinuxStartTicks(stat: string): number | null {
     return null;
   }
 
-  const fieldsAfterCommand = stat.slice(commandEnd + 2).trim().split(/\s+/);
+  const fieldsAfterCommand = stat
+    .slice(commandEnd + 2)
+    .trim()
+    .split(/\s+/);
   const startTicks = Number(fieldsAfterCommand[19]);
   return Number.isFinite(startTicks) && startTicks >= 0 ? startTicks : null;
 }
@@ -98,24 +114,35 @@ function parseLinuxBootTime(procStat: string): number | null {
 async function inspectLinuxProcess(
   pid: number,
   processPath: string,
-  dependencies: Required<Pick<ProcessInspectorDependencies, "readFile" | "readlink" | "runCommand">>,
+  dependencies: Required<
+    Pick<ProcessInspectorDependencies, "readFile" | "readlink" | "runCommand">
+  >,
 ): Promise<ProcessInspection> {
   try {
-    const [statValue, commandValue, procStatValue, executableLink] = await Promise.all([
-      dependencies.readFile(`${processPath}/stat`, "utf8"),
-      dependencies.readFile(`${processPath}/cmdline`),
-      dependencies.readFile("/proc/stat", "utf8"),
-      dependencies.readlink(`${processPath}/exe`).catch(() => null),
-    ]);
+    const [statValue, commandValue, procStatValue, executableLink] =
+      await Promise.all([
+        dependencies.readFile(`${processPath}/stat`, "utf8"),
+        dependencies.readFile(`${processPath}/cmdline`),
+        dependencies.readFile("/proc/stat", "utf8"),
+        dependencies.readlink(`${processPath}/exe`).catch(() => null),
+      ]);
     const stat = String(statValue);
     const procStat = String(procStatValue);
-    const commandBuffer = Buffer.isBuffer(commandValue) ? commandValue : Buffer.from(commandValue);
+    const commandBuffer = Buffer.isBuffer(commandValue)
+      ? commandValue
+      : Buffer.from(commandValue);
     const commandParts = commandBuffer
       .toString("utf8")
       .split("\0")
       .filter((entry) => entry.length > 0);
     const commandEnd = stat.lastIndexOf(")");
-    const fieldsAfterCommand = commandEnd >= 0 ? stat.slice(commandEnd + 2).trim().split(/\s+/) : [];
+    const fieldsAfterCommand =
+      commandEnd >= 0
+        ? stat
+            .slice(commandEnd + 2)
+            .trim()
+            .split(/\s+/)
+        : [];
     if (fieldsAfterCommand[0] === "Z") {
       return { status: "not_running", reason: "process_is_zombie" };
     }
@@ -123,7 +150,12 @@ async function inspectLinuxProcess(
     const startTicks = parseLinuxStartTicks(stat);
     const bootTimeSeconds = parseLinuxBootTime(procStat);
 
-    if (commandParts.length === 0 || startTicks === null || bootTimeSeconds === null || !executablePath) {
+    if (
+      commandParts.length === 0 ||
+      startTicks === null ||
+      bootTimeSeconds === null ||
+      !executablePath
+    ) {
       return { status: "unknown", reason: "linux_process_evidence_incomplete" };
     }
 
@@ -138,7 +170,9 @@ async function inspectLinuxProcess(
       // POSIX systems conventionally use 100 when getconf is unavailable.
     }
 
-    const createdAt = new Date((bootTimeSeconds + startTicks / clockTicks) * 1000).toISOString();
+    const createdAt = new Date(
+      (bootTimeSeconds + startTicks / clockTicks) * 1000,
+    ).toISOString();
     return {
       status: "running",
       identity: {
@@ -162,8 +196,15 @@ async function inspectLinuxProcess(
       const createdAt = new Date(started.stdout.trim());
       const executablePath = executable.stdout.trim();
       const commandLine = command.stdout.trim();
-      if (!Number.isFinite(createdAt.getTime()) || !executablePath || !commandLine) {
-        return { status: "unknown", reason: "linux_ps_process_evidence_incomplete" };
+      if (
+        !Number.isFinite(createdAt.getTime()) ||
+        !executablePath ||
+        !commandLine
+      ) {
+        return {
+          status: "unknown",
+          reason: "linux_ps_process_evidence_incomplete",
+        };
       }
       return {
         status: "running",
@@ -188,7 +229,9 @@ async function inspectLinuxProcess(
 
 function parseNamespacePids(status: string): number[] {
   const match = status.match(/^NSpid:\s+([\d\s]+)$/m);
-  return match ? match[1].trim().split(/\s+/).map(Number).filter(Number.isFinite) : [];
+  return match
+    ? match[1].trim().split(/\s+/).map(Number).filter(Number.isFinite)
+    : [];
 }
 
 type LinuxProcessPathResolution =
@@ -196,7 +239,9 @@ type LinuxProcessPathResolution =
   | { status: "not_running"; reason: string }
   | { status: "unknown"; reason: string };
 
-async function resolveLinuxProcessPath(pid: number): Promise<LinuxProcessPathResolution> {
+async function resolveLinuxProcessPath(
+  pid: number,
+): Promise<LinuxProcessPathResolution> {
   if (pid === process.pid) {
     return { status: "resolved", path: "/proc/self" };
   }
@@ -221,7 +266,10 @@ async function resolveLinuxProcessPath(pid: number): Promise<LinuxProcessPathRes
           readlink(`${candidatePath}/ns/pid`),
         ]);
         const namespacePids = parseNamespacePids(status);
-        if (namespacePids.at(-1) === pid && pidNamespace === currentPidNamespace) {
+        if (
+          namespacePids.at(-1) === pid &&
+          pidNamespace === currentPidNamespace
+        ) {
           candidates.push(candidatePath);
         }
       } catch {
@@ -241,7 +289,10 @@ async function resolveLinuxProcessPath(pid: number): Promise<LinuxProcessPathRes
     } catch (error) {
       return (error as NodeJS.ErrnoException).code === "ESRCH"
         ? { status: "not_running", reason: "process_not_running" }
-        : { status: "unknown", reason: `linux_namespaced_pid_probe_failed:${errorReason(error)}` };
+        : {
+            status: "unknown",
+            reason: `linux_namespaced_pid_probe_failed:${errorReason(error)}`,
+          };
     }
   } catch {
     return { status: "resolved", path: `/proc/${pid}` };
@@ -268,7 +319,10 @@ export interface WindowsProcessTreeInspection {
   members: ProcessFingerprint[];
 }
 
-function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection {
+function parseWindowsProcessJson(
+  stdout: string,
+  pid: number,
+): ProcessInspection {
   if (!stdout.trim()) {
     return { status: "unknown", reason: "windows_process_output_missing" };
   }
@@ -288,7 +342,10 @@ function parseWindowsProcessJson(stdout: string, pid: number): ProcessInspection
       typeof value.CommandLine !== "string" ||
       !value.CommandLine.trim()
     ) {
-      return { status: "unknown", reason: "windows_process_evidence_incomplete" };
+      return {
+        status: "unknown",
+        reason: "windows_process_evidence_incomplete",
+      };
     }
 
     return {
@@ -311,12 +368,19 @@ const WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH = fileURLToPath(
 
 export async function classifyWindowsProcessIdentityFast(
   expected: ProcessFingerprint,
-  dependencies: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"> = {},
+  dependencies: Pick<
+    ProcessInspectorDependencies,
+    "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"
+  > = {},
 ): Promise<ProcessIdentityClassification> {
   if (!Number.isInteger(expected.pid) || expected.pid <= 0) {
     return "not_running";
   }
-  const inspection = await inspectWindowsProcess(expected.pid, dependencies.runCommand, dependencies);
+  const inspection = await inspectWindowsProcess(
+    expected.pid,
+    dependencies.runCommand,
+    dependencies,
+  );
   return classifyProcessIdentity(expected, inspection, "win32");
 }
 
@@ -324,14 +388,14 @@ async function runWindowsNativeProcessInspector(
   pid: number,
   includeDescendants: boolean,
   runCommand: ProcessInspectorDependencies["runCommand"],
-  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "windowsSystemRoot">,
+  options: Pick<
+    ProcessInspectorDependencies,
+    "deadlineMs" | "signal" | "windowsSystemRoot"
+  >,
 ): Promise<{ exitCode: number | null; stdout: string }> {
   return await runProcessControlCommand(
     WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH,
-    [
-      String(pid),
-      ...(includeDescendants ? ["--include-descendants"] : []),
-    ],
+    [String(pid), ...(includeDescendants ? ["--include-descendants"] : [])],
     {
       captureOutput: true,
       deadlineMs: options.deadlineMs,
@@ -349,13 +413,21 @@ async function runWindowsNativeProcessInspector(
   );
 }
 
-async function inspectWindowsProcess(
+async function inspectWindowsProcessOnce(
   pid: number,
   runCommand: ProcessInspectorDependencies["runCommand"],
-  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "windowsSystemRoot">,
+  options: Pick<
+    ProcessInspectorDependencies,
+    "deadlineMs" | "signal" | "windowsSystemRoot"
+  >,
 ): Promise<ProcessInspection> {
   try {
-    const result = await runWindowsNativeProcessInspector(pid, false, runCommand, options);
+    const result = await runWindowsNativeProcessInspector(
+      pid,
+      false,
+      runCommand,
+      options,
+    );
     return result.exitCode === 0
       ? parseWindowsProcessJson(result.stdout, pid)
       : { status: "unknown", reason: "windows_process_helper_failed" };
@@ -363,13 +435,52 @@ async function inspectWindowsProcess(
     if (isProcessControlDeadlineError(error)) {
       throw error;
     }
-    return { status: "unknown", reason: `windows_process_inspection_failed:${errorReason(error)}` };
+    return {
+      status: "unknown",
+      reason: `windows_process_inspection_failed:${errorReason(error)}`,
+    };
   }
 }
 
-export async function inspectWindowsProcessTree(
+async function inspectWindowsProcess(
+  pid: number,
+  runCommand: ProcessInspectorDependencies["runCommand"],
+  options: Pick<
+    ProcessInspectorDependencies,
+    "deadlineMs" | "signal" | "windowsSystemRoot"
+  >,
+): Promise<ProcessInspection> {
+  let last: ProcessInspection = {
+    status: "unknown",
+    reason: "windows_process_inspection_not_attempted",
+  };
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    last = await inspectWindowsProcessOnce(pid, runCommand, options);
+    if (last.status !== "unknown") {
+      return last;
+    }
+    if (attempt < 3) {
+      if (options.signal?.aborted) {
+        return last;
+      }
+      if (
+        options.deadlineMs !== undefined &&
+        remainingProcessControlMs(options.deadlineMs) <= 25
+      ) {
+        return last;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  return last;
+}
+
+async function inspectWindowsProcessTreeOnce(
   expectedRoot: ProcessFingerprint,
-  dependencies: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"> = {},
+  dependencies: Pick<
+    ProcessInspectorDependencies,
+    "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"
+  > = {},
 ): Promise<WindowsProcessTreeInspection> {
   if (!Number.isInteger(expectedRoot.pid) || expectedRoot.pid <= 0) {
     return { rootStatus: "exited", members: [] };
@@ -380,7 +491,9 @@ export async function inspectWindowsProcessTree(
     dependencies.runCommand,
     {
       ...dependencies,
-      deadlineMs: dependencies.deadlineMs ?? Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+      deadlineMs:
+        dependencies.deadlineMs ??
+        Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
     },
   );
   if (result.exitCode !== 0 || !result.stdout.trim()) {
@@ -395,13 +508,17 @@ export async function inspectWindowsProcessTree(
   }
   if (
     payload.Status !== "tree" ||
-    (payload.RootStatus !== "running" && payload.RootStatus !== "not_running") ||
+    (payload.RootStatus !== "running" &&
+      payload.RootStatus !== "not_running") ||
     !Array.isArray(payload.Processes)
   ) {
     throw new Error("Native Windows process-tree evidence was incomplete.");
   }
 
-  const rows: Array<{ identity: ProcessFingerprint; parentPid: number | null }> = [];
+  const rows: Array<{
+    identity: ProcessFingerprint;
+    parentPid: number | null;
+  }> = [];
   const seen = new Set<number>();
   for (const value of payload.Processes) {
     if (!value || typeof value !== "object") {
@@ -415,12 +532,16 @@ export async function inspectWindowsProcessTree(
     if (inspection.status !== "running") {
       throw new Error("Native Windows process-tree evidence was incomplete.");
     }
-    const parentPid = pid === expectedRoot.pid
-      ? null
-      : Number((value as WindowsProcessJson).ParentProcessId);
+    const parentPid =
+      pid === expectedRoot.pid
+        ? null
+        : Number((value as WindowsProcessJson).ParentProcessId);
     if (
       pid !== expectedRoot.pid &&
-      (parentPid === null || !Number.isInteger(parentPid) || parentPid <= 0 || parentPid === pid)
+      (parentPid === null ||
+        !Number.isInteger(parentPid) ||
+        parentPid <= 0 ||
+        parentPid === pid)
     ) {
       throw new Error("Native Windows process-tree ancestry was invalid.");
     }
@@ -430,13 +551,21 @@ export async function inspectWindowsProcessTree(
 
   const byPid = new Map(rows.map((row) => [row.identity.pid, row]));
   const root = byPid.get(expectedRoot.pid)?.identity;
-  if (payload.RootStatus === "running" && (
-    !root || classifyProcessIdentity(expectedRoot, { status: "running", identity: root }, "win32") !== "owned"
-  )) {
+  if (
+    payload.RootStatus === "running" &&
+    (!root ||
+      classifyProcessIdentity(
+        expectedRoot,
+        { status: "running", identity: root },
+        "win32",
+      ) !== "owned")
+  ) {
     throw new Error("Native Windows process-tree root identity changed.");
   }
   if (payload.RootStatus === "not_running" && root) {
-    throw new Error("Native Windows process-tree root evidence was inconsistent.");
+    throw new Error(
+      "Native Windows process-tree root evidence was inconsistent.",
+    );
   }
 
   const rootCreatedAtMs = Date.parse(expectedRoot.createdAt);
@@ -462,7 +591,10 @@ export async function inspectWindowsProcessTree(
       if (!parent) {
         throw new Error("Native Windows process-tree ancestry was invalid.");
       }
-      if (Date.parse(current.identity.createdAt) < Date.parse(parent.identity.createdAt)) {
+      if (
+        Date.parse(current.identity.createdAt) <
+        Date.parse(parent.identity.createdAt)
+      ) {
         throw new Error("Native Windows process-tree ancestry was invalid.");
       }
       current = parent;
@@ -479,6 +611,53 @@ export async function inspectWindowsProcessTree(
   };
 }
 
+function isRetryableWindowsTreeSnapshotError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return new Set([
+    "Native Windows process-tree inspection failed.",
+    "Native Windows process-tree evidence was malformed.",
+    "Native Windows process-tree evidence was incomplete.",
+    "Native Windows process-tree ancestry was invalid.",
+    "Native Windows process-tree root evidence was inconsistent.",
+  ]).has(error.message);
+}
+
+export async function inspectWindowsProcessTree(
+  expectedRoot: ProcessFingerprint,
+  dependencies: Pick<
+    ProcessInspectorDependencies,
+    "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"
+  > = {},
+): Promise<WindowsProcessTreeInspection> {
+  if (!Number.isInteger(expectedRoot.pid) || expectedRoot.pid <= 0) {
+    return { rootStatus: "exited", members: [] };
+  }
+  const deadlineMs =
+    dependencies.deadlineMs ??
+    Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await inspectWindowsProcessTreeOnce(expectedRoot, {
+        ...dependencies,
+        deadlineMs,
+      });
+    } catch (error) {
+      lastError = error;
+      if (
+        !isRetryableWindowsTreeSnapshotError(error) ||
+        attempt === 3 ||
+        dependencies.signal?.aborted ||
+        remainingProcessControlMs(deadlineMs) <= 25
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw lastError;
+}
+
 async function inspectDarwinProcess(
   pid: number,
   runCommand: NonNullable<ProcessInspectorDependencies["runCommand"]>,
@@ -492,8 +671,15 @@ async function inspectDarwinProcess(
     const createdAt = new Date(started.stdout.trim());
     const executablePath = executable.stdout.trim();
     const commandLine = command.stdout.trim();
-    if (!Number.isFinite(createdAt.getTime()) || !executablePath || !commandLine) {
-      return { status: "unknown", reason: "darwin_process_evidence_incomplete" };
+    if (
+      !Number.isFinite(createdAt.getTime()) ||
+      !executablePath ||
+      !commandLine
+    ) {
+      return {
+        status: "unknown",
+        reason: "darwin_process_evidence_incomplete",
+      };
     }
 
     return {
@@ -509,7 +695,10 @@ async function inspectDarwinProcess(
     const exitCode = (error as { code?: unknown })?.code;
     return exitCode === 1 || isMissingProcessError(error)
       ? { status: "not_running", reason: "process_not_running" }
-      : { status: "unknown", reason: `darwin_process_inspection_failed:${errorReason(error)}` };
+      : {
+          status: "unknown",
+          reason: `darwin_process_inspection_failed:${errorReason(error)}`,
+        };
   }
 }
 
@@ -522,25 +711,31 @@ export async function inspectProcess(
   }
 
   const platform = dependencies.platform ?? process.platform;
-  const readFileDependency = dependencies.readFile ?? ((filePath, encoding) => readFile(filePath, encoding));
+  const readFileDependency =
+    dependencies.readFile ??
+    ((filePath, encoding) => readFile(filePath, encoding));
   const readlinkDependency = dependencies.readlink ?? readlink;
-  const runCommand = dependencies.runCommand ?? (async (command, args, options = {}) => {
-    const timeout = options.deadlineMs === undefined
-      ? undefined
-      : Math.max(1, remainingProcessControlMs(options.deadlineMs));
-    const result = await execFileAsync(command, args, {
-      windowsHide: true,
-      signal: options.signal,
-      timeout,
-      killSignal: "SIGKILL",
+  const runCommand =
+    dependencies.runCommand ??
+    (async (command, args, options = {}) => {
+      const timeout =
+        options.deadlineMs === undefined
+          ? undefined
+          : Math.max(1, remainingProcessControlMs(options.deadlineMs));
+      const result = await execFileAsync(command, args, {
+        windowsHide: true,
+        signal: options.signal,
+        timeout,
+        killSignal: "SIGKILL",
+      });
+      return { stdout: result.stdout };
     });
-    return { stdout: result.stdout };
-  });
 
   if (platform === "linux") {
-    const resolution: LinuxProcessPathResolution = dependencies.readFile || dependencies.readlink
-      ? { status: "resolved", path: `/proc/${pid}` }
-      : await resolveLinuxProcessPath(pid);
+    const resolution: LinuxProcessPathResolution =
+      dependencies.readFile || dependencies.readlink
+        ? { status: "resolved", path: `/proc/${pid}` }
+        : await resolveLinuxProcessPath(pid);
     if (resolution.status !== "resolved") {
       return resolution;
     }
@@ -559,13 +754,18 @@ export async function inspectProcess(
       dependencies.signal === undefined &&
       dependencies.windowsSystemRoot === undefined;
     if (cacheCurrentProcessIdentity) {
-      const pending = windowsCurrentProcessInspectionPromise ?? inspectWindowsProcess(pid, undefined, {
-        deadlineMs: Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
-      });
+      const pending =
+        windowsCurrentProcessInspectionPromise ??
+        inspectWindowsProcess(pid, undefined, {
+          deadlineMs: Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+        });
       windowsCurrentProcessInspectionPromise = pending;
       try {
         const inspection = await pending;
-        if (inspection.status !== "running" && windowsCurrentProcessInspectionPromise === pending) {
+        if (
+          inspection.status !== "running" &&
+          windowsCurrentProcessInspectionPromise === pending
+        ) {
           windowsCurrentProcessInspectionPromise = null;
         }
         return inspection;
@@ -578,7 +778,9 @@ export async function inspectProcess(
     }
     return await inspectWindowsProcess(pid, dependencies.runCommand, {
       ...dependencies,
-      deadlineMs: dependencies.deadlineMs ?? Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
+      deadlineMs:
+        dependencies.deadlineMs ??
+        Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS,
     });
   }
   if (platform === "darwin") {
@@ -602,7 +804,8 @@ export function classifyProcessIdentity(
   const actual = inspection.identity;
   return expected.pid === actual.pid &&
     expected.createdAt === actual.createdAt &&
-    normalizeExecutablePath(expected.executablePath, platform) === normalizeExecutablePath(actual.executablePath, platform) &&
+    normalizeExecutablePath(expected.executablePath, platform) ===
+      normalizeExecutablePath(actual.executablePath, platform) &&
     expected.commandHash === actual.commandHash
     ? "owned"
     : "identity_mismatch";

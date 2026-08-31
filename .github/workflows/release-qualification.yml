@@ -111,15 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           version="$SERVICE_LASSO_RELEASE_VERSION"
-          asset_names=(
-            "service-lasso-${version}.tar.gz"
-            "service-lasso-bundled-${version}.tar.gz"
-            "service-lasso-${version}-win32.zip"
-            "service-lasso-${version}-linux.tar.gz"
-            "service-lasso-${version}-darwin.tar.gz"
-            "service-lasso-bundled-${version}-win32.zip"
-            "service-lasso-bundled-${version}-linux.tar.gz"
-            "service-lasso-bundled-${version}-darwin.tar.gz"
+          mapfile -t asset_names < <(node scripts/check-release-assets.mjs --expected "$version")
+          (
+            cd artifacts
+            sha256sum "${asset_names[@]:0:16}" > SHA256SUMS.txt
           )
           for asset_name in "${asset_names[@]}"; do
             test -f "artifacts/${asset_name}"
@@ -150,11 +145,11 @@ jobs:
           - os: ubuntu-latest
             asset: secretsbroker-linux.tar.gz
             binary: secretsbroker
-            sha256: 952856d8b4d82772de2e3aa2b66708a2f154565a13941f4c723216f3a2765807
+            sha256: 3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295
           - os: windows-latest
             asset: secretsbroker-win32.zip
             binary: secretsbroker.exe
-            sha256: 1bb86e6b03026e535c24b1dd00368022334f67d66d6f3af118251d29b5db7b8b
+            sha256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
 
     steps:
       - name: Check out repo
@@ -182,7 +177,7 @@ jobs:
           $expected = '${{ matrix.sha256 }}'
           $archive = Join-Path $env:RUNNER_TEMP $asset
           $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
-          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.25-41f7206/$asset"
+          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.31-f340883/$asset"
           $downloaded = $false
           $maxAttempts = 4
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {

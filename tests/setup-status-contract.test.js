@@ -54,6 +54,9 @@ test("an initialized vault with a missing OS wrapper remains outside first-run m
   const transport = process.platform === "win32"
     ? { kind: "windows-named-pipe", socketPath: `\\\\.\\pipe\\service-lasso-secretsbroker-${workspaceId}` }
     : { kind: "unix-socket", socketPath: path.join(os.tmpdir(), `service-lasso-secretsbroker-${workspaceId}.sock`) };
+  const transportBinding = process.platform === "win32"
+    ? { kind: "windows-sid", subject: "S-1-5-21-test-fixture" }
+    : { kind: "unix-uid", subject: String(process.getuid()) };
   try {
     await mkdir(brokerRoot, { recursive: true });
     await writeFile(storePath, "{}\n", { mode: 0o600 });
@@ -65,7 +68,7 @@ test("an initialized vault with a missing OS wrapper remains outside first-run m
       launchSigningKey: "b".repeat(43),
       masterKey: "c".repeat(43),
       transport,
-      transportBinding: null,
+      transportBinding,
       storePath,
       auditPath: path.join(brokerRoot, "audit.jsonl"),
       eventsPath: path.join(brokerRoot, "events.jsonl"),

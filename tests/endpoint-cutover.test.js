@@ -441,6 +441,33 @@ test("AC-4BK fails before mutation when endpoint cutover order is cyclic", async
   });
 });
 
+test("AC-4BK plans a cutover when an unrelated dependency is missing", async () => {
+  await withCutoverEnvironment("service-lasso-endpoint-cutover-missing-", async (fixture) => {
+    await writeExecutableFixtureService(fixture.servicesRoot, "provider", {
+      endpoints: [{ id: "api", kind: "network", port: { default: PREVIOUS_PORT } }],
+    });
+    await writeExecutableFixtureService(fixture.servicesRoot, "blocked-consumer", {
+      depend_on: ["provider", "missing-service"],
+      env: { API_PORT: "${endpoint.api.port}" },
+    });
+    const discovered = await discoverServices(fixture.servicesRoot);
+    const registry = createServiceRegistry(discovered);
+    const graph = new DependencyGraph(registry);
+    const plan = planEndpointCutover(
+      graph,
+      {},
+      serviceAllocationPlan(fixture, "alloc-next", [
+        { ownerId: "provider", endpointId: "api", port: NEXT_PORT },
+      ]),
+      null,
+    );
+
+    assert.deepEqual(plan.changedOwners, [{ ownerId: "provider", endpointIds: ["api"] }]);
+    assert.deepEqual(plan.selectorConsumerIds, ["blocked-consumer"]);
+    assert.deepEqual(plan.cutoverOrder, ["blocked-consumer", "provider"]);
+  });
+});
+
 test("AC-4BK rolls back a partial cutover through the startup transaction", async () => {
   await withCutoverEnvironment("service-lasso-endpoint-cutover-rollback-", async (fixture) => {
     await writeCutoverGraph(fixture.servicesRoot);

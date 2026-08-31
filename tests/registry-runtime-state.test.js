@@ -902,34 +902,37 @@ test("AC-4BL generation registry accepts legacy v1 documents and migrates on the
     const generationPath = getRuntimeGenerationRegistryPath(workspaceRoot);
     await mkdir(path.dirname(generationPath), { recursive: true });
     const generationId = "123e4567-e89b-42d3-a456-426614174000";
+    const legacyGenerations = Array.from({ length: 700 }, (_entry, index) => ({
+      generationId: index === 0 || index === 699
+        ? generationId
+        : `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+      instanceId: "sl_legacy",
+      servicesRoot: fixture.servicesRoot,
+      workspaceRoot,
+      runtimeRoot: path.resolve("."),
+      pid: 1,
+      phase: "stopped",
+      startedAt: new Date(Date.UTC(2026, 7, 31, 0, 0, index)).toISOString(),
+      updatedAt: new Date(Date.UTC(2026, 7, 31, 0, 0, index)).toISOString(),
+      finishedAt: new Date(Date.UTC(2026, 7, 31, 0, 0, index + 1)).toISOString(),
+      allocationRevision: null,
+      endpoints: [],
+      source: { branch: `legacy-${index}-${"x".repeat(160)}`, commit: null },
+    }));
     await writeFile(
       generationPath,
       `${JSON.stringify({
         version: 1,
         updatedAt: "2026-08-31T00:00:00.000Z",
         activeGenerationId: null,
-        generations: [
-          {
-            generationId,
-            instanceId: "sl_legacy",
-            servicesRoot: fixture.servicesRoot,
-            workspaceRoot,
-            runtimeRoot: path.resolve("."),
-            pid: 1,
-            phase: "stopped",
-            startedAt: "2026-08-31T00:00:00.000Z",
-            updatedAt: "2026-08-31T00:00:00.000Z",
-            finishedAt: "2026-08-31T00:00:01.000Z",
-            allocationRevision: null,
-            endpoints: [],
-            source: { branch: null, commit: null },
-          },
-        ],
+        generations: legacyGenerations,
       }, null, 2)}\n`,
       "utf8",
     );
 
     const beforeWrite = await readRuntimeGenerationRegistry(workspaceRoot);
+    assert.equal(Buffer.byteLength(await readFile(generationPath, "utf8")) > 256 * 1024, true);
+    assert.equal(beforeWrite.generations.length, 256);
     assert.equal(beforeWrite.generations.some((entry) => entry.generationId === generationId), true);
     const stillLegacy = JSON.parse(await readFile(generationPath, "utf8"));
     assert.equal(stillLegacy.version, 1);
@@ -942,9 +945,22 @@ test("AC-4BL generation registry accepts legacy v1 documents and migrates on the
     const migrated = JSON.parse(await readFile(generationPath, "utf8"));
     assert.equal(migrated.schemaVersion, "service-lasso.runtime-generation.v2");
     assert.equal(migrated.version, 2);
+    assert.equal(migrated.generations.length, 256);
     assert.equal(migrated.generations.some((entry) => entry.generationId === generationId), true);
+    assert.equal(migrated.generations.some((entry) => entry.generationId === migrated.activeGenerationId), true);
     const backup = JSON.parse(await readFile(`${generationPath}.v1.bak`, "utf8"));
     assert.equal(backup.version, 1);
+    assert.equal(backup.generations.length, 700);
+
+    await writeFile(
+      generationPath,
+      `${JSON.stringify({ ...migrated, padding: "x".repeat(300 * 1024) })}\n`,
+      "utf8",
+    );
+    await assert.rejects(
+      () => readRuntimeGenerationRegistry(workspaceRoot),
+      (error) => error?.code === "oversized" && error?.kind === "runtime-generation",
+    );
   } finally {
     if (previousRegistryPath === undefined) {
       delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;

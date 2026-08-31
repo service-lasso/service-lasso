@@ -56,6 +56,8 @@ export interface LifecycleDocumentPolicy {
   readonly legacyVersion: number;
   readonly relativePath: string;
   readonly legacyUnversioned?: boolean;
+  readonly legacyMaxBytes?: number;
+  readonly legacyMaxArrayLength?: number;
 }
 
 export interface LifecycleDocumentInspection {
@@ -120,6 +122,8 @@ export const RUNTIME_GENERATION_POLICY: LifecycleDocumentPolicy = {
   currentVersion: 2,
   legacyVersion: 1,
   relativePath: path.join(".service-lasso", "runtime-generations.json"),
+  legacyMaxBytes: 4 * 1024 * 1024,
+  legacyMaxArrayLength: 4096,
 };
 
 export const RUNTIME_INSTANCE_POLICY: LifecycleDocumentPolicy = {
@@ -333,7 +337,11 @@ export async function assertSafeLifecycleArtifact(
   return info;
 }
 
-function countBoundedJson(value: unknown, depth: number): void {
+function countBoundedJson(
+  value: unknown,
+  depth: number,
+  maxArrayLength: number = MAX_LIFECYCLE_ARRAY_LENGTH,
+): void {
   if (depth > MAX_LIFECYCLE_JSON_DEPTH) {
     throw new Error("Lifecycle state document exceeds the bounded JSON depth.");
   }
@@ -347,11 +355,11 @@ function countBoundedJson(value: unknown, depth: number): void {
     return;
   }
   if (Array.isArray(value)) {
-    if (value.length > MAX_LIFECYCLE_ARRAY_LENGTH) {
+    if (value.length > maxArrayLength) {
       throw new Error("Lifecycle state document exceeds the bounded entry count.");
     }
     for (const entry of value) {
-      countBoundedJson(entry, depth + 1);
+      countBoundedJson(entry, depth + 1, maxArrayLength);
     }
     return;
   }
@@ -366,7 +374,7 @@ function countBoundedJson(value: unknown, depth: number): void {
     if (key.length > MAX_LIFECYCLE_STRING_CHARS) {
       throw new Error("Lifecycle state document contains an oversized key.");
     }
-    countBoundedJson(value[key], depth + 1);
+    countBoundedJson(value[key], depth + 1, maxArrayLength);
   }
 }
 
@@ -459,8 +467,14 @@ async function readExactRegularFile(
   }
 }
 
-function parseBoundedJson(bytes: Buffer, safePath: string, kind: LifecycleDocumentKind): unknown {
-  if (bytes.length === 0 || bytes.length > MAX_LIFECYCLE_DOCUMENT_BYTES) {
+function parseBoundedJson(
+  bytes: Buffer,
+  safePath: string,
+  kind: LifecycleDocumentKind,
+  maxBytes: number = MAX_LIFECYCLE_DOCUMENT_BYTES,
+  maxArrayLength: number = MAX_LIFECYCLE_ARRAY_LENGTH,
+): unknown {
+  if (bytes.length === 0 || bytes.length > maxBytes) {
     fail("oversized", kind, safePath, "Lifecycle state document is empty or oversized.");
   }
   let parsed: unknown;
@@ -470,7 +484,7 @@ function parseBoundedJson(bytes: Buffer, safePath: string, kind: LifecycleDocume
     fail("corrupt", kind, safePath, "Lifecycle state document is not valid JSON.");
   }
   try {
-    countBoundedJson(parsed, 0);
+    countBoundedJson(parsed, 0, maxArrayLength);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Lifecycle state document is structurally abusive.";
     if (message.includes("oversized") || message.includes("bounded")) {
@@ -597,18 +611,35 @@ async function readParsedCandidate(
   policy: LifecycleDocumentPolicy,
 ): Promise<{ classification: LifecycleStateClassification; value: unknown | null; schemaVersion: string | null; numericVersion: number | null }> {
   try {
+    const allowExpandedLegacyEnvelope = role === "registry" || role === "backup";
+    const maxBytes = allowExpandedLegacyEnvelope
+      ? policy.legacyMaxBytes ?? MAX_LIFECYCLE_DOCUMENT_BYTES
+      : MAX_LIFECYCLE_DOCUMENT_BYTES;
+    const maxArrayLength = allowExpandedLegacyEnvelope
+      ? policy.legacyMaxArrayLength ?? MAX_LIFECYCLE_ARRAY_LENGTH
+      : MAX_LIFECYCLE_ARRAY_LENGTH;
     const read = await readExactRegularFile(
       workspaceRoot,
       filePath,
       role,
       policy.kind,
-      MAX_LIFECYCLE_DOCUMENT_BYTES,
+      maxBytes,
     );
     if (read.classification === "missing") {
       return { classification: "missing", value: null, schemaVersion: null, numericVersion: null };
     }
-    const parsed = parseBoundedJson(read.bytes, filePath, policy.kind);
+    const parsed = parseBoundedJson(read.bytes, filePath, policy.kind, maxBytes, maxArrayLength);
     const classified = classifyParsedDocument(parsed, policy);
+    if (classified.classification !== "legacy") {
+      if (read.bytes.length > MAX_LIFECYCLE_DOCUMENT_BYTES) {
+        fail("oversized", policy.kind, filePath, "Lifecycle state document exceeds the bounded size.");
+      }
+      try {
+        countBoundedJson(parsed, 0);
+      } catch {
+        fail("oversized", policy.kind, filePath, "Lifecycle state document exceeds the bounded structure.");
+      }
+    }
     return { ...classified, value: parsed };
   } catch (error) {
     if (error instanceof LifecycleStateError) {
@@ -722,7 +753,7 @@ async function copyVerifiedPrimaryToMigrationBackup(
     documentPath,
     "registry",
     policy.kind,
-    MAX_LIFECYCLE_DOCUMENT_BYTES,
+    policy.legacyMaxBytes ?? MAX_LIFECYCLE_DOCUMENT_BYTES,
   );
   if (read.classification === "missing") {
     fail("missing", policy.kind, documentPath, "Cannot backup a missing lifecycle document.");

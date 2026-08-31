@@ -12,7 +12,7 @@ const repoRoot = process.cwd();
  * @returns {boolean}
  */
 function isShaPinnedAction(value) {
-  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[0-9a-f]{40}(?:\s+#.+)?$/.test(value.trim());
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.+)?$/.test(value.trim());
 }
 
 test("CODEOWNERS and SECURITY.md exist for Core 1.0 release authority", async () => {

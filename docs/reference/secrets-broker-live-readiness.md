@@ -66,13 +66,16 @@ The current candidates have the following direct evidence:
   exact pinned Broker release, verifies the published archive digest, and runs
   that real subprocess journey over a Windows named pipe and a Linux Unix
   socket. The dedicated gate requires a Broker binary and cannot silently turn
-  into the source-suite skip used by ordinary contributor runs. Broker PR `#167`
-  repaired the private-wrapper owner/ACL boundary and checksum-verified release
-  `2026.8.25-41f7206` targets merge
-  `41f7206f90a624582fa53397304b8d6c3536b24b`. Its downloaded Windows, Linux,
-  and macOS archives and released manifest match both GitHub's SHA-256 digests
-  and `SHA256SUMS.txt`. Core pins that release; live readiness still requires
-  terminal green hosted native, product, aggregate, and post-merge evidence.
+  into the source-suite skip used by ordinary contributor runs. Broker PR `#177`
+  added digest-pinned private-PKI source trust; immutable release
+  `2026.8.31-f340883` targets merge
+  `f340883056ec3cf74b535fb46490b39382e8c823`. Its publicly redownloaded
+  Windows, Linux, and macOS archives, SBOMs, manifest, and checksum file match
+  GitHub's SHA-256 digests and all eight provenance attestations. The released
+  Windows binary also passed the Core/Admin first-run contract with no insecure
+  TLS mode. Core pins that release; live readiness still requires terminal
+  green hosted product, aggregate, and post-merge evidence for the final Core
+  and Admin candidates.
 - Service Admin: 106 unit tests, four packaged-runtime tests, production audit
   with no known vulnerabilities, Windows package verification, and a packaged
   Electron/Cypress journey through a real Core and Broker. The journey covers

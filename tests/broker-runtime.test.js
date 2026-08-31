@@ -16,19 +16,29 @@ import {
 test("broker Unix socket paths remain below the macOS sockaddr limit", () => {
   const workspaceId = `slw_${"a".repeat(24)}`;
   const ordinary = secretsBrokerUnixSocketPath(workspaceId, "/tmp");
-  assert.equal(path.basename(ordinary), `service-lasso-secretsbroker-${workspaceId}.sock`);
+  assert.equal(
+    path.basename(ordinary),
+    `service-lasso-secretsbroker-${workspaceId}.sock`,
+  );
 
-  const bounded = secretsBrokerUnixSocketPath(workspaceId, `/var/folders/${"long-segment/".repeat(8)}T`);
+  const bounded = secretsBrokerUnixSocketPath(
+    workspaceId,
+    `/var/folders/${"long-segment/".repeat(8)}T`,
+  );
   assert.equal(bounded, `/tmp/service-lasso-sb-${workspaceId}.sock`);
   assert.equal(Buffer.byteLength(bounded, "utf8") <= 100, true);
 });
 
 test("broker bootstrap command failures expose only a stable stage code", async () => {
-  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-stage-failure-"));
+  const workspaceRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-broker-stage-failure-"),
+  );
   const fakeCommand = path.join(workspaceRoot, "broker-fixture");
   try {
     await writeFile(fakeCommand, "fixture");
-    const registry = { getById: () => ({ manifest: { id: "@secretsbroker" } }) };
+    const registry = {
+      getById: () => ({ manifest: { id: "@secretsbroker" } }),
+    };
     const failure = await bootstrapSecretsBrokerVault(workspaceRoot, registry, {
       brokerCommand: { command: fakeCommand, cwd: workspaceRoot },
       runCommand: async () => {
@@ -39,36 +49,78 @@ test("broker bootstrap command failures expose only a stable stage code", async 
     assert.ok(failure instanceof SecretsBrokerBootstrapError);
     assert.equal(failure.code, "secrets_broker_key_initialize_failed");
     assert.equal(failure.message, "Secrets Broker bootstrap stage failed.");
-    assert.equal(JSON.stringify(failure).includes("sensitive provider output"), false);
+    assert.equal(
+      JSON.stringify(failure).includes("sensitive provider output"),
+      false,
+    );
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
 
 test("broker bootstrap creates protected credentials and invokes only metadata-safe command arguments", async () => {
-  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-broker-runtime-"));
+  const workspaceRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-broker-runtime-"),
+  );
   const fakeCommand = path.join(workspaceRoot, "broker-fixture.exe");
   const calls = [];
   try {
     await writeFile(fakeCommand, "fixture");
     const runCommand = async (command, cwd, args, environment) => {
-      calls.push({ command, cwd, args: [...args], environment: { ...environment } });
+      calls.push({
+        command,
+        cwd,
+        args: [...args],
+        environment: { ...environment },
+      });
       if (args[0] === "key" && args[1] === "initialize") {
-        await writeFile(environment.SECRETSBROKER_STORE_PATH, "encrypted-store-fixture");
-        return JSON.stringify({ outcome: "ready", state: "ready", keyId: "key_fixture", keyVersion: "v1" });
+        await writeFile(
+          environment.SECRETSBROKER_STORE_PATH,
+          "encrypted-store-fixture",
+        );
+        return JSON.stringify({
+          outcome: "ready",
+          state: "ready",
+          keyId: "key_fixture",
+          keyVersion: "v1",
+        });
       }
       if (args[0] === "key" && args[1] === "import") {
-        await writeFile(environment.SECRETSBROKER_WRAPPER_PATH, "protected-wrapper-fixture");
-        return JSON.stringify({ outcome: "ready", state: "ready", keyId: "key_fixture", keyVersion: "v1" });
+        await writeFile(
+          environment.SECRETSBROKER_WRAPPER_PATH,
+          "protected-wrapper-fixture",
+        );
+        return JSON.stringify({
+          outcome: "ready",
+          state: "ready",
+          keyId: "key_fixture",
+          keyVersion: "v1",
+        });
       }
-      if (args[0] === "key" && (args[1] === "status" || args[1] === "wrapper-status")) {
+      if (
+        args[0] === "key" &&
+        (args[1] === "status" || args[1] === "wrapper-status")
+      ) {
         return process.platform === "win32"
-          ? JSON.stringify({ outcome: "ready", state: "ready", ready: true, wrapper: { keyId: "key_fixture", keyVersion: "v1" } })
-          : JSON.stringify({ available: true, state: "ready", keyId: "key_fixture", keyVersion: "v1", source: "flag/env" });
+          ? JSON.stringify({
+              outcome: "ready",
+              state: "ready",
+              ready: true,
+              wrapper: { keyId: "key_fixture", keyVersion: "v1" },
+            })
+          : JSON.stringify({
+              available: true,
+              state: "ready",
+              keyId: "key_fixture",
+              keyVersion: "v1",
+              source: "flag/env",
+            });
       }
       throw new Error("unexpected command");
     };
-    const registry = { getById: () => ({ manifest: { id: "@secretsbroker" } }) };
+    const registry = {
+      getById: () => ({ manifest: { id: "@secretsbroker" } }),
+    };
     const result = await bootstrapSecretsBrokerVault(workspaceRoot, registry, {
       brokerCommand: { command: fakeCommand, cwd: workspaceRoot },
       runCommand,
@@ -77,7 +129,8 @@ test("broker bootstrap creates protected credentials and invokes only metadata-s
     assert.equal(result.keyId, "key_fixture");
     assert.equal(result.keyVersion, "v1");
 
-    const credentials = await readSecretsBrokerRuntimeCredentials(workspaceRoot);
+    const credentials =
+      await readSecretsBrokerRuntimeCredentials(workspaceRoot);
     assert.ok(credentials);
     assert.equal(credentials.apiToken.length >= 32, true);
     assert.equal(credentials.launchSigningKey.length >= 32, true);
@@ -86,16 +139,37 @@ test("broker bootstrap creates protected credentials and invokes only metadata-s
     assert.equal(serializedArgs.includes(credentials.apiToken), false);
     assert.equal(serializedArgs.includes(credentials.launchSigningKey), false);
     assert.equal(serializedArgs.includes(credentials.masterKey), false);
-    assert.equal(calls.every((entry) => entry.environment.SECRETSBROKER_AUDIT_HASH_CHAIN === "1"), true);
+    assert.equal(
+      calls.every(
+        (entry) => entry.environment.SECRETSBROKER_AUDIT_HASH_CHAIN === "1",
+      ),
+      true,
+    );
+    assert.equal(
+      calls.every(
+        (entry) =>
+          entry.environment.SECRETSBROKER_LAUNCH_IDENTITY_ISSUER ===
+          "service-lasso-local-launcher",
+      ),
+      true,
+    );
     assert.equal(
       calls.at(-1).args.join(" "),
-      process.platform === "win32" ? `key wrapper-status --wrapper ${credentials.wrapperPath}` : "key status",
+      process.platform === "win32"
+        ? `key wrapper-status --wrapper ${credentials.wrapperPath}`
+        : "key status",
     );
 
-    const storedCredentials = await readFile(secretsBrokerCredentialsPath(workspaceRoot), "utf8");
+    const storedCredentials = await readFile(
+      secretsBrokerCredentialsPath(workspaceRoot),
+      "utf8",
+    );
     if (process.platform === "win32") {
       assert.equal(storedCredentials.includes(credentials.apiToken), false);
-      assert.equal(storedCredentials.includes(credentials.launchSigningKey), false);
+      assert.equal(
+        storedCredentials.includes(credentials.launchSigningKey),
+        false,
+      );
       assert.equal(storedCredentials.includes(credentials.masterKey), false);
     }
 
@@ -104,13 +178,41 @@ test("broker bootstrap creates protected credentials and invokes only metadata-s
       runCommand,
     });
     assert.equal(second.keyId, "key_fixture");
-    assert.equal(calls.filter((entry) => entry.args[1] === "initialize").length, 1);
+    assert.equal(
+      calls.filter((entry) => entry.args[1] === "initialize").length,
+      1,
+    );
 
-    const runtimeContext = await loadSecretsBrokerRuntimeContext(workspaceRoot, registry);
+    const runtimeContext = await loadSecretsBrokerRuntimeContext(
+      workspaceRoot,
+      registry,
+    );
     assert.ok(runtimeContext);
     assert.equal(runtimeContext.launchLeaseIssuer, undefined);
     assert.equal(typeof runtimeContext.operatorRequest, "function");
-    assert.equal(typeof runtimeContext.serverEnv.SECRETSBROKER_API_TOKEN, "string");
+    assert.equal(
+      typeof runtimeContext.serverEnv.SECRETSBROKER_API_TOKEN,
+      "string",
+    );
+    assert.equal(
+      runtimeContext.serverEnv.SECRETSBROKER_LAUNCH_IDENTITY_ISSUER,
+      "service-lasso-local-launcher",
+    );
+    assert.ok(runtimeContext.transportBinding);
+    if (process.platform === "win32") {
+      assert.equal(
+        runtimeContext.serverEnv.SECRETSBROKER_NAMED_PIPE_ALLOWED_SIDS,
+        runtimeContext.transportBinding.subject,
+      );
+      assert.equal(
+        runtimeContext.serverEnv.SECRETSBROKER_NAMED_PIPE_ALLOW_ADMIN,
+        "false",
+      );
+      assert.equal(
+        runtimeContext.serverEnv.SECRETSBROKER_NAMED_PIPE_ALLOW_LOCAL_SYSTEM,
+        "false",
+      );
+    }
     await assert.rejects(
       bootstrapSecretsBrokerVault(workspaceRoot, registry),
       /Secrets Broker must be installed before vault bootstrap\./,
