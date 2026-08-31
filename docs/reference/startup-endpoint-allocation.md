@@ -49,6 +49,11 @@ The host registry defaults to
 `SERVICE_LASSO_INSTANCE_REGISTRY_PATH` is set, the endpoint registry is placed
 beside that registry unless an explicit endpoint-registry path is supplied.
 Registry writers use a verified owner lock and atomic, fsynced replacement.
+The workspace plan at `runtime/endpoint-allocation.json` uses the same hardened
+lifecycle-state boundary as process and generation documents: regular files
+only, bounded JSON, explicit `service-lasso.endpoint-allocation.v2` schema,
+atomic v1→v2 migration with a bounded `.v1.bak`, and fail-closed handling of
+redirected or unsupported-new state.
 
 ## Resolved plan
 

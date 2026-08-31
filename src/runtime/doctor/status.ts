@@ -4,13 +4,24 @@ import type { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import {
   createRuntimeInstanceSnapshot,
+  getRuntimeGenerationRegistryPath,
+  getRuntimeInstanceStatePath,
 } from "../instance/registry.js";
 import {
   classifyRegisteredProcess,
   readProcessOwnershipRegistry,
+  resolveWorkspaceProcessId,
   type ProcessOwnershipEntry,
 } from "../process/registry.js";
 import type { ProcessIdentityClassification } from "../process/identity.js";
+import {
+  PROCESS_OWNERSHIP_SCHEMA_V2,
+  doctorClassificationForPersistence,
+  inspectWorkspaceLifecycleDocuments,
+  isLifecycleStateError,
+} from "../state/lifecycle-persistence.js";
+import { getStartupTransactionJournalPath } from "../startup/transaction.js";
+import { getRuntimeEndpointAllocationPlanPath } from "../ports/allocation.js";
 import {
   readPortReservationLedger,
   type PortReservation,
@@ -153,9 +164,25 @@ function summarizeProcessEntry(entry: ProcessOwnershipEntry, identityStatus: Pro
 }
 
 export async function buildRuntimeDoctorStatus(input: RuntimeDoctorStatusInput): Promise<RuntimeDoctorResponse> {
-  const [instanceSnapshot, processRegistry, portLedger] = await Promise.all([
+  const persistenceInspections = await inspectWorkspaceLifecycleDocuments(input.config.workspaceRoot);
+  let processRegistry;
+  try {
+    processRegistry = await readProcessOwnershipRegistry(input.config.workspaceRoot);
+  } catch (error) {
+    if (!isLifecycleStateError(error)) {
+      throw error;
+    }
+    processRegistry = {
+      schemaVersion: PROCESS_OWNERSHIP_SCHEMA_V2,
+      version: 2,
+      workspaceId: resolveWorkspaceProcessId(input.config.workspaceRoot),
+      canonicalWorkspaceRoot: path.resolve(input.config.workspaceRoot),
+      updatedAt: new Date(0).toISOString(),
+      entries: [],
+    };
+  }
+  const [instanceSnapshot, portLedger] = await Promise.all([
     createRuntimeInstanceSnapshot(input.config),
-    readProcessOwnershipRegistry(input.config.workspaceRoot),
     readPortReservationLedger(input.config.workspaceRoot),
   ]);
 
@@ -221,6 +248,11 @@ export async function buildRuntimeDoctorStatus(input: RuntimeDoctorStatusInput):
     candidateClassifications.push("configuration_drift");
   }
 
+  const persistenceClassification = doctorClassificationForPersistence(persistenceInspections);
+  if (persistenceClassification) {
+    candidateClassifications.push(persistenceClassification);
+  }
+
   const classification = selectClassification(candidateClassifications);
   return {
     doctor: {
@@ -230,10 +262,20 @@ export async function buildRuntimeDoctorStatus(input: RuntimeDoctorStatusInput):
       recommendedAction: recommendedAction(classification),
       readOnly: true,
       evidencePaths: {
-        runtimeInstanceState: normalizeEvidencePath(path.join(input.config.workspaceRoot, ".service-lasso", "runtime-instance.json")),
+        runtimeInstanceState: normalizeEvidencePath(getRuntimeInstanceStatePath(input.config.workspaceRoot)),
         processRegistry: normalizeEvidencePath(path.join(input.config.workspaceRoot, ".service-lasso", "processes.json")),
+        generationRegistry: normalizeEvidencePath(getRuntimeGenerationRegistryPath(input.config.workspaceRoot)),
+        startupTransaction: normalizeEvidencePath(getStartupTransactionJournalPath(input.config.workspaceRoot)),
+        endpointAllocation: normalizeEvidencePath(getRuntimeEndpointAllocationPlanPath(input.config.workspaceRoot)),
         portReservations: normalizeEvidencePath(path.join(input.config.workspaceRoot, "runtime", "port-reservations.json")),
       },
+      persistence: persistenceInspections.map((entry) => ({
+        kind: entry.kind,
+        classification: entry.classification,
+        schemaVersion: entry.schemaVersion,
+        safePath: normalizeEvidencePath(entry.safePath),
+        recoveredFromBackup: entry.recoveredFromBackup,
+      })),
       runtime: {
         expected: {
           servicesRoot: expectedServicesRoot,

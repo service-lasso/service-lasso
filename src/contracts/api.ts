@@ -572,8 +572,27 @@ export interface RuntimeDoctorResponse {
     evidencePaths: {
       runtimeInstanceState: string;
       processRegistry: string;
+      generationRegistry: string;
+      startupTransaction: string;
+      endpointAllocation: string;
       portReservations: string;
     };
+    persistence: Array<{
+      kind: "process-ownership" | "runtime-generation" | "runtime-instance" | "startup-transaction" | "endpoint-allocation";
+      classification:
+        | "missing"
+        | "current"
+        | "legacy"
+        | "corrupt"
+        | "unsupported-old"
+        | "unsupported-new"
+        | "redirected"
+        | "oversized"
+        | "migration-interrupted";
+      schemaVersion: string | null;
+      safePath: string;
+      recoveredFromBackup: boolean;
+    }>;
     runtime: {
       expected: {
         servicesRoot: string;

@@ -61,11 +61,15 @@ The host-level registry is stored at:
 
 Set SERVICE_LASSO_INSTANCE_REGISTRY_PATH to place the registry somewhere else, which is useful for isolated tests and temporary multi-instance runs.
 
-Instance and generation files use temporary-file sync, atomic rename, and a
-`.bak` recovery document. Host-registry writers are serialized, and generation
-creation is serialized by the verified workspace lifecycle lock. The registry
-does not include secrets, raw environment values, credentials, or command
-lines.
+Instance and generation files use the hardened lifecycle-state boundary:
+redirect-resistant directory and file checks, bounded JSON, explicit schema
+versions (`service-lasso.runtime-instance.v2` and
+`service-lasso.runtime-generation.v2`), atomic v1→v2 migration with a bounded
+`.v1.bak`, and crash-recovery `.bak` documents. Host-registry writers are
+serialized, and generation creation is serialized by the verified workspace
+lifecycle lock. The registry does not include secrets, raw environment values,
+credentials, or command lines. Unsupported newer workspace documents are
+preserved and block unsafe mutation.
 
 This registry is a discovery and lease mechanism, not termination authority.
 Before signalling a runtime or service PID, lifecycle code must verify the
