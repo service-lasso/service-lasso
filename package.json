@@ -52,6 +52,7 @@
     "docs:serve": "docusaurus serve docs",
     "docs:clear": "docusaurus clear docs",
     "docs:check-secrets-ledger": "node scripts/check-secrets-capability-ledger.mjs",
+    "verify:release-authority": "node scripts/verify-core-release-authority.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=low",
     "audit:tooling": "npm audit --audit-level=high",
     "release:assets:expected": "node scripts/check-release-assets.mjs --expected",

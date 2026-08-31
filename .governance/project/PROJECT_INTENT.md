@@ -29,7 +29,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
 - Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.
-- Branch-protection verification is still partially degraded on the current GitHub hosting tier and must remain documented honestly.
+- `develop` branch protection, CODEOWNERS reviews, SHA-pinned Actions, and the protected `release` publication environment are the 1.0 repository authority (`SPEC-007` `AC-7F`, `#1164`). Live API readback must stay honest if a setting cannot be applied on this hosting tier.
 - `develop` is the sole development source of truth and default branch. Normal agent work must never use `main` as its baseline or pull-request target.
 - `main` is promotion/release only, except for an authorised urgent hotfix that must be reconciled into `develop` immediately.
 - `.governance/` remains the canonical governance source of truth for this repo.

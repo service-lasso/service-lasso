@@ -29,12 +29,12 @@ jobs:
             platform: darwin
     steps:
       - name: Check out exact publication candidate
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.CANDIDATE_SHA }}
 
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -56,7 +56,7 @@ jobs:
 
       - name: Upload exact-SHA publication MCP evidence
         id: release_publish_mcp_artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release-publish-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/mcp-product-${{ matrix.platform }}.json
@@ -81,10 +81,10 @@ jobs:
 
     steps:
       - name: Check out repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -132,31 +132,31 @@ jobs:
           node scripts/check-release-assets.mjs "$TAG_NAME" "${ASSET_NAMES[@]}"
 
       - name: Upload staged artifact folder
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ steps.release_version.outputs.artifact_name }}
           path: artifacts/${{ steps.release_version.outputs.artifact_name }}
 
       - name: Upload packaged archive
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ steps.release_version.outputs.artifact_name }}-archive
           path: artifacts/${{ steps.release_version.outputs.artifact_name }}.tar.gz
 
       - name: Upload bundled artifact folder
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ steps.release_version.outputs.bundled_artifact_name }}
           path: artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}
 
       - name: Upload bundled archive
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ steps.release_version.outputs.bundled_artifact_name }}-archive
           path: artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}.tar.gz
 
       - name: Upload per-OS release archives
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ steps.release_version.outputs.version }}-per-os-release-archives
           path: |

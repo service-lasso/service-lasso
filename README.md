@@ -33,6 +33,10 @@ validated.
 - npm
 - Network access to GitHub releases when a service manifest points at release-backed artifacts
 
+## Security
+
+Report vulnerabilities privately through GitHub Security Advisories. See [SECURITY.md](SECURITY.md). Production dependencies must stay free of `npm audit --omit=dev` findings. Hosted workflows pin GitHub Actions to commit SHAs.
+
 ## Quick Start
 
 Start the local demo with one command:
