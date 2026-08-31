@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   appendAuditEvent,
@@ -267,6 +267,57 @@ test("concurrent service audit appends remain a single verified sequence", async
       [...response.events].sort((left, right) => left.sequence - right.sequence).map((event) => event.sequence),
       Array.from({ length: 20 }, (_, index) => index + 1),
     );
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("#757 copied service-root hash chain stays verified until tampered", async () => {
+  const workspaceRoot = await makeWorkspace();
+  const serviceRoot = path.join(workspaceRoot, "services", "copied-chain-service");
+
+  try {
+    await mkdir(serviceRoot, { recursive: true });
+    const first = await appendAuditEvent({
+      serviceRoot,
+      serviceId: "copied-chain-service",
+      source: "service",
+      action: "service.first",
+      actor: "operator-ui",
+      outcome: "success",
+      statusCode: 200,
+      summary: "first copied chain event",
+    });
+    await appendAuditEvent({
+      serviceRoot,
+      serviceId: "copied-chain-service",
+      source: "service",
+      action: "service.second",
+      actor: "operator-ui",
+      outcome: "success",
+      statusCode: 200,
+      summary: "second copied chain event",
+    });
+
+    const copiedRoot = path.join(workspaceRoot, "services", "copied-chain-service-copy");
+    await cp(serviceRoot, copiedRoot, { recursive: true });
+    const copied = await readAuditEvents({ serviceRoots: [copiedRoot] });
+    assert.equal(copied.chainStatus, "verified");
+    assert.equal(copied.pagination.total, 2);
+    assert.equal(copied.events[1].id, first.id);
+
+    const copiedFile = path.join(copiedRoot, ".state", "audit", `${first.timestamp.slice(0, 10)}.jsonl`);
+    const lines = (await readFile(copiedFile, "utf8")).trim().split(/\r?\n/u);
+    const tampered = lines.map((line, index) => {
+      if (index !== 0) return line;
+      const event = JSON.parse(line);
+      event.summary = "copied chain tampered";
+      return JSON.stringify(event);
+    });
+    await writeFile(copiedFile, `${tampered.join("\n")}\n`, "utf8");
+    assert.equal((await verifyAuditFile(copiedFile)).chainStatus, "broken");
+    const tamperedRead = await readAuditEvents({ serviceRoots: [copiedRoot] });
+    assert.equal(tamperedRead.chainStatus, "broken");
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
