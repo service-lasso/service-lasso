@@ -246,6 +246,7 @@ Verify this spec by running the core runtime locally from tracked repo source an
 Classify verification honestly as direct proof, partial proof, or surrogate-only proof where relevant. Passing docs/build checks alone is not sufficient to satisfy this spec.
 
 ## Change Notes
+- 2026-08-31: `#878` completes `AC-4BK` endpoint cutover: the existing impact planner drives rematerialisation of env, generated files, URLs, routes, and health targets from one allocation revision; reload-capable consumers reload and others restart in provider-before-consumer order; cycles fail before mutation; partial failure compensates through the startup transaction; published evidence is allocation/config digests only.
 - 2026-08-31: `#802` adds `AC-4AK.1` so setup steps can declare `creates` file and directory output guards. `rerun: ifMissing` now checks those resolved outputs, missing or deleted-after-success paths rerun, and setup state records secret-free guard metadata.
 - 2026-08-21: `#826` binds durable HTTP action-run enforcement to the trusted request-policy actor under `AC-4BS`. JSON-body actors are ignored for authority. Unmapped ZITADEL actors fail closed. Lifecycle HTTP permission projection remains `#1026`.
 - 2026-08-10: `#869` adds the startup-wide endpoint allocation substrate for `AC-4BI` through `AC-4BK`: host-locked API/service planning, fixed/preferred/automatic policy, adopted-process pinning, wildcard and live-listener conflict checks, resolved selector materialisation, bounded bind-race replanning, safe API publication, and Linux/Windows verification.

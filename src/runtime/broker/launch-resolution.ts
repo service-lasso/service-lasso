@@ -193,6 +193,7 @@ export function mergeServiceVariableResolutionOptions(
     ...base,
     ...launch,
     brokerValues: mergeRecords(base.brokerValues, launch.brokerValues),
+    endpointSelectorValues: mergeRecords(base.endpointSelectorValues, launch.endpointSelectorValues),
     deniedBrokerRefs: mergeLists(
       base.deniedBrokerRefs,
       launch.deniedBrokerRefs as string[] | undefined,
