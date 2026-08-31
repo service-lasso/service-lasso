@@ -11,7 +11,7 @@ import { DependencyGraph } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { isProviderRole } from "../roles.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
-import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupStepStatus } from "../lifecycle/types.js";
+import type { ServiceLifecycleState, ServiceSetupStepRunState, SetupOutputGuardSnapshot, SetupStepStatus } from "../lifecycle/types.js";
 import { startService, type ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
 import { buildServiceVariables, collectRuntimeGlobalEnv, resolveServiceEnvValue, resolveServiceText } from "../operator/variables.js";
@@ -23,6 +23,11 @@ import {
   buildExecutableInputFiles,
   type ExecutableInputFileDigest,
 } from "./definition-revision.js";
+import {
+  decideSetupStepSkip,
+  evaluateSetupOutputGuards,
+  type SetupSkipDecision,
+} from "./output-guards.js";
 
 export interface SetupStepRunResult {
   ok: boolean;
@@ -338,9 +343,14 @@ function buildSetupHostEnvironmentAllowlist(): NodeJS.ProcessEnv {
   );
 }
 
-function recordSetupRun(serviceId: string, run: ServiceSetupStepRunState): ServiceLifecycleState {
+function recordSetupRun(
+  serviceId: string,
+  run: ServiceSetupStepRunState,
+  outputGuards?: SetupOutputGuardSnapshot,
+): ServiceLifecycleState {
   const current = getLifecycleState(serviceId);
   const existing = current.setup.steps[run.stepId];
+  const nextGuards = outputGuards ?? existing?.outputGuards;
   return setLifecycleState(serviceId, {
     ...current,
     lastAction: "setup",
@@ -353,6 +363,34 @@ function recordSetupRun(serviceId: string, run: ServiceSetupStepRunState): Servi
           status: run.status,
           lastRun: run,
           history: [...(existing?.history ?? []), run].slice(-20),
+          ...(nextGuards ? { outputGuards: nextGuards } : {}),
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Persist guard metadata without changing step success history.
+ */
+function recordSetupOutputGuards(
+  serviceId: string,
+  stepId: string,
+  outputGuards: SetupOutputGuardSnapshot,
+): ServiceLifecycleState {
+  const current = getLifecycleState(serviceId);
+  const existing = current.setup.steps[stepId];
+  return setLifecycleState(serviceId, {
+    ...current,
+    setup: {
+      updatedAt: outputGuards.evaluatedAt,
+      steps: {
+        ...current.setup.steps,
+        [stepId]: {
+          status: existing?.status ?? "skipped",
+          lastRun: existing?.lastRun ?? null,
+          history: existing?.history ?? [],
+          outputGuards,
         },
       },
     },
@@ -394,22 +432,37 @@ async function createFailedSetupRun(
   };
 }
 
-function shouldSkipStep(
+async function resolveCreatesAfterRun(
   service: DiscoveredService,
   stepId: string,
   step: ServiceSetupStep,
-  force: boolean,
-): string | null {
-  if (force || step.rerun === "always") {
-    return null;
+  sharedGlobalEnv: Record<string, string>,
+  resolvedPorts: Record<string, number>,
+  status: SetupStepStatus,
+  message: string,
+): Promise<{ status: SetupStepStatus; message: string; outputGuards?: SetupOutputGuardSnapshot }> {
+  if (!step.creates || step.creates.length === 0) {
+    return { status, message };
   }
 
-  const prior = getLifecycleState(service.manifest.id).setup.steps[stepId];
-  if (!prior || prior.status !== "succeeded") {
-    return null;
+  try {
+    const outputGuards = await evaluateSetupOutputGuards(service, step, sharedGlobalEnv, resolvedPorts);
+    if (status === "succeeded" && !outputGuards.satisfied) {
+      const missing = outputGuards.results.filter((result) => !result.present).map((result) => result.declared);
+      return {
+        status: "failed",
+        message: `Setup step "${stepId}" completed but declared creates are missing: ${missing.join(", ")}.`,
+        outputGuards,
+      };
+    }
+    return { status, message, outputGuards };
+  } catch (error) {
+    const guardMessage = error instanceof Error ? error.message : `Setup step "${stepId}" output guards could not be evaluated.`;
+    if (status === "succeeded") {
+      return { status: "failed", message: guardMessage };
+    }
+    return { status, message };
   }
-
-  return step.rerun === "manual" ? "manual step already succeeded" : "setup step already succeeded";
 }
 
 async function ensureServiceDependencyReady(
@@ -519,12 +572,34 @@ export async function runSetupStep(
     throw new Error(`Cannot run setup for service "${serviceId}" before config.`);
   }
 
-  const skipReason = shouldSkipStep(service, stepId, step, options.force === true);
-  if (skipReason) {
+  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
+  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
+  let skipDecision: SetupSkipDecision;
+  try {
+    skipDecision = await decideSetupStepSkip(service, stepId, step, options.force === true, sharedGlobalEnv, resolvedPorts);
+  } catch (error) {
+    visiting.delete(visitKey);
+    const message = error instanceof Error ? error.message : `Setup step "${stepId}" output guards could not be evaluated.`;
+    const run = await createFailedSetupRun(service, stepId, "", message);
+    const nextState = recordSetupRun(serviceId, run);
+    return {
+      ok: false,
+      action: "setup",
+      serviceId,
+      stepId,
+      state: nextState,
+      run,
+      message,
+    };
+  }
+  if (skipDecision.skip && skipDecision.reason) {
     const now = new Date().toISOString();
-    const prior = getLifecycleState(serviceId).setup.steps[stepId]?.lastRun;
+    const nextState = skipDecision.outputGuards
+      ? recordSetupOutputGuards(serviceId, stepId, skipDecision.outputGuards)
+      : getLifecycleState(serviceId);
+    const prior = nextState.setup.steps[stepId]?.lastRun;
     const run: ServiceSetupStepRunState = prior
-      ? { ...prior, status: "skipped", message: skipReason }
+      ? { ...prior, status: "skipped", message: skipDecision.reason }
       : {
           runId: buildRunId(stepId),
           serviceId,
@@ -536,7 +611,7 @@ export async function runSetupStep(
           command: "",
           exitCode: null,
           signal: null,
-          message: skipReason,
+          message: skipDecision.reason,
           logs: getSetupRunLogPaths(service.serviceRoot, stepId, buildRunId(stepId)),
         };
     visiting.delete(visitKey);
@@ -545,9 +620,9 @@ export async function runSetupStep(
       action: "setup",
       serviceId,
       stepId,
-      state: getLifecycleState(serviceId),
+      state: nextState,
       run,
-      message: skipReason,
+      message: skipDecision.reason,
     };
   }
 
@@ -572,8 +647,6 @@ export async function runSetupStep(
     options.expectedExecutableBindings,
   );
 
-  const sharedGlobalEnv = collectRuntimeGlobalEnv(registry.list());
-  const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
   const executionPlan = resolveStepExecutionPlan(service, registry, step, sharedGlobalEnv, resolvedPorts);
   const executable = resolveExecutable(service, executionPlan);
   const args = executionPlan.args;
@@ -652,13 +725,24 @@ export async function runSetupStep(
 
   const finishedAt = new Date().toISOString();
   const durationMs = Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt));
-  const status: SetupStepStatus = timedOut ? "timeout" : exit.exitCode === 0 ? "succeeded" : "failed";
-  const message =
-    status === "succeeded"
+  const commandStatus: SetupStepStatus = timedOut ? "timeout" : exit.exitCode === 0 ? "succeeded" : "failed";
+  const commandMessage =
+    commandStatus === "succeeded"
       ? `Setup step "${stepId}" completed.`
-      : status === "timeout"
+      : commandStatus === "timeout"
         ? `Setup step "${stepId}" timed out.`
         : `Setup step "${stepId}" failed with exit code ${exit.exitCode ?? "unknown"}.`;
+  const guarded = await resolveCreatesAfterRun(
+    service,
+    stepId,
+    step,
+    sharedGlobalEnv,
+    resolvedPorts,
+    commandStatus,
+    commandMessage,
+  );
+  const status = guarded.status;
+  const message = guarded.message;
   const run: ServiceSetupStepRunState = {
     runId,
     serviceId,
@@ -674,7 +758,7 @@ export async function runSetupStep(
     message,
     logs,
   };
-  const nextState = recordSetupRun(serviceId, run);
+  const nextState = recordSetupRun(serviceId, run, guarded.outputGuards);
   visiting.delete(visitKey);
 
   return {
@@ -801,3 +885,5 @@ export async function ensureStartupDependenciesForSetup(service: DiscoveredServi
     await ensureServiceDependencyReady(service, dependencyId, registry);
   }
 }
+
+export { decideSetupStepSkip } from "./output-guards.js";
