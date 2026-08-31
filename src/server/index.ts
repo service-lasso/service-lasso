@@ -324,6 +324,7 @@ import {
 } from "../runtime/startup/transaction.js";
 import { inspectStartupRecovery, type StartupRecoveryInspection } from "../runtime/startup/recovery.js";
 import { rebindCommittedServiceAdoption } from "../runtime/startup/committed-adoption.js";
+import { executeEndpointCutover } from "../runtime/startup/endpoint-cutover.js";
 import {
   completeCommittedStartupMaterializationCleanup,
   createStartupArtifactAcquisitionHooks,
@@ -1945,54 +1946,20 @@ function isUsablePort(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65535;
 }
 
-function portsMatch(left: Record<string, number>, right: Record<string, number>): boolean {
-  const leftEntries = Object.entries(left).sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
-  const rightEntries = Object.entries(right).sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
-  return JSON.stringify(leftEntries) === JSON.stringify(rightEntries);
-}
-
 async function materializeRuntimeEndpointAllocation(
   runtimeModel: RuntimeModel,
   workspaceRoot: string,
   allocationPlan: RuntimeEndpointAllocationPlan,
   transaction?: StartupTransactionContext,
 ): Promise<void> {
-  const plannedPortsByService = servicePortsFromEndpointAllocation(allocationPlan);
-  for (const service of runtimeModel.discovered) {
-    const plannedPorts = plannedPortsByService[service.manifest.id];
-    if (!plannedPorts) continue;
-    const current = getLifecycleState(service.manifest.id);
-    if (current.running && !portsMatch(current.runtime.ports, plannedPorts)) {
-      throw new Error(
-        `Running service "${service.manifest.id}" allocation changed instead of remaining pinned.`,
-      );
-    }
-    if (!current.running && (!current.installed || !current.configured)) {
-      continue;
-    }
-    if (current.installed && current.configured && !current.running && !portsMatch(current.runtime.ports, plannedPorts)) {
-      const configured = await configService(service, runtimeModel.registry, {
-        workspaceRoot,
-        plannedPorts,
-        allocationRevision: allocationPlan.allocationId,
-        materializationHooks: transaction
-          ? createStartupMaterializationHooks({ transaction, service, kind: "config" })
-          : undefined,
-      });
-      await writeServiceState(service, configured.state);
-      continue;
-    }
-    const next = setLifecycleState(service.manifest.id, {
-      ...current,
-      runtime: {
-        ...current.runtime,
-        allocationRevision: allocationPlan.allocationId,
-        ports: { ...plannedPorts },
-        endpoints: resolveServiceEndpoints(service, plannedPorts),
-      },
-    });
-    await writeServiceState(service, next);
-  }
+  await executeEndpointCutover({
+    graph: runtimeModel.graph,
+    registry: runtimeModel.registry,
+    services: runtimeModel.discovered,
+    workspaceRoot,
+    allocationPlan,
+    transaction,
+  });
 }
 
 function resolveReadyProviderForResponse(

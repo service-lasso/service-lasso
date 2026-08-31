@@ -79,8 +79,15 @@ environment/command rendering, generated configuration, URLs, and health
 checks before service start. Already configured startup services are
 rematerialised before the API binds; an unconfigured service retains its
 manifest-facing discovery state and consumes the reserved plan when its config
-or start action runs. Cross-service cutover impact and reload/restart execution
-are completed jointly with endpoint cutover issue #878.
+or start action runs.
+
+When a reserved endpoint changes, Core derives the minimal direct and
+transitive consumer set from dependency and selector references, rematerialises
+affected env, globalenv, commands, generated files, URLs, routes, and health
+targets from that one allocation revision, then reloads or restarts in
+provider-before-consumer order. Cycles fail before mutation. A failed
+rematerialise or restart compensates through the existing startup transaction.
+APIs, logs, audit, and tests publish allocation and config digests only.
 
 ## Startup and bind races
 

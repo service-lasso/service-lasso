@@ -55,3 +55,12 @@ The planner records selector usage by artifact class only: `env`, `globalenv`,
 `actions`. It does not return rendered values, secrets, raw config content, or
 command outputs. If dependency cycles prevent a safe order, the planner fails
 before mutation with an actionable cycle error.
+
+Cutover execution uses that plan to rematerialise only the impacted set from
+one allocation revision, then reloads a running service when it declares a
+`reload` action and otherwise restarts through normal lifecycle. Provider
+services are applied before consumers. Outgoing and incoming allocation
+revisions remain distinct on lifecycle state until each service is stamped.
+Failure rolls back generated files through the startup transaction journal
+rather than a separate rollback mechanism. Published cutover results contain
+allocation/config digests and service ids only.

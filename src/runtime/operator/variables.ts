@@ -72,6 +72,12 @@ export interface ServiceTextResolutionOptions {
   sourceAuthRequiredBrokerRefs?: Set<string> | string[];
   sourceUnavailableBrokerRefs?: Set<string> | string[];
   degradedBrokerRefs?: Set<string> | string[];
+  /**
+   * Allocation-revision endpoint selector values (`endpoint.<id>.<field>`).
+   * Local service endpoints win on key collision so a consumer can still
+   * rematerialise provider selectors from one reserved plan.
+   */
+  endpointSelectorValues?: Record<string, string>;
 }
 
 export interface ServiceVariableResolutionOptions extends ServiceTextResolutionOptions {}
@@ -112,6 +118,32 @@ export function getServiceSelectorPlanCacheStats(): ServiceSelectorPlanCacheStat
     planEntries: selectorPlanCache.size,
     templateEntries: compiledTemplateCache.size,
   };
+}
+
+/**
+ * Merge a service's own resolved endpoint selectors with optional allocation
+ * overlay values. Local keys always win so a consumer can still receive
+ * provider `endpoint.<id>.<field>` values from one allocation revision.
+ */
+function mergeEndpointSelectorVariables(
+  service: DiscoveredService,
+  resolvedPorts: Record<string, number>,
+  overlay: Record<string, string> | undefined,
+): ServiceVariableEntry[] {
+  const localEntries = buildEndpointVariables(service, resolvedPorts).map((entry) => ({
+    ...entry,
+    scope: "derived" as const,
+  }));
+  const localKeys = new Set(localEntries.map((entry) => entry.key));
+  const overlayEntries = Object.entries(overlay ?? {})
+    .filter(([key, value]) => key.trim().length > 0 && value.length > 0 && !localKeys.has(key))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => ({
+      key,
+      value,
+      scope: "derived" as const,
+    }));
+  return [...localEntries, ...overlayEntries];
 }
 
 function buildPortVariables(
@@ -546,10 +578,7 @@ export function buildServiceVariables(
         ]
       : []),
     ...buildPortVariables(resolvedPorts),
-    ...buildEndpointVariables(service, resolvedPorts).map((entry) => ({
-      ...entry,
-      scope: "derived" as const,
-    })),
+    ...mergeEndpointSelectorVariables(service, resolvedPorts, options.endpointSelectorValues),
   ];
   const manifestDiagnostics: ServiceSelectorDiagnostic[] = [];
   const declaredBrokerRefs = (service.manifest.broker?.imports ?? []).map(
