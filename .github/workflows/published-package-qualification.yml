@@ -78,12 +78,12 @@ jobs:
 
     steps:
       - name: Check out exact qualification harness
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
       - name: Check out exact qualified Admin browser harness
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: service-lasso/lasso-serviceadmin
           ref: f015b4445b0526546a309301270186a697588166
@@ -184,7 +184,7 @@ jobs:
       CORE_DARWIN_SHA256: ${{ inputs.core_darwin_sha256 }}
     steps:
       - name: Check out exact aggregate verifier
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
 
