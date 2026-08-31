@@ -2147,6 +2147,68 @@ test("loadServiceManifest rejects setup creates outside the service root", async
   }
 });
 
+test("loadServiceManifest accepts setup ifChanged fingerprint inputs", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "fingerprint-setup", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        id: "fingerprint-setup",
+        name: "Fingerprint Setup",
+        description: "Accept ifChanged fingerprint contract.",
+        setup: {
+          steps: {
+            "build-runtime-config": {
+              executable: process.execPath,
+              args: ["-e", "process.exit(0)"],
+              rerun: "ifChanged",
+              fingerprint: ["${SERVICE_ARTIFACT_ROOT}", "${DATABASE_URL}"],
+            },
+          },
+        },
+      }),
+    );
+
+    const manifest = await loadServiceManifest(manifestPath);
+    assert.equal(manifest.setup?.steps["build-runtime-config"].rerun, "ifChanged");
+    assert.deepEqual(manifest.setup?.steps["build-runtime-config"].fingerprint, [
+      "${SERVICE_ARTIFACT_ROOT}",
+      "${DATABASE_URL}",
+    ]);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
+test("loadServiceManifest rejects setup ifChanged without fingerprint", async () => {
+  const servicesRoot = await makeTempServicesRoot();
+  const manifestPath = path.join(servicesRoot, "missing-fingerprint", "service.json");
+
+  try {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, JSON.stringify({
+      id: "missing-fingerprint",
+      name: "Missing Fingerprint",
+      description: "Reject ifChanged without fingerprint inputs.",
+      setup: {
+        steps: {
+          build: {
+            executable: process.execPath,
+            args: ["-e", "process.exit(0)"],
+            rerun: "ifChanged",
+          },
+        },
+      },
+    }));
+    await assert.rejects(loadServiceManifest(manifestPath), /fingerprint" when rerun is "ifChanged"/);
+  } finally {
+    await rm(servicesRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadServiceManifest requires service-level execservice providers in depend_on", async () => {
   const servicesRoot = await makeTempServicesRoot();
   const manifestPath = path.join(servicesRoot, "provider-consumer", "service.json");

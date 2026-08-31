@@ -580,6 +580,7 @@ Canonical derived path variables:
 - `SERVICE_EXECUTABLE_HOME` points at the installed artifact extraction root when a release artifact is installed, otherwise the service package root.
 - `SERVICE_ARTIFACT_ROOT` is present only when an installed release artifact has an extracted path.
 - `SERVICE_ARTIFACT_COMMAND` is present only when the installed release artifact declares both an extracted path and command.
+- `SERVICE_ARTIFACT_TAG` is present only when the installed release artifact records a release tag. Setup `fingerprint` hashes include this tag so `rerun: ifChanged` reruns after an artifact-version change.
 
 Provider-level path variables such as `NODE_HOME`, `PYTHON_HOME`, and `PYTHON_SCRIPTS_PATH` are not derived automatically for every service. Provider services should export the concrete names they support through their own `globalenv` entries, usually from `SERVICE_ARTIFACT_ROOT` or `SERVICE_ARTIFACT_COMMAND`, and consuming services should depend on the provider that supplies them.
 
@@ -1226,6 +1227,19 @@ Examples:
       },
       "timeoutSeconds": 300,
       "rerun": "manual"
+    },
+    "build-runtime-config": {
+      "description": "Rebuild optimized runtime config when inputs change.",
+      "executable": "${SERVICE_ARTIFACT_COMMAND}",
+      "args": ["build"],
+      "timeoutSeconds": 300,
+      "rerun": "ifChanged",
+      "fingerprint": [
+        "${SERVICE_ARTIFACT_ROOT}",
+        "${DATABASE_URL}",
+        "${CONFIG_FILE_PATH}",
+        "${SERVICE_ARTIFACT_TAG}"
+      ]
     }
   }
 }
@@ -1241,8 +1255,9 @@ Runtime behavior:
 - Dependencies in `depend_on` can name services or setup steps using `<serviceId>:<stepId>`.
 - Service dependencies must be installed/configured; non-provider service dependencies are started and health-checked before the setup step runs.
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
-- `rerun` supports `ifMissing`, `manual`, and `always`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+- `rerun` supports `ifMissing`, `manual`, `always`, and `ifChanged`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
 - Optional `creates` lists at most 32 file or directory paths expected after success. Paths resolve Service Lasso variables, must stay inside the service root, and are existence guards for `rerun: ifMissing`: present outputs skip, missing or deleted-after-success outputs rerun. Setup state records the latest secret-free guard snapshot (`declared`, service-root-relative path, `present`, `kind`).
+- Optional `fingerprint` lists at most 32 input templates for `rerun: ifChanged`. Templates resolve through Service Lasso variables. Setup state stores `algorithm`, `hash`, `declared`, and `evaluatedAt` only — never raw resolved values. The hash also includes the installed artifact release tag, so an artifact-version change reruns the step even when other declared inputs are unchanged. `ifChanged` requires a non-empty `fingerprint` list. Existing `manual`, `always`, and `ifMissing` skip behaviour is unchanged.
 - Optional `outputs` lists at most 32 service-root-relative regular files that the step may create or replace. Transactional runtime startup records bounded private preimages before execution and restores/removes only unchanged transaction postimages on rollback. An executed step without `outputs` remains backward-compatible, but a later startup rollback fails closed because its filesystem side effects cannot be verified.
 
 CLI:
