@@ -60,6 +60,7 @@ Common fields:
 - `env`: setup-step environment additions.
 - `timeoutSeconds`: maximum runtime before the step is failed.
 - `rerun`: `ifMissing`, `manual`, or `always`.
+- `creates`: optional bounded file or directory paths expected after success. Service Lasso variables are resolved; `rerun: ifMissing` skips when every path exists and reruns when any path is missing or was deleted after a prior success. Guard results are stored as secret-free setup-state metadata.
 - `outputs`: optional bounded service-root-relative file paths created or replaced by the step. Declaring outputs lets transactional runtime startup restore pre-existing content or remove transaction-created files safely; undeclared command side effects are never guessed or deleted.
 
 ## Runtime Behavior
@@ -75,7 +76,7 @@ Runtime behavior is intentionally different from daemon startup:
 - Service dependencies are installed/configured first; non-provider service dependencies are started and health-checked before the step runs.
 - Setup step dependencies wait for the referenced setup step result before execution.
 - Stdout, stderr, exit code, timeout, start/end time, and status are persisted under `.state/setup.json`.
-- Baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
+- Baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps, including steps whose declared `creates` outputs are still present.
 
 ## CLI and API
 

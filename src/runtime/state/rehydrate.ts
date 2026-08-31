@@ -9,6 +9,8 @@ import type {
   ServiceStartTraceEvent,
   ServiceStartTraceEventStatus,
   ServiceStartTracePhase,
+  SetupOutputGuardKind,
+  SetupOutputGuardSnapshot,
   SetupStepStatus,
 } from "../lifecycle/types.js";
 import type { BrokerTransportBinding } from "../broker/identity.js";
@@ -113,6 +115,7 @@ interface StoredSetupState {
     status?: SetupStepStatus;
     lastRun?: ServiceSetupStepRunState | null;
     history?: ServiceSetupStepRunState[];
+    outputGuards?: unknown;
   }>;
 }
 
@@ -414,6 +417,46 @@ function parseSetupRun(value: unknown): ServiceSetupStepRunState | null {
   };
 }
 
+function parseSetupOutputGuards(value: unknown): SetupOutputGuardSnapshot | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as { evaluatedAt?: unknown; satisfied?: unknown; results?: unknown };
+  if (typeof record.evaluatedAt !== "string" || typeof record.satisfied !== "boolean" || !Array.isArray(record.results)) {
+    return undefined;
+  }
+
+  const results: SetupOutputGuardSnapshot["results"] = [];
+  for (const entry of record.results) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return undefined;
+    }
+    const result = entry as { declared?: unknown; relativePath?: unknown; present?: unknown; kind?: unknown };
+    const kind = result.kind === "file" || result.kind === "directory" || result.kind === null ? result.kind : undefined;
+    if (
+      typeof result.declared !== "string" ||
+      typeof result.relativePath !== "string" ||
+      typeof result.present !== "boolean" ||
+      kind === undefined
+    ) {
+      return undefined;
+    }
+    results.push({
+      declared: result.declared,
+      relativePath: result.relativePath,
+      present: result.present,
+      kind,
+    });
+  }
+
+  return {
+    evaluatedAt: record.evaluatedAt,
+    satisfied: record.satisfied,
+    results,
+  };
+}
+
 function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState["setup"] {
   if (!setup?.steps || typeof setup.steps !== "object") {
     return { updatedAt: null, steps: {} };
@@ -429,12 +472,14 @@ function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState[
             ? step.history.map(parseSetupRun).filter((run): run is ServiceSetupStepRunState => run !== null)
             : [];
           const lastRun = parseSetupRun(step.lastRun) ?? history.at(-1) ?? null;
+          const outputGuards = parseSetupOutputGuards(step.outputGuards);
           return [
             stepId,
             {
               status: isSetupStepStatus(step.status) ? step.status : lastRun?.status ?? "skipped",
               lastRun,
               history,
+              ...(outputGuards ? { outputGuards } : {}),
             },
           ];
         }),

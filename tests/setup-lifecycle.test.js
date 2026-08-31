@@ -72,7 +72,7 @@ async function writeSetupScript(serviceRoot, name = "setup-writer.mjs") {
 
 test("setup run executes direct steps, captures logs, and persists setup history", async () => {
   await resetSetupTestState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-direct-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-direct-");
   const serviceRoot = await writeManifest(servicesRoot, "setup-service", {
     id: "setup-service",
     name: "Setup Service",
@@ -95,7 +95,7 @@ test("setup run executes direct steps, captures logs, and persists setup history
     },
   });
   await writeSetupScript(serviceRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/setup-service/install`);
@@ -133,7 +133,7 @@ test("setup env excludes uncontrolled host variables while preserving controlled
   await resetSetupTestState();
   const previousHostOnly = process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF;
   process.env.SERVICE_LASSO_HOST_ONLY_SETUP_PROOF = "host-only-secret";
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-controlled-env-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-controlled-env-");
   const serviceRoot = await writeManifest(servicesRoot, "controlled-env-setup", {
     id: "controlled-env-setup",
     name: "Controlled Env Setup",
@@ -159,7 +159,7 @@ test("setup env excludes uncontrolled host variables while preserving controlled
     },
   });
   await writeSetupScript(serviceRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/controlled-env-setup/install`);
@@ -186,7 +186,7 @@ test("setup env excludes uncontrolled host variables while preserving controlled
 
 test("setup run resolves explicit cwd selectors and records cwd in history", async () => {
   await resetSetupTestState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-");
   const serviceRoot = await writeManifest(servicesRoot, "setup-cwd", {
     id: "setup-cwd",
     name: "Setup Cwd",
@@ -214,7 +214,7 @@ test("setup run resolves explicit cwd selectors and records cwd in history", asy
   await writeSetupScript(serviceRoot);
   await mkdir(path.join(serviceRoot, "runtime", "bin"), { recursive: true });
   await writeSetupScript(path.join(serviceRoot, "runtime", "bin"));
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/setup-cwd/install`);
@@ -245,7 +245,7 @@ test("setup run resolves explicit cwd selectors and records cwd in history", asy
 
 test("setup run fails before spawning when cwd is missing or outside the service root", async () => {
   await resetSetupTestState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-invalid-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-cwd-invalid-");
   const serviceRoot = await writeManifest(servicesRoot, "bad-setup-cwd", {
     id: "bad-setup-cwd",
     name: "Bad Setup Cwd",
@@ -269,7 +269,7 @@ test("setup run fails before spawning when cwd is missing or outside the service
       },
     },
   });
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/bad-setup-cwd/install`);
@@ -296,7 +296,7 @@ test("setup run fails before spawning when cwd is missing or outside the service
 
 test("provider-backed setup runs through execservice with provider env", async () => {
   await resetSetupTestState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-provider-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-provider-");
   await writeManifest(servicesRoot, "@node", {
     id: "@node",
     name: "Node Provider",
@@ -324,7 +324,7 @@ test("provider-backed setup runs through execservice with provider env", async (
     },
   });
   await writeSetupScript(serviceRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     for (const serviceId of ["@node", "consumer"]) {
@@ -348,7 +348,7 @@ test("provider-backed setup runs through execservice with provider env", async (
 
 test("setup dependencies start required daemon services before running the step", async () => {
   await resetSetupTestState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-dependency-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-dependency-");
   const database = await writeExecutableFixtureService(servicesRoot, "database", {
     readyFileAfterMs: 20,
     readyFileRelativePath: "./runtime/ready.txt",
@@ -375,7 +375,7 @@ test("setup dependencies start required daemon services before running the step"
     },
   });
   await writeSetupScript(serviceRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     for (const serviceId of ["database", "loader"]) {
@@ -399,7 +399,7 @@ test("setup dependencies start required daemon services before running the step"
 
 test("setup records failed and timed-out steps without pretending success", async () => {
   await resetSetupTestState();
-  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-setup-failure-");
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-setup-failure-");
   await writeManifest(servicesRoot, "broken-setup", {
     id: "broken-setup",
     name: "Broken Setup",
@@ -421,7 +421,7 @@ test("setup records failed and timed-out steps without pretending success", asyn
       },
     },
   });
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/broken-setup/install`);

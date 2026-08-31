@@ -1,6 +1,31 @@
-import type { ServiceLifecycleState } from "./types.js";
+import type { ServiceLifecycleState, SetupOutputGuardSnapshot } from "./types.js";
 
 const lifecycleState = new Map<string, ServiceLifecycleState>();
+
+function cloneSetupOutputGuards(snapshot: SetupOutputGuardSnapshot): SetupOutputGuardSnapshot {
+  return {
+    evaluatedAt: snapshot.evaluatedAt,
+    satisfied: snapshot.satisfied,
+    results: snapshot.results.map((result) => ({ ...result })),
+  };
+}
+
+function cloneSetupState(setup: ServiceLifecycleState["setup"]): ServiceLifecycleState["setup"] {
+  return {
+    updatedAt: setup.updatedAt,
+    steps: Object.fromEntries(
+      Object.entries(setup.steps).map(([stepId, step]) => [
+        stepId,
+        {
+          status: step.status,
+          lastRun: step.lastRun ? { ...step.lastRun, logs: { ...step.lastRun.logs } } : null,
+          history: step.history.map((run) => ({ ...run, logs: { ...run.logs } })),
+          ...(step.outputGuards ? { outputGuards: cloneSetupOutputGuards(step.outputGuards) } : {}),
+        },
+      ]),
+    ),
+  };
+}
 
 function createInitialSupervisionState(): ServiceLifecycleState["runtime"]["supervision"] {
   return {
@@ -169,19 +194,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       files: [...current.configArtifacts.files],
       updatedAt: current.configArtifacts.updatedAt,
     },
-    setup: {
-      updatedAt: current.setup.updatedAt,
-      steps: Object.fromEntries(
-        Object.entries(current.setup.steps).map(([stepId, step]) => [
-          stepId,
-          {
-            status: step.status,
-            lastRun: step.lastRun ? { ...step.lastRun, logs: { ...step.lastRun.logs } } : null,
-            history: step.history.map((run) => ({ ...run, logs: { ...run.logs } })),
-          },
-        ]),
-      ),
-    },
+    setup: cloneSetupState(current.setup),
     runtime: {
       generationId: current.runtime.generationId ?? null,
       pid: current.runtime.pid,
@@ -260,19 +273,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       files: [...nextState.configArtifacts.files],
       updatedAt: nextState.configArtifacts.updatedAt,
     },
-    setup: {
-      updatedAt: nextState.setup.updatedAt,
-      steps: Object.fromEntries(
-        Object.entries(nextState.setup.steps).map(([stepId, step]) => [
-          stepId,
-          {
-            status: step.status,
-            lastRun: step.lastRun ? { ...step.lastRun, logs: { ...step.lastRun.logs } } : null,
-            history: step.history.map((run) => ({ ...run, logs: { ...run.logs } })),
-          },
-        ]),
-      ),
-    },
+    setup: cloneSetupState(nextState.setup),
     runtime: {
       generationId: nextState.runtime.generationId ?? null,
       pid: nextState.runtime.pid,
