@@ -293,7 +293,7 @@ test("core services root declares the clean-clone baseline inventory", async () 
   assert.equal(byId.get("echo-service")?.artifact?.source.repo, "service-lasso/lasso-echoservice");
   assert.equal(byId.get("echo-service")?.urls?.find((url) => url.label === "health")?.url, "http://127.0.0.1:${HEALTH_PORT}/health");
   assert.equal(byId.get("@serviceadmin")?.artifact?.source.repo, "service-lasso/lasso-serviceadmin");
-  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.8.27-b393c70");
+  assert.equal(byId.get("@serviceadmin")?.artifact?.source.tag, "2026.8.31-f015b44");
   assert.equal(byServiceId.get("@serviceadmin")?.catalogProvenance?.checksumPresent, true);
   assert.deepEqual(
     Object.fromEntries(

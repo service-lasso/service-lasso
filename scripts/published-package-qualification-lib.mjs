@@ -10,28 +10,28 @@ export const PACKAGE_NAME = "@service-lasso/service-lasso";
 
 export const ADMIN_RELEASE = Object.freeze({
   repo: "service-lasso/lasso-serviceadmin",
-  id: "377559666",
-  tag: "2026.8.27-b393c70",
-  revision: "b393c70ba834d0da6c1cdb0039f304dd14bf9e79",
+  id: "380051618",
+  tag: "2026.8.31-f015b44",
+  revision: "f015b4445b0526546a309301270186a697588166",
   manifestSha256:
-    "4c120a534b8431741af21798a4b1c4ad1956efe58d944ea8b678619384721e62",
+    "ccd0bd85cde734c1699294a821e381924726a735133c7009b35d49cd27f5f47a",
   checksumSha256:
-    "e7bc817914051d0d9005f599c44c6c2bbf5eede557d4c3f95a0ff56feba63377",
+    "5bb6911dde9c9cadda9b7c703de7736791c073ca6c2f7ab4340d2342b4c0e4c7",
   platforms: Object.freeze({
     win32: Object.freeze({
       asset: "@serviceadmin-win32.zip",
       sha256:
-        "839729e1818f9ff4c0ed33e44c580c2f19582f204b4e003ef0fde9456280e31d",
+        "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
     }),
     linux: Object.freeze({
       asset: "@serviceadmin-linux.tar.gz",
       sha256:
-        "9cf43a9ee2a7881834bb3d1141cba148d02ccb8d6e69e0cb1e1ade4941e1bd71",
+        "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
     }),
     darwin: Object.freeze({
       asset: "@serviceadmin-darwin.tar.gz",
       sha256:
-        "7bdb7ca27488265e5ff00bdae3e23b53679f5423cece8495de6943ee66a781c1",
+        "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
     }),
   }),
 });

@@ -39,7 +39,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(
     workflow,
-    /repository: service-lasso\/lasso-serviceadmin[\s\S]*?ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79/,
+    /repository: service-lasso\/lasso-serviceadmin[\s\S]*?ref: f015b4445b0526546a309301270186a697588166/,
   );
   assert.match(
     workflow,

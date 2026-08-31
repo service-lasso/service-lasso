@@ -23,8 +23,8 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /Check out candidate Core[\s\S]*?ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
   );
-  assert.match(workflow, /ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79/);
-  assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.27-b393c70"/);
+  assert.match(workflow, /ref: f015b4445b0526546a309301270186a697588166/);
+  assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
   assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.8\.31-f340883"/);
   assert.match(
     workflow,
@@ -32,9 +32,9 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
 
   for (const digest of [
-    "839729e1818f9ff4c0ed33e44c580c2f19582f204b4e003ef0fde9456280e31d",
-    "9cf43a9ee2a7881834bb3d1141cba148d02ccb8d6e69e0cb1e1ade4941e1bd71",
-    "7bdb7ca27488265e5ff00bdae3e23b53679f5423cece8495de6943ee66a781c1",
+    "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
+    "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
+    "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
     "e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966",
     "3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295",
     "567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5",

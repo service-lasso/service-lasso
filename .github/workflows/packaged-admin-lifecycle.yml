@@ -41,28 +41,28 @@ jobs:
           - os: ubuntu-latest
             admin_platform: linux
             admin_asset: "@serviceadmin-linux.tar.gz"
-            admin_sha256: 9cf43a9ee2a7881834bb3d1141cba148d02ccb8d6e69e0cb1e1ade4941e1bd71
+            admin_sha256: 8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71
             broker_asset: secretsbroker-linux.tar.gz
             broker_binary: secretsbroker
             broker_sha256: 3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295
           - os: windows-latest
             admin_platform: win32
             admin_asset: "@serviceadmin-win32.zip"
-            admin_sha256: 839729e1818f9ff4c0ed33e44c580c2f19582f204b4e003ef0fde9456280e31d
+            admin_sha256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
             broker_asset: secretsbroker-win32.zip
             broker_binary: secretsbroker.exe
             broker_sha256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
           - os: macos-latest
             admin_platform: darwin
             admin_asset: "@serviceadmin-darwin.tar.gz"
-            admin_sha256: 7bdb7ca27488265e5ff00bdae3e23b53679f5423cece8495de6943ee66a781c1
+            admin_sha256: 2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81
             broker_asset: secretsbroker-darwin.tar.gz
             broker_binary: secretsbroker
             broker_sha256: 567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5
     env:
-      ADMIN_RELEASE_ID: "377559666"
-      ADMIN_RELEASE_TAG: "2026.8.27-b393c70"
-      ADMIN_REVISION: "b393c70ba834d0da6c1cdb0039f304dd14bf9e79"
+      ADMIN_RELEASE_ID: "380051618"
+      ADMIN_RELEASE_TAG: "2026.8.31-f015b44"
+      ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"
       BROKER_RELEASE_ID: "379635299"
       BROKER_RELEASE_TAG: "2026.8.31-f340883"
       BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"
@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: service-lasso/lasso-serviceadmin
-          ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79
+          ref: f015b4445b0526546a309301270186a697588166
           path: qualification/admin
 
       - name: Set up Node
