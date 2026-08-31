@@ -69,25 +69,25 @@ jobs:
 
     steps:
       - name: Check out candidate Core
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Check out exact qualified Admin harness
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: service-lasso/lasso-serviceadmin
           ref: b393c70ba834d0da6c1cdb0039f304dd14bf9e79
           path: qualification/admin
 
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.34.5
 
@@ -296,7 +296,7 @@ jobs:
 
       - name: Upload packaged Admin lifecycle evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: packaged-admin-lifecycle-${{ matrix.admin_platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json

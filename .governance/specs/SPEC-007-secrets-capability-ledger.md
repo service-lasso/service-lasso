@@ -66,11 +66,27 @@ recovery state; `#887` owner action remains in review; Admin `#459` remains
 open; and Admin PR `#569` has a failing Windows real-browser gate after the
 rotation flow, so that cross-repository path is not validated.
 
+### `AC-7F` — Core 1.0 repository and release authority
+
+The Core GitHub repository is the 1.0 authority boundary for working-release
+publication. `CODEOWNERS` names the required reviewers for every path, including
+`.github/` and `CODEOWNERS` itself. `SECURITY.md` is the public vulnerability
+reporting path. GitHub Actions workflows pin third-party actions to commit SHAs.
+`npm audit --omit=dev` reports zero production vulnerabilities. `develop` is
+protected with required status checks, required reviews, no force-push, and
+administrator enforcement. Publishing is restricted to the protected `release`
+GitHub Environment. Default Actions permissions are read-only, and pull requests
+from forks cannot write repository contents or secrets. Sibling Admin `#578`
+owns the matching Admin-repo authority and is not closed by this Core slice.
+
 ## Tests and Evidence
 
 - `npm run docs:check-secrets-ledger`.
 - `npm run docs:build`.
 - `git diff --check`.
+- `node --test --test-concurrency=1 tests/release-authority.test.js`.
+- `npm run audit:production`.
+- `node scripts/verify-core-release-authority.mjs` against the live GitHub API.
 - Live issue, PR, Project, branch, and worktree evidence observed on
   `2026-08-25` and linked from the ledger.
 
@@ -92,6 +108,9 @@ evidence is a row-specific real-process result.
 - 2026-08-25: Issue `#872` was deliberately promoted from Backlog when the
   Secrets release-governance tranche was explicitly selected. No competing
   assignee, branch, worktree, or pull request existed at intake.
+- 2026-08-31: Core `#1164` adds `AC-7F` for 1.0 repository and release
+  authority: CODEOWNERS, SECURITY.md, SHA-pinned Actions, production audit,
+  protected `develop`, and the protected `release` publication environment.
 - 2026-08-27: Core `#1152` is the `SPEC-002` `AC-4BZ.1` published-package
   evidence gate for the working-release claim linked to `#1151` and `#871`.
   Its workflow and retained metadata cannot upgrade any ledger maturity row:
