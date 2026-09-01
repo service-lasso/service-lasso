@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import {
   ADMIN_RELEASE,
   BROKER_RELEASE,
+  CORE_HARNESS_FILES,
   PACKAGE_NAME,
   QUALIFICATION_SCHEMA,
   QualificationError,
@@ -32,6 +33,14 @@ const core = {
   revision: "abcdef0abcdef0abcdef0abcdef0abcdef0abcde",
 };
 const execFileAsync = promisify(execFile);
+
+test("AC-4BZ.1 release-tree harness includes its dependency-free TLS certificate generator", () => {
+  assert.ok(
+    CORE_HARNESS_FILES.includes(
+      "tests/fixtures/real-admin-browser-certificate.mjs",
+    ),
+  );
+});
 
 test("published Core install parsing accepts one complete pretty-printed JSON document", () => {
   const payload = { action: "install", serviceId: "@serviceadmin", ok: true };

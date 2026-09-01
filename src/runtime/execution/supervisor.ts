@@ -236,6 +236,7 @@ const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-l
 const WINDOWS_MANAGED_LAUNCHER_BYTES = 33_280;
 const WINDOWS_MANAGED_LAUNCHER_SHA256 = "c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
+const MANAGED_PROCESS_SPAWN_TIMEOUT_MS = 15_000;
 const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
 const WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES = 128;
 let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
@@ -248,6 +249,7 @@ let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
 let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null = null;
 let managedProcessPostResumeDelayMs = 0;
 let managedProcessSpawner: typeof spawn = spawn;
+let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
 
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
@@ -335,6 +337,17 @@ export function setManagedProcessSpawnerForTests(spawner: typeof spawn | null): 
     throw new Error("Managed process spawn test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessSpawner = spawner ?? spawn;
+}
+
+export function setManagedProcessSpawnTimeoutForTests(timeoutMs: number | null): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process spawn-timeout test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const effectiveTimeoutMs = timeoutMs ?? MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
+  if (!Number.isInteger(effectiveTimeoutMs) || effectiveTimeoutMs < 1 || effectiveTimeoutMs > MANAGED_PROCESS_SPAWN_TIMEOUT_MS) {
+    throw new Error(`Managed process spawn-timeout hooks require an integer from 1 through ${MANAGED_PROCESS_SPAWN_TIMEOUT_MS} milliseconds.`);
+  }
+  managedProcessSpawnTimeoutMs = effectiveTimeoutMs;
 }
 
 export function registerManagedProcessShutdownQuiescer(
@@ -1149,6 +1162,54 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
   return service.manifest.stdin?.enabled === true;
 }
 
+async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
+  const deadlineMs = processControlDeadline(managedProcessSpawnTimeoutMs);
+  await withProcessControlDeadline(async (signal) => await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      child.removeListener("spawn", spawned);
+      child.removeListener("error", failed);
+      signal.removeEventListener("abort", aborted);
+    };
+    const spawned = () => {
+      cleanup();
+      resolve();
+    };
+    const failed = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const aborted = () => {
+      cleanup();
+      reject(new Error("Managed process wrapper did not emit spawn or error before its deadline."));
+    };
+    child.once("spawn", spawned);
+    child.once("error", failed);
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) aborted();
+  }), { deadlineMs });
+}
+
+async function containUnenrolledManagedProcessWrapper(
+  child: ChildProcess | null,
+  exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> | null,
+): Promise<void> {
+  if (
+    !child ||
+    !exitPromise ||
+    child.exitCode !== null ||
+    child.signalCode !== null ||
+    !Number.isInteger(child.pid) ||
+    Number(child.pid) <= 0
+  ) {
+    return;
+  }
+  if (!child.kill("SIGKILL")) {
+    throw new Error("Managed process wrapper could not be terminated after spawn failed or timed out.");
+  }
+  const deadlineMs = processControlDeadline(5_000);
+  await withProcessControlDeadline(async () => await exitPromise, { deadlineMs });
+}
+
 function probeManagedChildHandle(child: ChildProcess): "owned" | "exited" | "unverifiable" {
   if (child.exitCode !== null || child.signalCode !== null) {
     return "exited";
@@ -1697,8 +1758,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     await closeRuntimeLogStreams(logStreams);
     throw new ManagedProcessStartError("launch_state_creation", error);
   }
-  let child: ChildProcess;
-  let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  let child: ChildProcess | null = null;
+  let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> | null = null;
   try {
     if (windowsManagedLaunchState) {
       await verifyWindowsManagedLauncherIntegrity(windowsManagedLaunchState.launcherExecutable);
@@ -1727,8 +1788,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       );
     }
 
+    const spawnedChild = child;
     exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.once("close", (exitCode, signal) => {
+      spawnedChild.once("close", (exitCode, signal) => {
         resolve({
           exitCode: typeof exitCode === "number" ? exitCode : null,
           signal,
@@ -1736,13 +1798,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       });
     });
 
-    const spawnPromise = new Promise<void>((resolve, reject) => {
-      child.once("spawn", () => resolve());
-      child.once("error", reject);
-    });
-    await spawnPromise;
+    await waitForManagedProcessSpawn(spawnedChild);
   } catch (error) {
     const cleanupErrors: unknown[] = [];
+    await containUnenrolledManagedProcessWrapper(child, exitPromise)
+      .catch((cleanupError) => cleanupErrors.push(cleanupError));
     await closeRuntimeLogStreams(logStreams).catch((cleanupError) => cleanupErrors.push(cleanupError));
     await removeWindowsManagedLaunchState(windowsManagedLaunchState)
       .catch((cleanupError) => cleanupErrors.push(cleanupError));
@@ -1752,6 +1812,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         ? new AggregateError([error, ...cleanupErrors], "Managed process wrapper spawn and cleanup failed.")
         : error,
     );
+  }
+
+  if (!child || !exitPromise) {
+    throw new Error("Managed process wrapper spawn completed without a child handle.");
   }
 
   const rootPid = child.pid ?? 0;

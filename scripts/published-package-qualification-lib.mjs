@@ -87,6 +87,7 @@ export const BROKER_RELEASE = Object.freeze({
 
 export const CORE_HARNESS_FILES = Object.freeze([
   "tests/fixtures/real-admin-browser-runner.mjs",
+  "tests/fixtures/real-admin-browser-certificate.mjs",
   "tests/fixtures/real-admin-browser-lockout.mjs",
   "tests/fixtures/real-admin-browser-rollback.mjs",
   "tests/fixtures/real-admin-browser-shutdown.mjs",

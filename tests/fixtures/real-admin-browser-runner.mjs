@@ -5,7 +5,7 @@ import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
-import selfsigned from "selfsigned";
+import { generateLocalhostCertificate } from "./real-admin-browser-certificate.mjs";
 
 import { discoverServices } from "../../dist/runtime/discovery/discoverServices.js";
 import {
@@ -175,33 +175,7 @@ try {
   await mkdir(servicesRoot, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
   const vaultValues = new Map();
-  const certificate = await selfsigned.generate(
-    [{ name: "commonName", value: "127.0.0.1" }],
-    {
-      algorithm: "sha256",
-      keySize: 2048,
-      notBeforeDate: new Date(Date.now() - 60_000),
-      notAfterDate: new Date(Date.now() + 24 * 60 * 60 * 1_000),
-      extensions: [
-        { name: "basicConstraints", cA: true, critical: true },
-        {
-          name: "keyUsage",
-          digitalSignature: true,
-          keyEncipherment: true,
-          keyCertSign: true,
-          critical: true,
-        },
-        { name: "extKeyUsage", serverAuth: true },
-        {
-          name: "subjectAltName",
-          altNames: [
-            { type: 2, value: "localhost" },
-            { type: 7, ip: "127.0.0.1" },
-          ],
-        },
-      ],
-    },
-  );
+  const certificate = generateLocalhostCertificate();
   const vaultCertificatePath = path.join(tempRoot, "vault-test-ca.pem");
   await writeFile(vaultCertificatePath, certificate.cert, { mode: 0o600 });
   const vaultCertificateSHA256 = `sha256:${createHash("sha256")

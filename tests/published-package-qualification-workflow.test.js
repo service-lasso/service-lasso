@@ -14,6 +14,10 @@ const aggregateUrl = new URL(
   "../scripts/verify-published-package-qualification-artifacts.mjs",
   import.meta.url,
 );
+const browserRunnerUrl = new URL(
+  "./fixtures/real-admin-browser-runner.mjs",
+  import.meta.url,
+);
 
 test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all three terminal OS jobs", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
@@ -127,10 +131,21 @@ test("AC-4BZ.1 preparation verifies every downloaded identity before creating th
     );
   }
   assert.match(source, /for \(const relativePath of CORE_HARNESS_FILES\)/);
+  assert.match(
+    source,
+    /extractPublishedPackageArchive\(files\.core, coreExtraction, platform\)/,
+  );
+  assert.doesNotMatch(source, /runCommand\("tar"/u);
   assert.match(source, /published_core_replaced_by_harness/);
   assert.match(source, /invokeCoreInstall\(coreRoot, "@serviceadmin"/);
   assert.match(source, /invokeCoreInstall\(coreRoot, "@secretsbroker"/);
   assert.doesNotMatch(source, /npm ci|npm run build/iu);
+});
+
+test("AC-4BZ.1 copied browser runner has no development-only TLS dependency", async () => {
+  const source = await readFile(browserRunnerUrl, "utf8");
+  assert.match(source, /generateLocalhostCertificate/u);
+  assert.doesNotMatch(source, /from ["']selfsigned["']/u);
 });
 
 test("AC-4BZ.1 aggregate rejects absent, empty, expired, extra, and wrong-head artifacts", async () => {
