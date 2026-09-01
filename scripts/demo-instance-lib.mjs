@@ -498,84 +498,31 @@ async function stopRuntimeServices(runtimeInstance) {
   }
 }
 
+export async function runCoreWorkspaceLifecycle(action, options = {}) {
+  const { runWorkspaceLifecycleCommand } = await importDistModule(path.join("runtime", "lifecycle", "workspace-commands.js"));
+  return await runWorkspaceLifecycleCommand({
+    action,
+    servicesRoot: path.resolve(options.servicesRoot ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot),
+    port: options.port,
+    portPolicy: options.portPolicy,
+    includeBaseline: action !== "stop",
+  });
+}
+
 export async function stopDemoManagedProcesses(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const stopped = [];
-  const skipped = [];
-  const handledPids = new Set();
-  const runtimeInstance = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"));
-
-  if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
-    stopped.push(await stopRuntimeServices(runtimeInstance));
-    stopped.push(await terminateProcessTree(runtimeInstance.pid, "runtime-api"));
-    if (Number.isInteger(runtimeInstance.pid)) {
-      handledPids.add(runtimeInstance.pid);
-    }
-  }
-
-  for (const serviceId of demoServiceIds) {
-    const serviceRoot = path.join(servicesRoot, serviceId);
-    const runtimeState = await readJsonIfPresent(path.join(serviceRoot, ".state", "runtime.json"));
-    if (!runtimeState || !processExists(runtimeState.pid)) {
-      continue;
-    }
-
-    if (!commandLooksServiceOwned(runtimeState.command, serviceRoot)) {
-      skipped.push({
-        serviceId,
-        pid: runtimeState.pid,
-        reason: "runtime_state_command_not_owned_by_service_root",
-      });
-      continue;
-    }
-
-    stopped.push(await terminateProcessTree(runtimeState.pid, serviceId));
-    handledPids.add(runtimeState.pid);
-  }
-
-  const processRegistry = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "processes.json"));
-  for (const entry of processRegistry?.entries ?? []) {
-    if (
-      entry?.ownerType !== "service" ||
-      entry.lifecycleState !== "running" ||
-      entry.identityStatus !== "owned" ||
-      !Number.isInteger(entry.pid) ||
-      handledPids.has(entry.pid)
-    ) {
-      continue;
-    }
-
-    const serviceId = typeof entry.serviceId === "string" && entry.serviceId
-      ? entry.serviceId
-      : entry.ownerId;
-    if (!demoServiceIds.includes(serviceId)) {
-      continue;
-    }
-
-    const serviceRoot = path.join(servicesRoot, serviceId);
-    if (!sameResolvedPath(entry.ownerRoot, serviceRoot) || !processExists(entry.pid)) {
-      continue;
-    }
-
-    const evidence = await getProcessCommandEvidence(entry.pid);
-    if (
-      !commandLooksServiceOwned(evidence.commandLine, serviceRoot) &&
-      !pathLooksServiceOwned(evidence.executablePath, serviceRoot)
-    ) {
-      skipped.push({
-        serviceId,
-        pid: entry.pid,
-        reason: "process_registry_command_not_owned_by_service_root",
-      });
-      continue;
-    }
-
-    stopped.push(await terminateProcessTree(entry.pid, serviceId));
-    handledPids.add(entry.pid);
-  }
-
-  return { stopped, skipped };
+  const lifecycle = await runCoreWorkspaceLifecycle("stop", { servicesRoot, workspaceRoot });
+  return {
+    lifecycle,
+    stopped: lifecycle.stoppedServices.map((serviceId) => ({
+      label: serviceId,
+      stopped: true,
+      reason: "core_workspace_stop",
+    })),
+    skipped: lifecycle.blockers.map((reason) => ({ reason })),
+  };
 }
 
 async function removeManifestDeclaredFiles(serviceRoot) {
@@ -1332,7 +1279,7 @@ export function buildDemoRuntimeAppOptions(options = {}) {
     port,
     host: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
     version: options.version ?? process.env.npm_package_version ?? "0.1.0",
-    portPolicy: port === 0 ? "automatic" : "fixed",
+    portPolicy: options.portPolicy ?? (port === 0 ? "automatic" : "preferred"),
   };
 }
 
@@ -1476,14 +1423,19 @@ export async function runDemoRecycle(options = {}) {
   const serviceAdminUrl = (options.serviceAdminUrl ?? "http://127.0.0.1:17700").replace(/\/$/, "");
   const preserve = options.preserve === true;
   const keepAlive = options.keepAlive === true;
-  await assertDemoRecycleOwnership({ servicesRoot, workspaceRoot, port });
   const stopped = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
-
-  await assertDemoPortsAvailable({ port, workspaceRoot });
   await resetDemoInstance({ servicesRoot, workspaceRoot });
   await applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl);
 
-  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, host, serviceAdminUrl, skipBootstrap: true });
+  const runtime = await startDemoRuntime({
+    servicesRoot,
+    workspaceRoot,
+    port,
+    host,
+    serviceAdminUrl,
+    skipBootstrap: true,
+    portPolicy: "preferred",
+  });
   let servicesStopped = false;
   let runtimeKeptAlive = false;
 

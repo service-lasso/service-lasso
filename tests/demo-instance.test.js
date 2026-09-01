@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createServer } from "node:http";
 import path from "node:path";
 import os from "node:os";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -968,72 +967,33 @@ test("demo recycle preflight fails closed on orphan runtime ownership", async ()
   }
 });
 
-test("demo recycle asks the previous managed runtime to stop services before replacing it", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-managed-runtime-"));
-  const servicesRoot = path.join(tempDir, "services");
-  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
-  const runtimeStateDir = path.join(workspaceRoot, ".service-lasso");
-  let stopAllCalls = 0;
-  const server = createServer((request, response) => {
-    if (request.method === "POST" && request.url === "/api/runtime/actions/stopAll") {
-      stopAllCalls += 1;
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ results: [], skipped: [] }));
-      return;
-    }
-
-    response.writeHead(404, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: "not_found" }));
-  });
+test("demo stop wrapper uses the core workspace stop contract", async () => {
+  const fixtureTemp = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-core-stop-"));
+  const servicesRoot = path.join(fixtureTemp, "services");
+  const workspaceRoot = path.join(fixtureTemp, "workspace", "demo-instance");
+  await mkdir(servicesRoot, { recursive: true });
+  await mkdir(workspaceRoot, { recursive: true });
 
   try {
-    await mkdir(runtimeStateDir, { recursive: true });
-    await new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    assert.equal(typeof address, "object");
-    assert.notEqual(address, null);
-    const apiUrl = `http://127.0.0.1:${address.port}`;
-
-    await writeFile(
-      path.join(runtimeStateDir, "runtime-instance.json"),
-      `${JSON.stringify({
-        servicesRoot,
-        workspaceRoot,
-        pid: process.pid,
-        apiUrl,
-      }, null, 2)}\n`,
-    );
-
     const result = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
-
-    assert.equal(stopAllCalls, 1);
-    assert.ok(
-      result.stopped.some((entry) => entry.label === "runtime-api-stopAll" && entry.stopped === true),
-      "Expected recycle to request stopAll from the previous runtime.",
-    );
-    assert.ok(
-      result.stopped.some((entry) => entry.label === "runtime-api" && entry.pid === process.pid && entry.stopped === false),
-      "Expected process termination guard to avoid stopping the test runner.",
-    );
+    assert.equal(result.lifecycle.schema, "service-lasso.workspace-lifecycle.v1");
+    assert.equal(result.lifecycle.action, "stop");
+    assert.equal(result.lifecycle.ok, true);
+    assert.equal(result.lifecycle.outcome, "already_stopped");
+    assert.equal(result.lifecycle.ownership, "not_running");
   } finally {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    }).catch(() => undefined);
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(fixtureTemp, { recursive: true, force: true });
   }
 });
 
-test("demo recycle stops service processes recorded only in the process registry", async () => {
+test("demo recycle stops verified registry-owned service processes through core stop", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-registry-cleanup-"));
   const servicesRoot = path.join(tempDir, "services");
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
   const serviceRoot = path.join(servicesRoot, "@nginx");
-  const runtimeStateDir = path.join(workspaceRoot, ".service-lasso");
   const keepAliveScript = path.join(serviceRoot, "keep-alive.mjs");
   let child = null;
+  const { recordProcessOwnership } = await import("../dist/runtime/process/registry.js");
 
   const processIsAlive = (pid) => {
     try {
@@ -1046,7 +1006,6 @@ test("demo recycle stops service processes recorded only in the process registry
 
   try {
     await mkdir(serviceRoot, { recursive: true });
-    await mkdir(runtimeStateDir, { recursive: true });
     await writeFile(keepAliveScript, "setInterval(() => {}, 1000);\n");
     child = spawn(process.execPath, [keepAliveScript], {
       cwd: serviceRoot,
@@ -1059,39 +1018,18 @@ test("demo recycle stops service processes recorded only in the process registry
       child.once("error", reject);
     });
 
-    await writeFile(
-      path.join(runtimeStateDir, "processes.json"),
-      `${JSON.stringify({
-        version: 1,
-        updatedAt: new Date().toISOString(),
-        entries: [
-          {
-            ownerType: "service",
-            ownerId: "@nginx",
-            serviceId: "@nginx",
-            workspaceId: "test",
-            runtimeInstanceId: null,
-            pid: child.pid,
-            identity: null,
-            ownerRoot: serviceRoot,
-            processGroup: { kind: "none", id: null },
-            allocation: { revision: null, ports: { http: 18080 }, endpoints: [] },
-            lifecycleState: "running",
-            identityStatus: "owned",
-            source: "spawn",
-            recordedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ],
-      }, null, 2)}\n`,
-    );
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "@nginx",
+      serviceId: "@nginx",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "spawn",
+    });
 
     const result = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
-
-    assert.ok(
-      result.stopped.some((entry) => entry.label === "@nginx" && entry.pid === child.pid && entry.stopped === true),
-      "Expected recycle cleanup to stop the registry-owned service process.",
-    );
+    assert.ok(result.lifecycle.stoppedServices.includes("@nginx"));
     assert.equal(processIsAlive(child.pid), false);
   } finally {
     if (child && processIsAlive(child.pid)) {
@@ -1179,7 +1117,7 @@ test("demo options default to the canonical runtime port instead of NGINX 18080"
       workspaceRoot: path.join(os.tmpdir(), "demo-workspace"),
     });
     assert.equal(runtimeAppOptions.port, 17883);
-    assert.equal(runtimeAppOptions.portPolicy, "fixed");
+    assert.equal(runtimeAppOptions.portPolicy, "preferred");
     const automaticAppOptions = buildDemoRuntimeAppOptions({
       servicesRoot: path.join(os.tmpdir(), "demo-services"),
       workspaceRoot: path.join(os.tmpdir(), "demo-workspace"),
