@@ -713,7 +713,8 @@ export async function inspectProcess(
   const platform = dependencies.platform ?? process.platform;
   const readFileDependency =
     dependencies.readFile ??
-    ((filePath, encoding) => readFile(filePath, encoding));
+    ((filePath, encoding) =>
+      encoding === undefined ? readFile(filePath) : readFile(filePath, encoding));
   const readlinkDependency = dependencies.readlink ?? readlink;
   const runCommand =
     dependencies.runCommand ??
