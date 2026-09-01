@@ -214,7 +214,11 @@ async function startWorkspaceRuntimeLocked(
   const baseline = app.apiServer.baselineBootstrap;
   const startedServices = baseline
     ? baseline.services
-      .filter((service) => service.status === "completed" && service.actions.some((action) => action.action === "start"))
+      .filter(
+        (service) =>
+          service.status === "completed" &&
+          service.actions.some((action) => action.action === "start" && action.status === "completed"),
+      )
       .map((service) => service.serviceId)
     : await listOwnedRunningServiceIds(config.workspaceRoot);
 
