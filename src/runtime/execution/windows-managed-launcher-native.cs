@@ -26,6 +26,21 @@ public static class ServiceLassoManagedLauncherNative
     private const int MaximumTargetEnvironmentOverrides = 128;
     private const int MaximumPostResumeDelayMilliseconds = 1000;
     private const int MaximumPayloadCharacters = 32768;
+    private const int FailureExitCodeUnknown = 100;
+    private const int FailureExitCodeJobCreation = 101;
+    private const int FailureExitCodeTargetCreation = 102;
+    private const int FailureExitCodeJobAssignment = 103;
+    private const int FailureExitCodeTargetResume = 104;
+    private const int FailureExitCodeTargetThreadClose = 105;
+    private const int FailureExitCodeAcknowledgmentWrite = 106;
+    private const int FailureExitCodeTargetFileNotFound = 107;
+    private const int FailureExitCodeTargetPathNotFound = 108;
+    private const int FailureExitCodeTargetAccessDenied = 109;
+    private const int FailureExitCodeTargetSharingViolation = 110;
+    private const int FailureExitCodeTargetInvalidParameter = 111;
+    private const int FailureExitCodeTargetFilenameTooLong = 112;
+    private const int FailureExitCodeResolvedExecutableMissing = 113;
+    private const int FailureExitCodeWorkingDirectoryMissing = 114;
     private const string ProgressPrefix = "__SERVICE_LASSO_LAUNCHER_PROGRESS__:";
     private const string PayloadEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD";
     private const string GateEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_GATE";
@@ -233,6 +248,7 @@ public static class ServiceLassoManagedLauncherNative
         IntPtr threadHandle = IntPtr.Zero;
         bool targetAssignedToJob = false;
         List<FileStream> boundFiles = new List<FileStream>();
+        int failureExitCode = FailureExitCodeUnknown;
 
         try
         {
@@ -348,6 +364,7 @@ public static class ServiceLassoManagedLauncherNative
             File.WriteAllText(payload.filesBoundPath, payload.filesBoundToken, StrictUtf8);
             WaitForGate(payload.continuePath, payload.continueToken, TimeSpan.FromSeconds(45));
 
+            failureExitCode = FailureExitCodeJobCreation;
             jobHandle = CreateJobObjectW(IntPtr.Zero, null);
             if (jobHandle == IntPtr.Zero)
             {
@@ -365,6 +382,18 @@ public static class ServiceLassoManagedLauncherNative
             ProcessInformation processInformation;
             StringBuilder commandLine = new StringBuilder(BuildCommandLine(resolvedExecutable, resolvedArgs));
             bool targetCreated;
+            int targetCreationError = 0;
+            failureExitCode = FailureExitCodeTargetCreation;
+            if (!File.Exists(resolvedExecutable))
+            {
+                failureExitCode = FailureExitCodeResolvedExecutableMissing;
+                throw new InvalidOperationException("Managed target executable disappeared before creation.");
+            }
+            if (!Directory.Exists(payload.workingDirectory))
+            {
+                failureExitCode = FailureExitCodeWorkingDirectoryMissing;
+                throw new InvalidOperationException("Managed target working directory disappeared before creation.");
+            }
             ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides);
             try
             {
@@ -379,6 +408,11 @@ public static class ServiceLassoManagedLauncherNative
                     payload.workingDirectory,
                     ref startupInfo,
                     out processInformation);
+                if (!targetCreated)
+                {
+                    targetCreationError = Marshal.GetLastWin32Error();
+                    failureExitCode = TargetCreationFailureExitCode(targetCreationError);
+                }
                 if (targetCreated)
                 {
                     processHandle = processInformation.hProcess;
@@ -391,17 +425,19 @@ public static class ServiceLassoManagedLauncherNative
             }
             if (!targetCreated)
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target creation failed.");
+                throw new Win32Exception(targetCreationError, "Managed target creation failed.");
             }
             if (processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0)
             {
                 throw new InvalidOperationException("Managed target process evidence was invalid.");
             }
+            failureExitCode = FailureExitCodeJobAssignment;
             if (!AssignProcessToJobObject(jobHandle, processHandle))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target job assignment failed.");
             }
             targetAssignedToJob = true;
+            failureExitCode = FailureExitCodeTargetResume;
             if (ResumeThread(threadHandle) == UInt32.MaxValue)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target resume failed.");
@@ -410,11 +446,13 @@ public static class ServiceLassoManagedLauncherNative
             {
                 Thread.Sleep(payload.postResumeDelayMilliseconds);
             }
+            failureExitCode = FailureExitCodeTargetThreadClose;
             if (!CloseHandle(threadHandle))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target thread handle close failed.");
             }
             threadHandle = IntPtr.Zero;
+            failureExitCode = FailureExitCodeAcknowledgmentWrite;
             string acknowledgment = "{\"token\":\"" + payload.ackToken + "\",\"pid\":" +
                 processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
             File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8);
@@ -432,7 +470,7 @@ public static class ServiceLassoManagedLauncherNative
         }
         catch
         {
-            return 1;
+            return failureExitCode;
         }
         finally
         {
@@ -467,6 +505,20 @@ public static class ServiceLassoManagedLauncherNative
                     // Handle and Job cleanup remain authoritative.
                 }
             }
+        }
+    }
+
+    private static int TargetCreationFailureExitCode(int errorCode)
+    {
+        switch (errorCode)
+        {
+            case 2: return FailureExitCodeTargetFileNotFound;
+            case 3: return FailureExitCodeTargetPathNotFound;
+            case 5: return FailureExitCodeTargetAccessDenied;
+            case 32: return FailureExitCodeTargetSharingViolation;
+            case 87: return FailureExitCodeTargetInvalidParameter;
+            case 206: return FailureExitCodeTargetFilenameTooLong;
+            default: return FailureExitCodeTargetCreation;
         }
     }
 
