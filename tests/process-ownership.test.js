@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import net from "node:net";
+import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -34,6 +35,7 @@ import {
   setManagedProcessLaunchStateCreatedHookForTests,
   setManagedProcessLaunchStateRemoverForTests,
   setManagedProcessPostResumeDelayForTests,
+  setManagedProcessSpawnTimeoutForTests,
   setManagedProcessSpawnerForTests,
   setManagedProcessTreeTerminatorForTests,
   setWindowsManagedLauncherPathForTests,
@@ -1794,6 +1796,52 @@ test("synchronous wrapper spawn failures retain their typed phase and clean pre-
     assert.equal(hasManagedProcess("sync-spawn-failure-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("wrapper spawn waits are bounded and contain an unresponsive pre-enrollment child", async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-spawn-deadline-");
+  await writeExecutableFixtureService(servicesRoot, "spawn-deadline-service");
+  const fakeChild = Object.assign(new EventEmitter(), {
+    pid: 424_242,
+    exitCode: null,
+    signalCode: null,
+    kill(signal) {
+      this.signalCode = signal;
+      setImmediate(() => this.emit("close", null, signal));
+      return true;
+    },
+  });
+
+  try {
+    setManagedProcessSpawnTimeoutForTests(25);
+    setManagedProcessSpawnerForTests(() => fakeChild);
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "wrapper_spawn");
+        assert.match(error.message, /deadline/iu);
+        return true;
+      },
+    );
+    assert.equal(fakeChild.signalCode, "SIGKILL");
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "spawn-deadline-service"), null);
+    assert.equal(hasManagedProcess("spawn-deadline-service"), false);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
+    setManagedProcessSpawnTimeoutForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
