@@ -1,10 +1,15 @@
-import { getDemoStatus, printDemoStatus, resolveDemoOptions } from "./demo-instance-lib.mjs";
+import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
+import { formatCanonicalDemoReport, runCanonicalDemoStatus } from "./demo-canonical-lifecycle.mjs";
+import { printDemoStatus, resolveDemoOptions } from "./demo-instance-lib.mjs";
 
 const options = resolveDemoOptions();
-const status = await getDemoStatus(options);
+const result = await runCanonicalDemoStatus(options);
 
 if (options.json) {
-  console.log(JSON.stringify(status, null, 2));
+  console.log(JSON.stringify(result, null, 2));
 } else {
-  printDemoStatus(status);
+  console.log(formatCanonicalDemoReport(result));
+  if (result.status) {
+    printDemoStatus(result.status);
+  }
 }
