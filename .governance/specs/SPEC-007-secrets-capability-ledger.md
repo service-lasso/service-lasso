@@ -40,10 +40,12 @@ requirements, Admin surface, evidence, release wave, blocker, and next action.
 
 ### `AC-7B` — Honest maturity
 
-Maturity is exactly one of `planned`, `read-only`, `dry-run`, `executable`, or
-`validated`. A route or UI model alone is not executable. `validated` requires
-row-specific real-process evidence. Cross-repository rows use the maturity of
-the least-proven required segment.
+Maturity is exactly one of `planned`, `read-only`, `dry-run`, `executable`,
+`validated`, or `excluded`. A route or UI model alone is not executable.
+`validated` requires row-specific real-process evidence. `excluded` requires a
+recorded product decision, an unavailable or hidden release surface, and an
+explicit non-claim. Cross-repository rows use the maturity of the least-proven
+required segment.
 
 ### `AC-7C` — Complete programme coverage
 
@@ -120,6 +122,23 @@ provenance metadata, asset inventory readback, and independent repeatable build
 instructions. Publication is explicitly dispatched through an approval-gated
 release environment and never occurs from an ordinary integration push.
 
+### `AC-7H` — Independent Release 1 security review and promotion gate
+
+Before Release 1 promotion, the exact immutable Core, Admin, and Broker
+identities must have a review-ready security packet covering the threat model,
+trust boundaries, cryptography and key lifecycle, IPC and identity enforcement,
+abuse cases, dependency/SBOM/provenance state, static/dynamic/fuzz evidence,
+three-platform released-artifact qualification, recovery and incident handling,
+explicit non-claims, and repeatable reproduction instructions.
+
+The delivery owner may assemble evidence and resolve internal findings but must
+not self-certify the independent review. A named independent reviewer records
+scope, date, decision, residual findings, and approval against the exact packet
+revision. Until that sign-off exists, the decision is `GA blocked: external
+security approval outstanding`; no branch promotion, GA tag, or completion
+claim is permitted. A waiver records accepted risk but never converts a missing
+or failed technical gate into green evidence.
+
 ## Tests and Evidence
 
 - `npm run docs:check-secrets-ledger`.
@@ -133,6 +152,18 @@ release environment and never occurs from an ordinary integration push.
 - Repository security settings, open-alert counts, exact production audits,
   release environments, workflow pinning, and branch protection read back on
   `2026-08-31` under issue `#1164`.
+- Exact published-package qualification run `33509489660` completed on
+  `2026-09-01` at Core `1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`:
+  Windows, Linux, macOS, and aggregate jobs passed; the artifact API returned
+  exactly three nonempty, unexpired 90-day metadata records; every Release 1
+  product scenario passed without mutation retry.
+- Exact Admin release `f015b4445b0526546a309301270186a697588166` passed
+  three-platform real-browser run `33437554122`; focused release-surface proof
+  passed 57/57 assertions and 7/7 browser cases. Exact Broker release
+  `f340883056ec3cf74b535fb46490b39382e8c823` passed release run
+  `33376912641`, native source and shipped-binary vulnerability gates, and a
+  30-second `FuzzSecurityContractParsers` campaign with 785,686 executions and
+  no failure.
 - Core local candidate proof on `2026-09-01`: production audit found zero
   vulnerabilities; the critical/high tooling gate passed; the full tooling
   audit initially retained 18 moderate dev-only Docusaurus-chain findings; a
@@ -187,3 +218,7 @@ evidence is a row-specific real-process result.
   current `develop` ancestry, keeps all other work on typed issue branches,
   aligns every CodeQL phase to one immutable v4 release, and requires the
   merged TypeScript 7 graph to typecheck without weakening strictness.
+- 2026-09-01: Issue `#1208` adds `AC-7H`, refreshes all fourteen Release 1
+  rows to thirteen `validated` and one explicitly `excluded`, and binds the GA
+  decision to a review-ready packet plus independent security sign-off at the
+  exact immutable release identities.

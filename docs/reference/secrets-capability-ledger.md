@@ -7,8 +7,8 @@ Admin without treating a route, UI model, closed issue, or source test as live
 product proof.
 
 The JSON file is authoritative when this explanation and the structured data
-differ. It was initially observed at `2026-08-25T04:14:10Z`; every evidence
-record carries its own observation timestamp and direct URL.
+differ. The Release 1 decision was refreshed at `2026-09-01T13:00:46Z`; every
+evidence record carries its own observation timestamp and direct URL.
 
 ## How to read maturity
 
@@ -19,6 +19,7 @@ record carries its own observation timestamp and direct URL.
 | `dry-run` | Validation or planning exists without committing the durable operation. |
 | `executable` | An operation has an implementation path, but required real-process evidence is incomplete. |
 | `validated` | Row-specific real-process evidence proves the required cross-repository path and platforms. |
+| `excluded` | A recorded product decision makes the capability unavailable and forbids a Release 1 claim. |
 
 Cross-repository capability uses the least-proven required segment. For
 example, passing Core tests cannot make an Admin-to-Core-to-Broker operation
@@ -28,17 +29,24 @@ example, passing Core tests cannot make an Admin-to-Core-to-Broker operation
 
 | Wave | Ledger truth at the observation | Key residual |
 | --- | --- | --- |
-| Release 1 — local-store product | Mixed `planned`, `read-only`, `dry-run`, and `executable`; no row is promoted merely because foundation work closed. | Generated credentials are blocked in Core issue [#806](https://github.com/service-lasso/service-lasso/issues/806); linked rotation owner action is in Core [PR #1132](https://github.com/service-lasso/service-lasso/pull/1132); Admin apply issue [#459](https://github.com/service-lasso/lasso-serviceadmin/issues/459) remains open. |
+| Release 1 — local-store product | Thirteen rows are `validated` against exact released artifacts; PGP bootstrap is the single `excluded` row and remains unavailable. | Internal product and supply-chain evidence is green. GA promotion remains blocked only on the named independent security review required by `SPEC-007` `AC-7H`. |
 | Release 2 — provider lifecycle | Provider management is executable and external read is read-only, not product-validated. | Admin [PR #569](https://github.com/service-lasso/lasso-serviceadmin/pull/569) fails the Windows real-browser gate after rotation when provider status returns HTTP 503. |
 | Release 3 — mutation and campaigns | Executable paths exist, but provider-specific partial failure, retry, restart, and recovery proof is incomplete. | Broker issue [#162](https://github.com/service-lasso/lasso-secretsbroker/issues/162) remains in review. |
 | Release 4 — automation | CLI and Sync are partial; Core MCP is release-gated for permission-scoped reads and guarded service lifecycle actions, while Broker MCP and scheduled rotation remain planned. | Preserve operation-specific identity, approval, idempotency, Audit, retry, and installed-artifact evidence; do not extend the Core proof to the separate Broker MCP scope. |
 | Enterprise | Provider tracks are executable but unvalidated; MFA, HSM, and FIPS remain planned. | No compliance or hardware-support claim is permitted without an accepted scope and exact evidence boundary. |
 
-The current Core baseline used for source evidence is
-`ba709db2f00df5d48cdf92b4ebcd46fbdcd6eced`. The active owner-action change is
-`7fc2313f8d7b8086728088ee7edac0a627eb99d1`. The active Admin qualification is
-`2da98da1934a1167b509217982d8a58cba154102`; its Windows check is the direct
-failure evidence linked in the JSON ledger.
+The exact Release 1 evidence set is Core release `2026.9.1-1f4ec40` at
+`1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`, Admin release
+`2026.8.31-f015b44` at `f015b4445b0526546a309301270186a697588166`, and
+Broker release `2026.8.31-f340883` at
+`f340883056ec3cf74b535fb46490b39382e8c823`. Published-package qualification
+[run 33509489660](https://github.com/service-lasso/service-lasso/actions/runs/33509489660)
+passed Windows, Linux, macOS, and aggregate verification with exactly three
+nonempty, unexpired metadata-only artifacts. The exact Admin release also has
+its own green three-platform real-browser
+[run 33437554122](https://github.com/service-lasso/lasso-serviceadmin/actions/runs/33437554122),
+and the exact Broker release has green native source/binary vulnerability gates
+in [run 33376912641](https://github.com/service-lasso/lasso-secretsbroker/actions/runs/33376912641).
 
 ## Update rules
 
@@ -54,8 +62,9 @@ failure evidence linked in the JSON ledger.
    as current.
 4. Use `validated` only for row-specific real-process proof covering every
    repository and platform required by that row.
-5. Keep unsupported, deferred, or deliberately excluded capability as an
-   explicit `planned` row with its reason; do not delete it from the ledger.
+5. Keep unsupported or deferred capability as an explicit `planned` row. Use
+   `excluded` only for an unavailable Release 1 surface with a recorded product
+   decision and explicit non-claim; never delete it from the ledger.
 6. Run `npm run docs:check-secrets-ledger` before review. This check proves
    structure and programme coverage, not product maturity.
 
@@ -67,3 +76,9 @@ surface, platform, recovery path, or enterprise control has been validated.
 The separate [Secrets Broker live-readiness record](./secrets-broker-live-readiness.md)
 defines release-candidate gates; the structured ledger controls current
 capability maturity.
+
+The Release 1 ledger does not certify the independent security review. See the
+[Release 1 security review packet](./release-1-security-review-packet.md) and
+[GA decision](./release-1-ga-decision.md). Promotion remains blocked until a
+named independent reviewer signs the exact packet revision and all findings are
+dispositioned.
