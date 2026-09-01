@@ -1,7 +1,7 @@
 # Release 1 GA decision
 
 Decision: **GA blocked — independent security approval outstanding**  
-Prepared: `2026-09-01`  
+Prepared: `2026-09-02`
 Tracking issue: [#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 
 ## Internal gate decision
@@ -25,7 +25,14 @@ supply-chain, vulnerability, recovery, and evidence gates:
   Admin, and Broker bytes with first-run bootstrap, one-time credential
   acknowledgement, local-root authentication, Broker health, and restart
   continuity. This direct demo is intentionally narrower than the three-OS
-  destructive lifecycle matrix and does not replace it.
+  destructive lifecycle matrix and does not replace it;
+- active rulesets and branch protection on Core, Admin, and Broker require one
+  approval, CODEOWNERS, last-push approval, strict terminal-green checks,
+  conversation resolution, and linear history, with force-push/deletion
+  disabled. Release-authority issues Core `#1164`, Admin `#578`, Admin dependency
+  `#549`, Admin reconciliation `#550`, Broker checksum `#162`, Core launcher
+  `#1205`, and published-package qualification `#1152` are closed with Project
+  status `Done` after direct evidence readback.
 
 ## Blocking gate
 
@@ -43,7 +50,9 @@ Therefore:
 - keep the canonical released-artifact demo available for reviewer use;
 - after approval, re-read exact branch heads, security settings, open alerts,
   release/npm identities, retained artifacts, issue state, and Project state
-  before promotion.
+  before promotion. The approval must name the exact head of the final-readback
+  packet revision; approval of an earlier packet does not authorize an
+  unreviewed delta.
 
 An external-review waiver may record risk acceptance but cannot turn a missing
 technical artifact, failed check, open vulnerability, or mismatched identity
