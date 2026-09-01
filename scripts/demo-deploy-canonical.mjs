@@ -708,6 +708,7 @@ export async function runCanonicalDeploy(options = resolveCanonicalDeployOptions
       ok: verifier.ok,
       checks: verifier.checks ?? [],
       failures: verifier.failures ?? [],
+      doctor: verifier.summary?.doctor ?? null,
     },
     endpointExpectations,
     logs: {

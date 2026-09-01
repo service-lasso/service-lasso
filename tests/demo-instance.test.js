@@ -925,6 +925,20 @@ test("canonical demo verifier fails when an advertised service URL is unreachabl
       {
         fetch: async (url, options) => {
           const parsed = new URL(url);
+          if (parsed.pathname === "/api/runtime/doctor") {
+            return {
+              status: 200,
+              async json() {
+                return {
+                  doctor: {
+                    classification: "wrong_lane",
+                    recommendedAction: "request_operator_confirmation",
+                    readOnly: true,
+                  },
+                };
+              },
+            };
+          }
           if (parsed.port === "4011" && parsed.pathname === "/health") {
             return textResponse(503, "not ready");
           }
@@ -936,6 +950,8 @@ test("canonical demo verifier fails when an advertised service URL is unreachabl
     assert.equal(result.ok, false);
     assert.ok(result.failures.some((failure) => failure.code === "unreachable_service_url"));
     assert.ok(result.failures.some((failure) => /echo-service advertised health/.test(failure.name)));
+    assert.equal(result.summary.doctor.classification, "wrong_lane");
+    assert.equal(result.summary.doctor.recommendedAction, "request_operator_confirmation");
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

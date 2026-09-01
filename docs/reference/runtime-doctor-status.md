@@ -55,3 +55,9 @@ The first supported classification set is:
 - `migration_required`
 
 The doctor is advisory. It never performs recovery mutations; operators must invoke a separate lifecycle or repair action to mutate state.
+
+Identity mismatch, unknown ownership, and occupied preferred/fixed ports recommend `request_operator_confirmation`. Those classifications never recommend process termination.
+
+Canonical demo verification and canonical deploy attach the doctor JSON object on failure so operators see the same classification without inspecting logs.
+
+Partial startup reads the startup-transaction journal. Phases before `process_spawned` recommend `resume`; later active or blocked phases recommend `roll_back`.
