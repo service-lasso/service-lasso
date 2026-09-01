@@ -53,3 +53,13 @@ test("real browser harness generates a CA-pinned localhost TLS certificate witho
     });
   }
 });
+
+test("real browser harness emits a minimal positive serial when random input starts with zero", () => {
+  const serialSeed = Buffer.alloc(16);
+  serialSeed[1] = 1;
+  const certificate = generateLocalhostCertificate(
+    new Date("2026-09-01T00:00:00Z"),
+    serialSeed,
+  );
+  assert.doesNotThrow(() => new X509Certificate(certificate.cert));
+});
