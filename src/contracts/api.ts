@@ -548,6 +548,22 @@ export type RuntimeDoctorRecommendedAction =
   | "repair_state"
   | "request_operator_confirmation";
 
+export const RUNTIME_DOCTOR_CLASSIFICATIONS: readonly RuntimeDoctorClassification[] = [
+  "healthy",
+  "not_running",
+  "wrong_lane",
+  "ambiguous_generation",
+  "identity_mismatch",
+  "unknown_owner",
+  "preferred_port_occupied",
+  "fixed_port_conflict",
+  "reservation_drift",
+  "configuration_drift",
+  "partial_startup",
+  "state_corrupt",
+  "migration_required",
+];
+
 export interface RuntimeDoctorOwnershipEntryResponse {
   ownerType: "runtime" | "service";
   ownerId: string;
@@ -641,6 +657,11 @@ export interface RuntimeDoctorResponse {
         dependencyId: string;
         reason: "dependency_disabled" | "missing_dependency";
       }>;
+    };
+    startupTransaction: {
+      status: "active" | "committed" | "rolled_back" | "blocked" | null;
+      phase: string | null;
+      recoveryOption: "resume" | "roll_back" | "none";
     };
   };
 }
