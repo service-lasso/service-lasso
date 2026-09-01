@@ -1346,6 +1346,7 @@ function printDoctorResult(result: DoctorCliResult, asJson: boolean): void {
   console.log("- reservations: " + result.doctor.endpoints.reservations.length);
   console.log("- conflicts: " + result.doctor.endpoints.conflicts.length);
   console.log("- dependencyBlockers: " + result.doctor.dependencies.blockers.length);
+  console.log("- startupTransaction: " + (result.doctor.startupTransaction.status ?? "none") + "/" + (result.doctor.startupTransaction.phase ?? "none"));
 }
 
 function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {
