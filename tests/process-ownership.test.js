@@ -567,6 +567,36 @@ test("Windows native tree adapter binds every member and fails closed on changed
   assert.equal(transientAttempts, 2);
   assert.equal(retried.rootStatus, "owned");
 
+  let sharedHostContentionAttempts = 0;
+  const recoveredAfterSharedHostContention = await inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      sharedHostContentionAttempts += 1;
+      if (sharedHostContentionAttempts <= 3) {
+        return { stdout: "", exitCode: 1 };
+      }
+      return {
+        stdout: JSON.stringify({
+          Status: "tree",
+          RootStatus: "running",
+          Processes: [{
+            Status: "running",
+            ProcessId: root.pid,
+            CreationDate: root.createdAt,
+            ExecutablePath: root.executablePath,
+            CommandLine: rootCommandLine,
+          }, childEvidence],
+        }),
+      };
+    },
+  });
+  assert.equal(sharedHostContentionAttempts, 4);
+  assert.equal(recoveredAfterSharedHostContention.rootStatus, "owned");
+  assert.deepEqual(
+    recoveredAfterSharedHostContention.members.map((member) => member.pid),
+    [4343, 4242],
+  );
+
   const exited = await inspectWindowsProcessTree(root, {
     windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
     runCommand: async () => ({
@@ -582,6 +612,7 @@ test("Windows native tree adapter binds every member and fails closed on changed
 
   await assert.rejects(
     inspectWindowsProcessTree(root, {
+      deadlineMs: Date.now() + 500,
       windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
       runCommand: async () => ({
         stdout: JSON.stringify({
