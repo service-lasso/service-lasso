@@ -105,6 +105,21 @@ export function fail(code, message) {
   throw new QualificationError(code, message);
 }
 
+export function parseCoreInstallOutput(value, serviceId) {
+  try {
+    const payload = JSON.parse(String(value ?? "").trim());
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new TypeError("Core install output is not an object.");
+    }
+    return payload;
+  } catch {
+    fail(
+      "core_install_contract_invalid",
+      `Published Core install did not return JSON for ${serviceId}.`,
+    );
+  }
+}
+
 export function requirePattern(value, pattern, label, code = "invalid_input") {
   const normalized = String(value ?? "").trim();
   if (!pattern.test(normalized)) {
