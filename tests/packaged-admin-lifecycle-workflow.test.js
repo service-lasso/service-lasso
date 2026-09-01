@@ -88,7 +88,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /retainedContent = 'metadata_only'/);
   assert.match(
     workflow,
-    /uses: actions\/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
+    /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
   assert.match(workflow, /mutationRetry = \$false/);
   assert.match(workflow, /comprehensive_lifecycle/);

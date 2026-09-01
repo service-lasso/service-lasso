@@ -10,6 +10,21 @@ const packageJson = JSON.parse(
 const packageLock = JSON.parse(
   await readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
 );
+const codeqlWorkflow = await readFile(
+  new URL("../.github/workflows/codeql.yml", import.meta.url),
+  "utf8",
+);
+
+test("CodeQL lifecycle steps stay on one immutable action revision", () => {
+  const revisions = [
+    ...codeqlWorkflow.matchAll(
+      /github\/codeql-action\/(?:init|autobuild|analyze)@([a-f0-9]{40})/gu,
+    ),
+  ].map((match) => match[1]);
+
+  assert.equal(revisions.length, 3);
+  assert.equal(new Set(revisions).size, 1);
+});
 
 test("development dependency replacements resolve to the reviewed safe boundaries", () => {
   assert.equal(

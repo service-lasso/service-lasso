@@ -86,12 +86,12 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(
     workflow,
-    /actions\/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
+    /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
   assert.equal(
     (
       workflow.match(
-        /uses: actions\/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f/g,
+        /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/g,
       ) ?? []
     ).length,
     1,
