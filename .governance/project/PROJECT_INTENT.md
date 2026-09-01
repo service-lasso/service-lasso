@@ -40,6 +40,10 @@ This repo is therefore the place where the real core behavior must live and cont
   production vulnerability, mutable Action reference, missing shipped-archive
   SBOM/provenance/signature, or failed published-package evidence (`SPEC-007`
   `AC-7G`).
+- Release 1 promotion is additionally fail-closed on independent security
+  review of the exact immutable Core, Admin, Broker, npm, and evidence packet.
+  Internal evidence assembly is not external approval, and a waiver never
+  converts missing technical proof into a pass (`SPEC-007` `AC-7H`, `#1208`).
 
 ## Risks
 - Staying in analysis/doc mode too long would create false progress without a running core.
@@ -91,3 +95,6 @@ For the first runtime slice, expected proof should include:
 - documented residual gaps/blockers for anything not yet implemented
 - backlog/spec traceability updated to distinguish shipped runtime behavior from remaining planned behavior
 - working-release claims proven from the exact downloaded Core GitHub release and public npm package, with checksum-bound published Admin and Broker behavior on Windows, Ubuntu, and macOS plus exactly three retained metadata-only artifacts and direct artifact API readback; source builds are not publication proof
+- GA promotion claims require a named independent reviewer, exact packet
+  revision, dated decision, and disposition of every finding after all internal
+  release, vulnerability, provenance, runtime, recovery, and ledger gates pass
