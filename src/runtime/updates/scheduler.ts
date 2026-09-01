@@ -138,6 +138,7 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
 
       const result = await installServiceUpdateCandidate(service, {
         registry: options.registry,
+        now,
         workspaceRoot: options.workspaceRoot,
       });
       lastCheckedAtMs.set(serviceId, currentTimeMs);
