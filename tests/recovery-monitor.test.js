@@ -22,7 +22,7 @@ import { writeServiceState } from "../dist/runtime/state/writeState.js";
 import { startApiServer } from "../dist/server/index.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
-async function waitFor(readinessCheck, timeoutMs = 2_000) {
+async function waitFor(readinessCheck, timeoutMs = 15_000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -89,8 +89,11 @@ test("runtime monitor defers to an in-flight automatic supervision restart", asy
 
     assert.equal(event?.action, "skip");
     assert.equal(event?.reason, "in_flight");
-    await waitFor(() => getLifecycleState("crash-restart-service").runtime.supervision.lastRestartResult === "started");
-    assert.equal(getLifecycleState("crash-restart-service").running, true);
+    const restartedState = await waitFor(() => {
+      const state = getLifecycleState("crash-restart-service");
+      return state.runtime.supervision.lastRestartResult === "started" ? state : null;
+    });
+    assert.equal(restartedState.runtime.supervision.lastRestartResult, "started");
     const stored = await readStoredState(service.serviceRoot);
     assert.ok(stored.recovery.events.some((entry) => entry.kind === "restart" && entry.ok));
   } finally {

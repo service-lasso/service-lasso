@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+const require = createRequire(import.meta.url);
+const packageJson = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+);
 const packageLock = JSON.parse(
   await readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
 );
@@ -20,6 +25,15 @@ test("development dependency replacements resolve to the reviewed safe boundarie
     packageLock.packages["node_modules/serialize-javascript"].version,
     "7.1.0",
   );
+  assert.equal(packageJson.overrides.sockjs.uuid, "11.1.1");
+  assert.equal(packageLock.packages["node_modules/uuid"].version, "11.1.1");
+});
+
+test("the patched uuid override retains the CommonJS surface used by sockjs", () => {
+  const uuid = require("uuid");
+  const sockjs = require("sockjs");
+  assert.equal(uuid.v4().length, 36);
+  assert.equal(typeof sockjs.createServer().installHandlers, "function");
 });
 
 test("image dimension parsing fails closed instead of accepting attacker-controlled formats", async () => {

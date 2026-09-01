@@ -2,9 +2,6 @@ name: Release Artifact
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 env:
   CANDIDATE_SHA: ${{ github.sha }}
@@ -76,8 +73,11 @@ jobs:
     needs:
       - qualify-mcp-packaged
     runs-on: ubuntu-latest
+    environment: release
     permissions:
+      attestations: write
       contents: write
+      id-token: write
 
     steps:
       - name: Check out repo
@@ -116,20 +116,40 @@ jobs:
       - name: Validate staged release asset policy
         run: |
           TAG_NAME="${{ steps.release_version.outputs.version }}"
-          ASSET_NAMES=(
-            "${{ steps.release_version.outputs.artifact_name }}.tar.gz"
-            "${{ steps.release_version.outputs.bundled_artifact_name }}.tar.gz"
-            "${{ steps.release_version.outputs.artifact_name }}-win32.zip"
-            "${{ steps.release_version.outputs.artifact_name }}-linux.tar.gz"
-            "${{ steps.release_version.outputs.artifact_name }}-darwin.tar.gz"
-            "${{ steps.release_version.outputs.bundled_artifact_name }}-win32.zip"
-            "${{ steps.release_version.outputs.bundled_artifact_name }}-linux.tar.gz"
-            "${{ steps.release_version.outputs.bundled_artifact_name }}-darwin.tar.gz"
+          mapfile -t ASSET_NAMES < <(node scripts/check-release-assets.mjs --expected "$TAG_NAME")
+          (
+            cd artifacts
+            sha256sum "${ASSET_NAMES[@]:0:16}" > SHA256SUMS.txt
           )
           for asset_name in "${ASSET_NAMES[@]}"; do
             test -f "artifacts/${asset_name}"
           done
           node scripts/check-release-assets.mjs "$TAG_NAME" "${ASSET_NAMES[@]}"
+
+      - name: Attest exact release assets
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
+            artifacts/*.cdx.json
+            artifacts/SHA256SUMS.txt
+
+      - name: Verify signed provenance before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_NAME="${{ steps.release_version.outputs.version }}"
+          mapfile -t ASSET_NAMES < <(node scripts/check-release-assets.mjs --expected "$TAG_NAME")
+          for asset_name in "${ASSET_NAMES[@]}"; do
+            gh attestation verify "artifacts/${asset_name}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-artifact.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" >/dev/null
+          done
 
       - name: Upload staged artifact folder
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -166,29 +186,46 @@ jobs:
             artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-win32.zip
             artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-linux.tar.gz
             artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-darwin.tar.gz
+            artifacts/*.cdx.json
+            artifacts/SHA256SUMS.txt
 
-      - name: Create or update GitHub release
+      - name: Create immutable GitHub release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           TAG_NAME="${{ steps.release_version.outputs.version }}"
-          RELEASE_ASSETS=(
-            "artifacts/${{ steps.release_version.outputs.artifact_name }}.tar.gz"
-            "artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}.tar.gz"
-            "artifacts/${{ steps.release_version.outputs.artifact_name }}-win32.zip"
-            "artifacts/${{ steps.release_version.outputs.artifact_name }}-linux.tar.gz"
-            "artifacts/${{ steps.release_version.outputs.artifact_name }}-darwin.tar.gz"
-            "artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-win32.zip"
-            "artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-linux.tar.gz"
-            "artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-darwin.tar.gz"
-          )
-          gh release view "$TAG_NAME" >/dev/null 2>&1 || gh release create "$TAG_NAME" --target "${GITHUB_SHA}" --title "$TAG_NAME" --notes "Bounded runtime artifact release for service-lasso."
-          gh release upload "$TAG_NAME" "${RELEASE_ASSETS[@]}" --clobber
+          mapfile -t ASSET_NAMES < <(node scripts/check-release-assets.mjs --expected "$TAG_NAME")
+          RELEASE_ASSETS=()
+          for asset_name in "${ASSET_NAMES[@]}"; do RELEASE_ASSETS+=("artifacts/${asset_name}"); done
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists and is immutable." >&2
+            exit 1
+          fi
+          gh release create "$TAG_NAME" "${RELEASE_ASSETS[@]}" \
+            --target "${GITHUB_SHA}" \
+            --title "$TAG_NAME" \
+            --notes "Bounded runtime artifact release for service-lasso."
 
       - name: Verify GitHub release asset policy
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           TAG_NAME="${{ steps.release_version.outputs.version }}"
-          mapfile -t RELEASE_ASSET_NAMES < <(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')
+          RELEASE_JSON="$(gh release view "$TAG_NAME" --json tagName,name,targetCommitish,isDraft,isPrerelease,assets)"
+          test "$(jq -r '.tagName' <<<"$RELEASE_JSON")" = "$TAG_NAME"
+          test "$(jq -r '.name' <<<"$RELEASE_JSON")" = "$TAG_NAME"
+          test "$(jq -r '.targetCommitish' <<<"$RELEASE_JSON")" = "$GITHUB_SHA"
+          test "$(jq -r '.isDraft' <<<"$RELEASE_JSON")" = "false"
+          test "$(jq -r '.isPrerelease' <<<"$RELEASE_JSON")" = "false"
+          mapfile -t EXPECTED_ASSET_NAMES < <(node scripts/check-release-assets.mjs --expected "$TAG_NAME")
+          mapfile -t RELEASE_ASSET_NAMES < <(jq -r '.assets[].name' <<<"$RELEASE_JSON")
           node scripts/check-release-assets.mjs "$TAG_NAME" "${RELEASE_ASSET_NAMES[@]}"
+          for asset_name in "${EXPECTED_ASSET_NAMES[@]}"; do
+            local_digest="$(sha256sum "artifacts/${asset_name}" | cut -d' ' -f1)"
+            remote_digest="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .digest' <<<"$RELEASE_JSON")"
+            remote_size="$(jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .size' <<<"$RELEASE_JSON")"
+            test "$remote_digest" = "sha256:${local_digest}"
+            test "$remote_size" -gt 0
+          done

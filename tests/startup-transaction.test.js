@@ -290,6 +290,20 @@ test("AC-4BJ.4 recovery preparation failure remains blocked and recoverable befo
     const [exitCode] = await once(child, "exit");
     assert.equal(exitCode, 86);
 
+    const recoveryConfig = {
+      servicesRoot: fixture.servicesRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      version: "test",
+    };
+    let recovery = await inspectStartupRecovery(recoveryConfig, []);
+    const recoveryDeadline = Date.now() + 15_000;
+    while (recovery.classification !== "resume" && Date.now() < recoveryDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      recovery = await inspectStartupRecovery(recoveryConfig, []);
+    }
+    assert.equal(recovery.classification, "resume", recovery.reason);
+    assert.equal(recovery.reason, "transaction_evidence_agrees");
+
     await assert.rejects(
       startApiServer({
         port: 0,
@@ -596,13 +610,39 @@ test("AC-4BJ.5 dead transaction service selects rollback and a fresh generation"
     const interrupted = await readStartupTransactionJournal(fixture.workspaceRoot);
     const oldOwner = await findProcessOwnership(fixture.workspaceRoot, "service", "rollback-service");
     assert.equal(await classifyRegisteredProcess(oldOwner), "not_running");
-
-    const apiServer = await startApiServer({
-      port: 0,
+    let recovery = await inspectStartupRecovery({
       servicesRoot: fixture.servicesRoot,
       workspaceRoot: fixture.workspaceRoot,
-      autostart: true,
-    });
+      version: "test",
+    }, await discoverServices(fixture.servicesRoot));
+    const recoveryDeadline = Date.now() + 15_000;
+    while (recovery.classification !== "rollback" && Date.now() < recoveryDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      recovery = await inspectStartupRecovery({
+        servicesRoot: fixture.servicesRoot,
+        workspaceRoot: fixture.workspaceRoot,
+        version: "test",
+      }, await discoverServices(fixture.servicesRoot));
+    }
+    assert.equal(recovery.classification, "rollback", recovery.reason);
+    assert.equal(recovery.reason, "transaction_resources_require_rollback");
+
+    let apiServer;
+    try {
+      apiServer = await startApiServer({
+        port: 0,
+        servicesRoot: fixture.servicesRoot,
+        workspaceRoot: fixture.workspaceRoot,
+        autostart: true,
+      });
+    } catch (error) {
+      const trace = getLifecycleState("rollback-service").runtime.startTrace.current;
+      const processSpawn = trace?.events.find((event) => event.phase === "process_spawn" && event.status === "failed");
+      throw new Error(
+        `Successor startup failed during ${String(processSpawn?.metadata.processStartFailurePhase ?? "unknown_phase")}.`,
+        { cause: error },
+      );
+    }
     try {
       const recovered = await readStartupTransactionJournal(fixture.workspaceRoot);
       const generations = await readRuntimeGenerationRegistry(fixture.workspaceRoot);

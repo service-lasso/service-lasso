@@ -1,11 +1,25 @@
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import AdmZip from "adm-zip";
 import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
-import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
+import {
+  getReleaseVersion,
+  readRootPackageJson,
+  RELEASE_VERSION_ENV,
+} from "./release-version-lib.mjs";
 
 export const RELEASE_FILES = [
   "LICENSE",
@@ -16,7 +30,13 @@ export const RELEASE_FILES = [
   "packages/core",
 ];
 
-const RELEASE_CORE_PACKAGE_FILES = ["README.md", "package.json", "index.js", "index.d.ts", "cli.js"];
+const RELEASE_CORE_PACKAGE_FILES = [
+  "README.md",
+  "package.json",
+  "index.js",
+  "index.d.ts",
+  "cli.js",
+];
 
 export const DEFAULT_BUNDLED_SERVICE_IDS = [
   "@java",
@@ -83,12 +103,18 @@ async function writeReleaseManifest({
   if (packageLock.packages?.[""]) {
     packageLock.packages[""].version = version;
   }
-  await writeFile(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`, "utf8");
+  await writeFile(
+    packageLockPath,
+    `${JSON.stringify(packageLock, null, 2)}\n`,
+    "utf8",
+  );
 
   const manifest = {
     artifactName,
     version,
-    versionSource: process.env[RELEASE_VERSION_ENV]?.trim() ? RELEASE_VERSION_ENV : "package.json",
+    versionSource: process.env[RELEASE_VERSION_ENV]?.trim()
+      ? RELEASE_VERSION_ENV
+      : "package.json",
     node: packageJson.engines?.node ?? ">=22",
     packageBoundary: "@service-lasso/service-lasso",
     artifactKind,
@@ -112,13 +138,99 @@ async function writeReleaseManifest({
   return manifest;
 }
 
+function npmPackageNameFromLockPath(lockPath) {
+  const marker = "node_modules/";
+  const index = lockPath.lastIndexOf(marker);
+  return index >= 0 ? lockPath.slice(index + marker.length) : "";
+}
+
+function npmPurl(name, version) {
+  if (name.startsWith("@")) {
+    const [scope, packageName] = name.split("/");
+    return `pkg:npm/${encodeURIComponent(scope)}/${encodeURIComponent(packageName)}@${encodeURIComponent(version)}`;
+  }
+  return `pkg:npm/${encodeURIComponent(name)}@${encodeURIComponent(version)}`;
+}
+
+export async function writeArtifactSBOM({
+  artifactRoot,
+  artifactName,
+  version,
+  artifactKind,
+  lockPath = path.join(artifactRoot, "package-lock.json"),
+}) {
+  const lock = JSON.parse(await readFile(lockPath, "utf8"));
+  const components = new Map();
+  for (const [lockPath, definition] of Object.entries(lock.packages ?? {})) {
+    const name = npmPackageNameFromLockPath(lockPath);
+    if (!name || !definition?.version || definition.dev === true) continue;
+    const purl = npmPurl(name, definition.version);
+    components.set(purl, {
+      type: "library",
+      "bom-ref": purl,
+      name,
+      version: definition.version,
+      purl,
+    });
+  }
+  const rootPurl = npmPurl("@service-lasso/service-lasso", version);
+  const sbom = {
+    bomFormat: "CycloneDX",
+    specVersion: "1.6",
+    version: 1,
+    metadata: {
+      component: {
+        type: "application",
+        "bom-ref": rootPurl,
+        name: "@service-lasso/service-lasso",
+        version,
+        purl: rootPurl,
+      },
+      properties: [
+        { name: "service-lasso:artifact-kind", value: artifactKind },
+        { name: "service-lasso:artifact-name", value: artifactName },
+        { name: "service-lasso:package-manager", value: "npm" },
+      ],
+    },
+    components: [...components.values()].sort((left, right) =>
+      left["bom-ref"].localeCompare(right["bom-ref"]),
+    ),
+  };
+  const sbomPath = path.join(artifactRoot, "sbom.cdx.json");
+  await writeFile(sbomPath, `${JSON.stringify(sbom, null, 2)}\n`, "utf8");
+  return { sbom, sbomPath };
+}
+
+async function writeArchiveSBOM({ archivePath, sbom }) {
+  const bytes = await readFile(archivePath);
+  const archiveName = path.basename(archivePath);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const archiveSBOM = structuredClone(sbom);
+  archiveSBOM.metadata.properties = [
+    ...(archiveSBOM.metadata.properties ?? []),
+    { name: "service-lasso:archive-name", value: archiveName },
+    { name: "service-lasso:archive-sha256", value: digest },
+  ];
+  const sbomPath = `${archivePath}.cdx.json`;
+  await writeFile(
+    sbomPath,
+    `${JSON.stringify(archiveSBOM, null, 2)}\n`,
+    "utf8",
+  );
+  return { archiveName, archivePath, sbomPath, sha256: digest };
+}
+
 function relativizeBundledPath(serviceRoot, candidate) {
   if (!candidate || !path.isAbsolute(candidate)) {
     return candidate;
   }
 
   const relativePath = path.relative(serviceRoot, candidate);
-  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+  if (
+    !relativePath ||
+    relativePath.startsWith("..") ||
+    path.isAbsolute(relativePath)
+  ) {
     return candidate;
   }
 
@@ -132,12 +244,22 @@ async function rewriteInstallStateWithRelativeArtifactPaths(serviceRoot) {
     return;
   }
 
-  payload.artifact.archivePath = relativizeBundledPath(serviceRoot, payload.artifact.archivePath ?? null);
-  payload.artifact.extractedPath = relativizeBundledPath(serviceRoot, payload.artifact.extractedPath ?? null);
+  payload.artifact.archivePath = relativizeBundledPath(
+    serviceRoot,
+    payload.artifact.archivePath ?? null,
+  );
+  payload.artifact.extractedPath = relativizeBundledPath(
+    serviceRoot,
+    payload.artifact.extractedPath ?? null,
+  );
   await writeFile(installPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
-async function acquireBundledServices({ repoRoot, artifactRoot, serviceIds = DEFAULT_BUNDLED_SERVICE_IDS }) {
+async function acquireBundledServices({
+  repoRoot,
+  artifactRoot,
+  serviceIds = DEFAULT_BUNDLED_SERVICE_IDS,
+}) {
   const [
     { discoverServices },
     { rehydrateDiscoveredServices },
@@ -146,12 +268,42 @@ async function acquireBundledServices({ repoRoot, artifactRoot, serviceIds = DEF
     { writeServiceState },
     { resetLifecycleState },
   ] = await Promise.all([
-    import(pathToFileURL(path.join(repoRoot, "dist", "runtime", "discovery", "discoverServices.js")).href),
-    import(pathToFileURL(path.join(repoRoot, "dist", "runtime", "state", "rehydrate.js")).href),
-    import(pathToFileURL(path.join(repoRoot, "dist", "runtime", "manager", "DependencyGraph.js")).href),
-    import(pathToFileURL(path.join(repoRoot, "dist", "runtime", "lifecycle", "actions.js")).href),
-    import(pathToFileURL(path.join(repoRoot, "dist", "runtime", "state", "writeState.js")).href),
-    import(pathToFileURL(path.join(repoRoot, "dist", "runtime", "lifecycle", "store.js")).href),
+    import(
+      pathToFileURL(
+        path.join(
+          repoRoot,
+          "dist",
+          "runtime",
+          "discovery",
+          "discoverServices.js",
+        ),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(repoRoot, "dist", "runtime", "state", "rehydrate.js"),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(repoRoot, "dist", "runtime", "manager", "DependencyGraph.js"),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(repoRoot, "dist", "runtime", "lifecycle", "actions.js"),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(repoRoot, "dist", "runtime", "state", "writeState.js"),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(repoRoot, "dist", "runtime", "lifecycle", "store.js"),
+      ).href
+    ),
   ]);
   const servicesRoot = path.join(artifactRoot, "services");
   const requested = new Set(serviceIds);
@@ -160,11 +312,15 @@ async function acquireBundledServices({ repoRoot, artifactRoot, serviceIds = DEF
   const discovered = await discoverServices(servicesRoot);
   await rehydrateDiscoveredServices(discovered);
   const registry = createServiceRegistry(discovered);
-  const available = new Set(registry.list().map((service) => service.manifest.id));
+  const available = new Set(
+    registry.list().map((service) => service.manifest.id),
+  );
 
   for (const serviceId of serviceIds) {
     if (!available.has(serviceId)) {
-      throw new Error(`Bundled release requires service "${serviceId}", but it was not discovered.`);
+      throw new Error(
+        `Bundled release requires service "${serviceId}", but it was not discovered.`,
+      );
     }
   }
 
@@ -176,7 +332,9 @@ async function acquireBundledServices({ repoRoot, artifactRoot, serviceIds = DEF
   for (const serviceId of serviceOrder) {
     const service = registry.getById(serviceId);
     if (!service) {
-      throw new Error(`Bundled release internal error: service "${serviceId}" disappeared after ordering.`);
+      throw new Error(
+        `Bundled release internal error: service "${serviceId}" disappeared after ordering.`,
+      );
     }
 
     const result = await installService(service, registry);
@@ -250,21 +408,37 @@ export function runNpmCommand(args, options = {}) {
   return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
 }
 
-export async function createReleaseArchive(outputRoot, artifactName, archiveName = `${artifactName}.tar.gz`) {
+export async function createReleaseArchive(
+  outputRoot,
+  artifactName,
+  archiveName = `${artifactName}.tar.gz`,
+) {
   const archivePath = path.join(outputRoot, archiveName);
   await rm(archivePath, { force: true });
-  await runCommand("tar", ["-czf", archivePath, "-C", outputRoot, artifactName]);
+  await runCommand("tar", [
+    "-czf",
+    archivePath,
+    "-C",
+    outputRoot,
+    artifactName,
+  ]);
   return archivePath;
 }
 
-export async function createReleaseZipArchive(outputRoot, artifactName, archiveName = `${artifactName}.zip`) {
+export async function createReleaseZipArchive(
+  outputRoot,
+  artifactName,
+  archiveName = `${artifactName}.zip`,
+) {
   const archivePath = path.join(outputRoot, archiveName);
   const artifactRoot = path.join(outputRoot, artifactName);
   await rm(archivePath, { force: true });
 
   const archive = new AdmZip();
   const topLevelEntries = await readdir(artifactRoot, { withFileTypes: true });
-  for (const entry of topLevelEntries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of topLevelEntries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
     const sourcePath = path.join(artifactRoot, entry.name);
     const zipPath = `${artifactName}/${entry.name}`;
 
@@ -282,7 +456,9 @@ export async function createReleaseZipArchive(outputRoot, artifactName, archiveN
       continue;
     }
 
-    throw new Error(`Unsupported top-level release artifact entry: ${entry.name}`);
+    throw new Error(
+      `Unsupported top-level release artifact entry: ${entry.name}`,
+    );
   }
   archive.writeZip(archivePath);
 
@@ -290,49 +466,74 @@ export async function createReleaseZipArchive(outputRoot, artifactName, archiveN
 }
 
 export async function verifyReleaseZipArchive({ archivePath, artifactName }) {
-  const extractionRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-release-zip-"));
+  const extractionRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-release-zip-"),
+  );
 
   try {
     new AdmZip(archivePath).extractAllTo(extractionRoot, true);
     const extractedRoot = path.join(extractionRoot, artifactName);
-    const manifest = JSON.parse(await readFile(path.join(extractedRoot, "release-artifact.json"), "utf8"));
+    const manifest = JSON.parse(
+      await readFile(path.join(extractedRoot, "release-artifact.json"), "utf8"),
+    );
     if (manifest.artifactName !== artifactName) {
-      throw new Error(`Release ZIP manifest artifact ${manifest.artifactName} did not match ${artifactName}.`);
+      throw new Error(
+        `Release ZIP manifest artifact ${manifest.artifactName} did not match ${artifactName}.`,
+      );
     }
     const verifiedEntrypoints = {};
 
-    for (const [name, relativePath] of Object.entries(manifest.entrypoints ?? {})) {
+    for (const [name, relativePath] of Object.entries(
+      manifest.entrypoints ?? {},
+    )) {
       if (typeof relativePath !== "string" || !relativePath) {
-        throw new Error(`Release ZIP manifest entrypoint ${name} is not a non-empty relative path.`);
+        throw new Error(
+          `Release ZIP manifest entrypoint ${name} is not a non-empty relative path.`,
+        );
       }
 
       const entrypointPath = path.resolve(extractedRoot, relativePath);
-      const relativeEntrypointPath = path.relative(extractedRoot, entrypointPath);
+      const relativeEntrypointPath = path.relative(
+        extractedRoot,
+        entrypointPath,
+      );
       if (
-        !relativeEntrypointPath
-        || relativeEntrypointPath === ".."
-        || relativeEntrypointPath.startsWith(`..${path.sep}`)
-        || path.isAbsolute(relativeEntrypointPath)
+        !relativeEntrypointPath ||
+        relativeEntrypointPath === ".." ||
+        relativeEntrypointPath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativeEntrypointPath)
       ) {
-        throw new Error(`Release ZIP manifest entrypoint ${name} escapes the artifact root.`);
+        throw new Error(
+          `Release ZIP manifest entrypoint ${name} escapes the artifact root.`,
+        );
       }
 
       const entrypointStat = await stat(entrypointPath);
       if (!entrypointStat.isFile()) {
-        throw new Error(`Release ZIP manifest entrypoint ${name} is not a regular file.`);
+        throw new Error(
+          `Release ZIP manifest entrypoint ${name} is not a regular file.`,
+        );
       }
       verifiedEntrypoints[name] = relativePath;
     }
 
     for (const relativePath of RELEASE_CORE_PACKAGE_FILES) {
-      const packageFileStat = await stat(path.join(extractedRoot, "packages", "core", relativePath));
+      const packageFileStat = await stat(
+        path.join(extractedRoot, "packages", "core", relativePath),
+      );
       if (!packageFileStat.isFile()) {
-        throw new Error(`Release ZIP core wrapper path ${relativePath} is not a regular file.`);
+        throw new Error(
+          `Release ZIP core wrapper path ${relativePath} is not a regular file.`,
+        );
       }
     }
-    const cli = await runCommand(process.execPath, [path.join(extractedRoot, manifest.entrypoints.cli), "--help"], {
-      cwd: extractedRoot,
-    });
+    const cli = await runCommand(
+      process.execPath,
+      [path.join(extractedRoot, manifest.entrypoints.cli), "--help"],
+      {
+        cwd: extractedRoot,
+      },
+    );
 
     return {
       archivePath,
@@ -351,7 +552,10 @@ export async function createPlatformReleaseArchives(outputRoot, artifactName) {
   const archives = [];
 
   for (const platform of SUPPORTED_RELEASE_PLATFORMS) {
-    const archiveName = platform === "win32" ? `${artifactName}-${platform}.zip` : `${artifactName}-${platform}.tar.gz`;
+    const archiveName =
+      platform === "win32"
+        ? `${artifactName}-${platform}.zip`
+        : `${artifactName}-${platform}.tar.gz`;
     const archivePath =
       platform === "win32"
         ? await createReleaseZipArchive(outputRoot, artifactName, archiveName)
@@ -389,15 +593,32 @@ export async function stageReleaseArtifact({
     artifactRoot,
     artifactName,
     version: resolvedVersion,
+    shippedFiles: [...RELEASE_FILES, "node_modules", "sbom.cdx.json"],
+  });
+  const { sbom } = await writeArtifactSBOM({
+    artifactRoot,
+    artifactName,
+    version: resolvedVersion,
+    artifactKind: manifest.artifactKind,
   });
   const archivePath = await createReleaseArchive(outputRoot, artifactName);
-  const platformArchives = await createPlatformReleaseArchives(outputRoot, artifactName);
+  const platformArchives = await createPlatformReleaseArchives(
+    outputRoot,
+    artifactName,
+  );
+  const archiveSBOMs = await Promise.all(
+    [
+      archivePath,
+      ...platformArchives.map((archive) => archive.archivePath),
+    ].map((candidate) => writeArchiveSBOM({ archivePath: candidate, sbom })),
+  );
 
   return {
     artifactName,
     artifactRoot,
     archivePath,
     platformArchives,
+    archiveSBOMs,
     manifest,
   };
 }
@@ -435,7 +656,12 @@ export async function stageBundledReleaseArtifact({
     artifactName,
     version: resolvedVersion,
     artifactKind: "bundled-runtime",
-    shippedFiles: [...RELEASE_FILES, "services", "node_modules"],
+    shippedFiles: [
+      ...RELEASE_FILES,
+      "services",
+      "node_modules",
+      "sbom.cdx.json",
+    ],
     runtimeRoots: {
       servicesRoot: "./services",
       workspaceRoot: "provided by the operator/consumer at runtime",
@@ -448,14 +674,30 @@ export async function stageBundledReleaseArtifact({
       "Run with --services-root ./services from the extracted artifact root, and provide a workspace root for runtime state outside service manifests.",
     ],
   });
+  const { sbom } = await writeArtifactSBOM({
+    artifactRoot,
+    artifactName,
+    version: resolvedVersion,
+    artifactKind: manifest.artifactKind,
+  });
   const archivePath = await createReleaseArchive(outputRoot, artifactName);
-  const platformArchives = await createPlatformReleaseArchives(outputRoot, artifactName);
+  const platformArchives = await createPlatformReleaseArchives(
+    outputRoot,
+    artifactName,
+  );
+  const archiveSBOMs = await Promise.all(
+    [
+      archivePath,
+      ...platformArchives.map((archive) => archive.archivePath),
+    ].map((candidate) => writeArchiveSBOM({ archivePath: candidate, sbom })),
+  );
 
   return {
     artifactName,
     artifactRoot,
     archivePath,
     platformArchives,
+    archiveSBOMs,
     manifest,
   };
 }
@@ -470,8 +712,10 @@ export async function verifyStagedArtifact({
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getArtifactName(resolvedVersion);
-  const stagedRoot = artifactRoot ?? path.join(repoRoot, "artifacts", artifactName);
-  const stagedArchivePath = archivePath ?? path.join(repoRoot, "artifacts", `${artifactName}.tar.gz`);
+  const stagedRoot =
+    artifactRoot ?? path.join(repoRoot, "artifacts", artifactName);
+  const stagedArchivePath =
+    archivePath ?? path.join(repoRoot, "artifacts", `${artifactName}.tar.gz`);
 
   await stat(stagedArchivePath);
   await stat(path.join(stagedRoot, "release-artifact.json"));
@@ -480,32 +724,47 @@ export async function verifyStagedArtifact({
   await stat(path.join(stagedRoot, "packages", "core", "cli.js"));
 
   const zipVerification = await verifyReleaseZipArchive({
-    archivePath: path.join(path.dirname(stagedArchivePath), `${artifactName}-win32.zip`),
+    archivePath: path.join(
+      path.dirname(stagedArchivePath),
+      `${artifactName}-win32.zip`,
+    ),
     artifactName,
   });
 
-  const coreModule = await import(pathToFileURL(path.join(stagedRoot, "packages", "core", "index.js")).href);
+  const coreModule = await import(
+    pathToFileURL(path.join(stagedRoot, "packages", "core", "index.js")).href
+  );
   if (typeof coreModule.createRuntime !== "function") {
     throw new Error("staged core wrapper does not expose createRuntime()");
   }
 
-  const bootWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-release-workspace-"));
+  const bootWorkspaceRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-release-workspace-"),
+  );
   const bootLogNeedle = "[service-lasso] core API spine started";
-  const child = spawn(process.execPath, [path.join(stagedRoot, "dist", "index.js")], {
-    cwd: stagedRoot,
-    env: {
-      ...process.env,
-      SERVICE_LASSO_PORT: String(bootPort),
-      SERVICE_LASSO_SERVICES_ROOT: path.join(repoRoot, "services"),
-      SERVICE_LASSO_WORKSPACE_ROOT: bootWorkspaceRoot,
+  const child = spawn(
+    process.execPath,
+    [path.join(stagedRoot, "dist", "index.js")],
+    {
+      cwd: stagedRoot,
+      env: {
+        ...process.env,
+        SERVICE_LASSO_PORT: String(bootPort),
+        SERVICE_LASSO_SERVICES_ROOT: path.join(repoRoot, "services"),
+        SERVICE_LASSO_WORKSPACE_ROOT: bootWorkspaceRoot,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  );
 
   try {
     const booted = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error(`staged runtime did not boot within ${bootTimeoutMs} milliseconds`));
+        reject(
+          new Error(
+            `staged runtime did not boot within ${bootTimeoutMs} milliseconds`,
+          ),
+        );
       }, bootTimeoutMs);
 
       let stdout = "";
@@ -530,14 +789,22 @@ export async function verifyStagedArtifact({
 
       child.on("close", (code) => {
         clearTimeout(timeout);
-        reject(new Error(`staged runtime exited before boot completed with code ${code}`));
+        reject(
+          new Error(
+            `staged runtime exited before boot completed with code ${code}`,
+          ),
+        );
       });
     });
 
-    const healthResponse = await fetch(`http://127.0.0.1:${bootPort}/api/health`);
+    const healthResponse = await fetch(
+      `http://127.0.0.1:${bootPort}/api/health`,
+    );
     const health = await healthResponse.json();
     if (health?.api?.version !== resolvedVersion) {
-      throw new Error(`staged runtime health version ${health?.api?.version} did not match ${resolvedVersion}.`);
+      throw new Error(
+        `staged runtime health version ${health?.api?.version} did not match ${resolvedVersion}.`,
+      );
     }
 
     child.kill("SIGTERM");
@@ -566,13 +833,19 @@ export async function verifyBundledStagedArtifact({
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getBundledArtifactName(resolvedVersion);
-  const stagedRoot = artifactRoot ?? path.join(repoRoot, "artifacts", artifactName);
-  const stagedArchivePath = archivePath ?? path.join(repoRoot, "artifacts", `${artifactName}.tar.gz`);
+  const stagedRoot =
+    artifactRoot ?? path.join(repoRoot, "artifacts", artifactName);
+  const stagedArchivePath =
+    archivePath ?? path.join(repoRoot, "artifacts", `${artifactName}.tar.gz`);
 
   await stat(stagedArchivePath);
-  const manifest = JSON.parse(await readFile(path.join(stagedRoot, "release-artifact.json"), "utf8"));
+  const manifest = JSON.parse(
+    await readFile(path.join(stagedRoot, "release-artifact.json"), "utf8"),
+  );
   if (manifest.artifactKind !== "bundled-runtime") {
-    throw new Error(`bundled artifact kind ${manifest.artifactKind} did not match bundled-runtime.`);
+    throw new Error(
+      `bundled artifact kind ${manifest.artifactKind} did not match bundled-runtime.`,
+    );
   }
 
   const [
@@ -580,9 +853,27 @@ export async function verifyBundledStagedArtifact({
     { rehydrateDiscoveredServices },
     { getLifecycleState, resetLifecycleState },
   ] = await Promise.all([
-    import(pathToFileURL(path.join(stagedRoot, "dist", "runtime", "discovery", "discoverServices.js")).href),
-    import(pathToFileURL(path.join(stagedRoot, "dist", "runtime", "state", "rehydrate.js")).href),
-    import(pathToFileURL(path.join(stagedRoot, "dist", "runtime", "lifecycle", "store.js")).href),
+    import(
+      pathToFileURL(
+        path.join(
+          stagedRoot,
+          "dist",
+          "runtime",
+          "discovery",
+          "discoverServices.js",
+        ),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(stagedRoot, "dist", "runtime", "state", "rehydrate.js"),
+      ).href
+    ),
+    import(
+      pathToFileURL(
+        path.join(stagedRoot, "dist", "runtime", "lifecycle", "store.js"),
+      ).href
+    ),
   ]);
 
   resetLifecycleState();
@@ -591,20 +882,28 @@ export async function verifyBundledStagedArtifact({
   await rehydrateDiscoveredServices(discovered);
 
   for (const serviceId of serviceIds) {
-    const service = discovered.find((candidate) => candidate.manifest.id === serviceId);
+    const service = discovered.find(
+      (candidate) => candidate.manifest.id === serviceId,
+    );
     if (!service) {
       throw new Error(`bundled service "${serviceId}" was not discovered.`);
     }
 
     const state = getLifecycleState(serviceId);
-    if (!state.installed || !state.installArtifacts.artifact?.archivePath || !state.installArtifacts.artifact?.extractedPath) {
+    if (
+      !state.installed ||
+      !state.installArtifacts.artifact?.archivePath ||
+      !state.installArtifacts.artifact?.extractedPath
+    ) {
       throw new Error(`bundled service "${serviceId}" was not pre-acquired.`);
     }
 
     await stat(state.installArtifacts.artifact.archivePath);
     await stat(state.installArtifacts.artifact.extractedPath);
     if (!path.isAbsolute(state.installArtifacts.artifact.archivePath)) {
-      throw new Error(`bundled service "${serviceId}" archive path did not rehydrate to an absolute path.`);
+      throw new Error(
+        `bundled service "${serviceId}" archive path did not rehydrate to an absolute path.`,
+      );
     }
   }
 
@@ -617,6 +916,8 @@ export async function verifyBundledStagedArtifact({
   };
 }
 
-export async function createTemporaryOutputRoot(prefix = "service-lasso-release-") {
+export async function createTemporaryOutputRoot(
+  prefix = "service-lasso-release-",
+) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
 }

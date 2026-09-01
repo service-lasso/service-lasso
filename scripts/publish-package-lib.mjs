@@ -1,4 +1,12 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -7,8 +15,13 @@ import {
   createTemporaryOutputRoot,
   ensureBuildOutput,
   runCommand,
+  writeArtifactSBOM,
 } from "./release-artifact-lib.mjs";
-import { getReleaseVersion, readRootPackageJson, RELEASE_VERSION_ENV } from "./release-version-lib.mjs";
+import {
+  getReleaseVersion,
+  readRootPackageJson,
+  RELEASE_VERSION_ENV,
+} from "./release-version-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 export const NPMJS_REGISTRY = "https://registry.npmjs.org";
@@ -34,11 +47,7 @@ function runNpmCommand(args, options = {}) {
   return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
 }
 
-export const PUBLISH_FILES = [
-  "LICENSE",
-  "README.md",
-  "dist",
-];
+export const PUBLISH_FILES = ["LICENSE", "README.md", "dist"];
 
 export function getPublishedPackageArtifactName(version) {
   return `service-lasso-package-${version}`;
@@ -64,10 +73,14 @@ async function acquirePackageStageLock(outputRoot) {
       await mkdir(lockRoot);
       await writeFile(
         lockOwnerPath,
-        JSON.stringify({
-          pid: process.pid,
-          createdAt: new Date().toISOString(),
-        }, null, 2) + "\n",
+        JSON.stringify(
+          {
+            pid: process.pid,
+            createdAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ) + "\n",
         "utf8",
       );
       return async () => {
@@ -79,7 +92,10 @@ async function acquirePackageStageLock(outputRoot) {
       }
 
       const lockStat = await stat(lockRoot).catch(() => null);
-      if (lockStat && Date.now() - lockStat.mtimeMs > PACKAGE_STAGE_LOCK_STALE_MS) {
+      if (
+        lockStat &&
+        Date.now() - lockStat.mtimeMs > PACKAGE_STAGE_LOCK_STALE_MS
+      ) {
         await rm(lockRoot, { recursive: true, force: true });
         continue;
       }
@@ -129,6 +145,7 @@ function buildPublishedPackageJson(version, rootPackageJson) {
       "index.d.ts",
       "cli.js",
       "publish-artifact.json",
+      "sbom.cdx.json",
     ],
     engines: {
       node: ">=22",
@@ -164,7 +181,9 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
     artifactName: getPublishedPackageArtifactName(version),
     packageName: packageJson.name,
     version,
-    versionSource: process.env[RELEASE_VERSION_ENV]?.trim() ? RELEASE_VERSION_ENV : "package.json",
+    versionSource: process.env[RELEASE_VERSION_ENV]?.trim()
+      ? RELEASE_VERSION_ENV
+      : "package.json",
     artifactKind: "bounded-npm-publish-payload",
     registry: packageJson.publishConfig.registry,
     shippedFiles: [
@@ -174,6 +193,7 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
       "cli.js",
       "package.json",
       "publish-artifact.json",
+      "sbom.cdx.json",
     ],
     entrypoints: {
       library: "index.js",
@@ -196,11 +216,11 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
   await writeFile(
     path.join(artifactRoot, "index.js"),
     [
-      'async function loadRuntimeApp() {',
+      "async function loadRuntimeApp() {",
       '  return import("./dist/runtime/app.js");',
       "}",
       "",
-      'async function loadApiServer() {',
+      "async function loadApiServer() {",
       '  return import("./dist/server/index.js");',
       "}",
       "",
@@ -222,12 +242,9 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
 
   await writeFile(
     path.join(artifactRoot, "cli.js"),
-    [
-      "#!/usr/bin/env node",
-      "",
-      "await import(\"./dist/cli.js\");",
-      "",
-    ].join("\n"),
+    ["#!/usr/bin/env node", "", 'await import("./dist/cli.js");', ""].join(
+      "\n",
+    ),
     "utf8",
   );
 
@@ -284,6 +301,14 @@ export async function stagePublishedPackage({
       version: resolvedVersion,
     });
 
+    await writeArtifactSBOM({
+      artifactRoot,
+      artifactName,
+      version: resolvedVersion,
+      artifactKind: manifest.artifactKind,
+      lockPath: path.join(repoRoot, "package-lock.json"),
+    });
+
     const packResult = await runNpmCommand(["pack"], {
       cwd: artifactRoot,
     });
@@ -319,9 +344,14 @@ export async function verifyPublishedPackage({
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getPublishedPackageArtifactName(resolvedVersion);
-  const stagedRoot = artifactRoot ?? path.join(repoRoot, "artifacts", "npm", artifactName);
+  const stagedRoot =
+    artifactRoot ?? path.join(repoRoot, "artifacts", "npm", artifactName);
   const stagedArchivePath =
-    packageArchivePath ?? path.join(stagedRoot, "service-lasso-service-lasso-" + resolvedVersion + ".tgz");
+    packageArchivePath ??
+    path.join(
+      stagedRoot,
+      "service-lasso-service-lasso-" + resolvedVersion + ".tgz",
+    );
 
   await stat(path.join(stagedRoot, "package.json"));
   await stat(path.join(stagedRoot, "publish-artifact.json"));
@@ -329,32 +359,67 @@ export async function verifyPublishedPackage({
   await stat(path.join(stagedRoot, "index.js"));
   await stat(path.join(stagedRoot, "cli.js"));
   await stat(path.join(stagedRoot, "index.d.ts"));
+  const sbom = JSON.parse(
+    await readFile(path.join(stagedRoot, "sbom.cdx.json"), "utf8"),
+  );
   await stat(stagedArchivePath);
 
-  const packageJson = JSON.parse(await readFile(path.join(stagedRoot, "package.json"), "utf8"));
+  if (
+    sbom.bomFormat !== "CycloneDX" ||
+    sbom.specVersion !== "1.6" ||
+    sbom.metadata?.component?.name !== "@service-lasso/service-lasso" ||
+    sbom.metadata?.component?.version !== resolvedVersion ||
+    !Array.isArray(sbom.components) ||
+    sbom.components.length === 0
+  ) {
+    throw new Error(
+      "staged npm package has an invalid or empty CycloneDX SBOM",
+    );
+  }
+
+  const packageJson = JSON.parse(
+    await readFile(path.join(stagedRoot, "package.json"), "utf8"),
+  );
   if (packageJson.name !== "@service-lasso/service-lasso") {
     throw new Error(`unexpected staged package name: ${packageJson.name}`);
   }
 
-  const directModule = await import(pathToFileURL(path.join(stagedRoot, "index.js")).href);
+  const directModule = await import(
+    pathToFileURL(path.join(stagedRoot, "index.js")).href
+  );
   if (typeof directModule.createRuntime !== "function") {
     throw new Error("staged package does not expose createRuntime()");
   }
 
-  const consumerRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-package-consumer-"));
+  const consumerRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-package-consumer-"),
+  );
   const workspaceRoot = path.join(consumerRoot, "workspace");
   const servicesRoot = path.join(repoRoot, "services");
   const probePath = path.join(consumerRoot, "consumer-probe.mjs");
-  const relativeArchivePath = path.relative(consumerRoot, stagedArchivePath).split(path.sep).join("/");
+  const relativeArchivePath = path
+    .relative(consumerRoot, stagedArchivePath)
+    .split(path.sep)
+    .join("/");
 
   try {
     await writeFile(
       path.join(consumerRoot, "package.json"),
-      JSON.stringify({ name: "service-lasso-package-consumer", private: true, type: "module" }, null, 2) + "\n",
+      JSON.stringify(
+        {
+          name: "service-lasso-package-consumer",
+          private: true,
+          type: "module",
+        },
+        null,
+        2,
+      ) + "\n",
       "utf8",
     );
 
-    await runNpmCommand(["install", relativeArchivePath], { cwd: consumerRoot });
+    await runNpmCommand(["install", relativeArchivePath], {
+      cwd: consumerRoot,
+    });
 
     await writeFile(
       probePath,
@@ -367,10 +432,10 @@ export async function verifyPublishedPackage({
         `const expectedVersion = ${JSON.stringify(resolvedVersion)};`,
         "",
         "const api = await startApiServer({ servicesRoot, workspaceRoot, port });",
-        'const healthResponse = await fetch(`${api.url}/api/health`);',
+        "const healthResponse = await fetch(`${api.url}/api/health`);",
         "const health = await healthResponse.json();",
         "if (health.api.version !== expectedVersion) {",
-        '  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);',
+        "  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);",
         "}",
         "console.log(JSON.stringify({ ok: true, url: api.url, version: health.api.version }));",
         "await api.stop();",
@@ -379,10 +444,21 @@ export async function verifyPublishedPackage({
       "utf8",
     );
 
-    const probe = await runCommand(process.execPath, [probePath], { cwd: consumerRoot });
+    const probe = await runCommand(process.execPath, [probePath], {
+      cwd: consumerRoot,
+    });
     const cliVersion = await runCommand(
       process.execPath,
-      [path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", "cli.js"), "--version"],
+      [
+        path.join(
+          consumerRoot,
+          "node_modules",
+          "@service-lasso",
+          "service-lasso",
+          "cli.js",
+        ),
+        "--version",
+      ],
       { cwd: consumerRoot },
     );
     const lastLine = probe.stdout
@@ -393,12 +469,16 @@ export async function verifyPublishedPackage({
     const summary = lastLine ? JSON.parse(lastLine) : null;
 
     if (!summary?.ok) {
-      throw new Error("consumer probe did not report a successful package boot.");
+      throw new Error(
+        "consumer probe did not report a successful package boot.",
+      );
     }
 
     const reportedVersion = cliVersion.stdout.trim();
     if (reportedVersion !== resolvedVersion) {
-      throw new Error(`packaged CLI reported version ${reportedVersion}, expected ${resolvedVersion}.`);
+      throw new Error(
+        `packaged CLI reported version ${reportedVersion}, expected ${resolvedVersion}.`,
+      );
     }
 
     return {

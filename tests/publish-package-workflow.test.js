@@ -2,12 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const workflowUrl = new URL("../.github/workflows/publish-package.yml", import.meta.url);
+const workflowUrl = new URL(
+  "../.github/workflows/publish-package.yml",
+  import.meta.url,
+);
 
 test("AC-4S publish workflow preserves OIDC, token fallback, exact-version idempotency, and the stable dist-tag", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
 
-  assert.match(workflow, /permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/);
+  assert.match(
+    workflow,
+    /permissions:\s*\n\s+contents: read\s*\n\s+id-token: write/,
+  );
   assert.match(
     workflow,
     /- name: Install npm with trusted publishing support\s*\n\s+run: npm install --global npm@11\.18\.0/,
@@ -18,8 +24,13 @@ test("AC-4S publish workflow preserves OIDC, token fallback, exact-version idemp
   );
   assert.match(
     workflow,
-    /- name: Publish package to npm\s*\n\s+if: steps\.package_exists\.outputs\.exists != 'true'[\s\S]*?NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}[\s\S]*?run: npm publish --access public --tag latest[ \t]*$/m,
+    /- name: Publish package to npm\s*\n\s+if: steps\.package_exists\.outputs\.exists != 'true'[\s\S]*?NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}[\s\S]*?run: npm publish --provenance --access public --tag latest[ \t]*$/m,
   );
   assert.doesNotMatch(workflow, /run: npm publish --access public\s*$/m);
-  assert.doesNotMatch(workflow, /Check npm token is configured|NPM_TOKEN repository secret is required/);
+  assert.match(workflow, /npm audit --omit=dev --audit-level=low/);
+  assert.match(workflow, /npm audit --audit-level=high/);
+  assert.doesNotMatch(
+    workflow,
+    /Check npm token is configured|NPM_TOKEN repository secret is required/,
+  );
 });

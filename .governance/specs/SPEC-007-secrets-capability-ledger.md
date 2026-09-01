@@ -25,7 +25,9 @@ Explicitly out of scope:
 - promoting a capability because its issue is closed or its source tests pass;
 - resolving release pins, provider credentials, live-process failures, or
   downstream UI defects from inside this documentation slice;
-- deleting deferred or deliberately excluded capability.
+- deleting deferred or deliberately excluded capability;
+- claiming Vault/OpenBao enterprise parity, HSM custody, FIPS compliance, MFA,
+  or protection from unknown future vulnerabilities.
 
 ## Requirements and Acceptance Criteria
 
@@ -66,18 +68,52 @@ recovery state; `#887` owner action remains in review; Admin `#459` remains
 open; and Admin PR `#569` has a failing Windows real-browser gate after the
 rotation flow, so that cross-repository path is not validated.
 
-### `AC-7F` — Core 1.0 repository and release authority
+### `AC-7F` — Release 1.0 scope, repository authority, and explicit exclusions
+
+Release 1.0 is the production-grade local encrypted-store product. Its required
+rows cover secure age/recovery bootstrap and custody, generated credentials,
+inventory/search/controlled reveal/rotate-without-reveal, versioned local
+lifecycle, linked rotation/activation/rollback/retirement/restart persistence,
+backup/integrity/restore/master-key rotation/recovery, durable redacted
+audit/events/lockouts/filtering, service-secret-provider topology,
+Routes/Traefik, and completed Admin navigation/page/table decisions.
+
+PGP bootstrap is explicitly excluded and unavailable; the approved age and
+recovery model remains the only Release 1 bootstrap claim. Fleet and Sessions
+are hidden or retired for Release 1 and ZITADEL owns session behavior. Policy
+Simulation is removed in favor of actual service-manifest secret-access
+assignments. Any required capability without released-artifact GA evidence is
+disabled, hidden, or labelled preview and cannot be marked `validated`.
+
+External-provider mutation, bulk campaigns, full Secrets Sync apply, scheduled
+rotation, Broker mutation MCP, HSM custody, FIPS compliance, and MFA are
+excluded from Release 1 and remain explicit later-wave/non-claim rows.
 
 The Core GitHub repository is the 1.0 authority boundary for working-release
 publication. `CODEOWNERS` names the required reviewers for every path, including
-`.github/` and `CODEOWNERS` itself. `SECURITY.md` is the public vulnerability
-reporting path. GitHub Actions workflows pin third-party actions to commit SHAs.
-`npm audit --omit=dev` reports zero production vulnerabilities. `develop` is
-protected with required status checks, required reviews, no force-push, and
-administrator enforcement. Publishing is restricted to the protected `release`
-GitHub Environment. Default Actions permissions are read-only, and pull requests
-from forks cannot write repository contents or secrets. Sibling Admin `#578`
-owns the matching Admin-repo authority and is not closed by this Core slice.
+workflow, governance, security, and owner files. `SECURITY.md` is the public
+vulnerability reporting path. GitHub Actions workflows pin third-party actions
+to commit SHAs. `npm audit --omit=dev` reports zero production vulnerabilities.
+`develop` is protected with required status checks, required reviews, no
+force-push, and administrator enforcement. Publishing is restricted to the
+protected `release` GitHub Environment. Default Actions permissions are
+read-only, and pull requests from forks cannot write repository contents or
+secrets. Sibling Admin owns its matching repository authority separately.
+
+### `AC-7G` — Zero-known-vulnerability and supply-chain release gate
+
+Release 1.0 requires zero known unremediated vulnerabilities of any severity in
+the exact shipped production graphs at release time. Core must pass
+`npm audit --omit=dev`; Admin must pass `pnpm audit --prod`; Broker source and
+packaged binaries must pass current `govulncheck`. Critical/high build findings
+also block release. Alerts may be dismissed only when exact-version evidence
+proves they are stale or inapplicable.
+
+Every shipped platform archive requires a release-bound SBOM, verified digest,
+checksum-before-extraction behavior, provenance/attestation, signed checksum or
+provenance metadata, asset inventory readback, and independent repeatable build
+instructions. Publication is explicitly dispatched through an approval-gated
+release environment and never occurs from an ordinary integration push.
 
 ## Tests and Evidence
 
@@ -89,6 +125,26 @@ owns the matching Admin-repo authority and is not closed by this Core slice.
 - `node scripts/verify-core-release-authority.mjs` against the live GitHub API.
 - Live issue, PR, Project, branch, and worktree evidence observed on
   `2026-08-25` and linked from the ledger.
+- Repository security settings, open-alert counts, exact production audits,
+  release environments, workflow pinning, and branch protection read back on
+  `2026-08-31` under issue `#1164`.
+- Core local candidate proof on `2026-09-01`: production audit found zero
+  vulnerabilities; the critical/high tooling gate passed; the full tooling
+  audit initially retained 18 moderate dev-only Docusaurus-chain findings; a
+  narrow `sockjs` override to patched `uuid` 11.1.1 then cleared the complete
+  audit while retaining its reviewed CommonJS surface. The 25-capability
+  ledger, typecheck, and diff integrity passed. The latest serial aggregate
+  passed every product row except one
+  runner-invalid Windows `npm.cmd` crash (`0xC0000409`, no output), whose exact
+  staged-package consumer row then passed 10/10 in fresh processes. Hosted
+  exact-head and retained-artifact qualification remains blocking evidence.
+- Rebased Core proof on `2026-09-01`: the 1,002-test serial aggregate reported
+  996 pass, four expected platform skips, and two start actions returning 409
+  under sustained host load; both exact rows passed together 2/2 in fresh
+  processes. Rebase-interaction fixes passed 13/13 plus dependency diagnostics,
+  the oversized-v1 generation migration/current-state rejection proof passed,
+  production audit remained at zero, and hosted exact-head evidence remains the
+  merge authority.
 
 ## Documentation Impact
 
@@ -117,3 +173,7 @@ evidence is a row-specific real-process result.
   that requires a dispatched exact-publication run with terminal Windows,
   Ubuntu, and macOS results plus artifact API readback and row-specific live
   product evidence.
+- 2026-08-31: `AC-7F` and `AC-7G` freeze the Release 1 local-store scope,
+  explicit exclusions/non-claims, zero-known-production-vulnerability rule,
+  protected publication authority, and exact shipped-artifact supply-chain
+  evidence required by release-security issue `#1164`.

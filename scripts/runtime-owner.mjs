@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -6,6 +7,7 @@ const DIAGNOSTIC_SCHEMA = "service-lasso.runtime-owner-failure.v1";
 const BASELINE_START_SCHEMA = "service-lasso.baseline-start.v1";
 const WORKSPACE_LIFECYCLE_SCHEMA = "service-lasso.workspace-lifecycle.v1";
 const ACTIVE_PHASES = new Set(["starting", "running"]);
+const RUNTIME_INSTANCE_SCHEMA_V2 = "service-lasso.runtime-instance.v2";
 
 export function requireRuntimeServicePort(service, portName) {
   const port = service?.lifecycle?.runtime?.ports?.[portName];
@@ -26,6 +28,10 @@ function samePath(left, right) {
     return process.platform === "win32" ? resolved.toLowerCase() : resolved;
   };
   return typeof left === "string" && typeof right === "string" && normalize(left) === normalize(right);
+}
+
+function workspaceIdFor(workspaceRoot) {
+  return `slw_${createHash("sha256").update(path.resolve(workspaceRoot)).digest("hex").slice(0, 16)}`;
 }
 
 function ownerCause(exit) {
@@ -192,7 +198,21 @@ function validateRecord(record, { owner, servicesRoot, workspaceRoot }) {
 async function readRuntimeInstance(workspaceRoot) {
   const filePath = path.join(workspaceRoot, ".service-lasso", "runtime-instance.json");
   try {
-    return JSON.parse(await readFile(filePath, "utf8"));
+    const parsed = JSON.parse(await readFile(filePath, "utf8"));
+    if (parsed?.schemaVersion !== RUNTIME_INSTANCE_SCHEMA_V2) {
+      return parsed;
+    }
+    if (
+      parsed.version !== 2 ||
+      parsed.workspaceId !== workspaceIdFor(workspaceRoot) ||
+      !samePath(parsed.canonicalWorkspaceRoot, workspaceRoot) ||
+      !parsed.instance ||
+      typeof parsed.instance !== "object" ||
+      Array.isArray(parsed.instance)
+    ) {
+      throw new Error("Runtime instance envelope does not match this workspace.");
+    }
+    return parsed.instance;
   } catch (error) {
     if (error?.code === "ENOENT") return null;
     throw error;

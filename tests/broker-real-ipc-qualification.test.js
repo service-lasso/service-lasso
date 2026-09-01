@@ -236,7 +236,7 @@ function markPrepared(serviceId, binary) {
         sourceType: "release-qualification",
         repo: "service-lasso/lasso-secretsbroker",
         channel: null,
-        tag: "2026.8.25-41f7206",
+        tag: "2026.8.31-f340883",
         assetName: path.basename(binary),
         assetUrl: null,
         archiveType: null,
@@ -702,7 +702,7 @@ test(
 
       const publicEvidence = {
         schemaVersion: 1,
-        brokerRelease: "2026.8.25-41f7206",
+        brokerRelease: "2026.8.31-f340883",
         transportKind: bootstrap.transportKind,
         managementRoutes: managementRouteEvidence,
         boundaries: {

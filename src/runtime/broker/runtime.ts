@@ -7,8 +7,15 @@ import { promisify } from "node:util";
 
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { getLifecycleState } from "../lifecycle/store.js";
-import { readPrivateJson, resolveCurrentWindowsSid, writePrivateJson } from "../security/private-json.js";
-import { BROKER_IDENTITY_LEASE_ENV, issueScopedBrokerIdentity } from "./identity.js";
+import {
+  readPrivateJson,
+  resolveCurrentWindowsSid,
+  writePrivateJson,
+} from "../security/private-json.js";
+import {
+  BROKER_IDENTITY_LEASE_ENV,
+  issueScopedBrokerIdentity,
+} from "./identity.js";
 import { compileServiceStartupBrokerPlan } from "./launch-resolution.js";
 import {
   createSecretsBrokerLaunchLookup,
@@ -22,7 +29,10 @@ import {
   type SecretsBrokerWritebackRequest,
   type SecretsBrokerWritebackResult,
 } from "./client.js";
-import type { BrokerTransportBinding, SecretsBrokerLaunchLeaseIssuer } from "./identity.js";
+import type {
+  BrokerTransportBinding,
+  SecretsBrokerLaunchLeaseIssuer,
+} from "./identity.js";
 import type { BrokerLaunchLookup } from "./launch-resolution.js";
 import {
   requestSecretsBrokerHttp,
@@ -35,6 +45,7 @@ const CREDENTIALS_VERSION = 1;
 const BROKER_SERVICE_ID = "@secretsbroker";
 const TOKEN_BYTES = 32;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+const BROKER_LAUNCH_IDENTITY_ISSUER = "service-lasso-local-launcher";
 // Darwin's sockaddr_un.sun_path is 104 bytes (including the terminator), while
 // Linux allows 108. Keep generated paths below the stricter portable bound.
 const MAX_PORTABLE_UNIX_SOCKET_PATH_BYTES = 100;
@@ -57,8 +68,12 @@ interface SecretsBrokerRuntimeCredentials {
 export interface SecretsBrokerRuntimeContext {
   lookup: BrokerLaunchLookup;
   probe: () => Promise<SecretsBrokerProbeResult>;
-  writeback: (input: SecretsBrokerWritebackRequest) => Promise<SecretsBrokerWritebackResult>;
-  management: (input: SecretsBrokerManagementRequest) => Promise<SecretsBrokerManagementResponse>;
+  writeback: (
+    input: SecretsBrokerWritebackRequest,
+  ) => Promise<SecretsBrokerWritebackResult>;
+  management: (
+    input: SecretsBrokerManagementRequest,
+  ) => Promise<SecretsBrokerManagementResponse>;
   operatorRequest: SecretsBrokerHttpRequester;
   serverEnv: Record<string, string>;
   launchLeaseIssuer?: SecretsBrokerLaunchLeaseIssuer;
@@ -88,7 +103,10 @@ function protectedOperatorRequester(
     const headers = Object.fromEntries(
       Object.entries(request.headers).filter(([name]) => {
         const normalized = name.toLowerCase();
-        return normalized !== "authorization" && normalized !== "x-secretsbroker-token";
+        return (
+          normalized !== "authorization" &&
+          normalized !== "x-secretsbroker-token"
+        );
       }),
     );
     return await requestSecretsBrokerHttp(target, {
@@ -157,7 +175,11 @@ function privateStateRoot(workspaceRoot: string): string {
 }
 
 export function secretsBrokerCredentialsPath(workspaceRoot: string): string {
-  return path.join(privateStateRoot(workspaceRoot), "secretsbroker", "runtime-credentials.json");
+  return path.join(
+    privateStateRoot(workspaceRoot),
+    "secretsbroker",
+    "runtime-credentials.json",
+  );
 }
 
 function workspaceIdFor(workspaceRoot: string): string {
@@ -168,10 +190,15 @@ function randomSecret(): string {
   return randomBytes(TOKEN_BYTES).toString("base64url");
 }
 
-export function secretsBrokerUnixSocketPath(workspaceId: string, tempRoot = os.tmpdir()): string {
+export function secretsBrokerUnixSocketPath(
+  workspaceId: string,
+  tempRoot = os.tmpdir(),
+): string {
   const fileName = `service-lasso-secretsbroker-${workspaceId}.sock`;
   const candidate = path.join(tempRoot, fileName);
-  if (Buffer.byteLength(candidate, "utf8") <= MAX_PORTABLE_UNIX_SOCKET_PATH_BYTES) {
+  if (
+    Buffer.byteLength(candidate, "utf8") <= MAX_PORTABLE_UNIX_SOCKET_PATH_BYTES
+  ) {
     return candidate;
   }
   return path.posix.join("/tmp", `service-lasso-sb-${workspaceId}.sock`);
@@ -179,9 +206,16 @@ export function secretsBrokerUnixSocketPath(workspaceId: string, tempRoot = os.t
 
 function runtimePaths(workspaceRoot: string, workspaceId: string) {
   const root = path.join(privateStateRoot(workspaceRoot), "secretsbroker");
-  const transport: SecretsBrokerClientTransport = process.platform === "win32"
-    ? { kind: "windows-named-pipe", socketPath: `\\\\.\\pipe\\service-lasso-secretsbroker-${workspaceId}` }
-    : { kind: "unix-socket", socketPath: secretsBrokerUnixSocketPath(workspaceId) };
+  const transport: SecretsBrokerClientTransport =
+    process.platform === "win32"
+      ? {
+          kind: "windows-named-pipe",
+          socketPath: `\\\\.\\pipe\\service-lasso-secretsbroker-${workspaceId}`,
+        }
+      : {
+          kind: "unix-socket",
+          socketPath: secretsBrokerUnixSocketPath(workspaceId),
+        };
   return {
     root,
     storePath: path.join(root, "store.json"),
@@ -196,12 +230,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function validateCredentials(value: unknown, workspaceRoot: string): SecretsBrokerRuntimeCredentials {
-  if (!isRecord(value) || value.version !== CREDENTIALS_VERSION || typeof value.workspaceId !== "string" ||
-    typeof value.createdAt !== "string" || typeof value.apiToken !== "string" || typeof value.launchSigningKey !== "string" ||
-    typeof value.masterKey !== "string" || !isRecord(value.transport) || typeof value.transport.kind !== "string" ||
-    typeof value.storePath !== "string" || typeof value.auditPath !== "string" || typeof value.eventsPath !== "string" ||
-    typeof value.wrapperPath !== "string") {
+function validateCredentials(
+  value: unknown,
+  workspaceRoot: string,
+): SecretsBrokerRuntimeCredentials {
+  if (
+    !isRecord(value) ||
+    value.version !== CREDENTIALS_VERSION ||
+    typeof value.workspaceId !== "string" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.apiToken !== "string" ||
+    typeof value.launchSigningKey !== "string" ||
+    typeof value.masterKey !== "string" ||
+    !isRecord(value.transport) ||
+    typeof value.transport.kind !== "string" ||
+    typeof value.storePath !== "string" ||
+    typeof value.auditPath !== "string" ||
+    typeof value.eventsPath !== "string" ||
+    typeof value.wrapperPath !== "string"
+  ) {
     throw new Error("Secrets Broker private runtime credentials are invalid.");
   }
   const expectedWorkspaceId = workspaceIdFor(workspaceRoot);
@@ -209,31 +256,62 @@ function validateCredentials(value: unknown, workspaceRoot: string): SecretsBrok
   const transport = value.transport as unknown as SecretsBrokerClientTransport;
   const expectedTransport = expected.transport;
   const transportAgrees =
-    (transport.kind === "windows-named-pipe" || transport.kind === "unix-socket") &&
+    (transport.kind === "windows-named-pipe" ||
+      transport.kind === "unix-socket") &&
     transport.kind === expectedTransport.kind &&
     transport.socketPath === expectedTransport.socketPath;
-  if (value.workspaceId !== expectedWorkspaceId || value.apiToken.length < 32 || value.launchSigningKey.length < 32 || value.masterKey.length < 32 ||
-    path.resolve(value.storePath) !== path.resolve(expected.storePath) || path.resolve(value.auditPath) !== path.resolve(expected.auditPath) ||
-    path.resolve(value.eventsPath) !== path.resolve(expected.eventsPath) || path.resolve(value.wrapperPath) !== path.resolve(expected.wrapperPath) ||
-    !transportAgrees) {
-    throw new Error("Secrets Broker private runtime credentials do not match this workspace.");
+  if (
+    value.workspaceId !== expectedWorkspaceId ||
+    value.apiToken.length < 32 ||
+    value.launchSigningKey.length < 32 ||
+    value.masterKey.length < 32 ||
+    path.resolve(value.storePath) !== path.resolve(expected.storePath) ||
+    path.resolve(value.auditPath) !== path.resolve(expected.auditPath) ||
+    path.resolve(value.eventsPath) !== path.resolve(expected.eventsPath) ||
+    path.resolve(value.wrapperPath) !== path.resolve(expected.wrapperPath) ||
+    !transportAgrees
+  ) {
+    throw new Error(
+      "Secrets Broker private runtime credentials do not match this workspace.",
+    );
   }
   const transportBinding = value.transportBinding;
-  if (transportBinding !== null && (!isRecord(transportBinding) || typeof transportBinding.kind !== "string" || typeof transportBinding.subject !== "string")) {
+  if (
+    !isRecord(transportBinding) ||
+    typeof transportBinding.kind !== "string" ||
+    typeof transportBinding.subject !== "string" ||
+    transportBinding.subject.trim() === "" ||
+    (transport.kind === "windows-named-pipe" &&
+      transportBinding.kind !== "windows-sid") ||
+    (transport.kind === "unix-socket" && transportBinding.kind !== "unix-uid")
+  ) {
     throw new Error("Secrets Broker transport identity is invalid.");
   }
   return value as unknown as SecretsBrokerRuntimeCredentials;
 }
 
-async function createCredentials(workspaceRoot: string): Promise<SecretsBrokerRuntimeCredentials> {
+async function createCredentials(
+  workspaceRoot: string,
+): Promise<SecretsBrokerRuntimeCredentials> {
   const workspaceId = workspaceIdFor(workspaceRoot);
   const paths = runtimePaths(workspaceRoot, workspaceId);
   const windowsSid = await resolveCurrentWindowsSid();
-  const transportBinding: BrokerTransportBinding | null = process.platform === "win32"
-    ? { kind: "windows-sid", subject: windowsSid! }
-    : typeof process.getuid === "function"
-      ? { kind: "unix-uid", subject: String(process.getuid()) }
-      : null;
+  let transportBinding: BrokerTransportBinding | null = null;
+  if (process.platform === "win32") {
+    if (!windowsSid) {
+      throw new Error(
+        "Secrets Broker production Windows SID identity is unavailable.",
+      );
+    }
+    transportBinding = { kind: "windows-sid", subject: windowsSid };
+  } else if (typeof process.getuid === "function") {
+    transportBinding = { kind: "unix-uid", subject: String(process.getuid()) };
+  }
+  if (!transportBinding) {
+    throw new Error(
+      "Secrets Broker production transport identity is unavailable.",
+    );
+  }
   const credentials: SecretsBrokerRuntimeCredentials = {
     version: CREDENTIALS_VERSION,
     workspaceId,
@@ -248,26 +326,42 @@ async function createCredentials(workspaceRoot: string): Promise<SecretsBrokerRu
     eventsPath: paths.eventsPath,
     wrapperPath: paths.wrapperPath,
   };
-  await writePrivateJson(privateStateRoot(workspaceRoot), secretsBrokerCredentialsPath(workspaceRoot), credentials);
+  await writePrivateJson(
+    privateStateRoot(workspaceRoot),
+    secretsBrokerCredentialsPath(workspaceRoot),
+    credentials,
+  );
   return credentials;
 }
 
-export async function readSecretsBrokerRuntimeCredentials(workspaceRoot: string): Promise<SecretsBrokerRuntimeCredentials | null> {
-  const value = await readPrivateJson(privateStateRoot(workspaceRoot), secretsBrokerCredentialsPath(workspaceRoot));
+export async function readSecretsBrokerRuntimeCredentials(
+  workspaceRoot: string,
+): Promise<SecretsBrokerRuntimeCredentials | null> {
+  const value = await readPrivateJson(
+    privateStateRoot(workspaceRoot),
+    secretsBrokerCredentialsPath(workspaceRoot),
+  );
   return value === null ? null : validateCredentials(value, workspaceRoot);
 }
 
-async function resolveBrokerCommand(registry: ServiceRegistry): Promise<{ command: string; cwd: string } | null> {
+async function resolveBrokerCommand(
+  registry: ServiceRegistry,
+): Promise<{ command: string; cwd: string } | null> {
   const service = registry.getById(BROKER_SERVICE_ID);
-  const artifact = getLifecycleState(BROKER_SERVICE_ID).installArtifacts.artifact;
+  const artifact =
+    getLifecycleState(BROKER_SERVICE_ID).installArtifacts.artifact;
   if (!service || !artifact?.command || !artifact.extractedPath) {
     return null;
   }
   const root = path.resolve(artifact.extractedPath);
-  const command = path.isAbsolute(artifact.command) ? artifact.command : path.resolve(root, artifact.command);
+  const command = path.isAbsolute(artifact.command)
+    ? artifact.command
+    : path.resolve(root, artifact.command);
   const relative = path.relative(root, command);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Secrets Broker executable escapes its installed artifact.");
+    throw new Error(
+      "Secrets Broker executable escapes its installed artifact.",
+    );
   }
   const info = await lstat(command);
   if (!info.isFile() || info.isSymbolicLink()) {
@@ -276,7 +370,9 @@ async function resolveBrokerCommand(registry: ServiceRegistry): Promise<{ comman
   return { command, cwd: root };
 }
 
-async function requireBrokerCommand(registry: ServiceRegistry): Promise<{ command: string; cwd: string }> {
+async function requireBrokerCommand(
+  registry: ServiceRegistry,
+): Promise<{ command: string; cwd: string }> {
   const command = await resolveBrokerCommand(registry);
   if (!command) {
     throw new Error("Secrets Broker must be installed before vault bootstrap.");
@@ -304,7 +400,9 @@ async function runBrokerCommand(
   }
 }
 
-function brokerBaseEnvironment(credentials: SecretsBrokerRuntimeCredentials): Record<string, string> {
+function brokerBaseEnvironment(
+  credentials: SecretsBrokerRuntimeCredentials,
+): Record<string, string> {
   return {
     SECRETSBROKER_MODE: "production",
     SECRETSBROKER_TRANSPORT: "auto",
@@ -314,10 +412,17 @@ function brokerBaseEnvironment(credentials: SecretsBrokerRuntimeCredentials): Re
     SECRETSBROKER_WRAPPER_PATH: credentials.wrapperPath,
     SECRETSBROKER_API_TOKEN: credentials.apiToken,
     SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY: credentials.launchSigningKey,
+    SECRETSBROKER_LAUNCH_IDENTITY_ISSUER: BROKER_LAUNCH_IDENTITY_ISSUER,
     SECRETSBROKER_AUDIT_HASH_CHAIN: "1",
     SECRETSBROKER_STATE: "ready",
     ...(credentials.transport.kind === "windows-named-pipe"
-      ? { SECRETSBROKER_NAMED_PIPE: credentials.transport.socketPath }
+      ? {
+          SECRETSBROKER_NAMED_PIPE: credentials.transport.socketPath,
+          SECRETSBROKER_NAMED_PIPE_ALLOWED_SIDS:
+            credentials.transportBinding!.subject,
+          SECRETSBROKER_NAMED_PIPE_ALLOW_ADMIN: "false",
+          SECRETSBROKER_NAMED_PIPE_ALLOW_LOCAL_SYSTEM: "false",
+        }
       : credentials.transport.kind === "unix-socket"
         ? { SECRETSBROKER_UNIX_SOCKET: credentials.transport.socketPath }
         : {}),
@@ -344,9 +449,12 @@ export async function bootstrapSecretsBrokerVault(
   registry: ServiceRegistry,
   options: SecretsBrokerBootstrapOptions = {},
 ): Promise<SecretsBrokerBootstrapResult> {
-  const { command, cwd } = options.brokerCommand ?? await requireBrokerCommand(registry);
+  const { command, cwd } =
+    options.brokerCommand ?? (await requireBrokerCommand(registry));
   const execute = options.runCommand ?? runBrokerCommand;
-  const credentials = await readSecretsBrokerRuntimeCredentials(workspaceRoot) ?? await createCredentials(workspaceRoot);
+  const credentials =
+    (await readSecretsBrokerRuntimeCredentials(workspaceRoot)) ??
+    (await createCredentials(workspaceRoot));
   const masterKeyEnvironment = {
     ...brokerBaseEnvironment(credentials),
     SECRETSBROKER_MASTER_KEY: credentials.masterKey,
@@ -363,7 +471,14 @@ export async function bootstrapSecretsBrokerVault(
       execute,
       command,
       cwd,
-      ["key", "initialize", "--store", credentials.storePath, "--audit", credentials.auditPath],
+      [
+        "key",
+        "initialize",
+        "--store",
+        credentials.storePath,
+        "--audit",
+        credentials.auditPath,
+      ],
       masterKeyEnvironment,
       "secrets_broker_key_initialize_failed",
     );
@@ -373,14 +488,24 @@ export async function bootstrapSecretsBrokerVault(
       execute,
       command,
       cwd,
-      ["key", "import", "--store", credentials.storePath, "--audit", credentials.auditPath, "--wrapper", credentials.wrapperPath],
+      [
+        "key",
+        "import",
+        "--store",
+        credentials.storePath,
+        "--audit",
+        credentials.auditPath,
+        "--wrapper",
+        credentials.wrapperPath,
+      ],
       masterKeyEnvironment,
       "secrets_broker_key_import_failed",
     );
   }
-  const statusEnvironment = process.platform === "win32"
-    ? brokerBaseEnvironment(credentials)
-    : masterKeyEnvironment;
+  const statusEnvironment =
+    process.platform === "win32"
+      ? brokerBaseEnvironment(credentials)
+      : masterKeyEnvironment;
   const statusText = await runBootstrapStage(
     execute,
     command,
@@ -399,8 +524,13 @@ export async function bootstrapSecretsBrokerVault(
   }
   const keyId = status.keyId ?? status.wrapper?.keyId;
   const keyVersion = status.keyVersion ?? status.wrapper?.keyVersion;
-  const available = status.available ?? (status.state === "ready");
-  if (available !== true || status.state !== "ready" || typeof keyId !== "string" || typeof keyVersion !== "string") {
+  const available = status.available ?? status.state === "ready";
+  if (
+    available !== true ||
+    status.state !== "ready" ||
+    typeof keyId !== "string" ||
+    typeof keyVersion !== "string"
+  ) {
     throw new SecretsBrokerBootstrapError("secrets_broker_key_not_ready");
   }
   return {
@@ -421,19 +551,24 @@ export async function loadSecretsBrokerRuntimeContext(
   if (!credentials) return null;
   const brokerCommand = await resolveBrokerCommand(registry);
   const serverEnv = brokerBaseEnvironment(credentials);
-  if (process.platform !== "win32") serverEnv.SECRETSBROKER_MASTER_KEY = credentials.masterKey;
-  const launchLeaseIssuer: SecretsBrokerLaunchLeaseIssuer | undefined = brokerCommand
-    ? {
-        command: {
-          command: brokerCommand.command,
-          cwd: brokerCommand.cwd,
-          env: {
-            SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY: credentials.launchSigningKey,
+  if (process.platform !== "win32")
+    serverEnv.SECRETSBROKER_MASTER_KEY = credentials.masterKey;
+  const launchLeaseIssuer: SecretsBrokerLaunchLeaseIssuer | undefined =
+    brokerCommand
+      ? {
+          command: {
+            command: brokerCommand.command,
+            cwd: brokerCommand.cwd,
+            env: {
+              SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY:
+                credentials.launchSigningKey,
+              SECRETSBROKER_LAUNCH_IDENTITY_ISSUER:
+                BROKER_LAUNCH_IDENTITY_ISSUER,
+            },
           },
-        },
-        workspaceId: credentials.workspaceId,
-      }
-    : undefined;
+          workspaceId: credentials.workspaceId,
+        }
+      : undefined;
   const clientOptions = {
     transport: credentials.transport,
     apiToken: credentials.apiToken,
@@ -443,7 +578,8 @@ export async function loadSecretsBrokerRuntimeContext(
     lookup: createSecretsBrokerLaunchLookup(clientOptions),
     probe: async () => await probeSecretsBroker(clientOptions),
     writeback: createSecretsBrokerWriteback(clientOptions),
-    management: async (input) => await requestSecretsBrokerManagement(clientOptions, input),
+    management: async (input) =>
+      await requestSecretsBrokerManagement(clientOptions, input),
     operatorRequest: protectedOperatorRequester(credentials),
     serverEnv,
     launchLeaseIssuer,
@@ -451,12 +587,16 @@ export async function loadSecretsBrokerRuntimeContext(
   };
 }
 
-function parseLease(environment: Record<string, string> | undefined): unknown | null {
+function parseLease(
+  environment: Record<string, string> | undefined,
+): unknown | null {
   const raw = environment?.[BROKER_IDENTITY_LEASE_ENV];
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as unknown;
-    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : null;
   } catch {
     return null;
   }
@@ -471,7 +611,9 @@ export async function provisionFirstRunGeneratedSecrets(
     const plan = compileServiceStartupBrokerPlan(service);
     for (const generated of plan.writeback.generatedSecrets) {
       if (!generated.namespace) {
-        throw new Error(`Generated secret metadata is incomplete for service "${service.manifest.id}".`);
+        throw new Error(
+          `Generated secret metadata is incomplete for service "${service.manifest.id}".`,
+        );
       }
       const fullRef = `${generated.namespace.replace(/\/+$/u, "")}/${generated.ref.replace(/^\/+|\/+$/gu, "")}`;
       const resolutionIdentity = await issueScopedBrokerIdentity(service, {
@@ -480,15 +622,27 @@ export async function provisionFirstRunGeneratedSecrets(
       });
       const resolutionLease = parseLease(resolutionIdentity?.env);
       if (!resolutionLease) {
-        throw new Error(`Secrets Broker did not issue a provisioning lookup lease for service "${service.manifest.id}".`);
+        throw new Error(
+          `Secrets Broker did not issue a provisioning lookup lease for service "${service.manifest.id}".`,
+        );
       }
-      const [decision] = await context.lookup({ service, refs: [fullRef], identityLease: resolutionLease });
+      const [decision] = await context.lookup({
+        service,
+        refs: [fullRef],
+        identityLease: resolutionLease,
+      });
       if (decision?.status === "resolved") {
-        results.push({ serviceId: service.manifest.id, ref: fullRef, status: "existing" });
+        results.push({
+          serviceId: service.manifest.id,
+          ref: fullRef,
+          status: "existing",
+        });
         continue;
       }
       if (decision?.status !== "missing") {
-        throw new Error(`Generated secret provisioning is unavailable for service "${service.manifest.id}" (${decision?.status ?? "degraded"}).`);
+        throw new Error(
+          `Generated secret provisioning is unavailable for service "${service.manifest.id}" (${decision?.status ?? "degraded"}).`,
+        );
       }
 
       const writebackIdentity = await issueScopedBrokerIdentity(service, {
@@ -497,9 +651,13 @@ export async function provisionFirstRunGeneratedSecrets(
       });
       const writebackLease = parseLease(writebackIdentity?.env);
       if (!writebackIdentity || !writebackLease) {
-        throw new Error(`Secrets Broker did not issue a provisioning writeback lease for service "${service.manifest.id}".`);
+        throw new Error(
+          `Secrets Broker did not issue a provisioning writeback lease for service "${service.manifest.id}".`,
+        );
       }
-      const value = randomBytes(generated.valuePolicy.bytes).toString("base64url");
+      const value = randomBytes(generated.valuePolicy.bytes).toString(
+        "base64url",
+      );
       const writeback = await context.writeback({
         serviceId: service.manifest.id,
         identityExpiresAt: writebackIdentity.metadata.expiresAt,
@@ -512,9 +670,15 @@ export async function provisionFirstRunGeneratedSecrets(
         value,
       });
       if (!writeback.ok) {
-        throw new Error(`Generated secret writeback failed for service "${service.manifest.id}" (${writeback.outcome}).`);
+        throw new Error(
+          `Generated secret writeback failed for service "${service.manifest.id}" (${writeback.outcome}).`,
+        );
       }
-      results.push({ serviceId: service.manifest.id, ref: fullRef, status: "created" });
+      results.push({
+        serviceId: service.manifest.id,
+        ref: fullRef,
+        status: "created",
+      });
     }
   }
   return results;

@@ -53,65 +53,113 @@ function releasePayload(expected, names) {
 }
 
 function expectCode(code, operation) {
-  assert.throws(operation, (error) => error instanceof QualificationError && error.code === code);
+  assert.throws(
+    operation,
+    (error) => error instanceof QualificationError && error.code === code,
+  );
 }
 
-test("AC-4BZ.1 requires an exact final Core release and eight nonempty digested assets", () => {
+test("AC-4BZ.1 requires an exact final Core release with archives, SBOMs, and checksums", () => {
   const names = coreReleaseAssets(core.tag);
   const assets = validateRelease(releasePayload(core, names), core, names);
-  assert.equal(assets.size, 8);
+  assert.equal(assets.size, 17);
 
   const missing = releasePayload(core, names.slice(1));
-  expectCode("release_asset_inventory_mismatch", () => validateRelease(missing, core, names));
+  expectCode("release_asset_inventory_mismatch", () =>
+    validateRelease(missing, core, names),
+  );
 
   const wrongHead = releasePayload(core, names);
   wrongHead.target_commitish = "0".repeat(40);
-  expectCode("release_revision_mismatch", () => validateRelease(wrongHead, core, names));
+  expectCode("release_revision_mismatch", () =>
+    validateRelease(wrongHead, core, names),
+  );
 
   const redirected = releasePayload(core, names);
   redirected.assets[0].browser_download_url = "https://example.invalid/archive";
-  expectCode("redirected_asset_metadata", () => validateRelease(redirected, core, names));
+  expectCode("redirected_asset_metadata", () =>
+    validateRelease(redirected, core, names),
+  );
 });
 
 test("AC-4BZ.1 checksum parser rejects empty, malformed, duplicate, unexpected, missing, and redirected entries", () => {
   const names = ["one.zip", "two.tar.gz"];
   const valid = `${"1".repeat(64)}  one.zip\n${"2".repeat(64)}  two.tar.gz\n`;
-  assert.deepEqual([...parseChecksumManifest(valid, names)], [
-    ["one.zip", "1".repeat(64)],
-    ["two.tar.gz", "2".repeat(64)],
-  ]);
+  assert.deepEqual(
+    [...parseChecksumManifest(valid, names)],
+    [
+      ["one.zip", "1".repeat(64)],
+      ["two.tar.gz", "2".repeat(64)],
+    ],
+  );
 
   expectCode("empty_checksum_manifest", () => parseChecksumManifest("", names));
-  expectCode("malformed_checksum_manifest", () => parseChecksumManifest("bad", names));
-  expectCode("duplicate_checksum_entry", () => parseChecksumManifest(`${valid}${"1".repeat(64)}  one.zip\n`, names));
-  expectCode("unexpected_checksum_entry", () => parseChecksumManifest(`${valid}${"3".repeat(64)}  three.zip\n`, names));
-  expectCode("missing_checksum_entry", () => parseChecksumManifest(`${"1".repeat(64)}  one.zip\n`, names));
-  expectCode("redirected_checksum_entry", () => parseChecksumManifest(`${"1".repeat(64)}  ../one.zip\n`, names));
+  expectCode("malformed_checksum_manifest", () =>
+    parseChecksumManifest("bad", names),
+  );
+  expectCode("duplicate_checksum_entry", () =>
+    parseChecksumManifest(`${valid}${"1".repeat(64)}  one.zip\n`, names),
+  );
+  expectCode("unexpected_checksum_entry", () =>
+    parseChecksumManifest(`${valid}${"3".repeat(64)}  three.zip\n`, names),
+  );
+  expectCode("missing_checksum_entry", () =>
+    parseChecksumManifest(`${"1".repeat(64)}  one.zip\n`, names),
+  );
+  expectCode("redirected_checksum_entry", () =>
+    parseChecksumManifest(`${"1".repeat(64)}  ../one.zip\n`, names),
+  );
 });
 
 test("AC-4BZ.1 verifies downloaded bytes and exact npm latest identity before use", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "published-package-qualification-"));
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "published-package-qualification-"),
+  );
   try {
     const file = path.join(root, "payload.bin");
     await writeFile(file, "published bytes");
-    const sha256 = "79917366a2d55364e0380eba79304f6c4aad8dfcfdc30a968dacaa1f9f9a78f3";
-    const integrity = "sha512-6xEJhEThBkgxo2bPVe/qXHDvEzQUL+ntKlNJvGXD6QT7JG2II0OXnw+RC3r6r5d7EpP8ZbQ+8XMIgQtZMZUe3g==";
-    assert.equal((await verifyFileSha256(file, sha256, "payload")).sha256, sha256);
-    assert.equal((await verifyNpmTarballIntegrity(file, integrity)).integrity, integrity);
+    const sha256 =
+      "79917366a2d55364e0380eba79304f6c4aad8dfcfdc30a968dacaa1f9f9a78f3";
+    const integrity =
+      "sha512-6xEJhEThBkgxo2bPVe/qXHDvEzQUL+ntKlNJvGXD6QT7JG2II0OXnw+RC3r6r5d7EpP8ZbQ+8XMIgQtZMZUe3g==";
+    assert.equal(
+      (await verifyFileSha256(file, sha256, "payload")).sha256,
+      sha256,
+    );
+    assert.equal(
+      (await verifyNpmTarballIntegrity(file, integrity)).integrity,
+      integrity,
+    );
 
     const metadata = {
       name: PACKAGE_NAME,
       version: core.tag,
-      dist: { integrity, tarball: `https://registry.npmjs.org/${PACKAGE_NAME}/-/service-lasso-${core.tag}.tgz` },
+      dist: {
+        integrity,
+        tarball: `https://registry.npmjs.org/${PACKAGE_NAME}/-/service-lasso-${core.tag}.tgz`,
+      },
     };
-    assert.match(validateNpmMetadata(metadata, { latest: core.tag }, core.tag, integrity), /^https:\/\/registry\.npmjs\.org\//u);
-    expectCode("npm_latest_mismatch", () => validateNpmMetadata(metadata, { latest: "older" }, core.tag, integrity));
-    expectCode("npm_tarball_redirected", () => validateNpmMetadata(
-      { ...metadata, dist: { ...metadata.dist, tarball: "https://example.invalid/core.tgz" } },
-      { latest: core.tag },
-      core.tag,
-      integrity,
-    ));
+    assert.match(
+      validateNpmMetadata(metadata, { latest: core.tag }, core.tag, integrity),
+      /^https:\/\/registry\.npmjs\.org\//u,
+    );
+    expectCode("npm_latest_mismatch", () =>
+      validateNpmMetadata(metadata, { latest: "older" }, core.tag, integrity),
+    );
+    expectCode("npm_tarball_redirected", () =>
+      validateNpmMetadata(
+        {
+          ...metadata,
+          dist: {
+            ...metadata.dist,
+            tarball: "https://example.invalid/core.tgz",
+          },
+        },
+        { latest: core.tag },
+        core.tag,
+        integrity,
+      ),
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -144,7 +192,12 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
       revision: core.revision,
       asset: expected.coreAsset,
       sha256: expected.coreSha256,
-      npm: { name: PACKAGE_NAME, version: core.tag, integrity: expected.coreNpmIntegrity, distTag: "latest" },
+      npm: {
+        name: PACKAGE_NAME,
+        version: core.tag,
+        integrity: expected.coreNpmIntegrity,
+        distTag: "latest",
+      },
     },
     admin: {
       releaseId: ADMIN_RELEASE.id,
@@ -164,51 +217,59 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
     },
     retentionDays: 90,
     mutationRetry: false,
-    negativeProof: Object.fromEntries([
-      "missingProvenance",
-      "missingChecksum",
-      "emptyPayload",
-      "emptyChecksum",
-      "malformedChecksum",
-      "duplicateChecksum",
-      "unexpectedChecksum",
-      "mismatchedPayload",
-      "redirectedChecksum",
-      "redirectedProvenance",
-      "wrongHeadProvenance",
-    ].map((name) => [name, "success"])),
+    negativeProof: Object.fromEntries(
+      [
+        "missingProvenance",
+        "missingChecksum",
+        "emptyPayload",
+        "emptyChecksum",
+        "malformedChecksum",
+        "duplicateChecksum",
+        "unexpectedChecksum",
+        "mismatchedPayload",
+        "redirectedChecksum",
+        "redirectedProvenance",
+        "wrongHeadProvenance",
+      ].map((name) => [name, "success"]),
+    ),
     mutations: { brokerRestart: 1, providerMigrationApply: 1 },
-    scenarios: Object.fromEntries([
-      "preMutationGuards",
-      "releaseRuntime",
-      "npmConsumer",
-      "productionAcquisition",
-      "firstRun",
-      "comprehensiveLifecycle",
-      "adminBrowser",
-      "runtimeDashboardServices",
-      "brokerContinuity",
-      "trustedLifecycle",
-      "providerReadiness",
-      "migrationDryRun",
-      "migrationApply",
-      "rollback",
-      "persistence",
-      "durableAudit",
-      "noLeak",
-      "stoppedLifecycle",
-      "cleanupConvergence",
-    ].map((name) => [name, "success"])),
+    scenarios: Object.fromEntries(
+      [
+        "preMutationGuards",
+        "releaseRuntime",
+        "npmConsumer",
+        "productionAcquisition",
+        "firstRun",
+        "comprehensiveLifecycle",
+        "adminBrowser",
+        "runtimeDashboardServices",
+        "brokerContinuity",
+        "trustedLifecycle",
+        "providerReadiness",
+        "migrationDryRun",
+        "migrationApply",
+        "rollback",
+        "persistence",
+        "durableAudit",
+        "noLeak",
+        "stoppedLifecycle",
+        "cleanupConvergence",
+      ].map((name) => [name, "success"]),
+    ),
   };
   assert.equal(validateRetainedEvidence(evidence, expected), evidence);
 
   const incomplete = structuredClone(evidence);
   incomplete.scenarios.cleanupConvergence = "blocked";
-  expectCode("evidence_scenario_incomplete", () => validateRetainedEvidence(incomplete, expected));
+  expectCode("evidence_scenario_incomplete", () =>
+    validateRetainedEvidence(incomplete, expected),
+  );
 
   const unsafe = structuredClone(evidence);
   unsafe.runtimePath = "redacted-but-forbidden";
-  expectCode("unsafe_evidence", () => validateRetainedEvidence(unsafe, expected));
+  expectCode("unsafe_evidence", () =>
+    validateRetainedEvidence(unsafe, expected),
+  );
 });
 
 test("AC-4BZ.1 artifact and job API metadata must be nonempty, unexpired, 90-day, terminal-green, and wrong-head safe", () => {
@@ -230,21 +291,33 @@ test("AC-4BZ.1 artifact and job API metadata must be nonempty, unexpired, 90-day
     workflow_run: { id: 99, head_sha: core.revision },
     archive_download_url: `https://api.github.com/repos/${core.repo}/actions/artifacts/123/zip`,
   };
-  assert.equal(validateRetainedArtifactMetadata(artifact, artifactExpected, now), artifact);
+  assert.equal(
+    validateRetainedArtifactMetadata(artifact, artifactExpected, now),
+    artifact,
+  );
   for (const [field, value] of [
     ["size_in_bytes", 0],
     ["expired", true],
     ["expires_at", "2026-08-27T00:01:00Z"],
   ]) {
-    expectCode("invalid_retained_artifact", () => validateRetainedArtifactMetadata(
-      { ...artifact, [field]: value }, artifactExpected, now,
-    ));
+    expectCode("invalid_retained_artifact", () =>
+      validateRetainedArtifactMetadata(
+        { ...artifact, [field]: value },
+        artifactExpected,
+        now,
+      ),
+    );
   }
-  expectCode("invalid_retained_artifact", () => validateRetainedArtifactMetadata(
-    { ...artifact, workflow_run: { ...artifact.workflow_run, head_sha: "0".repeat(40) } },
-    artifactExpected,
-    now,
-  ));
+  expectCode("invalid_retained_artifact", () =>
+    validateRetainedArtifactMetadata(
+      {
+        ...artifact,
+        workflow_run: { ...artifact.workflow_run, head_sha: "0".repeat(40) },
+      },
+      artifactExpected,
+      now,
+    ),
+  );
 
   const jobExpected = {
     name: "published-package-qualification (linux)",
@@ -267,15 +340,24 @@ test("AC-4BZ.1 artifact and job API metadata must be nonempty, unexpired, 90-day
     html_url: `https://github.com/${core.repo}/actions/runs/99/job/321`,
   };
   assert.equal(validateTerminalJobMetadata(job, jobExpected), job);
-  expectCode("invalid_terminal_job", () => validateTerminalJobMetadata({ ...job, status: "in_progress" }, jobExpected));
-  expectCode("invalid_terminal_job", () => validateTerminalJobMetadata({ ...job, conclusion: "failure" }, jobExpected));
-  expectCode("invalid_terminal_job", () => validateTerminalJobMetadata(
-    { ...job, head_sha: "0".repeat(40) }, jobExpected,
-  ));
+  expectCode("invalid_terminal_job", () =>
+    validateTerminalJobMetadata({ ...job, status: "in_progress" }, jobExpected),
+  );
+  expectCode("invalid_terminal_job", () =>
+    validateTerminalJobMetadata({ ...job, conclusion: "failure" }, jobExpected),
+  );
+  expectCode("invalid_terminal_job", () =>
+    validateTerminalJobMetadata(
+      { ...job, head_sha: "0".repeat(40) },
+      jobExpected,
+    ),
+  );
 });
 
 test("AC-4BZ.1 cleanup refuses targets outside its exact runner-temp ownership boundary", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "published-package-cleanup-"));
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "published-package-cleanup-"),
+  );
   try {
     const runnerTemp = path.join(root, "runner-temp");
     const outside = path.join(root, "outside-target");
@@ -284,40 +366,81 @@ test("AC-4BZ.1 cleanup refuses targets outside its exact runner-temp ownership b
     await mkdir(runnerTemp);
     await mkdir(outside);
     await writeFile(path.join(outside, "sentinel.txt"), "preserve");
-    await writeFile(safeStatePath, `${JSON.stringify({
-      schema: QUALIFICATION_SCHEMA,
-      retainedContent: "metadata_only",
-      outcome: "failure",
-      scenarios: {},
-    })}\n`);
-    await writeFile(privateStatePath, `${JSON.stringify({
-      downloadRoot: outside,
-      mutationRoot: path.join(runnerTemp, "service-lasso-published-mutation-test"),
-    })}\n`);
+    await writeFile(
+      safeStatePath,
+      `${JSON.stringify({
+        schema: QUALIFICATION_SCHEMA,
+        retainedContent: "metadata_only",
+        outcome: "failure",
+        scenarios: {},
+      })}\n`,
+    );
+    await writeFile(
+      privateStatePath,
+      `${JSON.stringify({
+        downloadRoot: outside,
+        mutationRoot: path.join(
+          runnerTemp,
+          "service-lasso-published-mutation-test",
+        ),
+      })}\n`,
+    );
 
-    await assert.rejects(execFileAsync(process.execPath, [
-      fileURLToPath(new URL("../scripts/cleanup-published-package-qualification.mjs", import.meta.url)),
-    ], {
-      env: {
-        ...process.env,
-        RUNNER_TEMP: runnerTemp,
-        QUALIFICATION_PRIVATE_STATE_PATH: privateStatePath,
-        QUALIFICATION_SAFE_STATE_PATH: safeStatePath,
-      },
-    }));
-    assert.equal(await readFile(path.join(outside, "sentinel.txt"), "utf8"), "preserve");
+    await assert.rejects(
+      execFileAsync(
+        process.execPath,
+        [
+          fileURLToPath(
+            new URL(
+              "../scripts/cleanup-published-package-qualification.mjs",
+              import.meta.url,
+            ),
+          ),
+        ],
+        {
+          env: {
+            ...process.env,
+            RUNNER_TEMP: runnerTemp,
+            QUALIFICATION_PRIVATE_STATE_PATH: privateStatePath,
+            QUALIFICATION_SAFE_STATE_PATH: safeStatePath,
+          },
+        },
+      ),
+    );
+    assert.equal(
+      await readFile(path.join(outside, "sentinel.txt"), "utf8"),
+      "preserve",
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("published dependency releases retain exact five-asset checksum inventories", () => {
-  assert.deepEqual(releaseServiceAssets(ADMIN_RELEASE).sort(), [
-    "@serviceadmin-darwin.tar.gz",
-    "@serviceadmin-linux.tar.gz",
-    "@serviceadmin-win32.zip",
-    "SHA256SUMS.txt",
-    "service.json",
-  ].sort());
-  assert.equal(releaseServiceAssets(BROKER_RELEASE).length, 5);
+test("published dependency releases retain exact eight-asset checksum and SBOM inventories", () => {
+  assert.deepEqual(
+    releaseServiceAssets(ADMIN_RELEASE).sort(),
+    [
+      "@serviceadmin-darwin.tar.gz",
+      "@serviceadmin-linux.tar.gz",
+      "@serviceadmin-win32.zip",
+      "SHA256SUMS.txt",
+      "serviceadmin-darwin.cdx.json",
+      "serviceadmin-linux.cdx.json",
+      "serviceadmin-win32.cdx.json",
+      "service.json",
+    ].sort(),
+  );
+  assert.deepEqual(
+    releaseServiceAssets(BROKER_RELEASE).sort(),
+    [
+      "SHA256SUMS.txt",
+      "secretsbroker-darwin.cdx.json",
+      "secretsbroker-darwin.tar.gz",
+      "secretsbroker-linux.cdx.json",
+      "secretsbroker-linux.tar.gz",
+      "secretsbroker-win32.cdx.json",
+      "secretsbroker-win32.zip",
+      "service.json",
+    ].sort(),
+  );
 });

@@ -76,6 +76,16 @@ async function waitForHardExit(child, timeoutMs = 120_000) {
   return outcome;
 }
 
+async function waitForRecoveryClassification(config, discovered, accepts, timeoutMs = 15_000) {
+  let inspection = await inspectStartupRecovery(config, discovered);
+  const deadline = Date.now() + timeoutMs;
+  while (!accepts(inspection.classification) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    inspection = await inspectStartupRecovery(config, discovered);
+  }
+  return inspection;
+}
+
 function collectBoundedOutput(stream, maxBytes = 64 * 1024) {
   let bytes = 0;
   let text = "";
@@ -222,12 +232,19 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
           workspaceRoot: fixture.workspaceRoot,
         });
         const discovered = await discoverServices(fixture.servicesRoot);
-        const inspection = await inspectStartupRecovery(config, discovered);
+        const declaredClassification = expectedInspection.get(phase);
+        const inspection = await waitForRecoveryClassification(
+          config,
+          discovered,
+          (classification) => declaredClassification === "evidence-dependent"
+            ? classification === "resume" || classification === "rollback"
+            : classification === declaredClassification,
+        );
         const expectedClassification = phase === "owned_readiness_proven"
           ? inspection.services.length === 1 && inspection.services[0].ownership === "owned"
             ? "resume"
             : "rollback"
-          : expectedInspection.get(phase);
+          : declaredClassification;
         assert.equal(
           inspection.classification,
           expectedClassification,

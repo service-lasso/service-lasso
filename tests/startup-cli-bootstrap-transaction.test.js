@@ -5,11 +5,14 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { readFile, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
+import { resolveRuntimeConfig } from "../dist/runtime/config.js";
+import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { stopManagedProcess } from "../dist/runtime/execution/supervisor.js";
 import { findProcessOwnership } from "../dist/runtime/process/registry.js";
 import { readRuntimeGenerationRegistry } from "../dist/runtime/instance/registry.js";
 import { readRuntimeEndpointAllocationPlan } from "../dist/runtime/ports/allocation.js";
+import { inspectStartupRecovery } from "../dist/runtime/startup/recovery.js";
 import {
   getStartupTransactionJournalPath,
   readStartupTransactionJournal,
@@ -151,6 +154,22 @@ test("AC-4BJ.4/.5/.8 hard-crashed CLI baseline rolls back its uncommitted owner 
       assert.equal(interrupted.status, "active");
       assert.ok(interrupted.completedActions.includes("baseline_action_completed:resume-service:start"));
       assert.ok(interruptedOwner);
+
+      const recoveryConfig = resolveRuntimeConfig({
+        servicesRoot: fixture.servicesRoot,
+        workspaceRoot: fixture.workspaceRoot,
+      });
+      const discovered = await discoverServices(fixture.servicesRoot);
+      let inspection = await inspectStartupRecovery(recoveryConfig, discovered);
+      const recoveryDeadline = Date.now() + 15_000;
+      while (inspection.classification === "blocked" && Date.now() < recoveryDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        inspection = await inspectStartupRecovery(recoveryConfig, discovered);
+      }
+      assert.ok(
+        inspection.classification === "resume" || inspection.classification === "rollback",
+        `startup recovery inspection: ${inspection.reason}`,
+      );
 
       apiServer = await startApiServer({
         port: 0,
