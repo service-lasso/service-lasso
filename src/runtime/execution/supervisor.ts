@@ -69,7 +69,13 @@ export type ManagedProcessStartFailurePhase =
   | "launcher_file_open"
   | "launcher_file_hash"
   | "launcher_file_final_path"
-  | "launcher_binding_publication";
+  | "launcher_binding_publication"
+  | "launcher_job_creation"
+  | "launcher_target_creation"
+  | "launcher_job_assignment"
+  | "launcher_target_resume"
+  | "launcher_target_thread_close"
+  | "launcher_acknowledgement_write";
 
 export class ManagedProcessStartError extends Error {
   readonly failurePhase: ManagedProcessStartFailurePhase;
@@ -233,8 +239,8 @@ const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
 const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
 const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
 const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher-native.exe", import.meta.url));
-const WINDOWS_MANAGED_LAUNCHER_BYTES = 33_280;
-const WINDOWS_MANAGED_LAUNCHER_SHA256 = "c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd";
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 34_304;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
 const MANAGED_PROCESS_SPAWN_TIMEOUT_MS = 15_000;
 const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
@@ -887,7 +893,7 @@ async function createWindowsManagedLaunchState(
     return bindingIndex === undefined ? [] : [{ index, prefix: file.prefix, bindingIndex }];
   });
   const payload = Buffer.from(JSON.stringify({
-    executable,
+    executable: executableCandidate ?? executable,
     args,
     workingDirectory,
     ackPath,
@@ -990,8 +996,18 @@ async function continueWindowsManagedLauncher(
     await managedProcessFilesBoundHook?.();
     await writeFile(state.continuePath, state.continueToken, "utf8");
     while (!signal.aborted) {
-      if (probeManagedChildHandle(child) !== "owned") {
-        throw new Error("Windows managed launcher exited before the service launch was acknowledged.");
+      const wrapperStatus = probeManagedChildHandle(child);
+      if (wrapperStatus !== "owned") {
+        const exitCode = await observeManagedLauncherExitCode(child, signal);
+        const failurePhase = windowsManagedLauncherTargetFailurePhase(exitCode);
+        throw new ManagedProcessStartError(
+          failurePhase ?? "target_acknowledgement",
+          new Error(
+            failurePhase
+              ? `Windows managed launcher failed closed during ${failurePhase} (exit ${exitCode}).`
+              : `Windows managed launcher exited before the service launch was acknowledged (exit ${exitCode ?? "unavailable"}).`,
+          ),
+        );
       }
       try {
         const acknowledgmentText = await readFile(state.ackPath, "utf8");
@@ -1015,6 +1031,48 @@ async function continueWindowsManagedLauncher(
       await adoptedProcessPollDelay(signal, 25);
     }
   }, { deadlineMs });
+}
+
+async function observeManagedLauncherExitCode(child: ChildProcess, signal: AbortSignal): Promise<number | null> {
+  if (child.exitCode !== null) return child.exitCode;
+  return await new Promise<number | null>((resolve) => {
+    const exited = (exitCode: number | null) => {
+      cleanup();
+      resolve(exitCode);
+    };
+    const aborted = () => {
+      cleanup();
+      resolve(child.exitCode);
+    };
+    const cleanup = () => {
+      child.removeListener("exit", exited);
+      signal.removeEventListener("abort", aborted);
+    };
+    child.once("exit", exited);
+    signal.addEventListener("abort", aborted, { once: true });
+    if (child.exitCode !== null || signal.aborted) aborted();
+  });
+}
+
+function windowsManagedLauncherTargetFailurePhase(exitCode: number | null): ManagedProcessStartFailurePhase | null {
+  switch (exitCode) {
+    case 101: return "launcher_job_creation";
+    case 102:
+    case 107:
+    case 108:
+    case 109:
+    case 110:
+    case 111:
+    case 112:
+    case 113:
+    case 114:
+      return "launcher_target_creation";
+    case 103: return "launcher_job_assignment";
+    case 104: return "launcher_target_resume";
+    case 105: return "launcher_target_thread_close";
+    case 106: return "launcher_acknowledgement_write";
+    default: return null;
+  }
 }
 
 function buildProcessEnvironment(

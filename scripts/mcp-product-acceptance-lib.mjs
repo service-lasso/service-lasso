@@ -54,6 +54,12 @@ const GUARDED_DIAGNOSTIC_PROCESS_START_PHASES = new Set([
   "launcher_file_hash",
   "launcher_file_final_path",
   "launcher_binding_publication",
+  "launcher_job_creation",
+  "launcher_target_creation",
+  "launcher_job_assignment",
+  "launcher_target_resume",
+  "launcher_target_thread_close",
+  "launcher_acknowledgement_write",
   "unclassified_error",
 ]);
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([

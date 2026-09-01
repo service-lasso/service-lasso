@@ -1760,7 +1760,7 @@ test("Windows managed launcher rejects non-closed or mistyped payload envelopes"
           resolve({ exitCode, signal });
         });
       });
-      assert.deepEqual(result, { exitCode: 1, signal: null });
+      assert.deepEqual(result, { exitCode: 100, signal: null });
       await assert.rejects(readFile(basePayload.filesBoundPath, "utf8"), { code: "ENOENT" });
     }
   } finally {
@@ -1900,6 +1900,116 @@ setInterval(() => {}, 1000);
     assert.doesNotMatch(stderr, /__SERVICE_LASSO_LAUNCHER_PROGRESS__/u);
   } finally {
     await stopManagedProcess("launch-stdio-service", 10_000).catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows guarded launcher starts an artifact-style JavaScript ESM entrypoint while approved bytes remain bound", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launch-artifact-esm-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "launch-artifact-esm-service");
+  const scriptPath = path.join(serviceRoot, "runtime", "server.js");
+  const markerPath = path.join(serviceRoot, "runtime", "artifact-esm.marker");
+  const scriptSource = `
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(markerPath)}, JSON.stringify({ pid: process.pid }), "utf8");
+setInterval(() => {}, 1000);
+`.trim();
+  let handle;
+
+  try {
+    await writeFile(scriptPath, scriptSource, "utf8");
+    const manifestPath = path.join(serviceRoot, "service.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.args = [path.relative(serviceRoot, scriptPath)];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    const executableBytes = await readFile(process.execPath);
+    const bindings = [
+      {
+        file: process.execPath,
+        sha256: createHash("sha256").update(executableBytes).digest("hex"),
+        size: executableBytes.byteLength,
+      },
+      {
+        file: scriptPath,
+        sha256: createHash("sha256").update(scriptSource).digest("hex"),
+        size: Buffer.byteLength(scriptSource),
+      },
+    ];
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      verifyBeforeSpawn: async () => bindings,
+      guardedExecutableLaunch: true,
+    });
+    const marker = await waitFor(async () => {
+      try {
+        return JSON.parse(await readFile(markerPath, "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.equal(Number.isInteger(marker.pid) && marker.pid > 0, true);
+    assert.notEqual(marker.pid, handle.pid);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "launch-artifact-esm-service");
+    assert.ok(ownership.identity);
+    const tree = await inspectWindowsProcessTree(ownership.identity, { deadlineMs: Date.now() + 15_000 });
+    assert.equal(tree.rootStatus, "owned");
+    assert.equal(tree.members.some((member) => member.pid === marker.pid), true);
+  } finally {
+    await stopManagedProcess("launch-artifact-esm-service", 10_000).catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows managed launcher resolves a bare executable before starting an artifact-style ESM entrypoint", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launch-bare-artifact-esm-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "launch-bare-artifact-esm-service");
+  const scriptPath = path.join(serviceRoot, "runtime", "server.js");
+  const markerPath = path.join(serviceRoot, "runtime", "bare-artifact-esm.marker");
+  let handle;
+
+  try {
+    await writeFile(scriptPath, `
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(markerPath)}, JSON.stringify({ pid: process.pid }), "utf8");
+setInterval(() => {}, 1000);
+`.trim(), "utf8");
+    const manifestPath = path.join(serviceRoot, "service.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.executable = path.basename(process.execPath, path.extname(process.execPath));
+    manifest.args = [path.relative(serviceRoot, scriptPath)];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    const marker = await waitFor(async () => {
+      try {
+        return JSON.parse(await readFile(markerPath, "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.equal(Number.isInteger(marker.pid) && marker.pid > 0, true);
+    assert.notEqual(marker.pid, handle.pid);
+  } finally {
+    await stopManagedProcess("launch-bare-artifact-esm-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
