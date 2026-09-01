@@ -20,6 +20,7 @@ test("security model exposes a Service Lasso-owned permission catalogue and buil
   assert.ok(permissionKeys.includes("security:manage"));
   assert.ok(permissionKeys.includes("service:restart"));
   assert.ok(permissionKeys.includes("service:reload"));
+  assert.ok(permissionKeys.includes("runtime:shutdown"));
   assert.ok(permissionKeys.includes("backup:restore"));
   assert.ok(permissionKeys.includes("broker:resolve-scoped"));
 
