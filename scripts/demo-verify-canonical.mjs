@@ -857,8 +857,21 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     }
   }
 
+  const ok = checks.every((entry) => entry.ok);
+  let doctor = null;
+  if (!ok && resolved.runtimeUrl) {
+    const doctorProbe = await fetchJson(
+      `${normalizeUrlBase(resolved.runtimeUrl)}/api/runtime/doctor`,
+      fetchImpl,
+      resolved.timeoutMs,
+    );
+    if (doctorProbe.ok && doctorProbe.body && typeof doctorProbe.body === "object" && doctorProbe.body.doctor) {
+      doctor = doctorProbe.body.doctor;
+    }
+  }
+
   return {
-    ok: checks.every((entry) => entry.ok),
+    ok,
     checks,
     failures: checks.filter((entry) => !entry.ok),
     summary: {
@@ -867,6 +880,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       servicesRoot: resolved.servicesRoot,
       workspaceRoot: resolved.workspaceRoot,
       generationId: runtimeInstance.body?.instance?.generationId ?? resolved.generationId ?? null,
+      doctor,
       services: serviceSummaries,
       mcp: {
         endpoint: mcpUrl,
@@ -895,6 +909,7 @@ export function formatCanonicalVerifierResult(result) {
     `- serviceAdmin: ${summary.serviceAdminUrl ?? "unknown"}`,
     `- servicesRoot: ${summary.servicesRoot ?? "unknown"}`,
     `- workspaceRoot: ${summary.workspaceRoot ?? "unknown"}`,
+    `- doctor: classification=${summary.doctor?.classification ?? "none"} action=${summary.doctor?.recommendedAction ?? "none"}`,
     `- mcp: endpoint=${summary.mcp?.endpoint ?? "unknown"} protocol=${summary.mcp?.protocolVersion ?? "unknown"} sdk=${summary.mcp?.sdkVersion ?? "unknown"} mode=${summary.mcp?.operatingMode ?? "unknown"} tools=${summary.mcp?.toolCount ?? 0} resources=${summary.mcp?.resourceCount ?? 0} reads=${summary.mcp?.representativeReads === true ? "passed" : "failed"} guarded=${summary.mcp?.guardedAction?.status ?? "unknown"}`,
   ];
 
