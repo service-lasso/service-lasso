@@ -7,6 +7,8 @@ export const QUALIFICATION_SCHEMA =
   "service-lasso.published-package-qualification.v1";
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
+export const ADMIN_HARNESS_REVISION =
+  "f7abf981f8f0bbbbd7fdf352237fd84950d95ca3";
 
 export const ADMIN_RELEASE = Object.freeze({
   repo: "service-lasso/lasso-serviceadmin",
@@ -650,6 +652,12 @@ export function validateRetainedEvidence(evidence, expected) {
         `Retained ${expected.platform} ${name} identity is invalid.`,
       );
     }
+  }
+  if (evidence.adminHarnessRevision !== ADMIN_HARNESS_REVISION) {
+    fail(
+      "evidence_admin_harness_mismatch",
+      `Retained ${expected.platform} Admin harness identity is invalid.`,
+    );
   }
   if (
     evidence.retentionDays !== RETENTION_DAYS ||

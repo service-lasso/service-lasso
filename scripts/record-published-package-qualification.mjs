@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {
+  ADMIN_HARNESS_REVISION,
   ADMIN_RELEASE,
   BROKER_RELEASE,
   PACKAGE_NAME,
@@ -59,6 +60,13 @@ const coreAsset = env(
 const coreSha256 = requireSha256(env("CORE_RELEASE_SHA256"), "CORE_RELEASE_SHA256");
 const coreNpmVersion = env("CORE_NPM_VERSION", /^20[0-9]{2}\.[1-9][0-9]*\.[1-9][0-9]*-[0-9a-f]{7}$/u);
 const coreNpmIntegrity = env("CORE_NPM_INTEGRITY", /^sha512-[A-Za-z0-9+/]+={0,2}$/u);
+const adminHarnessRevision = requireSha(
+  env("ADMIN_HARNESS_REVISION"),
+  "ADMIN_HARNESS_REVISION",
+);
+if (adminHarnessRevision !== ADMIN_HARNESS_REVISION) {
+  throw new Error("Admin browser harness revision is not canonical.");
+}
 
 let evidence;
 try {
@@ -93,6 +101,7 @@ try {
       sha256: BROKER_RELEASE.platforms[platform].sha256,
       checksumSource: "SHA256SUMS.txt",
     },
+    adminHarnessRevision,
     harnessRevision: workflowSha,
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
@@ -215,6 +224,7 @@ try {
       sha256: BROKER_RELEASE.platforms[platform].sha256,
       checksumSource: "SHA256SUMS.txt",
     },
+    adminHarnessRevision,
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
     failureCode: "unsafe_evidence_rejected",
