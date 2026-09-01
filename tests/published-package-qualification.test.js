@@ -14,6 +14,7 @@ import {
   QualificationError,
   coreReleaseAssets,
   parseChecksumManifest,
+  parseCoreInstallOutput,
   releaseServiceAssets,
   validateNpmMetadata,
   validateRelease,
@@ -31,6 +32,27 @@ const core = {
   revision: "abcdef0abcdef0abcdef0abcdef0abcdef0abcde",
 };
 const execFileAsync = promisify(execFile);
+
+test("published Core install parsing accepts one complete pretty-printed JSON document", () => {
+  const payload = { action: "install", serviceId: "@serviceadmin", ok: true };
+  assert.deepEqual(
+    parseCoreInstallOutput(JSON.stringify(payload, null, 2), "@serviceadmin"),
+    payload,
+  );
+  for (const invalid of [
+    "}",
+    `progress\n${JSON.stringify(payload)}`,
+    `${JSON.stringify(payload)}\n${JSON.stringify(payload)}`,
+    "[]",
+  ]) {
+    assert.throws(
+      () => parseCoreInstallOutput(invalid, "@serviceadmin"),
+      (error) =>
+        error instanceof QualificationError &&
+        error.code === "core_install_contract_invalid",
+    );
+  }
+});
 
 function releasePayload(expected, names) {
   return {

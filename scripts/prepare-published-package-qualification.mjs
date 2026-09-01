@@ -28,6 +28,7 @@ import {
   digestFile,
   fail,
   parseChecksumManifest,
+  parseCoreInstallOutput,
   readJsonFile,
   releaseServiceAssets,
   requireAssetDigest,
@@ -367,12 +368,7 @@ async function invokeCoreInstall(coreRoot, serviceId, servicesRoot, workspaceRoo
     ],
     { cwd: coreRoot, env: { ...process.env, GITHUB_TOKEN: token } },
   );
-  const line = result.stdout.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean).at(-1);
-  try {
-    return JSON.parse(line ?? "");
-  } catch {
-    fail("core_install_contract_invalid", `Published Core install did not return JSON for ${serviceId}.`);
-  }
+  return parseCoreInstallOutput(result.stdout, serviceId);
 }
 
 async function assertCoreAcquisition(payload, release, platform) {

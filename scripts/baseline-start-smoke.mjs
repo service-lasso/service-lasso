@@ -94,6 +94,13 @@ if (!nginxReleaseVersion) {
 
 const baselineProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
 const baselineDaemonServiceIds = new Set(["@nginx", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
+const baselineArtifactVersions = new Map([
+  ["@archive", archiveReleaseVersion],
+  ["@localcert", localcertReleaseVersion],
+  ["@nginx", nginxReleaseVersion],
+  ["@node", nodeReleaseVersion],
+  ["@python", pythonReleaseVersion],
+]);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -333,55 +340,100 @@ async function writeNginxService(servicesRoot, httpPort) {
   });
 }
 
-function assertBaselineServiceSummary(service) {
+function assertBaselineCliSummary(summary) {
+  assert(
+    summary?.schema === "service-lasso.workspace-lifecycle.v1",
+    "CLI summary used an unexpected schema.",
+  );
+  assert(
+    summary.action === "start",
+    "CLI summary did not report action=start.",
+  );
+  assert(
+    summary.outcome === "started",
+    "CLI summary did not report outcome=started.",
+  );
+  assert(
+    summary.ok === true && summary.status === "completed",
+    "CLI summary did not report a completed start.",
+  );
+  assert(
+    summary.ownership === "owned",
+    "CLI summary did not report owned runtime state.",
+  );
+  assert(
+    summary.stopMode === "none",
+    "CLI start unexpectedly reported a stop mode.",
+  );
+  assert(
+    summary.apiReachable === true,
+    "CLI summary did not report the runtime API reachable.",
+  );
+  assert(
+    summary.health === "healthy",
+    "CLI summary did not report healthy runtime state.",
+  );
+  assert(
+    Array.isArray(summary.blockers) && summary.blockers.length === 0,
+    "CLI summary reported blockers.",
+  );
+  assert(
+    Array.isArray(summary.requestedServiceIds),
+    "CLI summary omitted requested service ids.",
+  );
+  assert(
+    Array.isArray(summary.serviceOrder),
+    "CLI summary omitted service order.",
+  );
+  assert(
+    Array.isArray(summary.services),
+    "CLI summary omitted baseline services.",
+  );
+  assert(
+    Array.isArray(summary.startedServices),
+    "CLI summary omitted started services.",
+  );
+  assert(
+    Array.isArray(summary.stoppedServices) &&
+      summary.stoppedServices.length === 0,
+    "CLI start stopped services.",
+  );
+
+  const summaryServiceIds = summary.services.map(
+    (service) => service.serviceId,
+  );
+  assert(
+    JSON.stringify(summaryServiceIds) === JSON.stringify(summary.serviceOrder),
+    "CLI baseline services did not preserve dependency order.",
+  );
+  const expectedStartedServices = summary.services
+    .filter(
+      (service) =>
+        service.status === "completed" &&
+        baselineDaemonServiceIds.has(service.serviceId),
+    )
+    .map((service) => service.serviceId)
+    .sort();
+  assert(
+    JSON.stringify([...summary.startedServices].sort()) ===
+      JSON.stringify(expectedStartedServices),
+    `CLI started service ids were not the completed daemon set: ${JSON.stringify(summary.startedServices)}.`,
+  );
+}
+
+function assertBaselineServiceSummary(service, cliSummary) {
+  assert(
+    typeof service?.serviceId === "string" && service.serviceId.length > 0,
+    "CLI service summary omitted serviceId.",
+  );
+  assert(
+    service.status === "completed" || service.status === "skipped",
+    `${service.serviceId} used an unexpected CLI service status.`,
+  );
   if (service.status === "skipped") {
     assert(
-      service.message.includes(`host platform "${process.platform}"`),
-      `${service.serviceId} was skipped without an explicit host platform reason.`,
-    );
-    assert(service.actions.some((action) => action.action === "install" && action.status === "skipped"));
-    return;
-  }
-
-  assert(service.state.installed === true, `${service.serviceId} was not installed in CLI summary.`);
-  assert(service.state.configured === true, `${service.serviceId} was not configured in CLI summary.`);
-
-  if (["@archive", "@java", "@localcert", "@node", "@python"].includes(service.serviceId)) {
-    const startAction = service.actions.find((action) => action.action === "start");
-    assert(startAction?.status === "skipped", `${service.serviceId} provider start was not skipped in CLI summary.`);
-    assert(service.state.running === false, `${service.serviceId} provider should not be marked running in CLI summary.`);
-    if (service.serviceId === "@archive") {
-      assert(
-        service.state.installArtifacts?.artifact?.tag === archiveReleaseVersion,
-        "@archive provider did not install from the pinned release artifact.",
-      );
-    }
-    if (service.serviceId === "@node") {
-      assert(
-        service.state.installArtifacts?.artifact?.tag === nodeReleaseVersion,
-        "@node provider did not install from the pinned release artifact.",
-      );
-    }
-    if (service.serviceId === "@python") {
-      assert(
-        service.state.installArtifacts?.artifact?.tag === pythonReleaseVersion,
-        "@python provider did not install from the pinned release artifact.",
-      );
-    }
-    if (service.serviceId === "@localcert") {
-      assert(
-        service.state.installArtifacts?.artifact?.tag === localcertReleaseVersion,
-        "@localcert provider did not install from the pinned release artifact.",
-      );
-    }
-    return;
-  }
-
-  assert(service.state.running === true, `${service.serviceId} was not running in CLI summary.`);
-  if (service.serviceId === "@nginx") {
-    assert(
-      service.state.installArtifacts?.artifact?.tag === nginxReleaseVersion,
-      "@nginx did not install from the pinned release artifact.",
+      !cliSummary.startedServices.includes(service.serviceId),
+      `${service.serviceId} was both skipped and reported as started.`,
     );
   }
 }
@@ -694,21 +746,89 @@ function assertServiceEvidence(condition, serviceId, message, evidence) {
   }
 }
 
-async function assertBaselineServiceDetail(serviceId, service, summary) {
+async function assertBaselineServiceDetail(
+  serviceId,
+  service,
+  summary,
+  cliSummary,
+) {
   const evidence = buildBaselineFailureEvidence(serviceId, service);
-  assertServiceEvidence(service?.lifecycle?.installed === true, serviceId, "service was not installed.", evidence);
-  assertServiceEvidence(service.lifecycle?.configured === true, serviceId, "service was not configured.", evidence);
-  assertServiceEvidence(service.health?.healthy === true, serviceId, "service health did not report healthy.", evidence);
+  assertServiceEvidence(
+    summary?.status === "completed",
+    serviceId,
+    "CLI summary did not mark service completed.",
+    evidence,
+  );
+  assertServiceEvidence(
+    service?.lifecycle?.installed === true,
+    serviceId,
+    "service was not installed.",
+    evidence,
+  );
+  assertServiceEvidence(
+    service.lifecycle?.configured === true,
+    serviceId,
+    "service was not configured.",
+    evidence,
+  );
+  assertServiceEvidence(
+    service.health?.healthy === true,
+    serviceId,
+    "service health did not report healthy.",
+    evidence,
+  );
+
+  const expectedArtifactVersion = baselineArtifactVersions.get(serviceId);
+  if (expectedArtifactVersion) {
+    assertServiceEvidence(
+      service.lifecycle?.installArtifacts?.artifact?.tag ===
+        expectedArtifactVersion,
+      serviceId,
+      `service did not install pinned artifact ${expectedArtifactVersion}.`,
+      evidence,
+    );
+  }
 
   if (baselineProviderServiceIds.has(serviceId)) {
-    assertServiceEvidence(service.lifecycle?.running === false, serviceId, "provider service should not be marked running.", evidence);
-    assertServiceEvidence(summary?.actions.some((action) => action.action === "start" && action.status === "skipped") === true, serviceId, "provider start was not explicitly skipped.", evidence);
+    assertServiceEvidence(
+      service.lifecycle?.running === false,
+      serviceId,
+      "provider service should not be marked running.",
+      evidence,
+    );
+    assertServiceEvidence(
+      !cliSummary.startedServices.includes(serviceId),
+      serviceId,
+      "provider service was reported as started.",
+      evidence,
+    );
     return;
   }
 
-  assertServiceEvidence(baselineDaemonServiceIds.has(serviceId), serviceId, "service is neither an expected daemon nor provider baseline service.", evidence);
-  assertServiceEvidence(service.lifecycle?.running === true, serviceId, "daemon service was not running.", evidence);
-  assertServiceEvidence(Number.isInteger(service.lifecycle?.runtime?.pid), serviceId, "daemon service did not expose a runtime pid.", evidence);
+  assertServiceEvidence(
+    baselineDaemonServiceIds.has(serviceId),
+    serviceId,
+    "service is neither an expected daemon nor provider baseline service.",
+    evidence,
+  );
+  assertServiceEvidence(
+    service.lifecycle?.running === true,
+    serviceId,
+    "daemon service was not running.",
+    evidence,
+  );
+  assertServiceEvidence(
+    Number.isInteger(service.lifecycle?.runtime?.pid),
+    serviceId,
+    "daemon service did not expose a runtime pid.",
+    evidence,
+  );
+  assertServiceEvidence(
+    cliSummary.startedServices.includes(serviceId),
+    serviceId,
+    "daemon service was not reported as started.",
+    evidence,
+  );
 }
 
 async function assertBaselineServiceLogs(apiPort, serviceId, service) {
@@ -809,8 +929,9 @@ try {
   const health = await waitForJson(`http://127.0.0.1:${apiPort}/api/health`);
   assert(health.status === "ok" && health.api?.status === "up", "API health did not report status=ok/api=up.");
   const cliSummary = await waitForCliSummary(cli);
+  assertBaselineCliSummary(cliSummary);
   for (const service of cliSummary.services) {
-    assertBaselineServiceSummary(service);
+    assertBaselineServiceSummary(service, cliSummary);
   }
 
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
@@ -831,7 +952,7 @@ try {
     if (!cliSummary.requestedServiceIds.includes(serviceId) || summary?.status === "skipped") {
       continue;
     }
-    await assertBaselineServiceDetail(serviceId, service, summary);
+    await assertBaselineServiceDetail(serviceId, service, summary, cliSummary);
     await assertBaselineServiceLogs(apiPort, serviceId, service);
   }
 
