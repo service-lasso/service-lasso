@@ -13,6 +13,7 @@ import { createRuntimeUpdateScheduler } from "../dist/runtime/updates/scheduler.
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { installServiceUpdateCandidate } from "../dist/runtime/updates/actions.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
+import { readAuditEvents } from "../dist/runtime/audit/store.js";
 
 async function makeTempServicesRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-update-scheduler-"));
@@ -443,6 +444,73 @@ test("API server can start and stop the opt-in update scheduler cleanly", async 
     assert.ok(apiServer.updateScheduler);
   } finally {
     await apiServer.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update scheduler denies ungranted and unconfirmed install without mutation", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const releaseServer = await startFakeGitHubReleaseServer();
+
+  try {
+    const serviceRoot = await writeManifest(servicesRoot, "update-fixture", createUpdateManifest(releaseServer, {
+      mode: "install",
+      track: "latest",
+      installWindow: {
+        start: "00:00",
+        end: "23:59",
+      },
+      runningService: "restart",
+    }));
+    await writeInstalledArtifact(serviceRoot);
+    const registry = await prepareRegistry(servicesRoot);
+
+    const denied = createRuntimeUpdateScheduler({
+      registry,
+      logger: { log: () => undefined, warn: () => undefined },
+      permission: {
+        actor: { type: "system", id: "runtime-update-scheduler", permissions: [] },
+      },
+    });
+    const deniedEvents = await denied.runOnce({ force: true });
+    assert.equal(deniedEvents[0].action, "skip");
+    assert.equal(deniedEvents[0].reason, "action_failed");
+    assert.equal(releaseServer.getDownloadRequests(), 0);
+    assert.equal((await readStoredState(serviceRoot)).install.artifact.tag, "2026.4.20-old");
+
+    const unconfirmed = createRuntimeUpdateScheduler({
+      registry,
+      logger: { log: () => undefined, warn: () => undefined },
+      permission: { confirmed: false },
+    });
+    const unconfirmedEvents = await unconfirmed.runOnce({ force: true });
+    assert.equal(unconfirmedEvents[0].action, "skip");
+    assert.equal(unconfirmedEvents[0].reason, "action_failed");
+    assert.equal(releaseServer.getDownloadRequests(), 0);
+
+    const audit = await readAuditEvents({ serviceRoots: [serviceRoot] });
+    const decisions = audit.events.filter((event) => event.action === "permission.decision");
+    assert.ok(
+      decisions.some(
+        (event) =>
+          event.actor === "runtime-update-scheduler"
+          && event.reason === "permission_not_granted"
+          && event.source === "runtime-system",
+      ),
+    );
+    assert.ok(
+      decisions.some(
+        (event) =>
+          event.actor === "runtime-update-scheduler"
+          && event.reason === "confirmation_required"
+          && event.source === "runtime-system",
+      ),
+    );
+    assert.equal(audit.rawMaterialReturned, false);
+  } finally {
+    resetLifecycleState();
+    await releaseServer.stop();
     await rm(root, { recursive: true, force: true });
   }
 });

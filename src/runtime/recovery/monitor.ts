@@ -5,6 +5,12 @@ import type { ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
+import {
+  enforcePermission,
+  inProcessPermissionProfile,
+  isPermissionGateError,
+  type PermissionActor,
+} from "../permissions/enforcement.js";
 import { writeServiceState } from "../state/writeState.js";
 import { appendServiceRecoveryHistoryEvents } from "./history.js";
 
@@ -32,12 +38,19 @@ export interface ServiceMonitorEvent {
   at: string;
 }
 
+export interface RuntimeServiceMonitorPermissionOptions {
+  actor?: PermissionActor;
+  confirmed?: boolean;
+}
+
 export interface RuntimeServiceMonitorOptions {
   registry: ServiceRegistry;
   intervalMs?: number;
   logger?: Pick<Console, "log" | "warn">;
   now?: () => Date;
   lifecycleOptions?: () => ServiceLifecycleActionOptions;
+  /** Test or policy override. Production uses the recovery-monitor system actor. */
+  permission?: RuntimeServiceMonitorPermissionOptions;
 }
 
 export interface RuntimeServiceMonitor {
@@ -101,6 +114,29 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
 
     if (policy?.maxAttempts !== undefined && attemptState.attempts >= policy.maxAttempts) {
       return createEvent(service, "skip", "max_attempts", "Restart skipped because maxAttempts was reached.", now);
+    }
+
+    const profile = inProcessPermissionProfile("recovery-monitor");
+    try {
+      await enforcePermission({
+        serviceRoot: service.serviceRoot,
+        serviceId,
+        actor: options.permission?.actor ?? profile.actor,
+        permission: "service:restart",
+        sensitive: true,
+        confirmed: options.permission?.confirmed ?? profile.elevated,
+        method: "MONITOR",
+        routeTemplate: "recovery-monitor/restart",
+        subject: reason,
+        source: profile.source,
+      });
+    } catch (error) {
+      if (isPermissionGateError(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[service-lasso] Monitor denied restart for "${serviceId}": ${message}`);
+        return createEvent(service, "skip", "restart_failed", message, now);
+      }
+      throw error;
     }
 
     inFlight.add(serviceId);
