@@ -16,6 +16,7 @@ jobs:
         env:
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_LOGIN: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
 
@@ -35,6 +36,18 @@ jobs:
           if [[ "$HEAD_BRANCH" == "main" ]]; then
             echo "main is not a development source and must not be merged into develop directly." >&2
             exit 1
+          fi
+
+          if [[ "$HEAD_BRANCH" == dependabot/* ]]; then
+            if [[ "$HEAD_LOGIN" != "dependabot[bot]" ]]; then
+              echo "Only the authenticated Dependabot actor may use the dependabot/ branch namespace." >&2
+              exit 1
+            fi
+            if [[ ! "$HEAD_BRANCH" =~ ^dependabot/(npm_and_yarn|github_actions)/.+ ]]; then
+              echo "Dependabot branches must use the npm_and_yarn or github_actions ecosystem namespace." >&2
+              exit 1
+            fi
+            exit 0
           fi
 
           if [[ ! "$HEAD_BRANCH" =~ ^(feature|fix|docs|chore)/ ]]; then

@@ -41,7 +41,7 @@ async function runAuditAppendChild(input) {
   child.stdin.end(JSON.stringify(input));
   const exitCode = await new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("exit", resolve);
+    child.once("close", resolve);
   });
   assert.equal(exitCode, 0, stderr);
   return JSON.parse(stdout.trim());
@@ -596,7 +596,12 @@ test("#863 Audit appends are serialized across independent runtime processes", a
       Array.from({ length: runnerCount * eventsPerRunner }, (_, index) => index + 1),
     );
   } finally {
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 10 : 0,
+      retryDelay: 100,
+    });
   }
 });
 

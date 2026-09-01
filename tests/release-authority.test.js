@@ -62,3 +62,11 @@ test("Dependabot covers npm and GitHub Actions", async () => {
   assert.match(source, /package-ecosystem:\s+"github-actions"/);
   assert.match(source, /package-ecosystem:\s+"npm"/);
 });
+
+test("branch policy binds provider-generated dependency branches to Dependabot", async () => {
+  const source = await readFile(path.join(repoRoot, ".github", "workflows", "branch-policy.yml"), "utf8");
+  assert.ok(source.includes("HEAD_LOGIN: ${{ github.event.pull_request.user.login }}"));
+  assert.ok(source.includes('"$HEAD_LOGIN" != "dependabot[bot]"'));
+  assert.ok(source.includes("^dependabot/(npm_and_yarn|github_actions)/.+"));
+  assert.ok(source.includes("git merge-base --is-ancestor origin/develop \"$HEAD_SHA\""));
+});

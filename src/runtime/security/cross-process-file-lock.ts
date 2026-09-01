@@ -34,7 +34,16 @@ export async function withCrossProcessFileLock<T>(
   try {
     await mkdir(path.dirname(resolvedLockPath), { recursive: true, mode: 0o700 });
     while (!handle) {
-      if (await recoveryInProgress(resolvedLockPath, staleMs)) {
+      let recovering: boolean;
+      try {
+        recovering = await recoveryInProgress(resolvedLockPath, staleMs);
+      } catch (error) {
+        if (!isTransientLockContention(error)) throw error;
+        if (Date.now() >= deadline) throw new Error(unavailableMessage);
+        await delay(20 + Math.floor(Math.random() * 31));
+        continue;
+      }
+      if (recovering) {
         if (Date.now() >= deadline) throw new Error(unavailableMessage);
         await delay(20 + Math.floor(Math.random() * 31));
         continue;
@@ -49,8 +58,17 @@ export async function withCrossProcessFileLock<T>(
           await delay(20 + Math.floor(Math.random() * 31));
         }
       } catch (error) {
-        if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-        await recoverStaleLock(resolvedLockPath, staleMs);
+        await handle?.close().catch(() => undefined);
+        handle = null;
+        await removeOwnedLock(resolvedLockPath, nonce);
+        if (!isTransientLockContention(error)) throw error;
+        if (isNodeError(error) && error.code === "EEXIST") {
+          try {
+            await recoverStaleLock(resolvedLockPath, staleMs);
+          } catch (recoveryError) {
+            if (!isTransientLockContention(recoveryError)) throw recoveryError;
+          }
+        }
         if (Date.now() >= deadline) throw new Error(unavailableMessage);
         await delay(20 + Math.floor(Math.random() * 31));
       }
@@ -76,7 +94,7 @@ async function recoverStaleLock(lockPath: string, staleMs: number): Promise<void
       createdAt: new Date().toISOString(),
     }), "utf8");
   } catch (error) {
-    if (isNodeError(error) && error.code === "EEXIST") return;
+    if (isTransientLockContention(error)) return;
     throw error;
   }
 
@@ -218,4 +236,11 @@ function processIsAlive(pid: number): boolean {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function isTransientLockContention(error: unknown): boolean {
+  if (!isNodeError(error)) return false;
+  if (error.code === "EEXIST") return true;
+  return process.platform === "win32"
+    && (error.code === "EPERM" || error.code === "EACCES" || error.code === "EBUSY");
 }
