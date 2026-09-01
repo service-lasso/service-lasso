@@ -921,9 +921,66 @@ function parseStdinWriteBody(body: unknown): { input: string; actor: string } {
   };
 }
 
+const sensitiveAuditKeyTerms = ["password", "passwd", "secret", "token", "key", "credential"];
+
+function isAuditKeyCharacter(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    character === "_" ||
+    character === "." ||
+    character === "-"
+  );
+}
+
+function isAuditWhitespace(character: string): boolean {
+  return character.trim().length === 0;
+}
+
+function redactAuditCredentialAssignments(value: string): string {
+  let cursor = 0;
+  let index = 0;
+  let redacted = "";
+
+  while (index < value.length) {
+    if (!isAuditKeyCharacter(value[index] ?? "")) {
+      index += 1;
+      continue;
+    }
+
+    const keyStart = index;
+    while (index < value.length && isAuditKeyCharacter(value[index] ?? "")) index += 1;
+    const key = value.slice(keyStart, index).toLowerCase();
+    const sensitive = sensitiveAuditKeyTerms.some((term) => key.includes(term));
+
+    while (index < value.length && isAuditWhitespace(value[index] ?? "")) index += 1;
+    if (value[index] !== ":" && value[index] !== "=") continue;
+    index += 1;
+    while (index < value.length && isAuditWhitespace(value[index] ?? "")) index += 1;
+    if (!sensitive) continue;
+
+    const secretStart = index;
+    while (
+      index < value.length &&
+      !isAuditWhitespace(value[index] ?? "") &&
+      value[index] !== "," &&
+      value[index] !== ";"
+    ) {
+      index += 1;
+    }
+    if (secretStart === index) continue;
+
+    redacted += `${value.slice(cursor, secretStart)}[redacted]`;
+    cursor = index;
+  }
+
+  return `${redacted}${value.slice(cursor)}`;
+}
+
 function redactAuditText(value: string): string {
-  return value
-    .replace(/([\w.-]*(?:password|passwd|secret|token|key|credential)[\w.-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+  return redactAuditCredentialAssignments(value)
     .replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
     .replace(/(gh[pousr]_[A-Za-z0-9_]+)/g, "[redacted]")
     .replace(/\s+/g, " ")
