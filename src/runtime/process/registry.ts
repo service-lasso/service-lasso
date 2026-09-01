@@ -553,6 +553,26 @@ async function mutateRegistry(
 
 function replaceEntry(registry: ProcessOwnershipRegistry, entry: ProcessOwnershipEntry, now: string): ProcessOwnershipRegistry {
   const key = ownerKey(entry.ownerType, entry.ownerId);
+  let retained = registry.entries.filter((candidate) => ownerKey(candidate.ownerType, candidate.ownerId) !== key);
+  const excess = retained.length - MAX_LIFECYCLE_ARRAY_LENGTH + 1;
+  if (excess > 0) {
+    const retiredKeys = new Set(
+      retained
+        .filter((candidate) =>
+          candidate.lifecycleState === "stopped"
+          && candidate.pid === null
+          && candidate.identity === null
+          && candidate.identityStatus !== "unknown_owner")
+        .sort((left, right) =>
+          left.updatedAt.localeCompare(right.updatedAt)
+          || ownerKey(left.ownerType, left.ownerId).localeCompare(ownerKey(right.ownerType, right.ownerId)))
+        .slice(0, excess)
+        .map((candidate) => ownerKey(candidate.ownerType, candidate.ownerId)),
+    );
+    // If there are not enough conclusively retired owners, leave the excess in
+    // place so the bounded persistence validator rejects the mutation.
+    retained = retained.filter((candidate) => !retiredKeys.has(ownerKey(candidate.ownerType, candidate.ownerId)));
+  }
   return {
     schemaVersion: PROCESS_OWNERSHIP_SCHEMA_V2,
     version: PROCESS_REGISTRY_VERSION,
@@ -560,7 +580,7 @@ function replaceEntry(registry: ProcessOwnershipRegistry, entry: ProcessOwnershi
     canonicalWorkspaceRoot: registry.canonicalWorkspaceRoot,
     updatedAt: now,
     entries: [
-      ...registry.entries.filter((candidate) => ownerKey(candidate.ownerType, candidate.ownerId) !== key),
+      ...retained,
       entry,
     ].sort((left, right) => ownerKey(left.ownerType, left.ownerId).localeCompare(ownerKey(right.ownerType, right.ownerId))),
   };

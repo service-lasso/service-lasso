@@ -391,6 +391,42 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `TASK-BROKER-162` | `in_progress` | `ISS-BROKER-162` | Bind Broker and Admin releases to canonical checksums | `SPEC-002`, `AC-4BZ` | Reject malformed or mismatched checksum evidence before extraction or lifecycle mutation and prove exact release/tag/asset/checksum lineage across Broker, Service Admin, and Core. |
 
 ## Active Evidence Updates
+- `ISS-1164` post-merge dependency integration starts from exact resulting
+  `develop` `f694ba1e55d1220378c531ea247f7bea0450f64e` after PRs `#1194`,
+  `#1190`, `#1192`, `#1191`, `#1188`, `#1187`, `#1186`, and `#1185` were
+  serially squash-merged under an explicit administrator waiver. Exact combined
+  diagnosis found the TypeScript 7 `readFile` overload failure, the mixed
+  CodeQL v3/v4 workflow, Dependabot branch-policy rejection, absent dependency
+  labels, scheduler clock propagation missing from install-window evaluation,
+  host-registry leakage in the empty-doctor fixture, and two stale retained-
+  artifact pin assertions. Production and complete dependency audits both
+  remained at zero vulnerabilities. Typecheck/build, the 25-row Secrets ledger,
+  docs build, and all 16 initially focused regression rows pass. The first
+  1,035-row post-merge aggregate reported 1,021 pass, four expected platform
+  skips, nine rows blocked after the repository-default process registry reached
+  its 256-entry safety bound, and one transient Windows Audit lock/filesystem
+  race. The correction evicts only the oldest conclusively stopped, identity-
+  cleared owner at capacity; active or ambiguous ownership remains fail-closed.
+  Cross-process locks now treat only bounded Windows sharing/access errors as
+  contention, close partial handles, and retain the existing ownership and
+  timeout gates; Audit cleanup waits for child stdio closure and uses bounded
+  Windows retries. All 44 formerly capacity-blocked file rows passed against the
+  saturated workspace, process/Audit capacity regressions passed 4/4, and the
+  exact four-process Audit row passed 100/100 stress repetitions. The corrected
+  1,036-row aggregate reported 1,031 pass, four expected platform skips, and one
+  runner-invalid Windows subprocess exit `0xC0000409` with empty stdout/stderr in
+  the real demo smoke; that exact product row then passed 10/10 fresh-process
+  repetitions. The remaining candidate rebases onto exact `develop` `68fb532`
+  after merged PRs `#1198`, `#1199`, and `#1200`; exact-head
+  integration passed 23/23 dependency/CodeQL/security/teardown/authority/doctor
+  rows, 4/4 Audit and registry capacity rows, and the real demo smoke. Initial
+  hosted exact-head Windows proof exposed one common native process-tree
+  inspection defect across enrollment, restart, and rotation rollback: three
+  retryable helper failures were exhausted within about 40 ms. Retryable
+  snapshot/helper failures now back off boundedly inside the unchanged
+  15-second deadline; immutable root mismatch, abort, deadline exhaustion, and
+  persistent failure remain fail-closed. `#1164` stays in progress pending fresh
+  hosted exact-head proof.
 - `ISS-864` exact implementation head `e49d23f799c80325d67ddcf1bb130b848be1b045` is the merge candidate. Both independent exact-head reviewers returned GO. Local proof passed static-launcher provenance (source SHA-256 `4da1d8194442779b304601ae512eb8802761fc414f6805a66ac44f035ac7db73`, 33,280-byte executable SHA-256 `c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd`, eighteen negative provenance cases), 51/51 ownership tests, 48/48 MCP product tests, 4/4 retained-artifact contract tests, focused containment/payload proof, and fresh-consumer win32 package acceptance with archive SHA-256 `466d802f367f27a23807074618ceff27c58f27a106428a01509fbd8a425263f1`. All 40 applicable hosted PR checks passed with no failure; the only skip was the expected PR-only docs deployment. MCP Product Acceptance `33311803154` passed source, Windows, Linux, macOS and aggregate readback. Its three nonempty 90-day artifacts are IDs `9732278721` / `9732248763` / `9732212075`, with archive digests `8037afb6053279584f06a3bb4164829aa0323327f2e9b4c3afc09e121dbc3de6` / `7b3e1b20475cd7b3a17381ad06a50fb2bd56ce8a5e79d33b910c0ec388eb3615` / `750bb045079b416821545c4d6dd5aaa2b5ec5d9463f0d30f038cd9df79cb8a44`; direct API and downloaded-content validation bound each record to the exact head and platform. Release Qualification `33311803156` passed the complete suite, package/release policy, source, both Broker IPC lanes and all three packaged MCP lanes. Its 90-day release MCP artifacts are IDs `9732312054` / `9732238905` / `9732211939`, with archive digests `de5c0749832f6b7a3f296747bcea8699d31746fa8454b047152c87f577953d08` / `0ad17c0504c0e7b8bf47c72e46ae815d6d973462066212824cdfbed1d61b800c` / `98d9842960b4bb785c3c6d2fb9b9d61240b1a48f183f43d5a615bb1873e41805`; all three downloaded records validated against the exact head and platform. Baseline `33311803290`, Branch Policy `33311803153`, Docs `33311803164`, Lifecycle `33311803160`, Packaged Admin `33311803104`, Runtime Endpoint `33311803176`, Runtime Generation `33311803106`, and Startup Hard-Crash `33311803130` also passed. This governance-only evidence commit must itself requalify at exact head before normal merge; exact-merge CI/artifact proof and issue/Project closure readback remain required.
 - `ISS-864` exact diagnostic head `8191821461bcf7cc7a47b1411d25bca8cc18a657` passed local 48/48 MCP source and fresh-package proof plus both exact-head reviews. Hosted MCP Product Acceptance `33308597764` passed source/Linux/macOS, but Windows job `99249452404` again returned broad `launch_file_binding` without any authenticated script checkpoint. Because `launcher_initialization` was the wrapper's first statement, the remaining defect is cold Windows PowerShell startup before product code. The correction replaces the PowerShell bootstrap and loaded native-method assembly with one reproducibly compiled 33,280-byte static .NET Framework launcher (`c804ac9b585605bad1417a1b9e74a6eabd06abc8f62c4d4bf3327ee49836e4cd`) that uses a duplicate-rejecting closed, bounded and NUL-rejecting payload schema, launches from a twice-verified exact regular non-redirected asset, strips CLR loader controls from its bootstrap environment and restores them only for target creation, waits on the same unpredictable gates, holds approved files under read-only sharing while checking size/SHA-256/final path, creates the target suspended in the same kill-on-close Job, and keeps approved-file handles locked until either an unassigned suspended target is terminated or Job accounting proves every assigned target process contained. It preserves continuation, acknowledgement, stdio and the unchanged 15-second product boundary. Exact corrective-head proof remains required.
 - `ISS-864` exact corrective head `6ba5010deaf2869af01a41ebf8157b9b4e661e00` passed local static-launcher provenance, 44/44 ownership, 48/48 MCP source, and fresh-package proof, while hosted MCP Product Acceptance `33307188160` / `99245690955` still returned broad `launch_file_binding` after source/Linux/macOS passed and the static assembly reproduced successfully. The bounded follow-up carries a closed-world pre-binding checkpoint plus an ephemeral HMAC over the launcher's private, continuously drained stderr pipe; the HMAC key is never emitted and both wrapper and supervisor retire it at the binding boundary. The supervisor retains only a fixed phase in memory and filters every reserved checkpoint, including malformed and partial records, before logs or variable capture. It performs no post-deadline I/O and cannot reveal paths, indexes, hashes, PIDs, messages, tokens, or response data. Exact corrective-head proof remains required.

@@ -98,7 +98,12 @@ to commit SHAs. `npm audit --omit=dev` reports zero production vulnerabilities.
 force-push, and administrator enforcement. Publishing is restricted to the
 protected `release` GitHub Environment. Default Actions permissions are
 read-only, and pull requests from forks cannot write repository contents or
-secrets. Sibling Admin owns its matching repository authority separately.
+secrets. Provider-generated dependency branches are the only exception to the
+typed issue-branch prefix: they must target `develop`, be owned by the exact
+`dependabot[bot]` actor, use the `dependabot/npm_and_yarn/` or
+`dependabot/github_actions/` namespace, and retain current-`develop` ancestry
+before review. No other actor may claim that namespace. Sibling Admin owns its
+matching repository authority separately.
 
 ### `AC-7G` — Zero-known-vulnerability and supply-chain release gate
 
@@ -177,3 +182,8 @@ evidence is a row-specific real-process result.
   explicit exclusions/non-claims, zero-known-production-vulnerability rule,
   protected publication authority, and exact shipped-artifact supply-chain
   evidence required by release-security issue `#1164`.
+- 2026-09-01: The post-merge dependency integration for `#1164` binds the
+  provider-generated Dependabot branch exception to the exact bot actor and
+  current `develop` ancestry, keeps all other work on typed issue branches,
+  aligns every CodeQL phase to one immutable v4 release, and requires the
+  merged TypeScript 7 graph to typecheck without weakening strictness.

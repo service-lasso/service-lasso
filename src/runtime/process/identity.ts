@@ -12,6 +12,7 @@ import {
 
 const execFileAsync = promisify(execFileCallback);
 const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
+const WINDOWS_PROCESS_TREE_INSPECTION_RETRY_MAX_DELAY_MS = 250;
 let windowsCurrentProcessInspectionPromise: Promise<ProcessInspection> | null =
   null;
 
@@ -636,7 +637,7 @@ export async function inspectWindowsProcessTree(
     dependencies.deadlineMs ??
     Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS;
   let lastError: unknown;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; ; attempt += 1) {
     try {
       return await inspectWindowsProcessTreeOnce(expectedRoot, {
         ...dependencies,
@@ -646,13 +647,20 @@ export async function inspectWindowsProcessTree(
       lastError = error;
       if (
         !isRetryableWindowsTreeSnapshotError(error) ||
-        attempt === 3 ||
         dependencies.signal?.aborted ||
         remainingProcessControlMs(deadlineMs) <= 25
       ) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      const retryDelayMs = Math.min(
+        WINDOWS_PROCESS_TREE_INSPECTION_RETRY_MAX_DELAY_MS,
+        25 * 2 ** (attempt - 1),
+        Math.max(0, remainingProcessControlMs(deadlineMs) - 25),
+      );
+      if (retryDelayMs <= 0) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
   throw lastError;

@@ -27,6 +27,9 @@ test("runtime doctor reports read-only not_running status for an empty workspace
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-doctor-empty-");
   const workspaceRoot = path.join(tempRoot, "workspace");
+  const registryPath = path.join(tempRoot, "registry", "instances.json");
+  const previousRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = registryPath;
 
   try {
     await writeExecutableFixtureService(servicesRoot, "doctor-empty-service");
@@ -39,6 +42,11 @@ test("runtime doctor reports read-only not_running status for an empty workspace
     assert.equal(result.doctor.runtime.selectedInstanceId, null);
     assert.match(result.doctor.evidencePaths.runtimeInstanceState, /runtime-instance\.json$/);
   } finally {
+    if (previousRegistryPath === undefined) {
+      delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    } else {
+      process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousRegistryPath;
+    }
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

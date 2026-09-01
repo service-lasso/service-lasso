@@ -21,6 +21,7 @@ import {
   recordProcessOwnership,
   transitionProcessOwnership,
 } from "../dist/runtime/process/registry.js";
+import { MAX_LIFECYCLE_ARRAY_LENGTH } from "../dist/runtime/state/lifecycle-persistence.js";
 import { startApiServer } from "../dist/server/index.js";
 import {
   adoptManagedProcess,
@@ -566,6 +567,36 @@ test("Windows native tree adapter binds every member and fails closed on changed
   assert.equal(transientAttempts, 2);
   assert.equal(retried.rootStatus, "owned");
 
+  let sharedHostContentionAttempts = 0;
+  const recoveredAfterSharedHostContention = await inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      sharedHostContentionAttempts += 1;
+      if (sharedHostContentionAttempts <= 3) {
+        return { stdout: "", exitCode: 1 };
+      }
+      return {
+        stdout: JSON.stringify({
+          Status: "tree",
+          RootStatus: "running",
+          Processes: [{
+            Status: "running",
+            ProcessId: root.pid,
+            CreationDate: root.createdAt,
+            ExecutablePath: root.executablePath,
+            CommandLine: rootCommandLine,
+          }, childEvidence],
+        }),
+      };
+    },
+  });
+  assert.equal(sharedHostContentionAttempts, 4);
+  assert.equal(recoveredAfterSharedHostContention.rootStatus, "owned");
+  assert.deepEqual(
+    recoveredAfterSharedHostContention.members.map((member) => member.pid),
+    [4343, 4242],
+  );
+
   const exited = await inspectWindowsProcessTree(root, {
     windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
     runCommand: async () => ({
@@ -581,6 +612,7 @@ test("Windows native tree adapter binds every member and fails closed on changed
 
   await assert.rejects(
     inspectWindowsProcessTree(root, {
+      deadlineMs: Date.now() + 500,
       windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
       runCommand: async () => ({
         stdout: JSON.stringify({
@@ -729,6 +761,81 @@ test("workspace process registry writes atomically, recovers from residue, and c
     const recovered = await readProcessOwnershipRegistry(workspaceRoot);
     assert.equal(recovered.entries.length, 1);
     assert.equal(recovered.entries[0].identityStatus, "owned");
+  } finally {
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("workspace process registry evicts only the oldest conclusively stopped owner at capacity", async () => {
+  const { tempRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-process-registry-retention-");
+
+  try {
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "runtime",
+      ownerId: "retired-template",
+      generationId: "retired-generation",
+      runtimeInstanceId: "retired-template",
+      pid: process.pid,
+      ownerRoot: tempRoot,
+      lifecycleState: "running",
+      source: "runtime",
+    });
+    await transitionProcessOwnership(workspaceRoot, "runtime", "retired-template", "stopped", "not_running");
+
+    const registryPath = getProcessRegistryPath(workspaceRoot);
+    const saturated = JSON.parse(await readFile(registryPath, "utf8"));
+    const template = saturated.entries[0];
+    saturated.entries = Array.from({ length: MAX_LIFECYCLE_ARRAY_LENGTH }, (_, index) => ({
+      ...template,
+      ownerId: `retired-${String(index).padStart(3, "0")}`,
+      runtimeInstanceId: `retired-${String(index).padStart(3, "0")}`,
+      recordedAt: new Date(index * 1_000).toISOString(),
+      updatedAt: new Date(index * 1_000).toISOString(),
+    }));
+    await writeFile(registryPath, `${JSON.stringify(saturated, null, 2)}\n`, "utf8");
+
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "runtime",
+      ownerId: "current-runtime",
+      generationId: "current-generation",
+      runtimeInstanceId: "current-runtime",
+      pid: process.pid,
+      ownerRoot: tempRoot,
+      lifecycleState: "running",
+      source: "runtime",
+    });
+
+    const registry = await readProcessOwnershipRegistry(workspaceRoot);
+    assert.equal(registry.entries.length, MAX_LIFECYCLE_ARRAY_LENGTH);
+    assert.equal(registry.entries.some((entry) => entry.ownerId === "retired-000"), false);
+    assert.equal(registry.entries.some((entry) => entry.ownerId === "current-runtime" && entry.identityStatus === "owned"), true);
+
+    const saturatedWithActiveOwners = JSON.parse(await readFile(registryPath, "utf8"));
+    const activeTemplate = registry.entries.find((entry) => entry.ownerId === "current-runtime");
+    saturatedWithActiveOwners.entries = Array.from({ length: MAX_LIFECYCLE_ARRAY_LENGTH }, (_, index) => ({
+      ...activeTemplate,
+      ownerId: `active-${String(index).padStart(3, "0")}`,
+      runtimeInstanceId: `active-${String(index).padStart(3, "0")}`,
+    }));
+    await writeFile(registryPath, `${JSON.stringify(saturatedWithActiveOwners, null, 2)}\n`, "utf8");
+
+    await assert.rejects(
+      recordProcessOwnership(workspaceRoot, {
+        ownerType: "runtime",
+        ownerId: "blocked-runtime",
+        generationId: "blocked-generation",
+        runtimeInstanceId: "blocked-runtime",
+        pid: process.pid,
+        ownerRoot: tempRoot,
+        lifecycleState: "running",
+        source: "runtime",
+      }),
+      /bounded entry count/u,
+    );
+    const unchanged = await readProcessOwnershipRegistry(workspaceRoot);
+    assert.equal(unchanged.entries.length, MAX_LIFECYCLE_ARRAY_LENGTH);
+    assert.equal(unchanged.entries.some((entry) => entry.ownerId === "blocked-runtime"), false);
+    assert.equal(unchanged.entries.every((entry) => entry.lifecycleState === "running"), true);
   } finally {
     await removeTempRoot(tempRoot);
   }
