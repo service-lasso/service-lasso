@@ -43,7 +43,15 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(
     workflow,
-    /repository: service-lasso\/lasso-serviceadmin[\s\S]*?ref: f015b4445b0526546a309301270186a697588166/,
+    /ADMIN_HARNESS_REVISION: f7abf981f8f0bbbbd7fdf352237fd84950d95ca3/,
+  );
+  assert.match(
+    workflow,
+    /repository: service-lasso\/lasso-serviceadmin[\s\S]*?ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/,
+  );
+  assert.match(
+    workflow,
+    /test "\$\(git -C qualification\/admin rev-parse HEAD\)" = "\$ADMIN_HARNESS_REVISION"/,
   );
   assert.match(
     workflow,

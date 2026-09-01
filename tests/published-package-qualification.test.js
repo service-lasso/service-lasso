@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
+  ADMIN_HARNESS_REVISION,
   ADMIN_RELEASE,
   BROKER_RELEASE,
   CORE_HARNESS_FILES,
@@ -246,6 +247,7 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
       sha256: BROKER_RELEASE.platforms[platform].sha256,
       checksumSource: "SHA256SUMS.txt",
     },
+    adminHarnessRevision: ADMIN_HARNESS_REVISION,
     retentionDays: 90,
     mutationRetry: false,
     negativeProof: Object.fromEntries(
@@ -294,6 +296,12 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
   incomplete.scenarios.cleanupConvergence = "blocked";
   expectCode("evidence_scenario_incomplete", () =>
     validateRetainedEvidence(incomplete, expected),
+  );
+
+  const wrongAdminHarness = structuredClone(evidence);
+  wrongAdminHarness.adminHarnessRevision = "0".repeat(40);
+  expectCode("evidence_admin_harness_mismatch", () =>
+    validateRetainedEvidence(wrongAdminHarness, expected),
   );
 
   const unsafe = structuredClone(evidence);

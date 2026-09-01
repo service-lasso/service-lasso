@@ -83,9 +83,15 @@ const sha256WithRsaEncryption = sequence(
   der(0x05, []),
 );
 
-export function generateLocalhostCertificate(now = new Date()) {
+export function generateLocalhostCertificate(
+  now = new Date(),
+  serialSeed = randomBytes(16),
+) {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
     throw new TypeError("Certificate clock must be a valid Date.");
+  }
+  if (!Buffer.isBuffer(serialSeed) || serialSeed.length !== 16) {
+    throw new TypeError("Certificate serial seed must be a 16-byte Buffer.");
   }
   const { publicKey, privateKey } = generateKeyPairSync("rsa", {
     modulusLength: 2048,
@@ -95,9 +101,9 @@ export function generateLocalhostCertificate(now = new Date()) {
   const name = sequence(
     set(sequence(encodeOid(2, 5, 4, 3), der(0x0c, "localhost"))),
   );
-  const serial = randomBytes(16);
+  const serial = Buffer.from(serialSeed);
   serial[0] &= 0x7f;
-  if (serial.every((byte) => byte === 0)) serial[serial.length - 1] = 1;
+  if (serial[0] === 0) serial[0] = 1;
   const extensions = sequence(
     extension(encodeOid(2, 5, 29, 19), sequence(der(0x01, [0xff])), true),
     extension(encodeOid(2, 5, 29, 15), der(0x03, [0x02, 0xa4]), true),

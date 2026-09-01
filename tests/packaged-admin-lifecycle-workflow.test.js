@@ -23,7 +23,19 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /Check out candidate Core[\s\S]*?ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
   );
-  assert.match(workflow, /ref: f015b4445b0526546a309301270186a697588166/);
+  assert.match(
+    workflow,
+    /ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"/,
+  );
+  assert.match(
+    workflow,
+    /ADMIN_HARNESS_REVISION: "f7abf981f8f0bbbbd7fdf352237fd84950d95ca3"/,
+  );
+  assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
+  assert.match(
+    workflow,
+    /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
+  );
   assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
   assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.8\.31-f340883"/);
   assert.match(
@@ -86,6 +98,8 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
 
   assert.match(workflow, /retainedContent = 'metadata_only'/);
+  assert.match(workflow, /adminHarness = \[ordered\]@\{/);
+  assert.match(workflow, /revision = \$env:ADMIN_HARNESS_REVISION/);
   assert.match(
     workflow,
     /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,

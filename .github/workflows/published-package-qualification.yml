@@ -72,6 +72,7 @@ jobs:
       CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
       CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
+      ADMIN_HARNESS_REVISION: f7abf981f8f0bbbbd7fdf352237fd84950d95ca3
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
       QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
       QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}
@@ -86,7 +87,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: service-lasso/lasso-serviceadmin
-          ref: f015b4445b0526546a309301270186a697588166
+          ref: ${{ env.ADMIN_HARNESS_REVISION }}
           path: qualification/admin
 
       - name: Set up Node
@@ -113,7 +114,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           QUALIFICATION_PRIVATE_STATE_PATH: ${{ runner.temp }}/qualification-private-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}.json
-        run: node scripts/prepare-published-package-qualification.mjs
+        run: |
+          set -euo pipefail
+          test "$(git -C qualification/admin rev-parse HEAD)" = "$ADMIN_HARNESS_REVISION"
+          node scripts/prepare-published-package-qualification.mjs
 
       - name: Drive released Admin full browser contracts
         id: qualify

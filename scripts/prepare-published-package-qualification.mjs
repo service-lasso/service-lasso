@@ -19,6 +19,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { extractPublishedPackageArchive } from "./published-package-archive.mjs";
 import {
+  ADMIN_HARNESS_REVISION,
   ADMIN_RELEASE,
   BROKER_RELEASE,
   CORE_HARNESS_FILES,
@@ -539,6 +540,13 @@ const coreNpmVersion = requiredEnv("CORE_NPM_VERSION", /^20[0-9]{2}\.[1-9][0-9]*
 const coreAsset = requiredEnv("CORE_RELEASE_ASSET", /^service-lasso-20[0-9]{2}\.[1-9][0-9]*\.[1-9][0-9]*-[0-9a-f]{7}-(?:win32\.zip|linux\.tar\.gz|darwin\.tar\.gz)$/u);
 const coreSha256 = requireSha256(requiredEnv("CORE_RELEASE_SHA256"), "CORE_RELEASE_SHA256");
 const coreNpmIntegrity = requiredEnv("CORE_NPM_INTEGRITY", /^sha512-[A-Za-z0-9+/]+={0,2}$/u);
+const adminHarnessRevision = requireSha(
+  requiredEnv("ADMIN_HARNESS_REVISION"),
+  "ADMIN_HARNESS_REVISION",
+);
+if (adminHarnessRevision !== ADMIN_HARNESS_REVISION) {
+  fail("admin_harness_revision_mismatch", "Admin browser harness revision is not canonical.");
+}
 const safeStatePath = path.resolve(requiredEnv("QUALIFICATION_SAFE_STATE_PATH"));
 const privateStatePath = path.resolve(requiredEnv("QUALIFICATION_PRIVATE_STATE_PATH"));
 const runId = requiredEnv("GITHUB_RUN_ID", /^[1-9][0-9]*$/u);
@@ -583,6 +591,7 @@ const safeState = {
     sha256: BROKER_RELEASE.platforms[platform].sha256,
     checksumSource: "SHA256SUMS.txt",
   },
+  adminHarnessRevision,
   harnessRevision: workflowSha,
   retentionDays: RETENTION_DAYS,
   mutationRetry: false,
