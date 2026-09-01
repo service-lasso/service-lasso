@@ -9,6 +9,40 @@ function request(remoteAddress, headers = {}) {
   };
 }
 
+test("Bearer parsing is linear, exact, and preserves supported HTTP whitespace", () => {
+  const token = "test-local-admin-token";
+  const accepted = resolveRuntimeRequestAuth(
+    request("192.0.2.40", {
+      authorization: `Bearer${" ".repeat(16_384)}${token}`,
+    }),
+    {
+      bindHost: "0.0.0.0",
+      env: { SERVICE_LASSO_LOCAL_ADMIN_TOKEN: token },
+    },
+  );
+  assert.equal(accepted.actor.kind, "local-token");
+  assert.deepEqual(accepted.blockers, []);
+
+  const acceptedTab = resolveRuntimeRequestAuth(
+    request("192.0.2.40", { authorization: `bEaReR\t${token}` }),
+    {
+      bindHost: "0.0.0.0",
+      env: { SERVICE_LASSO_LOCAL_ADMIN_TOKEN: token },
+    },
+  );
+  assert.equal(acceptedTab.actor.kind, "local-token");
+
+  const rejected = resolveRuntimeRequestAuth(
+    request("192.0.2.40", { authorization: `BearerX ${token}` }),
+    {
+      bindHost: "0.0.0.0",
+      env: { SERVICE_LASSO_LOCAL_ADMIN_TOKEN: token },
+    },
+  );
+  assert.equal(rejected.actor.authenticated, false);
+  assert.deepEqual(rejected.blockers, ["remote_auth_required"]);
+});
+
 test("direct remote requests cannot spoof forwarded local-root or Zitadel identity", () => {
   const result = resolveRuntimeRequestAuth(
     request("192.0.2.40", {

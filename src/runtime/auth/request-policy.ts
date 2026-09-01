@@ -122,8 +122,15 @@ function timingSafeStringEqual(left: string, right: string): boolean {
 function extractBearerToken(value: string | undefined): string | undefined {
   const header = normalizeHeaderValue(value);
   if (!header) return undefined;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim();
+  const scheme = "bearer";
+  if (header.slice(0, scheme.length).toLowerCase() !== scheme) return undefined;
+
+  let tokenStart = scheme.length;
+  if (header[tokenStart] !== " " && header[tokenStart] !== "\t") return undefined;
+  while (header[tokenStart] === " " || header[tokenStart] === "\t") tokenStart += 1;
+
+  const token = header.slice(tokenStart).trim();
+  return token || undefined;
 }
 
 /**

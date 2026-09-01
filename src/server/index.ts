@@ -923,7 +923,12 @@ function parseStdinWriteBody(body: unknown): { input: string; actor: string } {
 
 function redactAuditText(value: string): string {
   return value
-    .replace(/([\w.-]*(?:password|passwd|secret|token|key|credential)[\w.-]*\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+    .replace(/([^\s,;:=]+)(\s*[:=]\s*)([^\s,;]+)/gu, (match, key: string, separator: string) => {
+      const normalizedKey = key.toLowerCase();
+      return ["password", "passwd", "secret", "token", "key", "credential"].some((term) => normalizedKey.includes(term))
+        ? `${key}${separator}[redacted]`
+        : match;
+    })
     .replace(/(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
     .replace(/(gh[pousr]_[A-Za-z0-9_]+)/g, "[redacted]")
     .replace(/\s+/g, " ")
