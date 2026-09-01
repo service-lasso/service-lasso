@@ -17,6 +17,7 @@ import path from "node:path";
 import process from "node:process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { extractPublishedPackageArchive } from "./published-package-archive.mjs";
 import {
   ADMIN_RELEASE,
   BROKER_RELEASE,
@@ -346,11 +347,6 @@ async function findSingleFile(root, fileName) {
   await visit(root);
   if (matches.length !== 1) fail("published_binary_inventory_mismatch", `Expected exactly one ${fileName}.`);
   return matches[0];
-}
-
-async function extractArchive(archivePath, extractionRoot) {
-  await mkdir(extractionRoot, { recursive: true });
-  await runCommand("tar", ["-xf", archivePath, "-C", extractionRoot]);
 }
 
 async function invokeCoreInstall(coreRoot, serviceId, servicesRoot, workspaceRoot, token) {
@@ -730,7 +726,7 @@ try {
   const smokeWorkspaceRoot = path.join(mutationRoot, "smoke-workspace");
   const npmConsumerRoot = path.join(mutationRoot, "npm-consumer");
   await mkdir(mutationRoot, { recursive: true });
-  await extractArchive(files.core, coreExtraction);
+  await extractPublishedPackageArchive(files.core, coreExtraction, platform);
   const coreRoot = path.join(coreExtraction, `service-lasso-${coreTag}`);
   const releaseManifest = await readJsonFile(path.join(coreRoot, "release-artifact.json"), "Core release manifest");
   const corePackageJson = await readJsonFile(path.join(coreRoot, "package.json"), "Core release package.json");
