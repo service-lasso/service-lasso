@@ -6,7 +6,8 @@ import { promisify } from "node:util";
 import { rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { buildRuntimeDoctorStatus } from "../dist/runtime/doctor/status.js";
+import { buildRuntimeDoctorStatus, recommendedDoctorAction } from "../dist/runtime/doctor/status.js";
+import { RUNTIME_DOCTOR_CLASSIFICATIONS } from "../dist/contracts/api.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig } from "../dist/runtime/config.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -103,4 +104,28 @@ test("runtime doctor API and CLI share the same healthy diagnosis model", async 
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("runtime doctor snapshots every stable classification without recommending termination for PID reuse", () => {
+  assert.equal(RUNTIME_DOCTOR_CLASSIFICATIONS.length, 13);
+  const snapshot = Object.fromEntries(
+    RUNTIME_DOCTOR_CLASSIFICATIONS.map((classification) => [classification, recommendedDoctorAction(classification)]),
+  );
+  assert.deepEqual(snapshot, {
+    healthy: "resume",
+    not_running: "restart",
+    wrong_lane: "request_operator_confirmation",
+    ambiguous_generation: "request_operator_confirmation",
+    identity_mismatch: "request_operator_confirmation",
+    unknown_owner: "request_operator_confirmation",
+    preferred_port_occupied: "request_operator_confirmation",
+    fixed_port_conflict: "request_operator_confirmation",
+    reservation_drift: "repair_state",
+    configuration_drift: "repair_state",
+    partial_startup: "roll_back",
+    state_corrupt: "repair_state",
+    migration_required: "repair_state",
+  });
+  assert.notEqual(snapshot.identity_mismatch, "stop");
+  assert.notEqual(snapshot.unknown_owner, "stop");
 });

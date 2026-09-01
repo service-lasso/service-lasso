@@ -14,6 +14,7 @@ import {
   QualificationError,
   coreReleaseAssets,
   parseChecksumManifest,
+  parseCoreInstallOutput,
   releaseServiceAssets,
   validateNpmMetadata,
   validateRelease,
@@ -31,6 +32,27 @@ const core = {
   revision: "abcdef0abcdef0abcdef0abcdef0abcdef0abcde",
 };
 const execFileAsync = promisify(execFile);
+
+test("published Core install parsing accepts one complete pretty-printed JSON document", () => {
+  const payload = { action: "install", serviceId: "@serviceadmin", ok: true };
+  assert.deepEqual(
+    parseCoreInstallOutput(JSON.stringify(payload, null, 2), "@serviceadmin"),
+    payload,
+  );
+  for (const invalid of [
+    "}",
+    `progress\n${JSON.stringify(payload)}`,
+    `${JSON.stringify(payload)}\n${JSON.stringify(payload)}`,
+    "[]",
+  ]) {
+    assert.throws(
+      () => parseCoreInstallOutput(invalid, "@serviceadmin"),
+      (error) =>
+        error instanceof QualificationError &&
+        error.code === "core_install_contract_invalid",
+    );
+  }
+});
 
 function releasePayload(expected, names) {
   return {
@@ -416,7 +438,7 @@ test("AC-4BZ.1 cleanup refuses targets outside its exact runner-temp ownership b
   }
 });
 
-test("published dependency releases retain exact five-asset checksum inventories", () => {
+test("published dependency releases retain exact eight-asset checksum and SBOM inventories", () => {
   assert.deepEqual(
     releaseServiceAssets(ADMIN_RELEASE).sort(),
     [
@@ -424,8 +446,23 @@ test("published dependency releases retain exact five-asset checksum inventories
       "@serviceadmin-linux.tar.gz",
       "@serviceadmin-win32.zip",
       "SHA256SUMS.txt",
+      "serviceadmin-darwin.cdx.json",
+      "serviceadmin-linux.cdx.json",
+      "serviceadmin-win32.cdx.json",
       "service.json",
     ].sort(),
   );
-  assert.equal(releaseServiceAssets(BROKER_RELEASE).length, 5);
+  assert.deepEqual(
+    releaseServiceAssets(BROKER_RELEASE).sort(),
+    [
+      "SHA256SUMS.txt",
+      "secretsbroker-darwin.cdx.json",
+      "secretsbroker-darwin.tar.gz",
+      "secretsbroker-linux.cdx.json",
+      "secretsbroker-linux.tar.gz",
+      "secretsbroker-win32.cdx.json",
+      "secretsbroker-win32.zip",
+      "service.json",
+    ].sort(),
+  );
 });
