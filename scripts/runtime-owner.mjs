@@ -4,6 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 
 const DIAGNOSTIC_SCHEMA = "service-lasso.runtime-owner-failure.v1";
 const BASELINE_START_SCHEMA = "service-lasso.baseline-start.v1";
+const WORKSPACE_LIFECYCLE_SCHEMA = "service-lasso.workspace-lifecycle.v1";
 const ACTIVE_PHASES = new Set(["starting", "running"]);
 
 export function requireRuntimeServicePort(service, portName) {
@@ -321,9 +322,11 @@ export async function waitForBaselineCompletion({
   }
 
   const payload = outcome.payload;
+  const schemaOk = payload.schema === BASELINE_START_SCHEMA
+    || (payload.schema === WORKSPACE_LIFECYCLE_SCHEMA && (payload.outcome === "started" || payload.outcome === "restarted"));
   const valid =
-    payload.schema === BASELINE_START_SCHEMA &&
-    payload.status === "completed" &&
+    schemaOk &&
+    (payload.status === "completed" || payload.ok === true) &&
     payload.ownerPid === owner.pid &&
     payload.instanceId === runtime.instanceId &&
     payload.generationId === runtime.generationId &&

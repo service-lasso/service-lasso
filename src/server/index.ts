@@ -274,6 +274,11 @@ import {
   recordProcessOwnership,
   transitionProcessOwnership,
 } from "../runtime/process/registry.js";
+import {
+  clearRuntimeShutdown,
+  notifyRuntimeStopped,
+  registerRuntimeShutdown,
+} from "../runtime/lifecycle/runtime-shutdown.js";
 import { explainPortConflict } from "../runtime/ports/conflicts.js";
 import { buildDoctorExecutableBindings, runAndRecordDoctorPreflight } from "../runtime/recovery/doctor.js";
 import { readServiceRecoveryHistory } from "../runtime/recovery/history.js";
@@ -464,6 +469,11 @@ export interface ApiServerOptions {
   secretRotationTestHooks?: {
     brokerRuntime: SecretsBrokerRuntimeContext;
   };
+  runtimeShutdownSlot?: RuntimeShutdownSlot;
+}
+
+interface RuntimeShutdownSlot {
+  invoke: (() => Promise<void>) | null;
 }
 
 interface ApiRequestTelemetryState {
@@ -486,6 +496,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   mcpRateLimiter: McpRateLimiter;
   mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
   secretRotationTestHooks?: ApiServerOptions["secretRotationTestHooks"];
+  runtimeShutdownSlot?: RuntimeShutdownSlot;
 }
 
 export interface RunningApiServer {
@@ -6497,6 +6508,46 @@ async function routeRequestWithoutMutationCoordination(
   if (request.method === "POST" && url.pathname.startsWith("/api/runtime/actions/")) {
     const action = url.pathname.split("/").filter(Boolean)[3];
 
+    if (action === "shutdown") {
+      const body = parseLifecycleActionBody(await readJsonBody(request));
+      const shutdownActor = permissionActorFromRuntimeAuth(auth);
+      await enforcePermission({
+        workspaceRoot: config.workspaceRoot,
+        actor: shutdownActor,
+        permission: "runtime:shutdown",
+        sensitive: true,
+        confirmed: body.confirm,
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/shutdown",
+        subject: "runtime",
+      });
+      const stop = config.runtimeShutdownSlot?.invoke;
+      if (!stop) {
+        throw new ApiError("runtime_shutdown_unavailable", 503, "Runtime shutdown is not registered for this listener.");
+      }
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "runtime.shutdown",
+        actor: shutdownActor.id,
+        subject: "runtime",
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/shutdown",
+        outcome: "success",
+        statusCode: 202,
+        summary: "Accepted confirmed runtime shutdown.",
+      });
+      writeJson(response, 202, {
+        ok: true,
+        action: "shutdown",
+        accepted: true,
+      });
+      queueMicrotask(() => {
+        void stop();
+      });
+      return;
+    }
+
     if (action !== "startAll" && action !== "stopAll" && action !== "autostart" && action !== "reload") {
       throw new ApiError("invalid_action", 400, `Unknown runtime action: ${action}`);
     }
@@ -6929,6 +6980,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     mcpRateLimiter: createMcpRateLimiter(options.mcpPolicyTestHooks?.now),
     mcpPolicyTestHooks: options.mcpPolicyTestHooks,
     secretRotationTestHooks: options.secretRotationTestHooks,
+    runtimeShutdownSlot: options.runtimeShutdownSlot,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -6991,6 +7043,26 @@ function runtimeApiPortPolicy(options: ApiServerOptions, requestedPort: number):
     throw new Error(`Invalid SERVICE_LASSO_API_PORT_POLICY: ${configured}.`);
   }
   return requestedPort === 0 ? "automatic" : "preferred";
+}
+
+/**
+ * Binds the runtime API and fails closed if listen never becomes ready.
+ * Occupied preferred ports must surface EADDRINUSE so allocation can retry.
+ */
+function listenRuntimeApi(server: Server, port: number, host: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error): void => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, host);
+  });
 }
 
 function runtimeBindRetryLimit(): number {
@@ -7356,6 +7428,7 @@ async function startApiServerGeneration(
         status,
       ),
   });
+  const runtimeShutdownSlot: RuntimeShutdownSlot = { invoke: null };
   let allocationPlan!: RuntimeEndpointAllocationPlan;
   let apiEndpoint!: ReturnType<typeof runtimeApiEndpointFromAllocation>;
   let server!: Server;
@@ -7429,6 +7502,7 @@ async function startApiServerGeneration(
         mcpHttpIdentity: options.mcpHttpIdentity,
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
         secretRotationTestHooks: options.secretRotationTestHooks,
+        runtimeShutdownSlot,
       });
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
@@ -7450,8 +7524,7 @@ async function startApiServerGeneration(
         }
         await options.endpointAllocationTestHooks.beforeApiBind({ attempt, allocationPlan, endpoint: apiEndpoint });
       }
-      candidateServer.listen(apiEndpoint.port, bindHost);
-      await once(candidateServer, "listening");
+      await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
         nextStartupPhase(transaction.journal.phase, "process_spawned"),
@@ -7830,20 +7903,14 @@ async function startApiServerGeneration(
     );
   }
 
-  return {
-    server,
-    port: resolvedPort,
-    url: instance.apiUrl,
-    instanceId: instance.instanceId,
-    generationId: instance.generationId,
-    ownerPid: instance.pid,
-    endpointAllocationPlan: allocationPlan,
-    baselineBootstrap,
-    monitor,
-    updateScheduler,
-    telemetryExportScheduler,
-    mcpStdio,
-    stop: async () => {
+  let stopOnce: Promise<void> | null = null;
+  let stop: () => Promise<void> = async () => {};
+  stop = async (): Promise<void> => {
+    if (stopOnce) {
+      await stopOnce;
+      return;
+    }
+    stopOnce = (async () => {
       await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopping" });
       clearInterval(leaseHeartbeat);
       await transitionProcessOwnership(
@@ -7871,6 +7938,28 @@ async function startApiServerGeneration(
       );
       await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopped" });
       await releaseRuntimeEndpointAllocation(allocationPlan);
-    },
+    })().finally(() => {
+      clearRuntimeShutdown(config.workspaceRoot, stop);
+      notifyRuntimeStopped(config.workspaceRoot);
+    });
+    await stopOnce;
+  };
+  runtimeShutdownSlot.invoke = stop;
+  registerRuntimeShutdown(config.workspaceRoot, stop);
+
+  return {
+    server,
+    port: resolvedPort,
+    url: instance.apiUrl,
+    instanceId: instance.instanceId,
+    generationId: instance.generationId,
+    ownerPid: instance.pid,
+    endpointAllocationPlan: allocationPlan,
+    baselineBootstrap,
+    monitor,
+    updateScheduler,
+    telemetryExportScheduler,
+    mcpStdio,
+    stop,
   };
 }

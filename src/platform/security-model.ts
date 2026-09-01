@@ -121,6 +121,7 @@ export const serviceLassoPermissionCatalogue = [
   permission("service:reload", "Service reload", "Reload a managed service through its declared reload action.", []),
   permission("service:update", "Service update", "Update managed services.", ["elevated"]),
   permission("service:diagnose", "Service diagnostics", "Run diagnostics and health checks.", []),
+  permission("runtime:shutdown", "Runtime shutdown", "Stop the workspace runtime API and verified managed process trees.", ["elevated"]),
   permission("backup:create", "Backup creation", "Create workspace or service backups.", ["elevated"]),
   permission("backup:read", "Backup history", "Read backup history metadata.", ["read-only"]),
   permission("backup:restore", "Backup restore", "Restore backups after confirmation.", ["dangerous", "elevated"]),
@@ -134,8 +135,8 @@ export const serviceLassoPermissionCatalogue = [
 export const builtInAccessGroupTemplates = [
   groupTemplate("owner", "Owner", "Full workspace ownership and final recovery authority.", ["*"], true),
   groupTemplate("security-admin", "Security Admin", "Manage users, groups, mappings, local tokens, provider auth, audit, and security settings.", ["workspace:read", "security:manage", "audit:read"], true),
-  groupTemplate("service-admin", "Service Admin", "Install, configure, start, stop, restart, reload, update, and diagnose services.", ["workspace:read", "service:install", "service:configure", "service:start", "service:stop", "service:restart", "service:reload", "service:update", "service:diagnose"], false),
-  groupTemplate("operator", "Operator", "Operate and diagnose already configured services.", ["workspace:read", "service:start", "service:stop", "service:restart", "service:reload", "service:diagnose"], false),
+  groupTemplate("service-admin", "Service Admin", "Install, configure, start, stop, restart, reload, update, and diagnose services.", ["workspace:read", "service:install", "service:configure", "service:start", "service:stop", "service:restart", "service:reload", "service:update", "service:diagnose", "runtime:shutdown"], false),
+  groupTemplate("operator", "Operator", "Operate and diagnose already configured services.", ["workspace:read", "service:start", "service:stop", "service:restart", "service:reload", "service:diagnose", "runtime:shutdown"], false),
   groupTemplate("viewer", "Viewer", "Read-only runtime and service visibility.", ["workspace:read", "audit:read"], false),
   groupTemplate("backup-operator", "Backup Operator", "Create backups and inspect backup history.", ["workspace:read", "backup:create", "backup:read"], false),
   groupTemplate("restore-operator", "Restore Operator", "Restore backups with elevated confirmation.", ["workspace:read", "backup:read", "backup:restore"], false),
