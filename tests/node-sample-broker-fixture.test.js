@@ -184,13 +184,69 @@ async function waitFor(readinessCheck, timeoutMs = 4_000) {
  * @param {string} sampleRoot Copied node-sample-service root
  */
 async function killSamplePid(sampleRoot) {
+  let pid;
   try {
     const snapshot = JSON.parse(await readFile(path.join(sampleRoot, ".state", "provider-env.json"), "utf8"));
     if (typeof snapshot.pid === "number" && snapshot.pid > 0) {
-      process.kill(snapshot.pid);
+      pid = snapshot.pid;
     }
   } catch {
     // Process may already have exited.
+    return;
+  }
+
+  if (!pid) {
+    return;
+  }
+
+  const isRunning = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if (error?.code === "ESRCH") {
+        return false;
+      }
+      if (error?.code === "EPERM") {
+        return true;
+      }
+      throw error;
+    }
+  };
+  const waitForExit = async (timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!isRunning()) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return !isRunning();
+  };
+
+  try {
+    process.kill(pid);
+  } catch (error) {
+    if (error?.code === "ESRCH") {
+      return;
+    }
+    throw error;
+  }
+
+  if (await waitForExit(2_000)) {
+    return;
+  }
+
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (error?.code === "ESRCH") {
+      return;
+    }
+    throw error;
+  }
+  if (!await waitForExit(2_000)) {
+    throw new Error(`Sample process ${pid} did not exit after forced termination`);
   }
 }
 
@@ -547,6 +603,11 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
     await mockBroker.stop();
     resetScopedBrokerIdentities();
     resetLifecycleState();
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   }
 });
