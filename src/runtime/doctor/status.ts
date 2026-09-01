@@ -20,17 +20,50 @@ import {
   inspectWorkspaceLifecycleDocuments,
   isLifecycleStateError,
 } from "../state/lifecycle-persistence.js";
-import { getStartupTransactionJournalPath } from "../startup/transaction.js";
+import { getStartupTransactionJournalPath, readStartupTransactionJournal } from "../startup/transaction.js";
 import { getRuntimeEndpointAllocationPlanPath } from "../ports/allocation.js";
 import {
   readPortReservationLedger,
   type PortReservation,
 } from "../ports/reservations.js";
-import type {
-  RuntimeDoctorClassification,
-  RuntimeDoctorRecommendedAction,
-  RuntimeDoctorResponse,
+import {
+  RUNTIME_DOCTOR_CLASSIFICATIONS,
+  type RuntimeDoctorClassification,
+  type RuntimeDoctorRecommendedAction,
+  type RuntimeDoctorResponse,
 } from "../../contracts/api.js";
+
+export { RUNTIME_DOCTOR_CLASSIFICATIONS };
+
+/**
+ * Maps a stable doctor classification to a read-only recommended action.
+ * Identity mismatch and unknown ownership never recommend process termination.
+ *
+ * @param classification Stable doctor classification.
+ * @returns Safe next action for operators and automation.
+ */
+export function recommendedDoctorAction(classification: RuntimeDoctorClassification): RuntimeDoctorRecommendedAction {
+  switch (classification) {
+    case "healthy":
+      return "resume";
+    case "not_running":
+      return "restart";
+    case "wrong_lane":
+    case "ambiguous_generation":
+    case "unknown_owner":
+    case "identity_mismatch":
+    case "preferred_port_occupied":
+    case "fixed_port_conflict":
+      return "request_operator_confirmation";
+    case "partial_startup":
+      return "roll_back";
+    case "state_corrupt":
+    case "migration_required":
+    case "reservation_drift":
+    case "configuration_drift":
+      return "repair_state";
+  }
+}
 
 export interface RuntimeDoctorStatusInput {
   config: RuntimeConfig;
@@ -72,30 +105,6 @@ function selectClassification(candidates: RuntimeDoctorClassification[]): Runtim
   }
 
   return "healthy";
-}
-
-function recommendedAction(classification: RuntimeDoctorClassification): RuntimeDoctorRecommendedAction {
-  switch (classification) {
-    case "healthy":
-      return "resume";
-    case "not_running":
-      return "restart";
-    case "wrong_lane":
-    case "ambiguous_generation":
-    case "unknown_owner":
-      return "request_operator_confirmation";
-    case "partial_startup":
-      return "roll_back";
-    case "state_corrupt":
-    case "migration_required":
-    case "reservation_drift":
-    case "configuration_drift":
-      return "repair_state";
-    case "identity_mismatch":
-    case "preferred_port_occupied":
-    case "fixed_port_conflict":
-      return "stop";
-  }
 }
 
 function summarizeReservation(reservation: PortReservation) {
@@ -181,9 +190,10 @@ export async function buildRuntimeDoctorStatus(input: RuntimeDoctorStatusInput):
       entries: [],
     };
   }
-  const [instanceSnapshot, portLedger] = await Promise.all([
+  const [instanceSnapshot, portLedger, startupJournal] = await Promise.all([
     createRuntimeInstanceSnapshot(input.config),
     readPortReservationLedger(input.config.workspaceRoot),
+    readStartupTransactionJournal(input.config.workspaceRoot),
   ]);
 
   const expectedServicesRoot = path.resolve(input.config.servicesRoot);
@@ -248,18 +258,32 @@ export async function buildRuntimeDoctorStatus(input: RuntimeDoctorStatusInput):
     candidateClassifications.push("configuration_drift");
   }
 
+  const resumablePhases = new Set(["preflight_reconciliation", "allocation_reserved", "configuration_materialized"]);
+  let transactionRecovery: "resume" | "roll_back" | "none" = "none";
+  if (startupJournal?.status === "active") {
+    candidateClassifications.push("partial_startup");
+    transactionRecovery = resumablePhases.has(startupJournal.phase) ? "resume" : "roll_back";
+  } else if (startupJournal?.status === "blocked") {
+    candidateClassifications.push("partial_startup");
+    transactionRecovery = "roll_back";
+  }
+
   const persistenceClassification = doctorClassificationForPersistence(persistenceInspections);
   if (persistenceClassification) {
     candidateClassifications.push(persistenceClassification);
   }
 
   const classification = selectClassification(candidateClassifications);
+  let action = recommendedDoctorAction(classification);
+  if (classification === "partial_startup" && transactionRecovery === "resume") {
+    action = "resume";
+  }
   return {
     doctor: {
       contractVersion: "service-lasso.runtime-doctor.v1",
       generatedAt: new Date().toISOString(),
       classification,
-      recommendedAction: recommendedAction(classification),
+      recommendedAction: action,
       readOnly: true,
       evidencePaths: {
         runtimeInstanceState: normalizeEvidencePath(getRuntimeInstanceStatePath(input.config.workspaceRoot)),
@@ -305,6 +329,11 @@ export async function buildRuntimeDoctorStatus(input: RuntimeDoctorStatusInput):
       },
       dependencies: {
         blockers: dependencyBlockers,
+      },
+      startupTransaction: {
+        status: startupJournal?.status ?? null,
+        phase: startupJournal?.phase ?? null,
+        recoveryOption: transactionRecovery,
       },
     },
   };

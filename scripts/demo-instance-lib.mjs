@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { access, cp, mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
@@ -231,7 +232,14 @@ async function terminateProcessTree(pid, label) {
   return { label, pid, stopped: !processExists(pid), reason: processExists(pid) ? "still_running" : "terminated" };
 }
 
-async function canBindPort(host, port) {
+/**
+ * Returns true when this process can bind `host:port`, meaning the reservation is free.
+ *
+ * @param {string} host Bind host.
+ * @param {number} port TCP port.
+ * @returns {Promise<boolean>}
+ */
+export async function canBindPort(host, port) {
   const server = net.createServer();
 
   try {
@@ -498,84 +506,31 @@ async function stopRuntimeServices(runtimeInstance) {
   }
 }
 
+export async function runCoreWorkspaceLifecycle(action, options = {}) {
+  const { runWorkspaceLifecycleCommand } = await importDistModule(path.join("runtime", "lifecycle", "workspace-commands.js"));
+  return await runWorkspaceLifecycleCommand({
+    action,
+    servicesRoot: path.resolve(options.servicesRoot ?? defaultDemoServicesRoot),
+    workspaceRoot: path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot),
+    port: options.port,
+    portPolicy: options.portPolicy,
+    includeBaseline: action !== "stop",
+  });
+}
+
 export async function stopDemoManagedProcesses(options = {}) {
   const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const stopped = [];
-  const skipped = [];
-  const handledPids = new Set();
-  const runtimeInstance = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"));
-
-  if (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot })) {
-    stopped.push(await stopRuntimeServices(runtimeInstance));
-    stopped.push(await terminateProcessTree(runtimeInstance.pid, "runtime-api"));
-    if (Number.isInteger(runtimeInstance.pid)) {
-      handledPids.add(runtimeInstance.pid);
-    }
-  }
-
-  for (const serviceId of demoServiceIds) {
-    const serviceRoot = path.join(servicesRoot, serviceId);
-    const runtimeState = await readJsonIfPresent(path.join(serviceRoot, ".state", "runtime.json"));
-    if (!runtimeState || !processExists(runtimeState.pid)) {
-      continue;
-    }
-
-    if (!commandLooksServiceOwned(runtimeState.command, serviceRoot)) {
-      skipped.push({
-        serviceId,
-        pid: runtimeState.pid,
-        reason: "runtime_state_command_not_owned_by_service_root",
-      });
-      continue;
-    }
-
-    stopped.push(await terminateProcessTree(runtimeState.pid, serviceId));
-    handledPids.add(runtimeState.pid);
-  }
-
-  const processRegistry = await readJsonIfPresent(path.join(workspaceRoot, ".service-lasso", "processes.json"));
-  for (const entry of processRegistry?.entries ?? []) {
-    if (
-      entry?.ownerType !== "service" ||
-      entry.lifecycleState !== "running" ||
-      entry.identityStatus !== "owned" ||
-      !Number.isInteger(entry.pid) ||
-      handledPids.has(entry.pid)
-    ) {
-      continue;
-    }
-
-    const serviceId = typeof entry.serviceId === "string" && entry.serviceId
-      ? entry.serviceId
-      : entry.ownerId;
-    if (!demoServiceIds.includes(serviceId)) {
-      continue;
-    }
-
-    const serviceRoot = path.join(servicesRoot, serviceId);
-    if (!sameResolvedPath(entry.ownerRoot, serviceRoot) || !processExists(entry.pid)) {
-      continue;
-    }
-
-    const evidence = await getProcessCommandEvidence(entry.pid);
-    if (
-      !commandLooksServiceOwned(evidence.commandLine, serviceRoot) &&
-      !pathLooksServiceOwned(evidence.executablePath, serviceRoot)
-    ) {
-      skipped.push({
-        serviceId,
-        pid: entry.pid,
-        reason: "process_registry_command_not_owned_by_service_root",
-      });
-      continue;
-    }
-
-    stopped.push(await terminateProcessTree(entry.pid, serviceId));
-    handledPids.add(entry.pid);
-  }
-
-  return { stopped, skipped };
+  const lifecycle = await runCoreWorkspaceLifecycle("stop", { servicesRoot, workspaceRoot });
+  return {
+    lifecycle,
+    stopped: lifecycle.stoppedServices.map((serviceId) => ({
+      label: serviceId,
+      stopped: true,
+      reason: "core_workspace_stop",
+    })),
+    skipped: lifecycle.blockers.map((reason) => ({ reason })),
+  };
 }
 
 async function removeManifestDeclaredFiles(serviceRoot) {
@@ -685,13 +640,39 @@ async function readOptionalJson(filePath) {
   }
 }
 
-function getDemoLifecyclePaths(workspaceRoot) {
-  const lifecycleRoot = path.join(workspaceRoot, ".service-lasso");
+/**
+ * Service Lasso-owned demo lifecycle paths under the authoritative workspace.
+ *
+ * @param {string} workspaceRoot Demo workspace root.
+ * @returns {{ lifecycleRoot: string, lifecycleStatePath: string, runtimeInstancePath: string, commandLockPath: string }}
+ */
+export function getDemoLifecyclePaths(workspaceRoot) {
+  const lifecycleRoot = path.join(path.resolve(workspaceRoot), ".service-lasso");
 
   return {
     lifecycleRoot,
     lifecycleStatePath: path.join(lifecycleRoot, "demo-lifecycle.json"),
+    runtimeInstancePath: path.join(lifecycleRoot, "runtime-instance.json"),
+    commandLockPath: path.join(lifecycleRoot, "workspace-command.lock"),
   };
+}
+
+/**
+ * Host-wide lock for one canonical runtime lane, keyed by port rather than git worktree.
+ *
+ * @param {number} port Canonical or requested runtime port.
+ * @param {NodeJS.ProcessEnv} [env=process.env] Environment used for the host registry path.
+ * @returns {string} Absolute lock path shared by every worktree on this host.
+ */
+export function getCanonicalRuntimeLaneLockPath(port, env = process.env) {
+  const configured = env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH?.trim();
+  const instanceRegistry = env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH?.trim();
+  const hostRoot = configured
+    ? path.dirname(path.resolve(configured))
+    : instanceRegistry
+      ? path.dirname(path.resolve(instanceRegistry))
+      : path.join(os.homedir(), ".service-lasso");
+  return path.join(hostRoot, `canonical-runtime-lane-${Number(port)}.lock`);
 }
 
 function isDashboardSummaryResponse(body) {
@@ -1025,6 +1006,7 @@ export async function startDetachedDemoRuntime(options = {}) {
         SERVICE_LASSO_RUNTIME_URL: options.runtimeUrl ?? process.env.SERVICE_LASSO_RUNTIME_URL ?? `http://127.0.0.1:${port}`,
         SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
         SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
+        ...(options.laneLockHeld === true ? { SERVICE_LASSO_CANONICAL_LANE_LOCK_HELD: "1" } : {}),
       },
       stdio: ["ignore", outputFd, outputFd],
       windowsHide: true,
@@ -1053,8 +1035,9 @@ export async function getDemoStatus(options = {}) {
   const serviceAdminUrl = options.serviceAdminUrl ?? "http://127.0.0.1:17700/";
   const demoLogRoot = path.resolve(options.demoLogRoot ?? defaultDemoLogRoot);
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const { lifecycleRoot, lifecycleStatePath } = getDemoLifecyclePaths(workspaceRoot);
+  const { lifecycleRoot, lifecycleStatePath, runtimeInstancePath, commandLockPath } = getDemoLifecyclePaths(workspaceRoot);
   const recoveryLockPath = path.join(demoLogRoot, "demo-watchdog.lock.json");
+  const canonicalLaneLockPath = getCanonicalRuntimeLaneLockPath(port);
   const runtimeHealthUrl = joinUrl(runtimeUrl, "/api/health");
   const serviceAdminDashboardUrl = joinUrl(serviceAdminUrl, "/api/dashboard");
   const serviceAdminServicesUrl = joinUrl(serviceAdminUrl, "/api/services");
@@ -1065,6 +1048,7 @@ export async function getDemoStatus(options = {}) {
     serviceAdminServicesProbe,
     lifecycleState,
     recoveryLock,
+    runtimeInstance,
   ] = await Promise.all([
     fetchStatus(runtimeHealthUrl, timeoutMs, true),
     fetchStatus(serviceAdminUrl, timeoutMs),
@@ -1072,6 +1056,7 @@ export async function getDemoStatus(options = {}) {
     fetchStatus(serviceAdminServicesUrl, timeoutMs, true),
     readOptionalJson(lifecycleStatePath),
     readOptionalJson(recoveryLockPath),
+    readOptionalJson(runtimeInstancePath),
   ]);
   const serviceState = createExpectedServiceStateCheck(serviceAdminServicesProbe);
   const classification = classifyDemoStatus(
@@ -1139,11 +1124,30 @@ export async function getDemoStatus(options = {}) {
       workspaceRoot,
       lifecycleRoot,
       lifecycleStatePath,
+      runtimeInstancePath,
+      commandLockPath,
+      canonicalLaneLockPath,
       demoLogRoot,
       recoveryLockPath,
     },
+    ownership: {
+      classification: runtimeInstance
+        ? (runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot }) ? "owned" : "wrong_workspace_owner")
+        : "unverified",
+      instanceId: typeof runtimeInstance?.instanceId === "string" ? runtimeInstance.instanceId : null,
+      generationId: typeof runtimeInstance?.generationId === "string" ? runtimeInstance.generationId : null,
+      ownerPid: Number.isInteger(runtimeInstance?.pid) ? runtimeInstance.pid : null,
+      instanceStatus: typeof runtimeInstance?.status === "string" ? runtimeInstance.status : null,
+      instancePhase: typeof runtimeInstance?.phase === "string" ? runtimeInstance.phase : null,
+    },
+    allocation: {
+      apiPort: Number.isInteger(runtimeInstance?.apiPort) ? runtimeInstance.apiPort : port,
+      apiUrl: typeof runtimeInstance?.apiUrl === "string" ? runtimeInstance.apiUrl : runtimeUrl,
+      requestedPort: port,
+    },
     lifecycleState,
     recoveryLock,
+    runtimeInstance,
   };
 }
 
@@ -1291,6 +1295,18 @@ export function printDemoStatus(status) {
   console.log(`- workspaceRoot: ${status.paths.workspaceRoot}`);
   console.log(`- lifecycleState: ${status.paths.lifecycleStatePath}`);
   console.log(`- demoLogs: ${status.paths.demoLogRoot}`);
+  if (status.paths.commandLockPath) {
+    console.log(`- commandLock: ${status.paths.commandLockPath}`);
+  }
+  if (status.paths.canonicalLaneLockPath) {
+    console.log(`- laneLock: ${status.paths.canonicalLaneLockPath}`);
+  }
+  if (status.ownership) {
+    console.log(`- ownership: ${status.ownership.classification} instance=${status.ownership.instanceId ?? "none"} generation=${status.ownership.generationId ?? "none"} pid=${status.ownership.ownerPid ?? "none"}`);
+  }
+  if (status.allocation) {
+    console.log(`- allocation: requested=${status.allocation.requestedPort} resolved=${status.allocation.apiPort} url=${status.allocation.apiUrl}`);
+  }
 }
 
 export function printDemoGateReport(report) {
@@ -1332,7 +1348,7 @@ export function buildDemoRuntimeAppOptions(options = {}) {
     port,
     host: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
     version: options.version ?? process.env.npm_package_version ?? "0.1.0",
-    portPolicy: port === 0 ? "automatic" : "fixed",
+    portPolicy: options.portPolicy ?? (port === 0 ? "automatic" : "preferred"),
   };
 }
 
@@ -1467,130 +1483,17 @@ async function getGitSummary() {
   };
 }
 
-export async function runDemoRecycle(options = {}) {
-  const servicesRoot = path.resolve(options.servicesRoot ?? defaultDemoServicesRoot);
-  const workspaceRoot = path.resolve(options.workspaceRoot ?? defaultDemoWorkspaceRoot);
-  const port = resolveDemoRuntimePort(options.port);
-  const host = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
-  const runtimeUrl = options.runtimeUrl ?? `http://127.0.0.1:${port}`;
-  const serviceAdminUrl = (options.serviceAdminUrl ?? "http://127.0.0.1:17700").replace(/\/$/, "");
-  const preserve = options.preserve === true;
-  const keepAlive = options.keepAlive === true;
-  await assertDemoRecycleOwnership({ servicesRoot, workspaceRoot, port });
-  const stopped = await stopDemoManagedProcesses({ servicesRoot, workspaceRoot });
-
-  await assertDemoPortsAvailable({ port, workspaceRoot });
-  await resetDemoInstance({ servicesRoot, workspaceRoot });
-  await applyDemoServiceAdminRuntimeApiUrl(servicesRoot, runtimeUrl);
-
-  const runtime = await startDemoRuntime({ servicesRoot, workspaceRoot, port, host, serviceAdminUrl, skipBootstrap: true });
-  let servicesStopped = false;
-  let runtimeKeptAlive = false;
-
-  try {
-    const apiUrl = runtimeUrl;
-    const apiHealth = await getJson(`${apiUrl}/api/health`);
-    assertCondition(apiHealth.status === 200 && apiHealth.body.status === "ok", "Expected runtime API health to report ok.");
-
-    const previousRuntimeApiBaseUrl = process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
-    const previousApiBaseUrl = process.env.SERVICE_LASSO_API_BASE_URL;
-    process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiUrl;
-    process.env.SERVICE_LASSO_API_BASE_URL = apiUrl;
-
-    try {
-      for (const serviceId of canonicalDemoRequiredServiceIds) {
-        await postServiceAction(apiUrl, serviceId, "install");
-        await postServiceAction(apiUrl, serviceId, "config");
-      }
-
-      for (const serviceId of canonicalDemoRequiredServiceIds.filter((serviceId) => !demoProviderServiceIds.has(serviceId))) {
-        await postServiceAction(apiUrl, serviceId, "start");
-      }
-    } finally {
-      if (previousRuntimeApiBaseUrl === undefined) {
-        delete process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL;
-      } else {
-        process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = previousRuntimeApiBaseUrl;
-      }
-      if (previousApiBaseUrl === undefined) {
-        delete process.env.SERVICE_LASSO_API_BASE_URL;
-      } else {
-        process.env.SERVICE_LASSO_API_BASE_URL = previousApiBaseUrl;
-      }
-    }
-
-    const serviceStates = [];
-    for (const serviceId of canonicalDemoRequiredServiceIds) {
-      const expected = demoProviderServiceIds.has(serviceId)
-        ? { running: false, healthy: undefined }
-        : { running: true, healthy: true };
-      serviceStates.push(await waitForServiceState(apiUrl, serviceId, expected));
-    }
-
-    const secretsBrokerHealthUrl = "http://127.0.0.1:17890/health";
-    const nginxHealthUrl = "http://127.0.0.1:18080/health";
-    const traefikHealthUrl = "http://127.0.0.1:19081/ping";
-    const echoHealthUrl = "http://127.0.0.1:4011/health";
-
-    const serviceAdminRoot = await waitForHttpOk(`${serviceAdminUrl}/`, "Service Admin UI");
-    const serviceAdminHealth = await waitForHttpOk(`${serviceAdminUrl}/health`, "Service Admin health");
-    const secretsBrokerHealth = await waitForHttpOk(secretsBrokerHealthUrl, "Secrets Broker health");
-    const nginxHealth = await waitForHttpOk(nginxHealthUrl, "NGINX health");
-    const traefikHealth = await waitForHttpOk(traefikHealthUrl, "Traefik health");
-    const echoHealth = await waitForHttpOk(echoHealthUrl, "Echo Service health");
-    const services = await getJson(`${apiUrl}/api/services`);
-    assertCondition(services.status === 200, "Expected runtime /api/services to return 200.");
-
-    const git = await getGitSummary();
-
-    const result = {
-      apiUrl,
-      serviceAdminUrl,
-      servicesRoot,
-      workspaceRoot,
-      git,
-      stopped,
-      endpoints: {
-        runtimeApiHealth: { url: `${apiUrl}/api/health`, status: apiHealth.status },
-        serviceAdminRoot: { url: `${serviceAdminUrl}/`, status: serviceAdminRoot.status },
-        serviceAdminHealth: { url: `${serviceAdminUrl}/health`, status: serviceAdminHealth.status },
-        secretsBrokerHealth: { url: secretsBrokerHealthUrl, status: secretsBrokerHealth.status },
-        nginxHealth: { url: nginxHealthUrl, status: nginxHealth.status },
-        traefikHealth: { url: traefikHealthUrl, status: traefikHealth.status },
-        echoHealth: { url: echoHealthUrl, status: echoHealth.status },
-        runtimeServices: { url: `${apiUrl}/api/services`, status: services.status },
-      },
-      services: serviceStates.map((service) => ({
-        id: service.id,
-        running: service.lifecycle?.running === true,
-        healthy: service.health?.healthy === true,
-      })),
-    };
-
-    if (keepAlive) {
-      runtimeKeptAlive = true;
-    }
-
-    return result;
-  } catch (error) {
-    try {
-      await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
-      servicesStopped = true;
-    } catch {}
-    throw error;
-  } finally {
-    if (!preserve && !runtimeKeptAlive) {
-      if (!servicesStopped) {
-        try {
-          await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
-        } catch {}
-      }
-      await resetDemoInstance({ servicesRoot, workspaceRoot });
-    }
-    if (!runtimeKeptAlive) {
-      await runtime.apiServer.stop();
-    }
-  }
+/**
+ * Canonical demo recycle: stop → confirm stopped → start → verify.
+ * Thin wrapper around the #764 coordinator so existing callers stay stable.
+ *
+ * @param {object} options Demo recycle options.
+ * @param {object} [deps] Optional test seams forwarded to the coordinator.
+ * @returns {Promise<object>} Canonical demo lifecycle report.
+ */
+export async function runDemoRecycle(options = {}, deps = {}) {
+  const { runCanonicalDemoRecycle } = await import("./demo-canonical-lifecycle.mjs");
+  return await runCanonicalDemoRecycle(options, deps);
 }
 
 export async function runDemoSmoke(options = {}) {

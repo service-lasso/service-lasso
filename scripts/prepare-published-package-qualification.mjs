@@ -28,6 +28,7 @@ import {
   digestFile,
   fail,
   parseChecksumManifest,
+  parseCoreInstallOutput,
   readJsonFile,
   releaseServiceAssets,
   requireAssetDigest,
@@ -367,12 +368,7 @@ async function invokeCoreInstall(coreRoot, serviceId, servicesRoot, workspaceRoo
     ],
     { cwd: coreRoot, env: { ...process.env, GITHUB_TOKEN: token } },
   );
-  const line = result.stdout.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean).at(-1);
-  try {
-    return JSON.parse(line ?? "");
-  } catch {
-    fail("core_install_contract_invalid", `Published Core install did not return JSON for ${serviceId}.`);
-  }
+  return parseCoreInstallOutput(result.stdout, serviceId);
 }
 
 async function assertCoreAcquisition(payload, release, platform) {
@@ -643,9 +639,19 @@ try {
     "Admin release asset",
   );
   requireAssetDigest(
+    adminAssets.get(ADMIN_RELEASE.platforms[platform].sbom),
+    ADMIN_RELEASE.platforms[platform].sbomSha256,
+    "Admin release SBOM",
+  );
+  requireAssetDigest(
     brokerAssets.get(BROKER_RELEASE.platforms[platform].asset),
     BROKER_RELEASE.platforms[platform].sha256,
     "Broker release asset",
+  );
+  requireAssetDigest(
+    brokerAssets.get(BROKER_RELEASE.platforms[platform].sbom),
+    BROKER_RELEASE.platforms[platform].sbomSha256,
+    "Broker release SBOM",
   );
   requireAssetDigest(adminAssets.get("service.json"), ADMIN_RELEASE.manifestSha256, "Admin service manifest");
   requireAssetDigest(adminAssets.get("SHA256SUMS.txt"), ADMIN_RELEASE.checksumSha256, "Admin checksum manifest");
@@ -657,9 +663,11 @@ try {
     core: path.join(downloadRoot, coreAsset),
     npm: path.join(downloadRoot, "service-lasso-service-lasso.tgz"),
     adminArchive: path.join(downloadRoot, ADMIN_RELEASE.platforms[platform].asset),
+    adminSbom: path.join(downloadRoot, ADMIN_RELEASE.platforms[platform].sbom),
     adminManifest: path.join(downloadRoot, "admin-service.json"),
     adminChecksums: path.join(downloadRoot, "admin-SHA256SUMS.txt"),
     brokerArchive: path.join(downloadRoot, BROKER_RELEASE.platforms[platform].asset),
+    brokerSbom: path.join(downloadRoot, BROKER_RELEASE.platforms[platform].sbom),
     brokerManifest: path.join(downloadRoot, "broker-service.json"),
     brokerChecksums: path.join(downloadRoot, "broker-SHA256SUMS.txt"),
   };
@@ -667,9 +675,11 @@ try {
     downloadReleaseAsset(coreAssets.get(coreAsset), files.core, token, "Core release asset"),
     download(npmTarballUrl, files.npm, { headers: { "User-Agent": "service-lasso-published-package-qualification" } }, "npm tarball"),
     downloadReleaseAsset(adminAssets.get(ADMIN_RELEASE.platforms[platform].asset), files.adminArchive, token, "Admin release asset"),
+    downloadReleaseAsset(adminAssets.get(ADMIN_RELEASE.platforms[platform].sbom), files.adminSbom, token, "Admin release SBOM"),
     downloadReleaseAsset(adminAssets.get("service.json"), files.adminManifest, token, "Admin service manifest"),
     downloadReleaseAsset(adminAssets.get("SHA256SUMS.txt"), files.adminChecksums, token, "Admin checksum manifest"),
     downloadReleaseAsset(brokerAssets.get(BROKER_RELEASE.platforms[platform].asset), files.brokerArchive, token, "Broker release asset"),
+    downloadReleaseAsset(brokerAssets.get(BROKER_RELEASE.platforms[platform].sbom), files.brokerSbom, token, "Broker release SBOM"),
     downloadReleaseAsset(brokerAssets.get("service.json"), files.brokerManifest, token, "Broker service manifest"),
     downloadReleaseAsset(brokerAssets.get("SHA256SUMS.txt"), files.brokerChecksums, token, "Broker checksum manifest"),
   ]);
@@ -678,24 +688,28 @@ try {
     verifyFileSha256(files.core, coreSha256, "Core release asset"),
     verifyNpmTarballIntegrity(files.npm, coreNpmIntegrity),
     verifyFileSha256(files.adminArchive, ADMIN_RELEASE.platforms[platform].sha256, "Admin release asset"),
+    verifyFileSha256(files.adminSbom, ADMIN_RELEASE.platforms[platform].sbomSha256, "Admin release SBOM"),
     verifyFileSha256(files.adminManifest, ADMIN_RELEASE.manifestSha256, "Admin service manifest"),
     verifyFileSha256(files.adminChecksums, ADMIN_RELEASE.checksumSha256, "Admin checksum manifest"),
     verifyFileSha256(files.brokerArchive, BROKER_RELEASE.platforms[platform].sha256, "Broker release asset"),
+    verifyFileSha256(files.brokerSbom, BROKER_RELEASE.platforms[platform].sbomSha256, "Broker release SBOM"),
     verifyFileSha256(files.brokerManifest, BROKER_RELEASE.manifestSha256, "Broker service manifest"),
     verifyFileSha256(files.brokerChecksums, BROKER_RELEASE.checksumSha256, "Broker checksum manifest"),
   ]);
   const adminChecksumEntries = parseChecksumManifest(
     await readFile(files.adminChecksums, "utf8"),
-    [...Object.values(ADMIN_RELEASE.platforms).map(({ asset }) => asset), "service.json"],
+    releaseServiceAssets(ADMIN_RELEASE).filter((name) => name !== "SHA256SUMS.txt"),
   );
   const brokerChecksumEntries = parseChecksumManifest(
     await readFile(files.brokerChecksums, "utf8"),
-    [...Object.values(BROKER_RELEASE.platforms).map(({ asset }) => asset), "service.json"],
+    releaseServiceAssets(BROKER_RELEASE).filter((name) => name !== "SHA256SUMS.txt"),
   );
   assertChecksumRelease(adminChecksumEntries, ADMIN_RELEASE);
   assertChecksumRelease(brokerChecksumEntries, BROKER_RELEASE);
   await verifyFileSha256(files.adminArchive, adminChecksumEntries.get(ADMIN_RELEASE.platforms[platform].asset), "Admin checksum-bound archive");
+  await verifyFileSha256(files.adminSbom, adminChecksumEntries.get(ADMIN_RELEASE.platforms[platform].sbom), "Admin checksum-bound SBOM");
   await verifyFileSha256(files.brokerArchive, brokerChecksumEntries.get(BROKER_RELEASE.platforms[platform].asset), "Broker checksum-bound archive");
+  await verifyFileSha256(files.brokerSbom, brokerChecksumEntries.get(BROKER_RELEASE.platforms[platform].sbom), "Broker checksum-bound SBOM");
   const adminManifest = pinReleasedManifest(await readJsonFile(files.adminManifest, "Admin service manifest"), ADMIN_RELEASE);
   const brokerManifest = pinReleasedManifest(await readJsonFile(files.brokerManifest, "Broker service manifest"), BROKER_RELEASE);
 

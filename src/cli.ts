@@ -1,4 +1,10 @@
 import { startRuntimeApp } from "./runtime/app.js";
+import type { WorkspaceLifecycleResult } from "./runtime/lifecycle/workspace-commands.js";
+import { runWorkspaceLifecycleCommand } from "./runtime/lifecycle/workspace-commands.js";
+import {
+  armRuntimeExitWait,
+  invokeRegisteredRuntimeShutdown,
+} from "./runtime/lifecycle/runtime-shutdown.js";
 import type { BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
@@ -26,7 +32,7 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
-  command: "serve" | "install" | "start" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "doctor" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
+  command: "serve" | "install" | "start" | "stop" | "restart" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "doctor" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
   readinessAction?: "gate";
   serviceCommand?: "import";
   setupAction?: SetupCliAction;
@@ -79,6 +85,8 @@ function usageText(): string {
     "  service-lasso",
     "  service-lasso serve [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>]",
     "  service-lasso start [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso stop [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso restart [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso install <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup list [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup run <serviceId> [stepId] [--services-root <path>] [--workspace-root <path>] [--force] [--include-manual] [--json]",
@@ -127,6 +135,8 @@ function usageText(): string {
     "Notes:",
     "  - Running without a command starts the bounded core API runtime.",
     "  - The start command installs/configures/starts the baseline services, then leaves the API running.",
+    "  - The stop command stops verified managed process trees and the runtime API from this or a second terminal.",
+    "  - The restart command stops, confirms the workspace is down, then starts and renegotiates occupied preferred ports.",
     "  - The install command acquires and installs a service from manifest-owned artifact metadata without starting it.",
     "  - The setup command lists or runs manifest-owned setup steps after install/config.",
     "  - The updates command checks, lists, downloads, or installs service update candidates.",
@@ -169,6 +179,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     commandToken === "serve" ||
       commandToken === "install" ||
       commandToken === "start" ||
+      commandToken === "stop" ||
+      commandToken === "restart" ||
       commandToken === "setup" ||
       commandToken === "updates" ||
       commandToken === "recovery" ||
@@ -513,8 +525,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--port": {
-        if (command !== "serve" && command !== "start") {
-          throw new Error("--port is only supported for the serve and start commands.");
+        if (command !== "serve" && command !== "start" && command !== "restart") {
+          throw new Error("--port is only supported for the serve, start, and restart commands.");
         }
         const value = remaining.shift();
         if (!value) {
@@ -524,8 +536,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--port-policy": {
-        if (command !== "serve" && command !== "start") {
-          throw new Error("--port-policy is only supported for the serve and start commands.");
+        if (command !== "serve" && command !== "start" && command !== "restart") {
+          throw new Error("--port-policy is only supported for the serve, start, and restart commands.");
         }
         const value = remaining.shift();
         if (value !== "automatic" && value !== "preferred" && value !== "fixed") {
@@ -535,8 +547,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--json": {
-        if (command !== "install" && command !== "start" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "doctor" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template" && command !== "release") {
-          throw new Error("--json is only supported for the install, start, setup, updates, recovery, health, plan, lockfile, instance, doctor, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, template, and release commands.");
+        if (command !== "install" && command !== "start" && command !== "stop" && command !== "restart" && command !== "setup" && command !== "updates" && command !== "recovery" && command !== "health" && command !== "plan" && command !== "lockfile" && command !== "instance" && command !== "doctor" && command !== "readiness" && command !== "config-drift" && command !== "config-apply" && command !== "config-snapshot" && command !== "secrets" && command !== "backup" && command !== "diagnostics" && command !== "operator" && command !== "services" && command !== "template" && command !== "release") {
+          throw new Error("--json is only supported for the install, start, stop, restart, setup, updates, recovery, health, plan, lockfile, instance, doctor, readiness, config-drift, config-apply, config-snapshot, secrets, backup, diagnostics, operator, services, template, and release commands.");
         }
         parsed.json = true;
         break;
@@ -1172,6 +1184,42 @@ function printSetupResult(result: SetupCliResult, asJson: boolean): void {
   }
 }
 
+function printLifecycleResult(result: WorkspaceLifecycleResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(`[service-lasso] workspace ${result.action} ${result.outcome}`);
+  console.log(`- ok: ${result.ok}`);
+  console.log(`- workspaceRoot: ${result.workspaceRoot}`);
+  console.log(`- servicesRoot: ${result.servicesRoot}`);
+  console.log(`- ownership: ${result.ownership}`);
+  console.log(`- health: ${result.health}`);
+  if (result.apiUrl) {
+    console.log(`- api: ${result.apiUrl}`);
+  }
+  if (result.startedServices.length > 0) {
+    console.log(`- startedServices: ${result.startedServices.join(", ")}`);
+  }
+  if (result.stoppedServices.length > 0) {
+    console.log(`- stoppedServices: ${result.stoppedServices.join(", ")}`);
+  }
+  for (const blocker of result.blockers) {
+    console.log(`- blocker: ${blocker}`);
+  }
+}
+
+function installRuntimeSignalHandlers(workspaceRoot: string): void {
+  const shutdown = (): void => {
+    void invokeRegisteredRuntimeShutdown(workspaceRoot).finally(() => {
+      process.exit(0);
+    });
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
+
 function printBootstrapResult(
   result: BootstrapBaselineResult,
   app: Awaited<ReturnType<typeof startRuntimeApp>>,
@@ -1298,6 +1346,7 @@ function printDoctorResult(result: DoctorCliResult, asJson: boolean): void {
   console.log("- reservations: " + result.doctor.endpoints.reservations.length);
   console.log("- conflicts: " + result.doctor.endpoints.conflicts.length);
   console.log("- dependencyBlockers: " + result.doctor.dependencies.blockers.length);
+  console.log("- startupTransaction: " + (result.doctor.startupTransaction.status ?? "none") + "/" + (result.doctor.startupTransaction.phase ?? "none"));
 }
 
 function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolean): void {
@@ -1597,17 +1646,29 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
-  if (parsed.command === "start") {
-    const runtimePort = parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080);
-    const app = await startRuntimeApp({
-      port: runtimePort,
+  if (parsed.command === "start" || parsed.command === "stop" || parsed.command === "restart") {
+    const result = await runWorkspaceLifecycleCommand({
+      action: parsed.command,
+      port: parsed.port,
       portPolicy: parsed.portPolicy,
       servicesRoot: parsed.servicesRoot,
       workspaceRoot: parsed.workspaceRoot,
       version: runtimeVersion,
-      baselineBootstrap: {},
+      includeBaseline: parsed.command !== "stop",
     });
-    printBootstrapResult(app.apiServer.baselineBootstrap!, app, parsed.json);
+    printLifecycleResult(result, parsed.json);
+    if (!result.ok) {
+      process.exitCode = 1;
+      return;
+    }
+    if (
+      (result.outcome === "started" || result.outcome === "restarted")
+      && result.workspaceRoot
+    ) {
+      const exitWait = armRuntimeExitWait(result.workspaceRoot);
+      installRuntimeSignalHandlers(result.workspaceRoot);
+      await exitWait;
+    }
     return;
   }
 
@@ -1618,11 +1679,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     workspaceRoot: parsed.workspaceRoot,
     version: runtimeVersion,
   });
+  installRuntimeSignalHandlers(app.serviceRoot.workspaceRoot);
+  const exitWait = armRuntimeExitWait(app.serviceRoot.workspaceRoot);
 
   console.log("[service-lasso] core API spine started");
   console.log(`- api: ${app.apiServer.url}`);
   console.log(`- servicesRoot: ${app.serviceRoot.servicesRoot}`);
   console.log(`- workspaceRoot: ${app.serviceRoot.workspaceRoot}`);
+  await exitWait;
 }
 
 runCli().catch((error: unknown) => {
