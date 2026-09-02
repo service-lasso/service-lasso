@@ -113,6 +113,40 @@ rollback or tombstone recovery.
   manifest, provenance/attestation, and exact asset inventory. Public download
   bytes and retained workflow bytes were digest compared.
 
+## Repository and publication control readback
+
+Live API readback on 2026-09-02 reports an active Release 1 branch ruleset in
+each repository. Core `develop`, Admin `develop`, and Broker `main` all require a
+pull request, one approval, stale-review dismissal, CODEOWNERS review,
+last-push approval, strict terminal-green checks, conversation resolution, and
+linear history; administrator enforcement is enabled and force-push/deletion
+are disabled. Core ruleset `21891323`, Admin ruleset `21891335`, and Broker
+ruleset `21891331` are active.
+
+Each repository has a read-back `CODEOWNERS` file, `SECURITY.md`, selected-action
+GitHub Actions policy with immutable-SHA pinning required, private vulnerability
+reporting, secret scanning, push protection, Dependabot security updates, and a
+protected `release` environment requiring reviewer `wildone`. Open Dependabot,
+code-scanning, and secret-scanning alert counts are zero in all three
+repositories. Requests to enable secret-scanning validity checks were accepted
+by the repository API, but subsequent readback remained `disabled`; the packet
+therefore records that control as unavailable on the current repository/org
+entitlement and does not claim it is enabled.
+
+The initial packet PR
+[#1210](https://github.com/service-lasso/service-lasso/pull/1210) merged at
+`c341552542a432f1e9951140ee18188c0e68d4f5`. Exact-merge Docs
+[33515497884](https://github.com/service-lasso/service-lasso/actions/runs/33515497884),
+CodeQL [33515497909](https://github.com/service-lasso/service-lasso/actions/runs/33515497909),
+MCP Product Acceptance
+[33515497989](https://github.com/service-lasso/service-lasso/actions/runs/33515497989),
+and Release Qualification
+[33515498018](https://github.com/service-lasso/service-lasso/actions/runs/33515498018)
+are terminal green. The latter two retain three and eight exact-SHA artifacts,
+respectively. The independent reviewer must bind the final decision to the exact
+head of this final-readback packet revision as well as the immutable component
+identities above.
+
 ## Static, dynamic, and fuzz evidence
 
 - CodeQL is green at the exact Core and Admin release heads. Broker release
