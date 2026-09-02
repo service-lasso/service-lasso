@@ -529,13 +529,24 @@ async function waitForCanonicalReady(options, deps) {
 
   while (Date.now() <= deadline) {
     lastStatus = await getStatus(options);
-    lastVerification = await verify({
-      runtimeUrl: options.runtimeUrl,
-      serviceAdminUrl: options.serviceAdminUrl,
-      servicesRoot: options.servicesRoot,
-      workspaceRoot: options.workspaceRoot,
-      timeoutMs: Math.min(options.timeoutMs ?? 5_000, 5_000),
-    });
+    try {
+      lastVerification = await verify({
+        runtimeUrl: options.runtimeUrl,
+        serviceAdminUrl: options.serviceAdminUrl,
+        servicesRoot: options.servicesRoot,
+        workspaceRoot: options.workspaceRoot,
+        timeoutMs: Math.min(options.timeoutMs ?? 5_000, 5_000),
+      });
+    } catch (error) {
+      lastVerification = {
+        ok: false,
+        failures: [{
+          name: "canonical verifier",
+          code: "verifier_unavailable",
+          detail: error instanceof Error ? error.message : String(error),
+        }],
+      };
+    }
     if (lastVerification.ok) {
       return { status: lastStatus, verification: lastVerification };
     }

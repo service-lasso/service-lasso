@@ -1308,6 +1308,89 @@ test("canonical demo verifier discovers only the active workspace generation end
   }
 });
 
+test("canonical demo verifier unwraps v2 runtime-instance envelopes for generation lane checks", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-v2-instance-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const stateDirectory = path.join(workspaceRoot, ".service-lasso");
+  const generationId = "44444444-4444-4444-8444-444444444444";
+  const runtimeUrl = "http://demo.example.test:17883";
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(path.join(stateDirectory, "runtime-instance.json"), `${JSON.stringify({
+      schemaVersion: "service-lasso.runtime-instance.v2",
+      version: 2,
+      instance: {
+        generationId,
+        servicesRoot,
+        workspaceRoot,
+        phase: "running",
+        status: "active",
+        apiUrl: runtimeUrl,
+      },
+    }, null, 2)}\n`);
+    await writeFile(path.join(stateDirectory, "runtime-generations.json"), `${JSON.stringify({
+      version: 1,
+      activeGenerationId: generationId,
+      generations: [{
+        generationId,
+        servicesRoot,
+        workspaceRoot,
+        phase: "running",
+        endpoints: [{ name: "api", url: runtimeUrl }],
+      }],
+    }, null, 2)}\n`);
+
+    const result = await verifyCanonicalDemo(
+      { servicesRoot, workspaceRoot, serviceAdminUrl: "http://demo.example.test:17700/" },
+      { fetch: canonicalFetch({ servicesRoot, workspaceRoot, generationId }) },
+    );
+
+    assert.equal(result.ok, true, JSON.stringify(result.failures, null, 2));
+    assert.equal(result.summary.runtimeUrl, runtimeUrl);
+    assert.equal(result.summary.generationId, generationId);
+    assert.equal(result.failures.some((failure) => failure.code === "wrong_lane"), false);
+    assert.equal(result.failures.some((failure) => failure.code === "stale_runtime_generation"), false);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("canonical demo verifier reports mcp_unavailable instead of throwing when MCP initialize fails", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-mcp-unavailable-"));
+  const servicesRoot = path.join(tempDir, "services");
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+
+  try {
+    await writeCanonicalFixtureManifests(servicesRoot);
+    const baseFetch = canonicalFetch({ servicesRoot, workspaceRoot });
+    const result = await verifyCanonicalDemo(
+      {
+        servicesRoot,
+        workspaceRoot,
+        runtimeUrl: "http://demo.example.test:17883",
+        serviceAdminUrl: "http://demo.example.test:17700/",
+      },
+      {
+        fetch: async (url, options) => {
+          const parsed = new URL(url);
+          if (parsed.pathname === "/api/mcp") {
+            throw new Error("fetch failed");
+          }
+          return baseFetch(url, options);
+        },
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.ok(result.failures.some((failure) => failure.code === "mcp_unavailable"));
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("canonical demo verifier uses selected loopback metadata when LAN runtime API is protected", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-canonical-lan-auth-"));
   const servicesRoot = path.join(tempDir, "services");

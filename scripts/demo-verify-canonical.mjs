@@ -51,6 +51,35 @@ function normalizePathForCompare(value) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
+const RUNTIME_INSTANCE_SCHEMA_V2 = "service-lasso.runtime-instance.v2";
+
+/**
+ * Returns whether the value is a non-array object.
+ *
+ * @param {unknown} value Candidate value.
+ * @returns {value is Record<string, unknown>}
+ */
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Returns the authoritative instance record from on-disk runtime-instance.json.
+ * v2 stores identity fields under `instance`; legacy files keep them at the top level.
+ *
+ * @param {unknown} workspaceInstance Parsed runtime-instance.json value.
+ * @returns {Record<string, unknown> | null}
+ */
+function unwrapWorkspaceInstanceRecord(workspaceInstance) {
+  if (!isPlainObject(workspaceInstance)) {
+    return null;
+  }
+  if (workspaceInstance.schemaVersion === RUNTIME_INSTANCE_SCHEMA_V2) {
+    return isPlainObject(workspaceInstance.instance) ? workspaceInstance.instance : null;
+  }
+  return workspaceInstance;
+}
+
 function canonicalServicesRootFor(requestedServicesRoot) {
   const resolved = path.resolve(requestedServicesRoot ?? defaultDemoServicesRoot);
   return normalizePathForCompare(resolved) === normalizePathForCompare(defaultDemoServicesRoot)
@@ -428,10 +457,11 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   let workspaceDiscoveryIsActive = false;
   let runtimeMetadataUrl = resolved.runtimeUrl;
   const stateDirectory = path.join(resolved.workspaceRoot, ".service-lasso");
-  const [workspaceInstance, generationRegistry] = await Promise.all([
+  const [workspaceInstanceFile, generationRegistry] = await Promise.all([
     readJson(path.join(stateDirectory, "runtime-instance.json")).catch(() => null),
     readJson(path.join(stateDirectory, "runtime-generations.json")).catch(() => null),
   ]);
+  const workspaceInstance = unwrapWorkspaceInstanceRecord(workspaceInstanceFile);
   if (workspaceInstance || generationRegistry) {
     const selectedGenerationId = resolved.generationId ?? generationRegistry?.activeGenerationId ?? null;
     const generation = Array.isArray(generationRegistry?.generations)
@@ -442,6 +472,9 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     workspaceDiscoveryMatchesRoots = Boolean(
       workspaceInstance
       && generation
+      && typeof workspaceInstance.workspaceRoot === "string"
+      && typeof workspaceInstance.servicesRoot === "string"
+      && typeof workspaceInstance.generationId === "string"
       && normalizePathForCompare(workspaceInstance.workspaceRoot) === normalizePathForCompare(resolved.workspaceRoot)
       && normalizePathForCompare(workspaceInstance.servicesRoot) === normalizePathForCompare(resolved.servicesRoot)
       && normalizePathForCompare(generation.workspaceRoot) === normalizePathForCompare(resolved.workspaceRoot)
@@ -513,19 +546,31 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
   ]);
 
   const mcpUrl = `${runtimeMetadataUrl}/api/mcp`;
-  const mcpClient = await connectCanonicalMcpClient(mcpUrl, deps, resolved.timeoutMs);
+  let mcpClient = null;
+  try {
+    mcpClient = await connectCanonicalMcpClient(mcpUrl, deps, resolved.timeoutMs);
+  } catch (error) {
+    check(
+      checks,
+      "operator MCP client connects",
+      false,
+      "mcp_unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   let mcpTools;
   let mcpResources;
   let mcpRuntimeRead;
   let mcpServiceRead;
   let mcpGuardedAction = { exercised: false, status: "not_enabled" };
   try {
-    [mcpTools, mcpResources, mcpRuntimeRead, mcpServiceRead] = await Promise.all([
-      mcpClient.listTools(),
-      mcpClient.listResources(),
-      mcpClient.callTool({ name: "service_lasso_runtime_status", arguments: {} }, "canonical-runtime-read"),
-      mcpClient.callTool({ name: "service_lasso_list_services", arguments: { limit: 100 } }, "canonical-services-read"),
-    ]);
+    if (mcpClient) {
+      [mcpTools, mcpResources, mcpRuntimeRead, mcpServiceRead] = await Promise.all([
+        mcpClient.listTools(),
+        mcpClient.listResources(),
+        mcpClient.callTool({ name: "service_lasso_runtime_status", arguments: {} }, "canonical-runtime-read"),
+        mcpClient.callTool({ name: "service_lasso_list_services", arguments: { limit: 100 } }, "canonical-services-read"),
+      ]);
 
     if (mcpInfo.body?.policy?.operatingMode === "guarded") {
       if (
@@ -591,8 +636,17 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
         `plan=${plan?.status ?? "failed"}, execution=${completed?.status ?? "failed"}, replay=${replayed?.status ?? "failed"}`,
       );
     }
+    }
+  } catch (error) {
+    check(
+      checks,
+      "operator MCP session stays available",
+      false,
+      "mcp_unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
   } finally {
-    await mcpClient.close().catch(() => undefined);
+    await mcpClient?.close().catch(() => undefined);
   }
 
   check(
@@ -604,7 +658,7 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       && typeof mcpInfo.body?.protocolVersion === "string"
       && Array.isArray(mcpInfo.body?.supportedProtocolVersions)
       && mcpInfo.body.supportedProtocolVersions.includes(mcpInfo.body.protocolVersion)
-      && mcpClient.protocolVersion === mcpInfo.body.protocolVersion
+      && mcpClient?.protocolVersion === mcpInfo.body.protocolVersion
       && ["read-only", "guarded"].includes(mcpInfo.body?.policy?.operatingMode)
     ),
     "mcp_discovery_unhealthy",
