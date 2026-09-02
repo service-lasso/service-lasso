@@ -283,7 +283,7 @@ test("recovery E2E keeps API, CLI, monitor health, supervised restart, doctor, a
     assert.ok(cliRecovery.services[0].recovery.events.some((event) => event.kind === "restart" && event.ok));
     context.diagnostic("CLI recovery state agreed");
 
-    const updateInstall = await postJson(`${apiServer.url}/api/services/echo-hook/update/install`);
+    const updateInstall = await postJson(`${apiServer.url}/api/services/echo-hook/update/install`, { confirm: true });
     assert.equal(updateInstall.status, 200);
     context.diagnostic("update install completed");
 

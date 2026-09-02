@@ -1437,7 +1437,7 @@ test("POST /api/runtime/actions/startAll prepares and starts eligible services i
     assert.equal(startAll.body.results[1].state.configured, true);
     assert.equal(startAll.body.results[1].state.running, true);
 
-    const stopAll = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`);
+    const stopAll = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`, { confirm: true });
     assert.equal(stopAll.status, 200);
     assert.equal(stopAll.body.action, "stopAll");
     assert.equal(stopAll.body.ok, true);
@@ -1781,7 +1781,7 @@ test("POST /api/runtime/actions/reload rediscover manifests and restart previous
       healthcheck: { type: "process" },
     });
 
-    const reload = await postJson(`${apiServer.url}/api/runtime/actions/reload`);
+    const reload = await postJson(`${apiServer.url}/api/runtime/actions/reload`, { confirm: true });
     assert.equal(reload.status, 200);
     assert.equal(reload.body.action, "reload");
     assert.equal(reload.body.ok, true);

@@ -269,7 +269,7 @@ test("update lifecycle E2E keeps CLI, API, update state, and install metadata in
     assert.equal(afterDownload.updates.downloadedCandidate.tag, latestTag);
     assert.deepEqual(afterDownload.install, beforeInstall.install);
 
-    const install = await postJson(`${apiServer.url}/api/services/installed-old/update/install`);
+    const install = await postJson(`${apiServer.url}/api/services/installed-old/update/install`, { confirm: true });
     const afterInstall = await readStoredState(oldServiceRoot);
     assert.equal(install.status, 200);
     assert.equal(install.body.update.state, "installed");
@@ -339,14 +339,14 @@ test("update lifecycle E2E persists download, install, and outside-window failur
     assert.equal(corruptDownload.status, 200);
     assert.equal(corruptDownload.body.update.state, "downloadedCandidate");
 
-    const installFailure = await postJson(`${apiServer.url}/api/services/install-failure/update/install`);
+    const installFailure = await postJson(`${apiServer.url}/api/services/install-failure/update/install`, { confirm: true });
     const installFailureState = await readStoredState(installFailureRoot);
     assert.equal(installFailure.status, 500);
     assert.equal(installFailureState.updates.state, "failed");
     assert.equal(installFailureState.updates.failed.sourceStatus, "install_failed");
     assert.equal(installFailureState.install.artifact.tag, oldTag);
 
-    const outsideWindow = await postJson(`${apiServer.url}/api/services/outside-window/update/install`);
+    const outsideWindow = await postJson(`${apiServer.url}/api/services/outside-window/update/install`, { confirm: true });
     const outsideWindowState = await readStoredState(outsideWindowRoot);
     assert.equal(outsideWindow.status, 500);
     assert.equal(outsideWindowState.updates.state, "installDeferred");
