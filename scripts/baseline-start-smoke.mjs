@@ -148,11 +148,11 @@ async function waitForCliSummary(cli, timeoutMs = 600_000) {
   throw lastError ?? new Error("Timed out waiting for CLI JSON summary.");
 }
 
-async function postJson(url, body = {}) {
+async function postJson(url, payload = {}) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => null);
 

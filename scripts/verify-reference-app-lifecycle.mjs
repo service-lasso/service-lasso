@@ -184,11 +184,11 @@ async function getJson(url) {
   return JSON.parse(result.body);
 }
 
-async function postJson(url, body = {}) {
+async function postJson(url, payload = {}) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;

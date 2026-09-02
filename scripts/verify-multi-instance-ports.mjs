@@ -88,8 +88,8 @@ async function waitForJson(url, timeoutMs = 300_000) {
   throw lastError ?? new Error(`Timed out waiting for ${url}`);
 }
 
-async function postJson(url, body = {}) {
-  const response = await fetchWithTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+async function postJson(url, payload = {}) {
+  const response = await fetchWithTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`POST ${url} returned ${response.status}: ${JSON.stringify(body)}`);
   return body;
