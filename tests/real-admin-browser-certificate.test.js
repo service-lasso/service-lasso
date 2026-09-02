@@ -6,7 +6,8 @@ import { X509Certificate } from "node:crypto";
 import { generateLocalhostCertificate } from "./fixtures/real-admin-browser-certificate.mjs";
 
 test("real browser harness generates a CA-pinned localhost TLS certificate without external packages", async () => {
-  const now = new Date("2026-09-01T00:00:00Z");
+  // Node TLS validates against wall-clock time, so the issued window must cover now.
+  const now = new Date();
   const certificate = generateLocalhostCertificate(now);
   const parsed = new X509Certificate(certificate.cert);
   assert.match(parsed.subjectAltName ?? "", /DNS:localhost/u);

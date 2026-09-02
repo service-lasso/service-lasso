@@ -325,7 +325,7 @@ test("audit API returns durable safe service and runtime mutation events after r
       dependencyGraphPosition: { x: 12, y: 34 },
     });
     assert.equal(meta.status, 200);
-    const runtime = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`);
+    const runtime = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`, { confirm: true });
     assert.equal(runtime.status, 200);
     const setup = await postJson(`${apiServer.url}/api/services/audit-service/setup/run/write-audit-proof`);
     assert.equal(setup.status, 200);
@@ -389,10 +389,12 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(audit.body.chainStatus, "verified");
     assert.equal(audit.body.rawMaterialReturned, false);
     assert.equal(audit.body.nextCursor, null);
-    assert.equal(audit.body.pagination.total, 17);
+    assert.equal(audit.body.pagination.total, 19);
     assert.deepEqual(
       audit.body.events.map((event) => event.action).sort(),
       [
+        "permission.decision",
+        "permission.decision",
         "permission.decision",
         "permission.decision",
         "permission.decision",
@@ -460,7 +462,7 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(actionEvent.relatedRevisionId, action.body.run.runId);
 
     const permissionEvents = audit.body.events.filter((event) => event.action === "permission.decision");
-    assert.equal(permissionEvents.length, 6);
+    assert.equal(permissionEvents.length, 8);
     const actionPermissionEvents = permissionEvents.filter(
       (event) => event.metadata.permission === "service.action.run",
     );
@@ -471,7 +473,7 @@ test("audit API returns durable safe service and runtime mutation events after r
         .filter((event) => event.metadata.permission !== "service.action.run")
         .map((event) => event.metadata.permission)
         .sort(),
-      ["service:configure", "service:install"],
+      ["service:configure", "service:configure", "service:diagnose", "service:install"],
     );
 
     const confirmationEvents = audit.body.events.filter(
@@ -505,14 +507,14 @@ test("audit API returns durable safe service and runtime mutation events after r
     assert.equal(serviceScopedAudit.body.chainStatus, "verified");
     assert.equal(serviceScopedAudit.body.rawMaterialReturned, false);
     assert.equal(serviceScopedAudit.body.events.length, 4);
-    assert.equal(serviceScopedAudit.body.pagination.total, 17);
+    assert.equal(serviceScopedAudit.body.pagination.total, 19);
     assert.equal(serviceScopedAudit.body.nextCursor, "4");
     assert.deepEqual([...new Set(serviceScopedAudit.body.events.map((event) => event.serviceId))], ["audit-service"]);
 
     const nextServiceAuditPage = await getJson(`${apiServer.url}/api/services/audit-service/audit?limit=4&cursor=${serviceScopedAudit.body.nextCursor}`);
     assert.equal(nextServiceAuditPage.status, 200);
     assert.equal(nextServiceAuditPage.body.events.length, 4);
-    assert.equal(nextServiceAuditPage.body.pagination.total, 17);
+    assert.equal(nextServiceAuditPage.body.pagination.total, 19);
     assert.equal(nextServiceAuditPage.body.nextCursor, "8");
 
     const secretSearch = await getJson(`${apiServer.url}/api/audit?query=SUPER_SECRET_VALUE`);
@@ -904,7 +906,9 @@ test("#757 mutating actions append durable metadata-only audit events after rest
     const install = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/services/audit-regression-service/install`);
     assert.equal(install.status, 200);
 
-    const runtime = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/runtime/actions/stopAll`);
+    const runtime = await sendJsonWithSecretHeaders("POST", `${apiServer.url}/api/runtime/actions/stopAll`, {
+      confirm: true,
+    });
     assert.equal(runtime.status, 200);
 
     const meta = await sendJsonWithSecretHeaders("PATCH", `${apiServer.url}/api/services/audit-regression-service/meta`, {

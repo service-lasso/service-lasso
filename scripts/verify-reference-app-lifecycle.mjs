@@ -184,11 +184,11 @@ async function getJson(url) {
   return JSON.parse(result.body);
 }
 
-async function postJson(url) {
+async function postJson(url, payload = {}) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(payload),
   });
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;
@@ -476,7 +476,7 @@ async function verifyOneApp(app, root) {
     if (appProcess) {
       if (!stoppedEcho) {
         await postJson(`http://127.0.0.1:${runtimePort}/api/services/echo-service/stop`).catch(() => {});
-        await postJson(`http://127.0.0.1:${runtimePort}/api/runtime/actions/stopAll`).catch(() => {});
+        await postJson(`http://127.0.0.1:${runtimePort}/api/runtime/actions/stopAll`, { confirm: true }).catch(() => {});
       }
       await stopProcessTree(appProcess);
       await waitForPortClosed(`http://127.0.0.1:${hostPort}/`).catch(() => {});

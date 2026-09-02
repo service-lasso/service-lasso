@@ -292,9 +292,14 @@ import {
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
 import {
   enforcePermission,
+  isPermissionGateError,
   permissionActorFromRuntimeAuth,
   type PermissionActor,
 } from "../runtime/permissions/enforcement.js";
+import {
+  getDurableHttpMutationPolicy,
+  getRuntimeOrchestrationActionPolicy,
+} from "../runtime/permissions/durable-http.js";
 import { getServiceLifecycleActionPolicy } from "../runtime/permissions/lifecycle.js";
 import { buildManagedWorkflowRegistry } from "../runtime/workflows/registry.js";
 import { buildServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
@@ -1737,18 +1742,26 @@ function parseUpdateCheckBody(input: unknown): { serviceId?: string } {
   };
 }
 
-function parseUpdateInstallBody(input: unknown): { force?: boolean } {
+function parseUpdateInstallBody(input: unknown): { force?: boolean; confirm: boolean } {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new ApiError("invalid_body", 400, "Update install body must be a JSON object.");
   }
 
   const candidate = input as Record<string, unknown>;
+  const unknownFields = Object.keys(candidate).filter((key) => key !== "force" && key !== "confirm");
+  if (unknownFields.length > 0) {
+    throw new ApiError("invalid_body", 400, "Update install body accepts only force and confirm.");
+  }
   if (candidate.force !== undefined && typeof candidate.force !== "boolean") {
     throw new ApiError("invalid_body", 400, "\"force\" must be a boolean when present.");
+  }
+  if (candidate.confirm !== undefined && typeof candidate.confirm !== "boolean") {
+    throw new ApiError("invalid_body", 400, '"confirm" must be a boolean when present.');
   }
 
   return {
     force: typeof candidate.force === "boolean" ? candidate.force : undefined,
+    confirm: candidate.confirm === true,
   };
 }
 
@@ -5078,6 +5091,18 @@ async function routeRequestWithoutMutationCoordination(
   }
 
   if (request.method === "POST" && url.pathname === "/api/updates/check") {
+    const checkActor = permissionActorFromRuntimeAuth(auth);
+    const checkPolicy = getDurableHttpMutationPolicy("update-check");
+    await enforcePermission({
+      workspaceRoot: config.workspaceRoot,
+      actor: checkActor,
+      permission: checkPolicy.permission,
+      sensitive: checkPolicy.sensitive,
+      confirmed: false,
+      method: "POST",
+      routeTemplate: "/api/updates/check",
+      subject: "update-check",
+    });
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const body = parseUpdateCheckBody(await readJsonBody(request));
     const result = await checkServiceUpdatesForCli(runtimeModel.registry.list(), body.serviceId);
@@ -5104,7 +5129,7 @@ async function routeRequestWithoutMutationCoordination(
         serviceRoot: service.serviceRoot,
         source: "runtime-api",
         action: "service.update.check",
-        actor: "unknown",
+        actor: checkActor.id,
         subject: "update-check",
         serviceId: checked.serviceId,
         method: "POST",
@@ -5949,7 +5974,20 @@ async function routeRequestWithoutMutationCoordination(
 
     if (request.method === "POST" && pathParts.length >= 5 && pathParts[3] === "setup" && pathParts[4] === "run") {
       const stepId = pathParts.length === 6 ? decodeURIComponent(pathParts[5] ?? "") : undefined;
+      const setupActor = permissionActorFromRuntimeAuth(auth);
+      const setupPolicy = getDurableHttpMutationPolicy("setup-run");
       try {
+        await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: setupActor,
+          permission: setupPolicy.permission,
+          sensitive: setupPolicy.sensitive,
+          confirmed: false,
+          method: "POST",
+          routeTemplate: stepId ? "/api/services/:serviceId/setup/run/:stepId" : "/api/services/:serviceId/setup/run",
+          subject: stepId ?? "all",
+        });
         const result = await runServiceSetup(service, runtimeModel.registry, {
           stepId,
           includeManual: stepId !== undefined,
@@ -5965,7 +6003,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.setup.run",
-          actor: "unknown",
+          actor: setupActor.id,
           subject: stepId ?? "all",
           serviceId,
           method: "POST",
@@ -5981,7 +6019,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.setup.run",
-          actor: "unknown",
+          actor: setupActor.id,
           subject: stepId ?? "all",
           serviceId,
           method: "POST",
@@ -5997,13 +6035,26 @@ async function routeRequestWithoutMutationCoordination(
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "recovery" && pathParts[4] === "doctor") {
+      const doctorActor = permissionActorFromRuntimeAuth(auth);
+      const doctorPolicy = getDurableHttpMutationPolicy("recovery-doctor");
       try {
+        await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: doctorActor,
+          permission: doctorPolicy.permission,
+          sensitive: doctorPolicy.sensitive,
+          confirmed: false,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/recovery/doctor",
+          subject: "doctor",
+        });
         const doctor = await runAndRecordDoctorPreflight(service);
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.recovery.doctor",
-          actor: "unknown",
+          actor: doctorActor.id,
           subject: "doctor",
           serviceId,
           method: "POST",
@@ -6022,7 +6073,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.recovery.doctor",
-          actor: "unknown",
+          actor: doctorActor.id,
           subject: "doctor",
           serviceId,
           method: "POST",
@@ -6038,7 +6089,20 @@ async function routeRequestWithoutMutationCoordination(
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "download") {
+      const downloadActor = permissionActorFromRuntimeAuth(auth);
+      const downloadPolicy = getDurableHttpMutationPolicy("update-download");
       try {
+        await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: downloadActor,
+          permission: downloadPolicy.permission,
+          sensitive: downloadPolicy.sensitive,
+          confirmed: false,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/update/download",
+          subject: "update-candidate",
+        });
         const result = await downloadServiceUpdateCandidate(service);
         await emitOperatorInboxUpdateEvent(config.workspaceRoot, {
           serviceId,
@@ -6052,7 +6116,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.update.download",
-          actor: "unknown",
+          actor: downloadActor.id,
           subject: "update-candidate",
           serviceId,
           method: "POST",
@@ -6068,7 +6132,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.update.download",
-          actor: "unknown",
+          actor: downloadActor.id,
           subject: "update-candidate",
           serviceId,
           method: "POST",
@@ -6078,19 +6142,34 @@ async function routeRequestWithoutMutationCoordination(
           summary: "Failed to download update candidate.",
           reason: getAuditFailureReason(error),
         });
-        await emitInboxUpdateFailure(
-          config.workspaceRoot,
-          serviceId,
-          `Update download failed for service "${serviceId}".`,
-        );
+        if (!isPermissionGateError(error)) {
+          await emitInboxUpdateFailure(
+            config.workspaceRoot,
+            serviceId,
+            `Update download failed for service "${serviceId}".`,
+          );
+        }
         throw error;
       }
       return;
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "update" && pathParts[4] === "install") {
+      const installActor = permissionActorFromRuntimeAuth(auth);
+      const installPolicy = getDurableHttpMutationPolicy("update-install");
       try {
         const body = parseUpdateInstallBody(await readJsonBody(request));
+        await enforcePermission({
+          serviceRoot: service.serviceRoot,
+          serviceId,
+          actor: installActor,
+          permission: installPolicy.permission,
+          sensitive: installPolicy.sensitive,
+          confirmed: body.confirm,
+          method: "POST",
+          routeTemplate: "/api/services/:serviceId/update/install",
+          subject: "update-candidate",
+        });
         const result = await installServiceUpdateCandidate(service, {
           force: body.force,
           registry: runtimeModel.registry,
@@ -6101,7 +6180,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.update.install",
-          actor: "unknown",
+          actor: installActor.id,
           subject: "update-candidate",
           serviceId,
           method: "POST",
@@ -6117,7 +6196,7 @@ async function routeRequestWithoutMutationCoordination(
           serviceRoot: service.serviceRoot,
           source: "runtime-api",
           action: "service.update.install",
-          actor: "unknown",
+          actor: installActor.id,
           subject: "update-candidate",
           serviceId,
           method: "POST",
@@ -6127,11 +6206,13 @@ async function routeRequestWithoutMutationCoordination(
           summary: "Failed to install update candidate.",
           reason: getAuditFailureReason(error),
         });
-        await emitInboxUpdateFailure(
-          config.workspaceRoot,
-          serviceId,
-          `Update install failed for service "${serviceId}".`,
-        );
+        if (!isPermissionGateError(error)) {
+          await emitInboxUpdateFailure(
+            config.workspaceRoot,
+            serviceId,
+            `Update install failed for service "${serviceId}".`,
+          );
+        }
         throw error;
       }
       return;
@@ -6634,8 +6715,24 @@ async function routeRequestWithoutMutationCoordination(
       throw new ApiError("invalid_action", 400, `Unknown runtime action: ${action}`);
     }
 
+    const orchestrationActor = permissionActorFromRuntimeAuth(auth);
+    const orchestrationPolicy = getRuntimeOrchestrationActionPolicy(action);
+    if (!orchestrationPolicy) {
+      throw new ApiError("invalid_action", 400, `Unknown runtime action: ${action}`);
+    }
+    const body = parseLifecycleActionBody(await readJsonBody(request));
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     try {
+      await enforcePermission({
+        workspaceRoot: config.workspaceRoot,
+        actor: orchestrationActor,
+        permission: orchestrationPolicy.permission,
+        sensitive: orchestrationPolicy.sensitive,
+        confirmed: body.confirm,
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/:action",
+        subject: action,
+      });
       const result = await executeRuntimeOrchestrationAction(
         action,
         runtimeModel,
@@ -6648,7 +6745,7 @@ async function routeRequestWithoutMutationCoordination(
         workspaceRoot: config.workspaceRoot,
         source: "runtime-api",
         action: `runtime.${action}`,
-        actor: "unknown",
+        actor: orchestrationActor.id,
         subject: "runtime",
         method: "POST",
         routeTemplate: "/api/runtime/actions/:action",
@@ -6662,7 +6759,7 @@ async function routeRequestWithoutMutationCoordination(
         workspaceRoot: config.workspaceRoot,
         source: "runtime-api",
         action: `runtime.${action}`,
-        actor: "unknown",
+        actor: orchestrationActor.id,
         subject: "runtime",
         method: "POST",
         routeTemplate: "/api/runtime/actions/:action",

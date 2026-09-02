@@ -231,8 +231,8 @@ test("update API install blocks without force and installs with force", async ()
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
-    const blocked = await postJson(`${apiServer.url}/api/services/update-fixture/update/install`);
-    const forced = await postJson(`${apiServer.url}/api/services/update-fixture/update/install`, { force: true });
+    const blocked = await postJson(`${apiServer.url}/api/services/update-fixture/update/install`, { confirm: true });
+    const forced = await postJson(`${apiServer.url}/api/services/update-fixture/update/install`, { force: true, confirm: true });
     const stored = await readStoredState(serviceRoot);
 
     assert.equal(blocked.status, 500);
