@@ -1,6 +1,7 @@
 # Local reference material kept out of git history
 ref/
 .work-agent/
+.github-issue-*.md
 
 # Runtime/build artifacts
 node_modules/
