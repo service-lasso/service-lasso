@@ -148,11 +148,11 @@ async function waitForCliSummary(cli, timeoutMs = 600_000) {
   throw lastError ?? new Error("Timed out waiting for CLI JSON summary.");
 }
 
-async function postJson(url) {
+async function postJson(url, body = {}) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(body),
   });
   const body = await response.json().catch(() => null);
 
@@ -967,7 +967,7 @@ try {
   const traefik = await fetch(`http://127.0.0.1:${traefikAdminPort}/ping`);
   assert(traefik.ok, "Traefik release-backed ping surface was not reachable.");
 
-  await postJson(`http://127.0.0.1:${apiPort}/api/runtime/actions/stopAll`);
+  await postJson(`http://127.0.0.1:${apiPort}/api/runtime/actions/stopAll`, { confirm: true });
   servicesStopped = true;
   console.log("[service-lasso baseline] start smoke passed");
 } catch (error) {
@@ -983,7 +983,7 @@ try {
   if (cli) {
     if (!servicesStopped) {
       try {
-        await postJson(`http://127.0.0.1:${apiPort}/api/runtime/actions/stopAll`);
+        await postJson(`http://127.0.0.1:${apiPort}/api/runtime/actions/stopAll`, { confirm: true });
       } catch {}
     }
     await stopChild(cli.child);

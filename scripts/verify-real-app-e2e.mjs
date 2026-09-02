@@ -523,7 +523,7 @@ try {
   await waitForServiceState(apiUrl, "@secretsbroker", { running: true });
 
   verificationStep = "reverse_cleanup";
-  await postJson(`${apiUrl}/api/runtime/actions/stopAll`);
+  await postJson(`${apiUrl}/api/runtime/actions/stopAll`, { confirm: true });
   servicesStopped = true;
   console.log("[service-lasso e2e] real app baseline state gate passed");
 } catch (error) {
@@ -564,7 +564,7 @@ try {
     try {
       // The isolated services/workspace roots are owned by this verification
       // transaction. stopAll uses the runtime dependency graph's shutdown order.
-      await postJson(`${apiUrl}/api/runtime/actions/stopAll`);
+      await postJson(`${apiUrl}/api/runtime/actions/stopAll`, { confirm: true });
       servicesStopped = true;
     } catch {}
   }

@@ -88,8 +88,8 @@ async function waitForJson(url, timeoutMs = 300_000) {
   throw lastError ?? new Error(`Timed out waiting for ${url}`);
 }
 
-async function postJson(url) {
-  const response = await fetchWithTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+async function postJson(url, body = {}) {
+  const response = await fetchWithTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`POST ${url} returned ${response.status}: ${JSON.stringify(body)}`);
   return body;
@@ -137,7 +137,7 @@ function startInstance({ servicesRoot, workspaceRoot, apiPort, servicePortStart,
 }
 
 async function stopInstance(instance, apiUrl) {
-  try { await postJson(`${apiUrl}/api/runtime/actions/stopAll`); } catch {}
+  try { await postJson(`${apiUrl}/api/runtime/actions/stopAll`, { confirm: true }); } catch {}
   if (instance.child.exitCode === null && instance.child.signalCode === null) {
     const closed = new Promise((resolve) => instance.child.once("close", resolve));
     instance.child.kill("SIGTERM");

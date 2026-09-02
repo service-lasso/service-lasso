@@ -491,7 +491,7 @@ async function stopRuntimeServices(runtimeInstance) {
   }
 
   try {
-    const result = await getJson(`${apiUrl}/api/runtime/actions/stopAll`, "POST", 15_000);
+    const result = await getJson(`${apiUrl}/api/runtime/actions/stopAll`, "POST", 15_000, { confirm: true });
     return {
       label: "runtime-api-stopAll",
       stopped: result.status === 200,
@@ -1391,8 +1391,13 @@ export async function startDemoRuntime(options = {}) {
   return runtime;
 }
 
-async function getJson(url, method = "GET", timeoutMs = 30_000) {
-  const response = await fetch(url, { method, signal: AbortSignal.timeout(timeoutMs) });
+async function getJson(url, method = "GET", timeoutMs = 30_000, body) {
+  const response = await fetch(url, {
+    method,
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return {
     status: response.status,
     body: await response.json(),
@@ -1597,7 +1602,7 @@ export async function runDemoSmoke(options = {}) {
       "Expected aggregate metrics to include echo-service.",
     );
 
-    const stopAll = await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST");
+    const stopAll = await getJson(`${runtime.apiServer.url}/api/runtime/actions/stopAll`, "POST", 30_000, { confirm: true });
     assertCondition(stopAll.status === 200, "Expected stopAll to return 200.");
     const stopAllHandledEcho =
       stopAll.body.results.some((result) => result.serviceId === "echo-service")
