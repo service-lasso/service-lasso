@@ -228,8 +228,12 @@ Durable HTTP routes resolve the actor from the trusted request-policy identity
 workflow metadata, but they must not supply actor authority. Unmapped ZITADEL
 actors authenticate for reads when identity is proven, then fail closed for
 mutating action runs until workspace grant mapping is applied. In-process
-system and service-account callers pass an explicit permission actor; HTTP
-cannot spoof those kinds.
+callers use explicit factory actors: `runtime-recovery-monitor` (`service:restart`),
+`runtime-update-scheduler` (`service:update`), and `cli-local-root` (local CLI
+operator mutations). HTTP cannot spoof those kinds. Sensitive in-process
+restart and scheduled install use policy elevation; ungranted or unconfirmed
+calls fail closed without mutation and still write a metadata-only permission
+decision to the existing audit store (`SPEC-002` `AC-4CC`).
 
 Dangerous or elevated actions need confirmation even when the actor has a base
 entitlement. Examples include service restart, destructive config apply,

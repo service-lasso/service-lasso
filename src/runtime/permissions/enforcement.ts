@@ -27,6 +27,20 @@ export interface PermissionDecisionInput {
   method: string;
   routeTemplate: string;
   subject?: string;
+  /** Audit source. HTTP stays `runtime-api`; in-process callers set CLI/system. */
+  source?: string;
+}
+
+export type InProcessPermissionRole = "recovery-monitor" | "update-scheduler" | "cli-local-root";
+
+export interface InProcessPermissionProfile {
+  actor: PermissionActor;
+  source: "runtime-system" | "runtime-cli";
+  /**
+   * Policy elevation for system-owned sensitive work. Interactive CLI
+   * confirmation remains explicit and is not implied by local-root.
+   */
+  elevated: boolean;
 }
 
 export interface PermissionDecision {
@@ -161,6 +175,60 @@ export function actorHasPermission(actor: PermissionActor, permission: string): 
 }
 
 /**
+ * Returns the trusted in-process actor used by CLI, scheduler, and
+ * recovery-monitor mutations. System roles receive scoped grants, never `*`.
+ */
+export function inProcessPermissionProfile(role: InProcessPermissionRole): InProcessPermissionProfile {
+  if (role === "recovery-monitor") {
+    return {
+      actor: {
+        type: "system",
+        id: "runtime-recovery-monitor",
+        permissions: ["service:restart"],
+      },
+      source: "runtime-system",
+      elevated: true,
+    };
+  }
+
+  if (role === "update-scheduler") {
+    return {
+      actor: {
+        type: "system",
+        id: "runtime-update-scheduler",
+        permissions: ["service:update"],
+      },
+      source: "runtime-system",
+      elevated: true,
+    };
+  }
+
+  return {
+    actor: {
+      type: "local-root",
+      id: "cli-local-root",
+      permissions: ["*"],
+    },
+    source: "runtime-cli",
+    elevated: false,
+  };
+}
+
+/**
+ * True when permission enforcement denied the caller before mutation.
+ */
+export function isPermissionGateError(error: unknown): boolean {
+  return (
+    error instanceof ApiError
+    && (
+      error.code === "permission_denied"
+      || error.code === "confirmation_required"
+      || error.code === "actor_required"
+    )
+  );
+}
+
+/**
  * Allows or denies a durable action before execution, then records a
  * metadata-only permission.decision audit event. Callers must pass a trusted
  * actor: HTTP uses permissionActorFromRuntimeAuth, in-process callers pass an
@@ -190,7 +258,7 @@ export async function enforcePermission(input: PermissionDecisionInput): Promise
   await appendAuditEvent({
     workspaceRoot: input.serviceRoot ? undefined : input.workspaceRoot,
     serviceRoot: input.serviceRoot,
-    source: "runtime-api",
+    source: input.source ?? "runtime-api",
     action: "permission.decision",
     actor: actor.id,
     subject: input.subject ?? input.permission,

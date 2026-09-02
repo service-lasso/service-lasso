@@ -9,9 +9,15 @@ import { ApiError } from "../dist/server/errors.js";
 import { resolveRuntimeRequestAuth } from "../dist/runtime/auth/request-policy.js";
 import {
   enforcePermission,
+  inProcessPermissionProfile,
   permissionActorFromRuntimeAuth,
   resolvePermissionActor,
 } from "../dist/runtime/permissions/enforcement.js";
+import { runOperatorCliAction } from "../dist/runtime/cli/operator.js";
+import {
+  readOperatorActionQueue,
+  upsertOperatorActionItem,
+} from "../dist/runtime/operator/action-queue.js";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 
 const SENTINEL_TOKEN = "test-local-admin-token";
@@ -330,4 +336,81 @@ test("resolvePermissionActor still accepts explicit in-process system actors", (
   assert.equal(systemActor.type, "system");
   assert.equal(systemActor.id, "scheduler-runtime");
   assert.deepEqual(systemActor.permissions, ["service.action.run"]);
+});
+
+test("in-process profiles scope system grants and keep CLI local-root owner-equivalent", () => {
+  const monitor = inProcessPermissionProfile("recovery-monitor");
+  assert.equal(monitor.actor.type, "system");
+  assert.equal(monitor.actor.id, "runtime-recovery-monitor");
+  assert.deepEqual(monitor.actor.permissions, ["service:restart"]);
+  assert.equal(monitor.elevated, true);
+  assert.equal(monitor.actor.permissions.includes("*"), false);
+
+  const scheduler = inProcessPermissionProfile("update-scheduler");
+  assert.equal(scheduler.actor.id, "runtime-update-scheduler");
+  assert.deepEqual(scheduler.actor.permissions, ["service:update"]);
+  assert.equal(scheduler.actor.permissions.includes("*"), false);
+
+  const cli = inProcessPermissionProfile("cli-local-root");
+  assert.equal(cli.actor.type, "local-root");
+  assert.equal(cli.actor.id, "cli-local-root");
+  assert.deepEqual(cli.actor.permissions, ["*"]);
+});
+
+test("CLI operator mutations allow cli-local-root, deny empty grants, and audit identity", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-permission-cli-");
+
+  try {
+    const queued = await upsertOperatorActionItem(workspaceRoot, {
+      dedupeKey: "recovery:sample:doctor",
+      severity: "warning",
+      source: { kind: "recovery", serviceId: "sample", reference: "doctor" },
+      title: "Recovery doctor warning",
+      summary: "Doctor reported a warning.",
+    });
+    const itemId = queued.items[0].id;
+
+    await assert.rejects(
+      () =>
+        runOperatorCliAction({
+          action: "actions",
+          actionsAction: "acknowledge",
+          itemId,
+          servicesRoot,
+          workspaceRoot,
+          permissionActor: { type: "zitadel-user", id: "usr_zitadel_operator", permissions: [] },
+        }),
+      (error) => error instanceof ApiError && error.code === "permission_denied",
+    );
+    const deniedQueue = await readOperatorActionQueue(workspaceRoot);
+    assert.equal(deniedQueue.items[0].status, "open");
+    assert.equal(deniedQueue.acknowledgementHistory.length, 0);
+
+    const allowed = await runOperatorCliAction({
+      action: "actions",
+      actionsAction: "acknowledge",
+      itemId,
+      servicesRoot,
+      workspaceRoot,
+    });
+    assert.equal(allowed.queue.items[0].status, "acknowledged");
+    assert.equal(allowed.queue.acknowledgementHistory[0].actor, "cli-local-root");
+
+    const audit = await readAuditEvents({ workspaceRoot });
+    const decisions = audit.events.filter((event) => event.action === "permission.decision");
+    assert.ok(decisions.some((event) => event.actor === "cli-local-root" && event.outcome === "success" && event.source === "runtime-cli"));
+    assert.ok(
+      decisions.some(
+        (event) =>
+          event.actor === "usr_zitadel_operator"
+          && event.outcome === "failure"
+          && event.reason === "permission_not_granted"
+          && event.source === "runtime-cli",
+      ),
+    );
+    assert.equal(audit.rawMaterialReturned, false);
+    assert.equal(JSON.stringify(audit.events).includes(SENTINEL_TOKEN), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });

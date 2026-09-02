@@ -8,6 +8,11 @@ import {
 } from "./actions.js";
 import { persistUpdateCheckResult } from "./state.js";
 import { emitInboxFromUpdateSchedulerEvent } from "../operator/inbox-emit.js";
+import {
+  enforcePermission,
+  inProcessPermissionProfile,
+  type PermissionActor,
+} from "../permissions/enforcement.js";
 
 export type UpdateSchedulerEventAction = "check" | "download" | "install" | "skip";
 export type UpdateSchedulerEventReason =
@@ -33,12 +38,19 @@ export interface UpdateSchedulerEvent {
   at: string;
 }
 
+export interface RuntimeUpdateSchedulerPermissionOptions {
+  actor?: PermissionActor;
+  confirmed?: boolean;
+}
+
 export interface RuntimeUpdateSchedulerOptions {
   registry: ServiceRegistry;
   workspaceRoot?: string;
   intervalMs?: number;
   logger?: Pick<Console, "log" | "warn">;
   now?: () => Date;
+  /** Test or policy override. Production uses the update-scheduler system actor. */
+  permission?: RuntimeUpdateSchedulerPermissionOptions;
 }
 
 export interface RuntimeUpdateScheduler {
@@ -136,6 +148,19 @@ export function createRuntimeUpdateScheduler(options: RuntimeUpdateSchedulerOpti
         return createEvent(service, "download", "downloaded", mode, message, now);
       }
 
+      const profile = inProcessPermissionProfile("update-scheduler");
+      await enforcePermission({
+        serviceRoot: service.serviceRoot,
+        serviceId,
+        actor: options.permission?.actor ?? profile.actor,
+        permission: "service:update",
+        sensitive: true,
+        confirmed: options.permission?.confirmed ?? profile.elevated,
+        method: "SCHEDULER",
+        routeTemplate: "update-scheduler/install",
+        subject: "service:update",
+        source: profile.source,
+      });
       const result = await installServiceUpdateCandidate(service, {
         registry: options.registry,
         now,

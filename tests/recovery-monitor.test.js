@@ -13,13 +13,14 @@ import {
   installService,
   startService,
 } from "../dist/runtime/lifecycle/actions.js";
-import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createRuntimeServiceMonitor } from "../dist/runtime/recovery/monitor.js";
 import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { writeServiceState } from "../dist/runtime/state/writeState.js";
 import { startApiServer } from "../dist/server/index.js";
+import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 async function waitFor(readinessCheck, timeoutMs = 15_000) {
@@ -229,6 +230,85 @@ test("API server can start and stop the opt-in runtime monitor cleanly", async (
     assert.ok(apiServer.monitor);
   } finally {
     await apiServer.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Seeds a crashed, installed service so permission denial can be proven without spawn.
+ */
+function crashedInstalledState(serviceId) {
+  const current = getLifecycleState(serviceId);
+  return {
+    ...current,
+    installed: true,
+    configured: true,
+    running: false,
+    runtime: {
+      ...current.runtime,
+      lastTermination: "crashed",
+    },
+  };
+}
+
+test("runtime monitor denies ungranted and unconfirmed restart without mutation", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-monitor-permission-");
+
+  try {
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "permission-deny-service", {
+      monitoring: { enabled: true },
+      restartPolicy: { enabled: true, onCrash: true, maxAttempts: 2 },
+    });
+    const registry = await prepareRegistry(servicesRoot);
+    setLifecycleState("permission-deny-service", crashedInstalledState("permission-deny-service"));
+
+    const denied = createRuntimeServiceMonitor({
+      registry,
+      logger: { log: () => undefined, warn: () => undefined },
+      permission: {
+        actor: { type: "system", id: "runtime-recovery-monitor", permissions: [] },
+      },
+    });
+    const deniedEvents = await denied.runOnce();
+    assert.equal(deniedEvents[0].action, "skip");
+    assert.equal(deniedEvents[0].reason, "restart_failed");
+    assert.equal(getLifecycleState("permission-deny-service").running, false);
+    assert.equal(hasManagedProcess("permission-deny-service"), false);
+
+    const unconfirmed = createRuntimeServiceMonitor({
+      registry,
+      logger: { log: () => undefined, warn: () => undefined },
+      permission: { confirmed: false },
+    });
+    const unconfirmedEvents = await unconfirmed.runOnce();
+    assert.equal(unconfirmedEvents[0].action, "skip");
+    assert.equal(unconfirmedEvents[0].reason, "restart_failed");
+    assert.equal(getLifecycleState("permission-deny-service").running, false);
+    assert.equal(hasManagedProcess("permission-deny-service"), false);
+
+    const audit = await readAuditEvents({ serviceRoots: [serviceRoot] });
+    const decisions = audit.events.filter((event) => event.action === "permission.decision");
+    assert.ok(
+      decisions.some(
+        (event) =>
+          event.actor === "runtime-recovery-monitor"
+          && event.reason === "permission_not_granted"
+          && event.source === "runtime-system",
+      ),
+    );
+    assert.ok(
+      decisions.some(
+        (event) =>
+          event.actor === "runtime-recovery-monitor"
+          && event.reason === "confirmation_required"
+          && event.source === "runtime-system",
+      ),
+    );
+    assert.equal(audit.rawMaterialReturned, false);
+  } finally {
+    await stopAllManagedProcesses();
+    resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
