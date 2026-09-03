@@ -3,11 +3,15 @@ import { discoverServices } from "../discovery/discoverServices.js";
 import { installService } from "../lifecycle/actions.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 
 export interface InstallServiceCliOptions extends RuntimeConfigOptions {
   serviceId: string;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export interface InstallServiceCliResult extends LifecycleActionResponse {
@@ -23,6 +27,13 @@ export async function installServiceFromCli(options: InstallServiceCliOptions): 
       version: options.version,
     }),
   );
+  await enforceLeftoverCliMutation({
+    workspaceRoot: runtimeConfig.workspaceRoot,
+    kind: "install",
+    permissionActor: options.permissionActor,
+    subject: options.serviceId,
+    serviceId: options.serviceId,
+  });
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
   await rehydrateDiscoveredServices(discovered);
   const registry = createServiceRegistry(discovered);

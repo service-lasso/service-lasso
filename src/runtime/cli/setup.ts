@@ -2,6 +2,8 @@ import type { SetupServiceResult } from "../setup/steps.js";
 import { discoverServices } from "../discovery/discoverServices.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import { writeServiceState } from "../state/writeState.js";
 import { listSetupStepIds, runServiceSetup } from "../setup/steps.js";
@@ -14,6 +16,8 @@ export interface SetupCliOptions extends RuntimeConfigOptions {
   stepId?: string;
   force?: boolean;
   includeManual?: boolean;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export interface SetupCliResult {
@@ -57,6 +61,14 @@ export async function runSetupCliAction(options: SetupCliOptions): Promise<Setup
   if (!options.serviceId) {
     throw new Error('The "setup run" command requires a <serviceId> argument.');
   }
+
+  await enforceLeftoverCliMutation({
+    workspaceRoot: runtimeConfig.workspaceRoot,
+    kind: "setup-run",
+    permissionActor: options.permissionActor,
+    subject: options.serviceId,
+    serviceId: options.serviceId,
+  });
 
   const service = registry.getById(options.serviceId);
   if (!service) {

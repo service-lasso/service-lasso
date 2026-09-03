@@ -5,6 +5,8 @@ import type { ServiceManifest } from "../../contracts/service.js";
 import { discoverServices } from "../discovery/discoverServices.js";
 import { validateServiceManifest } from "../discovery/validateManifest.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import { readStoredState, type StoredStateSnapshot } from "../state/readState.js";
 
 const BACKUP_SCHEMA_VERSION = "service-lasso.workspace-backup.v1";
@@ -18,6 +20,8 @@ export interface BackupCliOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
   version?: string;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export interface BackupServiceLogMetadata {
@@ -245,6 +249,12 @@ function readArchive(archivePath: string): { zip: AdmZip; manifest: WorkspaceBac
 
 export async function createWorkspaceBackup(options: Omit<BackupCliOptions, "action" | "archivePath">): Promise<BackupCreateResult> {
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
+  await enforceLeftoverCliMutation({
+    workspaceRoot: config.workspaceRoot,
+    kind: "backup-create",
+    permissionActor: options.permissionActor,
+    subject: "create",
+  });
   const createdAt = nowIso();
   const backupRoot = path.join(config.workspaceRoot, "backups");
   await mkdir(backupRoot, { recursive: true });

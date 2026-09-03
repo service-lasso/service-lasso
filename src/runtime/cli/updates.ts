@@ -1,6 +1,8 @@
 import { discoverServices } from "../discovery/discoverServices.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import { rehydrateDiscoveredServices } from "../state/rehydrate.js";
 import {
   checkServiceUpdatesForCli,
@@ -19,6 +21,8 @@ export interface UpdatesCliOptions extends RuntimeConfigOptions {
   action: UpdateCliAction;
   serviceId?: string;
   force?: boolean;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export type UpdatesCliResult =
@@ -73,6 +77,14 @@ export async function runUpdatesCliAction(options: UpdatesCliOptions): Promise<U
   if (!options.serviceId) {
     throw new Error(`The "updates ${options.action}" command requires a <serviceId> argument.`);
   }
+
+  await enforceLeftoverCliMutation({
+    workspaceRoot: runtimeConfig.workspaceRoot,
+    kind: options.action === "download" ? "updates-download" : "updates-install",
+    permissionActor: options.permissionActor,
+    subject: options.serviceId,
+    serviceId: options.serviceId,
+  });
 
   const service = registry.getById(options.serviceId);
   if (!service) {
