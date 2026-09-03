@@ -4,6 +4,8 @@ Status: ready for independent review; external approval not yet recorded
 Tracking issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)  
 Acceptance authority: `SPEC-007` `AC-7F` through `AC-7H`
 
+> **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md) records technical verification performed 2026-09-03. This is evidence collection by the delivery-owner agent, not AC-7H independent approval.
+
 ## Exact review scope
 
 | Component | Immutable identity | Publication |
