@@ -1,6 +1,8 @@
 import { discoverServices } from "../discovery/discoverServices.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import { runAndRecordDoctorPreflight, type DoctorRunResult } from "../recovery/doctor.js";
 import { readServiceRecoveryHistory, type ServiceRecoveryHistoryState } from "../recovery/history.js";
 import {
@@ -14,6 +16,8 @@ export type RecoveryCliAction = "status" | "doctor" | "restart-preflight";
 export interface RecoveryCliOptions extends RuntimeConfigOptions {
   action: RecoveryCliAction;
   serviceId?: string;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export type RecoveryCliResult =
@@ -92,6 +96,14 @@ export async function runRecoveryCliAction(options: RecoveryCliOptions): Promise
       preflight: buildRestartSafetyPreflightReport(service, registry),
     };
   }
+
+  await enforceLeftoverCliMutation({
+    workspaceRoot: runtimeConfig.workspaceRoot,
+    kind: "recovery-doctor",
+    permissionActor: options.permissionActor,
+    subject: service.manifest.id,
+    serviceId: service.manifest.id,
+  });
 
   const doctor = await runAndRecordDoctorPreflight(service);
   return {

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { runWorkspaceLifecycleCommand } from "../dist/runtime/lifecycle/workspace-commands.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { ApiError } from "../dist/server/errors.js";
 import { resolveRuntimeRequestAuth } from "../dist/runtime/auth/request-policy.js";
@@ -14,6 +15,10 @@ import {
   resolvePermissionActor,
 } from "../dist/runtime/permissions/enforcement.js";
 import { runOperatorCliAction } from "../dist/runtime/cli/operator.js";
+import { runLockfileCliAction } from "../dist/runtime/cli/lockfile.js";
+import { runBackupCliAction } from "../dist/runtime/cli/backup.js";
+import { installServiceFromCli } from "../dist/runtime/cli/install.js";
+import { resolveServiceLockfilePath } from "../dist/runtime/lockfile/service-lockfile.js";
 import {
   readOperatorActionQueue,
   upsertOperatorActionItem,
@@ -395,6 +400,101 @@ test("CLI operator mutations allow cli-local-root, deny empty grants, and audit 
     });
     assert.equal(allowed.queue.items[0].status, "acknowledged");
     assert.equal(allowed.queue.acknowledgementHistory[0].actor, "cli-local-root");
+
+    const audit = await readAuditEvents({ workspaceRoot });
+    const decisions = audit.events.filter((event) => event.action === "permission.decision");
+    assert.ok(decisions.some((event) => event.actor === "cli-local-root" && event.outcome === "success" && event.source === "runtime-cli"));
+    assert.ok(
+      decisions.some(
+        (event) =>
+          event.actor === "usr_zitadel_operator"
+          && event.outcome === "failure"
+          && event.reason === "permission_not_granted"
+          && event.source === "runtime-cli",
+      ),
+    );
+    assert.equal(audit.rawMaterialReturned, false);
+    assert.equal(JSON.stringify(audit.events).includes(SENTINEL_TOKEN), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("leftover CLI mutations allow cli-local-root, deny empty grants without mutation, and audit identity", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-permission-leftover-cli-");
+  const deniedActor = { type: "zitadel-user", id: "usr_zitadel_operator", permissions: [] };
+  const lockfilePath = resolveServiceLockfilePath(servicesRoot);
+
+  try {
+    await writeManifest(servicesRoot, "sample", { id: "sample", name: "Sample", description: "Leftover CLI permission fixture." });
+
+    await assert.rejects(
+      () =>
+        runLockfileCliAction({
+          action: "generate",
+          servicesRoot,
+          workspaceRoot,
+          permissionActor: deniedActor,
+        }),
+      (error) => error instanceof ApiError && error.code === "permission_denied",
+    );
+    await assert.rejects(
+      () => access(lockfilePath),
+      (error) => error && typeof error === "object" && "code" in error && error.code === "ENOENT",
+    );
+
+    await assert.rejects(
+      () =>
+        runBackupCliAction({
+          action: "create",
+          servicesRoot,
+          workspaceRoot,
+          permissionActor: deniedActor,
+        }),
+      (error) => error instanceof ApiError && error.code === "permission_denied",
+    );
+    await assert.rejects(
+      () => readdir(path.join(workspaceRoot, "backups")),
+      (error) => error && typeof error === "object" && "code" in error && error.code === "ENOENT",
+    );
+
+    await assert.rejects(
+      () =>
+        installServiceFromCli({
+          serviceId: "sample",
+          servicesRoot,
+          workspaceRoot,
+          permissionActor: deniedActor,
+        }),
+      (error) => error instanceof ApiError && error.code === "permission_denied",
+    );
+
+    await assert.rejects(
+      () =>
+        runWorkspaceLifecycleCommand({
+          action: "start",
+          servicesRoot,
+          workspaceRoot,
+          permissionActor: deniedActor,
+        }),
+      (error) => error instanceof ApiError && error.code === "permission_denied",
+    );
+
+    const generated = await runLockfileCliAction({
+      action: "generate",
+      servicesRoot,
+      workspaceRoot,
+    });
+    assert.equal(generated.action, "generate");
+    await access(lockfilePath);
+
+    const backup = await runBackupCliAction({
+      action: "create",
+      servicesRoot,
+      workspaceRoot,
+    });
+    assert.equal(backup.action, "create");
+    assert.equal(backup.ok, true);
 
     const audit = await readAuditEvents({ workspaceRoot });
     const decisions = audit.events.filter((event) => event.action === "permission.decision");

@@ -1,5 +1,7 @@
 import { discoverServices } from "../discovery/discoverServices.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import {
   generateServiceLockfile,
   readServiceLockfile,
@@ -14,6 +16,8 @@ export type LockfileCliAction = "generate" | "verify";
 
 export interface LockfileCliOptions extends RuntimeConfigOptions {
   action: LockfileCliAction;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export type LockfileCliResult =
@@ -41,6 +45,12 @@ export async function runLockfileCliAction(options: LockfileCliOptions): Promise
   const services = await discoverServices(runtimeConfig.servicesRoot);
 
   if (options.action === "generate") {
+    await enforceLeftoverCliMutation({
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      kind: "lockfile-generate",
+      permissionActor: options.permissionActor,
+      subject: "generate",
+    });
     const lockfile = generateServiceLockfile(services);
     const lockfilePath = await writeServiceLockfile(runtimeConfig.servicesRoot, lockfile);
     return {

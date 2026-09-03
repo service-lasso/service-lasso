@@ -4,8 +4,11 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import type { ServiceManifest } from "../../contracts/service.js";
 import { DEFAULT_SERVICES_ROOT } from "../../contracts/service-root.js";
+import { resolveRuntimeConfig } from "../config.js";
 import { discoverServices } from "../discovery/discoverServices.js";
 import { validateServiceManifest } from "../discovery/validateManifest.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 
 interface GitHubReleaseAsset {
   name: string;
@@ -21,10 +24,13 @@ export interface ImportServiceManifestCliOptions {
   repo?: string;
   tag?: string;
   servicesRoot?: string;
+  workspaceRoot?: string;
   apiBaseUrl?: string;
   archivePath?: string;
   force?: boolean;
   dryRun?: boolean;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export interface ImportServiceManifestCliResult {
@@ -264,6 +270,18 @@ export async function importServiceManifestFromCli(
   const servicesRoot = path.resolve(
     options.servicesRoot?.trim() || process.env.SERVICE_LASSO_SERVICES_ROOT || DEFAULT_SERVICES_ROOT,
   );
+  if (options.dryRun !== true) {
+    const runtimeConfig = resolveRuntimeConfig({
+      servicesRoot,
+      workspaceRoot: options.workspaceRoot,
+    });
+    await enforceLeftoverCliMutation({
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      kind: "services-import",
+      permissionActor: options.permissionActor,
+      subject: options.repo ?? options.archivePath ?? "import",
+    });
+  }
   if (options.archivePath) {
     const sourceArchivePath = path.resolve(options.archivePath);
     const archiveType = detectArchiveType(sourceArchivePath);

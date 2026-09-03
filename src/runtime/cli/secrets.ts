@@ -1,6 +1,8 @@
 import { discoverServices } from "../discovery/discoverServices.js";
 import { createServiceRegistry } from "../manager/DependencyGraph.js";
 import { resolveRuntimeConfig, type RuntimeConfigOptions } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import {
   createSecretsBrokerBackup,
   restoreSecretsBrokerBackup,
@@ -36,6 +38,8 @@ export interface SecretsCliOptions extends RuntimeConfigOptions {
   serviceId?: string;
   ref?: string;
   archivePath?: string;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 export type SecretsCliResult =
@@ -88,6 +92,13 @@ export async function runSecretsCliAction(options: SecretsCliOptions): Promise<S
   const discovered = await discoverServices(runtimeConfig.servicesRoot);
 
   if (options.action === "broker-backup" || options.action === "broker-restore") {
+    await enforceLeftoverCliMutation({
+      workspaceRoot: runtimeConfig.workspaceRoot,
+      kind: options.action === "broker-backup" ? "secrets-broker-backup" : "secrets-broker-restore",
+      permissionActor: options.permissionActor,
+      subject: SECRETSBROKER_SERVICE_ID,
+      serviceId: SECRETSBROKER_SERVICE_ID,
+    });
     const registry = createServiceRegistry(discovered);
     const broker = registry.getById(SECRETSBROKER_SERVICE_ID);
     if (!broker) {

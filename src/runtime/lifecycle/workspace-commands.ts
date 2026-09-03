@@ -2,6 +2,8 @@ import path from "node:path";
 import type { RuntimeInstanceRecord } from "../../contracts/api.js";
 import { startRuntimeApp } from "../app.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../config.js";
+import { enforceLeftoverCliMutation } from "../permissions/leftover-cli.js";
+import type { PermissionActor } from "../permissions/enforcement.js";
 import {
   markRuntimeInstanceStopped,
   readRuntimeInstanceState,
@@ -95,6 +97,8 @@ export interface WorkspaceLifecycleCommandOptions {
    * Library callers and tests leave this false to avoid the default service set.
    */
   includeBaseline?: boolean;
+  /** Test override. Production leftover CLI mutations use `cli-local-root`. */
+  permissionActor?: PermissionActor;
 }
 
 /**
@@ -129,6 +133,18 @@ export async function runWorkspaceLifecycleCommand(
   options: WorkspaceLifecycleCommandOptions,
 ): Promise<WorkspaceLifecycleResult> {
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
+  let kind: "workspace-start" | "workspace-stop" | "workspace-restart" = "workspace-start";
+  if (options.action === "stop") {
+    kind = "workspace-stop";
+  } else if (options.action === "restart") {
+    kind = "workspace-restart";
+  }
+  await enforceLeftoverCliMutation({
+    workspaceRoot: config.workspaceRoot,
+    kind,
+    permissionActor: options.permissionActor,
+    subject: options.action,
+  });
   return await withWorkspaceCommandLock(config.workspaceRoot, async () => {
     if (options.action === "stop") {
       return await stopWorkspaceRuntimeLocked(config, "stop");
