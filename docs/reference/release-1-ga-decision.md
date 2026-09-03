@@ -4,6 +4,8 @@ Decision: **GA blocked — independent security approval outstanding**
 Prepared: `2026-09-02`
 Tracking issue: [#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 
+> **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md) records technical verification performed 2026-09-03. This is delivery-owner evidence collection, not AC-7H sign-off. GA remains blocked.
+
 ## Internal gate decision
 
 The exact Release 1 candidate has passed the internal product, packaging,
