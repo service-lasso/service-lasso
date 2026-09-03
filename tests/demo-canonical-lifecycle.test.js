@@ -382,6 +382,45 @@ test("canonical verification failure is a single classified recycle blocker", as
   }
 });
 
+test("demo recycle keeps polling when canonical verify throws before ready", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-764-verify-throw-"));
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const servicesRoot = path.join(tempDir, "services");
+  let attempts = 0;
+
+  try {
+    const result = await runCanonicalDemoRecycle({
+      workspaceRoot,
+      servicesRoot,
+      port: 17883,
+      keepAlive: false,
+      readyTimeoutMs: 2_000,
+      readyPollMs: 10,
+    }, {
+      lockModule: passthroughLock,
+      classifyOwnership: async () => ({ classification: "not_running", ok: true, instance: null, portFree: true }),
+      runLifecycle: async (action) => fakeLifecycle(action),
+      confirmStopped: async () => ({ ok: true, classification: "already_stopped", apiDown: true, portFree: true }),
+      startDetached: async () => ({ logPath: path.join(tempDir, "detached.log") }),
+      getStatus: async () => fakeStatus(workspaceRoot, servicesRoot),
+      writeLifecycleState: async (_status, updates) => ({ phase: updates.phase }),
+      verify: async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error("fetch failed");
+        }
+        return { ok: true, failures: [] };
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.outcome, "recycled");
+    assert.ok(attempts >= 3);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("demo:stop confirms the runtime endpoint reservation is released", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-764-stop-"));
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
