@@ -213,6 +213,10 @@ or protection from unknown future vulnerabilities.
 
 ## Independent reproduction
 
+Use the [independent Windows PC test plan](./release-1-independent-windows-test-plan.md)
+for the exact artifact, npm, runtime, UI, lifecycle, recovery, audit, persistence,
+failure-path, and metadata-only result record on a clean Windows 11 x64 host.
+
 1. Verify the three release objects are immutable and resolve to the exact SHAs
    in this packet. Download asset inventories, checksum manifests, SBOMs, and
    attestations through the GitHub API; compare every public asset digest.
