@@ -222,3 +222,10 @@ evidence is a row-specific real-process result.
   rows to thirteen `validated` and one explicitly `excluded`, and binds the GA
   decision to a review-ready packet plus independent security sign-off at the
   exact immutable release identities.
+- 2026-09-03: Issue `#1219` restores the fail-closed Core `develop` graph after
+  new `fast-uri` and `qs` advisories. Dependabot `#1220` already shipped
+  `fast-uri` 3.1.7. This slice overrides production `qs` to patched 6.16.0
+  through `@modelcontextprotocol/sdk` -> Express/body-parser so
+  `npm audit --omit=dev` is zero and full `npm audit` has no critical/high
+  finding. A source lockfile fix is not remediation of published npm
+  `2026.9.1-1f4ec40`; republish and checksum-bound replacement remain `#1151`.

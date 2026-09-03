@@ -40,8 +40,45 @@ test("development dependency replacements resolve to the reviewed safe boundarie
     packageLock.packages["node_modules/serialize-javascript"].version,
     "7.1.0",
   );
+  assert.equal(packageJson.overrides.qs, "6.16.0");
   assert.equal(packageJson.overrides.sockjs.uuid, "11.1.1");
   assert.equal(packageLock.packages["node_modules/uuid"].version, "11.1.1");
+  assert.equal(packageLock.packages["node_modules/qs"].version, "6.16.0");
+  assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.7");
+});
+
+/**
+ * Nested copies of qs must also resolve to the patched override.
+ * Advisory GHSA-4mjr-xmp4-gh2g / GHSA-x5fp-wj9c-mxmx require >= 6.16.0.
+ */
+test("every lockfile qs copy is the patched 6.16.0 override", () => {
+  const qsPackages = Object.entries(packageLock.packages).filter(
+    ([name, pkg]) =>
+      (name === "node_modules/qs" || name.endsWith("/node_modules/qs")) &&
+      typeof pkg.version === "string",
+  );
+  assert.ok(qsPackages.length > 0, "expected at least one lockfile qs entry");
+  for (const [name, pkg] of qsPackages) {
+    assert.equal(pkg.version, "6.16.0", `${name} must resolve to patched qs`);
+  }
+});
+
+/**
+ * Express and body-parser still parse query/body strings through qs.parse.
+ * The override must keep that CommonJS call surface working.
+ */
+test("patched qs keeps the Express and body-parser parse surface", () => {
+  const qs = require("qs");
+  const parsed = qs.parse("service=echo&port=17883");
+  assert.equal(parsed.service, "echo");
+  assert.equal(parsed.port, "17883");
+  assert.equal(typeof qs.stringify({ service: "echo" }), "string");
+
+  const express = require("express");
+  assert.equal(typeof express, "function");
+  const bodyParser = require("body-parser");
+  assert.equal(typeof bodyParser.json, "function");
+  assert.equal(typeof bodyParser.urlencoded, "function");
 });
 
 test("the patched uuid override retains the CommonJS surface used by sockjs", () => {
