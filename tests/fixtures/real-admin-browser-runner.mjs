@@ -710,6 +710,18 @@ try {
   adminProcess.stderr.on("data", (chunk) => process.stderr.write(chunk));
   startupPhase = "admin_readiness";
   await waitFor(`http://127.0.0.1:${adminPort}/`);
+  if (typeof adminProcess.exitCode === "number") {
+    throw Object.assign(new Error("Admin process exited after readiness HTTP success."), {
+      code: "admin_startup_failed",
+    });
+  }
+  try {
+    process.kill(adminProcess.pid, 0);
+  } catch {
+    throw Object.assign(new Error("Admin process was not owned after readiness HTTP success."), {
+      code: "admin_startup_failed",
+    });
+  }
   startupPhase = "ready";
   process.stdout.write(
     `${JSON.stringify({

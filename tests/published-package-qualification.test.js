@@ -250,6 +250,9 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
     adminHarnessRevision: ADMIN_HARNESS_REVISION,
     retentionDays: 90,
     mutationRetry: false,
+    acquisitionRetry: false,
+    startupRetry: false,
+    firstFailure: null,
     negativeProof: Object.fromEntries(
       [
         "missingProvenance",

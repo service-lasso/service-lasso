@@ -105,6 +105,10 @@ try {
     harnessRevision: workflowSha,
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
+    acquisitionRetry: false,
+    startupRetry: false,
+    firstFailure: null,
+    failurePhase: null,
     failureCode: "preparation_state_missing",
     negativeProof: {},
     scenarios: {},
@@ -121,7 +125,7 @@ try {
     token,
   });
 } catch {
-  evidence.failureCode = "job_api_readback_failed";
+  if (!evidence.firstFailure) evidence.failureCode = "job_api_readback_failed";
 }
 
 evidence.run = {
@@ -159,6 +163,11 @@ evidence.mutations = {
   brokerRestart: process.env.QUALIFICATION_LIFECYCLE === "success" ? 1 : 0,
   providerMigrationApply: process.env.QUALIFICATION_LIFECYCLE === "success" ? 1 : 0,
 };
+evidence.mutationRetry = false;
+evidence.acquisitionRetry = evidence.acquisitionRetry === true;
+evidence.startupRetry = evidence.startupRetry === true;
+evidence.firstFailure ??= null;
+evidence.failurePhase ??= evidence.firstFailure?.phase ?? null;
 
 const requiredScenarios = [
   "preMutationGuards",
@@ -188,8 +197,14 @@ const stepsSucceeded =
   process.env.CLEANUP_OUTCOME === "success";
 const scenariosSucceeded = requiredScenarios.every((name) => evidence.scenarios[name] === "success");
 evidence.outcome = stepsSucceeded && scenariosSucceeded && jobId > 0 ? "success" : "failure";
-if (evidence.outcome === "success") evidence.failureCode = null;
-else evidence.failureCode ??= "qualification_incomplete";
+if (evidence.outcome === "success") {
+  evidence.failureCode = null;
+} else if (evidence.firstFailure?.failureCode) {
+  evidence.failureCode = evidence.firstFailure.failureCode;
+  evidence.failurePhase = evidence.firstFailure.phase;
+} else {
+  evidence.failureCode ??= "qualification_incomplete";
+}
 
 try {
   assertMetadataOnlyEvidence(evidence);
@@ -227,6 +242,10 @@ try {
     adminHarnessRevision,
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
+    acquisitionRetry: false,
+    startupRetry: false,
+    firstFailure: null,
+    failurePhase: null,
     failureCode: "unsafe_evidence_rejected",
     scenarios: {},
   };

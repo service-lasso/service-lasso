@@ -5,8 +5,12 @@ import {
   QUALIFICATION_SCHEMA,
   fail,
   readJsonFile,
-  safeFailureCode,
 } from "./published-package-qualification-lib.mjs";
+import {
+  QUALIFICATION_PHASES,
+  classifyQualificationFailure,
+  preserveFirstFailure,
+} from "./published-package-qualification-reliability.mjs";
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -76,7 +80,15 @@ try {
 } catch (error) {
   safeState.scenarios ??= {};
   safeState.scenarios.cleanupConvergence = "failure";
-  safeState.failureCode = safeFailureCode(error);
+  const classified = classifyQualificationFailure({
+    phase: QUALIFICATION_PHASES.OWNED_CLEANUP,
+    error,
+    mutationCount: Number(safeState.mutations?.brokerRestart ?? 0)
+      + Number(safeState.mutations?.providerMigrationApply ?? 0),
+  });
+  safeState.firstFailure = preserveFirstFailure(safeState.firstFailure, classified);
+  safeState.failurePhase = safeState.firstFailure.phase;
+  safeState.failureCode = safeState.firstFailure.failureCode;
   await writeFile(safeStatePath, `${JSON.stringify(safeState, null, 2)}\n`).catch(() => {});
   throw error;
 }

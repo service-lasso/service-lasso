@@ -45,6 +45,14 @@ import {
   verifyFileSha256,
   verifyNpmTarballIntegrity,
 } from "./published-package-qualification-lib.mjs";
+import {
+  QUALIFICATION_FAILURE_CODES,
+  QUALIFICATION_PHASES,
+  classifyQualificationFailure,
+  classifyReadinessSample,
+  inspectOwnedChild,
+  preserveFirstFailure,
+} from "./published-package-qualification-reliability.mjs";
 
 const CORE_REPO = "service-lasso/service-lasso";
 const PLATFORM_VALUES = new Set(["win32", "linux", "darwin"]);
@@ -150,6 +158,40 @@ function runNpm(args, options = {}) {
   if (process.platform !== "win32") return runCommand("npm", args, options);
   const commandLine = ["npm.cmd", ...args].map(quoteWindows).join(" ");
   return runCommand(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", commandLine], options);
+}
+
+/**
+ * Retry npm install once, only before lifecycle mutation. Preserve the first failure.
+ *
+ * @param {string} npmTarball
+ * @param {string} consumerRoot
+ * @param {object} state
+ * @returns {Promise<{ stdout: string, stderr: string }>}
+ */
+async function runNpmInstallWithRetry(npmTarball, consumerRoot, state) {
+  const args = ["install", npmTarball, "--ignore-scripts", "--no-audit", "--no-fund"];
+  const options = { cwd: consumerRoot };
+  try {
+    return await runNpm(args, options);
+  } catch (error) {
+    const classified = classifyQualificationFailure({
+      phase: QUALIFICATION_PHASES.NPM_ACQUISITION,
+      error: { code: QUALIFICATION_FAILURE_CODES.npm_acquisition },
+      mutationCount: 0,
+    });
+    state.firstFailure = preserveFirstFailure(state.firstFailure, classified);
+    state.failurePhase = classified.phase;
+    state.failureCode = classified.failureCode;
+    if (!classified.retryAllowed || state.acquisitionRetry === true) {
+      fail(classified.failureCode, "npm package acquisition failed.");
+    }
+    state.acquisitionRetry = true;
+    try {
+      return await runNpm(args, options);
+    } catch {
+      fail(classified.failureCode, "npm package acquisition failed after the allowed pre-mutation retry.");
+    }
+  }
 }
 
 async function readRelease(repo, releaseId, token) {
@@ -405,24 +447,55 @@ async function reservePort() {
   return port;
 }
 
-async function waitForHealth(port, expectedVersion, timeoutMs = 30_000) {
+async function waitForHealth(port, expectedVersion, child, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
+  let lastHttpStatus = 0;
+  let expectedBodyMatched = false;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+      lastHttpStatus = response.status;
       if (response.ok) {
         const body = await response.json();
-        if (body?.api?.version !== expectedVersion) {
+        expectedBodyMatched = body?.api?.version === expectedVersion;
+        if (!expectedBodyMatched) {
           fail("published_runtime_version_mismatch", "Published runtime health version is not exact.");
         }
-        return;
+        const ownedProcess = inspectOwnedChild(child);
+        const readiness = classifyReadinessSample({
+          phase: QUALIFICATION_PHASES.CORE_STARTUP,
+          httpStatus: response.status,
+          expectedBodyMatched: true,
+          sampledRunning: ownedProcess.status === "running" && ownedProcess.classification === "owned",
+          ownedProcess,
+          mutationCount: 0,
+        });
+        if (readiness.ready) return readiness;
+        fail(readiness.failureCode, "Published runtime health succeeded without owned process evidence.");
       }
     } catch (error) {
       if (error?.code === "published_runtime_version_mismatch") throw error;
+      if (error?.name === "QualificationError") throw error;
     }
     await delay(100);
   }
-  fail("published_runtime_not_ready", "Published runtime did not become ready.");
+  const ownedProcess = inspectOwnedChild(child);
+  const readiness = classifyReadinessSample({
+    phase: QUALIFICATION_PHASES.CORE_STARTUP,
+    httpStatus: lastHttpStatus,
+    expectedBodyMatched,
+    sampledRunning: false,
+    ownedProcess,
+    mutationCount: 0,
+  });
+  fail(
+    readiness.failureCode === QUALIFICATION_FAILURE_CODES.readiness_sampling_lag
+      ? QUALIFICATION_FAILURE_CODES.core_startup
+      : readiness.failureCode === QUALIFICATION_FAILURE_CODES.product_start_failed
+        ? QUALIFICATION_FAILURE_CODES.product_start_failed
+        : "published_runtime_not_ready",
+    "Published runtime did not become ready.",
+  );
 }
 
 async function stopChild(child) {
@@ -455,9 +528,11 @@ async function runReleaseRuntimeSmoke(coreRoot, servicesRoot, workspaceRoot, ver
   child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
   child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
   try {
-    await waitForHealth(port, version);
+    await waitForHealth(port, version, child);
   } catch (error) {
-    if (child.exitCode !== null) throw new Error("Published runtime exited before readiness.");
+    if (typeof child.exitCode === "number") {
+      fail(QUALIFICATION_FAILURE_CODES.core_startup, "Published runtime exited before readiness.");
+    }
     throw error;
   } finally {
     await stopChild(child);
@@ -467,13 +542,13 @@ async function runReleaseRuntimeSmoke(coreRoot, servicesRoot, workspaceRoot, ver
   }
 }
 
-async function runNpmConsumerSmoke({ npmTarball, consumerRoot, version }) {
+async function runNpmConsumerSmoke({ npmTarball, consumerRoot, version, state }) {
   await mkdir(consumerRoot, { recursive: true });
   await writeFile(
     path.join(consumerRoot, "package.json"),
     `${JSON.stringify({ name: "service-lasso-published-consumer", private: true, type: "module" }, null, 2)}\n`,
   );
-  await runNpm(["install", npmTarball, "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: consumerRoot });
+  await runNpmInstallWithRetry(npmTarball, consumerRoot, state);
   const packageRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const packageJson = await readJsonFile(path.join(packageRoot, "package.json"), "installed npm package.json");
   const publishManifest = await readJsonFile(
@@ -595,6 +670,10 @@ const safeState = {
   harnessRevision: workflowSha,
   retentionDays: RETENTION_DAYS,
   mutationRetry: false,
+  acquisitionRetry: false,
+  startupRetry: false,
+  firstFailure: null,
+  failurePhase: null,
   failureCode: "preparation_incomplete",
   negativeProof: {},
   scenarios: {
@@ -775,10 +854,29 @@ try {
     fail("published_core_cli_mismatch", "Published Core CLI identity is invalid.");
   }
   await mkdir(smokeServicesRoot, { recursive: true });
-  await runReleaseRuntimeSmoke(coreRoot, smokeServicesRoot, smokeWorkspaceRoot, coreTag);
+  try {
+    await runReleaseRuntimeSmoke(coreRoot, smokeServicesRoot, smokeWorkspaceRoot, coreTag);
+  } catch (error) {
+    const classified = classifyQualificationFailure({
+      phase: QUALIFICATION_PHASES.CORE_STARTUP,
+      error,
+      mutationCount: 0,
+    });
+    safeState.firstFailure = preserveFirstFailure(safeState.firstFailure, classified);
+    safeState.failurePhase = safeState.firstFailure.phase;
+    safeState.failureCode = safeState.firstFailure.failureCode;
+    if (!classified.retryAllowed || safeState.startupRetry === true) throw error;
+    safeState.startupRetry = true;
+    await runReleaseRuntimeSmoke(coreRoot, smokeServicesRoot, smokeWorkspaceRoot, coreTag);
+  }
   safeState.scenarios.releaseRuntime = "success";
 
-  await runNpmConsumerSmoke({ npmTarball: files.npm, consumerRoot: npmConsumerRoot, version: coreNpmVersion });
+  await runNpmConsumerSmoke({
+    npmTarball: files.npm,
+    consumerRoot: npmConsumerRoot,
+    version: coreNpmVersion,
+    state: safeState,
+  });
   safeState.scenarios.npmConsumer = "success";
 
   await mkdir(path.join(servicesRoot, "@serviceadmin"), { recursive: true });
@@ -805,7 +903,14 @@ try {
     QUALIFICATION_PREPARED: "1",
   });
 } catch (error) {
-  safeState.failureCode = safeFailureCode(error);
+  const classified = classifyQualificationFailure({
+    phase: safeState.failurePhase ?? QUALIFICATION_PHASES.NPM_ACQUISITION,
+    error,
+    mutationCount: 0,
+  });
+  safeState.firstFailure = preserveFirstFailure(safeState.firstFailure, classified);
+  safeState.failurePhase = safeState.firstFailure.phase;
+  safeState.failureCode = safeState.firstFailure.failureCode;
   await writeFile(safeStatePath, `${JSON.stringify(safeState, null, 2)}\n`).catch(() => {});
   throw error;
 }

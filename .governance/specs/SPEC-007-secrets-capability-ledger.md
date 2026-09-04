@@ -229,3 +229,7 @@ evidence is a row-specific real-process result.
   `npm audit --omit=dev` is zero and full `npm audit` has no critical/high
   finding. A source lockfile fix is not remediation of published npm
   `2026.9.1-1f4ec40`; republish and checksum-bound replacement remain `#1151`.
+- 2026-09-04: Core `#1209` adds `SPEC-002` `AC-4BZ.2` reliability classification
+  for published-package acquisition, startup, readiness sampling, and owned
+  cleanup. Historical failed dispatches remain unwaived. Mutation retry stays
+  forbidden. This is not a substitute for `AC-7H` independent review.
