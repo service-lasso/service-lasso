@@ -668,6 +668,54 @@ export function validateRetainedEvidence(evidence, expected) {
       `Retained ${expected.platform} policy evidence is invalid.`,
     );
   }
+  if (evidence.acquisitionRetry !== true && evidence.acquisitionRetry !== false) {
+    fail(
+      "evidence_policy_mismatch",
+      `Retained ${expected.platform} acquisition-retry evidence is invalid.`,
+    );
+  }
+  if (evidence.startupRetry !== true && evidence.startupRetry !== false) {
+    fail(
+      "evidence_policy_mismatch",
+      `Retained ${expected.platform} startup-retry evidence is invalid.`,
+    );
+  }
+  if (evidence.firstFailure == null) {
+    if (evidence.acquisitionRetry === true || evidence.startupRetry === true) {
+      fail(
+        "evidence_policy_mismatch",
+        `Retained ${expected.platform} retry evidence is missing its first failure.`,
+      );
+    }
+  } else if (
+    typeof evidence.firstFailure.phase !== "string" ||
+    typeof evidence.firstFailure.failureCode !== "string" ||
+    !/^[a-z0-9_]{1,64}$/u.test(evidence.firstFailure.failureCode) ||
+    evidence.firstFailure.mutationCount !== 0 ||
+    typeof evidence.firstFailure.classification !== "string"
+  ) {
+    fail(
+      "evidence_policy_mismatch",
+      `Retained ${expected.platform} first-failure evidence is invalid.`,
+    );
+  }
+  if (evidence.acquisitionRetry === true && evidence.firstFailure?.phase !== "npm_acquisition") {
+    fail(
+      "evidence_policy_mismatch",
+      `Retained ${expected.platform} npm retry is not bound to acquisition.`,
+    );
+  }
+  if (
+    evidence.startupRetry === true &&
+    evidence.firstFailure?.phase !== "core_startup" &&
+    evidence.firstFailure?.phase !== "admin_startup" &&
+    evidence.firstFailure?.phase !== "broker_startup"
+  ) {
+    fail(
+      "evidence_policy_mismatch",
+      `Retained ${expected.platform} startup retry is not bound to a startup phase.`,
+    );
+  }
   const requiredNegativeProof = [
     "missingProvenance",
     "missingChecksum",
