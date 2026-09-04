@@ -117,6 +117,8 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /test '\$\{\{ needs\.published-package-qualification\.result \}\}' = 'success'/,
   );
+  assert.match(workflow, /timeout-minutes: 90/);
+  assert.doesNotMatch(workflow, /timeout-minutes: (?:1[0-9]{2}|[2-9][0-9]{2,})/);
 });
 
 test("AC-4BZ.1 preparation verifies every downloaded identity before creating the mutation root", async () => {
@@ -147,6 +149,9 @@ test("AC-4BZ.1 preparation verifies every downloaded identity before creating th
   assert.match(source, /published_core_replaced_by_harness/);
   assert.match(source, /invokeCoreInstall\(coreRoot, "@serviceadmin"/);
   assert.match(source, /invokeCoreInstall\(coreRoot, "@secretsbroker"/);
+  assert.match(source, /runNpmInstallWithRetry\(/);
+  assert.match(source, /timeoutMs = 30_000/);
+  assert.match(source, /classifyReadinessSample\(/);
   assert.doesNotMatch(source, /npm ci|npm run build/iu);
 });
 
@@ -156,9 +161,9 @@ test("AC-4BZ.1 copied browser runner has no development-only TLS dependency", as
   assert.doesNotMatch(source, /from ["']selfsigned["']/u);
 });
 
-test("AC-4BZ.1 aggregate rejects absent, empty, expired, extra, and wrong-head artifacts", async () => {
+test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-attempt failures", async () => {
   const source = await readFile(aggregateUrl, "utf8");
-  assert.match(source, /apiPayload\.total_count !== PLATFORMS\.length/);
+  assert.match(source, /selectCurrentAttemptArtifacts\(artifacts, runId, runAttempt\)/);
   assert.match(source, /validateRetainedArtifactMetadata\(artifact/);
   assert.match(source, /entries\.length !== 1/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);

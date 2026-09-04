@@ -11,6 +11,7 @@ import {
   validateRetainedEvidence,
   validateTerminalJobMetadata,
 } from "./published-package-qualification-lib.mjs";
+import { selectCurrentAttemptArtifacts } from "./published-package-qualification-reliability.mjs";
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
@@ -87,23 +88,14 @@ const [apiPayload, jobsPayload] = await Promise.all([
 ]);
 const artifacts = Array.isArray(apiPayload.artifacts) ? apiPayload.artifacts : [];
 const jobs = Array.isArray(jobsPayload.jobs) ? jobsPayload.jobs : [];
-if (apiPayload.total_count !== PLATFORMS.length || artifacts.length !== PLATFORMS.length) {
-  throw new Error("Artifact API did not return exactly three retained qualification artifacts.");
-}
-
-const expectedNames = PLATFORMS.map(
-  (platform) => `published-package-qualification-${platform}-${runId}-${runAttempt}`,
-);
-if (
-  JSON.stringify(artifacts.map(({ name }) => name).sort()) !== JSON.stringify([...expectedNames].sort()) ||
-  new Set(artifacts.map(({ name }) => name)).size !== PLATFORMS.length
-) {
-  throw new Error("Artifact API inventory did not match the exact three-platform contract.");
+const selected = selectCurrentAttemptArtifacts(artifacts, runId, runAttempt);
+if (!selected.currentComplete) {
+  throw new Error("Artifact API did not return exactly three current-attempt qualification artifacts.");
 }
 
 for (const platform of PLATFORMS) {
   const artifactName = `published-package-qualification-${platform}-${runId}-${runAttempt}`;
-  const artifact = artifacts.find(({ name }) => name === artifactName);
+  const artifact = selected.current.find(({ name }) => name === artifactName);
   validateRetainedArtifactMetadata(artifact, { name: artifactName, repo, runId, workflowSha });
 
   const artifactDirectory = path.join(artifactsRoot, artifactName);
