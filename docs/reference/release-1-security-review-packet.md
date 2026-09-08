@@ -1,23 +1,64 @@
 # Release 1 independent security review packet
 
-Status: ready for independent review; external approval not yet recorded  
-Tracking issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)  
+Status: ready for independent review; external approval not yet recorded
+
+Tracking issue: [service-lasso/service-lasso#1151](https://github.com/service-lasso/service-lasso/issues/1151)
+
+Prior packet issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)
+
 Acceptance authority: `SPEC-007` `AC-7F` through `AC-7H`
 
-> **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md) records technical verification performed 2026-09-03. This is evidence collection by the delivery-owner agent, not AC-7H independent approval.
+This packet replaces the rejected Core/npm identity `2026.9.1-1f4ec40` /
+`1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`. The independent AC-7H reject of
+that set is
+[comment 5578080923](https://github.com/service-lasso/service-lasso/issues/1151#issuecomment-5578080923).
+That reject is not extended to these bytes. Historical published-package
+failures `33500138538`, `33503750329`, and `33506286697` remain `failure`.
+
+The delivery owner assembled this replacement packet and must not self-certify
+the independent review. A later session must be a named independent AC-7H
+reviewer bound to this packet commit plus the immutable identities below.
 
 ## Exact review scope
 
 | Component | Immutable identity | Publication |
 | --- | --- | --- |
-| Core | `1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`; `2026.9.1-1f4ec40` | [GitHub release](https://github.com/service-lasso/service-lasso/releases/tag/2026.9.1-1f4ec40) and `@service-lasso/service-lasso@2026.9.1-1f4ec40` |
-| Service Admin | `f015b4445b0526546a309301270186a697588166`; `2026.8.31-f015b44` | [GitHub release](https://github.com/service-lasso/lasso-serviceadmin/releases/tag/2026.8.31-f015b44) |
-| Secrets Broker | `f340883056ec3cf74b535fb46490b39382e8c823`; `2026.8.31-f340883` | [GitHub release](https://github.com/service-lasso/lasso-secretsbroker/releases/tag/2026.8.31-f340883) |
+| Core | `b0c3a1bef977c26d956d3d827025fe8c39c17799`; `2026.9.8-b0c3a1b` | [GitHub release](https://github.com/service-lasso/service-lasso/releases/tag/2026.9.8-b0c3a1b) ID `384922556` and `@service-lasso/service-lasso@2026.9.8-b0c3a1b` |
+| Service Admin | `f015b4445b0526546a309301270186a697588166`; `2026.8.31-f015b44` | [GitHub release](https://github.com/service-lasso/lasso-serviceadmin/releases/tag/2026.8.31-f015b44) ID `380051618` |
+| Secrets Broker | `f340883056ec3cf74b535fb46490b39382e8c823`; `2026.8.31-f340883` | [GitHub release](https://github.com/service-lasso/lasso-secretsbroker/releases/tag/2026.8.31-f340883) ID `379635299` |
 | Cross-repository Admin harness | `f7abf981f8f0bbbbd7fdf352237fd84950d95ca3` | Pinned by the Core published-package workflow |
 
 Review applies only to these bytes, manifests, checksums, SBOMs, attestations,
 and evidence. A replacement archive, npm version, commit, workflow, dependency
 graph, or security-control change requires delta review and fresh qualification.
+
+npm live readback at packet assembly:
+
+- `latest` = `2026.9.8-b0c3a1b`
+- `gitHead` = `b0c3a1bef977c26d956d3d827025fe8c39c17799`
+- integrity = `sha512-+Ji5n6DStatgqDAZrcGqiIEssbiEA5urnpHzyW019oT9RK07oZVR5/VfOqTrqr5Vnc+TZIiYZRUzSC0zAwbyLw==`
+- shasum = `5caef5d9cd8a3a6904a442c70b493bfca6588081`
+- tarball = `https://registry.npmjs.org/@service-lasso/service-lasso/-/service-lasso-2026.9.8-b0c3a1b.tgz`
+- provenance predicate `https://slsa.dev/provenance/v1`; Sigstore log index `2760528145`
+
+Unbundled Core SHA-256 values from `SHA256SUMS.txt` match GitHub API asset
+digests: win32 `3beaedb6a5db489d521d573927b79d06fab9b8b03dd4756eac4df38c6e5c3e1e`;
+linux and darwin `63cb818d30628d6ca506f864421b8888d2f8d7558d06461cd16db19bf345bd22`.
+
+## Why this replacement exists
+
+Independent AC-7H rejected Core `2026.9.1-1f4ec40` because a live
+`npm audit --omit=dev --audit-level=low` against that frozen graph reported
+`fast-uri@3.1.5` (high) and `qs@6.15.3` (moderate). Source remediation landed on
+`develop` as `#1220` (`fast-uri@3.1.7`) and `#1223` (`qs` override `6.16.0`).
+A lockfile fix does not remediate published bytes, so Core was republished from
+current `origin/develop` `b0c3a1bef977c26d956d3d827025fe8c39c17799`.
+
+Admin `2026.8.31-f015b44` and Broker `2026.8.31-f340883` are reused after
+delta-review: exact SHAs, public asset digests, and checksum pins are unchanged.
+Admin `pnpm audit --prod` at the release SHA reports no known vulnerabilities.
+Broker `govulncheck ./...` and `govulncheck -mode=binary` on the shipped Windows
+executables report zero reachable and zero imported-package findings.
 
 ## Product and security boundaries
 
@@ -47,14 +88,14 @@ recovery quorum, or deliberate plaintext disclosure by an authorized operator.
 
 | Threat | Release 1 control | Evidence |
 | --- | --- | --- |
-| Artifact substitution or downgrade | Exact immutable tags, SHA-256 manifests, checksum-before-extraction, release/API identity checks, SLSA provenance, npm integrity and `gitHead`, and eleven fail-closed negative acquisition cases | Core [release run 33496660751](https://github.com/service-lasso/service-lasso/actions/runs/33496660751), npm [run 33498620912](https://github.com/service-lasso/service-lasso/actions/runs/33498620912), published-package [run 33509489660](https://github.com/service-lasso/service-lasso/actions/runs/33509489660) |
+| Artifact substitution or downgrade | Exact immutable tags, SHA-256 manifests, checksum-before-extraction, release/API identity checks, SLSA provenance, npm integrity and `gitHead`, and eleven fail-closed negative acquisition cases | Core [release run 34252075366](https://github.com/service-lasso/service-lasso/actions/runs/34252075366) attempt 2, npm [run 34252079559](https://github.com/service-lasso/service-lasso/actions/runs/34252079559), published-package [run 34256052728](https://github.com/service-lasso/service-lasso/actions/runs/34256052728) |
 | Forged actor, permission, or confirmation | Authority derives from the trusted runtime request context; body spoofing is ignored/rejected; risky actions require server-bound confirmation and idempotency | Published-package `trustedLifecycle`, `adminBrowser`, `durableAudit`, and exactly-once mutation records |
 | Secret leakage through UI, logs, evidence, diagnostics, or storage | Values remain inside Broker except explicitly authorized one-time/controlled reveal; retained evidence is metadata-only; sentinel checks cover browser, audit, diagnostics, browser storage, routes, and support surfaces | Published-package `noLeak` on all platforms; exact Admin focused browser 7/7 |
-| IPC impersonation or remote exposure | Named-pipe/Unix-socket transport, authenticated launch identity, allowlisted method/path set, loopback proxy boundary, fail-closed unavailable/auth outcomes | Release Qualification [run 33495376111](https://github.com/service-lasso/service-lasso/actions/runs/33495376111) and published-package run 33509489660 |
+| IPC impersonation or remote exposure | Named-pipe/Unix-socket transport, authenticated launch identity, allowlisted method/path set, loopback proxy boundary, fail-closed unavailable/auth outcomes | Release Qualification [run 34250860854](https://github.com/service-lasso/service-lasso/actions/runs/34250860854) and published-package run 34256052728 |
 | Replay or duplicate mutation | Operation identifiers, single-use confirmation, exact plan revalidation, idempotency, mutation retry disabled, aggregate mutation-count verification | Each platform record reports `brokerRestart: 1`, `providerMigrationApply: 1`, and `mutationRetry: false` |
 | Partial rotation or consumer failure | Stage/activate/owner action/rollback/retire state machine, source remains authoritative on denied/unavailable provider outcomes, restart persistence | Published-package `comprehensiveLifecycle`, `rollback`, `persistence`, and `brokerContinuity` |
 | Unauthorized reveal or destructive action | Separate permissions, audit reason, explicit confirmation, bounded reveal, decommission plan and recoverable tombstone | Admin release browser run and final published-package browser lifecycle |
-| Brute force or denial scoped too broadly | Per-identity/per-operation/per-reference lockouts, five-minute bounded cooldown, exact-scope confirmed clear, unrelated reads remain available | Windows `localOperatorLockout` plus durable lockout event in run 33509489660 |
+| Brute force or denial scoped too broadly | Per-identity/per-operation/per-reference lockouts, five-minute bounded cooldown, exact-scope confirmed clear, unrelated reads remain available | Windows `localOperatorLockout` plus durable lockout event in run 34256052728 |
 | Corrupt state, wrapper, backup, or recovery input | Authenticated encryption, key/store matching, integrity verification, atomic replacement, restore plan/apply, fail-closed locked/degraded outcomes | Published-package backup/restore/key-rotation/restart scenarios and Broker recovery tests |
 | Path, archive, or process-boundary escape | Canonical destinations, checksum before extraction, archive traversal controls, owned-process fingerprints, Windows Job containment, bounded cleanup convergence | Release Qualification and published-package `productionAcquisition`/`cleanupConvergence` |
 | Audit tampering or omission | Hash-chained durable metadata-only audit; protected mutations fail when required audit persistence is unavailable | Release Qualification Broker IPC outcomes and published-package `durableAudit` |
@@ -100,65 +141,93 @@ rollback or tombstone recovery.
 
 ## Dependency, SBOM, and supply-chain state
 
-- Core exact release graph: `npm audit --omit=dev` reports zero vulnerabilities
-  across 143 production dependencies.
-- Admin exact release graph: `pnpm audit --prod` reports zero advisories across
-  292 production dependencies.
-- Broker exact release source and native shipped executables pass
-  `govulncheck`. The main binary reports zero reachable and zero imported-package
-  vulnerabilities. One module-only advisory, `GO-2026-5932`, is in the
-  unimported `golang.org/x/crypto/openpgp` package; the shipped code does not call
-  it and PGP bootstrap is excluded. Helper binaries report no vulnerabilities.
-- GitHub readback reports zero open Dependabot, code-scanning, and secret-scanning
-  alerts in all three repositories at packet preparation time.
-- Every platform archive includes or is paired with a CycloneDX SBOM, checksum
-  manifest, provenance/attestation, and exact asset inventory. Public download
-  bytes and retained workflow bytes were digest compared.
+- Core exact release graph at `b0c3a1be`: `npm audit --omit=dev --audit-level=low`
+  reports zero vulnerabilities across 143 production dependencies. Full
+  `npm audit` reports zero findings of any severity (1471 dependency entries).
+  Locked remediations are `fast-uri@3.1.7` and `qs@6.16.0`.
+- Admin exact release graph at `f015b44`: `pnpm audit --prod` reports no known
+  vulnerabilities. The shipped Admin SBOMs do not contain `@humanfs/node`,
+  `browserslist`, `@faker-js/faker`, or Cypress `qs`. Admin `develop` still has
+  Dependabot alert [#61](https://github.com/service-lasso/lasso-serviceadmin/security/dependabot/61)
+  (`@humanfs/node`, development scope) and CodeQL `js/request-forgery` [#2](https://github.com/service-lasso/lasso-serviceadmin/security/code-scanning/2)
+  on Admin `develop` `5beac027…`, not on released Admin bytes. Full Admin
+  `pnpm audit` (including dev) currently reports three high and three moderate
+  advisories in build/test packages; those are not this production graph.
+- Broker exact release source and native shipped Windows executables pass
+  `govulncheck`. Zero reachable and zero imported-package vulnerabilities.
+  Three module-only advisories in required `golang.org/x/crypto@v0.55.0` are
+  not called: `GO-2026-5932` (`openpgp`, PGP excluded), plus `GO-2026-6354` and
+  `GO-2026-6355` (`crypto/ssh` DoS). Broker does not import `golang.org/x/crypto/ssh`.
+- Core GitHub readback at packet assembly: zero open Dependabot, code-scanning,
+  and secret-scanning alerts. Broker open-alert counts are zero. Admin open
+  alerts are the develop-only residuals above, not the reused release SHA.
+- Every Core platform archive includes or is paired with a CycloneDX SBOM,
+  checksum manifest, provenance/attestation, and exact asset inventory. Public
+  GitHub API digests equal `SHA256SUMS.txt` for every listed file.
 
 ## Repository and publication control readback
 
-Live API readback on 2026-09-02 reports an active Release 1 branch ruleset in
-each repository. Core `develop`, Admin `develop`, and Broker `main` all require a
-pull request, one approval, stale-review dismissal, CODEOWNERS review,
-last-push approval, strict terminal-green checks, conversation resolution, and
-linear history; administrator enforcement is enabled and force-push/deletion
-are disabled. Core ruleset `21891323`, Admin ruleset `21891335`, and Broker
-ruleset `21891331` are active.
+Live API readback on 2026-09-08 reports the protected `release` environment
+still requires reviewer `wildone`, with `deployment_branch_policy` limited to
+protected branches. Publication was dispatched from `develop` at
+`b0c3a1bef977c26d956d3d827025fe8c39c17799`. `node scripts/verify-core-release-authority.mjs`
+read back required code-owner reviews, `qualify-release`, administrator
+enforcement, no force-push, read-only default workflow permissions, SHA pinning,
+and the `release` environment.
 
-Each repository has a read-back `CODEOWNERS` file, `SECURITY.md`, selected-action
-GitHub Actions policy with immutable-SHA pinning required, private vulnerability
-reporting, secret scanning, push protection, Dependabot security updates, and a
-protected `release` environment requiring reviewer `wildone`. Open Dependabot,
-code-scanning, and secret-scanning alert counts are zero in all three
-repositories. Requests to enable secret-scanning validity checks were accepted
-by the repository API, but subsequent readback remained `disabled`; the packet
-therefore records that control as unavailable on the current repository/org
-entitlement and does not claim it is enabled.
+Core `develop` protection, CODEOWNERS, SECURITY.md, and selected-action SHA
+pinning remain the `AC-7F` authority boundary. Secret-scanning validity checks
+remain unavailable on the current repository/org entitlement and are not claimed
+enabled.
 
-The initial packet PR
-[#1210](https://github.com/service-lasso/service-lasso/pull/1210) merged at
-`c341552542a432f1e9951140ee18188c0e68d4f5`. Exact-merge Docs
-[33515497884](https://github.com/service-lasso/service-lasso/actions/runs/33515497884),
-CodeQL [33515497909](https://github.com/service-lasso/service-lasso/actions/runs/33515497909),
-MCP Product Acceptance
-[33515497989](https://github.com/service-lasso/service-lasso/actions/runs/33515497989),
-and Release Qualification
-[33515498018](https://github.com/service-lasso/service-lasso/actions/runs/33515498018)
-are terminal green. The latter two retain three and eight exact-SHA artifacts,
-respectively. The independent reviewer must bind the final decision to the exact
-head of this final-readback packet revision as well as the immutable component
-identities above.
+Publication runs:
+
+- Hosted Release Qualification
+  [34250860854](https://github.com/service-lasso/service-lasso/actions/runs/34250860854)
+  workflow_dispatch at exact SHA, terminal green, including production and
+  tooling audits.
+- GitHub Release Artifact
+  [34252075366](https://github.com/service-lasso/service-lasso/actions/runs/34252075366)
+  attempt 1 failed at CI `upload-artifact` finalize (403 intermediary) after
+  attestations succeeded and before `gh release create`. That failed attempt
+  did not create a release. Attempt 2 created immutable tag `2026.9.8-b0c3a1b`
+  and verified asset policy. The failed attempt is not converted into a pass.
+- Publish Package
+  [34252079559](https://github.com/service-lasso/service-lasso/actions/runs/34252079559)
+  attempt 1 published `+ @service-lasso/service-lasso@2026.9.8-b0c3a1b` with
+  provenance; consumer verify 404'd during registry processing. Attempt 2
+  verified the live package after it became visible. No second publish of a new
+  version occurred.
+- Published-package qualification
+  [34256052728](https://github.com/service-lasso/service-lasso/actions/runs/34256052728)
+  attempt 1 only; `mutationRetry: false`.
+
+The independent reviewer must bind the final decision to the exact head of this
+packet revision as well as the immutable component identities above. Approval of
+the rejected `1f4ec40` set, of packet PR `#1210` / `c341552`, or of later
+unreviewed `develop` bytes is not this review.
 
 ## Static, dynamic, and fuzz evidence
 
-- CodeQL is green at the exact Core and Admin release heads. Broker release
-  qualification performs native source and both-binary `govulncheck` on each
-  target operating system in [run 33376912641](https://github.com/service-lasso/lasso-secretsbroker/actions/runs/33376912641).
-- Core exact-merge Release Qualification passed the complete release suite,
-  real Broker IPC, package/release policy, provenance, negative acquisition,
-  and aggregate gates in [run 33495376111](https://github.com/service-lasso/service-lasso/actions/runs/33495376111).
+- CodeQL is green at this Core SHA: push run
+  [33901415635](https://github.com/service-lasso/service-lasso/actions/runs/33901415635)
+  and later scheduled run
+  [34157579985](https://github.com/service-lasso/service-lasso/actions/runs/34157579985)
+  while `develop` remained at `b0c3a1be`. Exact Admin release CodeQL run
+  `33437554078` remains the released-Admin record. Admin `develop` CodeQL alert
+  `#2` is out of this release set.
+- Broker release qualification performs native source and both-binary
+  `govulncheck` on each target operating system in
+  [run 33376912641](https://github.com/service-lasso/lasso-secretsbroker/actions/runs/33376912641).
+  Live 2026-09-08 `govulncheck` at the same SHA remains zero reachable / zero
+  imported.
+- Core hosted Release Qualification passed the complete release suite, real
+  Broker IPC, package/release policy, provenance, negative acquisition, and
+  aggregate gates in
+  [run 34250860854](https://github.com/service-lasso/service-lasso/actions/runs/34250860854).
 - Exact Admin release real-browser qualification passed on Windows, Linux, and
-  macOS in [run 33437554122](https://github.com/service-lasso/lasso-serviceadmin/actions/runs/33437554122).
+  macOS in
+  [run 33437554122](https://github.com/service-lasso/lasso-serviceadmin/actions/runs/33437554122).
 - A focused exact-release Admin replay passed 57/57 navigation, page/table,
   topology, redaction, and release-surface assertions plus 7/7 Chromium browser
   cases.
@@ -169,23 +238,30 @@ identities above.
 
 ## Published three-platform acceptance
 
-[Run 33509489660](https://github.com/service-lasso/service-lasso/actions/runs/33509489660)
-is terminal green at exact Core `1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`.
+[Run 34256052728](https://github.com/service-lasso/service-lasso/actions/runs/34256052728)
+is terminal green at exact Core `b0c3a1bef977c26d956d3d827025fe8c39c17799`.
 Windows, Linux, macOS, and aggregate jobs passed. GitHub retained exactly three
-nonempty, unexpired 90-day records. Each record binds the same immutable Core,
-Admin, Broker, npm integrity, and workflow revision; all eleven negative
-acquisition cases pass; every applicable first-run, lifecycle, dashboard,
-continuity, trusted-action, provider, migration, rollback, persistence, audit,
-no-leak, stopped-service, and cleanup scenario is `success`.
+nonempty, unexpired 90-day records (expire `2026-12-07T17:16:03Z`):
 
-Earlier dispatches exposed independent Windows npm/Broker-start and macOS
-readiness intermittency. They remain historical evidence, were not converted to
-passes, and did not mutate after failed preconditions. Exact Windows first-run
-reproduction then passed twice in isolated registries, followed by the clean
-three-platform run above with no mutation retry. The reviewer should treat
-cross-platform startup/qualification reliability as an explicit residual to
-assess, not as erased history. Post-release hardening is tracked in
-[Core issue #1209](https://github.com/service-lasso/service-lasso/issues/1209).
+- win32 artifact `10068454792` (1357 bytes)
+- darwin artifact `10068290629` (1345 bytes)
+- linux artifact `10068155187` (1344 bytes)
+
+Each record binds Core `2026.9.8-b0c3a1b`, npm integrity/latest, Admin
+`2026.8.31-f015b44`, Broker `2026.8.31-f340883`, harness
+`f7abf981f8f0bbbbd7fdf352237fd84950d95ca3`, workflow SHA `b0c3a1be`, attempt 1,
+`mutationRetry: false`, `acquisitionRetry: false`, `startupRetry: false`,
+`brokerRestart: 1`, `providerMigrationApply: 1`, all eleven negative acquisition
+cases `success`, and every applicable first-run, lifecycle, dashboard,
+continuity, trusted-action, provider, migration, rollback, persistence, audit,
+no-leak, stopped-service, and cleanup scenario `success`. Windows also records
+`localOperatorLockout: success`.
+
+Historical published-package failures remain `failure` and were not retried as
+mutations: `33500138538`, `33503750329`, `33506286697`. The rejected-set green
+run `33509489660` stays evidence for the rejected identity only. `#1209` later
+closed via PR `#1227` is included in this SHA as post-reject `develop` source;
+it does not convert those historical failures into passes.
 
 ## Recovery and incident response
 
@@ -222,12 +298,12 @@ failure-path, and metadata-only result record on a clean Windows 11 x64 host.
 1. Verify the three release objects are immutable and resolve to the exact SHAs
    in this packet. Download asset inventories, checksum manifests, SBOMs, and
    attestations through the GitHub API; compare every public asset digest.
-2. Verify npm `2026.9.1-1f4ec40` has the exact `gitHead`, `latest` identity,
+2. Verify npm `2026.9.8-b0c3a1b` has the exact `gitHead`, `latest` identity,
    integrity, tarball bytes, and provenance shown by Core publish run
-   `33498620912`.
+   `34252079559`.
 3. In isolated clean consumers on Windows, Linux, and macOS, acquire all three
    publications through the production path and run the unchanged published
-   package workflow at Core `1f4ec40f...`; require all four jobs green and
+   package workflow at Core `b0c3a1be…`; require all four jobs green and
    exactly three current-run records.
 4. Parse each record and require `outcome: success`, `mutationRetry: false`, all
    negative proofs/scenarios `success`, and exact mutation counts. Retain no
@@ -236,7 +312,8 @@ failure-path, and metadata-only result record on a clean Windows 11 x64 host.
 5. Re-run exact production audits, Broker source/native binary scans, CodeQL,
    the focused parser fuzz target, Admin release-surface/browser checks, and the
    abuse cases above. Use temporary stores and destroy test secret material
-   through the harness cleanup path.
+   through the harness cleanup path. Do not treat the 2026-09-08 reject, or any
+   later source merge, as covering unreviewed published bytes.
 
 ## Reviewer decision record
 

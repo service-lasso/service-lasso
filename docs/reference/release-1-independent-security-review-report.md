@@ -2,7 +2,12 @@
 
 **Date:** 2026-09-03  
 **Author:** MegaMindG acting as Max Barrass's delivery-owner agent (not a named independent security reviewer)  
-**Status:** `Technical evidence readback — AC-7H independent approval NOT recorded`
+**Status:** `Historical — bound to rejected Core/npm 2026.9.1-1f4ec40; superseded`
+
+This 2026-09-03 delivery-owner readback is historical. Independent AC-7H
+rejected that identity on 2026-09-08. Do not use this file as the current
+packet. The replacement identities are in
+[release-1-security-review-packet.md](./release-1-security-review-packet.md).
 
 ---
 

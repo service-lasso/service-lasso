@@ -1,40 +1,41 @@
 # Release 1 GA decision
 
 Decision: **GA blocked — independent security approval outstanding**  
-Prepared: `2026-09-02`
-Tracking issue: [#1208](https://github.com/service-lasso/service-lasso/issues/1208)
+Prepared: `2026-09-08`
+Tracking issue: [#1151](https://github.com/service-lasso/service-lasso/issues/1151)
+Prior packet issue: [#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 
-> **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md) records technical verification performed 2026-09-03. This is delivery-owner evidence collection, not AC-7H sign-off. GA remains blocked.
+The 2026-09-08 independent AC-7H reject of Core/npm `2026.9.1-1f4ec40` /
+`1f4ec40f13fe3867b24ca901c42fe31c69e01e8d` remains in force for that identity.
+This decision is internal evidence assembly for the replacement set. It is not
+AC-7H sign-off.
 
 ## Internal gate decision
 
-The exact Release 1 candidate has passed the internal product, packaging,
+The replacement Release 1 candidate has passed the internal product, packaging,
 supply-chain, vulnerability, recovery, and evidence gates:
 
-- immutable Core `2026.9.1-1f4ec40`, Admin `2026.8.31-f015b44`, and Broker
-  `2026.8.31-f340883` publications;
-- exact npm `@service-lasso/service-lasso@2026.9.1-1f4ec40` at `latest`;
+- immutable Core `2026.9.8-b0c3a1b` at
+  `b0c3a1bef977c26d956d3d827025fe8c39c17799`, Admin `2026.8.31-f015b44`, and
+  Broker `2026.8.31-f340883` publications;
+- exact npm `@service-lasso/service-lasso@2026.9.8-b0c3a1b` at `latest`,
+  `gitHead` matching Core SHA, integrity
+  `sha512-+Ji5n6DStatgqDAZrcGqiIEssbiEA5urnpHzyW019oT9RK07oZVR5/VfOqTrqr5Vnc+TZIiYZRUzSC0zAwbyLw==`;
 - Windows, Linux, macOS, and aggregate published-package qualification green in
-  [run 33509489660](https://github.com/service-lasso/service-lasso/actions/runs/33509489660),
-  with exactly three nonempty, unexpired retained records;
+  [run 34256052728](https://github.com/service-lasso/service-lasso/actions/runs/34256052728)
+  attempt 1, with exactly three nonempty, unexpired retained records,
+  `mutationRetry: false`, and all negative proofs `success`;
 - thirteen Release 1 ledger rows `validated` and PGP bootstrap explicitly
   `excluded` and unavailable;
-- zero known reachable/imported production vulnerabilities in the exact shipped
-  graphs, zero live repository alerts, exact archive SBOM/checksum/provenance
-  coverage, CodeQL, native Broker binary scans, focused fuzzing, and no-leak
-  browser/runtime evidence;
-- a healthy canonical released-artifact Windows runtime using the exact Core,
-  Admin, and Broker bytes with first-run bootstrap, one-time credential
-  acknowledgement, local-root authentication, Broker health, and restart
-  continuity. This direct demo is intentionally narrower than the three-OS
-  destructive lifecycle matrix and does not replace it;
-- active rulesets and branch protection on Core, Admin, and Broker require one
-  approval, CODEOWNERS, last-push approval, strict terminal-green checks,
-  conversation resolution, and linear history, with force-push/deletion
-  disabled. Release-authority issues Core `#1164`, Admin `#578`, Admin dependency
-  `#549`, Admin reconciliation `#550`, Broker checksum `#162`, Core launcher
-  `#1205`, and published-package qualification `#1152` are closed with Project
-  status `Done` after direct evidence readback.
+- zero production `npm audit --omit=dev` findings on the exact Core graph;
+  Admin `pnpm audit --prod` zero at the reused release SHA; Broker
+  `govulncheck` zero reachable/imported at the reused release SHA;
+- hosted Release Qualification
+  [34250860854](https://github.com/service-lasso/service-lasso/actions/runs/34250860854)
+  green at the exact Core SHA;
+- active rulesets and the protected `release` environment remain the publication
+  authority. Historical published-package failures `33500138538`, `33503750329`,
+  and `33506286697` stay failures.
 
 ## Blocking gate
 
@@ -42,7 +43,7 @@ supply-chain, vulnerability, recovery, and evidence gates:
 [security packet](./release-1-security-review-packet.md), record findings and
 residual risks against its exact commit and component identities, and issue an
 explicit approval. The delivery owner has not self-certified that external
-gate.
+gate. The prior reject does not cover these unpublished-at-reject bytes.
 
 Therefore:
 
@@ -53,8 +54,8 @@ Therefore:
 - after approval, re-read exact branch heads, security settings, open alerts,
   release/npm identities, retained artifacts, issue state, and Project state
   before promotion. The approval must name the exact head of the final-readback
-  packet revision; approval of an earlier packet does not authorize an
-  unreviewed delta.
+  packet revision; approval of an earlier packet or of `2026.9.1-1f4ec40` does
+  not authorize this set.
 
 An external-review waiver may record risk acceptance but cannot turn a missing
 technical artifact, failed check, open vulnerability, or mismatched identity

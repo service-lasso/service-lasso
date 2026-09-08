@@ -7,7 +7,7 @@ Admin without treating a route, UI model, closed issue, or source test as live
 product proof.
 
 The JSON file is authoritative when this explanation and the structured data
-differ. The Release 1 decision was refreshed at `2026-09-01T13:00:46Z`; every
+differ. The Release 1 decision was refreshed at `2026-09-08T17:35:00Z`; every
 evidence record carries its own observation timestamp and direct URL.
 
 ## How to read maturity
@@ -35,14 +35,15 @@ example, passing Core tests cannot make an Admin-to-Core-to-Broker operation
 | Release 4 — automation | CLI and Sync are partial; Core MCP is release-gated for permission-scoped reads and guarded service lifecycle actions, while Broker MCP and scheduled rotation remain planned. | Preserve operation-specific identity, approval, idempotency, Audit, retry, and installed-artifact evidence; do not extend the Core proof to the separate Broker MCP scope. |
 | Enterprise | Provider tracks are executable but unvalidated; MFA, HSM, and FIPS remain planned. | No compliance or hardware-support claim is permitted without an accepted scope and exact evidence boundary. |
 
-The exact Release 1 evidence set is Core release `2026.9.1-1f4ec40` at
-`1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`, Admin release
+The exact Release 1 evidence set is Core release `2026.9.8-b0c3a1b` at
+`b0c3a1bef977c26d956d3d827025fe8c39c17799`, Admin release
 `2026.8.31-f015b44` at `f015b4445b0526546a309301270186a697588166`, and
 Broker release `2026.8.31-f340883` at
 `f340883056ec3cf74b535fb46490b39382e8c823`. Published-package qualification
-[run 33509489660](https://github.com/service-lasso/service-lasso/actions/runs/33509489660)
+[run 34256052728](https://github.com/service-lasso/service-lasso/actions/runs/34256052728)
 passed Windows, Linux, macOS, and aggregate verification with exactly three
-nonempty, unexpired metadata-only artifacts. The exact Admin release also has
+nonempty, unexpired metadata-only artifacts. The rejected Core/npm identity
+`2026.9.1-1f4ec40` is not this evidence set. The exact Admin release also has
 its own green three-platform real-browser
 [run 33437554122](https://github.com/service-lasso/lasso-serviceadmin/actions/runs/33437554122),
 and the exact Broker release has green native source/binary vulnerability gates

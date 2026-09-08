@@ -4,7 +4,7 @@
 - Target platform: Clean Windows 11 x64 PC
 - Estimated duration: 90–150 minutes
 - Run as: A normal, non-administrator Windows user
-- Tracking issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)
+- Tracking issue: [service-lasso/service-lasso#1151](https://github.com/service-lasso/service-lasso/issues/1151)
 - Acceptance authority: `SPEC-007` `AC-7F` through `AC-7H`
 
 ## 1. Test objective
@@ -29,17 +29,17 @@ PGP bootstrap.
 
 | Component | Version | Exact revision |
 | --- | --- | --- |
-| Core | `2026.9.1-1f4ec40` | `1f4ec40f13fe3867b24ca901c42fe31c69e01e8d` |
+| Core | `2026.9.8-b0c3a1b` | `b0c3a1bef977c26d956d3d827025fe8c39c17799` |
 | Admin | `2026.8.31-f015b44` | `f015b4445b0526546a309301270186a697588166` |
 | Broker | `2026.8.31-f340883` | `f340883056ec3cf74b535fb46490b39382e8c823` |
-| npm | `@service-lasso/service-lasso@2026.9.1-1f4ec40` | Same Core revision |
+| npm | `@service-lasso/service-lasso@2026.9.8-b0c3a1b` | Same Core revision |
 
 Expected Windows SHA-256 values:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| Core lean ZIP | `f7f2754e16da8329ca7692163c18ceb67d685aa275e5865cea28cec71fba1a20` |
-| Core bundled ZIP | `a6d187931776f2abcc306a62f2ec23a4f3e220d317c0c0e7ccb049690e2463e0` |
+| Core lean ZIP | `3beaedb6a5db489d521d573927b79d06fab9b8b03dd4756eac4df38c6e5c3e1e` |
+| Core bundled ZIP | `d5f2adcfeb69e0fb2fe43107d690ca7f85f6cdedf4656cfc13e3fb37d1d50b86` |
 | Admin ZIP | `fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c` |
 | Broker ZIP | `e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966` |
 
@@ -127,12 +127,12 @@ Download the four Windows artifacts:
 
 ```powershell
 Invoke-WebRequest `
-  -Uri 'https://github.com/service-lasso/service-lasso/releases/download/2026.9.1-1f4ec40/service-lasso-2026.9.1-1f4ec40-win32.zip' `
-  -OutFile 'service-lasso-2026.9.1-1f4ec40-win32.zip'
+  -Uri 'https://github.com/service-lasso/service-lasso/releases/download/2026.9.8-b0c3a1b/service-lasso-2026.9.8-b0c3a1b-win32.zip' `
+  -OutFile 'service-lasso-2026.9.8-b0c3a1b-win32.zip'
 
 Invoke-WebRequest `
-  -Uri 'https://github.com/service-lasso/service-lasso/releases/download/2026.9.1-1f4ec40/service-lasso-bundled-2026.9.1-1f4ec40-win32.zip' `
-  -OutFile 'service-lasso-bundled-2026.9.1-1f4ec40-win32.zip'
+  -Uri 'https://github.com/service-lasso/service-lasso/releases/download/2026.9.8-b0c3a1b/service-lasso-bundled-2026.9.8-b0c3a1b-win32.zip' `
+  -OutFile 'service-lasso-bundled-2026.9.8-b0c3a1b-win32.zip'
 
 Invoke-WebRequest `
   -Uri 'https://github.com/service-lasso/lasso-serviceadmin/releases/download/2026.8.31-f015b44/%40serviceadmin-win32.zip' `
@@ -147,10 +147,10 @@ Verify checksums:
 
 ```powershell
 $ExpectedHashes = [ordered]@{
-  'service-lasso-2026.9.1-1f4ec40-win32.zip' =
-    'f7f2754e16da8329ca7692163c18ceb67d685aa275e5865cea28cec71fba1a20'
-  'service-lasso-bundled-2026.9.1-1f4ec40-win32.zip' =
-    'a6d187931776f2abcc306a62f2ec23a4f3e220d317c0c0e7ccb049690e2463e0'
+  'service-lasso-2026.9.8-b0c3a1b-win32.zip' =
+    '3beaedb6a5db489d521d573927b79d06fab9b8b03dd4756eac4df38c6e5c3e1e'
+  'service-lasso-bundled-2026.9.8-b0c3a1b-win32.zip' =
+    'd5f2adcfeb69e0fb2fe43107d690ca7f85f6cdedf4656cfc13e3fb37d1d50b86'
   '@serviceadmin-win32.zip' =
     'fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c'
   'secretsbroker-win32.zip' =
@@ -176,11 +176,11 @@ Do not extract or run an artifact whose hash fails.
 
 ```powershell
 gh attestation verify `
-  '.\service-lasso-2026.9.1-1f4ec40-win32.zip' `
+  '.\service-lasso-2026.9.8-b0c3a1b-win32.zip' `
   --repo service-lasso/service-lasso
 
 gh attestation verify `
-  '.\service-lasso-bundled-2026.9.1-1f4ec40-win32.zip' `
+  '.\service-lasso-bundled-2026.9.8-b0c3a1b-win32.zip' `
   --repo service-lasso/service-lasso
 
 gh attestation verify `
@@ -205,7 +205,7 @@ New-Item -ItemType Directory -Path $NpmRoot -Force | Out-Null
 Set-Location $NpmRoot
 
 npm init -y
-npm install --ignore-scripts '@service-lasso/service-lasso@2026.9.1-1f4ec40'
+npm install --ignore-scripts '@service-lasso/service-lasso@2026.9.8-b0c3a1b'
 npx --no-install service-lasso --version
 npm audit --omit=dev
 npm view '@service-lasso/service-lasso' dist-tags version gitHead --json
@@ -213,9 +213,9 @@ npm view '@service-lasso/service-lasso' dist-tags version gitHead --json
 
 Expected:
 
-- CLI version: `2026.9.1-1f4ec40`;
-- npm `latest`: `2026.9.1-1f4ec40`;
-- `gitHead`: `1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`;
+- CLI version: `2026.9.8-b0c3a1b`;
+- npm `latest`: `2026.9.8-b0c3a1b`;
+- `gitHead`: `b0c3a1bef977c26d956d3d827025fe8c39c17799`;
 - production audit: zero vulnerabilities.
 
 ## 8. BND-01 — Windows bundled/no-download inspection
@@ -226,10 +226,10 @@ Extract the bundle for inspection only:
 $BundleExtractRoot = Join-Path $TestRoot 'bundle-inspection'
 
 Expand-Archive `
-  -LiteralPath (Join-Path $DownloadRoot 'service-lasso-bundled-2026.9.1-1f4ec40-win32.zip') `
+  -LiteralPath (Join-Path $DownloadRoot 'service-lasso-bundled-2026.9.8-b0c3a1b-win32.zip') `
   -DestinationPath $BundleExtractRoot
 
-$BundleRoot = Join-Path $BundleExtractRoot 'service-lasso-bundled-2026.9.1-1f4ec40'
+$BundleRoot = Join-Path $BundleExtractRoot 'service-lasso-bundled-2026.9.8-b0c3a1b'
 
 Get-ChildItem `
   -LiteralPath (Join-Path $BundleRoot 'services') `
@@ -266,10 +266,10 @@ Extract the lean Core:
 $CoreExtractRoot = Join-Path $TestRoot 'core-extract'
 
 Expand-Archive `
-  -LiteralPath (Join-Path $DownloadRoot 'service-lasso-2026.9.1-1f4ec40-win32.zip') `
+  -LiteralPath (Join-Path $DownloadRoot 'service-lasso-2026.9.8-b0c3a1b-win32.zip') `
   -DestinationPath $CoreExtractRoot
 
-$CoreRoot = Join-Path $CoreExtractRoot 'service-lasso-2026.9.1-1f4ec40'
+$CoreRoot = Join-Path $CoreExtractRoot 'service-lasso-2026.9.8-b0c3a1b'
 $ServicesRoot = Join-Path $TestRoot 'services'
 $WorkspaceRoot = Join-Path $TestRoot 'workspace'
 ```
@@ -298,7 +298,7 @@ Set-Location $CoreRoot
 node .\packages\core\cli.js --version
 ```
 
-Expected: `2026.9.1-1f4ec40`.
+Expected: `2026.9.8-b0c3a1b`.
 
 ## 10. RUN-01 — Start from released artifacts
 
@@ -347,7 +347,7 @@ $CoreHealth | ConvertTo-Json -Depth 5
 Expected:
 
 - Core status is `ok`;
-- Core API version is `2026.9.1-1f4ec40`;
+- Core API version is `2026.9.8-b0c3a1b`;
 - every HTTP probe returns `200`.
 
 Also check the Admin same-origin API:
