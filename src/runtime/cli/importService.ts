@@ -243,7 +243,9 @@ export async function importServiceManifestFromCli(
     const archiveType = detectArchiveType(sourceArchivePath);
     const stagingRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-archive-import-"));
     try {
-      await extractZipSafely(sourceArchivePath, stagingRoot);
+      await extractZipSafely(sourceArchivePath, stagingRoot, sourceArchivePath, {
+        rejectUnsafeEntries: true,
+      });
       const { manifest, contentRoot } = await readArchiveManifest(stagingRoot, sourceArchivePath);
       const serviceRoot = resolveDirectServiceRoot(servicesRoot, manifest.id);
       const targetPath = path.join(serviceRoot, "service.json");

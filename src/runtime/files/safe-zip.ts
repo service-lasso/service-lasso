@@ -36,14 +36,31 @@ export function assertSafeArchiveEntry(entryName: string, archiveLabel: string):
 }
 
 /**
+ * Returns true when {@link resolvedPath} stays inside {@link destinationRoot}.
+ */
+export function isPathContainedInRoot(destinationRoot: string, resolvedPath: string): boolean {
+  const relativePath = path.relative(destinationRoot, resolvedPath);
+  if (relativePath.length === 0) {
+    return true;
+  }
+  return !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+}
+
+/**
  * Resolves an archive entry under a destination root and rejects escapes.
  */
 export function resolveContainedArchiveTarget(destinationRoot: string, segments: string[]): string {
   const targetPath = path.resolve(destinationRoot, ...segments);
-  if (targetPath !== destinationRoot && !targetPath.startsWith(`${destinationRoot}${path.sep}`)) {
+  if (!isPathContainedInRoot(destinationRoot, targetPath)) {
     throw new Error(`Unsafe archive entry "${segments.join("/")}" escapes ${destinationRoot}.`);
   }
   return targetPath;
+}
+
+/** Options for {@link extractZipSafely}. */
+export interface ExtractZipSafelyOptions {
+  /** When true, reject archives that contain unsafe entry names instead of skipping them. */
+  rejectUnsafeEntries?: boolean;
 }
 
 /**
@@ -213,14 +230,17 @@ export async function addLocalFileToArchive(
 
 /**
  * Extracts a ZIP archive without following destination symlinks or writing outside the root.
- * Unsafe entry names are skipped fail-closed rather than written.
+ * Unsafe entry names are skipped fail-closed rather than written unless
+ * {@link ExtractZipSafelyOptions.rejectUnsafeEntries} is enabled.
  */
 export async function extractZipSafely(
   source: string | Buffer,
   destinationPath: string,
   archiveLabel?: string,
+  options?: ExtractZipSafelyOptions,
 ): Promise<void> {
   const label = archiveLabel ?? (typeof source === "string" ? source : "<buffer>");
+  const rejectUnsafeEntries = options?.rejectUnsafeEntries === true;
   const buffer = typeof source === "string" ? readFileSync(source) : source;
   const archive = new ZipArchive(buffer);
 
@@ -241,14 +261,20 @@ export async function extractZipSafely(
     let segments: string[];
     try {
       segments = assertSafeArchiveEntry(entry.entryName, label);
-    } catch {
+    } catch (error) {
+      if (rejectUnsafeEntries) {
+        throw error;
+      }
       continue;
     }
 
     let targetPath: string;
     try {
       targetPath = resolveContainedArchiveTarget(destinationRoot, segments);
-    } catch {
+    } catch (error) {
+      if (rejectUnsafeEntries) {
+        throw error;
+      }
       continue;
     }
 
@@ -259,6 +285,9 @@ export async function extractZipSafely(
       await writeFile(targetPath, entry.getData());
     } catch (error) {
       if (error instanceof Error && error.message.includes("Archive extraction blocked")) {
+        if (rejectUnsafeEntries) {
+          throw error;
+        }
         continue;
       }
       throw error;
@@ -267,11 +296,11 @@ export async function extractZipSafely(
 }
 
 async function assertWritableContainedPath(destinationRoot: string, targetPath: string): Promise<void> {
-  const relativePath = path.relative(destinationRoot, targetPath);
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+  if (!isPathContainedInRoot(destinationRoot, targetPath)) {
     throw new Error(`Archive extraction blocked: ${targetPath} escapes ${destinationRoot}.`);
   }
 
+  const relativePath = path.relative(destinationRoot, targetPath);
   let current = destinationRoot;
   for (const segment of relativePath.split(path.sep).filter(Boolean)) {
     current = path.join(current, segment);
