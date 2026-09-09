@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
 import * as tar from "tar";
+import { ZipArchive, extractZipSafely } from "../dist/runtime/files/safe-zip.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -15,7 +15,7 @@ async function assertMissing(targetPath) {
 }
 
 function createZipWithTraversalEntry() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("runtime/service.mjs", Buffer.from('console.log("safe");\n', "utf8"));
   zip.addFile("aa/escaped.txt", Buffer.from("unsafe", "utf8"));
 
@@ -68,13 +68,13 @@ test("production archive dependencies are pinned to fixed releases", async () =>
   const manifest = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
   const lockfile = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8"));
 
-  assert.equal(manifest.dependencies["adm-zip"], "0.6.0");
+  assert.equal(manifest.dependencies.fflate, "0.8.3");
   assert.equal(manifest.dependencies.tar, "7.5.22");
-  assert.equal(lockfile.packages["node_modules/adm-zip"].version, "0.6.0");
+  assert.equal(lockfile.packages["node_modules/fflate"].version, "0.8.3");
   assert.equal(lockfile.packages["node_modules/tar"].version, "7.5.22");
 });
 
-test("adm-zip extraction preserves valid content without allowing traversal outside the destination", async () => {
+test("zip extraction preserves valid content without allowing traversal outside the destination", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-zip-security-"));
   const archivePath = path.join(root, "crafted.zip");
   const destinationPath = path.join(root, "extracted");
@@ -82,9 +82,9 @@ test("adm-zip extraction preserves valid content without allowing traversal outs
   await writeFile(archivePath, createZipWithTraversalEntry());
 
   try {
-    const archive = new AdmZip(archivePath);
+    const archive = new ZipArchive(archivePath);
     assert.equal(archive.getEntries().some((entry) => entry.entryName === "../escaped.txt"), true);
-    archive.extractAllTo(destinationPath, true);
+    await extractZipSafely(archivePath, destinationPath);
 
     assert.equal(await readFile(path.join(destinationPath, "runtime", "service.mjs"), "utf8"), 'console.log("safe");\n');
     await assertMissing(path.join(root, "escaped.txt"));

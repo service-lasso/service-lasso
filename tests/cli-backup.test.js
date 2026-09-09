@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { writeManifest } from "./test-helpers.js";
 
 const execFile = promisify(execFileCallback);
@@ -100,7 +100,7 @@ test("CLI backup create writes redacted manifest and state without log contents"
       "--json",
     ]);
     const payload = JSON.parse(stdout);
-    const zip = new AdmZip(payload.archivePath);
+    const zip = new ZipArchive(payload.archivePath);
     const redactedManifest = JSON.parse(zip.getEntry("services/backup-fixture/manifest.redacted.json").getData().toString("utf8"));
     const redactedConfig = JSON.parse(zip.getEntry("services/backup-fixture/state/config.json").getData().toString("utf8"));
     const logMetadata = JSON.parse(zip.getEntry("services/backup-fixture/logs.metadata.json").getData().toString("utf8"));
@@ -231,9 +231,9 @@ test("CLI backup restore-plan reports valid overwrite operations and archive str
 test("CLI backup restore-plan blocks archives missing the top-level manifest", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempRuntime("service-lasso-cli-restore-missing-manifest-");
   const archivePath = path.join(workspaceRoot, "missing-manifest.zip");
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("not-the-manifest.json", Buffer.from("{}\n", "utf8"));
-  zip.writeZip(archivePath);
+  await zip.writeZip(archivePath);
 
   try {
     const planOut = await runCli([

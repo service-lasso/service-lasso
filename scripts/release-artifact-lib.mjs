@@ -13,7 +13,12 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import AdmZip from "adm-zip";
+import {
+  ZipArchive,
+  addLocalFileToArchive,
+  addLocalFolderToArchive,
+  extractZipSafely,
+} from "../dist/runtime/files/safe-zip.js";
 import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
 import {
   getReleaseVersion,
@@ -434,7 +439,7 @@ export async function createReleaseZipArchive(
   const artifactRoot = path.join(outputRoot, artifactName);
   await rm(archivePath, { force: true });
 
-  const archive = new AdmZip();
+  const archive = new ZipArchive();
   const topLevelEntries = await readdir(artifactRoot, { withFileTypes: true });
   for (const entry of topLevelEntries.sort((left, right) =>
     left.name.localeCompare(right.name),
@@ -445,14 +450,14 @@ export async function createReleaseZipArchive(
     if (entry.isDirectory()) {
       // Use a separate walk for each canonical top-level tree. npm workspaces
       // create links under node_modules that can resolve back into packages/;
-      // one whole-root AdmZip walk de-duplicates those realpaths and can omit
+      // one whole-root archive walk de-duplicates those realpaths and can omit
       // the later canonical directory contents from the ZIP.
-      archive.addLocalFolder(sourcePath, zipPath);
+      await addLocalFolderToArchive(archive, sourcePath, zipPath);
       continue;
     }
 
     if (entry.isFile()) {
-      archive.addLocalFile(sourcePath, artifactName);
+      await addLocalFileToArchive(archive, sourcePath, artifactName);
       continue;
     }
 
@@ -460,7 +465,7 @@ export async function createReleaseZipArchive(
       `Unsupported top-level release artifact entry: ${entry.name}`,
     );
   }
-  archive.writeZip(archivePath);
+  await archive.writeZip(archivePath);
 
   return archivePath;
 }
@@ -471,7 +476,7 @@ export async function verifyReleaseZipArchive({ archivePath, artifactName }) {
   );
 
   try {
-    new AdmZip(archivePath).extractAllTo(extractionRoot, true);
+    await extractZipSafely(archivePath, extractionRoot);
     const extractedRoot = path.join(extractionRoot, artifactName);
     const manifest = JSON.parse(
       await readFile(path.join(extractedRoot, "release-artifact.json"), "utf8"),

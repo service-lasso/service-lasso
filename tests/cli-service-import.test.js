@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 
 const execFile = promisify(execFileCallback);
@@ -68,7 +68,7 @@ function archivedManifest(serviceId = "uploaded-service") {
 
 async function writeServiceArchive(root, entries) {
   const archivePath = path.join(root, "uploaded-service.zip");
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   for (const [entryPath, content] of Object.entries(entries)) {
     zip.addFile(entryPath, Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8"));
   }

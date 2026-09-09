@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { getServiceStatePaths } from "../dist/runtime/state/paths.js";
@@ -1317,7 +1317,7 @@ test("#862 HTTP guarded lifecycle actions use the active runtime dependency and 
     assert.equal(getLifecycleState("update-service").running, true);
     await assert.rejects(stat(path.join(updatePaths.extracted, "current")), (error) => error?.code === "ENOENT");
 
-    const verifiedUpdateZip = new AdmZip();
+    const verifiedUpdateZip = new ZipArchive();
     verifiedUpdateZip.addFile(
       "runtime/update-service.mjs",
       Buffer.from('process.stdout.write("guarded update started\\n"); setInterval(() => {}, 1000);\n', "utf8"),

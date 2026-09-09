@@ -1,7 +1,7 @@
 import { access, cp, lstat, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import AdmZip from "adm-zip";
+import { extractZipSafely } from "../files/safe-zip.js";
 import type { ServiceManifest } from "../../contracts/service.js";
 import { DEFAULT_SERVICES_ROOT } from "../../contracts/service-root.js";
 import { resolveRuntimeConfig } from "../config.js";
@@ -133,50 +133,6 @@ function detectArchiveType(archivePath: string): "zip" {
   }
 
   throw new Error('The "services import --archive" command currently supports .zip Service Archives.');
-}
-
-function assertSafeArchiveEntry(entryName: string, archivePath: string): string[] {
-  const rawSegments = entryName.replaceAll("\\", "/").split("/");
-  if (rawSegments.some((segment) => segment === "." || segment === "..")) {
-    throw new Error(`Unsafe archive entry "${entryName}" in ${archivePath}.`);
-  }
-
-  const normalized = path.posix.normalize(rawSegments.join("/"));
-  if (
-    normalized.length === 0 ||
-    normalized === "." ||
-    normalized.startsWith("../") ||
-    normalized.includes("/../") ||
-    path.posix.isAbsolute(normalized) ||
-    /^[A-Za-z]:/.test(normalized)
-  ) {
-    throw new Error(`Unsafe archive entry "${entryName}" in ${archivePath}.`);
-  }
-
-  return normalized.split("/").filter(Boolean);
-}
-
-async function extractZipSafely(archivePath: string, destinationPath: string): Promise<void> {
-  await rm(destinationPath, { recursive: true, force: true });
-  await mkdir(destinationPath, { recursive: true });
-
-  const zip = new AdmZip(archivePath);
-  const destinationRoot = path.resolve(destinationPath);
-  for (const entry of zip.getEntries()) {
-    const segments = assertSafeArchiveEntry(entry.entryName, archivePath);
-    const targetPath = path.resolve(destinationRoot, ...segments);
-    if (targetPath !== destinationRoot && !targetPath.startsWith(destinationRoot + path.sep)) {
-      throw new Error(`Unsafe archive entry "${entry.entryName}" in ${archivePath}.`);
-    }
-
-    if (entry.isDirectory) {
-      await mkdir(targetPath, { recursive: true });
-      continue;
-    }
-
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, entry.getData());
-  }
 }
 
 async function findServiceManifestPaths(root: string): Promise<string[]> {
