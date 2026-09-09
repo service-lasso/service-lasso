@@ -15,17 +15,14 @@ export interface ZipArchiveEntry {
  * Throws when the entry can escape the extraction root.
  */
 export function assertSafeArchiveEntry(entryName: string, archiveLabel: string): string[] {
-  const rawSegments = entryName.replaceAll("\\", "/").split("/");
-  if (rawSegments.some((segment) => segment === "." || segment === "..")) {
-    throw new Error(`Unsafe archive entry "${entryName}" in ${archiveLabel}.`);
-  }
-
-  const normalized = path.posix.normalize(rawSegments.join("/"));
+  const normalized = path.posix.normalize(entryName.replaceAll("\\", "/"));
   if (
     normalized.length === 0 ||
     normalized === "." ||
+    normalized === ".." ||
     normalized.startsWith("../") ||
     normalized.includes("/../") ||
+    normalized.endsWith("/..") ||
     path.posix.isAbsolute(normalized) ||
     /^[A-Za-z]:/.test(normalized)
   ) {
@@ -39,7 +36,9 @@ export function assertSafeArchiveEntry(entryName: string, archiveLabel: string):
  * Returns true when {@link resolvedPath} stays inside {@link destinationRoot}.
  */
 export function isPathContainedInRoot(destinationRoot: string, resolvedPath: string): boolean {
-  const relativePath = path.relative(destinationRoot, resolvedPath);
+  const root = path.resolve(destinationRoot);
+  const target = path.resolve(resolvedPath);
+  const relativePath = path.relative(root, target);
   if (relativePath.length === 0) {
     return true;
   }
