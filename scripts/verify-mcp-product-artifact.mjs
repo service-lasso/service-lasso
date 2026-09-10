@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import process from "node:process";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "../dist/runtime/files/safe-zip.js";
 import { validateMcpProductEvidence } from "./mcp-product-acceptance-lib.mjs";
 
 const required = (name) => {
@@ -67,7 +67,7 @@ const archiveDigest = `sha256:${createHash("sha256").update(archiveBytes).digest
 if (archiveDigest !== expectedDigest) {
   throw new Error("Downloaded MCP product artifact digest does not match the upload digest.");
 }
-const zip = new AdmZip(archiveBytes);
+const zip = new ZipArchive(archiveBytes);
 const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
 const expectedFile = `mcp-product-${platform}.json`;
 if (entries.length !== 1 || entries[0].entryName !== expectedFile) {

@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "adm-zip": "0.6.0",
+    "fflate": "0.8.3",
     "jose": "6.2.10",
     "tar": "7.5.22",
     "zod": "4.5.1"
@@ -74,7 +74,6 @@
     "@docusaurus/preset-classic": "3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@modelcontextprotocol/inspector": "2.4.0",
-    "@types/adm-zip": "^0.5.7",
     "@types/node": "^26.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -83,6 +82,7 @@
   },
   "overrides": {
     "serialize-javascript": "7.1.0",
+    "hono": "4.13.7",
     "qs": "6.16.0",
     "sockjs": {
       "uuid": "11.1.1"

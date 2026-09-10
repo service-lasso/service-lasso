@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { createServer } from "node:http";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -39,7 +39,7 @@ async function writeInstalledArtifact(serviceRoot) {
 }
 
 function createArchive() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("runtime/update-fixture.mjs", Buffer.from('console.log("updated");\n', "utf8"));
   return zip.toBuffer();
 }

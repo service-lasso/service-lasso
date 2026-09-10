@@ -16,3 +16,5 @@ Do not add documentation image assets while this replacement is active. Remove i
 `serialize-javascript` is forced to patched version 7.1.0 for Docusaurus' copy and CSS minimizer plugins. The lockfile test prevents any of these security boundaries from silently regressing.
 
 Production `@modelcontextprotocol/sdk` still declares Express 4 and body-parser ranges that resolve `qs` to 6.15.3. Issue `#1219` forces `qs` to patched 6.16.0 so `npm audit --omit=dev` and the critical/high tooling gate stay fail-closed. Express and body-parser keep calling `qs.parse` without `comma: true`; the override does not change that call surface. Dependabot already landed `fast-uri` 3.1.7 in `#1220`. A source lockfile fix is not remediation of already-published Core npm `2026.9.1-1f4ec40`; republish belongs to `#1151`.
+
+Production ZIP handling uses pinned `fflate` 0.8.3 through `src/runtime/files/safe-zip.ts`, which enforces path containment and refuses destination-symlink writes during extraction. `@modelcontextprotocol/sdk` transitively resolves `hono` below 4.13.5; the lockfile forces `hono` 4.13.7 so MCP HTTP transport stays on the patched release without changing the SDK pin.
