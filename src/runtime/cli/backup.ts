@@ -1,6 +1,6 @@
 import path from "node:path";
 import { lstat, mkdir, readdir, stat } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "../files/safe-zip.js";
 import type { ServiceManifest } from "../../contracts/service.js";
 import { discoverServices } from "../discovery/discoverServices.js";
 import { validateServiceManifest } from "../discovery/validateManifest.js";
@@ -222,12 +222,12 @@ async function listLogFiles(serviceRoot: string, state: StoredStateSnapshot): Pr
   };
 }
 
-function addJson(zip: AdmZip, entryPath: string, value: unknown): void {
+function addJson(zip: ZipArchive, entryPath: string, value: unknown): void {
   zip.addFile(entryPath, Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8"));
 }
 
-function readArchive(archivePath: string): { zip: AdmZip; manifest: WorkspaceBackupManifest | null; issues: string[] } {
-  const zip = new AdmZip(archivePath);
+function readArchive(archivePath: string): { zip: ZipArchive; manifest: WorkspaceBackupManifest | null; issues: string[] } {
+  const zip = new ZipArchive(archivePath);
   const issues: string[] = [];
   const manifestEntry = zip.getEntry("backup-manifest.json");
 
@@ -262,7 +262,7 @@ export async function createWorkspaceBackup(options: Omit<BackupCliOptions, "act
   const archiveName = "service-lasso-backup-" + createdAt.replace(/[:.]/g, "-") + ".zip";
   const archivePath = path.join(backupRoot, archiveName);
   const services = await discoverServices(config.servicesRoot);
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   const manifestServices: BackupServiceEntry[] = [];
 
   for (const service of services) {
@@ -306,7 +306,7 @@ export async function createWorkspaceBackup(options: Omit<BackupCliOptions, "act
   };
 
   addJson(zip, "backup-manifest.json", manifest);
-  zip.writeZip(archivePath);
+  await zip.writeZip(archivePath);
 
   return {
     action: "create",
@@ -316,7 +316,7 @@ export async function createWorkspaceBackup(options: Omit<BackupCliOptions, "act
   };
 }
 
-function parseArchiveJson(zip: AdmZip, entryPath: string): { ok: true; value: unknown } | { ok: false; issue: string } {
+function parseArchiveJson(zip: ZipArchive, entryPath: string): { ok: true; value: unknown } | { ok: false; issue: string } {
   const entry = zip.getEntry(entryPath);
   if (!entry) {
     return { ok: false, issue: "missing" };
@@ -359,7 +359,7 @@ async function inspectTargetPath(targetPath: string): Promise<{ exists: boolean;
   }
 }
 
-function validateBackupServiceManifest(zip: AdmZip, backupService: BackupServiceEntry): RestorePlanServiceChange["manifestCompatibility"] {
+function validateBackupServiceManifest(zip: ZipArchive, backupService: BackupServiceEntry): RestorePlanServiceChange["manifestCompatibility"] {
   const serviceArchiveRoot = toArchivePath("services", safeSegment(backupService.serviceId));
   const manifestEntryPath = toArchivePath(serviceArchiveRoot, "manifest.redacted.json");
   const parsed = parseArchiveJson(zip, manifestEntryPath);
@@ -391,7 +391,7 @@ function validateBackupServiceManifest(zip: AdmZip, backupService: BackupService
 async function buildServicePlan(
   backup: WorkspaceBackupManifest,
   current: Awaited<ReturnType<typeof discoverServices>>,
-  zip: AdmZip,
+  zip: ZipArchive,
   servicesRoot: string,
 ): Promise<RestorePlanServiceChange[]> {
   const currentById = new Map(current.map((service) => [service.manifest.id, service]));

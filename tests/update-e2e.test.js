@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -57,7 +57,7 @@ async function writeInstalledArtifact(serviceRoot, tag, assetName = defaultAsset
 }
 
 function createValidUpdateArchive() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile(
     "runtime/update-fixture.mjs",
     Buffer.from('console.log("service-lasso update e2e candidate");\n', "utf8"),

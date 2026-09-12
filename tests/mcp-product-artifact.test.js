@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PRODUCT_EVIDENCE_CONTRACT,
@@ -237,7 +237,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     ),
     /closed acceptance contract/u,
   );
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("mcp-product-win32.json", Buffer.from(`${JSON.stringify(winEvidence)}\n`, "utf8"));
   const archive = zip.toBuffer();
   const digest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;

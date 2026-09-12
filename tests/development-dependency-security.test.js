@@ -41,10 +41,12 @@ test("development dependency replacements resolve to the reviewed safe boundarie
     "7.1.0",
   );
   assert.equal(packageJson.overrides.qs, "6.16.0");
+  assert.equal(packageJson.overrides.hono, "4.13.7");
   assert.equal(packageJson.overrides.sockjs.uuid, "11.1.1");
   assert.equal(packageLock.packages["node_modules/uuid"].version, "11.1.1");
   assert.equal(packageLock.packages["node_modules/qs"].version, "6.16.0");
   assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.7");
+  assert.equal(packageLock.packages["node_modules/hono"].version, "4.13.7");
 });
 
 /**

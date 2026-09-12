@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { access, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import * as tar from "tar";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { installService } from "../dist/runtime/lifecycle/actions.js";
@@ -25,7 +25,7 @@ import { advanceStartupTransaction, beginStartupTransaction } from "../dist/runt
 import { makeTempServicesRoot } from "./test-helpers.js";
 
 function artifactZip() {
-  const archive = new AdmZip();
+  const archive = new ZipArchive();
   archive.addFile("runtime/service.mjs", Buffer.from("console.log('artifact');\n", "utf8"));
   return archive.toBuffer();
 }
