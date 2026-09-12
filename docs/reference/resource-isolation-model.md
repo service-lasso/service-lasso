@@ -2,15 +2,14 @@
 
 ## Status
 
-Design summary for capability item **#4 — Resource/isolation model**.
-
-This is not yet a final runtime contract. It captures the agreed direction so implementation issues can be split cleanly after the design pass.
+Governed by SPEC-002 `AC-4CE` (`#1238`). Runtime parse, dashboard status, and `require` fail-closed start gates are `#1239`. Admin display is `lasso-serviceadmin#609`. Docker Compose remains optional L5 (`service-lasso-app-docker-node-service#1`); do not steal an open PR. A Core Docker/Podman provider (L6) is out of scope.
 
 Related backlog:
 
-- `service-lasso/work-agents#43` — EPIC: Resource isolation model backlog
-- `service-lasso/work-agents#37` — EPIC: Docker Compose Node service reference backlog
-- `service-lasso/service-lasso-app-docker-node-service#1` — Build reference Docker Compose based Node service example
+- `service-lasso/service-lasso#1238` — spec
+- `service-lasso/service-lasso#1239` — runtime
+- `service-lasso/lasso-serviceadmin#609` — Admin status
+- `service-lasso/service-lasso-app-docker-node-service#1` — optional L5 reference
 
 ## Product goal
 
@@ -172,36 +171,14 @@ The best fit is:
 
 The eventual manifest model should be explicit and provider-neutral.
 
-Possible future shape:
+The intended `service.json` shape (`AC-4CE`):
 
-- `resources`
-  - CPU limit/share
-  - memory limit
-  - process/PID limit
-  - IO limits where supported
-- `isolation`
-  - mode: `none`, `workspace`, `user`, `namespace`, `container`
-  - fallback policy when unsupported
-- `filesystem`
-  - writable roots
-  - read-only roots
-  - denied roots
-  - workspace-only mode
-- `network`
-  - bind rules
-  - connect rules
-  - namespace/provider hints
-- `user`
-  - current user
-  - dedicated service user
-  - configured user/group
-- `hardening`
-  - drop capabilities
-  - no-new-privileges
-  - Landlock profile
-  - seccomp profile
+- `isolation.mode`: `direct` (default) or `compose-scripts`
+- `isolation.workspace`: service-root-relative roots
+- `isolation.limits`: `cpuPercent`, `memoryMb`, `pids`
+- `isolation.require`: `none` (default), `limits`, `dedicated-user`, or `hardened`
 
-These names are not final. They are design placeholders only.
+`require` other than `none` fails closed until that rung is actually enforced. Declared limits without `require: limits` degrade with `limits_not_applied` and do not block start.
 
 ## Runtime responsibilities
 

@@ -9,7 +9,7 @@ import type { ConfigDriftReport } from "../runtime/operator/config-drift.js";
 import type { RuntimeLogShippingPreview } from "../runtime/operator/log-shipping.js";
 import type { RuntimeTelemetryPreview, ServiceTelemetryPreview, TelemetryExportTestResult } from "../runtime/operator/telemetry.js";
 import type { EffectiveServiceRouteMetadataSummary } from "../runtime/operator/endpoints.js";
-import type { ServiceCatalogProvenance } from "./service.js";
+import type { ServiceCatalogProvenance, ServiceIsolationStatus } from "./service.js";
 import type { ServiceActionRunState } from "../runtime/actions/runs.js";
 import type { ServiceWorkspaceRegistry } from "../runtime/files/workspace-registry.js";
 import type {
@@ -1059,6 +1059,7 @@ export interface DashboardServiceResponse {
   environmentVariables: DashboardEnvironmentVariableResponse[];
   recentLogs: DashboardLogPreviewEntryResponse[];
   actions: DashboardActionResponse[];
+  isolation: ServiceIsolationStatus;
 }
 
 /**

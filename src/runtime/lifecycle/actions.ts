@@ -6,6 +6,7 @@ import type {
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { evaluateServiceIsolation, assertIsolationStartAllowed } from "../isolation/evaluate.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import {
   beginManagedProcessStop,
@@ -1225,6 +1226,16 @@ export async function startService(
       trace,
       "artifact_acquisition",
       `Cannot start service "${serviceId}" before config.`,
+    );
+  }
+  try {
+    assertIsolationStartAllowed(evaluateServiceIsolation(service.manifest.isolation), serviceId);
+  } catch (error) {
+    failStartTraceAndThrow(
+      serviceId,
+      trace,
+      "process_spawn",
+      error instanceof Error ? error.message : `Cannot start service "${serviceId}" because isolation.require cannot be satisfied.`,
     );
   }
   // Registry-first adopt: a live verified owner must not be duplicated on start.
