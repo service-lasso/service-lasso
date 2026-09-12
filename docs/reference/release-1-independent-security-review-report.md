@@ -1,8 +1,15 @@
 # Release 1 independent security review evidence readback
 
-**Date:** 2026-09-03  
-**Author:** MegaMindG acting as Max Barrass's delivery-owner agent (not a named independent security reviewer)  
+**Date:** 2026-09-03 (rejected identity); replacement-set assembly 2026-09-11
+**Author:** MegaMindG acting as Max Barrass's delivery-owner agent (not a named independent security reviewer)
 **Status:** `Technical evidence readback — AC-7H independent approval NOT recorded`
+
+The body below remains the 2026-09-03 readback of rejected Core/npm
+`2026.9.1-1f4ec40`. Replacement identities for independent review are Core/npm
+`2026.9.11-462f837` / `462f837b25224e98103296b4597807b5beea00c5`, bound by
+[GA decision](./release-1-ga-decision.md) and
+[security packet](./release-1-security-review-packet.md). That later set is
+not covered by the 2026-09-08 reject or by this historical readback.
 
 ---
 
