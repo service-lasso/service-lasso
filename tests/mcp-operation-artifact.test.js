@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,7 +28,7 @@ test("#863 retained evidence verifier binds artifact API, archive digest, expiry
     assertions: ["durable operation lifecycle"],
     generatedAt: "2026-08-29T00:00:00.000Z",
   };
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("mcp-operations.json", Buffer.from(`${JSON.stringify(evidence)}\n`, "utf8"));
   const archive = zip.toBuffer();
   const digest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;
