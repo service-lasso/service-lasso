@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { startApiServer } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
@@ -88,7 +88,7 @@ async function writeInstalledArtifact(serviceRoot) {
 }
 
 function createEchoHookArchive() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("runtime/echo-hook.mjs", Buffer.from('console.log("echo hook updated");\n', "utf8"));
   return zip.toBuffer();
 }

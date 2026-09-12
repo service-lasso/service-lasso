@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import AdmZip from "adm-zip";
+import { ZipArchive, addLocalFolderToArchive } from "./helpers/zip-fixture.mjs";
 import * as tar from "tar";
 
 import {
@@ -40,9 +40,9 @@ test("published qualification extracts a verified archive with the current platf
     let archive;
     if (process.platform === "win32") {
       archive = path.join(root, "core.zip");
-      const zip = new AdmZip();
-      zip.addLocalFolder(source);
-      zip.writeZip(archive);
+      const zip = new ZipArchive();
+      await addLocalFolderToArchive(zip, source, "");
+      await zip.writeZip(archive);
     } else {
       archive = path.join(root, "core.tar.gz");
       await tar.create({ cwd: source, file: archive, gzip: true }, ["release"]);

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import process from "node:process";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "../dist/runtime/files/safe-zip.js";
 
 const required = (name) => {
   const value = process.env[name]?.trim();
@@ -70,7 +70,7 @@ const archiveDigest = `sha256:${createHash("sha256").update(archiveBytes).digest
 if (archiveDigest !== expectedDigest) {
   throw new Error("Downloaded MCP operation artifact digest does not match the upload digest.");
 }
-const zip = new AdmZip(archiveBytes);
+const zip = new ZipArchive(archiveBytes);
 const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
 if (entries.length !== 1 || entries[0].entryName !== "mcp-operations.json") {
   throw new Error("MCP operation artifact must contain exactly one metadata evidence file.");

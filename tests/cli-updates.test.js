@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 
 const execFile = promisify(execFileCallback);
@@ -56,7 +56,7 @@ async function writeLocalBackupEvidence(serviceRoot) {
 }
 
 function createZipWithRuntimeScript() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("runtime/update-fixture.mjs", Buffer.from('console.log("updated");\n', "utf8"));
   return zip.toBuffer();
 }

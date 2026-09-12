@@ -5,7 +5,7 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, link, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import AdmZip from "adm-zip";
+import { extractZipSafely } from "../files/safe-zip.js";
 import * as tar from "tar";
 import type {
   DiscoveredService,
@@ -518,7 +518,7 @@ async function extractArchive(
   await mkdir(destinationPath, { recursive: true });
 
   if (archiveType === "zip") {
-    new AdmZip(archiveBytes).extractAllTo(destinationPath, true);
+    await extractZipSafely(archiveBytes, destinationPath);
     return;
   }
 

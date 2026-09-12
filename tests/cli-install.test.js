@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { execFile as execFileCallback } from "node:child_process";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
@@ -29,7 +29,7 @@ async function writeManifest(servicesRoot, serviceId, body) {
 }
 
 function createZipWithRuntimeScript() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile(
     "runtime/downloaded-service.mjs",
     Buffer.from(

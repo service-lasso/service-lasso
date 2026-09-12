@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { startApiServer } from "../dist/server/index.js";
 
 async function makeTempRoot() {
@@ -61,7 +61,7 @@ function serviceManifest(serviceId, version = "2026.8.15-fixture") {
 }
 
 function archiveBufferFor(serviceId, version) {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("package/service.json", Buffer.from(JSON.stringify(serviceManifest(serviceId, version), null, 2), "utf8"));
   zip.addFile("package/runtime/fixture.txt", Buffer.from(`installed ${serviceId}\n`, "utf8"));
   return zip.toBuffer();

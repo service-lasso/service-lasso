@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { access, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { extractZipSafely } from "../files/safe-zip.js";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
 import { getLockedServiceEntry, readServiceLockfile, type ServiceLockfileEntry } from "../lockfile/service-lockfile.js";
@@ -438,8 +438,7 @@ async function extractArchive(
   }
 
   if (archiveType === "zip") {
-    const archive = new AdmZip(archivePath);
-    archive.extractAllTo(destinationPath, true);
+    await extractZipSafely(archivePath, destinationPath);
     return;
   }
 

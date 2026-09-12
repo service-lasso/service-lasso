@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import AdmZip from "adm-zip";
+import { ZipArchive } from "./helpers/zip-fixture.mjs";
 import { startApiServer } from "../dist/server/index.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
@@ -46,7 +46,7 @@ async function writeInstalledArtifact(serviceRoot, tag = "2026.4.20-old") {
 }
 
 function createZipWithRuntimeScript() {
-  const zip = new AdmZip();
+  const zip = new ZipArchive();
   zip.addFile("runtime/update-fixture.mjs", Buffer.from('console.log("updated");\n', "utf8"));
   return zip.toBuffer();
 }
