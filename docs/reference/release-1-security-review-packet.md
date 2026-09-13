@@ -1,14 +1,17 @@
 # Release 1 independent security review packet
 
-Status: ready for independent review; external approval not yet recorded
+Status: AC-7H **approve with accepted residuals** for Core/npm `2026.9.11-462f837`
+only ([#1151 comment](https://github.com/service-lasso/service-lasso/issues/1151#issuecomment-5645610452),
+2026-09-12). Current npm/GitHub Latest `2026.9.13-1bffd1b` is an
+operator-promoted post-review delta; it is not a second AN signature.
 Tracking issue: [service-lasso/service-lasso#1151](https://github.com/service-lasso/service-lasso/issues/1151)
 Prior packet issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 Acceptance authority: `SPEC-007` `AC-7F` through `AC-7H`
 
 > **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md)
 > records technical verification of the **rejected** `2026.9.1-1f4ec40` set.
-> This packet binds replacement Core/npm `2026.9.11-462f837`. Delivery-owner
-> assembly is not AC-7H independent approval.
+> AC-7H review bytes remain Core/npm `2026.9.11-462f837`. See
+> [GA decision](./release-1-ga-decision.md) for live `1bffd1b` publication.
 
 ## Exact review scope
 
@@ -255,5 +258,15 @@ The independent reviewer must append or link a signed decision containing:
 - explicit `approve`, `approve with accepted residuals`, or `reject` decision;
 - confirmation that no technical gap was reclassified as green by waiver.
 
-Until that record exists and every blocking finding is resolved, Release 1 is
-not approved for `develop`-to-`main` promotion or GA publication.
+Lane AN appended approve-with-accepted-residuals on 2026-09-12 for Core/npm
+`2026.9.11-462f837` / `462f837b25224e98103296b4597807b5beea00c5` and packet
+merge `155d643256ee050299883d1634be067a1ff4ebce`. Residuals recorded there
+remain in force: npm run `34614418000` stays red; historical published-package
+failures stay failures; `gh`=`wildone` is also delivery owner; packet merge
+includes Dependabot not in that Core SHA.
+
+Operator publication of `2026.9.13-1bffd1b` / `1bffd1bca177de213e3a0bd3efb54125dc5cf107`
+is a post-review delta (`#1241` isolation fail-closed plus later docs/Dependabot).
+It does not reuse the AN signature. `#1151` stays open until a named independent
+reviewer signs those later bytes or the operator explicitly closes the umbrella
+with that residual accepted.
