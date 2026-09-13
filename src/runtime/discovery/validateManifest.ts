@@ -24,6 +24,10 @@ import type {
   ServiceEndpointProtocol,
   ServiceEndpointTransport,
   ServiceFilesRootMode,
+  ServiceIsolationLimits,
+  ServiceIsolationMode,
+  ServiceIsolationPolicy,
+  ServiceIsolationRequire,
   ServiceManifestEndpoint,
   ServiceActionWorkflowStep,
   ServiceEnvMap,
@@ -38,6 +42,7 @@ import type {
   ServiceUpdateWindowDay,
 } from "../../contracts/service.js";
 import type { ServiceHealthcheck } from "../health/types.js";
+import { SERVICE_ISOLATION_MODES, SERVICE_ISOLATION_REQUIRES } from "../isolation/evaluate.js";
 
 const hookFailurePolicies = new Set(["block", "warn", "continue"]);
 const hookPhases = new Set(["preRestart", "postRestart", "preUpgrade", "postUpgrade", "rollback", "onFailure"]);
@@ -1050,6 +1055,69 @@ function readFilesPolicy(value: unknown, manifestPath: string): ServiceManifest[
   });
 
   return { enabled, roots };
+}
+
+function readIsolationLimits(value: unknown, manifestPath: string): ServiceIsolationLimits | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "isolation.limits" to be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== "cpuPercent" && key !== "memoryMb" && key !== "pids") {
+      throw new Error(`Invalid service manifest at ${manifestPath}: unknown isolation.limits field "${key}".`);
+    }
+  }
+  const cpuPercent = expectOptionalWholeNumber(record.cpuPercent, "isolation.limits.cpuPercent", manifestPath, 1);
+  if (cpuPercent !== undefined && cpuPercent > 100) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "isolation.limits.cpuPercent" to be between 1 and 100.`);
+  }
+  const memoryMb = expectOptionalWholeNumber(record.memoryMb, "isolation.limits.memoryMb", manifestPath, 1);
+  const pids = expectOptionalWholeNumber(record.pids, "isolation.limits.pids", manifestPath, 1);
+  return { cpuPercent, memoryMb, pids };
+}
+
+/**
+ * Parses optional `isolation` from a service manifest (`AC-4CE` / `#1239`).
+ */
+function readIsolationPolicy(value: unknown, manifestPath: string): ServiceIsolationPolicy | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "isolation" to be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== "mode" && key !== "workspace" && key !== "limits" && key !== "require") {
+      throw new Error(`Invalid service manifest at ${manifestPath}: unknown isolation field "${key}".`);
+    }
+  }
+  const mode = expectOptionalEnum<ServiceIsolationMode>(
+    record.mode,
+    "isolation.mode",
+    SERVICE_ISOLATION_MODES,
+    '"direct" or "compose-scripts"',
+    manifestPath,
+  );
+  const require = expectOptionalEnum<ServiceIsolationRequire>(
+    record.require,
+    "isolation.require",
+    SERVICE_ISOLATION_REQUIRES,
+    '"none", "limits", "dedicated-user", or "hardened"',
+    manifestPath,
+  );
+  const workspace = readStringArray(record.workspace, "isolation.workspace", manifestPath)?.map((entry, index) =>
+    assertServiceRootRelativePath(entry, `isolation.workspace[${index}]`, manifestPath),
+  );
+  return {
+    mode,
+    require,
+    workspace,
+    limits: readIsolationLimits(record.limits, manifestPath),
+  };
 }
 
 function readStringArray(value: unknown, field: string, manifestPath: string): string[] | undefined {
@@ -2321,6 +2389,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const actions = readActionPolicy(record.actions, manifestPath);
   const setup = readSetupPolicy(record.setup, manifestPath);
   const files = readFilesPolicy(record.files, manifestPath);
+  const isolation = readIsolationPolicy(record.isolation, manifestPath);
   const updates = readUpdatePolicy(record.updates, artifact, manifestPath);
   const normalizedDependOn = dependOn?.map((dependency) => dependency.trim());
   const execservice = typeof rawExecservice === "string" ? rawExecservice.trim() : undefined;
@@ -2389,6 +2458,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     actions,
     setup,
     files,
+    isolation,
     updates,
     artifact,
     install,

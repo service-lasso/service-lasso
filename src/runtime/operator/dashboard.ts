@@ -22,6 +22,7 @@ import { getServiceStatePaths } from "../state/paths.js";
 import { isProviderRole } from "../roles.js";
 import { actorHasPermission, type PermissionActor } from "../permissions/enforcement.js";
 import { getServiceLifecycleActionPolicy } from "../permissions/lifecycle.js";
+import { evaluateServiceIsolation } from "../isolation/evaluate.js";
 
 type DashboardServiceStatus = DashboardServiceResponse["status"];
 
@@ -476,6 +477,7 @@ export async function buildDashboardService(
     })),
     recentLogs: await readRecentLogPreview(service.serviceRoot, lifecycle, nowIso),
     actions: [],
+    isolation: evaluateServiceIsolation(service.manifest.isolation),
   };
 
   dashboardService.actions = buildDashboardActions(dashboardService, service.manifest.role, actor);

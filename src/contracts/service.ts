@@ -265,6 +265,43 @@ export interface ServiceUpdatePolicy {
   runningService?: ServiceUpdateRunningServicePolicy;
 }
 
+/**
+ * Declared service isolation ladder (`SPEC-002` `AC-4CE`).
+ * Runtime enforcement and degrade reporting are `#1239`.
+ */
+export type ServiceIsolationMode = "direct" | "compose-scripts";
+export type ServiceIsolationRequire = "none" | "limits" | "dedicated-user" | "hardened";
+
+export interface ServiceIsolationLimits {
+  cpuPercent?: number;
+  memoryMb?: number;
+  pids?: number;
+}
+
+export interface ServiceIsolationPolicy {
+  mode?: ServiceIsolationMode;
+  workspace?: string[];
+  limits?: ServiceIsolationLimits;
+  require?: ServiceIsolationRequire;
+}
+
+export type ServiceIsolationDegradeReason =
+  | "limits_not_applied"
+  | "dedicated_user_unavailable"
+  | "hardening_unavailable";
+
+export interface ServiceIsolationStatus {
+  declaredMode: ServiceIsolationMode;
+  effectiveMode: ServiceIsolationMode;
+  require: ServiceIsolationRequire;
+  workspace: string[];
+  limits: ServiceIsolationLimits | undefined;
+  limitsEnforced: boolean;
+  degradeReasons: ServiceIsolationDegradeReason[];
+  startBlocked: boolean;
+  startBlockedReason: string | undefined;
+}
+
 export type ServiceArtifactArchiveType = "zip" | "tar.gz" | "tgz";
 
 export interface ServiceArtifactSource {
@@ -427,6 +464,7 @@ export interface ServiceManifest {
   setup?: ServiceSetupPolicy;
   files?: ServiceFilesPolicy;
   updates?: ServiceUpdatePolicy;
+  isolation?: ServiceIsolationPolicy;
   artifact?: ServiceArchiveArtifact;
   install?: ServiceActionMaterialization;
   config?: ServiceActionMaterialization;
