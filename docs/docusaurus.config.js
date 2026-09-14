@@ -66,6 +66,11 @@ const config = {
     },
   ],
   themeConfig: {
+    colorMode: {
+      defaultMode: "light",
+      respectPrefersColorScheme: true,
+      disableSwitch: false,
+    },
     navbar: {
       title: "Service Lasso",
       items: [

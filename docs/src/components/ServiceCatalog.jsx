@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from "react";
 import useBaseUrl from "@docusaurus/useBaseUrl";
+import {useColorMode} from "@docusaurus/theme-common";
 
 const catalogDataPath = "/data/service-catalog.json";
 const requiredServiceFields = ["id", "name", "repo", "group", "status", "summary"];
@@ -148,6 +149,14 @@ function readmeDocument(service, markdown, sourceUrl) {
       border-radius: 12px;
       background: #f5fbfa;
     }
+    [data-theme="dark"] { color-scheme: dark; }
+    [data-theme="dark"] body { background: #1b1b1d; color: #e3e3e3; }
+    [data-theme="dark"] h1, [data-theme="dark"] h2,
+    [data-theme="dark"] h3, [data-theme="dark"] h4 { color: #e3e3e3; }
+    [data-theme="dark"] a { color: #66d0cd; }
+    [data-theme="dark"] code { background: #293f42; color: #d6efed; }
+    [data-theme="dark"] pre code { background: transparent; color: inherit; }
+    [data-theme="dark"] .source { background: #242526; border-color: #444950; }
   </style>
 </head>
 <body>
@@ -178,6 +187,7 @@ function normalizeCatalogServices(catalog) {
 }
 
 export default function ServiceCatalog() {
+  const {colorMode} = useColorMode();
   const catalogUrl = useBaseUrl(catalogDataPath);
   const [catalog, setCatalog] = useState({
     status: "loading",
@@ -465,7 +475,7 @@ export default function ServiceCatalog() {
             className="serviceCatalog__iframe"
             title={`${activeService.id} README`}
             sandbox="allow-popups allow-popups-to-escape-sandbox"
-            srcDoc={viewer.srcDoc}
+            srcDoc={viewer.srcDoc.replace('<html lang="en">', `<html lang="en" data-theme="${colorMode}">`)}
           />
         ) : null}
       </section>
