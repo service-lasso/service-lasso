@@ -482,8 +482,10 @@ test("confirmCanonicalDemoStopped fails closed while the runtime port is still h
   assert.equal(confirmation.classification, "endpoint_reservation_held");
 });
 
-test("README documents start, stop, recycle, verify, and the default workspace", async () => {
-  const readme = await readFile(path.resolve("README.md"), "utf8");
+test("README links the demo guide documenting lifecycle commands and the default workspace", async () => {
+  const frontPage = await readFile(path.resolve("README.md"), "utf8");
+  assert.match(frontPage, /\]\(docs\/demo\/README\.md\)/);
+  const readme = await readFile(path.resolve("docs/demo/README.md"), "utf8");
   assert.match(readme, /npm run demo:start -- --port=17883/);
   assert.match(readme, /npm run demo:stop -- --port=17883/);
   assert.match(readme, /npm run demo:recycle -- --port=17883/);

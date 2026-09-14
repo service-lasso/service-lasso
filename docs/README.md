@@ -20,7 +20,18 @@ The preferred runtime-root model is:
 
 ## Start Here
 
-Use this short list as the public documentation map:
+Choose the guide for what you want to do next:
+
+| Goal | Guide |
+| --- | --- |
+| Try it and stop it cleanly | [Quick start](quick-start.md) |
+| Check ports, logs, status, or recovery | [Demo operations](demo/README.md) |
+| Use the CLI, HTTP API, or npm package | [Runtime integration](runtime/README.md) |
+| Find companion repositories and baseline services | [Services and companion projects](ecosystem/README.md) |
+| Choose a release archive | [Packages and releases](releases/README.md) |
+| Build, test, and contribute | [Development and verification](contributing/README.md) |
+
+## Browse the reference
 
 - [Introduction](INTRODUCTION.md): what Service Lasso is, what this repo owns, and where related repos fit.
 - [Service Catalog](service-catalog.md): available core services, app-owned add-on services, and reference apps.
