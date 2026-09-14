@@ -23,6 +23,8 @@ jobs:
     permissions:
       actions: read
       contents: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - name: Check out repo
