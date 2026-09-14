@@ -4,7 +4,7 @@ title: Documentation map
 
 # Documentation map
 
-This inventory records every Markdown page that existed when issue [#1258](https://github.com/service-lasso/service-lasso/issues/1258) was rebased onto the active `develop` baseline: 94 original pages plus five concurrent entry-point pages. **Primary home** is the proposed reader category; **Unlisted** means intentionally omitted from the sidebar because the page is a detailed contract, draft/plan, test fixture, or historical/release-specific evidence. It remains discoverable by direct link and this inventory. A `listed` entry that was not on the previous sidebar has a documented reader-facing reason to expose it.
+This inventory records every Markdown page that existed when issue [#1258](https://github.com/service-lasso/service-lasso/issues/1258) was rebased onto the active `develop` baseline: 94 original pages plus five concurrent entry-point pages. The merge reconciliation adds the component and operator-UI pages below. **Primary home** is the proposed reader category; **Unlisted** means intentionally omitted from the sidebar because the page is a detailed contract, draft/plan, test fixture, or historical/release-specific evidence. It remains discoverable by direct link and this inventory. A `listed` entry that was not on the previous sidebar has a documented reader-facing reason to expose it.
 
 | Existing page | Primary home | Type | Sidebar status / reason |
 | --- | --- | --- | --- |
@@ -111,3 +111,34 @@ This inventory records every Markdown page that existed when issue [#1258](https
 ## Follow-up gaps
 
 The inventory identifies no invented replacement runbook for backup/restore, updates, or service-specific UI controls. Their current records remain references or plans and are labelled accordingly. If a supported end-to-end operator procedure is needed, it should be a separate, focused issue bound to the relevant runtime acceptance criteria and verified against an actual retained workspace.
+
+| `ui-documentation.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `operator-ui/service-admin-ui-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `operator-ui/capture-manifest.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/documentation-migration.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/README.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/dashboard-home.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/environment-variables-global-and-service-reuse.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/health-checks.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/how-to-create-a-basic-service.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/mcp-operator-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/network-and-service-routes-operator-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/operations-audit-operator-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/operations-inbox-operator-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/operations-telemetry-operator-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/operator-troubleshooting-runbooks.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/product-status-and-safety.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/runtime-and-logs-operator-runbook.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/security-and-access-operator-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/security-secret-access-assignments.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/service-actions.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/service-admin-overview-and-navigation.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/service-admin-packaging-and-release-artifacts.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/service-install-and-setup-config.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-admin/variables-and-secrets-broker-safety-guide.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-template/bootstrap-new-service-repo.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-template/packaging.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-template/runtime-extension-points.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-template/service-contract.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-template/service-json-reference.md` | Component guides | guide / migration reference | Listed: central component guidance |
+| `components/service-template/validation.md` | Component guides | guide / migration reference | Listed: central component guidance |

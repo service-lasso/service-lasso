@@ -39,6 +39,8 @@ npm run demo:stop
 - **Choose ready-made services.** Browse databases, runtimes, proxies, and other services you can add to your app. [Service catalog →](docs/service-catalog.md)
 - **Embed the runtime.** Use the npm package or start from a Node, web, Electron, or Tauri reference app. [CLI, API, and npm →](docs/runtime/README.md) · [App templates →](docs/reference-apps.md)
 
+[Demo commands, ports, and troubleshooting →](docs/demo/README.md)
+
 ## Go further
 
 | When you need to… | Read |
