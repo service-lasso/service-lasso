@@ -590,5 +590,21 @@
     "blob": "3693189ce279514b89eae749b06f8e0c3662ad69",
     "target": "docs/components/service-template/validation.md",
     "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "a61dc047b8f8e8038b30f6205a2972ee22517468",
+    "source": "docs/help/ui-documentation.md",
+    "blob": "e0157c531b8a0a6a0da4fea1fd431eaa033d3ee7",
+    "target": "docs/operator-ui/service-admin-ui-guide.md",
+    "status": "canonical; packaged export"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "a61dc047b8f8e8038b30f6205a2972ee22517468",
+    "source": "docs/help/ui-capture-manifest.md",
+    "blob": "db4948d73530961c3a24409c7b7f74d2c2705d04",
+    "target": "docs/operator-ui/capture-manifest.md",
+    "status": "canonical; packaged export"
   }
 ]

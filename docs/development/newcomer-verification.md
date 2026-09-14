@@ -1,0 +1,34 @@
+---
+title: Newcomer journey verification
+---
+
+# Newcomer journey verification
+
+Observed on Windows, Node.js 22.23.2, 15 September 2026 (Australia/Sydney). This is an existing development machine with fresh, isolated service workspaces, not a clean-machine or cross-platform benchmark.
+
+| Journey | Evidence |
+| --- | --- |
+| Open Admin | Released Admin `2026.8.31-f015b44`, Core source base `1c265524029f86766947775f9f46799f82bd465c`; visible first-run, login, Services and Echo detail screens |
+| Stop/start Echo | Detail-page Stop presents confirmation; observed Stopped, then Running/Healthy after Start; table-row Stop fails confirmation and is tracked in Admin #619 |
+| Add PostgreSQL | Released PostgreSQL `2026.5.3-ddd9e47`, Windows artifact; npm runtime `2026.9.13-1bffd1b`, pg `8.23.0`; real write/read and app HTTP check pass |
+| Source package | npm archive inspected; only nine app/metadata files, no workspace or database; fresh unpack/install/setup/start succeeded on the same Windows machine |
+| Dependency failure | Stop PostgreSQL through its confirmed lifecycle API; app returns 503; start PostgreSQL and repeat database write/read plus app check successfully |
+| Configuration | Set the example's `POSTGRES_MAX_CONNECTIONS` to `120`, restart, and verify `SHOW max_connections` reports `120` alongside the passing app check |
+| MCP | SDK client connects, lists 15 read-only tools, calls runtime status and service list without tool errors |
+| Central docs | Site build passes; 15 existing demo documentation/lifecycle tests pass; 21 packaged Help Center articles have deterministic export and checksum verification |
+
+The fresh unpacked example reported **13.0 seconds from runtime launch to app readiness**, excluding npm installation and service download. A later restart reported **7.4 seconds**. These are observations, not first-run speed promises.
+
+## Limits found by exercising the journeys
+
+- The pinned PostgreSQL launcher uses a nonempty initialization directory and detaches its database through `pg_ctl`. The example supplies a small foreground launcher and a separate initialization directory; it does not claim the unmodified old launcher is reliable.
+- The canonical demo verifier failed on the deliberately noncanonical isolated ports and an MCP rate-limit response. Later direct MCP discovery and reads passed. The canonical gate is not reported as passing.
+- Admin develop `a61dc047b8f8e8038b30f6205a2972ee22517468` fails lint/build after its dependency update: TypeScript 7 is unsupported by its linter, and TanStack Table 9 changes break existing tables. Tracked in [Admin #618](https://github.com/service-lasso/lasso-serviceadmin/issues/618). Packaged-help checks passing do not imply an Admin build passed.
+- No clean-machine, Linux, macOS, or offline bundled acceptance is claimed. The source package requires internet access and Node.js.
+- Some ecosystem repositories still lack an authorized `develop` source. Their migrations remain in the [repository audit](../components/documentation-migration.md).
+
+## Visible product capture
+
+![Echo detail with Running and Healthy state](../static/img/newcomer/echo-detail.png)
+
+Captured from `/services/echo-service` on the isolated Admin at port 18401 after stop/start. Cropped to the service controls and state; no credentials or secret values. This replaces a blank-page claim with a visible observation, not a claim that the complete screenshot inventory is finished.

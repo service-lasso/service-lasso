@@ -9,6 +9,10 @@ Service Lasso discovers, configures, runs, observes, and updates local services 
 
 ## Choose your starting point
 
+**First useful result:** [See the demo](quick-start.md) → [Add PostgreSQL and connect an app](first-useful-service.md) → [Configure and recover](operate-your-service.md) → [Package it](package-your-app.md).
+
+[Copy a task for your agent or connect MCP](agent-prompts.md).
+
 | I want to… | Start here |
 | --- | --- |
 | Run services | [Run and manage services](operations/README.md) for first start, health, logs, recovery, and backup guidance. |

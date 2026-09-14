@@ -35,11 +35,15 @@ This restarts the demo and completes its first-run autostart checks. For setup d
 
 ## 3. Try a service
 
+On the first-run credential screen, use both copy buttons, save both values privately, tick **I saved this token**, and continue. Sign in using the saved credential or the offered local session.
+
 Once the services are running:
 
 1. Open the [Echo demo](http://127.0.0.1:4010/) to see a managed service respond.
-2. Find `echo-service` in Service Admin and inspect its status and logs.
-3. Stop it, then start it again and reload the Echo page.
+2. Find `echo-service` in Service Admin, open **Details**, and inspect its status and logs.
+3. On that detail page, click **Stop service**, accept its confirmation dialog, wait for **Stopped**, then click **Start service** and reload the Echo page.
+
+Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 
 The demo includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
 
@@ -59,7 +63,8 @@ Run `npm run demo:status` for a read-only report. The [runtime health endpoint](
 
 ## Next steps
 
-- [Add a service](service-authoring/overview.md) or browse the [service catalog](service-catalog.md).
+- [Add PostgreSQL and connect a working app](first-useful-service.md), then [package it](package-your-app.md).
+- [Give an agent the task](agent-prompts.md), including MCP diagnosis.
 - [Embed the runtime with npm, CLI, or HTTP](runtime/README.md).
 - [Choose a lean or bundled release archive](releases/README.md).
 - [Explore all documentation](README.md).

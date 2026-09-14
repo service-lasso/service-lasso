@@ -1,0 +1,18 @@
+{
+  "name": "service-lasso-postgres-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "setup": "node setup.mjs",
+    "start": "node app.mjs",
+    "check": "node check.mjs",
+    "stop": "node stop.mjs"
+  },
+  "files": ["*.mjs", "README.md", "npm-shrinkwrap.json"],
+  "dependencies": {
+    "@service-lasso/service-lasso": "2026.9.13-1bffd1b",
+    "pg": "8.23.0"
+  }
+}
