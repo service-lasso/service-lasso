@@ -17,6 +17,7 @@ import {
 } from "./demo-instance-lib.mjs";
 export { getCanonicalRuntimeLaneLockPath } from "./demo-instance-lib.mjs";
 import { verifyCanonicalDemo } from "./demo-verify-canonical.mjs";
+import { completeCanonicalDemoFirstRun } from "./demo-first-run-autostart.mjs";
 
 const BLOCKING_OWNERSHIP = new Set(["wrong_workspace_owner", "runtime_port_owner_conflict"]);
 const CANONICAL_LANE_LOCK_HELD_ENV = "SERVICE_LASSO_CANONICAL_LANE_LOCK_HELD";
@@ -51,6 +52,7 @@ const READY_POLL_MS = 500;
  * @property {object | null} lifecycleState
  * @property {object | null} ownershipProbe
  * @property {object | null} stoppedConfirmation
+ * @property {object | null} firstRun
  */
 
 /**
@@ -288,6 +290,7 @@ export function buildCanonicalDemoReport(input) {
     lifecycleState: input.lifecycleState ?? null,
     ownershipProbe: input.ownershipProbe ?? null,
     stoppedConfirmation: input.stoppedConfirmation ?? null,
+    firstRun: input.firstRun ?? null,
   };
 }
 
@@ -327,6 +330,9 @@ export function formatCanonicalDemoReport(report) {
   }
   for (const logPath of report.logPaths) {
     lines.push(`- log: ${logPath}`);
+  }
+  if (report.firstRun) {
+    lines.push(`- firstRun: ${report.firstRun.outcome} (${report.firstRun.classification})`);
   }
   if (report.verification) {
     lines.push(`- verifyCanonical: ${report.verification.ok ? "passed" : "failed"}`);
@@ -557,7 +563,7 @@ async function waitForCanonicalReady(options, deps) {
 }
 
 /**
- * Recycles the canonical demo as stop → confirm → start → verify.
+ * Recycles the canonical demo as stop → confirm → start → first-run autostart → verify.
  *
  * Detached recycle leaves the started runtime running after the parent exits.
  * Foreground recycle starts in-process and asks the caller to stay resident.
@@ -575,6 +581,7 @@ export async function runCanonicalDemoRecycle(options = {}, deps = {}) {
   const classifyOwnership = deps.classifyOwnership ?? classifyCanonicalDemoOwnership;
   const startDetached = deps.startDetached ?? startDetachedDemoRuntime;
   const waitForReady = deps.waitForReady ?? waitForCanonicalReady;
+  const completeFirstRun = deps.completeFirstRun ?? completeCanonicalDemoFirstRun;
   const keepAlive = options.keepAlive === true || options.foreground === true;
   const steps = [];
 
@@ -706,6 +713,39 @@ export async function runCanonicalDemoRecycle(options = {}, deps = {}) {
     }
 
     const runtimeUrl = startResult.apiUrl ?? context.runtimeUrl;
+    const firstRun = await completeFirstRun({
+      runtimeUrl,
+      timeoutMs: options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+      pollIntervalMs: options.readyPollMs ?? READY_POLL_MS,
+    }, deps);
+    steps.push("first_run");
+    if (!firstRun.ok) {
+      const lifecycleState = await writeState(await getStatus({ ...options, runtimeUrl }), {
+        phase: "first_run_failed",
+        classification: firstRun.classification,
+      });
+      return blockedReport({
+        command: "recycle",
+        outcome: "blocked",
+        classification: firstRun.classification,
+        workspaceRoot: context.workspaceRoot,
+        servicesRoot: context.servicesRoot,
+        runtimeUrl,
+        serviceAdminUrl: context.serviceAdminUrl,
+        lifecycleStatePath: context.lifecyclePaths.lifecycleStatePath,
+        demoLogRoot: context.demoLogRoot,
+        commandLockPath: context.lifecyclePaths.commandLockPath,
+        canonicalLaneLockPath: context.canonicalLaneLockPath,
+        steps,
+        blockers: firstRun.blockers?.length ? firstRun.blockers : [firstRun.classification],
+        lifecycle: startResult,
+        ownershipProbe,
+        stoppedConfirmation,
+        firstRun,
+        lifecycleState,
+      });
+    }
+
     const ready = await waitForReady({
       ...options,
       runtimeUrl,
@@ -730,6 +770,7 @@ export async function runCanonicalDemoRecycle(options = {}, deps = {}) {
       outcome: verification.ok ? "recycled" : "blocked",
       ok: verification.ok === true,
       classification: verification.ok ? "healthy" : "canonical_verification_failed",
+      firstRun,
       workspaceRoot: context.workspaceRoot,
       servicesRoot: context.servicesRoot,
       runtimeUrl,
