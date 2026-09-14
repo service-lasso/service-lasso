@@ -28,6 +28,15 @@ const sidebars = {
     },
     {
       type: "category",
+      label: "Service Admin UI",
+      collapsed: false,
+      items: [
+        "operator-ui/service-admin-ui-guide",
+        "operator-ui/capture-manifest",
+      ],
+    },
+    {
+      type: "category",
       label: "Service Authoring",
       collapsed: false,
       items: [
