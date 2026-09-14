@@ -39,16 +39,18 @@ npm run demo:stop
 - **Choose ready-made services.** Browse databases, runtimes, proxies, and other services you can add to your app. [Service catalog →](docs/service-catalog.md)
 - **Embed the runtime.** Use the npm package or start from a Node, web, Electron, or Tauri reference app. [CLI, API, and npm →](docs/runtime/README.md) · [App templates →](docs/reference-apps.md)
 
+[Demo commands, ports, and troubleshooting →](docs/demo/README.md)
+
 ## Go further
 
 | When you need to… | Read |
 | --- | --- |
-| Get through your first run | [Quick start](docs/quick-start.md) |
-| Check ports, diagnose startup, or reset a demo | [Demo operations](docs/demo/README.md) |
-| Find companion repos and baseline services | [Services and companion projects](docs/ecosystem/README.md) |
-| Choose a package or release archive | [Packages and releases](docs/releases/README.md) |
-| Build, test, or contribute | [Development and verification](docs/contributing/README.md) |
-| Explore the full reference | [Documentation](docs/README.md) |
+| Run services, check health, logs, recovery, or backups | [Run and manage services](docs/operations/README.md) |
+| Create a release-backed service | [Build a service](docs/service-authoring/overview.md) |
+| Add Lasso to an application | [Use Service Lasso in your app](docs/integration/README.md) |
+| Look up stable contracts | [Technical reference](docs/reference/README.md) |
+| Set up access and secret boundaries | [Security and access](docs/security/README.md) |
+| Build, test, or contribute | [Contribute and maintain](docs/contributing/README.md) |
 
 Secrets support and validation status: [capability ledger](docs/reference/secrets-capability-ledger.md). Report vulnerabilities privately using [Security Advisories](SECURITY.md).
 
