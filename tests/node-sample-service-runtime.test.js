@@ -323,7 +323,20 @@ test("runtime log API captures node sample normal and error validation output", 
         assert.equal(auditText.includes("emit unique-stdin-token"), false);
       }
 
-      const snapshot = JSON.parse(await readFile(path.join(serviceRoot, ".state", "provider-env.json"), "utf8"));
+      const snapshot = await waitFor(async () => {
+        try {
+          const contents = await readFile(path.join(serviceRoot, ".state", "provider-env.json"), "utf8");
+          if (!contents.trim()) {
+            return null;
+          }
+          return JSON.parse(contents);
+        } catch (error) {
+          if (error?.code === "ENOENT" || error instanceof SyntaxError) {
+            return null;
+          }
+          throw error;
+        }
+      });
       assert.equal(snapshot.outputCounters.stderr, 1);
     } finally {
       await postJson(`${apiServer.url}/api/services/node-sample-service/stop`).catch(() => null);
