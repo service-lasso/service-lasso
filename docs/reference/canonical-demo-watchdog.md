@@ -27,7 +27,8 @@ npm run demo:deploy-canonical -- --ref HEAD --host=$bindHost --url-host=$demoHos
 live. It starts from the explicit `--ref`, requires the worktree HEAD to match
 that ref, requires a clean checkout, tears down managed canonical runtime and
 Service Admin ownership, removes stale runtime/workspace/service state through
-the recycle path, runs the canonical verifier, runs endpoint expectations, and
+the recycle path (including loopback first-run vault bootstrap and confirmed
+`startAll` when setup mode is blocking autostart), runs the canonical verifier, runs endpoint expectations, and
 writes `.demo-logs/canonical-deploy-summary.json`. JSON endpoint expectations
 match an exact response path or a nested path anywhere in the response body, so
 `--expect-json /api/telemetry:apiRequests` fails unless the deployed telemetry
@@ -76,7 +77,9 @@ npm run demo:recycle -- --port=17883 --host=$bindHost --runtime-url=http://${dem
 ```
 
 `demo:recycle` is a lower-level recovery primitive. It is useful when the
-canonical demo should be refreshed without endpoint-specific assertions. It is
+canonical demo should be refreshed without endpoint-specific assertions. On
+loopback it completes first-run vault bootstrap and confirmed `startAll` when
+setup mode is still blocking autostart, then verifies. It is
 not enough for final "latest is deployed" proof because it does not require an
 explicit git ref or feature endpoint expectations.
 
