@@ -75,3 +75,9 @@ npm run verify:recovery-hooks
 ## Security
 
 Report vulnerabilities privately through GitHub Security Advisories. See [SECURITY.md](https://github.com/service-lasso/service-lasso/security/policy). Production dependencies must stay free of `npm audit --omit=dev` findings. Hosted workflows pin GitHub Actions to commit SHAs.
+
+## Maintain the docs
+
+The [documentation map](../documentation-map.md) is the inventory and routing record. Give each page one primary navigation home, cross-link related material instead of duplicating it, and accurately label guides, references, plans, and evidence. Preserve an existing document ID and URL unless a compatibility path is verified.
+
+See [CI runner operations](../operations/self-hosted-wsl-runner.md) and [release verification](../release-asset-policy.md). Plans and historical release records are intentionally grouped under the collapsed **Plans and evidence** navigation section.
