@@ -259,7 +259,22 @@ test("stale workspace metadata is classified from persisted runtime-instance.jso
   }
 });
 
-test("demo:recycle is exactly stop, confirm, start, then verify", async () => {
+/**
+ * Injected first-run completion that leaves setup already clear.
+ *
+ * @returns {Promise<object>}
+ */
+async function skipFirstRun() {
+  return {
+    ok: true,
+    outcome: "skipped",
+    classification: "setup_not_required",
+    setupMode: false,
+    blockers: [],
+  };
+}
+
+test("demo:recycle is stop, confirm, start, first-run autostart, then verify", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-764-recycle-"));
   const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
   const servicesRoot = path.join(tempDir, "services");
@@ -289,6 +304,10 @@ test("demo:recycle is exactly stop, confirm, start, then verify", async () => {
         assert.equal(startOptions.laneLockHeld, true);
         return { logPath: path.join(tempDir, "demo-runtime.log") };
       },
+      completeFirstRun: async () => {
+        steps.push("first_run");
+        return skipFirstRun();
+      },
       waitForReady: async () => {
         steps.push("verify");
         return {
@@ -301,8 +320,8 @@ test("demo:recycle is exactly stop, confirm, start, then verify", async () => {
     });
     assert.equal(result.ok, true);
     assert.equal(result.outcome, "recycled");
-    assert.deepEqual(steps, ["classify", "stop", "confirm", "start", "verify"]);
-    assert.deepEqual(result.steps, ["classify", "stop", "confirm", "start", "verify"]);
+    assert.deepEqual(steps, ["classify", "stop", "confirm", "start", "first_run", "verify"]);
+    assert.deepEqual(result.steps, ["classify", "stop", "confirm", "start", "first_run", "verify"]);
     assert.equal(result.stayResident, false);
     assert.match(formatCanonicalDemoReport(result), /verifyCanonical: passed/);
   } finally {
@@ -330,6 +349,10 @@ test("repeated recycle calls converge to the same stop-confirm-start-verify sequ
       sequences.push("start");
       return { logPath: "detached.log" };
     },
+    completeFirstRun: async () => {
+      sequences.push("first_run");
+      return skipFirstRun();
+    },
     waitForReady: async () => {
       sequences.push("verify");
       return {
@@ -344,7 +367,7 @@ test("repeated recycle calls converge to the same stop-confirm-start-verify sequ
     const second = await runCanonicalDemoRecycle({ workspaceRoot, servicesRoot, port: 17883 }, deps);
     assert.equal(first.ok, true);
     assert.equal(second.ok, true);
-    assert.deepEqual(sequences, ["stop", "confirm", "start", "verify", "stop", "confirm", "start", "verify"]);
+    assert.deepEqual(sequences, ["stop", "confirm", "start", "first_run", "verify", "stop", "confirm", "start", "first_run", "verify"]);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -365,6 +388,7 @@ test("canonical verification failure is a single classified recycle blocker", as
       runLifecycle: async (action) => fakeLifecycle(action),
       confirmStopped: async () => ({ ok: true, classification: "already_stopped" }),
       startDetached: async () => ({ logPath: "detached.log" }),
+      completeFirstRun: skipFirstRun,
       waitForReady: async () => ({
         status: { ...fakeStatus(workspaceRoot, servicesRoot), ok: false, classification: "runtime_down" },
         verification: {
@@ -402,6 +426,7 @@ test("demo recycle keeps polling when canonical verify throws before ready", asy
       runLifecycle: async (action) => fakeLifecycle(action),
       confirmStopped: async () => ({ ok: true, classification: "already_stopped", apiDown: true, portFree: true }),
       startDetached: async () => ({ logPath: path.join(tempDir, "detached.log") }),
+      completeFirstRun: skipFirstRun,
       getStatus: async () => fakeStatus(workspaceRoot, servicesRoot),
       writeLifecycleState: async (_status, updates) => ({ phase: updates.phase }),
       verify: async () => {
@@ -465,7 +490,7 @@ test("README documents start, stop, recycle, verify, and the default workspace",
   assert.match(readme, /npm run demo:verify-canonical/);
   assert.match(readme, /npm run demo:status -- --port=17883/);
   assert.match(readme, /workspace\/demo-instance/);
-  assert.match(readme, /stop → confirm stopped → start from the current built checkout → verify/);
+  assert.match(readme, /stop → confirm stopped → start from the current built checkout → first-run autostart → verify/);
   assert.match(readme, /preferred port policy/);
   assert.doesNotMatch(readme, /bind it with a fixed port policy/);
 });
