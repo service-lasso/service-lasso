@@ -22,6 +22,11 @@ const sidebars = {
       label: "Quick Start",
     },
     {
+      type: "doc",
+      id: "ui-documentation",
+      label: "Use the Default Stack",
+    },
+    {
       type: "category",
       label: "Service Authoring",
       collapsed: false,
