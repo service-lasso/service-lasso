@@ -1,7 +1,7 @@
 # Release 1 GA decision
 
-Decision: **GA blocked — independent security approval outstanding**
-Prepared: `2026-09-11`
+Decision: **working release published — AC-7H bound to `462f837`; operator-promoted `1bffd1b` is a post-review delta**
+Prepared: `2026-09-14`
 Tracking issue: [#1151](https://github.com/service-lasso/service-lasso/issues/1151)
 Prior packet issue: [#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 
@@ -11,69 +11,101 @@ Packet PR [#1210](https://github.com/service-lasso/service-lasso/pull/1210) /
 `c341552` stays the rejected packet. Historical published-package failures
 `33500138538`, `33503750329`, and `33506286697` stay failures.
 
-This decision is internal evidence assembly for the replacement set
-`2026.9.11-462f837`. It is not AC-7H sign-off. PR `#1232` bound stale
-`2026.9.8-b0c3a1b` and must not be reused as this packet.
+Lane AN recorded **approve with accepted residuals** on 2026-09-12 for Core/npm
+`2026.9.11-462f837` / `462f837b25224e98103296b4597807b5beea00c5` and packet
+merge `155d643256ee050299883d1634be067a1ff4ebce`
+([comment](https://github.com/service-lasso/service-lasso/issues/1151#issuecomment-5645610452)).
+That decision does **not** cover later develop product bytes.
 
 > **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md)
-> remains historical for the rejected identity. This file is delivery-owner
-> evidence collection, not AC-7H independent approval.
+> remains historical for the rejected identity. The [security packet](./release-1-security-review-packet.md)
+> still names the AC-7H identity as `2026.9.11-462f837`.
 
-## Internal gate decision
+## Current published identities (operator-promoted)
 
-The replacement Release 1 candidate has passed the internal product, packaging,
-supply-chain, vulnerability, recovery, and evidence gates:
+Live readback on 2026-09-14:
+
+- Core `origin/develop` and `origin/main` are both
+  `1bffd1bca177de213e3a0bd3efb54125dc5cf107` (`Parse isolation manifests and fail closed when require cannot be met.` `#1241`);
+- GitHub release `2026.9.13-1bffd1b` ID `387882796`, not draft, not prerelease,
+  target `1bffd1bca177de213e3a0bd3efb54125dc5cf107`, run
+  [34754535992](https://github.com/service-lasso/service-lasso/actions/runs/34754535992) success;
+- npm `@service-lasso/service-lasso@2026.9.13-1bffd1b` is `latest`, `gitHead`
+  matches that SHA, integrity
+  `sha512-vfrXiPeBBK8v72oUdNN7lfwokNNT9rgTyOrKEK0p+wKDPUtEVjY6X471bEtrneD6kBF4eEfC6kytuEWY7wVcgg==`,
+  shasum `4bbaff1cb6ce06aa4dd8438434f1e53c8e7f12bb`; npm workflow
+  [34754536780](https://github.com/service-lasso/service-lasso/actions/runs/34754536780) success;
+- published-package qualification
+  [34755655440](https://github.com/service-lasso/service-lasso/actions/runs/34755655440)
+  attempt 1 green, exactly three unexpired records
+  (`10317946523`, `10317491873`, `10317291967`, expire `2026-12-12`);
+- Admin pin unchanged: `2026.8.31-f015b44`;
+- Broker pin unchanged: `2026.8.31-f340883`.
+
+Unbundled SHA-256 from the operator publication comment: win32
+`9f1d6a4fb730e9c861c01c1f5d977bfbe552d8f712f826ff2e495b6122175aea`; linux/darwin
+`2e4e9b07a59ad1230d29fa7376775f36483d0e208ccf318f74754e89ecc18c96`.
+
+Commits on `develop` after the AC-7H SHA include Dependabot `#1236` `#1231`
+`#1230` `#1229`, packet `#1237`, docs `#1240` (`SPEC-002` `AC-4CE`), and product
+`#1241`. Those bytes are a post-review delta, not a second AN signature.
+
+## AC-7H identity (still `462f837`)
+
+The replacement set Lane AN reviewed remains internally qualified:
 
 - immutable Core `2026.9.11-462f837` at
-  `462f837b25224e98103296b4597807b5beea00c5` (GitHub release ID `387143354`),
-  Admin `2026.8.31-f015b44`, and Broker `2026.8.31-f340883` publications;
-- exact npm `@service-lasso/service-lasso@2026.9.11-462f837` at `latest`,
-  `gitHead` matching Core SHA, integrity
-  `sha512-whjIemqmLt/NQH03QZVMMjAtXWfx+aL1Ee3aRzeSiQgbZcvKhrpRDVqzqjj57H2A4FPXw9PzTC7PB6940OQjYg==`,
-  shasum `a35afafe16e6e022329fe8cbbfa491e6efd0ed0f`;
+  `462f837b25224e98103296b4597807b5beea00c5` (GitHub release ID `387143354`);
+- npm `@service-lasso/service-lasso@2026.9.11-462f837` later became independently
+  visible; integrity
+  `sha512-whjIemqmLt/NQH03QZVMMjAtXWfx+aL1Ee3aRzeSiQgbZcvKhrpRDVqzqjj57H2A4FPXw9PzTC7PB6940OQjYg==`;
 - GitHub Release Artifact
   [34614413642](https://github.com/service-lasso/service-lasso/actions/runs/34614413642)
   success. npm workflow
   [34614418000](https://github.com/service-lasso/service-lasso/actions/runs/34614418000)
-  attempt 1 remains **failure** at consumer verify (registry E404 window); the
-  package later became independently visible and is not treated as converting
-  that failed run into a pass;
-- Windows, Linux, macOS, and aggregate published-package qualification green in
-  [run 34625492347](https://github.com/service-lasso/service-lasso/actions/runs/34625492347)
-  attempt 1, with exactly three nonempty, unexpired retained records
-  (`10275075407`, `10274393550`, `10274044042`, expire `2026-12-10`),
-  `mutationRetry: false`, `brokerRestart: 1`, `providerMigrationApply: 1`, and
-  all eleven negative proofs `success`;
-- hosted Release Qualification
-  [34469524380](https://github.com/service-lasso/service-lasso/actions/runs/34469524380)
-  green at the exact Core SHA;
-- live `npm audit --omit=dev --audit-level=low` and `npm audit --audit-level=high`
-  were zero on isolated `origin/develop` `462f837` before publication;
-- thirteen Release 1 ledger rows `validated` and PGP bootstrap explicitly
-  `excluded` and unavailable;
-- active rulesets and the protected `release` environment remain the publication
-  authority.
+  attempt 1 remains **failure** at consumer verify (registry E404 window) and is
+  not converted into a pass;
+- published-package
+  [34625492347](https://github.com/service-lasso/service-lasso/actions/runs/34625492347)
+  attempt 1 green with records `10275075407`, `10274393550`, `10274044042`.
 
-## Blocking gate
+## Canonical demo (current HEAD)
 
-`SPEC-007` `AC-7H` requires a **new** named independent security reviewer to
-review the [security packet](./release-1-security-review-packet.md), record
-findings and residual risks against its exact commit and component identities,
-and issue an explicit approval. The delivery owner has not self-certified that
-external gate. The prior reject does not cover these bytes. Approval of
-`2026.9.1-1f4ec40` or of packet `#1232` / `b0c3a1b` does not authorize this set.
+On 2026-09-14 Lane AO recovered the loopback canonical demo of
+`1bffd1bca177de213e3a0bd3efb54125dc5cf107`:
 
-Therefore:
+- Admin `http://127.0.0.1:17700/` and runtime `http://127.0.0.1:17883`;
+- `demo:deploy-canonical` still exits `recycle_failed` while first-run setup
+  mode blocks daemon autostart (`setup.state=setup_required`); that failed
+  recycle is not converted into a pass;
+- operator loopback `POST /api/setup/bootstrap` then confirmed
+  `POST /api/runtime/actions/startAll` completed vault + daemons;
+- `npm run demo:verify-canonical` then **passed**, including operator MCP
+  protocol `2025-11-25`, 15 tools / 7 resources, and required service pins.
 
-- do not promote `develop` to `main`;
-- do not publish or label a GA release;
-- do not close the parent Release 1/working-release issue as complete;
-- keep the canonical released-artifact demo available for reviewer use;
-- after approval, re-read exact branch heads, security settings, open alerts,
-  release/npm identities, retained artifacts, issue state, and Project state
-  before promotion. The approval must name the exact head of the final-readback
-  packet revision.
+Browser MCP was not connected in this session; Admin HTML `HTTP 200` and the
+canonical verifier are the recorded UI/reachability evidence.
 
-An external-review waiver may record risk acceptance but cannot turn a missing
-technical artifact, failed check, open vulnerability, or mismatched identity
-into a pass.
+## Residuals that stay residuals
+
+- Independent AC-7H of `1bffd1b` / `2026.9.13-1bffd1b` is **not** recorded.
+- `gh` identity `wildone` is also the delivery owner; independence is session
+  role, not a separate GitHub login.
+- Packet merge `#1237` included Dependabot not in shipped Core `462f837`.
+- Historical npm run `34614418000` stays red.
+- Historical published-package failures stay failures.
+- Canonical recycle does not complete first-run vault bootstrap by itself
+  ([#1242](https://github.com/service-lasso/service-lasso/issues/1242)).
+
+## What this decision authorizes
+
+Operator authority already placed `1bffd1b` on `main` and published
+`2026.9.13-1bffd1b` as GitHub Latest and npm `latest`. This file records that
+working-release publication honestly.
+
+This decision does **not**:
+
+- relabel AN's approval as covering `#1241` isolation bytes;
+- convert any failed workflow into a pass;
+- close `#1151` as SPEC-007 GA of an unreviewed SHA;
+- change Admin or Broker pins.
