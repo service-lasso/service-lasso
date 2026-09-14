@@ -54,6 +54,8 @@ jobs:
         run: npm run audit:tooling
 
       - name: Run complete test suite
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: npm test
 
       - name: Write exact-head guarded MCP evidence
