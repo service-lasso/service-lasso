@@ -21,6 +21,11 @@ const sidebars = {
       id: "quick-start",
       label: "Quick Start",
     },
+    { type: "doc", id: "demo/README", label: "Demo operations" },
+    { type: "doc", id: "runtime/README", label: "CLI, API, and npm" },
+    { type: "doc", id: "ecosystem/README", label: "Services and projects" },
+    { type: "doc", id: "releases/README", label: "Packages and releases" },
+    { type: "doc", id: "contributing/README", label: "Development and verification" },
     {
       type: "category",
       label: "Service Authoring",
