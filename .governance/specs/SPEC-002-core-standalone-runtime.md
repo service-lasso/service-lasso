@@ -444,3 +444,7 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 ## Central reader documentation (AC-4AJ.3)
 
 User, operator, integration, and service-authoring guides are authored in service-lasso/docs. Owning repositories retain code-governing specs, security policies, and build instructions. In-app help may retain packaged copies with a declared Core source; migration must preserve runtime loading and record exact imported source identities, navigation, and unresolved repository gates. An inventory, not the existence of a landing page, determines migration completeness.
+
+## Newcomer journeys (AC-4AJ.4)
+
+Issue #1270 must provide task guides and reusable agent prompts for demo evaluation, adding a released service, connecting a small app, configuring values and secret references, diagnosis, and source packaging. Runnable examples and verification helpers must use explicit isolated service/workspace roots, preserve unrelated runtime processes, report exact artifact/source identity, elapsed time and platform, and clean up only owned processes. Central documentation exports must preserve offline Help Center content while preventing independent source drift. Companion READMEs direct consumers to central guides before maintainer reference. Source package proof must not claim fresh-machine, cross-platform, or offline bundled acceptance without evidence.

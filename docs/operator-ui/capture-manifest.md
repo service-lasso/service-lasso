@@ -4,7 +4,9 @@ title: Service Admin capture manifest and refresh guide
 
 # Service Admin capture manifest and refresh guide
 
-This is the Core mirror of Service Admin’s capture record.
+This is the canonical capture record. Admin bundles an exported copy for offline help.
+
+The later [newcomer verification](../development/newcomer-verification.md) includes a visible Echo detail capture and a verified detail-page stop/start sequence. The failures below remain historical evidence; they do not describe that later successful browser visit.
 
 | Intended capture | Route/state | Environment | Result |
 | --- | --- | --- | --- |

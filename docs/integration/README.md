@@ -7,6 +7,8 @@ slug: /integration
 
 An app owns its `services/` inventory and workspace location; Service Lasso supplies the runtime and shared contracts. Choose a reference app before copying patterns so the host and packaging model match the application you are building.
 
+Start with [PostgreSQL and a working app](../first-useful-service.md): install, connect, and prove a database write/read before choosing a larger template.
+
 ## Integration path
 
 1. [Choose a reference app](../reference-apps.md) for Node, web, desktop, or executable packaging outputs.
@@ -16,4 +18,4 @@ An app owns its `services/` inventory and workspace location; Service Lasso supp
 5. If the app needs local routing or SSO, follow the bounded [ZITADEL consumer integration](../reference/zitadel-consumer-integration.md) contract.
 6. For an existing app, use [template upgrade compatibility](../reference/template-upgrade-compatibility.md) before changing its provider inventory.
 
-Service Admin is a managed service. Its page and control documentation is owned by the [Service Admin repository](https://github.com/service-lasso/lasso-serviceadmin); this repository documents only the Core runtime boundary.
+Service Admin is a managed service. Its [operator guides](../components/README.md) and [UI guide](../operator-ui/service-admin-ui-guide.md) live here alongside runtime documentation.

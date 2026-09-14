@@ -9,6 +9,7 @@ const sidebars = {
       { type: "doc", id: "key-concepts", label: "Key concepts" },
       { type: "doc", id: "choose-how-to-run", label: "Choose how to run it" },
       { type: "doc", id: "quick-start", label: "Quick start" },
+      "first-useful-service", "operate-your-service", "package-your-app", "agent-prompts",
       { type: "doc", id: "complete-first-run-setup", label: "Complete first-run setup" },
       { type: "doc", id: "service-catalog", label: "Find your services" },
     ] },

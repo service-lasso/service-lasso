@@ -5,7 +5,7 @@ slug: /operations
 
 # Run and manage services
 
-Use this section to operate an existing Service Lasso inventory. It points to the shared Core contracts; for controls, screens, and service-specific troubleshooting, use the documentation owned by that service’s repository or Service Admin.
+Use this section to operate an existing Service Lasso inventory. Start with [Configure and recover a service](../operate-your-service.md). Shared contracts and [Service Admin guides](../components/README.md) are maintained here.
 
 ## Start, stop, and configure
 
