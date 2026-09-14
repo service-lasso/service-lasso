@@ -28,6 +28,20 @@ const sidebars = {
     { type: "doc", id: "releases/README", label: "Packages and releases" },
     { type: "doc", id: "contributing/README", label: "Development and verification" },
     {
+      type: "doc",
+      id: "ui-documentation",
+      label: "Use the Default Stack",
+    },
+    {
+      type: "category",
+      label: "Service Admin UI",
+      collapsed: false,
+      items: [
+        "operator-ui/service-admin-ui-guide",
+        "operator-ui/capture-manifest",
+      ],
+    },
+    {
       type: "category",
       label: "Service Authoring",
       collapsed: false,

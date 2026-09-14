@@ -37,6 +37,9 @@ Choose the guide for what you want to do next:
 - [Introduction](INTRODUCTION.md): what Service Lasso is, what this repo owns, and where related repos fit.
 - [Service Catalog](service-catalog.md): available core services, app-owned add-on services, and reference apps.
 - [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
+- [Use the Default Stack](ui-documentation.md): start the Core baseline, open Service Admin, understand the service boundary, and find Service Admin-owned UI documentation.
+- [Service Admin UI Guide](operator-ui/service-admin-ui-guide.md): mirrored page, control, workflow, troubleshooting, and safety guidance for operators using the default stack.
+- [Service Admin Capture Manifest](operator-ui/capture-manifest.md): mirrored capture status and reproducible refresh procedure.
 - [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
 - [Setup Helper Conventions](service-authoring/setup-helper-conventions.md): standard layout and manifest pattern for helper-backed setup steps.
 - [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
