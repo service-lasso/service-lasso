@@ -439,3 +439,7 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 - 2026-08-31: `#757` adds a durable audit regression suite under `npm test` covering append/read, restart survival, service-root copy/move, representative mutations, `GET /api/audit` filter/pagination, tamper-evidence, and metadata-only JSONL/API bodies.
 - 2026-08-31: `#833` adds `AC-4CA` so Core emits durable operator Inbox items for runtime/setup, lifecycle failure, health transitions, scheduled workflow outcomes, update available/installed/failed/restart-required, and Broker needs-attention when Core already reports it. Correlation keys stay stable, the same condition updates in place, and persisted text is metadata only.
 - 2026-08-31: `#1025` residual closes Traefik trusted-ingress identity on Core: `X-Service-Lasso-User` / `Workspace` / `Roles` / `Actor` from exact loopback Admin proxy are the remote actor, missing/mismatched claims fail closed, and first-run bind default is loopback. Admin `#566` remains a sibling packaged-proxy residual.
+
+## Central reader documentation (AC-4AJ.3)
+
+User, operator, integration, and service-authoring guides are authored in service-lasso/docs. Owning repositories retain code-governing specs, security policies, and build instructions. In-app help may retain packaged copies with a declared Core source; migration must preserve runtime loading and record exact imported source identities, navigation, and unresolved repository gates. An inventory, not the existence of a landing page, determines migration completeness.

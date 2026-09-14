@@ -13,6 +13,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1265` | `in_review` | Centralize reader documentation | `SPEC-002`, `AC-4AJ.3` | 25 Core guide imports, 74 source-document records, 40-repository audit; docs build, 135 links, and ledger pass. Source redirects/export and unavailable develop branches remain open migration gates. |
 | `ISS-1255` | `in_review` | Add visual README and explain Lasso, Broker, and templates | `SPEC-002`, `AC-4AJ.2` | GitHub issue `#1255`; SVG visually reviewed; badges return SVG/200; local links, docs build, ledger, and existing README test passed. Docs-only follow-up to merged PR `#1253`. |
 | `ISS-1252` | `in_review` | Make the README useful at first glance and fast to try | `SPEC-002`, `AC-4AJ.1` | GitHub issue: `#1252`; 49-line front page and five linked guides; 76 local links/anchors, docs build, secrets ledger, and diff checks passed. Commands reviewed against source; shared runtime not restarted. |
 | `ISS-1242` | `in_progress` | Canonical demo recycle leaves first-run vault setup blocking daemon autostart | `SPEC-002`, `AC-4N.2`, `AC-4N.1`, `AC-4BI` | GitHub issue: `#1242`; parent `#1151`; branch `feature/1242-canonical-demo-first-run-autostart`. Loopback recycle completes vault bootstrap plus confirmed `startAll` before verify. Do not convert a failed recycle into a pass. Isolation `AC-4CE` unchanged. Do not close `#1151`. |

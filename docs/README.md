@@ -18,6 +18,10 @@ The preferred runtime-root model is:
 - `servicesRoot`: where service manifests and acquired service payloads live
 - `workspaceRoot`: where Service Lasso stores runtime-managed state, logs, archives, and working data
 
+## Component documentation
+
+[Service Admin and template guides](components/README.md) · [Documentation ownership and migration](components/documentation-migration.md)
+
 ## Start Here
 
 Choose the guide for what you want to do next:
@@ -85,7 +89,7 @@ Keep docs in this repo when they describe:
 - release artifact and npm package behavior
 - the split between `servicesRoot` and `workspaceRoot`
 
-Keep docs in individual service repos when they describe:
+Keep implementation specifications and build evidence in individual service repos. Author reader-facing guides centrally, including:
 
 - service-specific UI or runtime behavior
 - service-specific routes, ports, config files, or page specs
