@@ -1,6 +1,7 @@
 /** @type {import('@docusaurus/plugin-content-docs').SidebarsConfig} */
 const sidebars = {
   docsSidebar: [
+    { type: "doc", id: "understand-service-lasso", label: "Lasso, Broker, and templates" },
     {
       type: "doc",
       id: "README",
@@ -21,6 +22,11 @@ const sidebars = {
       id: "quick-start",
       label: "Quick Start",
     },
+    { type: "doc", id: "demo/README", label: "Demo operations" },
+    { type: "doc", id: "runtime/README", label: "CLI, API, and npm" },
+    { type: "doc", id: "ecosystem/README", label: "Services and projects" },
+    { type: "doc", id: "releases/README", label: "Packages and releases" },
+    { type: "doc", id: "contributing/README", label: "Development and verification" },
     {
       type: "doc",
       id: "ui-documentation",
