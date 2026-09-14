@@ -13,6 +13,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1272` | `done` | Docs System / Light / Dark appearance | `SPEC-002`, `AC-4AJ.5` | Persisted selection, live system detection, mobile and keyboard verification. |
 | `ISS-1270` | `in_progress` | Complete demo-to-app newcomer journeys | `SPEC-002`, `AC-4AJ.4` | Runnable walkthrough, agent prompts, central help export, companion README cleanup, and bounded direct proof. |
 | `ISS-1265` | `in_review` | Centralize reader documentation | `SPEC-002`, `AC-4AJ.3` | 25 Core guide imports, 74 source-document records, 42-repository audit; docs build, 135 links, and ledger pass. Source redirects/export and unavailable develop branches remain open migration gates. |
 | `ISS-1255` | `in_review` | Add visual README and explain Lasso, Broker, and templates | `SPEC-002`, `AC-4AJ.2` | GitHub issue `#1255`; SVG visually reviewed; badges return SVG/200; local links, docs build, ledger, and existing README test passed. Docs-only follow-up to merged PR `#1253`. |
