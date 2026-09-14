@@ -1,5 +1,9 @@
 # Service Lasso
 
+![Service Lasso brings your services together: manifests, runtime, browser controls, and secrets.](docs/static/img/service-lasso-overview.svg)
+
+[![Docs build](https://github.com/service-lasso/service-lasso/actions/workflows/docs-site.yml/badge.svg?branch=develop)](https://github.com/service-lasso/service-lasso/actions/workflows/docs-site.yml?query=branch%3Adevelop) [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-43853d?logo=nodedotjs&logoColor=white)](https://nodejs.org/) [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **Run the services your app needs. Manage them in one place.**
 
 Service Lasso installs, configures, starts, and monitors local services for you. Give it a service manifest; it handles downloads, dependencies, and startup order, with a browser UI to see what's running.
@@ -26,6 +30,8 @@ To stop the demo, run this from the same folder in another terminal:
 ```sh
 npm run demo:stop
 ```
+
+[How Service Lasso, Secrets Broker, and templates fit together →](docs/understand-service-lasso.md)
 
 ## Make it yours
 

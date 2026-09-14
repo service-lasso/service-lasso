@@ -24,6 +24,7 @@ Choose the guide for what you want to do next:
 
 | Goal | Guide |
 | --- | --- |
+| Understand Lasso, Broker, and templates | [Start with the overview](understand-service-lasso.md) |
 | Try it and stop it cleanly | [Quick start](quick-start.md) |
 | Check ports, logs, status, or recovery | [Demo operations](demo/README.md) |
 | Use the CLI, HTTP API, or npm package | [Runtime integration](runtime/README.md) |
