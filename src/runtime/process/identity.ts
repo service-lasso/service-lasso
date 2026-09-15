@@ -8,6 +8,7 @@ import {
   isProcessControlDeadlineError,
   remainingProcessControlMs,
   runProcessControlCommand,
+  withProcessControlDeadline,
 } from "./deadline.js";
 
 const execFileAsync = promisify(execFileCallback);
@@ -15,6 +16,7 @@ const WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS = 15_000;
 const WINDOWS_PROCESS_TREE_INSPECTION_RETRY_MAX_DELAY_MS = 250;
 let windowsCurrentProcessInspectionPromise: Promise<ProcessInspection> | null =
   null;
+let windowsNativeTreeSnapshotTail: Promise<void> = Promise.resolve();
 
 export interface ProcessFingerprint {
   pid: number;
@@ -623,6 +625,28 @@ function isRetryableWindowsTreeSnapshotError(error: unknown): boolean {
   ]).has(error.message);
 }
 
+async function serializeWindowsNativeTreeSnapshot<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  options: Pick<ProcessInspectorDependencies, "deadlineMs" | "signal">,
+): Promise<T> {
+  const prior = windowsNativeTreeSnapshotTail;
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  windowsNativeTreeSnapshotTail = prior.catch(() => undefined).then(() => turn);
+
+  try {
+    return await withProcessControlDeadline(async (signal) => {
+      await prior.catch(() => undefined);
+      signal.throwIfAborted();
+      return await operation(signal);
+    }, options);
+  } finally {
+    release();
+  }
+}
+
 export async function inspectWindowsProcessTree(
   expectedRoot: ProcessFingerprint,
   dependencies: Pick<
@@ -639,10 +663,13 @@ export async function inspectWindowsProcessTree(
   let lastError: unknown;
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await inspectWindowsProcessTreeOnce(expectedRoot, {
-        ...dependencies,
-        deadlineMs,
-      });
+      return await serializeWindowsNativeTreeSnapshot(async (signal) => {
+        return await inspectWindowsProcessTreeOnce(expectedRoot, {
+          ...dependencies,
+          deadlineMs,
+          signal,
+        });
+      }, { deadlineMs, signal: dependencies.signal });
     } catch (error) {
       lastError = error;
       if (
