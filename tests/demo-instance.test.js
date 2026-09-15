@@ -396,6 +396,7 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
     npm_config_runtime_port: "18123",
     npm_config_service_admin_port: "18124",
     npm_config_json: "true",
+    npm_config_source_admin_root: "C:/tmp/service-lasso/admin",
   });
 
   assert.equal(options.worktreeId, "issue-947");
@@ -405,6 +406,7 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
   assert.equal(options.runtimePort, 18123);
   assert.equal(options.serviceAdminPort, 18124);
   assert.equal(options.json, true);
+  assert.equal(options.sourceAdminRoot, path.resolve("C:/tmp/service-lasso/admin"));
 });
 
 test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {
@@ -431,6 +433,20 @@ test("worktree proof patches copied Service Admin manifests to allocated URLs", 
   assert.equal(patched.ports.ui, 18124);
   assert.equal(patched.env.SERVICE_LASSO_API_BASE_URL, "http://127.0.0.1:18123");
   assert.equal(patched.env.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:18123");
+
+  const sourceAdminPatched = patchWorktreeDemoManifest(
+    "@serviceadmin",
+    { id: "@serviceadmin", enabled: true, env: {} },
+    { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} }, sourceAdmin: true },
+  );
+  assert.equal(sourceAdminPatched.enabled, false);
+
+  const captureSamplePatched = patchWorktreeDemoManifest(
+    "node-sample-service",
+    { id: "node-sample-service", enabled: true },
+    { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} } },
+  );
+  assert.equal(captureSamplePatched.enabled, false);
 });
 
 test("canonical service admin seed uses the canonical runtime URL for its API proxy", async () => {

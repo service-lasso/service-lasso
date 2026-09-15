@@ -140,6 +140,10 @@ export function resolveWorktreeProofOptions(args = process.argv.slice(2), env = 
     workspaceRoot,
     demoLogRoot,
     summaryPath,
+    sourceAdminRoot: (() => {
+      const value = parseFlag(args, "source-admin-root") ?? parseNpmConfigValue(env, "source-admin-root") ?? env.SERVICE_LASSO_SOURCE_ADMIN_ROOT;
+      return value ? path.resolve(value) : null;
+    })(),
     runtimePort: parseNumber(parseFlag(args, "runtime-port") ?? parseFlag(args, "port") ?? parseNpmConfigValue(env, "runtime-port") ?? parseNpmConfigValue(env, "port") ?? env.SERVICE_LASSO_PORT, 0),
     serviceAdminPort: parseNumber(parseFlag(args, "service-admin-port") ?? parseNpmConfigValue(env, "service-admin-port") ?? env.SERVICE_LASSO_WORKTREE_SERVICEADMIN_PORT, 0),
     portRangeStart: parseNumber(parseFlag(args, "port-range-start") ?? parseNpmConfigValue(env, "port-range-start") ?? env.SERVICE_LASSO_WORKTREE_PORT_RANGE_START, defaultPortRangeStart),
@@ -168,7 +172,7 @@ export async function allocateWorktreeProofPorts(options) {
   return { runtime: runtimePort, serviceAdmin: serviceAdminPort, manifest: manifestPorts };
 }
 
-export function patchWorktreeDemoManifest(serviceId, manifest, { runtimeUrl, ports }) {
+export function patchWorktreeDemoManifest(serviceId, manifest, { runtimeUrl, ports, sourceAdmin = false }) {
   const next = structuredClone(manifest);
   for (const [key, port] of Object.entries(ports.manifest ?? {})) {
     const [requestServiceId, kind, name] = key.split(":");
@@ -186,6 +190,11 @@ export function patchWorktreeDemoManifest(serviceId, manifest, { runtimeUrl, por
       SERVICE_LASSO_API_BASE_URL: runtimeUrl,
       SERVICE_LASSO_RUNTIME_API_BASE_URL: runtimeUrl,
     };
+    if (sourceAdmin) next.enabled = false;
+  }
+
+  if (serviceId === "node-sample-service") {
+    next.enabled = false;
   }
   return next;
 }
@@ -206,11 +215,11 @@ async function copyDemoServicesRoot(targetRoot, { replace }) {
   });
 }
 
-export async function patchWorktreeDemoServicesRoot({ servicesRoot, runtimeUrl, ports }) {
-  for (const serviceId of new Set(manifestPortRequests.map((entry) => entry.serviceId))) {
+export async function patchWorktreeDemoServicesRoot({ servicesRoot, runtimeUrl, ports, sourceAdmin = false }) {
+  for (const serviceId of new Set([...manifestPortRequests.map((entry) => entry.serviceId), "node-sample-service"])) {
     const manifestPath = path.join(servicesRoot, serviceId, "service.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-    const patched = patchWorktreeDemoManifest(serviceId, manifest, { runtimeUrl, ports });
+    const patched = patchWorktreeDemoManifest(serviceId, manifest, { runtimeUrl, ports, sourceAdmin });
     await writeFile(manifestPath, `${JSON.stringify(patched, null, 2)}\n`);
   }
 }
@@ -237,7 +246,12 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
   const serviceAdminUrl = `http://${options.urlHost}:${ports.serviceAdmin}/`;
 
   await copyDemoServicesRoot(options.servicesRoot, { replace: options.replace });
-  await patchWorktreeDemoServicesRoot({ servicesRoot: options.servicesRoot, runtimeUrl, ports });
+  await patchWorktreeDemoServicesRoot({
+    servicesRoot: options.servicesRoot,
+    runtimeUrl,
+    ports,
+    sourceAdmin: options.sourceAdminRoot !== null,
+  });
 
   const [branch, commit] = await Promise.all([
     commandOutput("git", ["branch", "--show-current"]),
@@ -248,6 +262,7 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
     preparedAt: new Date().toISOString(),
     mode: "worktree-auto-port",
     owner: { repoRoot, worktreeId: options.worktreeId, branch: branch || null, commit: commit || null, processId: process.pid },
+    sourceAdmin: options.sourceAdminRoot ? { root: options.sourceAdminRoot, mode: "external_source_ui" } : null,
     urls: { runtime: runtimeUrl, serviceAdmin: serviceAdminUrl },
     ports,
     paths: {
