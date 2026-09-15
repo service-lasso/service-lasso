@@ -8,7 +8,10 @@ import path from 'node:path';
 
 // SPEC-002 AC-4AJ.4 / #1280: qualify the documented locked consumer, not HEAD Core.
 const root = process.cwd();
-const runRoot = await mkdtemp(path.join(tmpdir(), 'service-lasso-postgres-journey-'));
+// Windows TEMP can use an 8.3 alias. Core deliberately rejects executable paths
+// whose canonical identity differs, so prepare the consumer at its real path.
+const temporaryRoot = await realpath(tmpdir());
+const runRoot = await mkdtemp(path.join(temporaryRoot, 'service-lasso-postgres-journey-'));
 const packaged = path.join(runRoot, 'package');
 const servicesRoot = path.join(packaged, 'workspace', 'services');
 const workspaceRoot = path.join(packaged, 'workspace', 'state');
@@ -179,7 +182,7 @@ try {
 } catch (error) { evidence.outcomes.ownedCleanup = 'failure'; failure ??= error; }
 if (!failure) {
   // runRoot is the exact mkdtemp result; only successful owned cleanup allows removal.
-  const relative = path.relative(tmpdir(), runRoot);
+  const relative = path.relative(temporaryRoot, runRoot);
   assert(relative.startsWith('service-lasso-postgres-journey-') && path.dirname(relative) === '.');
   await rm(runRoot, { recursive: true, force: true });
   evidence.outcome = 'success';
