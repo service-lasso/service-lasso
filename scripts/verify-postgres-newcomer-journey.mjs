@@ -174,7 +174,7 @@ try {
   app.on('error', error => { appLog += error.message; });
   for (const stream of [app.stdout, app.stderr]) stream.on('data', chunk => { appLog = (appLog + chunk).slice(-128_000); });
   instance = await until(ownedInstance);
-  await until(() => appStatus(200));
+  await until(() => appStatus(200), 150_000);
   evidence.readinessMs = Date.now() - started;
   await recordDatabase();
   const check = await npm(['run', 'check']);
@@ -183,7 +183,7 @@ try {
   evidence.outcomes.freshPackageSqlAndConfiguration = 'success';
   await action('stop'); await until(() => appStatus(503));
   evidence.outcomes.dependencyFailure = 'success';
-  await action('start'); await until(() => appStatus(200)); await recordDatabase();
+  await action('start'); await until(() => appStatus(200), 150_000); await recordDatabase();
   const recovery = await npm(['run', 'check']);
   assert.match(recovery, /PASS: database write \+ read and app HTTP response\./);
   assert.match(recovery, /PostgreSQL max_connections: 120(?:\s|$)/);

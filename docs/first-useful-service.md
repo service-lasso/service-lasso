@@ -74,3 +74,5 @@ An app response of **503 / database unavailable** means the web process is alive
 Next: [package this app for another machine](package-your-app.md), [give the task to an agent](agent-prompts.md), or [browse more services](service-catalog.md).
 
 [Measured results and platform limitations](development/newcomer-verification.md).
+
+The PostgreSQL example allows up to two minutes for first-time database initialization, checking every 250 ms. It still fails if the database never becomes ready; elapsed readiness time is recorded by the newcomer qualification run.

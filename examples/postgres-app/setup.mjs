@@ -11,6 +11,12 @@ manifest.artifact.source.tag = '2026.5.3-ddd9e47';
 manifest.env.POSTGRES_DATA_DIR = '${SERVICE_ROOT}/runtime/database';
 manifest.env.POSTGRES_DATABASES = 'lasso_demo';
 manifest.ports.service = 18551;
+// A fresh database runs initdb before accepting connections. Allow a bounded
+// two-minute first-boot window on slower machines, while probing every 250 ms.
+for (const check of manifest.healthchecks ?? []) {
+  check.retries = 480;
+  check.interval = 250;
+}
 for (const platform of Object.values(manifest.artifact.platforms)) {
   platform.command = process.execPath;
   platform.args = [path.join(root, 'postgres-launch.mjs')];
