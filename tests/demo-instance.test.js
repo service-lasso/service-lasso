@@ -53,7 +53,10 @@ import {
   resolveCanonicalVerifierOptions,
   verifyCanonicalDemo,
 } from "../scripts/demo-verify-canonical.mjs";
-import { buildCanonicalLifecycleVerifierOptions } from "../scripts/demo-canonical-lifecycle.mjs";
+import {
+  buildCanonicalLifecycleVerifierOptions,
+  runCanonicalDemoRecycle,
+} from "../scripts/demo-canonical-lifecycle.mjs";
 import {
   buildWorktreeProofCommands,
   prepareWorktreeProof,
@@ -406,6 +409,49 @@ test("canonical lifecycle forwards explicit ports from selected runtime URLs to 
   const canonical = buildCanonicalLifecycleVerifierOptions();
   assert.equal(canonical.runtimePort, canonicalRuntimePort);
   assert.equal(canonical.serviceAdminPort, canonicalServiceAdminPort);
+
+  const standard = buildCanonicalLifecycleVerifierOptions({
+    runtimeUrl: "http://127.0.0.1/",
+    serviceAdminUrl: "https://admin.example.test/",
+  });
+  assert.equal(standard.runtimePort, 80);
+  assert.equal(standard.serviceAdminPort, 443);
+});
+
+test("demo recycle forwards selected dynamic ports to its injected verifier", async () => {
+  let verifierOptions = null;
+  const result = await runCanonicalDemoRecycle({
+    port: 18100,
+    runtimeUrl: "http://127.0.0.1:18100",
+    serviceAdminUrl: "http://127.0.0.1:18102/",
+    servicesRoot: "C:/tmp/service-lasso/services",
+    workspaceRoot: "C:/tmp/service-lasso/workspace",
+    skipLaneLock: true,
+    keepAlive: true,
+    readyTimeoutMs: 20,
+    readyPollMs: 0,
+  }, {
+    classifyOwnership: async () => ({ classification: "not_running", ok: true }),
+    runLifecycle: async (action) => ({
+      ok: true,
+      outcome: action === "stop" ? "stopped" : "started",
+      apiUrl: "http://127.0.0.1:18100",
+      blockers: [],
+      logPaths: [],
+      endpoints: [],
+    }),
+    confirmStopped: async () => ({ ok: true, classification: "stopped" }),
+    completeFirstRun: async () => ({ ok: true, classification: "first_run_completed", blockers: [] }),
+    getStatus: async () => ({ services: [] }),
+    verify: async (options) => {
+      verifierOptions = options;
+      return { ok: true, failures: [] };
+    },
+    writeLifecycleState: async () => ({}),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(verifierOptions.runtimePort, 18100);
+  assert.equal(verifierOptions.serviceAdminPort, 18102);
 });
 
 test("worktree proof accepts npm-forwarded proof option configs", () => {

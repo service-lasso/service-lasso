@@ -172,14 +172,14 @@ export function buildCanonicalLifecycleVerifierOptions(options = {}) {
   const context = resolveCanonicalDemoLifecycleContext(options);
   const runtimeUrl = new URL(context.runtimeUrl);
   const serviceAdminUrl = new URL(context.serviceAdminUrl);
-  const runtimePort = Number(runtimeUrl.port);
-  const serviceAdminPort = Number(serviceAdminUrl.port);
-  if (!Number.isInteger(runtimePort) || runtimePort < 1) {
-    throw new Error(`Lifecycle runtime URL must include an explicit port: ${context.runtimeUrl}`);
-  }
-  if (!Number.isInteger(serviceAdminPort) || serviceAdminPort < 1) {
-    throw new Error(`Lifecycle Service Admin URL must include an explicit port: ${context.serviceAdminUrl}`);
-  }
+  const resolveHttpPort = (url, label) => {
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error(`Lifecycle ${label} URL must use HTTP or HTTPS: ${url}`);
+    }
+    return Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  };
+  const runtimePort = resolveHttpPort(runtimeUrl, "runtime");
+  const serviceAdminPort = resolveHttpPort(serviceAdminUrl, "Service Admin");
   return {
     runtimeUrl: context.runtimeUrl,
     runtimePort,
