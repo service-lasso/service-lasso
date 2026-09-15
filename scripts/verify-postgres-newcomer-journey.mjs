@@ -239,6 +239,11 @@ if (!failure) {
     exampleRuntimeDeadlineExceeded: diagnosticText.includes('Example runtime did not become ready.'),
     exampleRuntimeExited: diagnosticText.includes('Example runtime exited. Check port 18550'),
     processSpawnFailed: /process spawn failed/i.test(diagnosticText),
+    runtimeOwnedReadinessFailed: diagnosticText.includes('Runtime owned readiness failed'),
+    nativeProcessInspectionFailed: diagnosticText.includes('Native Windows process-tree inspection failed'),
+    runtimeOwnershipStatus: diagnosticText.match(/Runtime owned readiness failed with ownership status ([a-z_-]+)\./)?.[1] ?? null,
+    appExitCode: app?.exitCode ?? null,
+    appExitSignal: app?.signalCode ?? null,
     missingLibraries: [...new Set(diagnosticText.match(/lib[\w.+-]+\.dylib/g) ?? [])].slice(0, 20),
     serviceFailure: (diagnosticText.match(/Cannot start service "postgres"[^\r\n]*/)?.[0] ?? '')
       .replaceAll(runRoot, '<owned-workspace>').slice(0, 1000),
