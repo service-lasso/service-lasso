@@ -14,28 +14,41 @@ The later [newcomer verification](../development/newcomer-verification.md) inclu
 | Services overview | `/services`, task-owned proxy | same | Blocked: headless page was blank |
 | Help Center overview | `/help-center`, task-owned proxy | same | Blocked: headless page was blank |
 
-## 15 September 2026 refresh attempt
+## 15 September 2026 refresh attempts
 
-Core issue worktree `docs/1281-operator-captures` at
-`8d0201de3e8ebaf699f720a135f2110159cda99a` prepared an owned proof environment
-on Windows. The intended Service Admin source was
-`f5d7ea5012564eb6e470e12268752fe9efa9fd1f`; the owned runtime selected its
-catalogued `@serviceadmin` artifact `2026.8.31-f015b44` on
-`http://127.0.0.1:18101/`. Runtime was `http://127.0.0.1:18100`.
+The initial Core issue worktree was based on
+`8d0201de3e8ebaf699f720a135f2110159cda99a`; the intended Service Admin source
+was `f5d7ea5012564eb6e470e12268752fe9efa9fd1f` (the source later merged as
+Admin `e3cb1ca192cd3719b34eb8cded895197746a4bac`). Its first owned proof
+environment selected the catalogued `@serviceadmin` artifact
+`2026.8.31-f015b44`, which could not prove that the current source Admin was
+being rendered. It also started `node-sample-service`, although that fixture's
+source policy is manifest-only. The generated gate correctly stopped the
+attempt with `canonical_service_state_mismatch`; no screenshots were accepted.
 
-The generated gate rejected the environment with
-`canonical_service_state_mismatch`: `node-sample-service` was installed,
-configured, running and healthy, while its source contract requires a
-manifest-only sample. The subsequent broader canonical verifier passed its
-release-pin and endpoint checks, so the two checks disagree about whether this
-is an acceptable capture state. The capture instructions require stopping on
-the non-zero generated gate; no browser screenshots were taken and no capture
-entry is claimed complete. The issue needs an agreed source-Admin state
-contract or a proof-environment repair before these three routes can be
+The bounded proof-generator repair on Core `2e49fdf` keeps the sample disabled
+only in the copied proof inventory, disables the packaged Admin only when a
+validated `--source-admin-root` is supplied, and records an external source
+Vite command with its required proxy target. It also generates an explicit
+`--runtime-port` for dynamic-worktree verification while leaving canonical
+verifier defaults unchanged. The focused demo-instance suite passed 43 tests
+before this final flag-only correction; the flag regression itself passed.
+
+A fresh owned proof, `1281-operator-captures-fresh-20260916`, used Core
+`4741393df121a596831f0d1ad5d4398ff748b017`, runtime
+`http://127.0.0.1:18100`, and source Admin Vite at
+`http://127.0.0.1:18102/`. Its first-run step completed, but the generated
+recycle still ended non-zero as `canonical_verification_failed`: runtime and
+Admin port checks plus the operator MCP connection, discovery, and
+representative-read checks all failed. The source Vite and Core proof services
+were then stopped through their verified owned processes and generated cleanup;
+the retained proof tree and logs remain available for diagnosis. No browser
+screenshots are claimed, and no blank artifacts are part of this documentation.
+
+This leaves a local runtime/verifier ownership or connectivity gate for the
+next capture attempt. It does not establish a canonical-verifier pass or an
+all-route capture result. No credentials, secret values, or raw logs were
 captured.
-
-The isolated runtime and its services were stopped with the generated cleanup
-command. No credentials, secret values or raw logs were captured.
 
 ## Refresh captures
 
@@ -50,6 +63,5 @@ command. No credentials, secret values or raw logs were captured.
 6. Preserve originals and record asset route, state, reproduction, viewport,
    date, exact Core/Admin identity and verification result.
 
-The current blank artifacts remain in the Service Admin PR as failed-capture
-receipts only. Replace them with verified visible browser captures before
-claiming screenshot-complete documentation.
+Replace this record with verified, readable browser captures only after the
+generated runtime gate and verifier both succeed.
