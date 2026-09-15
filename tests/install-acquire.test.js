@@ -76,7 +76,7 @@ async function waitFor(readinessCheck, timeoutMs = 2_000) {
 async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {}) {
   let requestCount = 0;
   const releaseAssetName = options.releaseAssetName ?? assetName;
-  const downloadStatus = options.downloadStatus ?? 200;
+  const downloadStatuses = options.downloadStatuses ?? [options.downloadStatus ?? 200];
   const checksumAssetName = options.checksumAssetName;
   const checksumAssetBytes = options.checksumAssetBytes;
   const server = createServer((request, response) => {
@@ -111,7 +111,7 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {})
 
     if (url.pathname === `/downloads/${assetName}`) {
       requestCount += 1;
-      response.statusCode = downloadStatus;
+      response.statusCode = downloadStatuses[Math.min(requestCount - 1, downloadStatuses.length - 1)];
       response.end(assetBytes);
       return;
     }
@@ -522,6 +522,61 @@ test("install fails clearly when the resolved artifact download URL is bad", asy
     assert.match(install.body.message, /404/);
     assert.equal(stored.install, null);
     assert.equal(releaseServer.getRequestCount(), 1);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install retries a transient release-asset failure before checksum-bound extraction", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const archiveBytes = createZipWithRuntimeScript();
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, archiveBytes, {
+    downloadStatuses: [504, 200],
+  });
+  const manifest = createReleaseBackedManifest(releaseServer, assetName);
+  manifest.artifact.platforms.default.checksum = {
+    algorithm: "sha256",
+    value: sha256(archiveBytes),
+  };
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", manifest);
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 200);
+    assert.equal(releaseServer.getRequestCount(), 2);
+    assert.equal(stored.install?.artifact?.checksum?.actual, sha256(archiveBytes));
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install exhausts the bounded retry budget for a transient release-asset failure", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript(), {
+    downloadStatus: 504,
+  });
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", createReleaseBackedManifest(releaseServer, assetName));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+
+    assert.equal(install.status, 500);
+    assert.match(install.body.message, /504/);
+    assert.equal(releaseServer.getRequestCount(), 3);
   } finally {
     await apiServer.stop();
     await releaseServer.stop();

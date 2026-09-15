@@ -599,6 +599,123 @@ test("Windows native tree adapter binds every member and fails closed on changed
     [4343, 4242],
   );
 
+  let concurrentSnapshots = 0;
+  let peakConcurrentSnapshots = 0;
+  const serializedSnapshot = async () => {
+    concurrentSnapshots += 1;
+    peakConcurrentSnapshots = Math.max(peakConcurrentSnapshots, concurrentSnapshots);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    concurrentSnapshots -= 1;
+    return {
+      stdout: JSON.stringify({
+        Status: "tree",
+        RootStatus: "running",
+        Processes: [{
+          Status: "running",
+          ProcessId: root.pid,
+          CreationDate: root.createdAt,
+          ExecutablePath: root.executablePath,
+          CommandLine: rootCommandLine,
+        }, childEvidence],
+      }),
+    };
+  };
+  await Promise.all([
+    inspectWindowsProcessTree(root, { windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT, runCommand: serializedSnapshot }),
+    inspectWindowsProcessTree(root, { windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT, runCommand: serializedSnapshot }),
+  ]);
+  assert.equal(peakConcurrentSnapshots, 1);
+
+  let releaseFirstSnapshot;
+  const firstSnapshotGate = new Promise((resolve) => {
+    releaseFirstSnapshot = resolve;
+  });
+  const firstSnapshot = inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      await firstSnapshotGate;
+      return serializedSnapshot();
+    },
+  });
+  let expiredQueuedSnapshotCalls = 0;
+  const expiredQueuedSnapshot = inspectWindowsProcessTree(root, {
+    deadlineMs: Date.now() + 25,
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      expiredQueuedSnapshotCalls += 1;
+      return serializedSnapshot();
+    },
+  });
+  await assert.rejects(expiredQueuedSnapshot, (error) => error?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED");
+  releaseFirstSnapshot();
+  await firstSnapshot;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(expiredQueuedSnapshotCalls, 0);
+
+  let releaseAbortBlockedSnapshot;
+  const abortBlockedSnapshotGate = new Promise((resolve) => {
+    releaseAbortBlockedSnapshot = resolve;
+  });
+  const abortBlockedSnapshot = inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      await abortBlockedSnapshotGate;
+      return serializedSnapshot();
+    },
+  });
+  const queuedAbortController = new AbortController();
+  let explicitlyAbortedQueuedSnapshotCalls = 0;
+  const explicitlyAbortedQueuedSnapshot = inspectWindowsProcessTree(root, {
+    signal: queuedAbortController.signal,
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      explicitlyAbortedQueuedSnapshotCalls += 1;
+      return serializedSnapshot();
+    },
+  });
+  queuedAbortController.abort();
+  await assert.rejects(explicitlyAbortedQueuedSnapshot, (error) => error?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED");
+  releaseAbortBlockedSnapshot();
+  await abortBlockedSnapshot;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(explicitlyAbortedQueuedSnapshotCalls, 0);
+
+  let releaseFailedSnapshot;
+  const failedSnapshotGate = new Promise((resolve) => {
+    releaseFailedSnapshot = resolve;
+  });
+  const failedSnapshot = inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      await failedSnapshotGate;
+      return {
+        stdout: JSON.stringify({
+          Status: "tree",
+          RootStatus: "running",
+          Processes: [{
+            Status: "running",
+            ProcessId: root.pid,
+            CreationDate: "2026-07-18T01:02:05.456Z",
+            ExecutablePath: root.executablePath,
+            CommandLine: rootCommandLine,
+          }],
+        }),
+      };
+    },
+  });
+  let recoveredQueuedSnapshotCalls = 0;
+  const recoveredQueuedSnapshot = inspectWindowsProcessTree(root, {
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      recoveredQueuedSnapshotCalls += 1;
+      return serializedSnapshot();
+    },
+  });
+  releaseFailedSnapshot();
+  await assert.rejects(failedSnapshot, /root identity changed/u);
+  await recoveredQueuedSnapshot;
+  assert.equal(recoveredQueuedSnapshotCalls, 1);
+
   const exited = await inspectWindowsProcessTree(root, {
     windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
     runCommand: async () => ({
