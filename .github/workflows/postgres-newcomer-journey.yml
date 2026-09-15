@@ -29,6 +29,7 @@ jobs:
       - run: npm ci
       - run: node scripts/verify-postgres-newcomer-journey.mjs
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           POSTGRES_JOURNEY_EVIDENCE: artifacts/postgres-newcomer-${{ matrix.platform }}.json
           POSTGRES_JOURNEY_SOURCE_SHA: ${{ github.sha }}
           POSTGRES_JOURNEY_PLATFORM: ${{ matrix.platform }}
