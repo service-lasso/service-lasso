@@ -55,6 +55,35 @@ interface ResolvedArtifactDownload {
   releaseAssetNames: string[] | null;
 }
 
+const TRANSIENT_DOWNLOAD_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const TRANSIENT_DOWNLOAD_ATTEMPTS = 3;
+const TRANSIENT_DOWNLOAD_BACKOFF_MS = 100;
+
+function isTransientDownloadStatus(status: number): boolean {
+  return TRANSIENT_DOWNLOAD_STATUSES.has(status);
+}
+
+function waitForTransientDownloadRetry(attempt: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, TRANSIENT_DOWNLOAD_BACKOFF_MS * attempt));
+}
+
+async function fetchReleaseAsset(url: string, headers?: Record<string, string>): Promise<Response> {
+  let lastNetworkError: unknown = null;
+  for (let attempt = 1; attempt <= TRANSIENT_DOWNLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, headers ? { headers } : undefined);
+      if (response.ok || !isTransientDownloadStatus(response.status) || attempt === TRANSIENT_DOWNLOAD_ATTEMPTS) {
+        return response;
+      }
+    } catch (error) {
+      lastNetworkError = error;
+      if (attempt === TRANSIENT_DOWNLOAD_ATTEMPTS) throw error;
+    }
+    await waitForTransientDownloadRetry(attempt);
+  }
+  throw lastNetworkError ?? new Error("Release asset acquisition exhausted its retry budget.");
+}
+
 export interface InstallArtifactCandidateBinding {
   executable: boolean;
   reason: string | null;
@@ -197,9 +226,7 @@ async function resolveGitHubReleaseDownload(
     : artifact.source.channel && artifact.source.channel.trim().length > 0 && artifact.source.channel.trim() !== "latest"
       ? "/repos/" + repoPath + "/releases/tags/" + encodeURIComponent(artifact.source.channel.trim())
       : "/repos/" + repoPath + "/releases/latest";
-  const response = await fetch(apiBaseUrl + releasePath, {
-    headers: githubHeaders(),
-  });
+  const response = await fetchReleaseAsset(apiBaseUrl + releasePath, githubHeaders());
 
   if (!response.ok) {
     throw new Error(
@@ -247,7 +274,7 @@ async function resolveGitHubReleaseDownload(
 }
 
 async function downloadToFile(assetUrl: string, destinationPath: string, exclusive = false): Promise<void> {
-  const response = await fetch(assetUrl);
+  const response = await fetchReleaseAsset(assetUrl, githubHeaders());
   if (!response.ok) {
     throw new Error(`Failed to download service artifact from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
@@ -278,7 +305,7 @@ async function syncDirectoryOnPosix(directoryPath: string): Promise<void> {
 }
 
 async function downloadText(assetUrl: string): Promise<string> {
-  const response = await fetch(assetUrl);
+  const response = await fetchReleaseAsset(assetUrl, githubHeaders());
   if (!response.ok) {
     throw new Error(`Failed to download service artifact checksum from "${assetUrl}": ${response.status} ${response.statusText}`);
   }
