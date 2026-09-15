@@ -5,111 +5,41 @@ slug: /
 
 # Service Lasso Docs
 
-This repo is the canonical home for the Service Lasso runtime, service manifest contract, and release-backed service authoring guidance.
+Service Lasso discovers, configures, runs, observes, and updates local services from declarative `service.json` manifests. This is the canonical reader documentation for Core and its components. Component repositories own implementation and code-governing specifications; reader guides belong here.
 
-The `docs/` folder is both the GitHub-readable documentation source and the Docusaurus site root.
+## Choose your starting point
 
-## Runtime Model
+**First useful result:** [See the demo](quick-start.md) → [Add PostgreSQL and connect an app](first-useful-service.md) → [Configure and recover](operate-your-service.md) → [Package it](package-your-app.md).
 
-Service Lasso is the core runtime and contract repo. It provides the CLI/API runtime, service discovery, service installation/acquisition, lifecycle orchestration, update checks, and release-backed baseline service definitions.
+[Copy a task for your agent or connect MCP](agent-prompts.md).
 
-The preferred runtime-root model is:
+| I want to… | Start here |
+| --- | --- |
+| Run services | [Run and manage services](operations/README.md) for first start, health, logs, recovery, and backup guidance. |
+| Build a service | [Service authoring overview](service-authoring/overview.md) for the required five-step authoring sequence. |
+| Integrate into an app | [Use Service Lasso in your app](integration/README.md) to choose a reference app, inventory, routing, SSO, and package output. |
+| Look up a reference | [Technical reference](reference/README.md) for the stable manifest, CLI, API, MCP, state, endpoint, and workflow contracts. |
 
-- `servicesRoot`: where service manifests and acquired service payloads live
-- `workspaceRoot`: where Service Lasso stores runtime-managed state, logs, archives, and working data
+## Component guides
 
-## Start Here
+[Service Admin and template guides](components/README.md) · [Use the default stack](ui-documentation.md) · [Service Admin UI guide](operator-ui/service-admin-ui-guide.md) · [Capture status](operator-ui/capture-manifest.md)
 
-Use this short list as the public documentation map:
+[Documentation ownership and migration](components/documentation-migration.md) records remaining source migrations and packaged help copies.
 
-- [Introduction](INTRODUCTION.md): what Service Lasso is, what this repo owns, and where related repos fit.
-- [Service Catalog](service-catalog.md): available core services, app-owned add-on services, and reference apps.
-- [Quick Start](quick-start.md): clone the repo, install dependencies, start the baseline services, open the useful URLs, and stop cleanly.
-- [Service Authoring Overview](service-authoring/overview.md): ordered process for planning, manifesting, releasing, wiring, and validating a service.
-- [Setup Helper Conventions](service-authoring/setup-helper-conventions.md): standard layout and manifest pattern for helper-backed setup steps.
-- [service.json Reference](reference/service-json-reference.md): canonical manifest fields, artifact metadata, health checks, actions, env, dependencies, and update policy.
-- [Healthcheck Reference](reference/healthcheck-reference.md): canonical `healthchecks[]` contract, readiness defaults, TCP/UDP semantics, output-derived variables, and result shape.
-- [Healthchecks Examples](reference/healthchecks-examples.md): concrete manifest examples for HTTP, TCP, UDP, variable, and optional diagnostic checks.
-- [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md): worker-facing implementation handoff for schema, runtime, APIs, migration, and tests.
-- [Release Manifest Verification](reference/release-manifest-verification.md): read-only checks for service release manifests, platform assets, release labels, and checksums.
-- [One-shot Jobs](reference/one-shot-jobs.md): setup-step contract for schema init, sample data loading, certificate generation, and other non-daemon workloads.
-- [Secrets Broker Key Custody](reference/vault-key-bootstrap.md): real Broker first-run setup, platform custody, authenticated IPC, public response boundaries, and recovery.
-- [Secrets Capability Ledger](reference/secrets-capability-ledger.md): canonical cross-repository capability maturity, exact evidence, blockers, and release-wave truth.
-- [Secrets Broker Live Readiness](reference/secrets-broker-live-readiness.md): supported release scope, direct candidate evidence, exclusions, and exact go-live gates.
-- [Audit](reference/audit.md): durable metadata-only event history, storage layout, sensitive-data rules, and tamper-evidence meaning.
-- [Process Ownership Registry](reference/process-ownership-registry.md): durable OS process identity, PID-reuse protection, atomic persistence, and safe legacy migration.
-- [Template Upgrade Compatibility](reference/template-upgrade-compatibility.md): read-only checker for app/template inventories against current core provider expectations.
-- [Reference Apps](reference-apps.md): choose the right host/template repo and understand the release output options.
+## Key concepts
 
-## Source of truth for `service.json`
+Read [Key concepts](key-concepts.md) for the service manifest, `servicesRoot`, `workspaceRoot`, and Core/app/service ownership boundaries.
 
-When discussing or changing the general `service.json` contract:
+## First time with Service Lasso
 
-- update the core `service-lasso` docs first
-- keep `service.json` as the only service manifest source of truth
-- mirror or link from individual service repos only after the core contract is updated
+1. Read [What is Service Lasso?](INTRODUCTION.md) for boundaries and the repo ecosystem.
+2. [Choose how to run it](choose-how-to-run.md): run the checked-in baseline, use a reference app, or package an app-owned inventory.
+3. Follow the [Quick start](quick-start.md).
+4. Complete [first-run setup](complete-first-run-setup.md) when the runtime enters setup mode.
+5. Use the [Service Catalog](service-catalog.md) to find the services in the baseline or app inventory.
 
-Current canonical files:
+## Documentation boundaries and status
 
-- [service.json Reference](reference/service-json-reference.md)
-- [Healthcheck Reference](reference/healthcheck-reference.md)
-- [Healthchecks Examples](reference/healthchecks-examples.md)
-- [Healthchecks Implementation Plan](reference/healthchecks-implementation-plan.md)
-- [One-shot Jobs](reference/one-shot-jobs.md)
-- [Vault Key Bootstrap](reference/vault-key-bootstrap.md)
-- [Secrets Capability Ledger](reference/secrets-capability-ledger.md)
-- [Secrets Broker Live Readiness](reference/secrets-broker-live-readiness.md)
-- [Setup Helper Conventions](service-authoring/setup-helper-conventions.md)
+Operational pages explain an operator task and link to the contract that governs it. Reference pages define the exact API, schema, or persistence contract and should not be read as step-by-step runbooks. Plans, draft proposals, historical reviews, and release-specific evidence remain explicitly labelled and are not statements of current shipped behavior.
 
-## Repo boundary rule
-
-Keep docs in this repo when they describe:
-
-- general manifest schema
-- shared runtime behavior
-- provider/dependency semantics
-- reusable service taxonomy
-- cross-service/platform contract rules
-- release artifact and npm package behavior
-- the split between `servicesRoot` and `workspaceRoot`
-
-Keep docs in individual service repos when they describe:
-
-- service-specific UI or runtime behavior
-- service-specific routes, ports, config files, or page specs
-- service-specific packaging quirks that do not generalize back into the core contract
-- exact release assets for that service repo
-
-## Service authoring entrypoint
-
-Use [Service Authoring Overview](service-authoring/overview.md) when creating or reviewing a new service repo. It links to the numbered authoring process and the detailed [Create a New Lasso Service](development/new-lasso-service-guide.md) handoff.
-
-That guide is the canonical handoff for:
-
-- service ID and repo naming
-- `@` prefix rules for core-owned services
-- required release artifacts and artifact naming
-- `service.json` artifact metadata
-- setup helper conventions for maintainable service-owned bootstrap code
-- service repo verification
-- PR, merge, and branch archive hygiene
-
-## Docs Development
-
-Run the local docs build from the repo root:
-
-```powershell
-npm run docs:build
-```
-
-Run the local docs development server:
-
-```powershell
-npm run docs:start
-```
-
-Pushes to `main` deploy the site to:
-
-```text
-https://service-lasso.github.io/service-lasso/
-```
+See the [documentation map](documentation-map.md) for the complete page inventory, primary navigation home, classification, and intentional unlisted status. See [Contribute and maintain](contributing/README.md) to build or maintain this site.

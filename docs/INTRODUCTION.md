@@ -4,6 +4,8 @@ title: Introduction
 
 # Introduction
 
+New here? [Start with the short explanation of Service Lasso, Secrets Broker, and templates](understand-service-lasso.md).
+
 Service Lasso is a small runtime for acquiring, configuring, starting, stopping, monitoring, and updating local services from declarative `service.json` manifests.
 
 The core idea is simple: an app commits a `services/` folder, each service folder contains a `service.json`, and Service Lasso uses those manifests to install release artifacts, prepare runtime config, launch managed services, expose state through API/CLI surfaces, and report what is healthy or needs attention.

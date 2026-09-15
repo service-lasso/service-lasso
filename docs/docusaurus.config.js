@@ -29,7 +29,7 @@ const config = {
           routeBasePath: "/",
           sidebarPath: path.join(__dirname, "sidebars.js"),
           exclude: ["build/**", ".docusaurus/**", "node_modules/**", "src/**"],
-          editUrl: "https://github.com/service-lasso/service-lasso/tree/main/docs/",
+          editUrl: "https://github.com/service-lasso/service-lasso/tree/develop/docs/",
         },
         blog: false,
         theme: {
@@ -66,6 +66,11 @@ const config = {
     },
   ],
   themeConfig: {
+    colorMode: {
+      defaultMode: "light",
+      respectPrefersColorScheme: true,
+      disableSwitch: false,
+    },
     navbar: {
       title: "Service Lasso",
       items: [
@@ -76,8 +81,8 @@ const config = {
           label: "Docs",
         },
         {
-          to: "/service-catalog",
-          label: "Service Catalog",
+          to: "/operations/",
+          label: "Run services",
           position: "left",
         },
         {
@@ -103,17 +108,21 @@ const config = {
               to: "/",
             },
             {
-              label: "Service Authoring",
+              label: "Build a service",
               to: "/service-authoring/overview",
             },
           ],
         },
         {
-          title: "Reference",
+          title: "Use Service Lasso",
           items: [
             {
-              label: "service.json",
-              to: "/reference/service-json-reference",
+              label: "Integrate into an app",
+              to: "/integration/",
+            },
+            {
+              label: "Technical reference",
+              to: "/reference/",
             },
           ],
         },

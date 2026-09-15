@@ -1,0 +1,572 @@
+[
+  {
+    "repo": "lasso-secretsbroker",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "tree": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/README.md",
+      "docs/fleet-overview-planning.md",
+      "docs/help/README.md",
+      "docs/help/dashboard-home.md",
+      "docs/help/environment-variables-global-and-service-reuse.md",
+      "docs/help/health-checks.md",
+      "docs/help/how-to-create-a-basic-service.md",
+      "docs/help/mcp-operator-guide.md",
+      "docs/help/network-and-service-routes-operator-guide.md",
+      "docs/help/operations-audit-operator-guide.md",
+      "docs/help/operations-inbox-operator-guide.md",
+      "docs/help/operations-telemetry-operator-guide.md",
+      "docs/help/operator-troubleshooting-runbooks.md",
+      "docs/help/product-status-and-safety.md",
+      "docs/help/runtime-and-logs-operator-runbook.md",
+      "docs/help/security-and-access-operator-guide.md",
+      "docs/help/security-secret-access-assignments.md",
+      "docs/help/service-actions.md",
+      "docs/help/service-admin-overview-and-navigation.md",
+      "docs/help/service-admin-packaging-and-release-artifacts.md",
+      "docs/help/service-install-and-setup-config.md",
+      "docs/help/variables-and-secrets-broker-safety-guide.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-CI-SECURITY-MAINTENANCE.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/openspec-drafts/SPEC-SERVICEADMIN-REPO-IDENTITY.md",
+      "docs/operations-telemetry.md",
+      "docs/optional-page-classification.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/DEPENDENCY-GRAPH-SPEC.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/LOG-STREAMING-SPEC.md",
+      "docs/reference/MIGRATION-REPORT.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/SPEC-DASHBOARD-HOME.md",
+      "docs/reference/SPEC-SECRET-ACCESS-ASSIGNMENTS.md",
+      "docs/reference/SPEC-TRUSTED-INGRESS-PROXY.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/service-json-env-reference.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/release/release-1-product-decisions.md",
+      "docs/release/secrets-broker-release-qualification.md",
+      "docs/secret-inventory.md",
+      "docs/secrets-broker-contract-consumer.md",
+      "docs/secrets-broker-setup-wizard.md",
+      "docs/service-admin-table-surface-audit.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/validation.md",
+      "docs/zitadel-session-surface.md"
+    ]
+  },
+  {
+    "repo": "service-lasso",
+    "tree": "dffa350d4f47416c7a4ed5ad5b5e0c7ac8952fbe",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/INTRODUCTION.md",
+      "docs/README.md",
+      "docs/contributing/README.md",
+      "docs/demo/README.md",
+      "docs/development/dagu-service-plan.md",
+      "docs/development/dependency-security.md",
+      "docs/development/deprecated-service-decisions.md",
+      "docs/development/new-lasso-service-guide.md",
+      "docs/development/reference-template-provider-inventory-plan.md",
+      "docs/development/runtime-provider-release-services-delivery-plan.md",
+      "docs/development/service-recovery-doctor-upgrade-hooks-plan.md",
+      "docs/development/service-update-management-plan.md",
+      "docs/development/serviceadmin-integration-validation.md",
+      "docs/development/telegram-group-control-plan.md",
+      "docs/development/zitadel-service-plan.md",
+      "docs/ecosystem/README.md",
+      "docs/operations/self-hosted-wsl-runner.md",
+      "docs/quick-start.md",
+      "docs/reference-apps.md",
+      "docs/reference/SERVICE-CONFIG-TYPES.md",
+      "docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md",
+      "docs/reference/audit.md",
+      "docs/reference/backup-file-export-sftp.md",
+      "docs/reference/baseline-dependency-diagnostics.md",
+      "docs/reference/canonical-demo-watchdog.md",
+      "docs/reference/config-apply-preflight.md",
+      "docs/reference/config-snapshot.md",
+      "docs/reference/dependency-graph-api.md",
+      "docs/reference/endpoints-contract.md",
+      "docs/reference/first-run-vault-bootstrap-permissions.md",
+      "docs/reference/healthcheck-reference.md",
+      "docs/reference/healthchecks-examples.md",
+      "docs/reference/healthchecks-implementation-plan.md",
+      "docs/reference/legacy-globalenv-migration.md",
+      "docs/reference/legacy-setup-migration.md",
+      "docs/reference/lifecycle-fault-injection-matrix.md",
+      "docs/reference/local-sso-bootstrap.md",
+      "docs/reference/local-sso-loop-smoke.md",
+      "docs/reference/log-shipping.md",
+      "docs/reference/one-shot-jobs.md",
+      "docs/reference/operator-action-queue.md",
+      "docs/reference/operator-command-facade.md",
+      "docs/reference/operator-diagnostics-bundle.md",
+      "docs/reference/operator-inbox.md",
+      "docs/reference/operator-mcp.md",
+      "docs/reference/operator-notifications.md",
+      "docs/reference/process-ownership-registry.md",
+      "docs/reference/product-api-facade.md",
+      "docs/reference/readiness-gate.md",
+      "docs/reference/redacted-telemetry-preview.md",
+      "docs/reference/release-1-ga-decision.md",
+      "docs/reference/release-1-independent-security-review-report.md",
+      "docs/reference/release-1-independent-windows-test-plan.md",
+      "docs/reference/release-1-security-review-packet.md",
+      "docs/reference/release-manifest-verification.md",
+      "docs/reference/resource-isolation-model.md",
+      "docs/reference/runtime-capabilities.md",
+      "docs/reference/runtime-doctor-status.md",
+      "docs/reference/runtime-dry-run-plans.md",
+      "docs/reference/runtime-instance-registry.md",
+      "docs/reference/runtime-log-api.md",
+      "docs/reference/runtime-port-reservations.md",
+      "docs/reference/scheduled-service-actions.md",
+      "docs/reference/secret-leak-regression-harness.md",
+      "docs/reference/secret-reference-audit.md",
+      "docs/reference/secrets-broker-live-readiness.md",
+      "docs/reference/secrets-capability-ledger.md",
+      "docs/reference/service-action-inputs.md",
+      "docs/reference/service-config-drift.md",
+      "docs/reference/service-config-editor-api.md",
+      "docs/reference/service-health-history.md",
+      "docs/reference/service-json-reference.md",
+      "docs/reference/service-lockfile.md",
+      "docs/reference/service-secret-access-policy.md",
+      "docs/reference/service-start-trace-api.md",
+      "docs/reference/servicelasso-localhost-sso-test-matrix.md",
+      "docs/reference/startup-broker-resolution.md",
+      "docs/reference/startup-endpoint-allocation.md",
+      "docs/reference/startup-hard-crash-matrix.md",
+      "docs/reference/template-upgrade-compatibility.md",
+      "docs/reference/traefik-local-route-generation.md",
+      "docs/reference/vault-key-bootstrap.md",
+      "docs/reference/workflow-package-catalog.md",
+      "docs/reference/workflow-repo-sync-activation.md",
+      "docs/reference/workflow-run-facade.md",
+      "docs/reference/workspace-backup-restore.md",
+      "docs/reference/zitadel-consumer-integration.md",
+      "docs/release-asset-policy.md",
+      "docs/releases/README.md",
+      "docs/runtime/README.md",
+      "docs/service-authoring/01-plan-service.md",
+      "docs/service-authoring/02-write-service-json.md",
+      "docs/service-authoring/03-create-release-repo.md",
+      "docs/service-authoring/04-wire-consumers.md",
+      "docs/service-authoring/05-validate-release.md",
+      "docs/service-authoring/overview.md",
+      "docs/service-authoring/setup-helper-conventions.md",
+      "docs/service-catalog.md",
+      "docs/understand-service-lasso.md",
+      "docs/windows-containment-tiers.md"
+    ]
+  },
+  {
+    "repo": "lasso-zen-bre",
+    "tree": "e16f53bc7de202c0bd586e2f614c890a2104fe18",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "service-lasso-app-docker-node-service",
+    "tree": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/bootstrap-new-service-repo.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/runtime-extension-points.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/validation.md"
+    ]
+  },
+  {
+    "repo": "lasso-keycloak",
+    "tree": "4d015f47e4686afc1c38a22639ff7a030fd76fd7",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-files",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-pgadmin4",
+    "tree": "445bb9c432867a53a01f154826e61eddb7b9317a",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/service.md"
+    ]
+  },
+  {
+    "repo": "lasso-openobserve",
+    "tree": "f90899445db9bbfdc15d983a8f62320e709e0721",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/service.md",
+      "docs/validation.md"
+    ]
+  },
+  {
+    "repo": "lasso-node",
+    "tree": "261a0b5dd6dbd67eb5d1475ad2bf8c9c846206f4",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-nginx",
+    "tree": "cd613f2951869e9839d59823c9116ab7a1c1c3bf",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-java",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-bpmn-server",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-echoservice",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-postgres",
+    "tree": "00acce97bf945db278728841b847678dba16e2f2",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-python",
+    "tree": "003d0cc5662454f4220a949e08dc32c8083b6166",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "service-catalog",
+    "tree": "a1a22038fe510fb5b7fa8160e702cc1fd03e9f86",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "service-template",
+    "tree": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/bootstrap-new-service-repo.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/runtime-extension-points.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/validation.md"
+    ]
+  },
+  {
+    "repo": "lasso-zitadel",
+    "tree": "589a0bfbbd703e32655662af74ef30e54af35feb",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-websight-cms",
+    "tree": "7c814bf4cbf603e796c65ca80319a6dde5a4d1dd",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/live-stack-validation.md",
+      "docs/release-suitability.md",
+      "docs/url-contracts.md"
+    ]
+  },
+  {
+    "repo": "lasso-typedb",
+    "tree": "4f40b663bb3e971e5613da804d4f932dfa50340d",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/job-boundary.md",
+      "docs/release-suitability.md"
+    ]
+  },
+  {
+    "repo": "lasso-traefik",
+    "tree": "76c1aba32565544d069e7f1d3d026ff16264de56",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/bootstrap-new-service-repo.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/protected-serviceadmin-routes.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/runtime-extension-points.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/template-alignment.md",
+      "docs/traefik-zitadel-sso-ingress-contract.md",
+      "docs/validation.md"
+    ]
+  },
+  {
+    "repo": "lasso-totaljs-messageservice",
+    "tree": "5cc49792809609fa5683c0908188d4b93fbf43b8",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-totaljs-flow",
+    "tree": "4df6bfa290f7bd6cd93121c322564e27a6af1764",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-soarca",
+    "tree": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/service.md",
+      "docs/validation.md"
+    ]
+  },
+  {
+    "repo": "lasso-mongo",
+    "tree": "48d0a0f394a5b52c3d85abf84d6ce7772a59eefe",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-localcert",
+    "tree": "11a594be10ba7fa19e2d1e8eac8b00e97604694d",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md"
+    ]
+  },
+  {
+    "repo": "lasso-jupyterlab",
+    "tree": "2fc34d86bc7433255a883dbac5af80ae8263dfbb",
+    "branch": "develop",
+    "status": "inspected",
+    "documents": [
+      "README.md",
+      "docs/javascript-kernel.md",
+      "docs/url-contracts.md"
+    ]
+  },
+  {
+    "repo": "lasso-filebeat",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-fastapi",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-cacao-roaster",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-archive",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-dagu",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "lasso-tini",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-harness",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-packager-nexe",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-packager-sea",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-packager-pkg",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-tauri",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-electron",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-web",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  },
+  {
+    "repo": "service-lasso-app-node",
+    "branch": "develop",
+    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
+    "documents": []
+  }
+]

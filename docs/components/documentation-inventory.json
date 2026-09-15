@@ -1,0 +1,610 @@
+[
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "README.md",
+    "blob": "5f8af3148114afdef8c5a5f1fb39a66a9df53888",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/README.md",
+    "blob": "4a31c8edb49b57866a8491986840f7b5c75ba51f",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/fleet-overview-planning.md",
+    "blob": "1a63f51e25f5664663fdeea8395fce1b8fe01012",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/README.md",
+    "blob": "fa693b6f42d2d3717ab4b6ac5d8a068a8833edd9",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/dashboard-home.md",
+    "blob": "493e56eb292dcce3af45baeefe31d1c046e94e8f",
+    "target": "docs/components/service-admin/dashboard-home.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/environment-variables-global-and-service-reuse.md",
+    "blob": "d1c4f247120978839c72d47c1d529f24149d4567",
+    "target": "docs/components/service-admin/environment-variables-global-and-service-reuse.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/health-checks.md",
+    "blob": "569db623f27d8ee2ac0c37976e706606e45759bd",
+    "target": "docs/components/service-admin/health-checks.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/how-to-create-a-basic-service.md",
+    "blob": "d59b9993b983d2d8e5a37297f6c81b0484ba8199",
+    "target": "docs/components/service-admin/how-to-create-a-basic-service.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/mcp-operator-guide.md",
+    "blob": "f42258b448db706d05253348debb023ec1c01c26",
+    "target": "docs/components/service-admin/mcp-operator-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/network-and-service-routes-operator-guide.md",
+    "blob": "19c8c02912479887b7eb7a98491ef27c56a76f30",
+    "target": "docs/components/service-admin/network-and-service-routes-operator-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/operations-audit-operator-guide.md",
+    "blob": "acaf3a56303a40a2031b060fa07d4313c3d0abaa",
+    "target": "docs/components/service-admin/operations-audit-operator-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/operations-inbox-operator-guide.md",
+    "blob": "170637afb6d0e03049a87c2d18d0e2e0dc5ffa6b",
+    "target": "docs/components/service-admin/operations-inbox-operator-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/operations-telemetry-operator-guide.md",
+    "blob": "684c173d9a888aa69d1784b98f4dde30726f90ee",
+    "target": "docs/components/service-admin/operations-telemetry-operator-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/operator-troubleshooting-runbooks.md",
+    "blob": "42202cdfefbb95ca5d15d18940e5e40783bcea2b",
+    "target": "docs/components/service-admin/operator-troubleshooting-runbooks.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/product-status-and-safety.md",
+    "blob": "4a0475164196099947e39fb5a088afaa6f9030e4",
+    "target": "docs/components/service-admin/product-status-and-safety.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/runtime-and-logs-operator-runbook.md",
+    "blob": "dd06bd172282063f2644f206f31dc0ed9adf8cc5",
+    "target": "docs/components/service-admin/runtime-and-logs-operator-runbook.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/security-and-access-operator-guide.md",
+    "blob": "3e71ccdea841719f708873b704bb04d908e8b2e4",
+    "target": "docs/components/service-admin/security-and-access-operator-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/security-secret-access-assignments.md",
+    "blob": "4e22858dbc7d4b95a24d68e6554ca0e63cad2fca",
+    "target": "docs/components/service-admin/security-secret-access-assignments.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/service-actions.md",
+    "blob": "98ac962a300a4723e49378342c4eaa39267d2fce",
+    "target": "docs/components/service-admin/service-actions.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/service-admin-overview-and-navigation.md",
+    "blob": "12c53c8b0d3eae1911023b9734d7ac4f5ebac526",
+    "target": "docs/components/service-admin/service-admin-overview-and-navigation.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/service-admin-packaging-and-release-artifacts.md",
+    "blob": "81abb14476095a0e564713af0603077b577c0665",
+    "target": "docs/components/service-admin/service-admin-packaging-and-release-artifacts.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/service-install-and-setup-config.md",
+    "blob": "56dd3868651a39a03322512bad6363a0126dea94",
+    "target": "docs/components/service-admin/service-install-and-setup-config.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/help/variables-and-secrets-broker-safety-guide.md",
+    "blob": "96fc9dd139a99c0daed35a79ff5757d6654e3ed8",
+    "target": "docs/components/service-admin/variables-and-secrets-broker-safety-guide.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+    "blob": "7ea1a422d7d5ec0ced2bc35856a1bdfba072c02f",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/openspec-drafts/SPEC-CI-SECURITY-MAINTENANCE.md",
+    "blob": "f0d28bdbe0f5c77c4ba7470b7e49218c470d6e5b",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+    "blob": "126a0687aac24f4f2cbff48579ddb409fbb58256",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/openspec-drafts/SPEC-SERVICEADMIN-REPO-IDENTITY.md",
+    "blob": "c57579ff3ea8379b978d45e82c2a8f6a8355a910",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/operations-telemetry.md",
+    "blob": "c32f1d03acbbb5135a35721f4a0d1a718da9b37b",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/optional-page-classification.md",
+    "blob": "1542bb52f8c5faeb03c171936dde3b9c9bec7867",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/packaging.md",
+    "blob": "35020dc148b6c3504525af05321dd41fe0097710",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/DECISION-CONTEXT.md",
+    "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/DEPENDENCY-GRAPH-SPEC.md",
+    "blob": "857e731cc76d8dda66c392eb3fb90610bd186eb2",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/EXAMPLE-REPO-TREE.md",
+    "blob": "ad9a167c6ba26083774fc0005dc662330aaccd69",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/LOG-STREAMING-SPEC.md",
+    "blob": "4bfc8c40fb3f61e53a6440d79b9356eab0c1a6ca",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/MIGRATION-REPORT.md",
+    "blob": "f91d5d0979f656927d49e30c8672161a360d9532",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+    "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+    "blob": "bf9dda39d649e9940bd483bd814a4781daa379b1",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+    "blob": "c91171d826b65a3c72c60289d4a3a85334456abf",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/SPEC-DASHBOARD-HOME.md",
+    "blob": "926e1faf0d77586b70dbec998ecc7f1221edb4b4",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/SPEC-SECRET-ACCESS-ASSIGNMENTS.md",
+    "blob": "f653f6e8c5955e96880058827cf2e4f6f63500ad",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/SPEC-TRUSTED-INGRESS-PROXY.md",
+    "blob": "544202ad71d850230eae4d53d1d3d549fb80e5a5",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+    "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/service-json-env-reference.md",
+    "blob": "c491155295045ef2e4e25e08207684b726592097",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+    "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+    "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+    "blob": "9c69d2191c31d7bb6068bbe48161fa8608548472",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/release/release-1-product-decisions.md",
+    "blob": "e2244a2e7b9ce59f363725469bc025d2d2260e54",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/release/secrets-broker-release-qualification.md",
+    "blob": "61c7b15beef43db42f6fa03a7036d3d6b619d2cd",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/secret-inventory.md",
+    "blob": "051d6aeedccd758a5f2a17dc070dd5fbde5f0502",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/secrets-broker-contract-consumer.md",
+    "blob": "a9a5e24de7b9e67a91d821d2ac6fa304a652979e",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/secrets-broker-setup-wizard.md",
+    "blob": "093ac973744c3ee2a80a67a9d225a7e640bf87f1",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/service-admin-table-surface-audit.md",
+    "blob": "72cd9c6b15fdbba18e44a2a7991b43b10a3b058c",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/service-contract.md",
+    "blob": "c84f7d12e1ce2082c0eab38c56ed72225dc7cc1a",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/service-json-reference.md",
+    "blob": "399689fbc7e88fe2688f219be80ccb2225dcff6e",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/validation.md",
+    "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "source": "docs/zitadel-session-surface.md",
+    "blob": "6587302dcbee01323941ea5e10b9d7caf00e729e",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "README.md",
+    "blob": "b4434f5550a7ae9ee0dcbdef553688b1a47e06a6",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/bootstrap-new-service-repo.md",
+    "blob": "7df03e85ce4e084deeae7fef0fcb0cb0a899209d",
+    "target": "docs/components/service-template/bootstrap-new-service-repo.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+    "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+    "blob": "a47adaadd3c9db013ffdf1ed963ba518ba244769",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/packaging.md",
+    "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+    "target": "docs/components/service-template/packaging.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/DECISION-CONTEXT.md",
+    "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/EXAMPLE-REPO-TREE.md",
+    "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+    "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+    "blob": "f1393bcde1b61328674b8b793dd398dca4e5ef35",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+    "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+    "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+    "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+    "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+    "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
+    "target": null,
+    "status": "retained; classify before migration"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/runtime-extension-points.md",
+    "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+    "target": "docs/components/service-template/runtime-extension-points.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/service-contract.md",
+    "blob": "6bc598c6f36e4dfc1acfb68719cf55c0ed11e994",
+    "target": "docs/components/service-template/service-contract.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/service-json-reference.md",
+    "blob": "d510fd27158b3bdb134e782310efe32248397188",
+    "target": "docs/components/service-template/service-json-reference.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "service-template",
+    "commit": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "source": "docs/validation.md",
+    "blob": "3693189ce279514b89eae749b06f8e0c3662ad69",
+    "target": "docs/components/service-template/validation.md",
+    "status": "imported; source redirect/export pending"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "a61dc047b8f8e8038b30f6205a2972ee22517468",
+    "source": "docs/help/ui-documentation.md",
+    "blob": "e0157c531b8a0a6a0da4fea1fd431eaa033d3ee7",
+    "target": "docs/operator-ui/service-admin-ui-guide.md",
+    "status": "canonical; packaged export"
+  },
+  {
+    "repo": "lasso-serviceadmin",
+    "commit": "a61dc047b8f8e8038b30f6205a2972ee22517468",
+    "source": "docs/help/ui-capture-manifest.md",
+    "blob": "db4948d73530961c3a24409c7b7f74d2c2705d04",
+    "target": "docs/operator-ui/capture-manifest.md",
+    "status": "canonical; packaged export"
+  }
+]

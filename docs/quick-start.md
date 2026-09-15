@@ -2,93 +2,69 @@
 title: Quick Start
 ---
 
-# Quick Start
+# Try Service Lasso
 
-Use this page when you want to clone Service Lasso and run the checked-in baseline services.
+Bring up the demo, open the browser UI, and try managing a service. For background, see the [introduction](INTRODUCTION.md).
 
-## Requirements
+## 1. Start the demo
 
-- Node.js `>=22`
-- npm
-- Git
-- Network access to GitHub releases
+Install **Node.js 22+**, **npm**, and **Git**. You also need internet access to download the service releases; the first start takes longer than subsequent starts. Service artifacts have platform-specific support; for example, the pinned Python provider is Windows-only and is skipped on other hosts.
 
-If you use the bundled GitHub release artifact instead of cloning source, the baseline service archives are already present and first start should not need to download those service archives again.
+Run these commands in PowerShell or your usual terminal:
 
-## 1. Clone the Repo
-
-The plain clone path is the supported Quick Start path:
-
-```powershell
-git clone https://github.com/service-lasso/service-lasso.git
+```sh
+git clone --branch develop https://github.com/service-lasso/service-lasso.git
 cd service-lasso
-```
-
-## 2. Install and Build
-
-```powershell
 npm ci
-npm run build
+npm run demo
 ```
 
-## 3. Start Service Lasso
+The demo command builds the runtime, uses the checked-in `services/` manifests, and keeps its runtime state in `workspace/demo-instance/`. Keep the terminal open while trying it.
 
-```powershell
-node dist/cli.js start --services-root ./services --workspace-root ./workspace --port 18080 --port-policy preferred --json
+## 2. Open Service Admin
+
+Open **[http://127.0.0.1:17700/](http://127.0.0.1:17700/)**.
+
+A fresh workspace may show first-run setup. Complete the setup and save the credentials and recovery information it provides. Regular services wait until setup is complete. If setup has finished but those services remain stopped, run this from a second terminal in the same folder:
+
+```sh
+npm run demo:recycle
 ```
 
-This starts the Service Lasso API and runs the baseline service set from `services/`.
+This restarts the demo and completes its first-run autostart checks. For setup details, see [vault bootstrap](reference/vault-key-bootstrap.md).
 
-The runtime API and baseline services are planned together. The API keeps port
-`18080` when it is free and the preferred `@nginx` proposal is renegotiated;
-no manual manifest or port edit is required. Query
-`http://127.0.0.1:18080/api/runtime/endpoints/allocation` for every resolved
-endpoint.
+## 3. Try a service
 
-On a fresh workspace, launch first enters setup mode. The runtime exposes setup
-state at `http://127.0.0.1:18080/api/setup/status` and starts only the setup
-dependencies needed to complete first-run bootstrap before regular managed
-services are started. After setup completes, rerun the same start command to
-continue the normal baseline launch.
+On the first-run credential screen, use both copy buttons, save both values privately, tick **I saved this token**, and continue. Sign in using the saved credential or the offered local session.
 
-Keep this terminal open while you test. Stop it later with `Ctrl+C`.
+Once the services are running:
 
-## 4. Open the Useful URLs
+1. Open the [Echo demo](http://127.0.0.1:4010/) to see a managed service respond.
+2. Find `echo-service` in Service Admin, open **Details**, and inspect its status and logs.
+3. On that detail page, click **Stop service**, accept its confirmation dialog, wait for **Stopped**, then click **Start service** and reload the Echo page.
 
-| URL | Purpose |
-| --- | --- |
-| `http://127.0.0.1:18080/api/health` | Service Lasso API health |
-| `http://127.0.0.1:18080/api/setup/status` | first-run setup state and blockers |
-| `http://127.0.0.1:18080/api/services` | discovered services and lifecycle state |
-| `http://127.0.0.1:18080/api/runtime/endpoints/allocation` | resolved API/service endpoint plan |
-| `http://127.0.0.1:17700/` | Service Admin UI |
-| `http://127.0.0.1:4010/` | Echo Service UI/API |
-| Use the allocation response | NGINX baseline web page (preferred port may move) |
-| `http://127.0.0.1:19081/dashboard/` | Traefik dashboard |
+Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 
-## 5. Stop Services
+The demo includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
 
-Before closing the runtime, stop managed services:
+## 4. Stop the demo
 
-```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:18080/api/runtime/actions/stopAll
+From another terminal in the same folder:
+
+```sh
+npm run demo:stop
 ```
 
-Then press `Ctrl+C` in the terminal running Service Lasso.
+You can also press `Ctrl+C` in the original start terminal. Start again with `npm run demo`; stopping keeps the workspace data.
 
-## Reset Local Runtime Data
+## Something didn't start?
 
-If you want to run from a clean local workspace again:
+Run `npm run demo:status` for a read-only report. The [runtime health endpoint](http://127.0.0.1:17883/api/health) helps distinguish runtime startup from an Admin UI problem. Use the [demo operations guide](demo/README.md) for endpoint URLs, port conflicts, logs, recovery, and reset commands.
 
-```powershell
-Remove-Item -Recurse -Force .\workspace
-```
+## Next steps
 
-## Release Artifact Options
-
-GitHub releases publish two runtime archives:
-
-| Artifact | Use when |
-| --- | --- |
-| `service-lasso-<version>.tar.gz` | you want the lean runtime and will provide or keep your own `services/` folder; services download during install/start when needed |
-| `service-lasso-bundled-<version>.tar.gz` | you want the runtime plus the baseline `services/` folder with service archives already acquired, so the baseline can start without first-run service downloads |
+- [Add PostgreSQL and connect a working app](first-useful-service.md), then [package it](package-your-app.md).
+- [Give an agent the task](agent-prompts.md), including MCP diagnosis.
+- [Embed the runtime with npm, CLI, or HTTP](runtime/README.md).
+- [Choose a lean or bundled release archive](releases/README.md).
+- [Explore all documentation](README.md).
