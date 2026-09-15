@@ -14,11 +14,28 @@ The later [newcomer verification](../development/newcomer-verification.md) inclu
 | Services overview | `/services`, task-owned proxy | same | Blocked: headless page was blank |
 | Help Center overview | `/help-center`, task-owned proxy | same | Blocked: headless page was blank |
 
-The task-owned proof allocated Runtime `http://127.0.0.1:18100` and Service
-Admin `http://127.0.0.1:18101/`. It reached a live runtime, but canonical
-verification reported `canonical_service_state_mismatch`: `node-sample-service`
-ran although the source-Admin proof contract expects it to remain manifest-only.
-No credentials, secret values or raw logs were captured.
+## 15 September 2026 refresh attempt
+
+Core issue worktree `docs/1281-operator-captures` at
+`8d0201de3e8ebaf699f720a135f2110159cda99a` prepared an owned proof environment
+on Windows. The intended Service Admin source was
+`f5d7ea5012564eb6e470e12268752fe9efa9fd1f`; the owned runtime selected its
+catalogued `@serviceadmin` artifact `2026.8.31-f015b44` on
+`http://127.0.0.1:18101/`. Runtime was `http://127.0.0.1:18100`.
+
+The generated gate rejected the environment with
+`canonical_service_state_mismatch`: `node-sample-service` was installed,
+configured, running and healthy, while its source contract requires a
+manifest-only sample. The subsequent broader canonical verifier passed its
+release-pin and endpoint checks, so the two checks disagree about whether this
+is an acceptable capture state. The capture instructions require stopping on
+the non-zero generated gate; no browser screenshots were taken and no capture
+entry is claimed complete. The issue needs an agreed source-Admin state
+contract or a proof-environment repair before these three routes can be
+captured.
+
+The isolated runtime and its services were stopped with the generated cleanup
+command. No credentials, secret values or raw logs were captured.
 
 ## Refresh captures
 
