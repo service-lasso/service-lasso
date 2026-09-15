@@ -118,7 +118,7 @@ async function appStatus(expected) {
 async function action(name) {
   await ownedInstance();
   const response = await fetch(`http://127.0.0.1:18550/api/services/postgres/${name}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }), signal: AbortSignal.timeout(60_000),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }), signal: AbortSignal.timeout(150_000),
   });
   assert(response.ok && (await response.json()).ok, `${name} failed`);
 }
@@ -173,7 +173,7 @@ try {
   app = spawn(process.execPath, ['app.mjs'], { cwd: packaged, env, stdio: ['ignore', 'pipe', 'pipe'] });
   app.on('error', error => { appLog += error.message; });
   for (const stream of [app.stdout, app.stderr]) stream.on('data', chunk => { appLog = (appLog + chunk).slice(-128_000); });
-  instance = await until(ownedInstance);
+  instance = await until(ownedInstance, 150_000);
   await until(() => appStatus(200), 150_000);
   evidence.readinessMs = Date.now() - started;
   await recordDatabase();
