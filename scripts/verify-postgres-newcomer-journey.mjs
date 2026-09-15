@@ -164,6 +164,13 @@ try {
   assert.equal(digest(await readFile(archivePath)), expected, 'Actual installed archive checksum mismatch');
   evidence.postgres = { tag: release, asset, sha256: expected };
   const manifest = await json(manifestPath);
+  const readinessChecks = manifest.healthchecks ?? (manifest.healthcheck ? [manifest.healthcheck] : []);
+  assert(readinessChecks.length > 0, 'Installed manifest has no readiness checks');
+  for (const check of readinessChecks) {
+    assert.equal(check.retries, 480, 'Installed first-boot readiness retry budget differs');
+    assert.equal(check.interval, 250, 'Installed readiness polling interval differs');
+  }
+  evidence.readinessPolicy = { attempts: 480, intervalMs: 250 };
   manifest.env.POSTGRES_MAX_CONNECTIONS = '120';
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   evidence.configuredManifestSha256 = digest(await readFile(manifestPath));

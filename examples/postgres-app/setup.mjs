@@ -13,7 +13,7 @@ manifest.env.POSTGRES_DATABASES = 'lasso_demo';
 manifest.ports.service = 18551;
 // A fresh database runs initdb before accepting connections. Allow a bounded
 // two-minute first-boot window on slower machines, while probing every 250 ms.
-for (const check of manifest.healthchecks ?? []) {
+for (const check of manifest.healthchecks ?? (manifest.healthcheck ? [manifest.healthcheck] : [])) {
   check.retries = 480;
   check.interval = 250;
 }
