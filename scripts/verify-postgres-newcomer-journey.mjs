@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtemp, readFile, rm, writeFile, cp, rename, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, cp, rename, mkdir, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -18,6 +18,7 @@ let app;
 let packageHash = null;
 let manifest = null;
 let readinessMs = null;
+let postgresArchiveSha256 = null;
 
 function command(command, args, cwd, background = false) {
   const child = spawn(command, args, { cwd, env: isolatedEnv, shell: process.platform === "win32", stdio: background ? ["ignore", "pipe", "pipe"] : "inherit" });
@@ -45,6 +46,13 @@ async function action(name) {
   const body = await response.json();
   assert.equal(response.ok && body.ok, true, `${name} failed`);
 }
+async function capture(commandName, args, cwd) {
+  return await new Promise((resolve, reject) => { let output = ""; const child = spawn(commandName, args, { cwd, env: isolatedEnv, shell: process.platform === "win32" }); child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { output += chunk; }); child.once("error", reject).once("exit", (code) => code === 0 ? resolve(output) : reject(new Error(`${commandName} failed: ${output}`))); });
+}
+async function findArchive(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) { const candidate = path.join(directory, entry.name); if (entry.isDirectory()) { const found = await findArchive(candidate); if (found) return found; } else if (/\.(?:zip|tgz|tar\.gz)$/u.test(entry.name) && (await stat(candidate)).size > 0) return candidate; }
+  return null;
+}
 try {
   await mkdir(path.dirname(evidencePath), { recursive: true });
   await mkdir(path.join(runRoot, "registries"), { recursive: true });
@@ -62,6 +70,9 @@ try {
   await command(npm, ["ci", "--ignore-scripts"], packaged);
   await command(npm, ["run", "setup"], packaged);
   const manifestPath = path.join(packaged, "workspace", "services", "postgres", "service.json");
+  const archive = await findArchive(path.join(packaged, "workspace", "services", "postgres"));
+  if (!archive) throw new Error("Downloaded PostgreSQL release archive was not retained beneath the isolated service root.");
+  postgresArchiveSha256 = digest(await readFile(archive));
   manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   manifest.env.POSTGRES_MAX_CONNECTIONS = "120";
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -71,16 +82,18 @@ try {
   app.stdout.on("data", () => {}); app.stderr.on("data", () => {});
   await wait("http://127.0.0.1:18552", 200);
   readinessMs = Date.now() - started;
-  await command(npm, ["run", "check"], packaged);
+  const firstCheck = await capture(npm, ["run", "check"], packaged);
+  assert.match(firstCheck, /PostgreSQL max_connections: 120/u, "configuration SQL assertion failed");
   await action("stop");
   await wait("http://127.0.0.1:18552", 503);
   await action("start");
   await wait("http://127.0.0.1:18552", 200);
-  await command(npm, ["run", "check"], packaged);
+  const recoveryCheck = await capture(npm, ["run", "check"], packaged);
+  assert.match(recoveryCheck, /PostgreSQL max_connections: 120/u, "recovery configuration SQL assertion failed");
 } finally {
   if (app) { app.kill("SIGTERM"); await waitForExit(app); }
   await command(npm, ["run", "stop"], path.join(runRoot, "package"));
   await assertPortFree(18550); await assertPortFree(18552);
-  await writeFile(evidencePath, `${JSON.stringify({ schema: "service-lasso.postgres-newcomer-journey.v1", sourcePackageSha256: packageHash, postgresTag: manifest.artifact.source.tag, postgresManifestSha256: digest(await readFile(manifestPath)), readinessMs, outcomes: { freshPackage: "success", sqlWriteRead: "success", configuration: "success", dependencyFailure: "success", recovery: "success", ownedCleanup: "success" } }, null, 2)}\n`);
+  await writeFile(evidencePath, `${JSON.stringify({ schema: "service-lasso.postgres-newcomer-journey.v1", sourcePackageSha256: packageHash, postgresTag: manifest.artifact.source.tag, postgresManifestSha256: digest(await readFile(manifestPath)), postgresArchiveSha256, readinessMs, outcomes: { freshPackage: "success", sqlWriteRead: "success", configuration: "success", dependencyFailure: "success", recovery: "success", ownedCleanup: "success" } }, null, 2)}\n`);
   await rm(runRoot, { recursive: true, force: true });
 }
