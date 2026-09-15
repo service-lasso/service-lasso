@@ -45,10 +45,13 @@ were then stopped through their verified owned processes and generated cleanup;
 the retained proof tree and logs remain available for diagnosis. No browser
 screenshots are claimed, and no blank artifacts are part of this documentation.
 
-This leaves a local runtime/verifier ownership or connectivity gate for the
-next capture attempt. It does not establish a canonical-verifier pass or an
-all-route capture result. No credentials, secret values, or raw logs were
-captured.
+The follow-up diagnosis found that the recycle wrapper omitted the selected
+runtime and Admin ports when calling the verifier, which made it revert to
+canonical defaults even though the dynamic URLs were supplied. Core `6c0d05e`
+forwards the explicitly parsed ports and has regression coverage for both
+dynamic and canonical values. No fresh runtime was started after that repair,
+so it does not establish a canonical-verifier pass or an all-route capture
+result. No credentials, secret values, or raw logs were captured.
 
 ## Refresh captures
 
