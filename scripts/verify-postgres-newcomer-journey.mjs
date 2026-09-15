@@ -38,6 +38,7 @@ const evidence = { schema: 'service-lasso.postgres-newcomer-journey.v2', outcome
   runtimeLane: 'documented-published-lockfile', outcomes: {},
 };
 let app, instance, failure, databasePort;
+let commandExitUnconfirmed = false;
 let appLog = '';
 const ownedPids = new Set();
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -48,8 +49,13 @@ function alive(pid) { try { process.kill(pid, 0); return true; } catch (error) {
 async function command(executable, args, cwd = packaged, timeout = 300_000) {
   return new Promise((resolve, reject) => {
     let output = '';
-    const child = spawn(executable, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    const timer = setTimeout(() => { child.kill(); reject(new Error(`Command timeout: ${path.basename(executable)}`)); }, timeout);
+    const child = spawn(executable, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      // Killing a wrapper does not prove descendant exit. Retain the entire
+      // workspace and never claim cleanup convergence after this timeout.
+      commandExitUnconfirmed = true;
+      child.kill(); reject(new Error(`Command timeout: ${path.basename(executable)}`));
+    }, timeout);
     for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-128_000); });
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('close', code => { clearTimeout(timer); code === 0 ? resolve(output) : reject(new Error(`Command failed (${code}): ${path.basename(executable)}\n${output.slice(-8000)}`)); });
@@ -76,7 +82,25 @@ async function ownedInstance() {
   const current = (await response.json()).instance;
   assert(current && samePath(current.servicesRoot, servicesRoot) && samePath(current.workspaceRoot, workspaceRoot), 'Runtime belongs to a different workspace');
   assert(Number.isInteger(current.pid) && current.pid > 0 && alive(current.pid));
-  if (instance) assert.equal(current.generationId, instance.generationId, 'Runtime generation changed');
+  if (instance) {
+    assert.equal(current.generationId, instance.generationId, 'Runtime generation changed');
+    assert.equal(current.pid, instance.pid, 'Runtime process changed');
+  } else {
+    // app.mjs spawns the Core CLI: the API PID must be its direct child,
+    // not app.pid itself or an unrelated server returning the same paths.
+    let parentPid;
+    if (process.platform === 'linux') {
+      const statText = await readFile(`/proc/${current.pid}/stat`, 'utf8');
+      parentPid = Number(statText.slice(statText.lastIndexOf(')') + 2).split(/\s+/)[1]);
+    } else if (process.platform === 'darwin') {
+      parentPid = Number((await command('ps', ['-o', 'ppid=', '-p', String(current.pid)], packaged, 15_000)).trim());
+    } else {
+      const powershell = path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      parentPid = Number((await command(powershell, ['-NoProfile', '-NonInteractive', '-Command',
+        `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${current.pid}').ParentProcessId`], packaged, 15_000)).trim());
+    }
+    assert.equal(parentPid, app.pid, 'Runtime is not a child of the owned app');
+  }
   const local = await json(path.join(workspaceRoot, '.service-lasso', 'runtime-instance.json'));
   // Persisted schema may wrap the current record; the API roots plus isolated registry
   // bind identity without assuming a particular persistence version.
@@ -167,6 +191,15 @@ try {
 } catch (error) { failure = error; }
 try {
   if (app) {
+    // Collect retained service ownership even when startup failed before the
+    // first successful database observation. Never infer no children from an
+    // already-exited app wrapper.
+    const registry = await json(path.join(workspaceRoot, '.service-lasso', 'processes.json'));
+    assert(samePath(registry.canonicalWorkspaceRoot, workspaceRoot), 'Unexpected process registry root');
+    for (const entry of registry.entries) if (Number.isInteger(entry.pid) && entry.pid > 0) ownedPids.add(entry.pid);
+    const databaseState = await json(path.join(serviceRoot, '.state', 'runtime.json'));
+    databasePort ??= databaseState.ports?.service;
+    assert(instance && ownedPids.size > 0, 'Early startup ownership was not established');
     // Never send stop to a runtime unless its live roots and generation match.
     if (app.exitCode === null && app.signalCode === null) {
       instance ??= await ownedInstance();
@@ -178,7 +211,8 @@ try {
     await portFree(18550); await portFree(18552);
     if (databasePort) await portFree(databasePort);
   }
-  evidence.outcomes.ownedCleanup = 'success';
+  assert(!commandExitUnconfirmed, 'A timed-out command tree has unconfirmed exit');
+  evidence.outcomes.ownedCleanup = app ? 'success' : 'not_started';
 } catch (error) { evidence.outcomes.ownedCleanup = 'failure'; failure ??= error; }
 if (!failure) {
   // runRoot is the exact mkdtemp result; only successful owned cleanup allows removal.
