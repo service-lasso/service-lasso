@@ -70,9 +70,9 @@ try {
   await command(npm, ["ci", "--ignore-scripts"], packaged);
   await command(npm, ["run", "setup"], packaged);
   const manifestPath = path.join(packaged, "workspace", "services", "postgres", "service.json");
-  const archive = await findArchive(path.join(packaged, "workspace", "services", "postgres"));
-  if (!archive) throw new Error("Downloaded PostgreSQL release archive was not retained beneath the isolated service root.");
-  postgresArchiveSha256 = digest(await readFile(archive));
+  const downloadedArchive = await findArchive(path.join(packaged, "workspace", "services", "postgres"));
+  if (!downloadedArchive) throw new Error("Downloaded PostgreSQL release archive was not retained beneath the isolated service root.");
+  postgresArchiveSha256 = digest(await readFile(downloadedArchive));
   manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   manifest.env.POSTGRES_MAX_CONNECTIONS = "120";
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
