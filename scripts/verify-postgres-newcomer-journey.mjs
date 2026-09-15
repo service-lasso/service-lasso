@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { mkdtemp, readFile, rm, writeFile, cp, rename, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +15,9 @@ const consumer = path.join(runRoot, "postgres-app");
 const evidencePath = process.env.POSTGRES_JOURNEY_EVIDENCE ?? path.join(root, "artifacts", "postgres-journey.json");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 let app;
+let packageHash = null;
+let manifest = null;
+let readinessMs = null;
 
 function command(command, args, cwd, background = false) {
   const child = spawn(command, args, { cwd, env: isolatedEnv, shell: process.platform === "win32", stdio: background ? ["ignore", "pipe", "pipe"] : "inherit" });
@@ -29,6 +33,13 @@ async function wait(url, expected, limit = 90_000) {
   }
   throw new Error(`${url} did not return ${expected}`);
 }
+async function assertPortFree(port) {
+  await new Promise((resolve, reject) => { const server = createServer(); server.once("error", () => reject(new Error(`Port ${port} is occupied; refusing to touch an unowned runtime.`))); server.listen(port, "127.0.0.1", () => server.close(resolve)); });
+}
+async function waitForExit(child, limit = 30_000) {
+  if (child.exitCode !== null) return;
+  await Promise.race([new Promise((resolve) => child.once("exit", resolve)), new Promise((_, reject) => setTimeout(() => reject(new Error("Owned app did not exit within cleanup bound.")), limit))]);
+}
 async function action(name) {
   const response = await fetch(`http://127.0.0.1:18550/api/services/postgres/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: true }), signal: AbortSignal.timeout(30_000) });
   const body = await response.json();
@@ -41,7 +52,7 @@ try {
   const packed = JSON.parse(await new Promise((resolve, reject) => {
     let out = ""; const child = spawn(npm, ["pack", "--json"], { cwd: consumer, shell: process.platform === "win32" }); child.stdout.on("data", (chunk) => { out += chunk; }); child.once("error", reject).once("exit", (code) => code === 0 ? resolve(out) : reject(new Error("npm pack failed")));
   }))[0];
-  const packageHash = digest(await readFile(path.join(consumer, packed.filename)));
+  packageHash = digest(await readFile(path.join(consumer, packed.filename)));
   const archive = path.join(runRoot, packed.filename);
   await rename(path.join(consumer, packed.filename), archive);
   await rm(consumer, { recursive: true, force: true });
@@ -51,24 +62,25 @@ try {
   await command(npm, ["ci", "--ignore-scripts"], packaged);
   await command(npm, ["run", "setup"], packaged);
   const manifestPath = path.join(packaged, "workspace", "services", "postgres", "service.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   manifest.env.POSTGRES_MAX_CONNECTIONS = "120";
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await assertPortFree(18550); await assertPortFree(18552);
   const started = Date.now();
   app = command(npm, ["start"], packaged, true);
   app.stdout.on("data", () => {}); app.stderr.on("data", () => {});
   await wait("http://127.0.0.1:18552", 200);
-  const readinessMs = Date.now() - started;
+  readinessMs = Date.now() - started;
   await command(npm, ["run", "check"], packaged);
   await action("stop");
   await wait("http://127.0.0.1:18552", 503);
   await action("start");
   await wait("http://127.0.0.1:18552", 200);
   await command(npm, ["run", "check"], packaged);
-  await writeFile(evidencePath, `${JSON.stringify({ schema: "service-lasso.postgres-newcomer-journey.v1", sourcePackageSha256: packageHash, postgresTag: manifest.artifact.source.tag, postgresManifestSha256: digest(await readFile(manifestPath)), readinessMs, outcomes: { freshPackage: "success", sqlWriteRead: "success", configuration: "success", dependencyFailure: "success", recovery: "success" } }, null, 2)}\n`);
 } finally {
-  app?.kill("SIGTERM");
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await command(npm, ["run", "stop"], path.join(runRoot, "package")).catch(() => {});
+  if (app) { app.kill("SIGTERM"); await waitForExit(app); }
+  await command(npm, ["run", "stop"], path.join(runRoot, "package"));
+  await assertPortFree(18550); await assertPortFree(18552);
+  await writeFile(evidencePath, `${JSON.stringify({ schema: "service-lasso.postgres-newcomer-journey.v1", sourcePackageSha256: packageHash, postgresTag: manifest.artifact.source.tag, postgresManifestSha256: digest(await readFile(manifestPath)), readinessMs, outcomes: { freshPackage: "success", sqlWriteRead: "success", configuration: "success", dependencyFailure: "success", recovery: "success", ownedCleanup: "success" } }, null, 2)}\n`);
   await rm(runRoot, { recursive: true, force: true });
 }
