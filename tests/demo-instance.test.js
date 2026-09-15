@@ -53,6 +53,7 @@ import {
   resolveCanonicalVerifierOptions,
   verifyCanonicalDemo,
 } from "../scripts/demo-verify-canonical.mjs";
+import { buildCanonicalLifecycleVerifierOptions } from "../scripts/demo-canonical-lifecycle.mjs";
 import {
   buildWorktreeProofCommands,
   prepareWorktreeProof,
@@ -387,6 +388,24 @@ test("worktree proof records allocated URLs for gate, verifier, and cleanup hand
   assert.match(commands.verify, /--service-admin-port=18124/);
   assert.match(commands.verify, /--runtime-port=18123/);
   assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
+});
+
+test("canonical lifecycle forwards explicit ports from selected runtime URLs to its verifier", () => {
+  const dynamic = buildCanonicalLifecycleVerifierOptions({
+    port: 18100,
+    runtimeUrl: "http://127.0.0.1:18100",
+    serviceAdminUrl: "http://127.0.0.1:18102/",
+    servicesRoot: "C:/tmp/service-lasso/services",
+    workspaceRoot: "C:/tmp/service-lasso/workspace",
+  });
+  assert.equal(dynamic.runtimePort, 18100);
+  assert.equal(dynamic.serviceAdminPort, 18102);
+  assert.equal(dynamic.runtimeUrl, "http://127.0.0.1:18100");
+  assert.equal(dynamic.serviceAdminUrl, "http://127.0.0.1:18102/");
+
+  const canonical = buildCanonicalLifecycleVerifierOptions();
+  assert.equal(canonical.runtimePort, canonicalRuntimePort);
+  assert.equal(canonical.serviceAdminPort, canonicalServiceAdminPort);
 });
 
 test("worktree proof accepts npm-forwarded proof option configs", () => {
