@@ -236,6 +236,8 @@ if (!failure) {
     missingDynamicLibrary: /Library not loaded|cannot open shared object file|dyld/i.test(diagnosticText),
     initializationFailed: /initialization failed|initdb: error/i.test(diagnosticText),
     readinessFailed: /readiness|did not become ready/i.test(diagnosticText),
+    exampleRuntimeDeadlineExceeded: diagnosticText.includes('Example runtime did not become ready.'),
+    exampleRuntimeExited: diagnosticText.includes('Example runtime exited. Check port 18550'),
     processSpawnFailed: /process spawn failed/i.test(diagnosticText),
     missingLibraries: [...new Set(diagnosticText.match(/lib[\w.+-]+\.dylib/g) ?? [])].slice(0, 20),
     serviceFailure: (diagnosticText.match(/Cannot start service "postgres"[^\r\n]*/)?.[0] ?? '')

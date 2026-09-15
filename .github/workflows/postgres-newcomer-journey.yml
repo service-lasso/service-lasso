@@ -21,7 +21,7 @@ jobs:
         include:
           - { os: windows-latest, platform: win32 }
           - { os: ubuntu-latest, platform: linux }
-          # The pinned EnterpriseDB release contains Intel binaries.
+          # This lane qualifies Intel macOS; Apple Silicon remains unqualified.
           - { os: macos-15-intel, platform: darwin }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
