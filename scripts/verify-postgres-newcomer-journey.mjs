@@ -203,6 +203,9 @@ if (!failure) {
     initializationFailed: /initialization failed|initdb: error/i.test(diagnosticText),
     readinessFailed: /readiness|did not become ready/i.test(diagnosticText),
     processSpawnFailed: /process spawn failed/i.test(diagnosticText),
+    missingLibraries: [...new Set(diagnosticText.match(/lib[\w.+-]+\.dylib/g) ?? [])].slice(0, 20),
+    serviceFailure: (diagnosticText.match(/Cannot start service "postgres"[^\r\n]*/)?.[0] ?? '')
+      .replaceAll(runRoot, '<owned-workspace>').slice(0, 1000),
   };
   console.error(`Startup diagnostic categories: ${JSON.stringify(evidence.diagnostics)}`);
   evidence.failure = 'journey_or_cleanup_failed';
