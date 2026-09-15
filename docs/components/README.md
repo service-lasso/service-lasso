@@ -6,6 +6,8 @@ title: Component guides
 
 Service Lasso is the documentation home for the product family. Start with the guide for the component you use.
 
+- [Add OpenObserve or SOARCA to an app](app-owned-service-workflows.md)
+
 ## Service Admin
 
 The browser UI for inspecting and operating services. These guides preserve the original capability/status labels; an imported guide does not prove new functionality.

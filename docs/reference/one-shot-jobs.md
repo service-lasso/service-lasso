@@ -116,6 +116,21 @@ The API reports the same durable setup state that the CLI reads, so Service Admi
 
 `lasso-typedb` owns the long-running TypeDB daemon. Schema initialization and sample data loading should be implemented as `setup.steps` in that service repo, not as separate fake daemon services.
 
+### Initialize a TypeDB app deliberately
+
+After your app has committed the released `typedb` manifest and started its
+declared dependencies, initialize the schema and then load sample data:
+
+```powershell
+service-lasso setup run typedb init-schema
+service-lasso setup run typedb load-sample
+```
+
+These steps are `manual`: a normal startup does not create a database, apply a
+schema, or load sample data. Use `--force` only when you intend to rerun one of
+those operations. Inspect the setup result and logs before retrying; Service
+Lasso records setup status, exit code, and history in `.state/setup.json`.
+
 Tracked follow-up work:
 
 - [`service-lasso/lasso-typedb#2`](https://github.com/service-lasso/lasso-typedb/issues/2): TypeDB init/schema job.
