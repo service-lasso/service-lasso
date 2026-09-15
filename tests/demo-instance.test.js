@@ -385,6 +385,7 @@ test("worktree proof records allocated URLs for gate, verifier, and cleanup hand
   assert.match(commands.gate, /--runtime-url=http:\/\/127\.0\.0\.1:18123/);
   assert.match(commands.gate, /--admin-url=http:\/\/127\.0\.0\.1:18124\//);
   assert.match(commands.verify, /--service-admin-port=18124/);
+  assert.match(commands.verify, /--runtime-port=18123/);
   assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
 });
 

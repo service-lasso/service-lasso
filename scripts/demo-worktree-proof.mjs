@@ -234,7 +234,7 @@ export function buildWorktreeProofCommands(options, ports) {
   return {
     start: `npm run demo:recycle -- --port=${ports.runtime} --host=${options.bindHost} --runtime-url=${runtimeUrl} --admin-url=${serviceAdminUrl} --workspace-root=${quote(options.workspaceRoot)} --services-root=${quote(options.servicesRoot)} --demo-log-root=${quote(options.demoLogRoot)}`,
     gate: `node scripts/demo-gate.mjs --host=${options.bindHost} --runtime-url=${runtimeUrl} --port=${ports.runtime} --admin-url=${serviceAdminUrl} --workspace-root=${quote(options.workspaceRoot)} --services-root=${quote(options.servicesRoot)} --demo-log-root=${quote(options.demoLogRoot)} --json`,
-    verify: `node scripts/demo-verify-canonical.mjs --runtime-url=${runtimeUrl} --port=${ports.runtime} --service-admin-url=${serviceAdminUrl} --service-admin-port=${ports.serviceAdmin} --workspace-root=${quote(options.workspaceRoot)} --services-root=${quote(options.servicesRoot)}`,
+    verify: `node scripts/demo-verify-canonical.mjs --runtime-url=${runtimeUrl} --runtime-port=${ports.runtime} --service-admin-url=${serviceAdminUrl} --service-admin-port=${ports.serviceAdmin} --workspace-root=${quote(options.workspaceRoot)} --services-root=${quote(options.servicesRoot)}`,
     cleanup: `node scripts/demo-worktree-proof.mjs --cleanup --summary=${quote(options.summaryPath)}`,
   };
 }
