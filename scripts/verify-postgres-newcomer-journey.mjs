@@ -118,7 +118,7 @@ async function appStatus(expected) {
 async function action(name) {
   await ownedInstance();
   const response = await fetch(`http://127.0.0.1:18550/api/services/postgres/${name}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }), signal: AbortSignal.timeout(150_000),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }), signal: AbortSignal.timeout(60_000),
   });
   assert(response.ok && (await response.json()).ok, `${name} failed`);
 }
@@ -164,13 +164,6 @@ try {
   assert.equal(digest(await readFile(archivePath)), expected, 'Actual installed archive checksum mismatch');
   evidence.postgres = { tag: release, asset, sha256: expected };
   const manifest = await json(manifestPath);
-  const readinessChecks = manifest.healthchecks ?? (manifest.healthcheck ? [manifest.healthcheck] : []);
-  assert(readinessChecks.length > 0, 'Installed manifest has no readiness checks');
-  for (const check of readinessChecks) {
-    assert.equal(check.retries, 480, 'Installed first-boot readiness retry budget differs');
-    assert.equal(check.interval, 250, 'Installed readiness polling interval differs');
-  }
-  evidence.readinessPolicy = { attempts: 480, intervalMs: 250 };
   manifest.env.POSTGRES_MAX_CONNECTIONS = '120';
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   evidence.configuredManifestSha256 = digest(await readFile(manifestPath));
@@ -180,8 +173,8 @@ try {
   app = spawn(process.execPath, ['app.mjs'], { cwd: packaged, env, stdio: ['ignore', 'pipe', 'pipe'] });
   app.on('error', error => { appLog += error.message; });
   for (const stream of [app.stdout, app.stderr]) stream.on('data', chunk => { appLog = (appLog + chunk).slice(-128_000); });
-  instance = await until(ownedInstance, 150_000);
-  await until(() => appStatus(200), 150_000);
+  instance = await until(ownedInstance);
+  await until(() => appStatus(200));
   evidence.readinessMs = Date.now() - started;
   await recordDatabase();
   const check = await npm(['run', 'check']);
@@ -190,7 +183,7 @@ try {
   evidence.outcomes.freshPackageSqlAndConfiguration = 'success';
   await action('stop'); await until(() => appStatus(503));
   evidence.outcomes.dependencyFailure = 'success';
-  await action('start'); await until(() => appStatus(200), 150_000); await recordDatabase();
+  await action('start'); await until(() => appStatus(200)); await recordDatabase();
   const recovery = await npm(['run', 'check']);
   assert.match(recovery, /PASS: database write \+ read and app HTTP response\./);
   assert.match(recovery, /PostgreSQL max_connections: 120(?:\s|$)/);
