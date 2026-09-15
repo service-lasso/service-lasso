@@ -7,14 +7,13 @@
   },
   {
     "repo": "lasso-serviceadmin",
-    "tree": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "tree": "abd681ed1c76f6e57b23d4baabf61e4a4e3f384d",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
-      "docs/README.md",
+      "docs/development.md",
       "docs/fleet-overview-planning.md",
-      "docs/help/README.md",
+      "docs/help-sync.md",
       "docs/help/dashboard-home.md",
       "docs/help/environment-variables-global-and-service-reuse.md",
       "docs/help/health-checks.md",
@@ -26,6 +25,7 @@
       "docs/help/operations-telemetry-operator-guide.md",
       "docs/help/operator-troubleshooting-runbooks.md",
       "docs/help/product-status-and-safety.md",
+      "docs/help/README.md",
       "docs/help/runtime-and-logs-operator-runbook.md",
       "docs/help/security-and-access-operator-guide.md",
       "docs/help/security-secret-access-assignments.md",
@@ -33,6 +33,8 @@
       "docs/help/service-admin-overview-and-navigation.md",
       "docs/help/service-admin-packaging-and-release-artifacts.md",
       "docs/help/service-install-and-setup-config.md",
+      "docs/help/ui-capture-manifest.md",
+      "docs/help/ui-documentation.md",
       "docs/help/variables-and-secrets-broker-safety-guide.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-CI-SECURITY-MAINTENANCE.md",
@@ -41,22 +43,23 @@
       "docs/operations-telemetry.md",
       "docs/optional-page-classification.md",
       "docs/packaging.md",
+      "docs/README.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/DECISION-CONTEXT.md",
       "docs/reference/DEPENDENCY-GRAPH-SPEC.md",
       "docs/reference/EXAMPLE-REPO-TREE.md",
       "docs/reference/LOG-STREAMING-SPEC.md",
       "docs/reference/MIGRATION-REPORT.md",
       "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/service-json-env-reference.md",
       "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "docs/reference/SPEC-DASHBOARD-HOME.md",
-      "docs/reference/SPEC-SECRET-ACCESS-ASSIGNMENTS.md",
-      "docs/reference/SPEC-TRUSTED-INGRESS-PROXY.md",
-      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
-      "docs/reference/service-json-env-reference.md",
       "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
       "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
       "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/reference/SPEC-DASHBOARD-HOME.md",
+      "docs/reference/SPEC-SECRET-ACCESS-ASSIGNMENTS.md",
+      "docs/reference/SPEC-TRUSTED-INGRESS-PROXY.md",
       "docs/release/release-1-product-decisions.md",
       "docs/release/secrets-broker-release-qualification.md",
       "docs/secret-inventory.md",
@@ -66,24 +69,53 @@
       "docs/service-contract.md",
       "docs/service-json-reference.md",
       "docs/validation.md",
-      "docs/zitadel-session-surface.md"
+      "docs/zitadel-session-surface.md",
+      "README.md"
     ]
   },
   {
     "repo": "service-lasso",
-    "tree": "dffa350d4f47416c7a4ed5ad5b5e0c7ac8952fbe",
+    "tree": "8d0201de3e8ebaf699f720a135f2110159cda99a",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
-      "docs/INTRODUCTION.md",
-      "docs/README.md",
+      "docs/agent-prompts.md",
+      "docs/choose-how-to-run.md",
+      "docs/complete-first-run-setup.md",
+      "docs/components/documentation-migration.md",
+      "docs/components/README.md",
+      "docs/components/service-admin/dashboard-home.md",
+      "docs/components/service-admin/environment-variables-global-and-service-reuse.md",
+      "docs/components/service-admin/health-checks.md",
+      "docs/components/service-admin/how-to-create-a-basic-service.md",
+      "docs/components/service-admin/mcp-operator-guide.md",
+      "docs/components/service-admin/network-and-service-routes-operator-guide.md",
+      "docs/components/service-admin/operations-audit-operator-guide.md",
+      "docs/components/service-admin/operations-inbox-operator-guide.md",
+      "docs/components/service-admin/operations-telemetry-operator-guide.md",
+      "docs/components/service-admin/operator-troubleshooting-runbooks.md",
+      "docs/components/service-admin/product-status-and-safety.md",
+      "docs/components/service-admin/runtime-and-logs-operator-runbook.md",
+      "docs/components/service-admin/security-and-access-operator-guide.md",
+      "docs/components/service-admin/security-secret-access-assignments.md",
+      "docs/components/service-admin/service-actions.md",
+      "docs/components/service-admin/service-admin-overview-and-navigation.md",
+      "docs/components/service-admin/service-admin-packaging-and-release-artifacts.md",
+      "docs/components/service-admin/service-install-and-setup-config.md",
+      "docs/components/service-admin/variables-and-secrets-broker-safety-guide.md",
+      "docs/components/service-template/bootstrap-new-service-repo.md",
+      "docs/components/service-template/packaging.md",
+      "docs/components/service-template/runtime-extension-points.md",
+      "docs/components/service-template/service-contract.md",
+      "docs/components/service-template/service-json-reference.md",
+      "docs/components/service-template/validation.md",
       "docs/contributing/README.md",
       "docs/demo/README.md",
       "docs/development/dagu-service-plan.md",
       "docs/development/dependency-security.md",
       "docs/development/deprecated-service-decisions.md",
       "docs/development/new-lasso-service-guide.md",
+      "docs/development/newcomer-verification.md",
       "docs/development/reference-template-provider-inventory-plan.md",
       "docs/development/runtime-provider-release-services-delivery-plan.md",
       "docs/development/service-recovery-doctor-upgrade-hooks-plan.md",
@@ -91,12 +123,21 @@
       "docs/development/serviceadmin-integration-validation.md",
       "docs/development/telegram-group-control-plan.md",
       "docs/development/zitadel-service-plan.md",
+      "docs/documentation-map.md",
       "docs/ecosystem/README.md",
+      "docs/first-useful-service.md",
+      "docs/integration/README.md",
+      "docs/INTRODUCTION.md",
+      "docs/key-concepts.md",
+      "docs/operate-your-service.md",
+      "docs/operations/README.md",
       "docs/operations/self-hosted-wsl-runner.md",
+      "docs/operator-ui/capture-manifest.md",
+      "docs/operator-ui/service-admin-ui-guide.md",
+      "docs/package-your-app.md",
       "docs/quick-start.md",
+      "docs/README.md",
       "docs/reference-apps.md",
-      "docs/reference/SERVICE-CONFIG-TYPES.md",
-      "docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md",
       "docs/reference/audit.md",
       "docs/reference/backup-file-export-sftp.md",
       "docs/reference/baseline-dependency-diagnostics.md",
@@ -125,6 +166,7 @@
       "docs/reference/process-ownership-registry.md",
       "docs/reference/product-api-facade.md",
       "docs/reference/readiness-gate.md",
+      "docs/reference/README.md",
       "docs/reference/redacted-telemetry-preview.md",
       "docs/reference/release-1-ga-decision.md",
       "docs/reference/release-1-independent-security-review-report.md",
@@ -146,7 +188,9 @@
       "docs/reference/service-action-inputs.md",
       "docs/reference/service-config-drift.md",
       "docs/reference/service-config-editor-api.md",
+      "docs/reference/SERVICE-CONFIG-TYPES.md",
       "docs/reference/service-health-history.md",
+      "docs/reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md",
       "docs/reference/service-json-reference.md",
       "docs/reference/service-lockfile.md",
       "docs/reference/service-secret-access-policy.md",
@@ -166,6 +210,7 @@
       "docs/release-asset-policy.md",
       "docs/releases/README.md",
       "docs/runtime/README.md",
+      "docs/security/README.md",
       "docs/service-authoring/01-plan-service.md",
       "docs/service-authoring/02-write-service-json.md",
       "docs/service-authoring/03-create-release-repo.md",
@@ -174,15 +219,17 @@
       "docs/service-authoring/overview.md",
       "docs/service-authoring/setup-helper-conventions.md",
       "docs/service-catalog.md",
+      "docs/ui-documentation.md",
       "docs/understand-service-lasso.md",
-      "docs/windows-containment-tiers.md"
+      "docs/windows-containment-tiers.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-zen-bre",
-    "tree": "e16f53bc7de202c0bd586e2f614c890a2104fe18",
+    "tree": "b813f9dfb33615062b70c74eff72364e1d4f3a5c",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -191,33 +238,33 @@
     "repo": "service-lasso-app-docker-node-service",
     "tree": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/bootstrap-new-service-repo.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "docs/packaging.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/DECISION-CONTEXT.md",
       "docs/reference/EXAMPLE-REPO-TREE.md",
       "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
       "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
       "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
       "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
       "docs/runtime-extension-points.md",
       "docs/service-contract.md",
       "docs/service-json-reference.md",
-      "docs/validation.md"
+      "docs/validation.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-keycloak",
     "tree": "4d015f47e4686afc1c38a22639ff7a030fd76fd7",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -232,43 +279,44 @@
     "repo": "lasso-pgadmin4",
     "tree": "445bb9c432867a53a01f154826e61eddb7b9317a",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
-      "docs/service.md"
+      "docs/service.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-openobserve",
     "tree": "f90899445db9bbfdc15d983a8f62320e709e0721",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "docs/packaging.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/DECISION-CONTEXT.md",
       "docs/reference/EXAMPLE-REPO-TREE.md",
       "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
       "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
       "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
       "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
       "docs/service-contract.md",
       "docs/service-json-reference.md",
       "docs/service.md",
-      "docs/validation.md"
+      "docs/validation.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-node",
-    "tree": "261a0b5dd6dbd67eb5d1475ad2bf8c9c846206f4",
+    "tree": "b922f67faece75860a8e50a9a4835f843ea1e1bd",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
+      "docs/maintainer-reference.md",
       "README.md"
     ]
   },
@@ -276,7 +324,7 @@
     "repo": "lasso-nginx",
     "tree": "cd613f2951869e9839d59823c9116ab7a1c1c3bf",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -301,10 +349,11 @@
   },
   {
     "repo": "lasso-postgres",
-    "tree": "00acce97bf945db278728841b847678dba16e2f2",
+    "tree": "c77cb232af6f2e450ad4f0ef6056ac3bff81937f",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
+      "docs/maintainer-reference.md",
       "README.md"
     ]
   },
@@ -312,7 +361,7 @@
     "repo": "lasso-python",
     "tree": "003d0cc5662454f4220a949e08dc32c8083b6166",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -321,42 +370,43 @@
     "repo": "service-catalog",
     "tree": "a1a22038fe510fb5b7fa8160e702cc1fd03e9f86",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
   },
   {
     "repo": "service-template",
-    "tree": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "tree": "a5c1c37f2f669db8ea594f92cfa02355f54f39e7",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/bootstrap-new-service-repo.md",
+      "docs/maintainer-context.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "docs/packaging.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/DECISION-CONTEXT.md",
       "docs/reference/EXAMPLE-REPO-TREE.md",
       "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
       "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
       "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
       "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
       "docs/runtime-extension-points.md",
       "docs/service-contract.md",
       "docs/service-json-reference.md",
-      "docs/validation.md"
+      "docs/validation.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-zitadel",
     "tree": "589a0bfbbd703e32655662af74ef30e54af35feb",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -365,43 +415,42 @@
     "repo": "lasso-websight-cms",
     "tree": "7c814bf4cbf603e796c65ca80319a6dde5a4d1dd",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/live-stack-validation.md",
       "docs/release-suitability.md",
-      "docs/url-contracts.md"
+      "docs/url-contracts.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-typedb",
     "tree": "4f40b663bb3e971e5613da804d4f932dfa50340d",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/job-boundary.md",
-      "docs/release-suitability.md"
+      "docs/release-suitability.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-traefik",
     "tree": "76c1aba32565544d069e7f1d3d026ff16264de56",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/bootstrap-new-service-repo.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "docs/packaging.md",
       "docs/protected-serviceadmin-routes.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/DECISION-CONTEXT.md",
       "docs/reference/EXAMPLE-REPO-TREE.md",
       "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
       "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
       "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
       "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
@@ -410,14 +459,15 @@
       "docs/service-json-reference.md",
       "docs/template-alignment.md",
       "docs/traefik-zitadel-sso-ingress-contract.md",
-      "docs/validation.md"
+      "docs/validation.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-totaljs-messageservice",
     "tree": "5cc49792809609fa5683c0908188d4b93fbf43b8",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -426,7 +476,7 @@
     "repo": "lasso-totaljs-flow",
     "tree": "4df6bfa290f7bd6cd93121c322564e27a6af1764",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -435,32 +485,32 @@
     "repo": "lasso-soarca",
     "tree": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "docs/packaging.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/DECISION-CONTEXT.md",
       "docs/reference/EXAMPLE-REPO-TREE.md",
       "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
       "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
       "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
       "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
       "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
       "docs/service-contract.md",
       "docs/service-json-reference.md",
       "docs/service.md",
-      "docs/validation.md"
+      "docs/validation.md",
+      "README.md"
     ]
   },
   {
     "repo": "lasso-mongo",
     "tree": "48d0a0f394a5b52c3d85abf84d6ce7772a59eefe",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -469,7 +519,7 @@
     "repo": "lasso-localcert",
     "tree": "11a594be10ba7fa19e2d1e8eac8b00e97604694d",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
       "README.md"
     ]
@@ -478,11 +528,11 @@
     "repo": "lasso-jupyterlab",
     "tree": "2fc34d86bc7433255a883dbac5af80ae8263dfbb",
     "branch": "develop",
-    "status": "inspected",
+    "status": "inspected; recursive tree refreshed from recorded develop commit",
     "documents": [
-      "README.md",
       "docs/javascript-kernel.md",
-      "docs/url-contracts.md"
+      "docs/url-contracts.md",
+      "README.md"
     ]
   },
   {

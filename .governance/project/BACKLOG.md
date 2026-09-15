@@ -15,7 +15,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | --- | --- | --- | --- | --- |
 | `ISS-1277` | `in_progress` | Reconcile released hotfix for promotion #1276 | `SPEC-002`, `AC-5` | Explicitly authorized release reconciliation of main c3a454a and develop d0fa48b. Runtime hotfixes already agree; preserve the newer README and task register. Publication follows exact promotion qualification. |
 | `ISS-1272` | `done` | Docs System / Light / Dark appearance | `SPEC-002`, `AC-4AJ.5` | Persisted selection, live system detection, mobile and keyboard verification. |
-| `ISS-1282` | `todo` | Reconcile remaining reader-guide migrations | `SPEC-002`, `AC-4AJ.3` | Child of #1265; refresh authorized develop sources, classify guides and track migrations/access gates without using promotion sources. |
+| `ISS-1282` | `in_progress` | Reconcile remaining reader-guide migrations | `SPEC-002`, `AC-4AJ.3` | Child of #1265; refreshed authorized develop sources, classified accessible guide sets, and retained 19 access gates without using promotion sources. |
 | `ISS-1281` | `todo` | Complete operator screen/state capture evidence | `SPEC-002`, `AC-4AJ.3`, `AC-4AJ.4` | Child of #1270; exact-version, secret-free capture manifest coverage remains required. |
 | `ISS-1280` | `todo` | Verify clean-machine newcomer journeys on three platforms | `SPEC-002`, `AC-4AJ.4` | Child of #1270; real app write/read, recovery, configuration, package startup and owned cleanup on Windows/Linux/macOS. |
 | `ISS-1270` | `in_progress` | Complete demo-to-app newcomer journeys | `SPEC-002`, `AC-4AJ.4` | #1271 merged. Remaining platform proof #1280, captures #1281, Admin rollout #617 and table confirmation #619; historical Windows evidence is not full acceptance. |
