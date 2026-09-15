@@ -7,9 +7,39 @@ title: 3. Create the Release Repo
 
 Each shared Service Lasso service should live in its own release-backed repo, usually named [`service-lasso/lasso-<name>`](https://github.com/service-lasso?q=lasso-&type=repositories).
 
-Start from [`service-lasso/service-template`](https://github.com/service-lasso/service-template). Use it as a GitHub template or clone it into the new `lasso-*` repo, then replace the sample service details with the real service manifest, packaging script, README, and release verification.
+Start from [`service-lasso/service-template`](https://github.com/service-lasso/service-template) with GitHub's template flow. Do not clone a local copy or another service repo and try to retrofit the template relationship later.
 
 The template is the contract baseline. Do not rebuild the release workflow and repo layout from memory unless the service has a specific reason to diverge.
+
+## Create the repository from the template
+
+Create the repository in GitHub first, then verify its template origin before
+you change service files:
+
+```powershell
+gh repo create service-lasso/<repo-name> --public --template service-lasso/service-template --description "<description>"
+
+$template = gh api repos/service-lasso/<repo-name> --jq '.template_repository.full_name'
+if ($template -ne 'service-lasso/service-template') {
+  throw "Repository was not created from the Service Lasso template: $template"
+}
+```
+
+Then clone that GitHub-created repository and make the first adaptation on a
+tracked issue branch:
+
+```powershell
+git clone --branch develop --single-branch https://github.com/service-lasso/<repo-name>.git C:\projects\service-lasso\<repo-name>
+cd C:\projects\service-lasso\<repo-name>
+gh issue create --title "Bootstrap <service-id> from service template" --body "..."
+git checkout -b docs/<issue>-bootstrap-<service> origin/develop
+```
+
+If the template query returns `null`, stop and correct the repository's
+template/bootstrap origin with its owner before adapting service files. Matching
+files alone do not establish the required template origin. If the repository
+has no authorized `develop` branch, stop and obtain the authorized bootstrap
+workflow; never fall back to a promotion branch.
 
 ## Required Repo Shape
 
