@@ -29,6 +29,23 @@ The [repository audit](repository-docs-audit.json) records the available `develo
 
 The availability refresh and classification do not establish complete ecosystem migration. The ledger binds each reviewed reader candidate to its `develop` commit and blob; it does not treat unreviewed documents in an accessible repository as non-reader content. A potentially reader-facing source needs a focused migration issue before content moves or redirects; code-governing documents remain with their owner. The other 19 source audits await an authorized development workflow.
 
+## Targeted reader-workflow migrations
+
+Core now carries the template-origin workflow in [Create the Release Repo](../service-authoring/03-create-release-repo.md), the TypeDB operator commands in [One-shot Jobs](../reference/one-shot-jobs.md), and app-owned OpenObserve/SOARCA guidance in [Add OpenObserve or SOARCA to an app](app-owned-service-workflows.md). The reviewed source identities are recorded here so a later reader can distinguish imported guidance from local contracts:
+
+| Source | Authorized `develop` revision | Blob | Core disposition |
+| --- | --- | --- | --- |
+| `service-lasso-app-docker-node-service/README.md` | `062260eb01a09f0b6cbace2fce3fe5b460ece53a` | `ab22d7c3c41c746cbb815a2876b36144e0805ebe` | Resolved as an optional Compose implementation pattern in [Resource Isolation](../reference/resource-isolation-model.md); its reference-specific wrapper commands, environment, and health contract remain component-owned. |
+| `service-lasso-app-docker-node-service/docs/bootstrap-new-service-repo.md` | `062260eb01a09f0b6cbace2fce3fe5b460ece53a` | `fa0d1a0d258945f5d244163595a680b48673a6f9` | Migrated to [Create the Release Repo](../service-authoring/03-create-release-repo.md). |
+| `lasso-traefik/README.md` | `76c1aba32565544d069e7f1d3d026ff16264de56` | `a2570ab187df61161e12167d591852bce9469ebb` | Resolved by [Traefik local route generation](../reference/traefik-local-route-generation.md) and [ZITADEL consumer integration](../reference/zitadel-consumer-integration.md); package, release, and protected-route contracts remain component-owned. |
+| `lasso-traefik/docs/bootstrap-new-service-repo.md` | `76c1aba32565544d069e7f1d3d026ff16264de56` | `b9a924a70dc4707f56b4a1ac4a116d342b96a0c6` | Migrated to [Create the Release Repo](../service-authoring/03-create-release-repo.md). |
+| `lasso-typedb/README.md` | `4f40b663bb3e971e5613da804d4f932dfa50340d` | `11569bfabb20a048dbbd275a273b559addc5cb15` | Migrated to [One-shot Jobs](../reference/one-shot-jobs.md). |
+| `lasso-typedb/docs/job-boundary.md` | `4f40b663bb3e971e5613da804d4f932dfa50340d` | `d601d05404a30a4019fdc4187b33c04e7a8591aa` | Migrated to [One-shot Jobs](../reference/one-shot-jobs.md). |
+| `lasso-openobserve/README.md` | `f90899445db9bbfdc15d983a8f62320e709e0721` | `d87322d0471f9e2a70abe957edee43b97426b4f1` | Migrated to [Add OpenObserve or SOARCA to an app](app-owned-service-workflows.md). |
+| `lasso-soarca/README.md` | `579498fa08e28cc7c5e742b6d9b6a1110ceae7a4` | `9d7726a94467767e4b38ed4a09ceefe21fe37ca2` | Migrated to [Add OpenObserve or SOARCA to an app](app-owned-service-workflows.md). |
+
+These Core pages do not complete the source migrations. Redirect-only changes for the reviewed component paths are tracked in [Core #1287](https://github.com/service-lasso/service-lasso/issues/1287); until those component PRs merge, their local reader copies remain live. The 19 source-access gates remain open under #1282.
+
 [Core #1265](https://github.com/service-lasso/service-lasso/issues/1265) owns migration completion. [Core #1270](https://github.com/service-lasso/service-lasso/issues/1270) separately owns newcomer journey acceptance. A merged guide import does not complete either umbrella while its linked migration or runtime evidence remains missing.
 
 ## Editing and publishing
