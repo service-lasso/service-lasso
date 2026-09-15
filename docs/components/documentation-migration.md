@@ -27,7 +27,7 @@ The [source inventory](documentation-inventory.json) records every inspected Mar
 
 The [repository audit](repository-docs-audit.json) records the available `develop` trees and document paths for the wider product family. The [reader-guide classification ledger](reader-guide-classification.json) records the refreshed accessible-tree identities, classification, Core destination, and bounded next action. A missing tree is not treated as an empty documentation set.
 
-The availability refresh and classification do not establish complete ecosystem migration. Path-level classification preserves code-governing documents and identifies where a content review needs a focused migration issue; it is not evidence that an accessible repository has no reader content. The other 19 source audits await an authorized development workflow.
+The availability refresh and classification do not establish complete ecosystem migration. The ledger binds each reviewed reader candidate to its `develop` commit and blob; it does not treat unreviewed documents in an accessible repository as non-reader content. A potentially reader-facing source needs a focused migration issue before content moves or redirects; code-governing documents remain with their owner. The other 19 source audits await an authorized development workflow.
 
 [Core #1265](https://github.com/service-lasso/service-lasso/issues/1265) owns migration completion. [Core #1270](https://github.com/service-lasso/service-lasso/issues/1270) separately owns newcomer journey acceptance. A merged guide import does not complete either umbrella while its linked migration or runtime evidence remains missing.
 

@@ -13,7 +13,9 @@
     "documents": [
       "README.md",
       "docs/README.md",
+      "docs/development.md",
       "docs/fleet-overview-planning.md",
+      "docs/help-sync.md",
       "docs/help/README.md",
       "docs/help/dashboard-home.md",
       "docs/help/environment-variables-global-and-service-reuse.md",
@@ -33,6 +35,8 @@
       "docs/help/service-admin-overview-and-navigation.md",
       "docs/help/service-admin-packaging-and-release-artifacts.md",
       "docs/help/service-install-and-setup-config.md",
+      "docs/help/ui-capture-manifest.md",
+      "docs/help/ui-documentation.md",
       "docs/help/variables-and-secrets-broker-safety-guide.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-CI-SECURITY-MAINTENANCE.md",
@@ -183,9 +187,7 @@
     "tree": "b813f9dfb33615062b70c74eff72364e1d4f3a5c",
     "branch": "develop",
     "status": "inspected",
-    "documents": [
-      "README.md"
-    ]
+    "documents": ["README.md"]
   },
   {
     "repo": "service-lasso-app-docker-node-service",
@@ -218,9 +220,7 @@
     "tree": "4d015f47e4686afc1c38a22639ff7a030fd76fd7",
     "branch": "develop",
     "status": "inspected",
-    "documents": [
-      "README.md"
-    ]
+    "documents": ["README.md"]
   },
   {
     "repo": "lasso-files",
@@ -268,9 +268,7 @@
     "tree": "b922f67faece75860a8e50a9a4835f843ea1e1bd",
     "branch": "develop",
     "status": "inspected",
-    "documents": [
-      "README.md"
-    ]
+    "documents": ["README.md", "docs/maintainer-reference.md"]
   },
   {
     "repo": "lasso-nginx",
@@ -304,9 +302,7 @@
     "tree": "c77cb232af6f2e450ad4f0ef6056ac3bff81937f",
     "branch": "develop",
     "status": "inspected",
-    "documents": [
-      "README.md"
-    ]
+    "documents": ["README.md", "docs/maintainer-reference.md"]
   },
   {
     "repo": "lasso-python",
@@ -334,6 +330,7 @@
     "documents": [
       "README.md",
       "docs/bootstrap-new-service-repo.md",
+      "docs/maintainer-context.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
       "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "docs/packaging.md",
@@ -349,7 +346,8 @@
       "docs/runtime-extension-points.md",
       "docs/service-contract.md",
       "docs/service-json-reference.md",
-      "docs/validation.md"
+      "docs/validation.md",
+      "services/README.md"
     ]
   },
   {
