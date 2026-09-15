@@ -54,7 +54,12 @@ import {
   verifyCanonicalDemo,
 } from "../scripts/demo-verify-canonical.mjs";
 import {
+  buildCanonicalLifecycleVerifierOptions,
+  runCanonicalDemoRecycle,
+} from "../scripts/demo-canonical-lifecycle.mjs";
+import {
   buildWorktreeProofCommands,
+  prepareWorktreeProof,
   patchWorktreeDemoManifest,
   resolveWorktreeProofOptions,
 } from "../scripts/demo-worktree-proof.mjs";
@@ -384,7 +389,69 @@ test("worktree proof records allocated URLs for gate, verifier, and cleanup hand
   assert.match(commands.gate, /--runtime-url=http:\/\/127\.0\.0\.1:18123/);
   assert.match(commands.gate, /--admin-url=http:\/\/127\.0\.0\.1:18124\//);
   assert.match(commands.verify, /--service-admin-port=18124/);
+  assert.match(commands.verify, /--runtime-port=18123/);
   assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
+});
+
+test("canonical lifecycle forwards explicit ports from selected runtime URLs to its verifier", () => {
+  const dynamic = buildCanonicalLifecycleVerifierOptions({
+    port: 18100,
+    runtimeUrl: "http://127.0.0.1:18100",
+    serviceAdminUrl: "http://127.0.0.1:18102/",
+    servicesRoot: "C:/tmp/service-lasso/services",
+    workspaceRoot: "C:/tmp/service-lasso/workspace",
+  });
+  assert.equal(dynamic.runtimePort, 18100);
+  assert.equal(dynamic.serviceAdminPort, 18102);
+  assert.equal(dynamic.runtimeUrl, "http://127.0.0.1:18100");
+  assert.equal(dynamic.serviceAdminUrl, "http://127.0.0.1:18102/");
+
+  const canonical = buildCanonicalLifecycleVerifierOptions();
+  assert.equal(canonical.runtimePort, canonicalRuntimePort);
+  assert.equal(canonical.serviceAdminPort, canonicalServiceAdminPort);
+
+  const standard = buildCanonicalLifecycleVerifierOptions({
+    runtimeUrl: "http://127.0.0.1/",
+    serviceAdminUrl: "https://admin.example.test/",
+  });
+  assert.equal(standard.runtimePort, 80);
+  assert.equal(standard.serviceAdminPort, 443);
+});
+
+test("demo recycle forwards selected dynamic ports to its injected verifier", async () => {
+  let verifierOptions = null;
+  const result = await runCanonicalDemoRecycle({
+    port: 18100,
+    runtimeUrl: "http://127.0.0.1:18100",
+    serviceAdminUrl: "http://127.0.0.1:18102/",
+    servicesRoot: "C:/tmp/service-lasso/services",
+    workspaceRoot: "C:/tmp/service-lasso/workspace",
+    skipLaneLock: true,
+    keepAlive: true,
+    readyTimeoutMs: 20,
+    readyPollMs: 0,
+  }, {
+    classifyOwnership: async () => ({ classification: "not_running", ok: true }),
+    runLifecycle: async (action) => ({
+      ok: true,
+      outcome: action === "stop" ? "stopped" : "started",
+      apiUrl: "http://127.0.0.1:18100",
+      blockers: [],
+      logPaths: [],
+      endpoints: [],
+    }),
+    confirmStopped: async () => ({ ok: true, classification: "stopped" }),
+    completeFirstRun: async () => ({ ok: true, classification: "first_run_completed", blockers: [] }),
+    getStatus: async () => ({ services: [] }),
+    verify: async (options) => {
+      verifierOptions = options;
+      return { ok: true, failures: [] };
+    },
+    writeLifecycleState: async () => ({}),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(verifierOptions.runtimePort, 18100);
+  assert.equal(verifierOptions.serviceAdminPort, 18102);
 });
 
 test("worktree proof accepts npm-forwarded proof option configs", () => {
@@ -396,6 +463,7 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
     npm_config_runtime_port: "18123",
     npm_config_service_admin_port: "18124",
     npm_config_json: "true",
+    npm_config_source_admin_root: "C:/tmp/service-lasso/admin",
   });
 
   assert.equal(options.worktreeId, "issue-947");
@@ -405,6 +473,7 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
   assert.equal(options.runtimePort, 18123);
   assert.equal(options.serviceAdminPort, 18124);
   assert.equal(options.json, true);
+  assert.equal(options.sourceAdminRoot, path.resolve("C:/tmp/service-lasso/admin"));
 });
 
 test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {
@@ -431,6 +500,47 @@ test("worktree proof patches copied Service Admin manifests to allocated URLs", 
   assert.equal(patched.ports.ui, 18124);
   assert.equal(patched.env.SERVICE_LASSO_API_BASE_URL, "http://127.0.0.1:18123");
   assert.equal(patched.env.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:18123");
+
+  const sourceAdminPatched = patchWorktreeDemoManifest(
+    "@serviceadmin",
+    { id: "@serviceadmin", enabled: true, env: {} },
+    { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} }, sourceAdmin: true },
+  );
+  assert.equal(sourceAdminPatched.enabled, false);
+
+  const captureSamplePatched = patchWorktreeDemoManifest(
+    "node-sample-service",
+    { id: "node-sample-service", enabled: true },
+    { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} } },
+  );
+  assert.equal(captureSamplePatched.enabled, false);
+
+  const packagedAdminPatched = patchWorktreeDemoManifest(
+    "@serviceadmin",
+    { id: "@serviceadmin", enabled: true, env: {} },
+    { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} } },
+  );
+  assert.equal(packagedAdminPatched.enabled, true);
+});
+
+test("worktree proof rejects an invalid source Admin root before copying services", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-proof-invalid-admin-"));
+  try {
+    await assert.rejects(
+      () => prepareWorktreeProof({
+        ...resolveWorktreeProofOptions(["--id=invalid-admin"], {}),
+        proofRoot: path.join(tempDir, "proof"),
+        servicesRoot: path.join(tempDir, "proof", "services"),
+        workspaceRoot: path.join(tempDir, "proof", "workspace"),
+        demoLogRoot: path.join(tempDir, "logs"),
+        summaryPath: path.join(tempDir, "logs", "summary.json"),
+        sourceAdminRoot: path.join(tempDir, "missing-admin"),
+      }),
+      /Source Admin root must contain package\.json/,
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("canonical service admin seed uses the canonical runtime URL for its API proxy", async () => {

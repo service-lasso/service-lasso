@@ -162,6 +162,36 @@ export function resolveCanonicalDemoLifecycleContext(options = {}) {
 }
 
 /**
+ * Resolves the verifier inputs for a lifecycle command without falling back to
+ * the canonical ports when the command owns an explicitly allocated lane.
+ *
+ * @param {object} options Lifecycle command options.
+ * @returns {object} Verifier options for the selected runtime and Admin URLs.
+ */
+export function buildCanonicalLifecycleVerifierOptions(options = {}) {
+  const context = resolveCanonicalDemoLifecycleContext(options);
+  const runtimeUrl = new URL(context.runtimeUrl);
+  const serviceAdminUrl = new URL(context.serviceAdminUrl);
+  const resolveHttpPort = (url, label) => {
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error(`Lifecycle ${label} URL must use HTTP or HTTPS: ${url}`);
+    }
+    return Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  };
+  const runtimePort = resolveHttpPort(runtimeUrl, "runtime");
+  const serviceAdminPort = resolveHttpPort(serviceAdminUrl, "Service Admin");
+  return {
+    runtimeUrl: context.runtimeUrl,
+    runtimePort,
+    serviceAdminUrl: context.serviceAdminUrl,
+    serviceAdminPort,
+    servicesRoot: context.servicesRoot,
+    workspaceRoot: context.workspaceRoot,
+    timeoutMs: Math.min(options.timeoutMs ?? 5_000, 5_000),
+  };
+}
+
+/**
  * Serializes canonical start, stop, recycle, and watchdog recovery for one runtime lane.
  *
  * @template T
@@ -536,13 +566,7 @@ async function waitForCanonicalReady(options, deps) {
   while (Date.now() <= deadline) {
     lastStatus = await getStatus(options);
     try {
-      lastVerification = await verify({
-        runtimeUrl: options.runtimeUrl,
-        serviceAdminUrl: options.serviceAdminUrl,
-        servicesRoot: options.servicesRoot,
-        workspaceRoot: options.workspaceRoot,
-        timeoutMs: Math.min(options.timeoutMs ?? 5_000, 5_000),
-      });
+      lastVerification = await verify(buildCanonicalLifecycleVerifierOptions(options));
     } catch (error) {
       lastVerification = {
         ok: false,
