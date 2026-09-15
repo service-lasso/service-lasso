@@ -10,6 +10,9 @@ Give a small Node app its own managed database. You will install a released serv
 
 You need Node.js 22+, npm, Git, and internet access. From your Service Lasso checkout:
 
+The pinned PostgreSQL macOS archive contains Intel (`x64`) binaries. The automated
+macOS journey uses an Intel runner; Apple Silicon execution has not been qualified.
+
 ```sh
 cd examples/postgres-app
 npm ci
