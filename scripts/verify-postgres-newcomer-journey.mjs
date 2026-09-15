@@ -244,6 +244,17 @@ if (!failure) {
     runtimeOwnershipStatus: diagnosticText.match(/Runtime owned readiness failed with ownership status ([a-z_-]+)\./)?.[1] ?? null,
     appExitCode: app?.exitCode ?? null,
     appExitSignal: app?.signalCode ?? null,
+    // This isolated example contains only disposable sample data. Limit uploaded
+    // diagnostics to readiness/error lines and redact paths, URLs, and credentials.
+    startupErrors: diagnosticText.split(/\r?\n/)
+      .filter(line => /readiness|^Error:|^Postgres .*failed/i.test(line))
+      .slice(-5).map(line => line
+        .replace(/\u001b\[[0-9;]*m/g, '')
+        .replaceAll(runRoot, '<owned-workspace>')
+        .replace(/https?:\/\/\S+/g, '<url>')
+        .replace(/(?:[A-Za-z]:\\|\/Users\/|\/home\/|\/tmp\/)\S+/g, '<path>')
+        .replace(/(?:token|password|authorization|secret)\s*[:=]\s*\S+/gi, '<credential>')
+        .slice(0, 500)),
     missingLibraries: [...new Set(diagnosticText.match(/lib[\w.+-]+\.dylib/g) ?? [])].slice(0, 20),
     serviceFailure: (diagnosticText.match(/Cannot start service "postgres"[^\r\n]*/)?.[0] ?? '')
       .replaceAll(runRoot, '<owned-workspace>').slice(0, 1000),
