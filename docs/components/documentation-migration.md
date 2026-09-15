@@ -17,7 +17,7 @@ User, operator, integration, and service-authoring documentation belongs in **se
 | Area | Current state | Remaining work |
 | --- | --- | --- |
 | Core runtime, manifests, and service authoring | Already documented in Core | Keep all new reader guidance here |
-| Service Admin Help Center | 21 canonical articles with deterministic export and checksum checking | Adoption is implemented in [Admin PR #620](https://github.com/service-lasso/lasso-serviceadmin/pull/620), still pending qualification and merge; [Admin #617](https://github.com/service-lasso/lasso-serviceadmin/issues/617) owns offline-help acceptance |
+| Service Admin Help Center | 21 canonical articles with deterministic export and checksum checking | Adopted in merged [Admin PR #620](https://github.com/service-lasso/lasso-serviceadmin/pull/620) (`abd681ed`); Admin [#617](https://github.com/service-lasso/lasso-serviceadmin/issues/617) and [#618](https://github.com/service-lasso/lasso-serviceadmin/issues/618) are closed |
 | Service template | Reader guides imported into Core; six source redirects merged in [template PR #16](https://github.com/service-lasso/service-template/pull/16) | Keep redirects pointed at canonical Core guides |
 | Secrets Broker | Core already has setup, recovery, secret-access, and capability references | Broker has no `develop` branch; its source-guide audit requires an explicitly authorized branch workflow before proceeding |
 | Other service and app-template repositories | On 15 September 2026, develop-branch API checks returned 23 source revisions and 19 unavailable/inaccessible results across the 42 inventoried repositories | [Core #1282](https://github.com/service-lasso/service-lasso/issues/1282) records the affected repositories and owns guide classification, remaining migrations and source redirects |
@@ -25,9 +25,9 @@ User, operator, integration, and service-authoring documentation belongs in **se
 
 The [source inventory](documentation-inventory.json) records every inspected Markdown document in Service Admin and service-template, its exact commit/blob identity, and its destination or retained status. An imported guide is a preserved starting point, not proof that source authoring has been switched over.
 
-The [repository audit](repository-docs-audit.json) records the available `develop` trees and document paths for the wider product family. A missing tree is not treated as an empty documentation set.
+The [repository audit](repository-docs-audit.json) records the available `develop` trees and document paths for the wider product family. The [reader-guide classification ledger](reader-guide-classification.json) records the refreshed accessible-tree identities, classification, Core destination, and bounded next action. A missing tree is not treated as an empty documentation set.
 
-The availability refresh checks access only. It does not refresh the historical document inventory or establish that the 23 accessible sources have completed migration. Their classification can proceed while the other 19 source audits await an authorized development workflow.
+The availability refresh and classification do not establish complete ecosystem migration. Path-level classification preserves code-governing documents and identifies where a content review needs a focused migration issue; it is not evidence that an accessible repository has no reader content. The other 19 source audits await an authorized development workflow.
 
 [Core #1265](https://github.com/service-lasso/service-lasso/issues/1265) owns migration completion. [Core #1270](https://github.com/service-lasso/service-lasso/issues/1270) separately owns newcomer journey acceptance. A merged guide import does not complete either umbrella while its linked migration or runtime evidence remains missing.
 

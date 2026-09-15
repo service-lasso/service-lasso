@@ -7,7 +7,7 @@
   },
   {
     "repo": "lasso-serviceadmin",
-    "tree": "d018767c715c92719b8df69f64ebf5484ee0ba11",
+    "tree": "abd681ed1c76f6e57b23d4baabf61e4a4e3f384d",
     "branch": "develop",
     "status": "inspected",
     "documents": [
@@ -71,7 +71,7 @@
   },
   {
     "repo": "service-lasso",
-    "tree": "dffa350d4f47416c7a4ed5ad5b5e0c7ac8952fbe",
+    "tree": "5dc86d34825d07daddbad8e9d523b094d7dcfb45",
     "branch": "develop",
     "status": "inspected",
     "documents": [
@@ -180,7 +180,7 @@
   },
   {
     "repo": "lasso-zen-bre",
-    "tree": "e16f53bc7de202c0bd586e2f614c890a2104fe18",
+    "tree": "b813f9dfb33615062b70c74eff72364e1d4f3a5c",
     "branch": "develop",
     "status": "inspected",
     "documents": [
@@ -265,7 +265,7 @@
   },
   {
     "repo": "lasso-node",
-    "tree": "261a0b5dd6dbd67eb5d1475ad2bf8c9c846206f4",
+    "tree": "b922f67faece75860a8e50a9a4835f843ea1e1bd",
     "branch": "develop",
     "status": "inspected",
     "documents": [
@@ -301,7 +301,7 @@
   },
   {
     "repo": "lasso-postgres",
-    "tree": "00acce97bf945db278728841b847678dba16e2f2",
+    "tree": "c77cb232af6f2e450ad4f0ef6056ac3bff81937f",
     "branch": "develop",
     "status": "inspected",
     "documents": [
@@ -328,7 +328,7 @@
   },
   {
     "repo": "service-template",
-    "tree": "023b76bb2836f3c0e59c870407fd71a4e2e73f88",
+    "tree": "a5c1c37f2f669db8ea594f92cfa02355f54f39e7",
     "branch": "develop",
     "status": "inspected",
     "documents": [
