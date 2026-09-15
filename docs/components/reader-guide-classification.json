@@ -4,36 +4,870 @@
   "issue": "https://github.com/service-lasso/service-lasso/issues/1282",
   "refreshedAt": "2026-09-15",
   "sourceBranch": "develop",
-  "scope": "A current-develop content review of the listed reader candidates. Each source is bound to its commit and blob. It does not assert that every markdown file in an accessible repository was reviewed or that an ecosystem migration is complete.",
+  "scope": "A current-develop content review of the listed reader and governing paths. Each source is bound to its commit and blob. It does not assert ecosystem migration completion.",
   "selectionRule": "Review README files and component documents that describe installation, operation, user interfaces, or authoring. Retain OpenSpec, validation, release, URL-contract, manifest, and maintainer materials as component-owned governing references unless reviewed content supplies a reader workflow.",
-  "reviewSummary": {"accessibleSources":23,"unavailableOrInaccessibleSources":19,"reviewedCandidates":25,"migrationCandidates":5},
+  "reviewSummary": {
+    "accessibleSources": 23,
+    "unavailableOrInaccessibleSources": 19,
+    "reviewedPaths": 100,
+    "migrationCandidates": 8,
+    "retainedPaths": 72
+  },
   "reviewed": [
-    {"repository":"service-lasso","revision":"8d0201de3e8ebaf699f720a135f2110159cda99a","path":"README.md","blob":"a0a48c233d072c8124ec8161fc24a5e8f0c68416","disposition":"central-reader-guide","destination":"docs/understand-service-lasso.md","action":"Keep Core as the reader-guide owner."},
-    {"repository":"lasso-serviceadmin","revision":"abd681ed1c76f6e57b23d4baabf61e4a4e3f384d","path":"docs/help/README.md","blob":"eb40105d5f4a5dabbaab291342b33a361968c8df","disposition":"packaged-offline-copy","destination":"docs/components/service-admin","action":"Keep the Core source and Admin checksum-bound offline copies; refresh the full help manifest when its source changes."},
-    {"repository":"service-template","revision":"a5c1c37f2f669db8ea594f92cfa02355f54f39e7","path":"README.md","blob":"84ea776dea4083d0e2045e575aef791cd24e886e","disposition":"central-redirect","destination":"docs/service-authoring","action":"Keep merged redirects to Core; retain template contracts locally."},
-    {"repository":"service-lasso-app-docker-node-service","revision":"062260eb01a09f0b6cbace2fce3fe5b460ece53a","path":"README.md","blob":"ab22d7c3c41c746cbb815a2876b36144e0805ebe","disposition":"migration-candidate","destination":"docs/service-authoring/overview.md","action":"Open a focused issue to decide whether its bootstrap workflow duplicates Core before moving text."},
-    {"repository":"lasso-openobserve","revision":"f90899445db9bbfdc15d983a8f62320e709e0721","path":"README.md","blob":"d87322d0471f9e2a70abe957edee43b97426b4f1","disposition":"migration-candidate","destination":"docs/components/README.md","action":"Open a focused issue to map any operator workflow; retain manifest and validation references locally."},
-    {"repository":"lasso-traefik","revision":"76c1aba32565544d069e7f1d3d026ff16264de56","path":"README.md","blob":"a2570ab187df61161e12167d591852bce9469ebb","disposition":"migration-candidate","destination":"docs/operate-your-service.md","action":"Open a focused issue to separate reader routing guidance from protected-route contracts."},
-    {"repository":"lasso-soarca","revision":"579498fa08e28cc7c5e742b6d9b6a1110ceae7a4","path":"README.md","blob":"9d7726a94467767e4b38ed4a09ceefe21fe37ca2","disposition":"migration-candidate","destination":"docs/components/README.md","action":"Open a focused issue to map any operator workflow; retain service-contract material locally."},
-    {"repository":"lasso-pgadmin4","revision":"445bb9c432867a53a01f154826e61eddb7b9317a","path":"README.md","blob":"3e7b8fa656b562c17e1d15929b4d65852bdf93bb","disposition":"component-reference-retained","destination":"docs/first-useful-service.md","action":"Keep package setup and validation; assess overlapping database UI walkthroughs in a focused issue."},
-    {"repository":"lasso-pgadmin4","revision":"445bb9c432867a53a01f154826e61eddb7b9317a","path":"docs/service.md","blob":"f057832c004fb56247c82c3fc0c2e4abc63a4908","disposition":"component-reference-retained","destination":"docs/first-useful-service.md","action":"Retain launcher and consumer-responsibility reference; no Core copy is justified by this audit."},
-    {"repository":"lasso-websight-cms","revision":"7c814bf4cbf603e796c65ca80319a6dde5a4d1dd","path":"README.md","blob":"d0653b6e38c6915c3e4a8d907e30a25937dd5503","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain package and live-stack instructions; create a focused issue if a CMS newcomer walkthrough is required."},
-    {"repository":"lasso-typedb","revision":"4f40b663bb3e971e5613da804d4f932dfa50340d","path":"README.md","blob":"11569bfabb20a048dbbd275a273b559addc5cb15","disposition":"migration-candidate","destination":"docs/first-useful-service.md","action":"Create a focused Core setup-guide migration under #1282 for init-schema, load-sample, and --force reruns; retain schema and job contracts locally."},
-    {"repository":"lasso-jupyterlab","revision":"2fc34d86bc7433255a883dbac5af80ae8263dfbb","path":"README.md","blob":"903a7223b6afb78f8fe246831b3efaae6eb26d0f","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain package operation and platform boundary; create a focused issue for notebook-user onboarding if required."},
-    {"repository":"lasso-jupyterlab","revision":"2fc34d86bc7433255a883dbac5af80ae8263dfbb","path":"docs/javascript-kernel.md","blob":"f55702d14f62c82f0f9dbaf6a373481e8a395176","disposition":"component-governing-reference","destination":"docs/components/README.md","action":"Retain the unsupported-kernel decision and verification boundary in the component."},
-    {"repository":"lasso-keycloak","revision":"4d015f47e4686afc1c38a22639ff7a030fd76fd7","path":"README.md","blob":"f71646744ab2d36c2285ef969bedc552da271a84","disposition":"component-reference-retained","destination":"docs/complete-first-run-setup.md","action":"Retain package and OIDC bootstrap contract; open a focused issue for an operator guide if needed."},
-    {"repository":"lasso-zen-bre","revision":"b813f9dfb33615062b70c74eff72364e1d4f3a5c","path":"README.md","blob":"c41b6c9188f9ba35652a3024e00adfa1a872d144","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain the package reference; no migration is claimed."},
-    {"repository":"lasso-node","revision":"b922f67faece75860a8e50a9a4835f843ea1e1bd","path":"README.md","blob":"cf3abd2cb0533d810b3092397b941fa5dcfd6076","disposition":"central-reader-link","destination":"docs/integration/README.md","action":"Keep its verified Core reader links and component maintainer reference."},
-    {"repository":"lasso-nginx","revision":"cd613f2951869e9839d59823c9116ab7a1c1c3bf","path":"README.md","blob":"b967bcfc8a1a98c35c863d85b89b6c77653b0b43","disposition":"component-reference-retained","destination":"docs/operate-your-service.md","action":"Retain packaging and service-contract reference; open a focused issue for reader routing guidance if needed."},
-    {"repository":"lasso-postgres","revision":"c77cb232af6f2e450ad4f0ef6056ac3bff81937f","path":"README.md","blob":"1b7425729cd13e8aa0cefa61bf6bc49691fcd279","disposition":"central-reader-link","destination":"docs/first-useful-service.md","action":"Keep its verified Core reader links and component maintainer reference."},
-    {"repository":"lasso-python","revision":"003d0cc5662454f4220a949e08dc32c8083b6166","path":"README.md","blob":"1994af8b7c13d45ac8c3c3fc31793d3ca3b72f8c","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain provider packaging and runtime contract; no migration is claimed."},
-    {"repository":"service-catalog","revision":"a1a22038fe510fb5b7fa8160e702cc1fd03e9f86","path":"README.md","blob":"c2607a022d4595fcd738f707745a710aa26f70d9","disposition":"component-reference-retained","destination":"docs/service-catalog.md","action":"Retain catalog maintenance reference; Core remains the reader destination."},
-    {"repository":"lasso-zitadel","revision":"589a0bfbbd703e32655662af74ef30e54af35feb","path":"README.md","blob":"60fafcf84d2a8b49b32ca5833b8965c6f3b722cf","disposition":"component-reference-retained","destination":"docs/complete-first-run-setup.md","action":"Retain package and OIDC contract; open a focused issue for operator onboarding if needed."},
-    {"repository":"lasso-totaljs-messageservice","revision":"5cc49792809609fa5683c0908188d4b93fbf43b8","path":"README.md","blob":"f5fcf089079153ef53e990c3669be7933ece882a","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain package contract; no migration is claimed."},
-    {"repository":"lasso-totaljs-flow","revision":"4df6bfa290f7bd6cd93121c322564e27a6af1764","path":"README.md","blob":"03d4f0acc932ced4602301864a313073b7bc6eba","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain package contract; no migration is claimed."},
-    {"repository":"lasso-mongo","revision":"48d0a0f394a5b52c3d85abf84d6ce7772a59eefe","path":"README.md","blob":"e15957be9de523ef2cbeef448900ce2c0bac7adf","disposition":"component-reference-retained","destination":"docs/components/README.md","action":"Retain package and data-ownership reference; open a focused issue for a database walkthrough if needed."},
-    {"repository":"lasso-localcert","revision":"11a594be10ba7fa19e2d1e8eac8b00e97604694d","path":"README.md","blob":"45fb62ebf468ea61fbabf7aee7dc16d43b73eaa8","disposition":"component-reference-retained","destination":"docs/complete-first-run-setup.md","action":"Retain provider and certificate-generation contract; no migration is claimed."}
+    {
+      "repository": "service-lasso",
+      "revision": "8d0201de3e8ebaf699f720a135f2110159cda99a",
+      "path": "README.md",
+      "blob": "a0a48c233d072c8124ec8161fc24a5e8f0c68416",
+      "disposition": "central-reader-guide",
+      "destination": "docs/understand-service-lasso.md",
+      "action": "Keep Core as the reader-guide owner."
+    },
+    {
+      "repository": "lasso-serviceadmin",
+      "revision": "abd681ed1c76f6e57b23d4baabf61e4a4e3f384d",
+      "path": "docs/help/README.md",
+      "blob": "eb40105d5f4a5dabbaab291342b33a361968c8df",
+      "disposition": "packaged-offline-copy",
+      "destination": "docs/components/service-admin",
+      "action": "Keep the Core source and Admin checksum-bound offline copies; refresh the full help manifest when its source changes."
+    },
+    {
+      "repository": "service-template",
+      "revision": "a5c1c37f2f669db8ea594f92cfa02355f54f39e7",
+      "path": "README.md",
+      "blob": "84ea776dea4083d0e2045e575aef791cd24e886e",
+      "disposition": "central-redirect",
+      "destination": "docs/service-authoring",
+      "action": "Keep merged redirects to Core; retain template contracts locally."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "README.md",
+      "blob": "ab22d7c3c41c746cbb815a2876b36144e0805ebe",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Open a focused issue to decide whether its bootstrap workflow duplicates Core before moving text."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "README.md",
+      "blob": "d87322d0471f9e2a70abe957edee43b97426b4f1",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Open a focused issue to map any operator workflow; retain manifest and validation references locally."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "README.md",
+      "blob": "a2570ab187df61161e12167d591852bce9469ebb",
+      "disposition": "migration-candidate",
+      "destination": "docs/operate-your-service.md",
+      "action": "Open a focused issue to separate reader routing guidance from protected-route contracts."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "README.md",
+      "blob": "9d7726a94467767e4b38ed4a09ceefe21fe37ca2",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Open a focused issue to map any operator workflow; retain service-contract material locally."
+    },
+    {
+      "repository": "lasso-pgadmin4",
+      "revision": "445bb9c432867a53a01f154826e61eddb7b9317a",
+      "path": "README.md",
+      "blob": "3e7b8fa656b562c17e1d15929b4d65852bdf93bb",
+      "disposition": "component-reference-retained",
+      "destination": "docs/first-useful-service.md",
+      "action": "Keep package setup and validation; assess overlapping database UI walkthroughs in a focused issue."
+    },
+    {
+      "repository": "lasso-pgadmin4",
+      "revision": "445bb9c432867a53a01f154826e61eddb7b9317a",
+      "path": "docs/service.md",
+      "blob": "f057832c004fb56247c82c3fc0c2e4abc63a4908",
+      "disposition": "component-reference-retained",
+      "destination": "docs/first-useful-service.md",
+      "action": "Retain launcher and consumer-responsibility reference; no Core copy is justified by this audit."
+    },
+    {
+      "repository": "lasso-websight-cms",
+      "revision": "7c814bf4cbf603e796c65ca80319a6dde5a4d1dd",
+      "path": "README.md",
+      "blob": "d0653b6e38c6915c3e4a8d907e30a25937dd5503",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain package and live-stack instructions; create a focused issue if a CMS newcomer walkthrough is required."
+    },
+    {
+      "repository": "lasso-typedb",
+      "revision": "4f40b663bb3e971e5613da804d4f932dfa50340d",
+      "path": "README.md",
+      "blob": "11569bfabb20a048dbbd275a273b559addc5cb15",
+      "disposition": "migration-candidate",
+      "destination": "docs/first-useful-service.md",
+      "action": "Create a focused Core setup-guide migration under #1282 for init-schema, load-sample, and --force reruns; retain schema and job contracts locally."
+    },
+    {
+      "repository": "lasso-jupyterlab",
+      "revision": "2fc34d86bc7433255a883dbac5af80ae8263dfbb",
+      "path": "README.md",
+      "blob": "903a7223b6afb78f8fe246831b3efaae6eb26d0f",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain package operation and platform boundary; create a focused issue for notebook-user onboarding if required."
+    },
+    {
+      "repository": "lasso-jupyterlab",
+      "revision": "2fc34d86bc7433255a883dbac5af80ae8263dfbb",
+      "path": "docs/javascript-kernel.md",
+      "blob": "f55702d14f62c82f0f9dbaf6a373481e8a395176",
+      "disposition": "component-governing-reference",
+      "destination": "docs/components/README.md",
+      "action": "Retain the unsupported-kernel decision and verification boundary in the component."
+    },
+    {
+      "repository": "lasso-keycloak",
+      "revision": "4d015f47e4686afc1c38a22639ff7a030fd76fd7",
+      "path": "README.md",
+      "blob": "f71646744ab2d36c2285ef969bedc552da271a84",
+      "disposition": "component-reference-retained",
+      "destination": "docs/complete-first-run-setup.md",
+      "action": "Retain package and OIDC bootstrap contract; open a focused issue for an operator guide if needed."
+    },
+    {
+      "repository": "lasso-zen-bre",
+      "revision": "b813f9dfb33615062b70c74eff72364e1d4f3a5c",
+      "path": "README.md",
+      "blob": "c41b6c9188f9ba35652a3024e00adfa1a872d144",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain the package reference; no migration is claimed."
+    },
+    {
+      "repository": "lasso-node",
+      "revision": "b922f67faece75860a8e50a9a4835f843ea1e1bd",
+      "path": "README.md",
+      "blob": "cf3abd2cb0533d810b3092397b941fa5dcfd6076",
+      "disposition": "central-reader-link",
+      "destination": "docs/integration/README.md",
+      "action": "Keep its verified Core reader links and component maintainer reference."
+    },
+    {
+      "repository": "lasso-nginx",
+      "revision": "cd613f2951869e9839d59823c9116ab7a1c1c3bf",
+      "path": "README.md",
+      "blob": "b967bcfc8a1a98c35c863d85b89b6c77653b0b43",
+      "disposition": "component-reference-retained",
+      "destination": "docs/operate-your-service.md",
+      "action": "Retain packaging and service-contract reference; open a focused issue for reader routing guidance if needed."
+    },
+    {
+      "repository": "lasso-postgres",
+      "revision": "c77cb232af6f2e450ad4f0ef6056ac3bff81937f",
+      "path": "README.md",
+      "blob": "1b7425729cd13e8aa0cefa61bf6bc49691fcd279",
+      "disposition": "central-reader-link",
+      "destination": "docs/first-useful-service.md",
+      "action": "Keep its verified Core reader links and component maintainer reference."
+    },
+    {
+      "repository": "lasso-python",
+      "revision": "003d0cc5662454f4220a949e08dc32c8083b6166",
+      "path": "README.md",
+      "blob": "1994af8b7c13d45ac8c3c3fc31793d3ca3b72f8c",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain provider packaging and runtime contract; no migration is claimed."
+    },
+    {
+      "repository": "service-catalog",
+      "revision": "a1a22038fe510fb5b7fa8160e702cc1fd03e9f86",
+      "path": "README.md",
+      "blob": "c2607a022d4595fcd738f707745a710aa26f70d9",
+      "disposition": "component-reference-retained",
+      "destination": "docs/service-catalog.md",
+      "action": "Retain catalog maintenance reference; Core remains the reader destination."
+    },
+    {
+      "repository": "lasso-zitadel",
+      "revision": "589a0bfbbd703e32655662af74ef30e54af35feb",
+      "path": "README.md",
+      "blob": "60fafcf84d2a8b49b32ca5833b8965c6f3b722cf",
+      "disposition": "component-reference-retained",
+      "destination": "docs/complete-first-run-setup.md",
+      "action": "Retain package and OIDC contract; open a focused issue for operator onboarding if needed."
+    },
+    {
+      "repository": "lasso-totaljs-messageservice",
+      "revision": "5cc49792809609fa5683c0908188d4b93fbf43b8",
+      "path": "README.md",
+      "blob": "f5fcf089079153ef53e990c3669be7933ece882a",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain package contract; no migration is claimed."
+    },
+    {
+      "repository": "lasso-totaljs-flow",
+      "revision": "4df6bfa290f7bd6cd93121c322564e27a6af1764",
+      "path": "README.md",
+      "blob": "03d4f0acc932ced4602301864a313073b7bc6eba",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain package contract; no migration is claimed."
+    },
+    {
+      "repository": "lasso-mongo",
+      "revision": "48d0a0f394a5b52c3d85abf84d6ce7772a59eefe",
+      "path": "README.md",
+      "blob": "e15957be9de523ef2cbeef448900ce2c0bac7adf",
+      "disposition": "component-reference-retained",
+      "destination": "docs/components/README.md",
+      "action": "Retain package and data-ownership reference; open a focused issue for a database walkthrough if needed."
+    },
+    {
+      "repository": "lasso-localcert",
+      "revision": "11a594be10ba7fa19e2d1e8eac8b00e97604694d",
+      "path": "README.md",
+      "blob": "45fb62ebf468ea61fbabf7aee7dc16d43b73eaa8",
+      "disposition": "component-reference-retained",
+      "destination": "docs/complete-first-run-setup.md",
+      "action": "Retain provider and certificate-generation contract; no migration is claimed."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "b9a924a70dc4707f56b4a1ac4a116d342b96a0c6",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring",
+      "action": "Open a focused migration decision for the template-first authoring flow; retain component-specific harness and package contracts locally."
+    },
+    {
+      "repository": "lasso-typedb",
+      "revision": "4f40b663bb3e971e5613da804d4f932dfa50340d",
+      "path": "docs/job-boundary.md",
+      "blob": "d601d05404a30a4019fdc4187b33c04e7a8591aa",
+      "disposition": "migration-candidate",
+      "destination": "docs/first-useful-service.md",
+      "action": "Open a focused migration decision for the consumer setup-job workflow; retain schema/job implementation contracts locally."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "fa0d1a0d258945f5d244163595a680b48673a6f9",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring",
+      "action": "Open a focused migration decision for the template-first authoring flow; retain component-specific harness and package contracts locally."
+    }
   ],
-  "unreviewedAvailableSources": {"rule":"The source commit was fetched recursively, but documents outside the selection rule have no reader-content disposition in this audit. A proposed migration must review their content at the recorded revision first.","repositories":["service-lasso-app-docker-node-service","lasso-openobserve","lasso-traefik","lasso-soarca","lasso-websight-cms","lasso-typedb","lasso-jupyterlab"]},
-  "blocked": {"classification":"source-unavailable","action":"Obtain an authorized develop-source workflow, refresh the tree identity, then perform the same content review in a focused follow-up.","repositories":["lasso-secretsbroker","lasso-files","lasso-java","lasso-bpmn-server","lasso-echoservice","lasso-filebeat","lasso-fastapi","lasso-cacao-roaster","lasso-archive","lasso-dagu","lasso-tini","service-lasso-harness","service-lasso-app-packager-nexe","service-lasso-app-packager-sea","service-lasso-app-packager-pkg","service-lasso-app-tauri","service-lasso-app-electron","service-lasso-app-web","service-lasso-app-node"]}
+  "blocked": {
+    "classification": "source-unavailable",
+    "action": "Obtain an authorized develop-source workflow, refresh the tree identity, then perform the same content review in a focused follow-up.",
+    "repositories": [
+      "lasso-secretsbroker",
+      "lasso-files",
+      "lasso-java",
+      "lasso-bpmn-server",
+      "lasso-echoservice",
+      "lasso-filebeat",
+      "lasso-fastapi",
+      "lasso-cacao-roaster",
+      "lasso-archive",
+      "lasso-dagu",
+      "lasso-tini",
+      "service-lasso-harness",
+      "service-lasso-app-packager-nexe",
+      "service-lasso-app-packager-sea",
+      "service-lasso-app-packager-pkg",
+      "service-lasso-app-tauri",
+      "service-lasso-app-electron",
+      "service-lasso-app-web",
+      "service-lasso-app-node"
+    ]
+  },
+  "reviewedRetained": [
+    {
+      "repository": "lasso-jupyterlab",
+      "revision": "2fc34d86bc7433255a883dbac5af80ae8263dfbb",
+      "path": "docs/url-contracts.md",
+      "blob": "e43116ba8b489f06d9ac8a4ddfff6112af04abaa",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "2f0b9a58673ee25ff76c58fef14c60c87d38e21a",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "af4095b883881ae4ed7be8a5b2ea3a7d771db5e4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/service-contract.md",
+      "blob": "c1799fa5aa81783b37ae27b66b47d764a786ccc0",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/service-json-reference.md",
+      "blob": "bac9bc032806a598392ba97d78a633bdc9aa6125",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/service.md",
+      "blob": "2e70936f1fda86f72d6f6d66b91463fd2da82fd1",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-openobserve",
+      "revision": "f90899445db9bbfdc15d983a8f62320e709e0721",
+      "path": "docs/validation.md",
+      "blob": "cd7bf44e07f16732ed0be5bdf3613fd761d38d51",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "126a0687aac24f4f2cbff48579ddb409fbb58256",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/service-contract.md",
+      "blob": "ccb08315d989da28880590e8dd0802d9157be6b6",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/service-json-reference.md",
+      "blob": "b774a856ca41b28e1d34d09e520770170bf73ed1",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/service.md",
+      "blob": "f3109cf88e2795138d836f75d200303f9a81f89d",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-soarca",
+      "revision": "579498fa08e28cc7c5e742b6d9b6a1110ceae7a4",
+      "path": "docs/validation.md",
+      "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "030d256707058579131794da9ec25edc7ef645fd",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/protected-serviceadmin-routes.md",
+      "blob": "c567297196507f60b1a6c736a9bcfd05fb7f022d",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/runtime-extension-points.md",
+      "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/service-contract.md",
+      "blob": "ccb08315d989da28880590e8dd0802d9157be6b6",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/service-json-reference.md",
+      "blob": "ec8c60c0716a524ad87fb9c4f87707442ae66c4f",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/template-alignment.md",
+      "blob": "f3cb2f61498ea98ce40fa3103ef42c0f46076219",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/traefik-zitadel-sso-ingress-contract.md",
+      "blob": "17fff9249f6bac3de128b7f8ff4cce797d05698a",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-traefik",
+      "revision": "76c1aba32565544d069e7f1d3d026ff16264de56",
+      "path": "docs/validation.md",
+      "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-typedb",
+      "revision": "4f40b663bb3e971e5613da804d4f932dfa50340d",
+      "path": "docs/release-suitability.md",
+      "blob": "a48560228657e3ce95e0960d8dd69a6728cd8358",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-websight-cms",
+      "revision": "7c814bf4cbf603e796c65ca80319a6dde5a4d1dd",
+      "path": "docs/live-stack-validation.md",
+      "blob": "9dd2f24c7cbc62b13695df4976835383e680009e",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-websight-cms",
+      "revision": "7c814bf4cbf603e796c65ca80319a6dde5a4d1dd",
+      "path": "docs/release-suitability.md",
+      "blob": "ce47a1c56b94166bf9cc2ea5fb7924d2fdbd951d",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "lasso-websight-cms",
+      "revision": "7c814bf4cbf603e796c65ca80319a6dde5a4d1dd",
+      "path": "docs/url-contracts.md",
+      "blob": "9392bd9724d82dd7f0df7fcfc3fe51cfde35c180",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "030d256707058579131794da9ec25edc7ef645fd",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/runtime-extension-points.md",
+      "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/service-contract.md",
+      "blob": "ccb08315d989da28880590e8dd0802d9157be6b6",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/service-json-reference.md",
+      "blob": "0a8ef321823743880bb73ef00f300cdc8dbb343f",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    },
+    {
+      "repository": "service-lasso-app-docker-node-service",
+      "revision": "062260eb01a09f0b6cbace2fce3fe5b460ece53a",
+      "path": "docs/validation.md",
+      "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
+      "disposition": "component-governing-or-reference-retained",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    }
+  ]
 }
