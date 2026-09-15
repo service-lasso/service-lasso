@@ -55,6 +55,7 @@ import {
 } from "../scripts/demo-verify-canonical.mjs";
 import {
   buildWorktreeProofCommands,
+  prepareWorktreeProof,
   patchWorktreeDemoManifest,
   resolveWorktreeProofOptions,
 } from "../scripts/demo-worktree-proof.mjs";
@@ -447,6 +448,33 @@ test("worktree proof patches copied Service Admin manifests to allocated URLs", 
     { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} } },
   );
   assert.equal(captureSamplePatched.enabled, false);
+
+  const packagedAdminPatched = patchWorktreeDemoManifest(
+    "@serviceadmin",
+    { id: "@serviceadmin", enabled: true, env: {} },
+    { runtimeUrl: "http://127.0.0.1:18123", ports: { manifest: {} } },
+  );
+  assert.equal(packagedAdminPatched.enabled, true);
+});
+
+test("worktree proof rejects an invalid source Admin root before copying services", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-proof-invalid-admin-"));
+  try {
+    await assert.rejects(
+      () => prepareWorktreeProof({
+        ...resolveWorktreeProofOptions(["--id=invalid-admin"], {}),
+        proofRoot: path.join(tempDir, "proof"),
+        servicesRoot: path.join(tempDir, "proof", "services"),
+        workspaceRoot: path.join(tempDir, "proof", "workspace"),
+        demoLogRoot: path.join(tempDir, "logs"),
+        summaryPath: path.join(tempDir, "logs", "summary.json"),
+        sourceAdminRoot: path.join(tempDir, "missing-admin"),
+      }),
+      /Source Admin root must contain package\.json/,
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("canonical service admin seed uses the canonical runtime URL for its API proxy", async () => {

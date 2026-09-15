@@ -241,6 +241,9 @@ export function buildWorktreeProofCommands(options, ports) {
 
 export async function prepareWorktreeProof(options = resolveWorktreeProofOptions()) {
   await mkdir(options.demoLogRoot, { recursive: true });
+  if (options.sourceAdminRoot && !(await pathExists(path.join(options.sourceAdminRoot, "package.json")))) {
+    throw new Error(`Source Admin root must contain package.json: ${options.sourceAdminRoot}`);
+  }
   const ports = await allocateWorktreeProofPorts(options);
   const runtimeUrl = `http://${options.urlHost}:${ports.runtime}`;
   const serviceAdminUrl = `http://${options.urlHost}:${ports.serviceAdmin}/`;
@@ -250,7 +253,7 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
     servicesRoot: options.servicesRoot,
     runtimeUrl,
     ports,
-    sourceAdmin: options.sourceAdminRoot !== null,
+    sourceAdmin: Boolean(options.sourceAdminRoot),
   });
 
   const [branch, commit] = await Promise.all([
@@ -262,7 +265,12 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
     preparedAt: new Date().toISOString(),
     mode: "worktree-auto-port",
     owner: { repoRoot, worktreeId: options.worktreeId, branch: branch || null, commit: commit || null, processId: process.pid },
-    sourceAdmin: options.sourceAdminRoot ? { root: options.sourceAdminRoot, mode: "external_source_ui" } : null,
+    sourceAdmin: options.sourceAdminRoot ? {
+      root: options.sourceAdminRoot,
+      mode: "external_source_ui",
+      requiredEnv: { SERVICE_LASSO_RUNTIME_PROXY_TARGET: runtimeUrl },
+      command: `pnpm --dir ${quote(options.sourceAdminRoot)} exec vite --host ${options.bindHost} --port ${ports.serviceAdmin} --strictPort`,
+    } : null,
     urls: { runtime: runtimeUrl, serviceAdmin: serviceAdminUrl },
     ports,
     paths: {
