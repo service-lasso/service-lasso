@@ -5,10 +5,14 @@ on:
     branches: [develop]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   postgres-newcomer-journey:
     name: postgres-newcomer-journey (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -26,6 +30,8 @@ jobs:
       - run: node scripts/verify-postgres-newcomer-journey.mjs
         env:
           POSTGRES_JOURNEY_EVIDENCE: artifacts/postgres-newcomer-${{ matrix.platform }}.json
+          POSTGRES_JOURNEY_SOURCE_SHA: ${{ github.sha }}
+          POSTGRES_JOURNEY_PLATFORM: ${{ matrix.platform }}
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
