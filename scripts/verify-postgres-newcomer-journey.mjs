@@ -189,6 +189,22 @@ if (!failure) {
 } else {
   // Logs remain private/local, not uploaded as public qualification evidence.
   await writeFile(path.join(runRoot, 'app.log'), appLog);
+  let diagnosticText = appLog;
+  for (const name of ['stderr.log', 'stdout.log']) {
+    diagnosticText += await readFile(path.join(serviceRoot, 'logs', 'runtime', name), 'utf8').catch(() => '');
+  }
+  // Retain only fixed diagnostic categories in the uploaded metadata. These
+  // distinguish native startup failures without publishing raw runtime logs.
+  evidence.diagnostics = {
+    missingFile: /ENOENT|No such file/i.test(diagnosticText),
+    permissionDenied: /EACCES|Permission denied/i.test(diagnosticText),
+    architectureMismatch: /bad CPU type|Exec format error|ENOEXEC/i.test(diagnosticText),
+    missingDynamicLibrary: /Library not loaded|cannot open shared object file|dyld/i.test(diagnosticText),
+    initializationFailed: /initialization failed|initdb: error/i.test(diagnosticText),
+    readinessFailed: /readiness|did not become ready/i.test(diagnosticText),
+    processSpawnFailed: /process spawn failed/i.test(diagnosticText),
+  };
+  console.error(`Startup diagnostic categories: ${JSON.stringify(evidence.diagnostics)}`);
   evidence.failure = 'journey_or_cleanup_failed';
   console.error(`Journey failed; retained owned state at ${runRoot}: ${failure.message}`);
   process.exitCode = 1;
