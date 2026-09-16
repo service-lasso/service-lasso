@@ -241,6 +241,19 @@ async function unprotectWindows(ciphertext: string): Promise<Buffer> {
   return Buffer.from(await runWindowsDpapiHelper("unprotect", ciphertext), "base64");
 }
 
+// Startup transaction sidecars use an authenticated envelope of their own, but
+// must use the same pinned, integrity-checked DPAPI helper as other private
+// runtime state. Keeping this narrow avoids a second PowerShell implementation.
+export async function protectWindowsPrivateBytes(plaintext: Buffer): Promise<string> {
+  if (process.platform !== "win32") throw new Error("Windows DPAPI protection is unavailable on this platform.");
+  return await protectWindows(plaintext);
+}
+
+export async function unprotectWindowsPrivateBytes(ciphertext: string): Promise<Buffer> {
+  if (process.platform !== "win32") throw new Error("Windows DPAPI protection is unavailable on this platform.");
+  return await unprotectWindows(ciphertext);
+}
+
 async function windowsSid(): Promise<string> {
   currentWindowsSid ??= execFileAsync(windowsSystemExecutable("System32", "whoami.exe"), ["/user", "/fo", "csv", "/nh"], {
     windowsHide: true,
