@@ -7,7 +7,7 @@ slug: /integration
 
 An app owns its `services/` inventory and workspace location; Service Lasso supplies the runtime and shared contracts. Choose a reference app before copying patterns so the host and packaging model match the application you are building.
 
-Start with the [Beginner Todo app](../getting-started/beginner-todo-app.md), then [make it durable with PostgreSQL](../getting-started/make-todo-app-durable.md) before choosing a larger template.
+Start with the [Beginner — Todo app](../getting-started/beginner-todo-app.md), then [Intermediate — make it durable with PostgreSQL](../getting-started/intermediate-make-todo-app-durable.md) before choosing a larger template.
 
 ## Integration path
 

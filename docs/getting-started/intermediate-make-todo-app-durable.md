@@ -1,10 +1,10 @@
 ---
-title: Make the Todo app durable
+title: Intermediate — Make the Todo app durable
 ---
 
-# Make the Todo app durable
+# Intermediate — Make the Todo app durable
 
-Attach a managed PostgreSQL service so application data survives stop and start. Complete the [Beginner Todo app](beginner-todo-app.md) first (sign in, create a todo, refresh, persist). Use the [Admin and Echo demo](../quick-start.md) only if you want a visual Service Admin introduction.
+Attach a managed PostgreSQL service so application data survives stop and start. Complete the [Beginner — Todo app](beginner-todo-app.md) first (sign in, create a todo, refresh, persist). Use the [Admin and Echo demo](../quick-start.md) only if you want a visual Service Admin introduction.
 
 This page replaces the old “first useful service” PostgreSQL article. PostgreSQL is the durability step, not the first newcomer step.
 
