@@ -3,6 +3,7 @@ title: Beginner — Todo app
 ---
 
 # Beginner — Todo app
+# Beginner — Todo app
 
 Build the smallest useful Service Lasso result: a signed-in Todo list that survives a browser refresh.
 
@@ -107,5 +108,7 @@ Stop the Todo host with its documented stop command. Stop the demo with `Ctrl+C`
 ## Next
 
 Make the same Todo durable with a managed database: [Intermediate — Make the Todo app durable](intermediate-make-todo-app-durable.md).
+
+After durability: [Advanced — Add a Go Todo API service](advanced-add-go-todo-api-service.md).
 
 Optional visual tour of Admin + Echo: [Quick start](../quick-start.md).
