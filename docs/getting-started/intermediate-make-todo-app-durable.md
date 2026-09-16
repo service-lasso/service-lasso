@@ -3,6 +3,7 @@ title: Intermediate — Make the Todo app durable
 ---
 
 # Intermediate — Make the Todo app durable
+# Intermediate — Make the Todo app durable
 
 Attach a managed PostgreSQL service so application data survives stop and start. Complete the [Beginner — Todo app](beginner-todo-app.md) first (sign in, create a todo, refresh, persist). Use the [Admin and Echo demo](../quick-start.md) only if you want a visual Service Admin introduction.
 
@@ -75,6 +76,8 @@ Open `workspace/services/postgres/logs/runtime/service.log` and look at the last
 An app response of **503 / database unavailable** means the web process is alive but its dependency is unavailable. Check the database's health and logs, restore it, restart the example, and rerun the write/read check. See [diagnosis and recovery](../operate-your-service.md).
 
 ## Next
+
+Insert a Go API between the Todo UI and Postgres: [Advanced — Add a Go Todo API service](advanced-add-go-todo-api-service.md).
 
 [Package this app for another machine](../package-your-app.md), [give the task to an agent](../agent-prompts.md), or [browse more services](../service-catalog.md).
 
