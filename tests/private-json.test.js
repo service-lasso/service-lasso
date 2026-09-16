@@ -115,6 +115,15 @@ test("Windows private JSON invokes the packaged DPAPI helper without PowerShell"
   );
 });
 
+test("Windows startup materialization reuses the packaged DPAPI helper", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const source = await readFile("src/runtime/startup/materialization.ts", "utf8");
+  assert.match(source, /protectWindowsPrivateBytes/u);
+  assert.match(source, /unprotectWindowsPrivateBytes/u);
+  assert.doesNotMatch(source, /Add-Type|ProtectedData|powershell\.exe/u);
+});
+
 test("Windows private JSON rejects missing or altered DPAPI helper assets before persistence", {
   skip: process.platform !== "win32",
 }, async () => {
