@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chmod, lstat, mkdir, open, readdir, readlink, rename, rm, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -9,6 +9,7 @@ import type { ServiceLifecycleState } from "../lifecycle/types.js";
 import type { SetupTransactionHooks } from "../setup/steps.js";
 import { writeServiceState } from "../state/writeState.js";
 import { readStoredState } from "../state/readState.js";
+import { protectWindowsPrivateBytes, unprotectWindowsPrivateBytes } from "../security/private-json.js";
 import {
   advanceStartupTransaction,
   type StartupTransactionJournal,
@@ -252,80 +253,6 @@ async function syncDirectoryOnPosix(directoryPath: string): Promise<void> {
   }
 }
 
-async function runWindowsPowerShell(script: string, input: string): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let outputBytes = 0;
-    let errorBytes = 0;
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill();
-      reject(new Error("Windows private-state protection timed out."));
-    }, 15_000);
-    timeout.unref?.();
-    child.stdout.on("data", (chunk: Buffer) => {
-      outputBytes += chunk.length;
-      if (outputBytes <= MAX_FILE_BYTES) stdout.push(chunk);
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      errorBytes += chunk.length;
-      if (errorBytes <= 8192) stderr.push(chunk);
-    });
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.stdin.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.once("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      if (code !== 0 || outputBytes > MAX_FILE_BYTES) {
-        reject(new Error(`Windows private-state protection failed (${code ?? "unknown"}): ${Buffer.concat(stderr).toString("utf8").trim().slice(0, 500)}`));
-        return;
-      }
-      resolve(Buffer.concat(stdout).toString("utf8").trim());
-    });
-    child.stdin.end(input);
-  });
-}
-
-async function protectWindowsKey(key: Buffer): Promise<string> {
-  const script = [
-    "Add-Type -AssemblyName System.Security",
-    "$raw = [Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())",
-    "$protected = [Security.Cryptography.ProtectedData]::Protect($raw, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
-    "[Console]::Out.Write([Convert]::ToBase64String($protected))",
-  ].join("; ");
-  return await runWindowsPowerShell(script, key.toString("base64"));
-}
-
-async function unprotectWindowsKey(wrappedKey: string): Promise<Buffer> {
-  const script = [
-    "Add-Type -AssemblyName System.Security",
-    "$raw = [Convert]::FromBase64String([Console]::In.ReadToEnd().Trim())",
-    "$plain = [Security.Cryptography.ProtectedData]::Unprotect($raw, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)",
-    "[Console]::Out.Write([Convert]::ToBase64String($plain))",
-  ].join("; ");
-  const key = Buffer.from(await runWindowsPowerShell(script, wrappedKey), "base64");
-  if (key.length !== 32) throw new Error("Windows private-state key length is invalid.");
-  return key;
-}
-
 async function enforceWindowsPrivateAcl(filePath: string): Promise<void> {
   if (process.platform !== "win32") return;
   windowsCurrentUserSid ??= execFileAsync("whoami.exe", ["/user", "/fo", "csv", "/nh"], {
@@ -350,7 +277,7 @@ async function serializeSidecar(sidecar: MaterializationSidecar): Promise<string
   if (!protectedKey) {
     const key = randomBytes(32);
     try {
-      protectedKey = { key, wrappedKey: await protectWindowsKey(key) };
+      protectedKey = { key, wrappedKey: await protectWindowsPrivateBytes(key) };
       windowsSidecarKeys.set(sidecar.transactionId, protectedKey);
     } catch (error) {
       key.fill(0);
@@ -392,7 +319,8 @@ async function deserializeSidecar(raw: Buffer, journal: StartupTransactionJourna
   }
   let protectedKey = windowsSidecarKeys.get(journal.transactionId);
   if (!protectedKey || protectedKey.wrappedKey !== envelope.wrappedKey) {
-    const key = await unprotectWindowsKey(envelope.wrappedKey);
+    const key = await unprotectWindowsPrivateBytes(envelope.wrappedKey);
+    if (key.length !== 32) throw new Error("Windows private-state key length is invalid.");
     protectedKey?.key.fill(0);
     protectedKey = { key, wrappedKey: envelope.wrappedKey };
     windowsSidecarKeys.set(journal.transactionId, protectedKey);
