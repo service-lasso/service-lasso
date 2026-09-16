@@ -83,7 +83,7 @@
       "path": "README.md",
       "blob": "3e7b8fa656b562c17e1d15929b4d65852bdf93bb",
       "disposition": "component-reference-retained",
-      "destination": "docs/first-useful-service.md",
+      "destination": "docs/getting-started/make-todo-app-durable.md",
       "action": "Keep package setup and validation; assess overlapping database UI walkthroughs in a focused issue."
     },
     {
@@ -92,7 +92,7 @@
       "path": "docs/service.md",
       "blob": "f057832c004fb56247c82c3fc0c2e4abc63a4908",
       "disposition": "component-reference-retained",
-      "destination": "docs/first-useful-service.md",
+      "destination": "docs/getting-started/make-todo-app-durable.md",
       "action": "Retain launcher and consumer-responsibility reference; no Core copy is justified by this audit."
     },
     {
@@ -110,7 +110,7 @@
       "path": "README.md",
       "blob": "11569bfabb20a048dbbd275a273b559addc5cb15",
       "disposition": "migration-candidate",
-      "destination": "docs/first-useful-service.md",
+      "destination": "docs/getting-started/make-todo-app-durable.md",
       "action": "Create a focused Core setup-guide migration under #1282 for init-schema, load-sample, and --force reruns; retain schema and job contracts locally."
     },
     {
@@ -173,7 +173,7 @@
       "path": "README.md",
       "blob": "1b7425729cd13e8aa0cefa61bf6bc49691fcd279",
       "disposition": "central-reader-link",
-      "destination": "docs/first-useful-service.md",
+      "destination": "docs/getting-started/make-todo-app-durable.md",
       "action": "Keep its verified Core reader links and component maintainer reference."
     },
     {
@@ -254,7 +254,7 @@
       "path": "docs/job-boundary.md",
       "blob": "d601d05404a30a4019fdc4187b33c04e7a8591aa",
       "disposition": "migration-candidate",
-      "destination": "docs/first-useful-service.md",
+      "destination": "docs/getting-started/make-todo-app-durable.md",
       "action": "Open a focused migration decision for the consumer setup-job workflow; retain schema/job implementation contracts locally."
     },
     {
