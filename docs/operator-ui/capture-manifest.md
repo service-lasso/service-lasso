@@ -53,6 +53,32 @@ dynamic and canonical values. No fresh runtime was started after that repair,
 so it does not establish a canonical-verifier pass or an all-route capture
 result. No credentials, secret values, or raw logs were captured.
 
+## 16 September 2026 post-PR #1290 capture attempt
+
+Core PR #1290 merged as `5172e802dd85ad705004c460ed2190fff8fe7dae`; this
+fresh owned attempt executed the exact validated PR source
+`31ebe19ac8aff070c37fe2abc4e78b6e85c8c519` with Service Admin source
+`e3cb1ca192cd3719b34eb8cded895197746a4bac`. Proof ID
+`1281-operator-captures-post1290-20260916` allocated Runtime
+`http://127.0.0.1:18100` and source Service Admin
+`http://127.0.0.1:18101/`. The generated gate reported `healthy`, and the
+generated canonical verifier passed, including runtime, source-Admin,
+operator-MCP, and service-state checks.
+
+At a 1440×1024 viewport, the real browser stayed on its loading skeleton for
+more than 30 seconds at `/`, `/services`, and `/help-center`. Each same-origin
+API was independently reachable through source Admin (`/api/dashboard` and
+`/api/services` both returned HTTP 200), but no route rendered readable
+operator content and no browser error was emitted. The initial files were
+rejected as invalid skeleton screenshots and removed; this refresh publishes
+no images. The result is therefore **Blocked** for all three overview
+captures, owned by Core #1281. The next action is a focused source-Admin
+browser-load diagnosis that explains why the UI remains pending despite its
+healthy same-origin API proxy, followed by a new isolated proof and inspected
+captures. The owned runtime and source Vite process were stopped; the proof
+summary, cleanup receipt, and logs remain under
+`.demo-logs/worktree-proof/1281-operator-captures-post1290-20260916/`.
+
 ## Refresh captures
 
 1. Create issue worktrees from `develop` in Core and Service Admin.
