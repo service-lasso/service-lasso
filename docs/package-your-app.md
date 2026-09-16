@@ -4,7 +4,7 @@ title: Package the example for another machine
 
 # Package the example for another machine
 
-Start with the [working PostgreSQL app](first-useful-service.md). This exercise makes a **source package**: the recipient needs Node.js 22+, npm, and internet access to install the pinned runtime and service releases.
+Start with the [durable PostgreSQL example](getting-started/make-todo-app-durable.md) after the [Beginner Todo app](getting-started/beginner-todo-app.md). This exercise makes a **source package**: the recipient needs Node.js 22+, npm, and internet access to install the pinned runtime and service releases.
 
 From `examples/postgres-app`, stop the example and create the package:
 
