@@ -11,8 +11,8 @@ const sidebars = {
       { type: "doc", id: "quick-start", label: "Quick start" },
       { type: "category", label: "Getting started", collapsed: false, items: [
         { type: "doc", id: "getting-started/README", label: "Getting started" },
-        { type: "doc", id: "getting-started/beginner-todo-app", label: "Beginner Todo app" },
-        { type: "doc", id: "getting-started/make-todo-app-durable", label: "Make the Todo app durable" },
+        { type: "doc", id: "getting-started/beginner-todo-app", label: "Beginner — Todo app" },
+        { type: "doc", id: "getting-started/intermediate-make-todo-app-durable", label: "Intermediate — Make the Todo durable" },
       ] },
       "operate-your-service", "package-your-app", "agent-prompts",
       { type: "doc", id: "complete-first-run-setup", label: "Complete first-run setup" },
