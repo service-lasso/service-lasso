@@ -14,7 +14,6 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `getting-started/README.md` | Start here | guide | Listed: newcomer path index |
 | `getting-started/beginner-todo-app.md` | Start here | guide | Listed: primary Todo newcomer journey |
 | `getting-started/make-todo-app-durable.md` | Start here | guide | Listed: PostgreSQL durability after Todo |
-| `first-useful-service.md` | Start here | redirect | Listed temporarily: points at getting-started durable guide |
 | `service-catalog.md` | Start here | reference | Listed: inventory discovery |
 | `reference-apps.md` | Use in your app | guide | Listed: reference-app choice; cross-linked from Start here |
 | `release-asset-policy.md` | Contribute and maintain | reference | Listed: release verification boundary |
