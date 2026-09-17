@@ -21,8 +21,8 @@ jobs:
           set -euo pipefail
 
           if [[ "$BASE_BRANCH" == "main" ]]; then
-            if [[ "$HEAD_BRANCH" != "develop" && "$HEAD_BRANCH" != hotfix/* ]]; then
-              echo "Normal development must never target main. Only develop promotion or an authorised hotfix/* branch is allowed." >&2
+            if [[ "$HEAD_BRANCH" != "develop" && "$HEAD_BRANCH" != hotfix/* && ! "$HEAD_BRANCH" =~ ^release/reconcile-develop-[0-9]+$ ]]; then
+              echo "Normal development must never target main. Only develop promotion, an authorised hotfix/* branch, or a release/reconcile-develop-<issue> branch is allowed." >&2
               exit 1
             fi
             exit 0
