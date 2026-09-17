@@ -60,6 +60,7 @@ import { readServiceHealthHistory, recordServiceHealthTransitionResult } from ".
 import { getServiceStatePaths } from "../runtime/state/paths.js";
 import { buildPersistedServiceMeta, writeServiceMeta } from "../runtime/state/meta.js";
 import { writeServiceState } from "../runtime/state/writeState.js";
+import { readRuntimeStartupSettings, writeRuntimeStartupSettings } from "../runtime/startup/settings.js";
 import {
   buildServiceLogInfo,
   buildServiceLogs,
@@ -432,6 +433,8 @@ export interface ApiServerOptions {
   servicesRoot?: string;
   workspaceRoot?: string;
   autostart?: boolean;
+  /** Suppress automatic startup for this launch without changing the saved preference. */
+  noAutostart?: boolean;
   baselineBootstrap?: {
     serviceIds?: readonly string[];
   };
@@ -1778,6 +1781,18 @@ function parseLifecycleActionBody(input: unknown): { confirm: boolean } {
     throw new ApiError("invalid_body", 400, '"confirm" must be a boolean when present.');
   }
   return { confirm: candidate.confirm === true };
+}
+
+function parseRuntimeStartupSettingsBody(input: unknown): { autostart: boolean } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Runtime startup settings body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  const unknownFields = Object.keys(candidate).filter((key) => key !== "autostart");
+  if (unknownFields.length > 0 || typeof candidate.autostart !== "boolean") {
+    throw new ApiError("invalid_body", 400, "Runtime startup settings accepts only an autostart boolean.");
+  }
+  return { autostart: candidate.autostart };
 }
 
 function parseServiceConfigSaveBody(input: unknown): { content: string; actor?: string; reason?: string | null } {
@@ -6435,6 +6450,58 @@ async function routeRequestWithoutMutationCoordination(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/runtime/settings/startup") {
+    writeJson(response, 200, { startup: await readRuntimeStartupSettings(config.workspaceRoot) });
+    return;
+  }
+
+  if (request.method === "PUT" && url.pathname === "/api/runtime/settings/startup") {
+    const input = parseRuntimeStartupSettingsBody(await readJsonBody(request));
+    const actor = permissionActorFromRuntimeAuth(auth);
+    try {
+      await enforcePermission({
+        workspaceRoot: config.workspaceRoot,
+        actor,
+        permission: "service:configure",
+        sensitive: false,
+        confirmed: false,
+        method: "PUT",
+        routeTemplate: "/api/runtime/settings/startup",
+        subject: "runtime-startup",
+      });
+      const startup = await writeRuntimeStartupSettings(config.workspaceRoot, input);
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "runtime.startup-settings.updated",
+        actor: actor.id,
+        subject: "runtime-startup",
+        method: "PUT",
+        routeTemplate: "/api/runtime/settings/startup",
+        outcome: "success",
+        statusCode: 200,
+        summary: "Updated the runtime automatic startup preference.",
+      });
+      writeJson(response, 200, { startup });
+    } catch (error) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "runtime.startup-settings.updated",
+        actor: actor.id,
+        subject: "runtime-startup",
+        method: "PUT",
+        routeTemplate: "/api/runtime/settings/startup",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        summary: "Failed to update the runtime automatic startup preference.",
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/runtime/auth/local") {
     const parsed = parseLocalAuthValidateInput(await readJsonBody(request));
     if (typeof parsed === "string") {
@@ -7626,6 +7693,9 @@ async function startApiServerGeneration(
   // prior listener was stopped, even when both generations share one process.
   clearLocalAuthMaterialCache();
   const bindHost = options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1";
+  // The lower-level API server remains opt-in for embedded/test callers.
+  // startRuntimeApp is the product entrypoint and applies the persisted default.
+  const runtimeAutostart = options.noAutostart ? false : options.autostart === true;
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const bootModel = await loadRuntimeModel(config.servicesRoot);
   const runtimeInstanceId = generation.instanceId;
@@ -7731,7 +7801,7 @@ async function startApiServerGeneration(
       candidateServer = createApiServer({
         ...config,
         host: bindHost,
-        autostart: options.autostart,
+        autostart: runtimeAutostart,
         monitor: options.monitor,
         updateScheduler: options.updateScheduler,
         serviceCatalogUrl: options.serviceCatalogUrl,
@@ -7893,9 +7963,9 @@ async function startApiServerGeneration(
           },
         },
       });
-    } else if (options.autostart) {
+    } else if (runtimeAutostart) {
       await executeRuntimeOrchestrationAction(
-        "autostart",
+        "startAll",
         bootModel,
         config.workspaceRoot,
         allocationPlan,
@@ -7935,7 +8005,7 @@ async function startApiServerGeneration(
     // A listener without a startup orchestration pass must remain available to
     // start the Broker. Fail-closed onboarding belongs after that pass (or in
     // the setup bootstrap route), once its protected transport is reachable.
-    if (!setupAfterStartup.setupMode && (options.baselineBootstrap || options.autostart)) {
+    if (!setupAfterStartup.setupMode && (options.baselineBootstrap || runtimeAutostart)) {
       await ensureLocalOperatorAuth({
         workspaceRoot: config.workspaceRoot,
         servicesRoot: config.servicesRoot,

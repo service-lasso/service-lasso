@@ -6,6 +6,7 @@ async function main(): Promise<void> {
   const app = await startRuntimeApp({
     port: Number(process.env.SERVICE_LASSO_PORT ?? 18080),
     version: resolveRuntimeVersion(),
+    noAutostart: process.argv.includes("--noautostart"),
   });
 
   const report = stdioMcp ? console.error : console.log;

@@ -1708,7 +1708,7 @@ test("POST /api/runtime/actions/autostart starts only autostart-eligible service
   }
 });
 
-test("runtime boot autostart starts eligible rehydrated services", async () => {
+test("runtime boot starts all enabled rehydrated services by default and --noautostart suppresses one launch", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-boot-autostart-");
   await writeExecutableFixtureService(servicesRoot, "auto-service", {
@@ -1716,7 +1716,7 @@ test("runtime boot autostart starts eligible rehydrated services", async () => {
   });
   await writeExecutableFixtureService(servicesRoot, "manual-service");
 
-  const bootstrapServer = await startApiServer({ port: 0, servicesRoot });
+  const bootstrapServer = await startApiServer({ port: 0, servicesRoot, noAutostart: true });
 
   try {
     for (const serviceId of ["auto-service", "manual-service"]) {
@@ -1730,7 +1730,8 @@ test("runtime boot autostart starts eligible rehydrated services", async () => {
     resetLifecycleState();
   }
 
-  const autostartServer = await startApiServer({ port: 0, servicesRoot, autostart: true });
+  const autostartApp = await startRuntimeApp({ port: 0, servicesRoot });
+  const autostartServer = autostartApp.apiServer;
 
   try {
     const autoService = await getJson(`${autostartServer.url}/api/services/auto-service`);
@@ -1739,10 +1740,41 @@ test("runtime boot autostart starts eligible rehydrated services", async () => {
     assert.equal(autoService.status, 200);
     assert.equal(autoService.body.service.lifecycle.running, true);
     assert.equal(manualService.status, 200);
-    assert.equal(manualService.body.service.lifecycle.running, false);
+    assert.equal(manualService.body.service.lifecycle.running, true);
   } finally {
     await autostartServer.stop();
     resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime startup settings default on, persist an operator opt-out, and do not mutate from --noautostart", async () => {
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-startup-settings-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot, noAutostart: true });
+
+  try {
+    const initial = await getJson(`${apiServer.url}/api/runtime/settings/startup`);
+    assert.equal(initial.status, 200);
+    assert.deepEqual(initial.body.startup, {
+      schema: "service-lasso.runtime-startup-settings.v1",
+      autostart: true,
+    });
+
+    const updated = await putJson(`${apiServer.url}/api/runtime/settings/startup`, { autostart: false });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.startup.autostart, false);
+  } finally {
+    await apiServer.stop();
+  }
+
+  const restarted = await startApiServer({ port: 0, servicesRoot, workspaceRoot, noAutostart: true });
+  try {
+    const persisted = await getJson(`${restarted.url}/api/runtime/settings/startup`);
+    assert.equal(persisted.status, 200);
+    assert.equal(persisted.body.startup.autostart, false);
+  } finally {
+    await restarted.stop();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

@@ -21,6 +21,8 @@ npm ci
 npm run demo
 ```
 
+The normal runtime starts enabled services automatically. Use `npm start -- --noautostart` when you only want the runtime API for this launch; the Service Admin **Settings → Startup** preference controls the default for future launches.
+
 Open **[Service Admin](http://127.0.0.1:17700/)**. If first-run setup appears, complete it and save the recovery information it provides. [First-run help →](docs/quick-start.md)
 
 Once setup is complete and services are running, open the [Echo demo](http://127.0.0.1:4010/). Find `echo-service` in Service Admin to inspect its status and logs, then try stopping and starting it.
