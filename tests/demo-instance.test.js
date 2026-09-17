@@ -501,6 +501,38 @@ test("worktree proof patches copied Service Admin manifests to allocated URLs", 
   assert.equal(patched.env.SERVICE_LASSO_API_BASE_URL, "http://127.0.0.1:18123");
   assert.equal(patched.env.SERVICE_LASSO_RUNTIME_API_BASE_URL, "http://127.0.0.1:18123");
 
+  const allocatedServicePorts = patchWorktreeDemoManifest(
+    "echo-service",
+    { id: "echo-service", ports: { service: 4010, health: 4011, tcp_health: 4012 } },
+    {
+      runtimeUrl: "http://127.0.0.1:18123",
+      ports: { manifest: { "echo-service:ports:tcp_health": 18125 } },
+    },
+  );
+  assert.equal(allocatedServicePorts.ports.tcp_health, 18125);
+
+  const allocatedOpenObserveEndpoints = patchWorktreeDemoManifest(
+    "openobserve",
+    {
+      id: "openobserve",
+      endpoints: [
+        { id: "service", port: { default: 5080 } },
+        { id: "grpc", port: { default: 5081 } },
+      ],
+    },
+    {
+      runtimeUrl: "http://127.0.0.1:18123",
+      ports: {
+        manifest: {
+          "openobserve:endpoint:service": 18126,
+          "openobserve:endpoint:grpc": 18127,
+        },
+      },
+    },
+  );
+  assert.equal(allocatedOpenObserveEndpoints.endpoints[0].port.default, 18126);
+  assert.equal(allocatedOpenObserveEndpoints.endpoints[1].port.default, 18127);
+
   const sourceAdminPatched = patchWorktreeDemoManifest(
     "@serviceadmin",
     { id: "@serviceadmin", enabled: true, env: {} },
