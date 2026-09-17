@@ -15,6 +15,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | --- | --- | --- | --- | --- |
 | `ISS-1277` | `in_progress` | Reconcile released hotfix for promotion #1276 | `SPEC-002`, `AC-5` | Explicitly authorized release reconciliation of main c3a454a and develop d0fa48b. Runtime hotfixes already agree; preserve the newer README and task register. Publication follows exact promotion qualification. |
 | `ISS-1272` | `done` | Docs System / Light / Dark appearance | `SPEC-002`, `AC-4AJ.5` | Persisted selection, live system detection, mobile and keyboard verification. |
+| `ISS-1301` | `in_progress` | Make Auto the explicit default docs theme choice | `SPEC-002`, `AC-4AJ.5` | Supersedes the System label from #1272: Auto is the default, follows system appearance, and clears explicit Light/Dark overrides. |
 | `ISS-1282` | `in_progress` | Reconcile remaining reader-guide migrations | `SPEC-002`, `AC-4AJ.3` | Child of #1265; merged audit #1286 records the refreshed authorized develop-source classification. Core carries the reviewed template-origin, TypeDB setup, and OpenObserve/SOARCA reader workflows with exact provenance. Component redirects remain tracked by #1287; 19 unavailable develop-source gates remain open. |
 | `ISS-1287` | `in_progress` | Redirect migrated reader workflows from component repositories | `SPEC-002`, `AC-4AJ.3` | Child/follow-up of #1282. Redirect-only component PRs must follow Core migration; until those PRs merge, no component migration is claimed complete. |
 

@@ -11,13 +11,13 @@ export default function ColorModeToggle({ className, value, onChange }) {
       <select
         aria-label="Theme"
         className={styles.select}
-        value={isBrowser ? (value ?? "system") : "system"}
+        value={isBrowser ? (value ?? "auto") : "auto"}
         disabled={!isBrowser}
         onChange={(event) =>
-          onChange(event.target.value === "system" ? null : event.target.value)
+          onChange(event.target.value === "auto" ? null : event.target.value)
         }
       >
-        <option value="system">System</option>
+        <option value="auto">Auto</option>
         <option value="light">Light</option>
         <option value="dark">Dark</option>
       </select>
