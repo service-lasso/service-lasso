@@ -301,6 +301,10 @@ async function hideServicesLinksColumn(page) {
     throw new TourCaptureError("services_links_column_still_visible");
   }
   await page.keyboard.press("Escape");
+  if (await linksToggle.isVisible().catch(() => false)) await view.click();
+  if (await linksToggle.isVisible().catch(() => false)) {
+    throw new TourCaptureError("services_column_menu_still_visible");
+  }
   if (await page.locator("table a[target='_blank']").count()) {
     throw new TourCaptureError("services_links_column_still_visible");
   }
