@@ -25,7 +25,7 @@ export const TOUR_ROUTES = Object.freeze([
     id: "services",
     pathname: "/services",
     heading: "Services",
-    requiredText: "Search services and open details from the matching row...",
+    requiredPlaceholder: "Search services and open details from the matching row...",
     prepare: "hide-links-column",
   },
   {
@@ -368,10 +368,18 @@ async function waitForCaptureRoute(page, baseUrl, route) {
     state: "visible",
     timeout: 30_000,
   });
-  await page.getByText(route.requiredText, { exact: true }).waitFor({
-    state: "visible",
-    timeout: 30_000,
-  });
+  if (route.requiredText) {
+    await page.getByText(route.requiredText, { exact: true }).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+  }
+  if (route.requiredPlaceholder) {
+    await page.getByPlaceholder(route.requiredPlaceholder, { exact: true }).waitFor({
+      state: "visible",
+      timeout: 30_000,
+    });
+  }
   if (route.prepare === "hide-links-column") await hideServicesLinksColumn(page);
 }
 
