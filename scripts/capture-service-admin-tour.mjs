@@ -102,6 +102,16 @@ const forbiddenScreens = Object.freeze([
   { code: "runtime_unavailable", pattern: /unexpected application error/i },
 ]);
 
+const forbiddenScreenLabels = Object.freeze([
+  { code: "first_run_setup", text: "Save your local-operator token" },
+  { code: "first_run_setup", text: "Local-admin token" },
+  { code: "first_run_setup", text: "Lasso-local password" },
+  { code: "first_run_setup", text: "Continue after saving" },
+  { code: "authentication_required", text: "Sign in to continue" },
+  { code: "runtime_unavailable", text: "Service Admin is unavailable" },
+  { code: "runtime_unavailable", text: "Unexpected application error" },
+]);
+
 export class TourCaptureError extends Error {
   constructor(code) {
     super(code);
@@ -276,6 +286,14 @@ export function assertSafeRenderedText(text) {
   }
 }
 
+async function assertSafeRenderedPage(page) {
+  for (const forbidden of forbiddenScreenLabels) {
+    if (await page.getByText(forbidden.text, { exact: false }).count()) {
+      throw new TourCaptureError(forbidden.code);
+    }
+  }
+}
+
 export async function assertPngViewport(filePath) {
   const bytes = await readFile(filePath);
   const isPng = bytes.length >= 24 && bytes.subarray(1, 4).toString("ascii") === "PNG";
@@ -357,7 +375,7 @@ async function visitReadOnlyRoute(page, baseUrl, route) {
       state: "hidden",
       timeout: ROUTE_RENDER_TIMEOUT_MS,
     });
-    assertSafeRenderedText(await page.locator("body").innerText({ timeout: ROUTE_RENDER_TIMEOUT_MS }));
+    await assertSafeRenderedPage(page);
     return { requestedRoute, resolvedRoute: new URL(page.url()).pathname };
   } catch (error) {
     if (error instanceof TourCaptureError) throw error;
