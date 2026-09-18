@@ -27,7 +27,7 @@ Service Admin must not imply that a page is live or durable unless the runtime o
 | Operations / Telemetry | Inspect runtime and Secrets Broker telemetry status metadata. This page does not configure exporters or reveal telemetry headers or tokens. | [Operations Telemetry Operator Guide](operations-telemetry-operator-guide.md), [Product status and safety](product-status-and-safety.md) |
 | Operations / Audit | Inspect safe operation and broker audit metadata where exposed. Use operation ids, audit ids, timestamps, and outcomes as evidence. | [Product status and safety](product-status-and-safety.md) |
 | Secrets Broker | Review local KV secrets, providers, topology, and guarded secret-management workflows. Broker ready and lockout counts live on Dashboard. Raw secret values and provider credentials stay out of the UI. | [Variables and Secrets Broker Safety Guide](variables-and-secrets-broker-safety-guide.md), [Product status and safety](product-status-and-safety.md) |
-| Settings | Adjust local Service Admin preferences such as appearance. Do not assume identity, account, or notification durability without a live backend contract. | [Product status and safety](product-status-and-safety.md) |
+| Settings | Adjust local Service Admin preferences such as appearance and the runtime's persisted Startup preference. Do not assume identity, account, or notification durability without a live backend contract. | [Product status and safety](product-status-and-safety.md) |
 | Help Center | Read operator guides and runbooks sourced from `docs/help/`. Use search when you already know the surface or symptom. | [Help Docs](https://github.com/service-lasso/lasso-serviceadmin/blob/d018767c715c92719b8df69f64ebf5484ee0ba11/docs/help/README.md) |
 
 ## What to check first
@@ -45,6 +45,14 @@ When something looks wrong, start with the narrowest evidence that can prove whe
 9. Open Operations / Inbox when a toast or banner is gone and you still need the durable operator notice.
 
 Keep support evidence metadata-only. Do not paste raw secrets, provider credentials, tokens, cookies, private keys, request bodies, response bodies, recovery material, or environment values into tickets, logs, or Help Center examples.
+
+## Settings: Startup
+
+Use **Settings → Startup** to choose whether Service Lasso starts enabled services automatically on the next runtime launch. The setting is stored by the runtime; changing it never stops services that are already running.
+
+![Service Admin Startup settings](https://raw.githubusercontent.com/service-lasso/lasso-serviceadmin/66c3db2f1912590544d4199a80b704576bf0f494/public/images/settings-startup.png)
+
+Turn **Start enabled services automatically** off when you want future starts to bring up only the runtime API. Turn it on to restore the default behavior. For one launch only, leave the saved preference unchanged and start the runtime with `npm start -- --noautostart`.
 
 ---
 
