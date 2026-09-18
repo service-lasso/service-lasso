@@ -32,7 +32,6 @@ export const TOUR_ROUTES = Object.freeze([
     id: "archive-overview",
     pathname: "/services/%40archive",
     heading: "Archive Utility Provider",
-    requiredText: "Overview",
   },
   {
     id: "help-center",
