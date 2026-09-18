@@ -83,11 +83,13 @@ summary, cleanup receipt, and logs remain under
 
 Create issue worktrees from `develop` in Core and Service Admin. Run Core
 `npm ci`, then `npm run demo:worktree-proof -- --id=<issue>`. Start source
-Service Admin on the allocated port with both
-`SERVICE_LASSO_RUNTIME_PROXY_TARGET` and `VITE_SERVICE_LASSO_API_BASE_URL`
-set to the selected proof URLs. Run the generated `gate` and `verify`
-commands, stop on any non-zero result, and record its classification. Do not
-change product behaviour just to make a capture pass.
+Service Admin on its allocated port with
+`SERVICE_LASSO_RUNTIME_PROXY_TARGET` set to the allocated Core runtime URL and
+`VITE_SERVICE_LASSO_API_BASE_URL` set to the allocated source-Admin URL. The
+latter keeps browser API requests same-origin so the Vite proxy can retain the
+loopback client identity. Run the generated `gate` and `verify` commands, stop
+on any non-zero result, and record its classification. Do not change product
+behaviour just to make a capture pass.
 
 ## Reusable Playwright tour
 
