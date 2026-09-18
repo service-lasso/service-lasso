@@ -13,6 +13,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1300` | `in_progress` | Publish truthful MacBook demo screenshots and docs release | `SPEC-002`, `AC-4AJ.3` | GitHub issue `#1300`. A reusable, read-only Playwright tour produces review-only 1512×982 dashboard, services, archive-overview, and Help Center captures from a selected live Service Admin URL. It refuses setup, unavailable, and skeleton states; human inspection, exact identity/verification recording, docs PR, and separately authorised publication remain required. |
 | `ISS-1277` | `in_progress` | Reconcile released hotfix for promotion #1276 | `SPEC-002`, `AC-5` | Explicitly authorized release reconciliation of main c3a454a and develop d0fa48b. Runtime hotfixes already agree; preserve the newer README and task register. Publication follows exact promotion qualification. |
 | `ISS-1272` | `done` | Docs System / Light / Dark appearance | `SPEC-002`, `AC-4AJ.5` | Persisted selection, live system detection, mobile and keyboard verification. |
 | `ISS-1301` | `in_progress` | Make Auto the explicit default docs theme choice | `SPEC-002`, `AC-4AJ.5` | Supersedes the System label from #1272: Auto is the default, follows system appearance, and clears explicit Light/Dark overrides. |

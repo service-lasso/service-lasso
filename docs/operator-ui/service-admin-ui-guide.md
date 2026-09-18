@@ -63,6 +63,14 @@ actor and can require a one-time confirmation. Record only safe identifiers,
 outcomes and timestamps; never copy a value, recovery material, credential,
 token, private key or raw request/log payload.
 
+## Refreshing the documentation tour
+
+Use the [capture manifest and refresh guide](capture-manifest.md) to run the
+reviewed, read-only Playwright tour against a live Service Admin URL. It
+creates an isolated 1512×982 review set and rejects setup, unavailable, and
+skeleton screens before it writes an image. Review every result before adding
+an image to public documentation.
+
 ## Troubleshooting and glossary
 
 - **Blank, loading or unavailable page:** open **Runtime**, refresh, and verify

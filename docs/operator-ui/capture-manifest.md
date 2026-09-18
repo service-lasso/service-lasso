@@ -81,16 +81,74 @@ summary, cleanup receipt, and logs remain under
 
 ## Refresh captures
 
-1. Create issue worktrees from `develop` in Core and Service Admin.
-2. Run Core `npm ci`, then `npm run demo:worktree-proof -- --id=<issue>`.
-3. Start Service Admin on the allocated port with
-   `SERVICE_LASSO_RUNTIME_PROXY_TARGET` set to the allocated Core URL.
-4. Run the generated `gate` and `verify` commands. Stop on a non-zero result
-   and record its classification; do not modify product behavior for a capture.
-5. Use a real browser at 1440×1024, default theme and non-sensitive example
-   data. Capture overview, important dialogs and workflow transitions.
-6. Preserve originals and record asset route, state, reproduction, viewport,
-   date, exact Core/Admin identity and verification result.
+Create issue worktrees from `develop` in Core and Service Admin. Run Core
+`npm ci`, then `npm run demo:worktree-proof -- --id=<issue>`. Start source
+Service Admin on the allocated port with both
+`SERVICE_LASSO_RUNTIME_PROXY_TARGET` and `VITE_SERVICE_LASSO_API_BASE_URL`
+set to the selected proof URLs. Run the generated `gate` and `verify`
+commands, stop on any non-zero result, and record its classification. Do not
+change product behaviour just to make a capture pass.
+
+## Reusable Playwright tour
+
+Install the browser once in the clean Core worktree, then run the tour against
+the intended live Service Admin root:
+
+```powershell
+npx playwright install chromium
+npm run capture:service-admin-tour -- --url=http://127.0.0.1:17700/
+```
+
+The tour uses an isolated dark browser context at **1512×982** with device
+scale factor 1. On a loopback target only, it selects the password-free
+local-root role in that temporary context; it never reads or enters a token or
+password. It checks that actual UI has rendered before capturing these read-only
+routes:
+
+| Asset name | Route | Required state |
+| --- | --- | --- |
+| `dashboard.png` | `/` | Dashboard and Runtime health visible |
+| `services.png` | `/services` | Services table rendered; the Links column is hidden |
+| `archive-overview.png` | `/services/%40archive` | Archive Utility Provider Overview visible |
+| `help-center.png` | `/help-center` | Help Center and local-docs notice visible |
+
+Before it captures, the command visits all 40 current **static read-only**
+authenticated destinations, including the Services, Operations, Secrets Broker,
+Settings, and workspace routes. Redirect destinations are checked at their
+resolved route. Dynamic record URLs and actions that need a specific record,
+reveal a value, or mutate state are not invented or invoked by the suite.
+
+The command saves a timestamped review set below `.tmp/service-admin-tour/`
+and writes a metadata-only `capture-receipt.json` listing the requested and
+resolved audit routes plus stable codes for any routes that could not render.
+It completes the selected audit inventory before failing, and it creates no
+screenshots if even one audited destination fails. Pass `--output-dir` when a
+different ignored review directory is needed. It refuses to write directly to
+`docs/static`, so an inspected image cannot accidentally become public content.
+It also fails before any screenshot if it sees first-run credentials,
+authentication-required, unavailable, or skeleton states. It does not sign in,
+reveal data, modify lifecycle state, or invoke any operator action.
+
+If an execution environment has a short command timeout, use four bounded audit
+passes, then one capture-only pass. Together these cover the same inventory:
+
+```powershell
+1..4 | ForEach-Object {
+  $start = ($_ - 1) * 10
+  npm run capture:service-admin-tour -- --url=http://127.0.0.1:17700/ --audit-only --audit-start=$start --audit-limit=10
+}
+npm run capture:service-admin-tour -- --url=http://127.0.0.1:17700/ --skip-audit
+```
+
+The matching `--capture-start` and `--capture-limit` options can bound a
+capture to one reviewed route where a command runner has a short timeout. They
+never widen the capture scope beyond the four listed in this manifest.
+
+After visual review, copy only the accepted images to the docs asset directory
+in an issue branch, update this manifest with the exact Core/Admin identities
+and verification results, and deliver them through the normal docs PR. A
+successful capture run is UI evidence for its four routes only; it is not a GA,
+security-review, or broad runtime-acceptance claim.
 
 Replace this record with verified, readable browser captures only after the
 generated runtime gate and verifier both succeed.
