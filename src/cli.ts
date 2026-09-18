@@ -75,6 +75,7 @@ interface ParsedCliOptions {
   includeManual: boolean;
   dryRun?: boolean;
   preview?: boolean;
+  noAutostart?: boolean;
 }
 
 function usageText(): string {
@@ -83,7 +84,7 @@ function usageText(): string {
     "",
     "Usage:",
     "  service-lasso",
-    "  service-lasso serve [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>]",
+    "  service-lasso serve [--noautostart] [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>]",
     "  service-lasso start [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso stop [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso restart [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
@@ -133,7 +134,7 @@ function usageText(): string {
     "  service-lasso --version",
     "",
     "Notes:",
-    "  - Running without a command starts the bounded core API runtime.",
+    "  - Running without a command starts the core runtime and enabled services by default; --noautostart skips service startup for this launch.",
     "  - The start command installs/configures/starts the baseline services, then leaves the API running.",
     "  - The stop command stops verified managed process trees and the runtime API from this or a second terminal.",
     "  - The restart command stops, confirms the workspace is down, then starts and renegotiates occupied preferred ports.",
@@ -161,7 +162,9 @@ function parsePort(value: string): number {
 
 function parseCliArgs(argv: string[]): ParsedCliOptions {
   const remaining = [...argv];
-  const commandToken = remaining[0];
+  const implicitServe = remaining[0] === "--noautostart";
+  if (implicitServe) remaining.shift();
+  const commandToken = implicitServe ? "serve" : remaining[0];
 
   if (!commandToken) {
     return { command: "serve", json: false, force: false, includeManual: false };
@@ -206,13 +209,14 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
     throw new Error(`Unknown command: ${commandToken}`);
   }
 
-  remaining.shift();
+  if (!implicitServe) remaining.shift();
 
   const parsed: ParsedCliOptions = {
     command,
     json: false,
     force: false,
     includeManual: false,
+    ...(implicitServe ? { noAutostart: true } : {}),
   };
 
   if (command === "install") {
@@ -544,6 +548,13 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("--port-policy must be one of: automatic, preferred, fixed.");
         }
         parsed.portPolicy = value;
+        break;
+      }
+      case "--noautostart": {
+        if (command !== "serve") {
+          throw new Error("--noautostart is only supported for the serve command.");
+        }
+        parsed.noAutostart = true;
         break;
       }
       case "--json": {
@@ -1678,6 +1689,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     servicesRoot: parsed.servicesRoot,
     workspaceRoot: parsed.workspaceRoot,
     version: runtimeVersion,
+    autostart: parsed.noAutostart ? false : true,
+    noAutostart: parsed.noAutostart,
   });
   installRuntimeSignalHandlers(app.serviceRoot.workspaceRoot);
   const exitWait = armRuntimeExitWait(app.serviceRoot.workspaceRoot);
