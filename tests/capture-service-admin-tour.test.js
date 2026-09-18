@@ -100,6 +100,11 @@ test("capture playbook writes only approved tour captures into public docs", () 
   );
 });
 
+test("capture playbook keeps the Services screenshot bounded to a closed column menu", () => {
+  const services = selectedCaptureRoutes(parseCaptureArguments([])).find((route) => route.id === "services");
+  assert.equal(services.prepare, "hide-links-column");
+});
+
 test("capture playbook rejects first-run credential and unavailable screens before screenshots", () => {
   for (const text of [
     "Save your local-operator token",
