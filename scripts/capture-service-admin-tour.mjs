@@ -470,6 +470,9 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
         receipt.inFlightRoute = route.pathname;
         await writeReceipt(capture.outputDir, receipt);
         await waitForCaptureRoute(page, capture.baseUrl, route);
+        // Let the route-specific control update and its final paint settle
+        // before freezing a documentation frame.
+        await page.waitForTimeout(500);
         const imageName = `${route.id}.png`;
         const imagePath = path.join(capture.outputDir, imageName);
         await page.screenshot({ path: imagePath, fullPage: false });
