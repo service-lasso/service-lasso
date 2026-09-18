@@ -344,8 +344,15 @@ async function hideServicesLinksColumn(page) {
   if ((await linksToggle.getAttribute("aria-checked")) !== "false") {
     throw new TourCaptureError("services_links_column_still_visible");
   }
+  // The current Admin menu is portalled. Its trigger can retain focus after
+  // the first Escape, so dismiss it from the keyboard and then from a neutral
+  // page target before declaring the frame safe to capture.
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   if (await linksToggle.isVisible().catch(() => false)) await view.click();
+  if (await linksToggle.isVisible().catch(() => false)) {
+    await page.getByRole("heading", { name: "Services", exact: true }).click();
+  }
   if (await linksToggle.isVisible().catch(() => false)) {
     throw new TourCaptureError("services_column_menu_still_visible");
   }
