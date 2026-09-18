@@ -28,7 +28,7 @@ Never put credentials in screenshots, logs, or your response.
 ## Add a database and connect my app
 
 ```text
-Follow https://github.com/service-lasso/service-lasso/blob/develop/docs/first-useful-service.md.
+Follow https://github.com/service-lasso/service-lasso/blob/develop/docs/getting-started/beginner-todo-app.md then https://github.com/service-lasso/service-lasso/blob/develop/docs/getting-started/intermediate-make-todo-app-durable.md.
 Run the PostgreSQL app example in its own directory. Use its pinned dependencies
 and released manifest. Run the real write/read check and show the app response.
 Then explain the actual host, allocated port, and database my app should use.

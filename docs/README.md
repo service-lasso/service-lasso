@@ -9,7 +9,7 @@ Service Lasso discovers, configures, runs, observes, and updates local services 
 
 ## Choose your starting point
 
-**First useful result:** [See the demo](quick-start.md) → [Add PostgreSQL and connect an app](first-useful-service.md) → [Configure and recover](operate-your-service.md) → [Package it](package-your-app.md).
+**First useful result:** [Getting started](getting-started/README.md) → [Beginner — Todo app](getting-started/beginner-todo-app.md) → [Intermediate — Make the Todo durable](getting-started/intermediate-make-todo-app-durable.md) → [Advanced — Go Todo API](getting-started/advanced-add-go-todo-api-service.md) → [Configure and recover](operate-your-service.md) → [Package it](package-your-app.md). Optional visual demo: [Quick start](quick-start.md).
 
 [Copy a task for your agent or connect MCP](agent-prompts.md).
 

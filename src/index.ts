@@ -3,9 +3,12 @@ import { resolveRuntimeVersion } from "./runtime/version.js";
 
 async function main(): Promise<void> {
   const stdioMcp = process.env.SERVICE_LASSO_MCP_STDIO === "1";
+  const noAutostart = process.argv.includes("--noautostart");
   const app = await startRuntimeApp({
     port: Number(process.env.SERVICE_LASSO_PORT ?? 18080),
     version: resolveRuntimeVersion(),
+    autostart: noAutostart ? false : true,
+    noAutostart,
   });
 
   const report = stdioMcp ? console.error : console.log;

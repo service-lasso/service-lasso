@@ -63,7 +63,7 @@ Run `npm run demo:status` for a read-only report. The [runtime health endpoint](
 
 ## Next steps
 
-- [Add PostgreSQL and connect a working app](first-useful-service.md), then [package it](package-your-app.md).
+- Primary path: [Beginner — Todo app](getting-started/beginner-todo-app.md), then [Intermediate — make it durable with PostgreSQL](getting-started/intermediate-make-todo-app-durable.md), then [package it](package-your-app.md).
 - [Give an agent the task](agent-prompts.md), including MCP diagnosis.
 - [Embed the runtime with npm, CLI, or HTTP](runtime/README.md).
 - [Choose a lean or bundled release archive](releases/README.md).
