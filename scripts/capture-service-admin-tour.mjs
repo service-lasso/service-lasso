@@ -14,6 +14,16 @@ export const TOUR_VIEWPORT = Object.freeze({ width: 1512, height: 982 });
 export const DEFAULT_SERVICE_ADMIN_URL = "http://127.0.0.1:17700/";
 export const DEFAULT_COLOR_SCHEME = "dark";
 export const ROUTE_RENDER_TIMEOUT_MS = 8_000;
+// Playwright applies this mask immediately before it writes a PNG. Keep the
+// selector limited to password controls: it is a safety net for credentials,
+// not a substitute for reviewing other sensitive UI data.
+export const PASSWORD_FIELD_MASK_SELECTOR = [
+  "input[type=\"password\"]",
+  "input[autocomplete=\"current-password\"]",
+  "input[autocomplete=\"new-password\"]",
+  "textarea[autocomplete=\"current-password\"]",
+  "textarea[autocomplete=\"new-password\"]",
+].join(", ");
 export const TOUR_ROUTES = Object.freeze([
   {
     id: "dashboard",
@@ -278,6 +288,13 @@ export function safeFailureCode(error) {
   return error instanceof TourCaptureError ? error.code : "capture_failed";
 }
 
+export function passwordFieldMaskOptions(page) {
+  return {
+    mask: [page.locator(PASSWORD_FIELD_MASK_SELECTOR)],
+    maskColor: "#111827",
+  };
+}
+
 export function assertSafeRenderedText(text) {
   for (const forbidden of forbiddenScreens) {
     if (forbidden.pattern.test(text)) {
@@ -428,6 +445,7 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
       count: capture.capture ? selectedCaptureRoutes(capture).length : 0,
       total: TOUR_ROUTES.length,
     },
+    passwordFieldMasking: "playwright-native-password-controls",
     auditedRoutes: [],
     auditFailures: [],
     captures: [],
@@ -475,7 +493,11 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
         await page.waitForTimeout(500);
         const imageName = `${route.id}.png`;
         const imagePath = path.join(capture.outputDir, imageName);
-        await page.screenshot({ path: imagePath, fullPage: false });
+        await page.screenshot({
+          path: imagePath,
+          fullPage: false,
+          ...passwordFieldMaskOptions(page),
+        });
         await assertPngViewport(imagePath);
         receipt.captures.push({ id: route.id, route: route.pathname, image: imageName });
         delete receipt.inFlightRoute;
@@ -516,7 +538,8 @@ Options:
 
 On a loopback URL it can select the local-root role in its fresh browser context.
 It refuses setup, authentication-required, unavailable, and skeleton states.
-It does not enter credentials, reveal values, call lifecycle actions, or write docs/static.
+It masks password controls before each PNG, and does not enter credentials,
+reveal values, call lifecycle actions, or write docs/static.
 `;
 
 async function main() {

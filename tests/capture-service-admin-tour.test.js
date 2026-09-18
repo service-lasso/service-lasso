@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   DEFAULT_SERVICE_ADMIN_URL,
+  PASSWORD_FIELD_MASK_SELECTOR,
   READ_ONLY_AUDIT_ROUTES,
   TOUR_VIEWPORT,
   TourCaptureError,
@@ -11,6 +12,7 @@ import {
   buildRouteUrl,
   isLoopbackUrl,
   normalizeCaptureOptions,
+  passwordFieldMaskOptions,
   parseCaptureArguments,
   safeFailureCode,
   selectedCaptureRoutes,
@@ -22,6 +24,18 @@ test("capture playbook defaults to the local Service Admin URL and unique review
   assert.equal(options.baseUrl, DEFAULT_SERVICE_ADMIN_URL);
   assert.equal(options.colorScheme, "dark");
   assert.equal(options.outputDir, path.join(".tmp", "service-admin-tour", "2026-09-18T00-00-00-000Z"));
+});
+
+test("capture playbook uses Playwright masking for password controls", () => {
+  assert.match(PASSWORD_FIELD_MASK_SELECTOR, /input\[type="password"\]/);
+  assert.match(PASSWORD_FIELD_MASK_SELECTOR, /autocomplete="current-password"/);
+  assert.match(PASSWORD_FIELD_MASK_SELECTOR, /autocomplete="new-password"/);
+  const locator = {};
+  const options = passwordFieldMaskOptions({ locator: (selector) => {
+    assert.equal(selector, PASSWORD_FIELD_MASK_SELECTOR);
+    return locator;
+  } });
+  assert.deepEqual(options, { mask: [locator], maskColor: "#111827" });
 });
 
 test("capture playbook only accepts HTTP(S) roots without embedded credentials", () => {
