@@ -4,7 +4,7 @@ title: Configure and recover a service
 
 # Configure and recover a service
 
-Start with a working [PostgreSQL example](first-useful-service.md) or [Admin demo](quick-start.md). Make one change, then repeat the same success check you used before the change.
+Start with the [Beginner — Todo app](getting-started/beginner-todo-app.md), the [Intermediate — durable PostgreSQL step](getting-started/intermediate-make-todo-app-durable.md), or the [Admin demo](quick-start.md). Make one change, then repeat the same success check you used before the change.
 
 ## Change configuration
 

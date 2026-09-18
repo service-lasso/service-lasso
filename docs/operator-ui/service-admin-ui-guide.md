@@ -63,6 +63,26 @@ actor and can require a one-time confirmation. Record only safe identifiers,
 outcomes and timestamps; never copy a value, recovery material, credential,
 token, private key or raw request/log payload.
 
+## Refreshing the documentation tour
+
+Use the [capture manifest and refresh guide](capture-manifest.md) to run the
+reviewed, read-only Playwright tour against a live Service Admin URL. It
+creates an isolated 1512×982 review set and rejects setup, unavailable, and
+skeleton screens before it writes an image. A normal run regenerates the
+approved public assets in this guide's `docs/static/img/service-admin-tour/`
+directory; the runner will not promote the Dashboard until its non-password
+operational data has an approved redaction rule.
+
+## Current UI tour
+
+The normal runner invocation refreshes the public images shown here.
+
+<img alt="Service Admin Services overview" src="/service-lasso/img/service-admin-tour/services.png" />
+
+<img alt="Archive Utility Provider overview" src="/service-lasso/img/service-admin-tour/archive-overview.png" />
+
+<img alt="Service Admin Help Center overview" src="/service-lasso/img/service-admin-tour/help-center.png" />
+
 ## Troubleshooting and glossary
 
 - **Blank, loading or unavailable page:** open **Runtime**, refresh, and verify

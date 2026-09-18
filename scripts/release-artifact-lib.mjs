@@ -749,7 +749,11 @@ export async function verifyStagedArtifact({
   const bootLogNeedle = "[service-lasso] core API spine started";
   const child = spawn(
     process.execPath,
-    [path.join(stagedRoot, "dist", "index.js")],
+    // Qualification only verifies that the packaged API can boot.  Keep the
+    // service catalog out of this disposable probe: normal product startup
+    // intentionally autostarts services, while --noautostart is the supported
+    // explicit opt-out for constrained environments.
+    [path.join(stagedRoot, "dist", "index.js"), "--noautostart"],
     {
       cwd: stagedRoot,
       env: {

@@ -11,6 +11,10 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `README.md` | Start here | explanation | Listed: Docs Home |
 | `INTRODUCTION.md` | Start here | explanation | Listed: core orientation |
 | `quick-start.md` | Start here | guide | Listed: first runnable path |
+| `getting-started/README.md` | Start here | guide | Listed: newcomer path index |
+| `getting-started/beginner-todo-app.md` | Start here | guide | Listed: Beginner — Todo newcomer journey |
+| `getting-started/intermediate-make-todo-app-durable.md` | Start here | guide | Listed: PostgreSQL durability after Todo |
+| `getting-started/advanced-add-go-todo-api-service.md` | Start here | guide | Listed: Advanced — Go API between Todo UI and Postgres |
 | `service-catalog.md` | Start here | reference | Listed: inventory discovery |
 | `reference-apps.md` | Use in your app | guide | Listed: reference-app choice; cross-linked from Start here |
 | `release-asset-policy.md` | Contribute and maintain | reference | Listed: release verification boundary |
