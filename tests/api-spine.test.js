@@ -1730,7 +1730,7 @@ test("runtime boot starts all enabled rehydrated services by default and --noaut
     resetLifecycleState();
   }
 
-  const autostartApp = await startRuntimeApp({ port: 0, servicesRoot });
+  const autostartApp = await startRuntimeApp({ port: 0, servicesRoot, autostart: true });
   const autostartServer = autostartApp.apiServer;
 
   try {

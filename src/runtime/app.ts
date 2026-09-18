@@ -1,7 +1,6 @@
 import { createDefaultServiceRootConfig, describeRuntimeBoundary } from "./layout.js";
 import { startApiServer, type ApiServerOptions, type RunningApiServer } from "../server/index.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig } from "./config.js";
-import { readRuntimeStartupSettings } from "./startup/settings.js";
 
 export interface RuntimeApp {
   mode: "development";
@@ -21,8 +20,6 @@ export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<R
       version: options.version,
     }),
   );
-  const startupSettings = await readRuntimeStartupSettings(serviceRoot.workspaceRoot);
-  const autostart = options.noAutostart ? false : (options.autostart ?? startupSettings.autostart);
   const apiServer = await startApiServer({
     servicesRoot: serviceRoot.servicesRoot,
     workspaceRoot: serviceRoot.workspaceRoot,
@@ -30,7 +27,7 @@ export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<R
     portPolicy: options.portPolicy,
     host: bindHost,
     version: serviceRoot.version,
-    autostart,
+    autostart: options.noAutostart ? false : options.autostart,
     noAutostart: options.noAutostart,
     baselineBootstrap: options.baselineBootstrap,
     mcpStdio: options.mcpStdio ?? (process.env.SERVICE_LASSO_MCP_STDIO === "1" ? { env: process.env } : undefined),
