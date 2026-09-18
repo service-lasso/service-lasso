@@ -29,7 +29,6 @@ import { runRuntimePlanCliAction, type RuntimePlanCliAction, type RuntimePlanCli
 import { runReadinessGateCliAction, type ReadinessGateCliResult } from "./runtime/cli/readiness.js";
 import type { ServiceUpdateState } from "./runtime/updates/state.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
-import { readRuntimeStartupSettings } from "./runtime/startup/settings.js";
 import type { RuntimeInstanceResponse } from "./contracts/api.js";
 
 interface ParsedCliOptions {
@@ -1684,14 +1683,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     return;
   }
 
-  const startupSettings = await readRuntimeStartupSettings(parsed.workspaceRoot ?? process.cwd());
   const app = await startRuntimeApp({
     port: parsed.port ?? Number(process.env.SERVICE_LASSO_PORT ?? 18080),
     portPolicy: parsed.portPolicy,
     servicesRoot: parsed.servicesRoot,
     workspaceRoot: parsed.workspaceRoot,
     version: runtimeVersion,
-    autostart: parsed.noAutostart ? false : startupSettings.autostart,
+    autostart: parsed.noAutostart ? false : true,
     noAutostart: parsed.noAutostart,
   });
   installRuntimeSignalHandlers(app.serviceRoot.workspaceRoot);
