@@ -16,6 +16,7 @@ import {
   parseCaptureArguments,
   safeFailureCode,
   selectedCaptureRoutes,
+  selectedDocsPromotionRoutes,
   selectedAuditRoutes,
 } from "../scripts/capture-service-admin-tour.mjs";
 
@@ -88,6 +89,15 @@ test("capture playbook supports bounded audit batches without weakening the rout
 test("capture playbook can bound safe screenshots to one reviewed route", () => {
   const options = parseCaptureArguments(["--skip-audit", "--capture-start=2", "--capture-limit=1"]);
   assert.deepEqual(selectedCaptureRoutes(options).map((route) => route.id), ["archive-overview"]);
+});
+
+test("capture playbook writes only approved tour captures into public docs", () => {
+  const options = parseCaptureArguments(["--skip-audit"]);
+  assert.equal(options.promoteToDocs, true);
+  assert.deepEqual(
+    selectedDocsPromotionRoutes(options).map((route) => route.id),
+    ["services", "archive-overview", "help-center"],
+  );
 });
 
 test("capture playbook rejects first-run credential and unavailable screens before screenshots", () => {

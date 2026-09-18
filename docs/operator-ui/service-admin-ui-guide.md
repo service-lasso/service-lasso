@@ -68,8 +68,10 @@ token, private key or raw request/log payload.
 Use the [capture manifest and refresh guide](capture-manifest.md) to run the
 reviewed, read-only Playwright tour against a live Service Admin URL. It
 creates an isolated 1512×982 review set and rejects setup, unavailable, and
-skeleton screens before it writes an image. Review every result before adding
-an image to public documentation.
+skeleton screens before it writes an image. A normal run regenerates the
+approved public assets in this guide's `docs/static/img/service-admin-tour/`
+directory; the runner will not promote the Dashboard until its non-password
+operational data has an approved redaction rule.
 
 ## Troubleshooting and glossary
 

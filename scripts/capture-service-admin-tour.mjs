@@ -5,7 +5,7 @@
  * or write into docs/static. It captures only the four reviewed visitor-facing
  * routes after rejecting known setup, error, and skeleton states.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -37,17 +37,20 @@ export const TOUR_ROUTES = Object.freeze([
     heading: "Services",
     requiredPlaceholder: "Search services and open details from the matching row...",
     prepare: "hide-links-column",
+    promoteToDocs: true,
   },
   {
     id: "archive-overview",
     pathname: "/services/%40archive",
     heading: "Archive Utility Provider",
+    promoteToDocs: true,
   },
   {
     id: "help-center",
     pathname: "/help-center",
     heading: "Help Center",
     requiredText: "Help docs loaded from the local docs set.",
+    promoteToDocs: true,
   },
 ]);
 
@@ -101,6 +104,7 @@ export const READ_ONLY_AUDIT_ROUTES = Object.freeze([
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "..");
 const docsStaticRoot = path.resolve(repoRoot, "docs", "static");
+const docsTourAssetDirectory = path.join(docsStaticRoot, "img", "service-admin-tour");
 
 const forbiddenScreens = Object.freeze([
   { code: "first_run_setup", pattern: /save your local-operator token/i },
@@ -151,6 +155,7 @@ export function parseCaptureArguments(args, { now = new Date() } = {}) {
     captureLimit: null,
     auditStart: 0,
     auditLimit: null,
+    promoteToDocs: true,
     outputDir: path.join(".tmp", "service-admin-tour", timestamp(now)),
   };
 
@@ -273,6 +278,10 @@ export function selectedCaptureRoutes(options) {
   const start = options.captureStart ?? 0;
   const limit = options.captureLimit ?? null;
   return TOUR_ROUTES.slice(start, limit === null ? undefined : start + limit);
+}
+
+export function selectedDocsPromotionRoutes(options) {
+  return selectedCaptureRoutes(options).filter((route) => route.promoteToDocs);
 }
 
 export function buildRouteUrl(baseUrl, pathname) {
@@ -425,6 +434,24 @@ async function writeReceipt(outputDir, result) {
   await writeFile(path.join(outputDir, "capture-receipt.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
 }
 
+async function promoteCapturedImages(capture, receipt) {
+  const routes = selectedDocsPromotionRoutes(capture);
+  if (routes.length === 0) return;
+  await mkdir(docsTourAssetDirectory, { recursive: true });
+  for (const route of routes) {
+    const imageName = `${route.id}.png`;
+    await copyFile(
+      path.join(capture.outputDir, imageName),
+      path.join(docsTourAssetDirectory, imageName),
+    );
+    receipt.promotedAssets.push({
+      id: route.id,
+      source: imageName,
+      target: path.posix.join("docs", "static", "img", "service-admin-tour", imageName),
+    });
+  }
+}
+
 export async function runServiceAdminTour(options, { chromium } = {}) {
   const capture = normalizeCaptureOptions(options);
   await mkdir(capture.outputDir, { recursive: true });
@@ -446,6 +473,8 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
       total: TOUR_ROUTES.length,
     },
     passwordFieldMasking: "playwright-native-password-controls",
+    promotion: "approved-tour-routes",
+    promotedAssets: [],
     auditedRoutes: [],
     auditFailures: [],
     captures: [],
@@ -503,6 +532,7 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
         delete receipt.inFlightRoute;
         await writeReceipt(capture.outputDir, receipt);
       }
+      await promoteCapturedImages(capture, receipt);
     }
     receipt.ok = true;
     receipt.finishedAt = new Date().toISOString();
@@ -538,8 +568,11 @@ Options:
 
 On a loopback URL it can select the local-root role in its fresh browser context.
 It refuses setup, authentication-required, unavailable, and skeleton states.
-It masks password controls before each PNG, and does not enter credentials,
-reveal values, call lifecycle actions, or write docs/static.
+It masks password controls before each PNG and does not enter credentials,
+reveal values, or call lifecycle actions. After the selected audit and all
+selected captures pass, it copies approved route captures into docs/static.
+Dashboard capture remains review-only until its non-password operational data
+has an approved redaction policy.
 `;
 
 async function main() {
