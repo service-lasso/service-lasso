@@ -147,7 +147,13 @@ different ignored review directory is needed. It refuses to write directly to
 `docs/static`, so an inspected image cannot accidentally become public content.
 It also fails before any screenshot if it sees first-run credentials,
 authentication-required, unavailable, or skeleton states. It does not sign in,
-reveal data, modify lifecycle state, or invoke any operator action.
+reveal data, modify lifecycle state, or invoke any operator action. Before every
+PNG write it uses Playwright's native screenshot mask for password fields and
+fields marked with password autocomplete metadata. The receipt records that
+this protection was active. This narrowly protects entered password values; it
+does not make other operational data (such as a live port, allocation,
+identifier, or log value) safe to publish. Those frames still need visual
+review and an explicit publication decision.
 
 If an execution environment has a short command timeout, use four bounded audit
 passes, then one capture-only pass. Together these cover the same inventory:
