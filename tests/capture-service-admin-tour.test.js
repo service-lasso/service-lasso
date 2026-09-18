@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   DEFAULT_SERVICE_ADMIN_URL,
+  PASSWORD_FIELD_MASK_SELECTOR,
   READ_ONLY_AUDIT_ROUTES,
   TOUR_VIEWPORT,
   TourCaptureError,
@@ -11,9 +12,11 @@ import {
   buildRouteUrl,
   isLoopbackUrl,
   normalizeCaptureOptions,
+  passwordFieldMaskOptions,
   parseCaptureArguments,
   safeFailureCode,
   selectedCaptureRoutes,
+  selectedDocsPromotionRoutes,
   selectedAuditRoutes,
 } from "../scripts/capture-service-admin-tour.mjs";
 
@@ -22,6 +25,18 @@ test("capture playbook defaults to the local Service Admin URL and unique review
   assert.equal(options.baseUrl, DEFAULT_SERVICE_ADMIN_URL);
   assert.equal(options.colorScheme, "dark");
   assert.equal(options.outputDir, path.join(".tmp", "service-admin-tour", "2026-09-18T00-00-00-000Z"));
+});
+
+test("capture playbook uses Playwright masking for password controls", () => {
+  assert.match(PASSWORD_FIELD_MASK_SELECTOR, /input\[type="password"\]/);
+  assert.match(PASSWORD_FIELD_MASK_SELECTOR, /autocomplete="current-password"/);
+  assert.match(PASSWORD_FIELD_MASK_SELECTOR, /autocomplete="new-password"/);
+  const locator = {};
+  const options = passwordFieldMaskOptions({ locator: (selector) => {
+    assert.equal(selector, PASSWORD_FIELD_MASK_SELECTOR);
+    return locator;
+  } });
+  assert.deepEqual(options, { mask: [locator], maskColor: "#111827" });
 });
 
 test("capture playbook only accepts HTTP(S) roots without embedded credentials", () => {
@@ -74,6 +89,15 @@ test("capture playbook supports bounded audit batches without weakening the rout
 test("capture playbook can bound safe screenshots to one reviewed route", () => {
   const options = parseCaptureArguments(["--skip-audit", "--capture-start=2", "--capture-limit=1"]);
   assert.deepEqual(selectedCaptureRoutes(options).map((route) => route.id), ["archive-overview"]);
+});
+
+test("capture playbook writes only approved tour captures into public docs", () => {
+  const options = parseCaptureArguments(["--skip-audit"]);
+  assert.equal(options.promoteToDocs, true);
+  assert.deepEqual(
+    selectedDocsPromotionRoutes(options).map((route) => route.id),
+    ["services", "archive-overview", "help-center"],
+  );
 });
 
 test("capture playbook rejects first-run credential and unavailable screens before screenshots", () => {

@@ -147,7 +147,13 @@ different ignored review directory is needed. It refuses to write directly to
 `docs/static`, so an inspected image cannot accidentally become public content.
 It also fails before any screenshot if it sees first-run credentials,
 authentication-required, unavailable, or skeleton states. It does not sign in,
-reveal data, modify lifecycle state, or invoke any operator action.
+reveal data, modify lifecycle state, or invoke any operator action. Before every
+PNG write it uses Playwright's native screenshot mask for password fields and
+fields marked with password autocomplete metadata. The receipt records that
+this protection was active. This narrowly protects entered password values; it
+does not make other operational data (such as a live port, allocation,
+identifier, or log value) safe to publish. Those frames still need visual
+review and an explicit publication decision.
 
 If an execution environment has a short command timeout, use four bounded audit
 passes, then one capture-only pass. Together these cover the same inventory:
@@ -164,11 +170,20 @@ The matching `--capture-start` and `--capture-limit` options can bound a
 capture to one reviewed route where a command runner has a short timeout. They
 never widen the capture scope beyond the four listed in this manifest.
 
-After visual review, copy only the accepted images to the docs asset directory
-in an issue branch, update this manifest with the exact Core/Admin identities
-and verification results, and deliver them through the normal docs PR. A
-successful capture run is UI evidence for its four routes only; it is not a GA,
-security-review, or broad runtime-acceptance claim.
+Every normal run regenerates the public guide assets in the current issue
+branch. The runner copies the approved Services, Archive Utility Provider, and
+Help Center captures to `docs/static/img/service-admin-tour/` only after the
+selected audit and every selected capture pass:
+
+```powershell
+npm run capture:service-admin-tour -- --url=http://127.0.0.1:17700/
+```
+
+The Dashboard is still captured for review but is not promoted: its live
+allocation/generation content needs an approved non-password redaction rule.
+Commit the regenerated assets and the updated manifest through the normal docs
+PR. A successful capture run is UI evidence for its four routes only; it is not
+a GA, security-review, or broad runtime-acceptance claim.
 
 Replace this record with verified, readable browser captures only after the
 generated runtime gate and verifier both succeed.
