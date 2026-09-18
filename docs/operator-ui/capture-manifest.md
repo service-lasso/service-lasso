@@ -97,6 +97,22 @@ the public dashboard-tour requirement remains blocked pending a real,
 public-safe Dashboard state or an authorised redaction policy. This is UI
 evidence only; it is not a GA, security-review, or broad acceptance claim.
 
+## 18 September 2026 published approved frames
+
+A fresh source-Admin capture used Core
+`61fd352f38b876ff008fc6246b2dc8ddd6713ce2` with Admin
+`c48f8d89b9eb0bc11b94b123acf68d74f0e3ac5d` at 1512×982. The full run audited
+all 40 static authenticated destinations and captured the four reviewed
+routes. Password controls were masked by Playwright before each PNG write.
+
+The Services, Archive Utility Provider overview, and Help Center images were
+visually reviewed and copied by the runner into
+`docs/static/img/service-admin-tour/`; the UI guide embeds those three assets.
+The Dashboard PNG remains review-only and is not copied into public docs,
+because its live allocation/generation data does not have an approved
+non-password redaction rule. This capture proves those rendered UI routes only;
+it is not a GA, security-review, or broad runtime-acceptance claim.
+
 ## Refresh captures
 
 Create issue worktrees from `develop` in Core and Service Admin. Run Core
@@ -143,8 +159,10 @@ and writes a metadata-only `capture-receipt.json` listing the requested and
 resolved audit routes plus stable codes for any routes that could not render.
 It completes the selected audit inventory before failing, and it creates no
 screenshots if even one audited destination fails. Pass `--output-dir` when a
-different ignored review directory is needed. It also fails before any
-screenshot if it sees first-run credentials,
+different ignored review directory is needed. Only after the selected audit and
+every selected capture pass, it copies the explicitly approved public frames to
+`docs/static`; an inspected image cannot become public content on its own. It
+also fails before any screenshot if it sees first-run credentials,
 authentication-required, unavailable, or skeleton states. It does not sign in,
 reveal data, modify lifecycle state, or invoke any operator action. Before every
 PNG write it uses Playwright's native screenshot mask for password fields and

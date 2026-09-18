@@ -47,6 +47,18 @@ Use the detail-page controls: the evaluated Admin release's table-row Stop butto
 
 The demo includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
 
+## Automatic service startup
+
+Normal runtime launches start enabled services automatically after the runtime API is ready. This is the default for both `npm start` and the demo runtime.
+
+To keep that preference but start only the runtime API for one launch, pass the explicit opt-out flag:
+
+```sh
+npm start -- --noautostart
+```
+
+In Service Admin releases that include the **Settings → Startup** page, turn off **Automatically start enabled services** to leave services stopped when the runtime starts; turn it back on to restore the default. The one-launch flag does not change this saved preference.
+
 ## 4. Stop the demo
 
 From another terminal in the same folder:

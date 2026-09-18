@@ -2,8 +2,9 @@
  * Read-only, live Service Admin tour capture for docs review.
  *
  * This deliberately does not authenticate, reveal data, invoke lifecycle actions,
- * or write into docs/static. It captures only the four reviewed visitor-facing
- * routes after rejecting known setup, error, and skeleton states.
+ * or invoke lifecycle actions. It captures only the four reviewed visitor-facing
+ * routes after rejecting known setup, error, and skeleton states. After a full
+ * successful run, the approved public frames are copied into docs/static.
  */
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -344,8 +345,15 @@ async function hideServicesLinksColumn(page) {
   if ((await linksToggle.getAttribute("aria-checked")) !== "false") {
     throw new TourCaptureError("services_links_column_still_visible");
   }
+  // The current Admin menu is portalled. Its trigger can retain focus after
+  // the first Escape, so dismiss it from the keyboard and then from a neutral
+  // page target before declaring the frame safe to capture.
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   if (await linksToggle.isVisible().catch(() => false)) await view.click();
+  if (await linksToggle.isVisible().catch(() => false)) {
+    await page.getByRole("heading", { name: "Services", exact: true }).click();
+  }
   if (await linksToggle.isVisible().catch(() => false)) {
     throw new TourCaptureError("services_column_menu_still_visible");
   }
