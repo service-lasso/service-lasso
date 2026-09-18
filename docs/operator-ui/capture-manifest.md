@@ -79,6 +79,24 @@ captures. The owned runtime and source Vite process were stopped; the proof
 summary, cleanup receipt, and logs remain under
 `.demo-logs/worktree-proof/1281-operator-captures-post1290-20260916/`.
 
+## 18 September 2026 current-source proof
+
+Admin repair PR #623 is merged. A fresh isolated proof used Core
+`66e98e1d30458bef1bcc09fd399859413c66a2fa` and current Admin
+`c48f8d89b9eb0bc11b94b123acf68d74f0e3ac5d` at a 1512×982 viewport. The
+generated runtime gate was healthy. The read-only Playwright tour then passed
+all 40 static authenticated destinations without invoking reveal, edit,
+reset, lifecycle, or record-specific actions.
+
+The Services, Archive Utility Provider overview, and Help Center frames were
+visually inspected in ignored review storage. No token, credential, raw log,
+filesystem path, or external-link column was visible in those frames. The
+Dashboard frame was rejected because it displayed live allocation and
+generation details. Therefore **no images are published by this record** and
+the public dashboard-tour requirement remains blocked pending a real,
+public-safe Dashboard state or an authorised redaction policy. This is UI
+evidence only; it is not a GA, security-review, or broad acceptance claim.
+
 ## Refresh captures
 
 Create issue worktrees from `develop` in Core and Service Admin. Run Core
