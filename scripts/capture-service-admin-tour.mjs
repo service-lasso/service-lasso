@@ -302,7 +302,6 @@ async function hideServicesLinksColumn(page) {
     throw new TourCaptureError("services_links_column_still_visible");
   }
   await page.keyboard.press("Escape");
-  await linksToggle.waitFor({ state: "hidden", timeout: ROUTE_RENDER_TIMEOUT_MS });
   if (await page.locator("table a[target='_blank']").count()) {
     throw new TourCaptureError("services_links_column_still_visible");
   }
