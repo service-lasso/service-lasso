@@ -345,13 +345,11 @@ async function visitReadOnlyRoute(page, baseUrl, route) {
     if (!response || !response.ok()) throw new TourCaptureError("route_unreachable");
 
     await page.getByRole("main").waitFor({ state: "visible", timeout: ROUTE_RENDER_TIMEOUT_MS });
-    await page.locator("main h1, main h2").first().waitFor({
-      state: "visible",
-      timeout: ROUTE_RENDER_TIMEOUT_MS,
-    });
-    // The app shell heading appears before query-backed content. Give React one
-    // bounded render turn so a just-mounted skeleton is observed, then require it
-    // to be gone before accepting the destination as rendered UI.
+    // Not every current Admin destination has a document heading: for example,
+    // the log viewer and Service Routes table use labelled cards. The shared
+    // invariant is a visible main region with no query skeleton or blocked
+    // setup/error state. Capture routes add their own reviewed heading/text
+    // requirements below before a PNG can be written.
     await page.waitForTimeout(500);
     await page.locator('[data-slot="skeleton"]').first().waitFor({
       state: "hidden",
