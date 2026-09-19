@@ -1786,6 +1786,30 @@ test("demo recycle coordinates with the legacy scheduled watchdog lock", async (
   }
 });
 
+test("demo recycle reclaims a fresh legacy lock when its recorded owner is dead", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-dead-legacy-watchdog-"));
+  const lockPath = path.join(tempDir, "watchdog.lock");
+  try {
+    await writeFile(lockPath, `${JSON.stringify({
+      owner: "service-lasso-demo-recycle",
+      pid: 4242,
+      startedAt: new Date().toISOString(),
+      ttlMs: 60_000,
+    })}\n`);
+    const acquired = await acquireLegacySchedulerLock(lockPath, {
+      ttlMs: 60_000,
+      isProcessAlive: async (pid) => {
+        assert.equal(pid, 4242);
+        return false;
+      },
+    });
+    assert.equal(acquired.acquired, true);
+    await releaseLegacySchedulerLock(lockPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("demo smoke script validates the bounded demo instance end to end", async () => {
   const demoScript = path.resolve("scripts", "demo-smoke.mjs");
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-demo-smoke-"));
