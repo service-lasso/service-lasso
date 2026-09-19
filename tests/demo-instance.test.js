@@ -62,6 +62,7 @@ import {
   prepareWorktreeProof,
   patchWorktreeDemoManifest,
   resolveWorktreeProofOptions,
+  seedAcknowledgedWorktreeProofLocalOperator,
 } from "../scripts/demo-worktree-proof.mjs";
 
 async function listenOnLoopback() {
@@ -464,6 +465,7 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
     npm_config_service_admin_port: "18124",
     npm_config_json: "true",
     npm_config_source_admin_root: "C:/tmp/service-lasso/admin",
+    npm_config_seed_acknowledged_local_operator: "true",
   });
 
   assert.equal(options.worktreeId, "issue-947");
@@ -474,6 +476,19 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
   assert.equal(options.serviceAdminPort, 18124);
   assert.equal(options.json, true);
   assert.equal(options.sourceAdminRoot, path.resolve("C:/tmp/service-lasso/admin"));
+  assert.equal(options.seedAcknowledgedLocalOperator, true);
+});
+
+test("acknowledged local-operator fixture rejects roots outside the isolated proof namespace", async () => {
+  const options = {
+    ...resolveWorktreeProofOptions(["--id=issue-1338"], {}),
+    proofRoot: path.join(os.tmpdir(), "service-lasso-proof"),
+    workspaceRoot: path.join(os.tmpdir(), "service-lasso-proof", "workspace"),
+  };
+  await assert.rejects(
+    () => seedAcknowledgedWorktreeProofLocalOperator(options),
+    /require the default isolated worktree-proof workspace/,
+  );
 });
 
 test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {
