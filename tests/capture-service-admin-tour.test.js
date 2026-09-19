@@ -3,6 +3,7 @@ import test from "node:test";
 import path from "node:path";
 
 import {
+  DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
   DEFAULT_SERVICE_ADMIN_URL,
   PASSWORD_FIELD_MASK_SELECTOR,
   READ_ONLY_AUDIT_ROUTES,
@@ -10,6 +11,7 @@ import {
   TourCaptureError,
   assertSafeRenderedText,
   buildRouteUrl,
+  dashboardPublicPolicyIsActive,
   isLoopbackUrl,
   normalizeCaptureOptions,
   passwordFieldMaskOptions,
@@ -50,6 +52,21 @@ test("capture playbook only accepts HTTP(S) roots without embedded credentials",
   assert.throws(
     () => normalizeCaptureOptions({ ...valid, baseUrl: "http://user:password@127.0.0.1:17700/" }),
     (error) => error instanceof TourCaptureError && error.code === "unsafe_url",
+  );
+});
+
+test("capture playbook accepts only the named Dashboard public-capture policy", () => {
+  const options = normalizeCaptureOptions({
+    baseUrl: DEFAULT_SERVICE_ADMIN_URL,
+    colorScheme: "dark",
+    headed: false,
+    outputDir: ".tmp/review",
+    dashboardPublicPolicy: DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
+  });
+  assert.equal(dashboardPublicPolicyIsActive(options), true);
+  assert.throws(
+    () => normalizeCaptureOptions({ ...options, dashboardPublicPolicy: "permissive-dashboard-policy" }),
+    (error) => error instanceof TourCaptureError && error.code === "unknown_dashboard_public_policy",
   );
 });
 
@@ -98,6 +115,19 @@ test("capture playbook writes only approved tour captures into public docs", () 
     selectedDocsPromotionRoutes(options).map((route) => route.id),
     ["services", "archive-overview", "help-center"],
   );
+});
+
+test("capture playbook cannot promote Dashboard until the named redaction policy is active", () => {
+  const reviewOnly = parseCaptureArguments(["--skip-audit", "--capture-limit=1"]);
+  assert.deepEqual(selectedDocsPromotionRoutes(reviewOnly).map((route) => route.id), []);
+
+  const policyActive = parseCaptureArguments([
+    "--skip-audit",
+    "--capture-limit=1",
+    `--dashboard-public-policy=${DASHBOARD_PUBLIC_CAPTURE_POLICY_ID}`,
+  ]);
+  assert.equal(dashboardPublicPolicyIsActive(policyActive), true);
+  assert.deepEqual(selectedDocsPromotionRoutes(policyActive).map((route) => route.id), ["dashboard"]);
 });
 
 test("capture playbook keeps the Services screenshot bounded to a closed column menu", () => {
