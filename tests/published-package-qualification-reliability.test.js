@@ -57,6 +57,26 @@ test("AC-4BZ.2 Windows npm install fixture classifies acquisition with zero muta
   });
 });
 
+test("AC-4BZ.2 consumer CLI and runtime probes retain their own non-retryable metadata-only phases", () => {
+  const cli = classifyQualificationFailure({
+    error: { code: QUALIFICATION_FAILURE_CODES.npm_consumer_cli },
+    mutationCount: 0,
+  });
+  assert.equal(cli.phase, QUALIFICATION_PHASES.NPM_CONSUMER_CLI);
+  assert.equal(cli.failureCode, QUALIFICATION_FAILURE_CODES.npm_consumer_cli);
+  assert.equal(cli.classification, "consumer_validation_failure");
+  assert.equal(cli.retryAllowed, false);
+
+  const runtimeProbe = classifyQualificationFailure({
+    error: { code: QUALIFICATION_FAILURE_CODES.npm_consumer_runtime_probe },
+    mutationCount: 0,
+  });
+  assert.equal(runtimeProbe.phase, QUALIFICATION_PHASES.NPM_CONSUMER_RUNTIME_PROBE);
+  assert.equal(runtimeProbe.failureCode, QUALIFICATION_FAILURE_CODES.npm_consumer_runtime_probe);
+  assert.equal(runtimeProbe.classification, "consumer_validation_failure");
+  assert.equal(runtimeProbe.retryAllowed, false);
+});
+
 test("AC-4BZ.2 macOS readiness lag uses fresh owned-process evidence and is not a product start failure", () => {
   const classified = classifyQualificationFailure(fixtures.macosReadinessLag);
   assert.equal(classified.phase, QUALIFICATION_PHASES.READINESS_SAMPLING);
