@@ -139,6 +139,7 @@ test("capture playbook rejects first-run credential and unavailable screens befo
   for (const text of [
     "Save your local-operator token",
     "Lasso-local password",
+    "Continue after saving",
     "Service Admin is unavailable",
   ]) {
     assert.throws(

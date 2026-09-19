@@ -446,7 +446,13 @@ async function establishLoopbackLocalRootSession(page, baseUrl) {
   ]).catch(() => "unknown");
 
   if (initialState === "dashboard") return;
-  if (initialState !== "local-root") throw new TourCaptureError("initial_route_not_ready");
+  if (initialState !== "local-root") {
+    // Classify a first-run or unavailable screen before reporting a generic
+    // readiness failure. This preserves the no-screenshot boundary while
+    // giving the proof workflow an actionable, metadata-only failure code.
+    await assertSafeRenderedPage(page);
+    throw new TourCaptureError("initial_route_not_ready");
+  }
   if (!isLoopbackUrl(baseUrl)) throw new TourCaptureError("authentication_required");
 
   // Loopback local-root is a local role selection, not a credential entry. It
