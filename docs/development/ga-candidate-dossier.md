@@ -34,3 +34,14 @@ The reviewer must be independent of the implementation and delivery work. They
 must record **approved**, **not approved**, or **blocked** against the exact
 candidate above, explain the rationale, and require re-review if any candidate
 or evidence line changes. On this record, no GA approval is supportable.
+
+### Reviewer-routing status
+
+On 2026-09-19, `.github/CODEOWNERS` assigned every relevant Core path to
+`@wildone`, who also authored the delivery PRs and this dossier. That ownership
+entry therefore cannot supply the required independent decision. No individual
+independent reviewer has been nominated, requested, or accepted the review for
+#1321. A release owner must nominate an external reviewer or organization that
+can state its independence, review the exact candidate and evidence records,
+and record its name, date, decision, and residual findings. The delivery owner
+must not fill that role or infer its decision.
