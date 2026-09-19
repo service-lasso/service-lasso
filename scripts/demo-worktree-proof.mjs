@@ -1,6 +1,7 @@
 import net from "node:net";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { randomBytes } from "node:crypto";
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import {
@@ -71,6 +72,10 @@ function hasFlag(args, name) {
 function slugify(value) {
   const slug = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return slug || "worktree";
+}
+
+function isSamePath(left, right) {
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
 }
 
 async function commandOutput(command, args) {
@@ -153,6 +158,7 @@ export function resolveWorktreeProofOptions(args = process.argv.slice(2), env = 
     portRangeEnd: parseNumber(parseFlag(args, "port-range-end") ?? parseNpmConfigValue(env, "port-range-end") ?? env.SERVICE_LASSO_WORKTREE_PORT_RANGE_END, defaultPortRangeEnd),
     replace: hasFlag(args, "replace") || parseNpmBooleanFlag(env, "replace") || env.SERVICE_LASSO_WORKTREE_PROOF_REPLACE === "1",
     preserveState: hasFlag(args, "preserve-state") || parseNpmBooleanFlag(env, "preserve-state"),
+    seedAcknowledgedLocalOperator: hasFlag(args, "seed-acknowledged-local-operator") || parseNpmBooleanFlag(env, "seed-acknowledged-local-operator"),
     json: hasFlag(args, "json") || parseNpmBooleanFlag(env, "json"),
   };
 }
@@ -227,6 +233,34 @@ export async function patchWorktreeDemoServicesRoot({ servicesRoot, runtimeUrl, 
   }
 }
 
+/**
+ * Seeds only hashed, disposable post-onboarding state for an explicitly named
+ * worktree proof. It never invokes the acknowledgement route or writes a
+ * plaintext first-run envelope, so it cannot attest that an operator saved a
+ * credential.
+ */
+export async function seedAcknowledgedWorktreeProofLocalOperator(options) {
+  const expectedProofRoot = path.join(defaultDemoWorkspaceRoot, "worktree-proof", options.worktreeId);
+  const expectedWorkspaceRoot = path.join(expectedProofRoot, "workspace");
+  if (!isSamePath(options.proofRoot, expectedProofRoot) || !isSamePath(options.workspaceRoot, expectedWorkspaceRoot)) {
+    throw new Error("Acknowledged local-operator proof fixtures require the default isolated worktree-proof workspace.");
+  }
+  const { writeLocalOperatorAuthState } = await import(
+    pathToFileURL(path.join(repoRoot, "dist", "runtime", "auth", "local-auth-store.js")).href,
+  );
+  await writeLocalOperatorAuthState(options.workspaceRoot, {
+    token: randomBytes(32).toString("base64url"),
+    password: randomBytes(32).toString("base64url"),
+    credentialsAcknowledged: true,
+    persistPlaintextEnvelope: false,
+  });
+  return {
+    mode: "isolated_post_onboarding_hash_only",
+    credentialsAcknowledged: true,
+    plaintextPersisted: false,
+  };
+}
+
 function quote(value) {
   return `"${String(value).replaceAll('"', '\\"')}"`;
 }
@@ -258,6 +292,9 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
     ports,
     sourceAdmin: Boolean(options.sourceAdminRoot),
   });
+  const localOperatorFixture = options.seedAcknowledgedLocalOperator
+    ? await seedAcknowledgedWorktreeProofLocalOperator(options)
+    : null;
 
   const [branch, commit] = await Promise.all([
     commandOutput("git", ["branch", "--show-current"]),
@@ -275,6 +312,7 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
       command: `pnpm --dir ${quote(options.sourceAdminRoot)} exec vite --host ${options.bindHost} --port ${ports.serviceAdmin} --strictPort`,
     } : null,
     urls: { runtime: runtimeUrl, serviceAdmin: serviceAdminUrl },
+    localOperatorFixture,
     ports,
     paths: {
       proofRoot: options.proofRoot,
