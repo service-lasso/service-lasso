@@ -550,24 +550,30 @@ async function runNpmConsumerSmoke({ npmTarball, consumerRoot, version, state })
   );
   await runNpmInstallWithRetry(npmTarball, consumerRoot, state);
   const packageRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
-  const packageJson = await readJsonFile(path.join(packageRoot, "package.json"), "installed npm package.json");
-  const publishManifest = await readJsonFile(
-    path.join(packageRoot, "publish-artifact.json"),
-    "installed npm publish manifest",
-  );
-  if (
-    packageJson.name !== PACKAGE_NAME ||
-    packageJson.version !== version ||
-    publishManifest.version !== version ||
-    publishManifest.artifactKind !== "bounded-npm-publish-payload"
-  ) {
-    fail("installed_npm_identity_mismatch", "Installed npm package identity is invalid.");
-  }
-  const cli = path.join(packageRoot, "cli.js");
-  const cliVersion = await runCommand(process.execPath, [cli, "--version"], { cwd: consumerRoot });
-  const cliHelp = await runCommand(process.execPath, [cli, "help"], { cwd: consumerRoot });
-  if (cliVersion.stdout.trim() !== version || !cliHelp.stdout.includes("service-lasso")) {
-    fail("installed_npm_cli_mismatch", "Installed npm CLI identity is invalid.");
+  let cli;
+  try {
+    const packageJson = await readJsonFile(path.join(packageRoot, "package.json"), "installed npm package.json");
+    const publishManifest = await readJsonFile(
+      path.join(packageRoot, "publish-artifact.json"),
+      "installed npm publish manifest",
+    );
+    if (
+      packageJson.name !== PACKAGE_NAME ||
+      packageJson.version !== version ||
+      publishManifest.version !== version ||
+      publishManifest.artifactKind !== "bounded-npm-publish-payload"
+    ) {
+      fail("npm_consumer_cli_failed", "Installed npm consumer identity is invalid.");
+    }
+    cli = path.join(packageRoot, "cli.js");
+    const cliVersion = await runCommand(process.execPath, [cli, "--version"], { cwd: consumerRoot });
+    const cliHelp = await runCommand(process.execPath, [cli, "help"], { cwd: consumerRoot });
+    if (cliVersion.stdout.trim() !== version || !cliHelp.stdout.includes("service-lasso")) {
+      fail("npm_consumer_cli_failed", "Installed npm consumer CLI identity is invalid.");
+    }
+  } catch (error) {
+    if (error?.code === "npm_consumer_cli_failed") throw error;
+    fail("npm_consumer_cli_failed", "Installed npm consumer CLI validation failed.");
   }
 
   const servicesRoot = path.join(consumerRoot, "services");
@@ -589,7 +595,11 @@ async function runNpmConsumerSmoke({ npmTarball, consumerRoot, version, state })
       "",
     ].join("\n"),
   );
-  await runCommand(process.execPath, [probePath], { cwd: consumerRoot });
+  try {
+    await runCommand(process.execPath, [probePath], { cwd: consumerRoot });
+  } catch {
+    fail("npm_consumer_runtime_probe_failed", "Installed npm consumer runtime probe failed.");
+  }
 }
 
 async function appendGithubEnv(values) {

@@ -15,10 +15,10 @@
 
 import process from "node:process";
 
-/** @typedef {"npm_acquisition" | "core_startup" | "admin_startup" | "broker_startup" | "readiness_sampling" | "owned_cleanup"} QualificationPhase */
+/** @typedef {"npm_acquisition" | "npm_consumer_cli" | "npm_consumer_runtime_probe" | "core_startup" | "admin_startup" | "broker_startup" | "readiness_sampling" | "owned_cleanup"} QualificationPhase */
 /** @typedef {"running" | "not_running" | "unknown"} OwnedProcessStatus */
 /** @typedef {"owned" | "not_running" | "identity_mismatch" | "unknown_owner"} OwnedProcessClassification */
-/** @typedef {"acquisition_failure" | "startup_failure" | "readiness_lag" | "product_start_failure" | "cleanup_failure"} QualificationClassification */
+/** @typedef {"acquisition_failure" | "consumer_validation_failure" | "startup_failure" | "readiness_lag" | "product_start_failure" | "cleanup_failure"} QualificationClassification */
 
 /**
  * @typedef {object} OwnedProcessEvidence
@@ -43,6 +43,8 @@ import process from "node:process";
 
 export const QUALIFICATION_PHASES = Object.freeze({
   NPM_ACQUISITION: "npm_acquisition",
+  NPM_CONSUMER_CLI: "npm_consumer_cli",
+  NPM_CONSUMER_RUNTIME_PROBE: "npm_consumer_runtime_probe",
   CORE_STARTUP: "core_startup",
   ADMIN_STARTUP: "admin_startup",
   BROKER_STARTUP: "broker_startup",
@@ -52,6 +54,8 @@ export const QUALIFICATION_PHASES = Object.freeze({
 
 export const QUALIFICATION_PHASE_LIST = Object.freeze([
   QUALIFICATION_PHASES.NPM_ACQUISITION,
+  QUALIFICATION_PHASES.NPM_CONSUMER_CLI,
+  QUALIFICATION_PHASES.NPM_CONSUMER_RUNTIME_PROBE,
   QUALIFICATION_PHASES.CORE_STARTUP,
   QUALIFICATION_PHASES.ADMIN_STARTUP,
   QUALIFICATION_PHASES.BROKER_STARTUP,
@@ -68,6 +72,8 @@ export const PRE_MUTATION_RETRY_PHASES = Object.freeze([
 
 export const QUALIFICATION_FAILURE_CODES = Object.freeze({
   npm_acquisition: "npm_acquisition_failed",
+  npm_consumer_cli: "npm_consumer_cli_failed",
+  npm_consumer_runtime_probe: "npm_consumer_runtime_probe_failed",
   core_startup: "core_startup_failed",
   admin_startup: "admin_startup_failed",
   broker_startup: "broker_startup_failed",
@@ -240,6 +246,12 @@ function resolvePhase(errorCode, fallbackPhase) {
   if (isQualificationPhase(fallbackPhase)) return fallbackPhase;
   if (errorCode === QUALIFICATION_FAILURE_CODES.npm_acquisition || errorCode === "npm_install_failed") {
     return QUALIFICATION_PHASES.NPM_ACQUISITION;
+  }
+  if (errorCode === QUALIFICATION_FAILURE_CODES.npm_consumer_cli) {
+    return QUALIFICATION_PHASES.NPM_CONSUMER_CLI;
+  }
+  if (errorCode === QUALIFICATION_FAILURE_CODES.npm_consumer_runtime_probe) {
+    return QUALIFICATION_PHASES.NPM_CONSUMER_RUNTIME_PROBE;
   }
   if (errorCode === "secrets_broker_process_start_failed" || errorCode === QUALIFICATION_FAILURE_CODES.broker_startup) {
     return QUALIFICATION_PHASES.BROKER_STARTUP;
@@ -428,6 +440,26 @@ export function classifyQualificationFailure(input) {
       mutationCount,
       retryAllowed: retry.allowed,
       retryReason: retry.reason,
+      ownedProcess,
+      expectedBodyMatched,
+      sampledRunning,
+      httpStatus,
+    };
+  }
+
+  if (
+    phase === QUALIFICATION_PHASES.NPM_CONSUMER_CLI ||
+    phase === QUALIFICATION_PHASES.NPM_CONSUMER_RUNTIME_PROBE
+  ) {
+    return {
+      phase,
+      failureCode: phase === QUALIFICATION_PHASES.NPM_CONSUMER_CLI
+        ? QUALIFICATION_FAILURE_CODES.npm_consumer_cli
+        : QUALIFICATION_FAILURE_CODES.npm_consumer_runtime_probe,
+      classification: "consumer_validation_failure",
+      mutationCount,
+      retryAllowed: false,
+      retryReason: "retry_not_allowed_for_phase",
       ownedProcess,
       expectedBodyMatched,
       sampledRunning,

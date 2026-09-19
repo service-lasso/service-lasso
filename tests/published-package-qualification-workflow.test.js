@@ -150,6 +150,9 @@ test("AC-4BZ.1 preparation verifies every downloaded identity before creating th
   assert.match(source, /invokeCoreInstall\(coreRoot, "@serviceadmin"/);
   assert.match(source, /invokeCoreInstall\(coreRoot, "@secretsbroker"/);
   assert.match(source, /runNpmInstallWithRetry\(/);
+  assert.match(source, /npm_consumer_cli_failed/);
+  assert.match(source, /npm_consumer_runtime_probe_failed/);
+  assert.doesNotMatch(source, /safeState\.[^;\n]*(?:stdout|stderr)|(?:stdout|stderr)[^;\n]*safeState\./u);
   assert.match(source, /timeoutMs = 30_000/);
   assert.match(source, /classifyReadinessSample\(/);
   assert.doesNotMatch(source, /npm ci|npm run build/iu);
