@@ -108,10 +108,14 @@ routes. Password controls were masked by Playwright before each PNG write.
 The Services, Archive Utility Provider overview, and Help Center images were
 visually reviewed and copied by the runner into
 `docs/static/img/service-admin-tour/`; the UI guide embeds those three assets.
-The Dashboard PNG remains review-only and is not copied into public docs,
-because its live allocation/generation data does not have an approved
-non-password redaction rule. This capture proves those rendered UI routes only;
-it is not a GA, security-review, or broad runtime-acceptance claim.
+The Dashboard PNG remains unpublished in this historical record because it was
+captured before the non-password policy proposed by Core #1322 existed. That
+policy defines the fail-closed [`dashboard-public-safe-v1` boundary](dashboard-public-capture-policy.md): it masks every Dashboard value except the static `Dashboard` and
+`Runtime health` labels, records policy activation in the receipt, and refuses
+to promote the frame unless the exact policy identifier is selected. A fresh
+clean-environment capture and independent visual review remain required; no
+Dashboard image is published by this record. This capture proves rendered UI
+routes only; it is not a GA, security-review, or broad runtime-acceptance claim.
 
 ## Refresh captures
 
@@ -143,7 +147,7 @@ routes:
 
 | Asset name | Route | Required state |
 | --- | --- | --- |
-| `dashboard.png` | `/` | Dashboard and Runtime health visible |
+| `dashboard.png` | `/` | Dashboard and Runtime health visible; public promotion additionally requires `dashboard-public-safe-v1` |
 | `services.png` | `/services` | Services table rendered; the Links column is hidden |
 | `archive-overview.png` | `/services/%40archive` | Archive Utility Provider Overview visible |
 | `help-center.png` | `/help-center` | Help Center and local-docs notice visible |
@@ -195,11 +199,20 @@ selected audit and every selected capture pass:
 npm run capture:service-admin-tour -- --url=http://127.0.0.1:17700/
 ```
 
-The Dashboard is still captured for review but is not promoted: its live
-allocation/generation content needs an approved non-password redaction rule.
-Commit the regenerated assets and the updated manifest through the normal docs
-PR. A successful capture run is UI evidence for its four routes only; it is not
-a GA, security-review, or broad runtime-acceptance claim.
+Dashboard is review-only by default. To make it eligible for public promotion,
+use the exact [`dashboard-public-safe-v1` policy](dashboard-public-capture-policy.md)
+against a clean owned environment after the full audit:
+
+```powershell
+npm run capture:service-admin-tour -- --url=http://127.0.0.1:17700/ --dashboard-public-policy=dashboard-public-safe-v1
+```
+
+The runner replaces every Dashboard text value except the static `Dashboard`
+and `Runtime health` labels with `[REDACTED]` before it writes the PNG. Inspect
+the resulting PNG and receipt independently for prohibited content before
+committing. Commit the regenerated assets and the updated manifest through the
+normal docs PR. A successful capture run is UI evidence for its four routes
+only; it is not a GA, security-review, or broad runtime-acceptance claim.
 
 Replace this record with verified, readable browser captures only after the
 generated runtime gate and verifier both succeed.

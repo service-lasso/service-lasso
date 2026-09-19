@@ -14,6 +14,15 @@ export const TOUR_VIEWPORT = Object.freeze({ width: 1512, height: 982 });
 export const DEFAULT_SERVICE_ADMIN_URL = "http://127.0.0.1:17700/";
 export const DEFAULT_COLOR_SCHEME = "dark";
 export const ROUTE_RENDER_TIMEOUT_MS = 8_000;
+export const DASHBOARD_PUBLIC_CAPTURE_POLICY_ID = "dashboard-public-safe-v1";
+export const DASHBOARD_PUBLIC_CAPTURE_POLICY = Object.freeze({
+  id: DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
+  // These labels describe the surface without exposing a runtime-specific
+  // value. Every other Dashboard text node is made unreadable in the public
+  // frame, including health/count/allocation/generation values and alerts.
+  publicSafeLabels: Object.freeze(["Dashboard", "Runtime health"]),
+  redaction: "mask-all-dashboard-text-except-allowlisted-static-labels",
+});
 // Playwright applies this mask immediately before it writes a PNG. Keep the
 // selector limited to password controls: it is a safety net for credentials,
 // not a substitute for reviewing other sensitive UI data.
@@ -30,6 +39,7 @@ export const TOUR_ROUTES = Object.freeze([
     pathname: "/",
     heading: "Dashboard",
     requiredText: "Runtime health",
+    publicPromotionPolicy: DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
   },
   {
     id: "services",
@@ -155,6 +165,7 @@ export function parseCaptureArguments(args, { now = new Date() } = {}) {
     captureLimit: null,
     auditStart: 0,
     auditLimit: null,
+    dashboardPublicPolicy: null,
     promoteToDocs: true,
     outputDir: path.join(".tmp", "service-admin-tour", timestamp(now)),
   };
@@ -173,7 +184,7 @@ export function parseCaptureArguments(args, { now = new Date() } = {}) {
       options.auditLimit = 0;
       continue;
     }
-    if (argument === "--url" || argument === "--output-dir" || argument === "--color-scheme" || argument === "--audit-start" || argument === "--audit-limit" || argument === "--capture-start" || argument === "--capture-limit") {
+    if (argument === "--url" || argument === "--output-dir" || argument === "--color-scheme" || argument === "--audit-start" || argument === "--audit-limit" || argument === "--capture-start" || argument === "--capture-limit" || argument === "--dashboard-public-policy") {
       const value = requireArgumentValue(args, index, argument.slice(2));
       index += 1;
       if (argument === "--url") options.baseUrl = value;
@@ -183,6 +194,7 @@ export function parseCaptureArguments(args, { now = new Date() } = {}) {
       if (argument === "--audit-limit") options.auditLimit = Number(value);
       if (argument === "--capture-start") options.captureStart = Number(value);
       if (argument === "--capture-limit") options.captureLimit = Number(value);
+      if (argument === "--dashboard-public-policy") options.dashboardPublicPolicy = value;
       continue;
     }
     if (argument.startsWith("--url=")) {
@@ -213,6 +225,10 @@ export function parseCaptureArguments(args, { now = new Date() } = {}) {
       options.captureLimit = Number(argument.slice("--capture-limit=".length));
       continue;
     }
+    if (argument.startsWith("--dashboard-public-policy=")) {
+      options.dashboardPublicPolicy = argument.slice("--dashboard-public-policy=".length);
+      continue;
+    }
     throw new TourCaptureError("unknown_argument");
   }
 
@@ -224,6 +240,7 @@ export function normalizeCaptureOptions(options) {
   const auditLimit = options.auditLimit ?? null;
   const captureStart = options.captureStart ?? 0;
   const captureLimit = options.captureLimit ?? null;
+  const dashboardPublicPolicy = options.dashboardPublicPolicy ?? null;
   let parsedUrl;
   try {
     parsedUrl = new URL(options.baseUrl);
@@ -249,6 +266,9 @@ export function normalizeCaptureOptions(options) {
   if (captureLimit !== null && (!Number.isInteger(captureLimit) || captureLimit < 0)) {
     throw new TourCaptureError("invalid_capture_limit");
   }
+  if (dashboardPublicPolicy !== null && dashboardPublicPolicy !== DASHBOARD_PUBLIC_CAPTURE_POLICY_ID) {
+    throw new TourCaptureError("unknown_dashboard_public_policy");
+  }
 
   const outputDir = path.resolve(repoRoot, options.outputDir);
   const docsStaticPrefix = `${docsStaticRoot}${path.sep}`;
@@ -262,6 +282,7 @@ export function normalizeCaptureOptions(options) {
     auditLimit,
     captureStart,
     captureLimit,
+    dashboardPublicPolicy,
     baseUrl: new URL("/", parsedUrl).toString(),
     outputDir,
   };
@@ -281,7 +302,10 @@ export function selectedCaptureRoutes(options) {
 }
 
 export function selectedDocsPromotionRoutes(options) {
-  return selectedCaptureRoutes(options).filter((route) => route.promoteToDocs);
+  return selectedCaptureRoutes(options).filter((route) => (
+    route.promoteToDocs === true
+    || route.publicPromotionPolicy === options.dashboardPublicPolicy
+  ));
 }
 
 export function buildRouteUrl(baseUrl, pathname) {
@@ -302,6 +326,54 @@ export function passwordFieldMaskOptions(page) {
     mask: [page.locator(PASSWORD_FIELD_MASK_SELECTOR)],
     maskColor: "#111827",
   };
+}
+
+export function dashboardPublicPolicyIsActive(options) {
+  return options.dashboardPublicPolicy === DASHBOARD_PUBLIC_CAPTURE_POLICY_ID;
+}
+
+export async function applyDashboardPublicRedaction(page) {
+  const result = await page.evaluate((policy) => {
+    const root = document.querySelector("main");
+    if (!root) return { applied: false, allowlistedLabelCount: 0 };
+
+    // Mark only leaf elements whose whole visible label is in the policy.
+    // This intentionally leaves values in compound label/value elements masked.
+    const allowed = new Set(policy.publicSafeLabels);
+    const elements = [...root.querySelectorAll("*")];
+    let allowlistedLabelCount = 0;
+    for (const element of elements) {
+      const text = element.textContent?.replace(/\\s+/g, " ").trim();
+      if (!text || !allowed.has(text)) continue;
+      if ([...element.children].some((child) => child.textContent?.replace(/\\s+/g, " ").trim())) continue;
+      element.setAttribute("data-dashboard-public-capture-label", "true");
+      allowlistedLabelCount += 1;
+    }
+
+    // Replace every remaining visible text node instead of relying on a CSS
+    // colour mask. This also covers SVG text and values that inherit a custom
+    // colour, and leaves an explicit safe marker for visual review.
+    const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = textNodes.nextNode();
+    while (node) {
+      const parent = node.parentElement;
+      if (!parent?.closest('[data-dashboard-public-capture-label="true"]')) {
+        node.textContent = "[REDACTED]";
+      }
+      node = textNodes.nextNode();
+    }
+    const residualText = root.innerText
+      .split(/\\n+/)
+      .map((value) => value.replace(/\\s+/g, " ").trim())
+      .filter((value) => value && value !== "[REDACTED]" && !allowed.has(value));
+    if (residualText.length > 0) return { applied: false, allowlistedLabelCount };
+    return { applied: true, allowlistedLabelCount };
+  }, DASHBOARD_PUBLIC_CAPTURE_POLICY);
+
+  if (!result.applied || result.allowlistedLabelCount < DASHBOARD_PUBLIC_CAPTURE_POLICY.publicSafeLabels.length) {
+    throw new TourCaptureError("dashboard_public_redaction_not_applied");
+  }
+  return result;
 }
 
 export function assertSafeRenderedText(text) {
@@ -374,7 +446,13 @@ async function establishLoopbackLocalRootSession(page, baseUrl) {
   ]).catch(() => "unknown");
 
   if (initialState === "dashboard") return;
-  if (initialState !== "local-root") throw new TourCaptureError("initial_route_not_ready");
+  if (initialState !== "local-root") {
+    // Classify a first-run or unavailable screen before reporting a generic
+    // readiness failure. This preserves the no-screenshot boundary while
+    // giving the proof workflow an actionable, metadata-only failure code.
+    await assertSafeRenderedPage(page);
+    throw new TourCaptureError("initial_route_not_ready");
+  }
   if (!isLoopbackUrl(baseUrl)) throw new TourCaptureError("authentication_required");
 
   // Loopback local-root is a local role selection, not a credential entry. It
@@ -446,6 +524,12 @@ async function promoteCapturedImages(capture, receipt) {
   if (routes.length === 0) return;
   await mkdir(docsTourAssetDirectory, { recursive: true });
   for (const route of routes) {
+    if (route.publicPromotionPolicy && (
+      receipt.dashboardPublicRedaction?.policy !== route.publicPromotionPolicy
+      || receipt.dashboardPublicRedaction?.active !== true
+    )) {
+      throw new TourCaptureError("dashboard_policy_not_active");
+    }
     const imageName = `${route.id}.png`;
     await copyFile(
       path.join(capture.outputDir, imageName),
@@ -480,6 +564,12 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
       total: TOUR_ROUTES.length,
     },
     passwordFieldMasking: "playwright-native-password-controls",
+    dashboardPublicRedaction: {
+      policy: capture.dashboardPublicPolicy,
+      active: false,
+      method: capture.dashboardPublicPolicy === null ? "review-only" : DASHBOARD_PUBLIC_CAPTURE_POLICY.redaction,
+      allowlistedLabels: [...DASHBOARD_PUBLIC_CAPTURE_POLICY.publicSafeLabels],
+    },
     promotion: "approved-tour-routes",
     promotedAssets: [],
     auditedRoutes: [],
@@ -524,6 +614,16 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
         receipt.inFlightRoute = route.pathname;
         await writeReceipt(capture.outputDir, receipt);
         await waitForCaptureRoute(page, capture.baseUrl, route);
+        if (route.publicPromotionPolicy && dashboardPublicPolicyIsActive(capture)) {
+          const redaction = await applyDashboardPublicRedaction(page);
+          receipt.dashboardPublicRedaction = {
+            policy: route.publicPromotionPolicy,
+            active: true,
+            method: DASHBOARD_PUBLIC_CAPTURE_POLICY.redaction,
+            allowlistedLabels: [...DASHBOARD_PUBLIC_CAPTURE_POLICY.publicSafeLabels],
+            allowlistedLabelCount: redaction.allowlistedLabelCount,
+          };
+        }
         // Let the route-specific control update and its final paint settle
         // before freezing a documentation frame.
         await page.waitForTimeout(500);
@@ -572,14 +672,18 @@ Options:
   --capture-limit <number>     Capture no more than this many reviewed routes
   --audit-start <number>       Start a bounded audit batch at this route index
   --audit-limit <number>       Audit no more than this many routes
+  --dashboard-public-policy <id>
+                                Apply the named Dashboard redaction policy
 
 On a loopback URL it can select the local-root role in its fresh browser context.
 It refuses setup, authentication-required, unavailable, and skeleton states.
 It masks password controls before each PNG and does not enter credentials,
 reveal values, or call lifecycle actions. After the selected audit and all
 selected captures pass, it copies approved route captures into docs/static.
-Dashboard capture remains review-only until its non-password operational data
-has an approved redaction policy.
+Dashboard remains review-only unless ${DASHBOARD_PUBLIC_CAPTURE_POLICY_ID} is
+selected. That policy replaces Dashboard text with [REDACTED] except the
+allowlisted static labels before the PNG is written; it still requires visual
+review.
 `;
 
 async function main() {
