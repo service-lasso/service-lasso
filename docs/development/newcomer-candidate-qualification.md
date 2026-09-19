@@ -24,9 +24,9 @@ candidate, elapsed observations, rendered Admin proof, and owned-cleanup result.
 
 | Platform | Clean install/setup | Demo and visible Admin | Safe app outcome | Failure/recovery and restart | Secret boundary | Cleanup | Classification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Windows | Not run | Not run | Not run | Not run | Not run | Not run | Deferred |
-| Linux | Not run | Not run | Not run | Not run | Not run | Not run | Deferred |
-| macOS | Not run | Not run | Not run | Not run | Not run | Not run | Deferred |
+| Windows | Existing development machine is not clean-machine evidence; [#1328](https://github.com/service-lasso/service-lasso/issues/1328) | — | — | — | — | — | Blocked |
+| Linux | Shared stopped WSL environments are not an authorized clean candidate environment; [#1329](https://github.com/service-lasso/service-lasso/issues/1329) | — | — | — | — | — | Blocked |
+| macOS | No host or remote connection is available; [#1330](https://github.com/service-lasso/service-lasso/issues/1330) | — | — | — | — | — | Blocked |
 
 Do not replace a platform row with CI, an API response, a source build, or a
 result from another operating system. If a platform is unavailable, change only
