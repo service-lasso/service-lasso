@@ -285,13 +285,18 @@ test("install and config materialize bounded on-disk artifacts and persist them 
       "runtime/materialized-service.templated.env",
     ]);
     assert.equal(typeof config.body.state.configArtifacts.updatedAt, "string");
+    // A preferred port may be occupied by another concurrent test/runtime.
+    // Materialization must use the negotiated runtime port, not blindly retain
+    // the manifest preference.
+    const assignedServicePort = config.body.state.runtime.ports.service;
+    assert.equal(typeof assignedServicePort, "number");
     assert.equal(
       await readFile(configPath, "utf8"),
-      `SERVICE_PORT=41234\nSERVICE_ROOT=${serviceRoot}\n`,
+      `SERVICE_PORT=${assignedServicePort}\nSERVICE_ROOT=${serviceRoot}\n`,
     );
     assert.equal(
       await readFile(templatedConfigPath, "utf8"),
-      "TEMPLATE_SERVICE=materialized-service\nTEMPLATE_PORT=41234\n",
+      `TEMPLATE_SERVICE=materialized-service\nTEMPLATE_PORT=${assignedServicePort}\n`,
     );
     assert.deepEqual(stored.install.files, ["runtime/install.txt"]);
     assert.deepEqual(stored.config.files, [
