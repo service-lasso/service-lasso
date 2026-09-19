@@ -247,6 +247,7 @@ const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
 const WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES = 128;
 let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
+let managedProcessTreeMonitor = monitorManagedProcessTree;
 let managedProcessRootInspector = inspectProcess;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
@@ -264,6 +265,15 @@ export function setManagedProcessTreeTerminatorForTests(
     throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessTreeTerminator = terminator ?? terminateOwnedProcessTree;
+}
+
+export function setManagedProcessTreeMonitorForTests(
+  monitor: typeof monitorManagedProcessTree | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessTreeMonitor = monitor ?? monitorManagedProcessTree;
 }
 
 export function setManagedProcessRootInspectorForTests(
@@ -1373,12 +1383,9 @@ async function terminateManagedProcessTree(
     }
 
     const attempt = (async () => {
-      if (record.stopping) {
-        await withProcessControlDeadline(
-          async () => await record.treeMonitorPromise,
-          { deadlineMs },
-        );
-      }
+      // The aborted monitor may still be returning from a native inspection.
+      // It only reads and refreshes a snapshot; termination must retain the
+      // full caller-owned deadline rather than wait for that work to unwind.
       return await withProcessControlDeadline(
         async (signal) => {
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
@@ -1639,10 +1646,9 @@ export async function beginManagedProcessStop(
     }
     record.stopping = true;
     record.treeMonitorAbortController.abort();
-    await withProcessControlDeadline(
-      async () => await record.treeMonitorPromise,
-      { deadlineMs: record.stopDeadlineMs ?? deadlineMs },
-    );
+    // This monitor only maintains a best-effort tree snapshot. Its in-flight
+    // native inspection has its own timeout, so waiting for it here could
+    // consume the caller-owned deadline before authoritative termination starts.
     if (record.workspaceRoot && !record.stoppingPersisted) {
       await withProcessControlDeadline(
         async () => await transitionProcessOwnership(
@@ -1664,13 +1670,8 @@ export async function beginManagedProcessStop(
   if (adopted) {
     adopted.stopping = true;
     adopted.monitorAbortController.abort();
-    const monitor = managedProcessFinalizers.get(serviceId);
-    if (monitor) {
-      await withProcessControlDeadline(
-        async () => await monitor.promise,
-        { deadlineMs },
-      );
-    }
+    // As above, cancellation requests monitor quiescence without allowing a
+    // best-effort inspection to spend the stop operation's deadline.
     if (!adopted.stoppingPersisted) {
       await withProcessControlDeadline(
         async () => await transitionProcessOwnership(
@@ -1919,7 +1920,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     }
     managedRecordActivated = true;
     managedProcesses.set(serviceId, record);
-    record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
+    record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
     const logFinalizePromise = record.finalizePromise;
     const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
       const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0

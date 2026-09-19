@@ -37,6 +37,7 @@ import {
   setManagedProcessPostResumeDelayForTests,
   setManagedProcessSpawnTimeoutForTests,
   setManagedProcessSpawnerForTests,
+  setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
   setWindowsManagedLauncherPathForTests,
   startManagedProcess,
@@ -2506,6 +2507,50 @@ test("Windows guarded launch refuses an executable that is not bound to approved
     assert.equal(stopped.pid, null);
   } finally {
     await stopManagedProcess("launch-unbound-executable-service", 10_000).catch(() => null);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows managed stop preserves its deadline while a canceled tree monitor unwinds", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-stop-monitor-deadline-");
+  let releaseMonitor;
+  let handle;
+
+  try {
+    await writeExecutableFixtureService(servicesRoot, "stop-monitor-deadline-service");
+    let markMonitorStarted;
+    const monitorStarted = new Promise((resolve) => {
+      markMonitorStarted = resolve;
+    });
+    setManagedProcessTreeMonitorForTests(async () => {
+      markMonitorStarted();
+      await new Promise((resolve) => {
+        releaseMonitor = resolve;
+      });
+    });
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await monitorStarted;
+
+    await stopManagedProcess("stop-monitor-deadline-service", 5_000);
+    assert.equal(hasManagedProcess("stop-monitor-deadline-service"), false);
+  } finally {
+    releaseMonitor?.();
+    setManagedProcessTreeMonitorForTests(null);
+    await stopManagedProcess("stop-monitor-deadline-service", 10_000).catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
