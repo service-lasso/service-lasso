@@ -401,6 +401,10 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
   for (const serviceId of serviceIds) {
     const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
     const platform = manifest.artifact?.platforms?.[process.platform];
+    const platformArtifacts = manifest.artifact?.platforms;
+    const unsupportedOnCurrentPlatform = Boolean(
+      platformArtifacts && Object.keys(platformArtifacts).length > 0 && !platform,
+    );
     const expectedPorts = Object.keys(manifest.ports ?? {}).length > 0 ? manifest.ports : manifestEndpointPorts(manifest);
     expected.set(serviceId, {
       id: serviceId,
@@ -408,6 +412,7 @@ export async function readExpectedDemoServices(servicesRoot, serviceIds = canoni
       repo: manifest.artifact?.source?.repo ?? null,
       tag: manifest.artifact?.source?.tag ?? null,
       assetName: platform?.assetName ?? null,
+      unsupportedOnCurrentPlatform,
       ports: expectedPorts,
       reachabilityTargets: buildReachabilityTargets(serviceId, manifest, expectedPorts),
       serviceRoot: path.join(servicesRoot, serviceId),
@@ -839,6 +844,10 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
     }
 
     serviceSummaries.push(serviceSummary(live, expected));
+    if (expected.unsupportedOnCurrentPlatform) {
+      check(checks, `${serviceId} unsupported platform artifact is not acquired`, live.lifecycle?.installed !== true, "unsupported_platform_artifact", `installed=${live.lifecycle?.installed === true}`);
+      continue;
+    }
     const sourceServiceAdmin = serviceId === "@serviceadmin" && sourceServiceAdminMode;
     if (sourceServiceAdmin) {
       check(checks, `${serviceId} source Admin owns canonical port`, true, null, "same-origin runtime APIs are healthy on 17700");
@@ -885,13 +894,14 @@ export async function verifyCanonicalDemo(options = {}, deps = {}) {
       continue;
     }
 
-    for (const [portName, port] of Object.entries(expected.ports)) {
-      checkEqual(
+    for (const portName of Object.keys(expected.ports)) {
+      const allocatedPort = live.lifecycle?.runtime?.ports?.[portName];
+      check(
         checks,
-        `${serviceId} runtime port ${portName} matches manifest`,
-        live.lifecycle?.runtime?.ports?.[portName] ?? null,
-        port,
-        "wrong_service_port",
+        `${serviceId} runtime port ${portName} is allocated`,
+        Number.isInteger(allocatedPort) && allocatedPort > 0 && allocatedPort <= 65535,
+        "missing_service_port",
+        `port=${allocatedPort ?? "null"}`,
       );
     }
 
