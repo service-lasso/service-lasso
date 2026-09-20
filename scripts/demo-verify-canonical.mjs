@@ -1,8 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   canonicalDemoRequiredServiceIds,
   defaultDemoServicesRoot,
@@ -183,7 +181,7 @@ async function fetchMcpJsonRpc(url, request, fetchImpl, timeoutMs) {
 }
 
 async function connectCanonicalMcpClient(url, deps, timeoutMs) {
-  if (deps.fetch) {
+  const fetchImpl = deps.fetch ?? fetch;
     const initialization = await fetchMcpJsonRpc(url, {
       jsonrpc: "2.0",
       id: "canonical-initialize",
@@ -193,7 +191,7 @@ async function connectCanonicalMcpClient(url, deps, timeoutMs) {
         capabilities: {},
         clientInfo: { name: "service-lasso-canonical-verifier", version: "1.0.0" },
       },
-    }, deps.fetch, timeoutMs);
+    }, fetchImpl, timeoutMs);
     if (!initialization.ok || typeof initialization.body?.result?.protocolVersion !== "string") {
       throw new Error("Canonical MCP fixture initialization failed.");
     }
@@ -201,10 +199,10 @@ async function connectCanonicalMcpClient(url, deps, timeoutMs) {
       jsonrpc: "2.0",
       method: "notifications/initialized",
       params: {},
-    }, deps.fetch, timeoutMs);
+    }, fetchImpl, timeoutMs);
     if (!initialized.ok) throw new Error("Canonical MCP fixture rejected the initialized notification.");
     const call = async (method, params, id) => {
-      const result = await fetchMcpJsonRpc(url, { jsonrpc: "2.0", id, method, params }, deps.fetch, timeoutMs);
+      const result = await fetchMcpJsonRpc(url, { jsonrpc: "2.0", id, method, params }, fetchImpl, timeoutMs);
       if (!result.ok || result.body?.error) throw new Error(`Canonical MCP fixture call failed: ${method}.`);
       return result.body?.result;
     };
@@ -215,18 +213,6 @@ async function connectCanonicalMcpClient(url, deps, timeoutMs) {
       callTool: async (request, id) => await call("tools/call", request, id),
       close: async () => undefined,
     };
-  }
-
-  const transport = new StreamableHTTPClientTransport(new URL(url));
-  const client = new Client({ name: "service-lasso-canonical-verifier", version: "1.0.0" });
-  await client.connect(transport);
-  return {
-    protocolVersion: transport.protocolVersion,
-    listTools: async () => await client.listTools(),
-    listResources: async () => await client.listResources(),
-    callTool: async (request) => await client.callTool(request),
-    close: async () => await client.close(),
-  };
 }
 
 async function readJson(filePath) {
