@@ -1053,6 +1053,34 @@ test("manual stop does not trigger automatic restart", async () => {
   }
 });
 
+test("install preserves a live managed process lifecycle state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-install-live-process-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "install-live-process-service");
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    const started = await startService(service);
+    assert.equal(started.state.running, true);
+    assert.equal(hasManagedProcess("install-live-process-service"), true);
+
+    const reinstalled = await installService(service);
+    assert.equal(reinstalled.state.running, true);
+    assert.equal(reinstalled.state.runtime.pid, started.state.runtime.pid);
+    assert.equal(hasManagedProcess("install-live-process-service"), true);
+
+  } finally {
+    await stopManagedProcess("install-live-process-service", FIXTURE_CLEANUP_TIMEOUT_MS).catch(() => null);
+    await waitForManagedProcessFinalization("install-live-process-service").catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("clean unexpected exit does not restart under crash policy", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(
