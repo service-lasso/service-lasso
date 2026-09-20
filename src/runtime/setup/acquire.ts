@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { access, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, link, lstat, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { extractZipSafely } from "../files/safe-zip.js";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
@@ -495,6 +495,21 @@ async function extractArchive(
   });
 }
 
+async function ensurePosixArtifactCommandExecutable(extractedPath: string, command: string | undefined): Promise<void> {
+  if (process.platform === "win32" || !command) return;
+  if (!command.startsWith("./") && !command.startsWith(".\\")) return;
+  const commandPath = path.resolve(extractedPath, command);
+  const relativePath = path.relative(extractedPath, commandPath);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("Artifact command must be a contained file within its extracted artifact root.");
+  }
+  const details = await lstat(commandPath);
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new Error("Artifact command must resolve to a contained regular file.");
+  }
+  await chmod(commandPath, (details.mode & 0o777) | 0o500);
+}
+
 async function fileExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
@@ -588,6 +603,8 @@ export async function acquireInstallArtifact(
     checksum = await verifyArchiveChecksum(archivePath, resolved.assetName, definition.checksum, resolved);
     await extractArchive(archivePath, definition.archiveType, extractedPath);
   }
+
+  await ensurePosixArtifactCommandExecutable(selectedExtractedPath, definition.command);
 
   const acquired: AcquiredArtifactState = {
     sourceType: artifact.source.type,
