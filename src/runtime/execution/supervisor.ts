@@ -1856,7 +1856,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
     const spawnedChild = child;
     exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      spawnedChild.once("close", (exitCode, signal) => {
+      // `close` reports that stdio streams have closed, which is not a
+      // process-ownership boundary for detached POSIX services.  A managed
+      // service may close or replace its inherited streams while its verified
+      // root PID remains live.  Only the child `exit` event can authorize
+      // lifecycle finalization and process-tree cleanup.
+      spawnedChild.once("exit", (exitCode, signal) => {
         resolve({
           exitCode: typeof exitCode === "number" ? exitCode : null,
           signal,
