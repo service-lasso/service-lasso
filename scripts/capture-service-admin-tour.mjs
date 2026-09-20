@@ -369,11 +369,20 @@ export async function applyDashboardPublicRedaction(page) {
       }
       node = textNodes.nextNode();
     }
-    const residualText = root.innerText
-      .split(/\\n+/)
-      .map((value) => value.replace(/\\s+/g, " ").trim())
-      .filter((value) => value && value !== "[REDACTED]" && !allowed.has(value));
-    if (residualText.length > 0) return { applied: false, allowlistedLabelCount };
+    // Validate text-node ownership rather than rendered lines: an allowlisted
+    // label may share a line with a separately redacted value.
+    const residualTextNodes = [];
+    const residualWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let residualNode = residualWalker.nextNode();
+    while (residualNode) {
+      const value = residualNode.textContent?.replace(/\\s+/g, " ").trim();
+      const parent = residualNode.parentElement;
+      if (value && value !== "[REDACTED]" && !parent?.closest('[data-dashboard-public-capture-label="true"]')) {
+        residualTextNodes.push(value);
+      }
+      residualNode = residualWalker.nextNode();
+    }
+    if (residualTextNodes.length > 0) return { applied: false, allowlistedLabelCount };
     return { applied: true, allowlistedLabelCount };
   }, DASHBOARD_PUBLIC_CAPTURE_POLICY);
 
