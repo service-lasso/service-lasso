@@ -327,13 +327,47 @@ export async function prepareWorktreeProof(options = resolveWorktreeProofOptions
   return summary;
 }
 
+const WORKTREE_CLEANUP_SHUTDOWN_TIMEOUT_MS = 30_000;
+const WORKTREE_CLEANUP_SHUTDOWN_POLL_MS = 100;
+
+/**
+ * Waits for the runtime's own shutdown finalizer to clear durable ownership
+ * before a proof cleanup removes its workspace.  API unavailability alone is
+ * insufficient: endpoint allocation release persists one final record after
+ * the HTTP listener closes.
+ */
+export async function waitForWorktreeOwnedShutdown(workspaceRoot, options = {}) {
+  const timeoutMs = options.timeoutMs ?? WORKTREE_CLEANUP_SHUTDOWN_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
+  const registryPath = path.join(workspaceRoot, ".service-lasso", "processes.json");
+  while (true) {
+    try {
+      const registry = JSON.parse(await readFile(registryPath, "utf8"));
+      const entries = Array.isArray(registry.entries) ? registry.entries : null;
+      if (entries && entries.every((entry) => entry?.lifecycleState === "stopped" && entry?.pid === null)) {
+        return { settled: true, entries: entries.length };
+      }
+    } catch (error) {
+      if ((error instanceof Error && "code" in error && error.code === "ENOENT") || options.allowMissingRegistry === true) {
+        return { settled: true, entries: 0 };
+      }
+      throw error;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for owned runtime shutdown before worktree cleanup.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, WORKTREE_CLEANUP_SHUTDOWN_POLL_MS));
+  }
+}
+
 export async function cleanupWorktreeProof(summaryPath, options = {}) {
   const summary = JSON.parse(await readFile(summaryPath, "utf8"));
   const stopped = await stopDemoManagedProcesses({ servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot });
+  const shutdown = await waitForWorktreeOwnedShutdown(summary.paths.workspaceRoot);
   if (options.preserveState !== true) {
     await resetDemoInstance({ servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot });
   }
-  const cleanup = { cleanedAt: new Date().toISOString(), summaryPath, preserveState: options.preserveState === true, stopped };
+  const cleanup = { cleanedAt: new Date().toISOString(), summaryPath, preserveState: options.preserveState === true, stopped, shutdown };
   const cleanupPath = path.join(path.dirname(summaryPath), "worktree-proof-cleanup.json");
   await writeFile(cleanupPath, `${JSON.stringify(cleanup, null, 2)}\n`);
   return { ...cleanup, cleanupPath };
