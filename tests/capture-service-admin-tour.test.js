@@ -7,6 +7,7 @@ import {
   DEFAULT_SERVICE_ADMIN_URL,
   PASSWORD_FIELD_MASK_SELECTOR,
   READ_ONLY_AUDIT_ROUTES,
+  ROUTE_RENDER_TIMEOUT_MS,
   TOUR_VIEWPORT,
   TourCaptureError,
   assertSafeRenderedText,
@@ -27,6 +28,7 @@ test("capture playbook defaults to the local Service Admin URL and unique review
   assert.equal(options.baseUrl, DEFAULT_SERVICE_ADMIN_URL);
   assert.equal(options.colorScheme, "dark");
   assert.equal(options.outputDir, path.join(".tmp", "service-admin-tour", "2026-09-18T00-00-00-000Z"));
+  assert.equal(parseCaptureArguments(["--no-promote"]).promoteToDocs, false);
 });
 
 test("capture playbook uses Playwright masking for password controls", () => {
@@ -90,6 +92,7 @@ test("capture playbook keeps route resolution rooted at the selected Service Adm
 });
 
 test("capture playbook audits every static authenticated destination without adding synthetic reveal routes", () => {
+  assert.equal(ROUTE_RENDER_TIMEOUT_MS, 30_000);
   assert.equal(READ_ONLY_AUDIT_ROUTES.length, 40);
   assert.ok(READ_ONLY_AUDIT_ROUTES.includes("/operations/audit-logging"));
   assert.ok(READ_ONLY_AUDIT_ROUTES.includes("/secrets-broker/secrets"));

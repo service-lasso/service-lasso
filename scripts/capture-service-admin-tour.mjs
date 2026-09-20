@@ -13,7 +13,10 @@ import { fileURLToPath } from "node:url";
 export const TOUR_VIEWPORT = Object.freeze({ width: 1512, height: 982 });
 export const DEFAULT_SERVICE_ADMIN_URL = "http://127.0.0.1:17700/";
 export const DEFAULT_COLOR_SCHEME = "dark";
-export const ROUTE_RENDER_TIMEOUT_MS = 8_000;
+// A cold packaged Admin route can initialize its MCP discovery view after the
+// initial document paint. Keep the complete static audit fail-closed, but give
+// that documented read-only route one bounded, user-visible render budget.
+export const ROUTE_RENDER_TIMEOUT_MS = 30_000;
 export const DASHBOARD_PUBLIC_CAPTURE_POLICY_ID = "dashboard-public-safe-v1";
 export const DASHBOARD_PUBLIC_CAPTURE_POLICY = Object.freeze({
   id: DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
@@ -178,6 +181,10 @@ export function parseCaptureArguments(args, { now = new Date() } = {}) {
     }
     if (argument === "--audit-only") {
       options.capture = false;
+      continue;
+    }
+    if (argument === "--no-promote") {
+      options.promoteToDocs = false;
       continue;
     }
     if (argument === "--skip-audit") {
