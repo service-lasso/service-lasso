@@ -1128,21 +1128,28 @@ export async function installService(
   );
 
   return applyState(serviceId, "install", (current) => ({
-    nextState: {
-      ...current,
-      installed: true,
-      running: false,
-      installArtifacts: {
-        ...artifacts,
-        artifact: acquiredArtifact ?? current.installArtifacts.artifact,
-      },
-      runtime: {
-        ...current.runtime,
-        pid: null,
-        finishedAt: null,
-        lastTermination: null,
-      },
-    },
+    nextState: (() => {
+      // Materializing an install candidate does not terminate a verified
+      // managed process.  Preserve its ownership state so a late
+      // reconciliation/install pass cannot falsely report a live service as
+      // stopped and cause a duplicate launch.
+      const retainsManagedProcess = current.running && hasManagedProcess(serviceId);
+      return {
+        ...current,
+        installed: true,
+        running: retainsManagedProcess,
+        installArtifacts: {
+          ...artifacts,
+          artifact: acquiredArtifact ?? current.installArtifacts.artifact,
+        },
+        runtime: {
+          ...current.runtime,
+          pid: retainsManagedProcess ? current.runtime.pid : null,
+          finishedAt: retainsManagedProcess ? current.runtime.finishedAt : null,
+          lastTermination: retainsManagedProcess ? current.runtime.lastTermination : null,
+        },
+      };
+    })(),
     message: "Install completed.",
   }));
 }
