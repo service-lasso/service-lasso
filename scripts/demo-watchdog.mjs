@@ -190,7 +190,7 @@ async function readLegacySchedulerLock(lockPath) {
 
 export async function acquireLegacySchedulerLock(
   lockPath,
-  { ttlMs = defaultLegacySchedulerLockTtlMs, now = () => new Date() } = {},
+  { ttlMs = defaultLegacySchedulerLockTtlMs, now = () => new Date(), isProcessAlive = processExists } = {},
 ) {
   await mkdir(path.dirname(lockPath), { recursive: true });
   const existing = await readLegacySchedulerLock(lockPath);
@@ -198,7 +198,9 @@ export async function acquireLegacySchedulerLock(
 
   if (existing) {
     const ageMs = nowMs - existing.mtimeMs;
-    if (ageMs < ttlMs) {
+    const ownerPid = existing.parsed?.owner === "service-lasso-demo-recycle" ? existing.parsed.pid : null;
+    const ownerAlive = Number.isInteger(ownerPid) && ownerPid > 0 ? await isProcessAlive(ownerPid) : null;
+    if (ageMs < ttlMs && ownerAlive !== false) {
       return {
         acquired: false,
         reason: "legacy_recovery_already_running",
