@@ -226,7 +226,7 @@ interface AdoptManagedProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
-const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void> }>();
+const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void>; workspaceRoot: string | null }>();
 const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
 const managedProcessShutdownQuiescers = new Set<(
@@ -408,8 +408,8 @@ async function withSerializedWorkspaceFinalization<T>(workspaceRoot: string, act
   }
 }
 
-function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>): void {
-  const tracked = { pid, promise };
+function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>, workspaceRoot: string | null): void {
+  const tracked = { pid, promise, workspaceRoot };
   managedProcessFinalizers.set(serviceId, tracked);
   const clearFinalizer = () => {
     if (managedProcessFinalizers.get(serviceId) === tracked) {
@@ -438,7 +438,14 @@ export async function waitForManagedProcessFinalization(
   } catch (error) {
     // A deadline stops this waiter, not the finalizer itself. Keep the finalizer
     // registered so a later shutdown convergence pass still observes it.
-    if (!isProcessControlDeadlineError(error) && managedProcessFinalizers.get(serviceId) === finalizer) {
+    const reconciledStatus = isProcessControlDeadlineError(error) && finalizer.workspaceRoot
+      ? await reconcileRegisteredProcess(finalizer.workspaceRoot, "service", serviceId).catch(() => "unknown_owner" as const)
+      : null;
+    if ((
+      !isProcessControlDeadlineError(error)
+      || reconciledStatus === "not_running"
+      || reconciledStatus === "identity_mismatch"
+    ) && managedProcessFinalizers.get(serviceId) === finalizer) {
       managedProcessFinalizers.delete(serviceId);
     }
     throw new ManagedProcessFinalizationError([{
@@ -1729,7 +1736,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
   };
   await refreshAdoptedProcessTreeMembers(record);
   adoptedProcesses.set(serviceId, record);
-  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record));
+  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record), workspaceRoot);
 
   return {
     pid,
@@ -1973,7 +1980,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       logFinalizePromise,
       lifecycleFinalizePromise,
     ]).then(() => undefined);
-    trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise);
+    trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise, workspaceRoot ?? null);
   };
 
   if (workspaceRoot) {
