@@ -74,6 +74,7 @@ const sidebars = {
       { type: "category", label: "Plans and evidence", collapsed: true, items: [
         { type: "doc", id: "development/new-lasso-service-guide", label: "Service repository handoff (guide)" },
         { type: "doc", id: "development/service-update-management-plan", label: "Service updates (implementation plan)" },
+        { type: "doc", id: "development/ga-candidate-dossier", label: "GA candidate dossier" },
         { type: "doc", id: "reference/release-1-independent-security-review-report", label: "Release 1 security review (historical evidence)" },
         { type: "doc", id: "reference/release-1-security-review-packet", label: "Release 1 security packet (historical evidence)" },
       ] },
