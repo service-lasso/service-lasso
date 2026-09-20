@@ -309,6 +309,9 @@ export function selectedCaptureRoutes(options) {
 }
 
 export function selectedDocsPromotionRoutes(options) {
+  if (!options.promoteToDocs) {
+    return [];
+  }
   return selectedCaptureRoutes(options).filter((route) => (
     route.promoteToDocs === true
     || route.publicPromotionPolicy === options.dashboardPublicPolicy
@@ -586,7 +589,7 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
       method: capture.dashboardPublicPolicy === null ? "review-only" : DASHBOARD_PUBLIC_CAPTURE_POLICY.redaction,
       allowlistedLabels: [...DASHBOARD_PUBLIC_CAPTURE_POLICY.publicSafeLabels],
     },
-    promotion: "approved-tour-routes",
+    promotion: capture.promoteToDocs ? "approved-tour-routes" : "review-only",
     promotedAssets: [],
     auditedRoutes: [],
     auditFailures: [],
