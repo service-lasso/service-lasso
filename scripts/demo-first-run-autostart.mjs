@@ -11,6 +11,10 @@
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const RETRYABLE_BOOTSTRAP_ERRORS = new Set([
+  // Startup stages can expose this bounded, public error while the freshly
+  // prepared Broker finishes its first local IPC handoff. Retrying stays
+  // within the canonical first-run deadline and never broadens auth scope.
+  "internal_error",
   "secrets_broker_not_prepared",
   "secrets_broker_unavailable",
   "secrets_broker_start_failed",

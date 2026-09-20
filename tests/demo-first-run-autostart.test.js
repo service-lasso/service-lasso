@@ -173,6 +173,37 @@ test("completeCanonicalDemoFirstRun retries Broker-not-prepared then completes",
   assert.equal(bootstrapAttempts, 2);
 });
 
+test("completeCanonicalDemoFirstRun retries a transient internal bootstrap error", async () => {
+  let bootstrapAttempts = 0;
+  const fetchImpl = mockFetch({
+    "GET /api/setup/status": {
+      status: 200,
+      body: { setup: { state: "setup_required", setupMode: true } },
+    },
+    "POST /api/setup/bootstrap": () => {
+      bootstrapAttempts += 1;
+      if (bootstrapAttempts === 1) {
+        return { status: 503, body: { error: "internal_error" } };
+      }
+      return {
+        status: 201,
+        body: { bootstrap: { ok: true }, setup: { state: "not_required", setupMode: false } },
+      };
+    },
+    "POST /api/runtime/actions/startAll": {
+      status: 200,
+      body: { ok: true, action: "startAll" },
+    },
+  });
+  const result = await completeCanonicalDemoFirstRun({
+    runtimeUrl: "http://127.0.0.1:17883",
+    timeoutMs: 2_000,
+    pollIntervalMs: 10,
+  }, { fetch: fetchImpl });
+  assert.equal(result.ok, true);
+  assert.equal(bootstrapAttempts, 2);
+});
+
 test("completeCanonicalDemoFirstRun fails closed for non-loopback setup mode", async () => {
   const fetchImpl = mockFetch({
     "GET /api/setup/status": {
