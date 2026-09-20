@@ -21,7 +21,11 @@ import {
 } from "../setup/definition-revision.js";
 import { collectRuntimeGlobalEnv } from "../operator/variables.js";
 
-export type PreparedStartSkipReason = "already_running" | "provider_role" | "not_startable";
+export type PreparedStartSkipReason =
+  | "already_running"
+  | "provider_role"
+  | "provider_platform_unsupported"
+  | "not_startable";
 
 export interface PreparedStartResult {
   result: LifecycleActionResult | null;
@@ -31,6 +35,12 @@ export interface PreparedStartResult {
 
 function hasStartableCommand(service: DiscoveredService, state: ServiceLifecycleState): boolean {
   return Boolean(service.manifest.execservice || service.manifest.executable || state.installArtifacts.artifact?.command);
+}
+
+function isDisabledProviderWithoutCurrentPlatformArtifact(service: DiscoveredService): boolean {
+  if (service.manifest.enabled !== false || !isProviderRole(service.manifest)) return false;
+  const platforms = service.manifest.artifact?.platforms;
+  return Boolean(platforms && !platforms[process.platform] && !platforms.default);
 }
 
 async function persistResult(service: DiscoveredService, result: Pick<LifecycleActionResult, "state">): Promise<void> {
@@ -142,6 +152,10 @@ export async function prepareAndStartService(
     throw new LifecycleStateError(
       `Cannot mutate service "${serviceId}" because it was not part of the approved lifecycle plan.`,
     );
+  }
+
+  if (isDisabledProviderWithoutCurrentPlatformArtifact(service)) {
+    return { result: null, skippedReason: "provider_platform_unsupported", state: initialState };
   }
 
   for (const dependencyId of graph.getStartupOrder(serviceId)) {

@@ -1540,6 +1540,50 @@ test("POST /api/runtime/actions/startAll preserves only true skip semantics", as
   }
 });
 
+test("POST /api/runtime/actions/startAll skips disabled providers without a current-platform artifact", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-unsupported-provider-");
+  const unsupportedPlatform = process.platform === "win32" ? "linux" : "win32";
+  await writeManifest(servicesRoot, "@unsupported-provider", {
+    id: "@unsupported-provider",
+    name: "Unsupported Provider",
+    description: "Disabled provider fixture with no artifact for the current platform.",
+    role: "provider",
+    enabled: false,
+    artifact: {
+      kind: "archive",
+      source: { type: "github-release", repo: "service-lasso/fixture", tag: "v1.0.0" },
+      platforms: {
+        [unsupportedPlatform]: {
+          assetName: "fixture.zip",
+          archiveType: "zip",
+          command: "./fixture",
+        },
+      },
+    },
+  });
+  await writeExecutableFixtureService(servicesRoot, "alpha-service");
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const startAll = await postJson(`${apiServer.url}/api/runtime/actions/startAll`);
+    assert.equal(startAll.status, 200);
+    assert.equal(startAll.body.ok, true);
+    assert.deepEqual(startAll.body.results.map((actionResult) => actionResult.serviceId), ["alpha-service"]);
+    assert.deepEqual(startAll.body.skipped, [
+      { serviceId: "@unsupported-provider", reason: "provider_platform_unsupported" },
+    ]);
+
+    const provider = await getJson(`${apiServer.url}/api/services/%40unsupported-provider`);
+    assert.equal(provider.body.service.lifecycle.installed, false);
+    assert.equal(provider.body.service.lifecycle.configured, false);
+  } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/runtime/actions/startAll/plan returns dependency ordered dry-run without starting services", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-runtime-start-plan-");
