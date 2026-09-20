@@ -65,6 +65,25 @@ async function spawnKeepAlive(cwd) {
   return child;
 }
 
+async function spawnExitedGroupLeaderWithKeepAliveChild(cwd) {
+  const child = spawn(process.execPath, ["-e", [
+    "const { spawn } = require('node:child_process');",
+    "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+    "child.unref();",
+    "setTimeout(() => process.exit(0), 1_000);",
+  ].join(" ")], {
+    cwd,
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  await new Promise((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  return child;
+}
+
 function processIsAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -220,6 +239,46 @@ test("API-unreachable stop terminates only verified owned trees", async () => {
   } finally {
     if (processIsAlive(child.pid)) {
       child.kill("SIGKILL");
+    }
+  }
+});
+
+test("API-unreachable stop clears a surviving detached POSIX service group after its launcher exits", {
+  skip: process.platform === "win32",
+}, async () => {
+  const fixture = await makeTempServicesRoot("service-lasso-1352-offline-group-stop-");
+  const leader = await spawnExitedGroupLeaderWithKeepAliveChild(fixture.tempRoot);
+  try {
+    await recordProcessOwnership(fixture.workspaceRoot, {
+      ownerType: "service",
+      ownerId: "offline-detached-owned",
+      serviceId: "offline-detached-owned",
+      pid: leader.pid,
+      ownerRoot: fixture.servicesRoot,
+      lifecycleState: "running",
+      source: "spawn",
+      processGroup: { kind: "posix", id: String(leader.pid) },
+    });
+    await new Promise((resolve) => leader.once("exit", resolve));
+    const entry = await findProcessOwnership(fixture.workspaceRoot, "service", "offline-detached-owned");
+    assert.equal(await classifyRegisteredProcess(entry), "not_running");
+
+    const stopped = await runWorkspaceLifecycleCommand({
+      action: "stop",
+      servicesRoot: fixture.servicesRoot,
+      workspaceRoot: fixture.workspaceRoot,
+    });
+    assert.equal(stopped.ok, true);
+    assert.equal(stopped.stopMode, "offline");
+    assert.ok(stopped.stoppedServices.includes("offline-detached-owned"));
+    assert.throws(() => process.kill(-leader.pid, 0));
+  } finally {
+    // The test's supported stop path owns its detached group.  A failure before
+    // it is invoked can leave only the leader's group, so clear that exact group.
+    try {
+      process.kill(-leader.pid, "SIGKILL");
+    } catch {
+      // The verified test group is already gone.
     }
   }
 });
