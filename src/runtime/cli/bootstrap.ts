@@ -4,6 +4,7 @@ import { configService, installService, startService, type ServiceLifecycleActio
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "../lifecycle/types.js";
 import { listSetupStepIds, runServiceSetup, type SetupTransactionHooks } from "../setup/steps.js";
+import { ReleaseAcquisitionError } from "../setup/acquire.js";
 import { DependencyGraph, createServiceRegistry } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -66,6 +67,9 @@ export interface BootstrapBaselineResult {
 }
 
 function formatActionFailure(serviceId: string, action: LifecycleAction, error: unknown): Error {
+  if (error instanceof ReleaseAcquisitionError) {
+    return error;
+  }
   const detail = error instanceof Error ? error.message : String(error);
   return new Error(`Baseline bootstrap failed for service "${serviceId}" during "${action}": ${detail}`);
 }
