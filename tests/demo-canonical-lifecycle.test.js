@@ -259,6 +259,32 @@ test("stale workspace metadata is classified from persisted runtime-instance.jso
   }
 });
 
+test("v2 runtime-instance ownership envelope preserves an owned isolated demo lane", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1346-v2-owned-"));
+  const workspaceRoot = path.join(tempDir, "workspace", "demo-instance");
+  const servicesRoot = path.join(tempDir, "services");
+  await mkdir(path.join(workspaceRoot, ".service-lasso"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, ".service-lasso", "runtime-instance.json"),
+    `${JSON.stringify({
+      schemaVersion: "service-lasso.runtime-instance.v2",
+      version: 2,
+      instance: { workspaceRoot, servicesRoot, apiPort: 28083 },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  try {
+    const result = await classifyCanonicalDemoOwnership({ workspaceRoot, servicesRoot, port: 28083 }, {
+      canBindPort: async () => false,
+    });
+    assert.equal(result.classification, "owned");
+    assert.equal(result.ok, true);
+    assert.equal(result.instance.workspaceRoot, workspaceRoot);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 /**
  * Injected first-run completion that leaves setup already clear.
  *
