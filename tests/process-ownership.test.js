@@ -1933,7 +1933,10 @@ test("wrapper spawn waits are bounded and contain an unresponsive pre-enrollment
     signalCode: null,
     kill(signal) {
       this.signalCode = signal;
-      setImmediate(() => this.emit("close", null, signal));
+      setImmediate(() => {
+        this.emit("exit", null, signal);
+        this.emit("close", null, signal);
+      });
       return true;
     },
   });
@@ -1962,6 +1965,37 @@ test("wrapper spawn waits are bounded and contain an unresponsive pre-enrollment
     setManagedProcessSpawnTimeoutForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("managed process remains owned when its output streams close before it exits", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-stream-close-");
+  const { scriptPath } = await writeExecutableFixtureService(servicesRoot, "stream-close-service");
+
+  try {
+    await writeFile(scriptPath, `
+process.stdout.end();
+process.stderr.end();
+setInterval(() => {}, 1_000);
+`.trim(), "utf8");
+    const [service] = await discoverServices(servicesRoot);
+    const handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(process.kill(handle.pid, 0), true);
+    assert.equal(hasManagedProcess("stream-close-service"), true);
+
+    await stopManagedProcess("stream-close-service");
+    assert.equal(hasManagedProcess("stream-close-service"), false);
+  } finally {
+    await stopAllManagedProcesses();
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
