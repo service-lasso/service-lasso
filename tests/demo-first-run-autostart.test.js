@@ -92,11 +92,15 @@ test("isLoopbackRuntimeUrl accepts only loopback hosts", () => {
   assert.equal(isLoopbackRuntimeUrl("not a url"), false);
 });
 
-test("completeCanonicalDemoFirstRun skips when setup mode is already clear", async () => {
+test("completeCanonicalDemoFirstRun starts canonical services on loopback when setup mode is already clear", async () => {
   const fetchImpl = mockFetch({
     "GET /api/setup/status": {
       status: 200,
       body: { setup: { state: "not_required", setupMode: false, vault: { ready: true, path: "C:\\\\secret-store.json" } } },
+    },
+    "POST /api/runtime/actions/startAll": {
+      status: 200,
+      body: { ok: true, action: "startAll", results: [] },
     },
   });
   const result = await completeCanonicalDemoFirstRun({
@@ -105,9 +109,9 @@ test("completeCanonicalDemoFirstRun skips when setup mode is already clear", asy
     pollIntervalMs: 10,
   }, { fetch: fetchImpl });
   assert.equal(result.ok, true);
-  assert.equal(result.outcome, "skipped");
-  assert.equal(result.classification, "setup_not_required");
-  assert.deepEqual(fetchImpl.calls.map((call) => call.key), ["GET /api/setup/status"]);
+  assert.equal(result.outcome, "completed");
+  assert.equal(result.classification, "canonical_services_started");
+  assert.deepEqual(fetchImpl.calls.map((call) => call.key), ["GET /api/setup/status", "POST /api/runtime/actions/startAll"]);
   assert.equal(JSON.stringify(result).includes("secret-store"), false);
 });
 

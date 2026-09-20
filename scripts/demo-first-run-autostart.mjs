@@ -221,6 +221,56 @@ export async function completeCanonicalDemoFirstRun(options, deps = {}) {
   }
 
   if (status.setupMode !== true) {
+    if (loopback) {
+      let startAll = null;
+      while (Date.now() <= deadline) {
+        try {
+          const response = await fetchImpl(`${runtimeUrl}/api/runtime/actions/startAll`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ confirm: true }),
+            signal: AbortSignal.timeout(120_000),
+          });
+          startAll = await readPublicJson(response);
+          if (startAll.status === 200 && startAll.startAllOk === true) {
+            return buildResult({
+              ok: true,
+              outcome: "completed",
+              classification: "canonical_services_started",
+              setupMode: false,
+              setupState: status.setupState,
+              startAllStatus: 200,
+            });
+          }
+          if (startAll.status === 401 || startAll.status === 403) {
+            return buildResult({
+              ok: false,
+              outcome: "blocked",
+              classification: startAll.error ?? `canonical_start_all_http_${startAll.status}`,
+              setupMode: false,
+              setupState: status.setupState,
+              startAllStatus: startAll.status,
+              blockers: [startAll.error ?? `canonical_start_all_http_${startAll.status}`],
+            });
+          }
+        } catch (error) {
+          startAll = {
+            status: 0,
+            error: error instanceof Error ? error.message : "start_all_fetch_failed",
+          };
+        }
+        await delay(intervalMs);
+      }
+      return buildResult({
+        ok: false,
+        outcome: "blocked",
+        classification: startAll?.error ?? "canonical_start_all_timeout",
+        setupMode: false,
+        setupState: status.setupState,
+        startAllStatus: startAll?.status ?? null,
+        blockers: [startAll?.error ?? "canonical_start_all_timeout"],
+      });
+    }
     return buildResult({
       ok: true,
       outcome: "skipped",
