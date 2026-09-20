@@ -59,12 +59,29 @@ const TRANSIENT_DOWNLOAD_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const TRANSIENT_DOWNLOAD_ATTEMPTS = 3;
 const TRANSIENT_DOWNLOAD_BACKOFF_MS = 100;
 
+export class ReleaseAcquisitionError extends Error {
+  readonly code: "github_release_metadata_rate_limited";
+  readonly statusCode = 503;
+
+  constructor() {
+    super("github_release_metadata_rate_limited: GitHub release metadata is temporarily rate limited; wait for the public API limit to reset and retry.");
+    this.name = "ReleaseAcquisitionError";
+    this.code = "github_release_metadata_rate_limited";
+  }
+}
+
 function isTransientDownloadStatus(status: number): boolean {
   return TRANSIENT_DOWNLOAD_STATUSES.has(status);
 }
 
 function waitForTransientDownloadRetry(attempt: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, TRANSIENT_DOWNLOAD_BACKOFF_MS * attempt));
+}
+
+function isGitHubReleaseMetadataRateLimited(response: Response): boolean {
+  if (response.status !== 403) return false;
+  return response.headers.get("x-ratelimit-remaining") === "0"
+    || response.headers.has("retry-after");
 }
 
 async function fetchReleaseAsset(url: string, headers?: Record<string, string>): Promise<Response> {
@@ -229,6 +246,9 @@ async function resolveGitHubReleaseDownload(
   const response = await fetchReleaseAsset(apiBaseUrl + releasePath, githubHeaders());
 
   if (!response.ok) {
+    if (isGitHubReleaseMetadataRateLimited(response)) {
+      throw new ReleaseAcquisitionError();
+    }
     throw new Error(
       `Failed to resolve GitHub release metadata for "${artifact.source.repo}": ${response.status} ${response.statusText}`,
     );
