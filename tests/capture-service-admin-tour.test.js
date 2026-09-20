@@ -120,6 +120,12 @@ test("capture playbook writes only approved tour captures into public docs", () 
   );
 });
 
+test("capture playbook never promotes captures when explicitly in review-only mode", () => {
+  const options = parseCaptureArguments(["--skip-audit", "--no-promote"]);
+  assert.equal(options.promoteToDocs, false);
+  assert.deepEqual(selectedDocsPromotionRoutes(options), []);
+});
+
 test("capture playbook cannot promote Dashboard until the named redaction policy is active", () => {
   const reviewOnly = parseCaptureArguments(["--skip-audit", "--capture-limit=1"]);
   assert.deepEqual(selectedDocsPromotionRoutes(reviewOnly).map((route) => route.id), []);
