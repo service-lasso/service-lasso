@@ -13,6 +13,7 @@ import {
   resolveDemoRuntimePort,
   runCoreWorkspaceLifecycle,
   startDetachedDemoRuntime,
+  unwrapRuntimeInstance,
   writeDemoLifecycleState,
 } from "./demo-instance-lib.mjs";
 export { getCanonicalRuntimeLaneLockPath } from "./demo-instance-lib.mjs";
@@ -232,7 +233,7 @@ export async function classifyCanonicalDemoOwnership(options = {}, deps = {}) {
   const context = resolveCanonicalDemoLifecycleContext(options);
   const bindPort = deps.canBindPort ?? canBindPort;
   const readJson = deps.readOptionalJson ?? readOptionalJson;
-  const instance = await readJson(context.lifecyclePaths.runtimeInstancePath);
+  const instance = unwrapRuntimeInstance(await readJson(context.lifecyclePaths.runtimeInstancePath));
   const portFree = context.port === 0 ? true : await bindPort("127.0.0.1", context.port);
   if (!instance || typeof instance !== "object") {
     if (portFree) {

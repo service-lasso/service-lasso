@@ -267,7 +267,21 @@ function sameResolvedPath(left, right) {
     : leftResolved === rightResolved;
 }
 
+export function unwrapRuntimeInstance(runtimeInstance) {
+  if (
+    runtimeInstance
+    && typeof runtimeInstance === "object"
+    && runtimeInstance.schemaVersion === "service-lasso.runtime-instance.v2"
+    && runtimeInstance.instance
+    && typeof runtimeInstance.instance === "object"
+  ) {
+    return runtimeInstance.instance;
+  }
+  return runtimeInstance;
+}
+
 function runtimeInstanceMatchesDemoRoots(runtimeInstance, { servicesRoot, workspaceRoot }) {
+  runtimeInstance = unwrapRuntimeInstance(runtimeInstance);
   return Boolean(
     runtimeInstance
       && sameResolvedPath(runtimeInstance.servicesRoot, servicesRoot)
@@ -1048,7 +1062,7 @@ export async function getDemoStatus(options = {}) {
     serviceAdminServicesProbe,
     lifecycleState,
     recoveryLock,
-    runtimeInstance,
+    rawRuntimeInstance,
   ] = await Promise.all([
     fetchStatus(runtimeHealthUrl, timeoutMs, true),
     fetchStatus(serviceAdminUrl, timeoutMs),
@@ -1058,6 +1072,7 @@ export async function getDemoStatus(options = {}) {
     readOptionalJson(recoveryLockPath),
     readOptionalJson(runtimeInstancePath),
   ]);
+  const runtimeInstance = unwrapRuntimeInstance(rawRuntimeInstance);
   const serviceState = createExpectedServiceStateCheck(serviceAdminServicesProbe);
   const classification = classifyDemoStatus(
     runtimeProbe,
