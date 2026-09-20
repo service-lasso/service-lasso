@@ -40,6 +40,29 @@ The observations above remain historical. As reconciled on 15 September 2026:
 
 The earlier `9fad18649b8640d98aaa91b6a8153c6b5065b59f` Windows real-Broker failure is historical branch evidence. [Admin PR #620](https://github.com/service-lasso/lasso-serviceadmin/pull/620) subsequently merged as `abd681ed1c76f6e57b23d4baabf61e4a4e3f384d`; its repaired qualification evidence reached the all-passing source head `b2de81f0d6310b1f3c1387a78f81ec9e3d9c5973`. That is source qualification evidence, not a released rollout or completion of the remaining outcomes. The referenced Core #1273 is now closed; released rollout and remaining journey evidence are still unverified. [Core #1270](https://github.com/service-lasso/service-lasso/issues/1270) stays open until the linked outcomes are verified.
 
+## Portable browser-proof receipt
+
+For Service Lasso newcomer qualification, create a new owned evidence folder;
+that folder is the accepted new-machine equivalent. Run:
+
+```sh
+npm run verify:newcomer-proof -- --issue=<GitHub issue number>
+```
+
+The command allocates an owned port range, services root, workspace root,
+browser session, and receipt directory. It runs the complete purpose-built
+Playwright suite against visible Service Admin entry, services, and Echo-detail
+states, then writes a ZIP under `newcomer-proof-artifacts/`. It retains the ZIP
+and cleans up only the owned runtime data.
+
+To qualify concurrent isolation, run two invocations from distinct new folders
+at the same time and attach both ZIPs to the platform issue. The issue comment
+must state only the exact candidate identity, OS and Node versions, command,
+UTC start/end, proof IDs, ZIP names/checksums, scenario classifications, and
+owned-cleanup result. Do not attach credentials, tokens, passwords, raw
+configuration, private paths, or unredacted logs. A failed receipt is
+`Invalidated` or `Blocked`; it is never substituted with CI or edited evidence.
+
 ## Visible product capture
 
 ![Echo detail with Running and Healthy state](../static/img/newcomer/echo-detail.png)

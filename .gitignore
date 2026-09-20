@@ -9,6 +9,7 @@ dist/
 .tmp/
 artifacts/
 .demo-logs/
+newcomer-proof-artifacts/
 docs/.docusaurus/
 docs/build/
 workspace/
