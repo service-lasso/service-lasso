@@ -63,6 +63,7 @@ import {
   patchWorktreeDemoManifest,
   resolveWorktreeProofOptions,
   seedAcknowledgedWorktreeProofLocalOperator,
+  waitForWorktreeOwnedShutdown,
 } from "../scripts/demo-worktree-proof.mjs";
 
 async function listenOnLoopback() {
@@ -392,6 +393,28 @@ test("worktree proof records allocated URLs for gate, verifier, and cleanup hand
   assert.match(commands.verify, /--service-admin-port=18124/);
   assert.match(commands.verify, /--runtime-port=18123/);
   assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
+});
+
+test("worktree cleanup waits for the owned runtime to finish persistence before removal", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1356-worktree-cleanup-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const registryPath = path.join(workspaceRoot, ".service-lasso", "processes.json");
+  await mkdir(path.dirname(registryPath), { recursive: true });
+  try {
+    await writeFile(registryPath, JSON.stringify({
+      entries: [{ lifecycleState: "running", pid: 1234 }],
+    }));
+    const settle = setTimeout(() => {
+      void writeFile(registryPath, JSON.stringify({
+        entries: [{ lifecycleState: "stopped", pid: null }],
+      }));
+    }, 25);
+    const result = await waitForWorktreeOwnedShutdown(workspaceRoot, { timeoutMs: 1_000 });
+    clearTimeout(settle);
+    assert.deepEqual(result, { settled: true, entries: 1 });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("canonical lifecycle forwards explicit ports from selected runtime URLs to its verifier", () => {
