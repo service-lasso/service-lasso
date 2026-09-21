@@ -1,4 +1,6 @@
 import test from "node:test";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,6 +37,63 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 import { rehydrateDiscoveredServices } from "../dist/runtime/state/rehydrate.js";
 
 const execFileAsync = promisify(execFile);
+
+for (const scenario of ["recover", "exhaust", "destination-changed", "source-changed"]) {
+  test(`AC-4BJ.2a real sidecar replacement ${scenario}`, { skip: process.platform !== "win32" }, async () => {
+    await withMaterializationFixture(`service-lasso-sidecar-${scenario}-`, async (fixture) => {
+      const hooks = createStartupMaterializationHooks({
+        transaction: fixture.transaction, service: fixture.service, kind: "config",
+      });
+      await materializeConfigArtifacts(fixture.service, {}, {}, {}, hooks);
+      const destination = path.join(fixture.workspaceRoot, ".service-lasso", "startup-transactions",
+        fixture.transaction.journal.transactionId, "materialization-preimages.json");
+      const prior = await readFile(destination);
+      // Exercise a second governed write without reusing the first output's action id.
+      fixture.service.manifest.config.files[0].path = "runtime/second-generated.conf";
+      const originalRename = fsPromises.rename;
+      const failure = Object.assign(new Error("injected sidecar sharing violation"), { code: "EPERM" });
+      let attempts = 0;
+      let temporary;
+      try {
+        fsPromises.rename = async (source, target) => {
+          if (target !== destination) return await originalRename(source, target);
+          temporary = source;
+          attempts++;
+          if (scenario === "recover" && attempts > 1) return await originalRename(source, target);
+          if (scenario === "destination-changed") await writeFile(target, "changed destination - must remain untouched");
+          if (scenario === "source-changed") await writeFile(source, "changed source - must never be published");
+          throw failure;
+        };
+        syncBuiltinESMExports();
+        const operation = materializeConfigArtifacts(fixture.service, {}, {}, {}, hooks);
+        if (scenario === "recover") {
+          await operation;
+          assert.ok(attempts >= 2);
+        } else {
+          await assert.rejects(operation, scenario === "exhaust"
+            ? (error) => error === failure
+            : /sidecar identity changed before replacement/);
+          assert.equal(attempts, scenario === "exhaust" ? 6 : 1);
+          const expected = scenario === "destination-changed"
+            ? Buffer.from("changed destination - must remain untouched") : prior;
+          assert.deepEqual(await readFile(destination), expected);
+        }
+      } finally {
+        fsPromises.rename = originalRename;
+        syncBuiltinESMExports();
+      }
+      assert.ok(temporary);
+      await assert.rejects(readFile(temporary), (error) => error.code === "ENOENT");
+      if (scenario === "recover") {
+        const protectedBytes = await readFile(destination, "utf8");
+        assert.match(protectedBytes, /windows-dpapi-aes-256-gcm/);
+        assert.doesNotMatch(protectedBytes, /transaction-secret-output/);
+        assert.equal((await inspectStartupMaterializations(fixture.transaction.journal)).status, "agree");
+        assert.deepEqual((await rollbackStartupMaterializations(fixture.transaction.journal)).blockedActionIds, []);
+      }
+    });
+  });
+}
 
 async function withMaterializationFixture(prefix, action) {
   const fixture = await makeTempServicesRoot(prefix);
