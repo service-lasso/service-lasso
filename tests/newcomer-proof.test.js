@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult } from "../scripts/newcomer-proof.mjs";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult, claimProofRoot } from "../scripts/newcomer-proof.mjs";
+
+test("concurrent proof-root claims cannot overwrite existing evidence", async (t) => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "newcomer-root-test-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = path.join(parent, "proof");
+  const results = await Promise.allSettled([claimProofRoot(root), claimProofRoot(root)]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  await writeFile(path.join(root, "receipt.json"), "original evidence");
+  await assert.rejects(claimProofRoot(root), /already exists/);
+  assert.equal(await readFile(path.join(root, "receipt.json"), "utf8"), "original evidence");
+});
 
 test("shareable result cannot include credentials from raw Playwright failures", () => {
   assert.deepEqual(publicPlaywrightResult({ code: 1, signal: null, stdout: "textbox: private-first-run-value", stderr: "private-first-run-value" }), { code: 1, signal: null });

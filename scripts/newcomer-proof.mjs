@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
-import { access, mkdir, open, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,8 +20,16 @@ function flag(args, name) {
   return args.find((value) => value.startsWith(prefix))?.slice(prefix.length);
 }
 
-function hasFlag(args, name) {
-  return args.includes(`--${name}`);
+export async function claimProofRoot(proofRoot) {
+  await mkdir(path.dirname(proofRoot), { recursive: true });
+  // Atomic claim: neither --reuse nor the failure handler may overwrite an
+  // existing run. Concurrent claimants must have distinct evidence roots.
+  try {
+    await mkdir(proofRoot);
+  } catch (error) {
+    if (error?.code === "EEXIST") throw new Error("Proof root already exists. Choose a new --proof-root=<new-folder>.");
+    throw error;
+  }
 }
 
 export function sanitizeEvidence(value) {
@@ -43,15 +50,6 @@ export function publicPlaywrightResult(result) {
   // Raw stdout, errors and Playwright DOM snapshots can contain first-run
   // credentials. Publish only process outcome; keep diagnostics local.
   return { code: result.code, signal: result.signal };
-}
-
-async function exists(target) {
-  try {
-    await access(target, fsConstants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function sha256(filePath) {
@@ -218,8 +216,9 @@ async function main() {
   let lease = null;
   let summary = null;
   let owner = null;
+  // Outside try/finally: a rejected root is never ours to write a receipt into.
+  await claimProofRoot(proofRoot);
   try {
-    if (await exists(proofRoot) && !hasFlag(args, "reuse-proof-root")) throw new Error(`Proof root already exists. Choose a new --proof-id or pass --proof-root=<new-folder>.`);
     await mkdir(path.join(bundleRoot, "screenshots"), { recursive: true });
     lease = await reservePortRange(proofId);
     summary = await prepareWorktreeProof(resolveWorktreeProofOptions([
