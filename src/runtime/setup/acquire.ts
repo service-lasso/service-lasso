@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { access, chmod, link, lstat, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, link, lstat, mkdir, open, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { publishExtraction } from "./publish-extraction.js";
 import { extractZipSafely } from "../files/safe-zip.js";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
@@ -592,7 +593,7 @@ export async function acquireInstallArtifact(
     await extractArchive(archivePath, definition.archiveType, plan.extractionStagingPath, true);
     await transactionHooks.recordArchive(plan.actionId, archivePath);
     await transactionHooks.beforeExtractionPublish(plan.actionId);
-    await rename(plan.extractionStagingPath, plan.extractionPath);
+    await publishExtraction(plan.extractionStagingPath, plan.extractionPath);
     await transactionHooks.afterExtractionPublish(plan.actionId);
     selectedExtractedPath = plan.extractionPath;
   } else {
