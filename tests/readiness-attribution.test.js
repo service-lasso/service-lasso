@@ -301,8 +301,9 @@ test("AC-4BJ.7 Linux listener inspection binds the socket inode to its owning PI
     platform: "linux",
     readFile: async (filePath) => filePath === "/proc/net/tcp" ? tcpTable : "",
     readdir: async (filePath, options) => {
-      if (filePath === "/proc" && options?.withFileTypes) {
-        return [{ name: "501", isDirectory: () => true }];
+      if (filePath === "/proc") {
+        assert.equal(options?.withFileTypes, undefined);
+        return ["501"];
       }
       if (filePath === "/proc/501/fd") return ["7"];
       return [];
@@ -323,8 +324,9 @@ test("AC-4BJ.7 Linux listener inspection fails closed when a PID exceeds the des
     maxDescriptorsPerPid: 2,
     readFile: async (filePath) => filePath === "/proc/net/tcp" ? tcpTable : "",
     readdir: async (filePath, options) => {
-      if (filePath === "/proc" && options?.withFileTypes) {
-        return [{ name: "501", isDirectory: () => true }];
+      if (filePath === "/proc") {
+        assert.equal(options?.withFileTypes, undefined);
+        return ["501"];
       }
       if (filePath === "/proc/501/fd") return ["1", "2", "3"];
       return [];
@@ -351,8 +353,9 @@ test("AC-4BJ.7 Linux listener inspection fails closed when its monotonic deadlin
     now: () => elapsed,
     readFile: async (filePath) => filePath === "/proc/net/tcp" ? tcpTable : "",
     readdir: async (filePath, options) => {
-      if (filePath === "/proc" && options?.withFileTypes) {
-        return [{ name: "501", isDirectory: () => true }];
+      if (filePath === "/proc") {
+        assert.equal(options?.withFileTypes, undefined);
+        return ["501"];
       }
       if (filePath === "/proc/501/fd") {
         elapsed = 5;

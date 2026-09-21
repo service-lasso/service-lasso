@@ -163,21 +163,22 @@ async function inspectLinux(
   let inspectionBoundExceeded = false;
   try {
     const allCandidates = (await withinDeadline(
-      () => list("/proc", { withFileTypes: true }),
+      // Names avoid Dirent lstat races; socket ownership is checked below.
+      () => list("/proc"),
       deadline,
       now,
-    )).filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name));
+    )).filter((entry) => /^\d+$/.test(entry));
     if (allCandidates.length > MAX_PROC_PIDS) inspectionBoundExceeded = true;
     const candidates = allCandidates.slice(0, MAX_PROC_PIDS);
     for (const candidate of candidates) {
-      const fdRoot = `/proc/${candidate.name}/fd`;
+      const fdRoot = `/proc/${candidate}/fd`;
       try {
         const descriptors = await withinDeadline(() => list(fdRoot), deadline, now);
         let matched = false;
         for (const descriptor of descriptors.slice(0, maxDescriptorsPerPid)) {
           try {
             if (wanted.has(await withinDeadline(() => link(`${fdRoot}/${descriptor}`), deadline, now))) {
-              pids.push(Number(candidate.name));
+              pids.push(Number(candidate));
               matched = true;
               break;
             }
