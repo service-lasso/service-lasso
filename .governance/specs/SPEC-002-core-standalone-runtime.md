@@ -458,6 +458,8 @@ For #1376, the PostgreSQL source-package example must accept independently confi
 
 The packaged app must prove SQL readiness before creating its schema or declaring HTTP readiness. A live managed PID alone is insufficient during first-run database initialization. Retry only transient startup connection failures within a bounded deadline; authentication and other non-startup failures remain visible immediately.
 
+For #1387 under AC-4AJ.4c, the PostgreSQL example's foreground launcher must resolve Linux shared libraries from the selected owned artifact's `lib` directory for both initialization and server execution. Apply that search path only to the spawned PostgreSQL children, without changing the parent or global environment, adding system PostgreSQL dependencies, widening readiness deadlines, or changing Windows/macOS launcher behavior. Test environment isolation and paths containing spaces, verify the pinned Linux binaries, and repeat full paired Linux/Windows newcomer qualification for the corrected source candidate.
+
 ### Same-service startup serialization (AC-4AJ.4d)
 
 For #1383, automatic startup and explicit starts targeting the same service root must serialize process launch and initialization. Concurrent callers may adopt the same verified owner or receive an already-running result, but must never launch a second initializer/process. Failed attempts must release the serialization boundary for later recovery. Independent service roots must not share this boundary. Validate actual launch counts, ownership and cleanup, including the automatic-start/HTTP request race.
