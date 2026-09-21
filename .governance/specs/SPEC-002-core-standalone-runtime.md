@@ -4,6 +4,10 @@
 Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository now has a tracked bounded runtime implementation and needs governed traceability as it widens toward production-ready service orchestration. The first core milestone proved that Service Lasso can run as a standalone manager and consume canonical service manifests directly; the current work under this spec is widening that bounded slice carefully with direct verification.
 
 ## Scope
+### Linux transient process enumeration (AC-4BH.1)
+
+For #1392, enumerate numeric `/proc` names without directory-type resolution that can implicitly stat an entry after its process exits. Process tree, namespace identity, and listener inspection must retain their subsequent identity/namespace/socket checks and existing bounds. A disappearing individual entry must not abort an otherwise valid scan; a genuine failure to enumerate `/proc` must retain its existing failure/unknown classification, never become an empty successful table or proof of exit. Deterministic regression tests must exercise disappearance, namespace exclusion, malformed entries, and enumeration failures. Full Linux baseline shutdown and required exact-head CI remain acceptance gates.
+
 Included in this spec:
 - establish the first tracked source tree for the core runtime inside this repo
 - define the first bounded standalone runtime slice and its execution boundary
