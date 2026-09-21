@@ -123,6 +123,34 @@ test("first-run handoff, persistent acknowledgement, lifecycle, and complete ops
       expect(receipt.captures.length).toBe(receipt.captureScope.total);
       scenarios.push({ scenario: "complete ops route audit and redacted screenshots", result: "Verified", routeCount: receipt.auditedRoutes.length, captureCount: receipt.captures.length });
     });
+
+    await test.step("unpacked app preserves data across dependency failure and recovery", async () => {
+      const appUrl = process.env.SERVICE_LASSO_NEWCOMER_APP_URL;
+      const coreUrl = process.env.SERVICE_LASSO_NEWCOMER_APP_CORE_URL;
+      expect(Boolean(appUrl && coreUrl), "owned app journey URLs are required").toBe(true);
+      const visit = async (name, status) => {
+        const response = await page.goto(appUrl);
+        expect(response.status()).toBe(status);
+        const body = await response.json();
+        await page.screenshot({ path: path.join(screenshotDir, name + ".png"), animations: "disabled" });
+        return body;
+      };
+      const before = await visit("app-connected", 200);
+      expect(before.database).toBe("connected");
+      expect(before.messages.length).toBeGreaterThan(0);
+      const stopped = await page.request.post(new URL("/api/services/postgres/stop", coreUrl).toString(), { data: { confirm: true } });
+      expect(stopped.status()).toBe(200);
+      expect((await visit("app-dependency-unavailable", 503)).database).toBe("unavailable");
+      const started = await page.request.post(new URL("/api/services/postgres/start", coreUrl).toString(), { data: {} });
+      expect(started.status()).toBe(200);
+      await expect.poll(async () => {
+        try { return (await page.request.get(appUrl)).status(); } catch { return 0; }
+      }, { timeout: 60_000 }).toBe(200);
+      const after = await visit("app-recovered", 200);
+      expect(after.database).toBe("connected");
+      expect(after.messages).toEqual(before.messages);
+      scenarios.push({ scenario: "unpacked current-candidate app, visible dependency failure, recovery and data persistence", result: "Verified" });
+    });
   } finally {
     await mkdir(screenshotDir, { recursive: true });
     const installed = JSON.parse(await readFile(new URL("./node_modules/@playwright/test/package.json", import.meta.url), "utf8"));

@@ -54,9 +54,13 @@ browser session, and receipt directory. The current implementation exercises
 first-run acknowledgement and persistence, credential re-read denial, Echo
 cancel/stop/start/restart with authoritative process and refresh checks, and the
 existing ops route audit/redacted-capture toolset. These remain partial coverage,
-not the complete newcomer journey. App failure/recovery,
-source-package and concurrent-instance coverage remains required before newcomer
-acceptance; the receipt lists those outstanding scenarios explicitly. The command writes a ZIP under
+not the complete newcomer journey. The runner also packs/unpacks the PostgreSQL
+example, explicitly substitutes a locally staged current Core package, performs
+real write/read checks, and drives app dependency failure/recovery in Playwright.
+The package checksum and dependency substitution are recorded; this does not
+claim the example's pinned public dependency has changed. Concurrent-instance
+orchestration remains required before newcomer acceptance; the receipt lists
+outstanding scenarios explicitly. The command writes a ZIP under
 `newcomer-proof-artifacts/`. It retains the ZIP
 and stops only the owned runtime. Private runtime state is retained locally for
 diagnosis, outside the upload bundle. Cleanup is Verified only when both the

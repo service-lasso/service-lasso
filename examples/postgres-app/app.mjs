@@ -5,6 +5,7 @@ import { createServer as createPortProbe } from 'node:net';
 import path from 'node:path';
 import pg from 'pg';
 import { cli, roots, root, servicesRoot, run, ports } from './common.mjs';
+import { waitForDatabase } from './database-ready.mjs';
 const api = `http://127.0.0.1:${ports.core}`;
 const started = Date.now();
 const manifest = JSON.parse(await readFile(path.join(servicesRoot, 'postgres/service.json'), 'utf8'));
@@ -48,6 +49,9 @@ try {
   const state = JSON.parse(await readFile(path.join(servicesRoot, 'postgres/.state/runtime.json'), 'utf8'));
   pool = new pg.Pool({ host: '127.0.0.1', port: state.ports.service, user: 'pgadmin', password: 'pgadmin', database: 'postgres', connectionTimeoutMillis: 5000 });
   pool.on('error', () => console.error('Database connection lost. Check PostgreSQL health and logs.'));
+  // A managed process can exist while first-run initdb is still finishing.
+  // App readiness requires a real SQL connection, not merely a running PID.
+  await waitForDatabase(pool);
   await pool.query('CREATE TABLE IF NOT EXISTS lasso_messages (id text PRIMARY KEY, message text NOT NULL)');
   server = createServer(async (request, response) => {
     try {

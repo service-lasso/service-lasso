@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { zipSync } from "fflate";
 import { cleanupWorktreeProof, prepareWorktreeProof, resolveWorktreeProofOptions } from "./demo-worktree-proof.mjs";
 import { discoverOwningRuntime, observeBoundedJsonObject, waitForBaselineCompletion } from "./runtime-owner.mjs";
+import { prepareAppJourney } from "./newcomer-app-journey.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const proofRootBase = path.join(repoRoot, "newcomer-proof-artifacts");
@@ -100,7 +101,7 @@ function run(command, args, options = {}) {
 export function ownedRuntimePortEnvironment(runtimePort) {
   return {
     SERVICE_LASSO_PORT_RANGE_START: String(runtimePort),
-    SERVICE_LASSO_PORT_RANGE_END: String(runtimePort + portRangeSize - 1),
+    SERVICE_LASSO_PORT_RANGE_END: String(runtimePort + 79),
   };
 }
 
@@ -229,6 +230,7 @@ async function main() {
   let lease = null;
   let summary = null;
   let owner = null;
+  let appJourney = null;
   let phase = "prepare";
   // Outside try/finally: a rejected root is never ours to write a receipt into.
   await claimProofRoot(proofRoot);
@@ -250,6 +252,9 @@ async function main() {
     await bootstrapOwnedRuntime(summary, owner);
     await waitForAdmin(summary.urls.serviceAdmin, owner);
     receipt.checks.runtime = "Verified";
+    phase = "app-package-journey";
+    appJourney = await prepareAppJourney({ repoRoot, proofRoot, portStart: lease.start + 100 });
+    receipt.appPackage = appJourney.receipt;
     phase = "browser-suite";
     const playwright = await run(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config=playwright.newcomer.config.mjs"], {
       env: {
@@ -257,12 +262,16 @@ async function main() {
         SERVICE_LASSO_NEWCOMER_ADMIN_URL: summary.urls.serviceAdmin,
         SERVICE_LASSO_NEWCOMER_SCREENSHOT_DIR: path.join(bundleRoot, "screenshots"),
         SERVICE_LASSO_NEWCOMER_PLAYWRIGHT_DIR: path.join(proofRoot, "private-playwright"),
+        SERVICE_LASSO_NEWCOMER_APP_URL: appJourney.appUrl,
+        SERVICE_LASSO_NEWCOMER_APP_CORE_URL: appJourney.apiUrl,
       },
     });
     await writeFile(path.join(proofRoot, "private-playwright-command.json"), `${JSON.stringify(playwright, null, 2)}\n`);
     await writeFile(path.join(bundleRoot, "playwright-command.json"), `${JSON.stringify(publicPlaywrightResult(playwright), null, 2)}\n`);
     if (playwright.code !== 0) throw new Error(`Playwright newcomer suite failed with exit ${playwright.code ?? "unknown"}.`);
     receipt.checks.playwright = "Verified";
+    receipt.coverage.implemented.push("app outcome and controlled failure recovery", "source-package journey with explicit current-candidate dependency substitution");
+    receipt.coverage.outstanding = receipt.coverage.outstanding.filter(item => item !== "app outcome and controlled failure recovery" && item !== "source-package journey");
     // A passing implemented subset is not a complete newcomer qualification.
     receipt.status = receipt.coverage.outstanding.length ? "Blocked" : "Verified";
   } catch (error) {
@@ -273,6 +282,14 @@ async function main() {
       ownerOutput: owner ? { stdout: owner.stdout.slice(-2_000), stderr: owner.stderr.slice(-2_000) } : null,
     }));
   } finally {
+    if (appJourney) {
+      try {
+        receipt.appCleanup = await appJourney.cleanup();
+      } catch {
+        receipt.appCleanup = { status: "Invalidated" };
+        receipt.status = "Invalidated";
+      }
+    }
     if (owner) await writeFile(path.join(proofRoot, "private-runtime-output.json"), JSON.stringify({ stdout: owner.stdout, stderr: owner.stderr }));
     if (summary) {
       try {

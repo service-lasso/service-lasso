@@ -34,7 +34,7 @@ test("shareable result cannot include credentials from raw Playwright failures",
 test("owned runtime range includes the port wired into Admin's upstream", () => {
   assert.deepEqual(ownedRuntimePortEnvironment(21480), {
     SERVICE_LASSO_PORT_RANGE_START: "21480",
-    SERVICE_LASSO_PORT_RANGE_END: "21639",
+    SERVICE_LASSO_PORT_RANGE_END: "21559",
   });
 });
 
