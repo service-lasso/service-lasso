@@ -1207,7 +1207,32 @@ export async function configService(
   }));
 }
 
+const pendingServiceStarts = new Map<string, Promise<void>>();
+
 export async function startService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
+): Promise<LifecycleActionResult> {
+  // Automatic startup and API requests may both reach this boundary before
+  // either has enrolled a process. Serialize by root, not just service ID, so
+  // independent folder instances never block one another.
+  const key = path.resolve(service.serviceRoot);
+  const previous = pendingServiceStarts.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const tail = previous.then(() => current);
+  pendingServiceStarts.set(key, tail);
+  await previous;
+  try {
+    return await startServiceSerialized(service, registry, options);
+  } finally {
+    release();
+    if (pendingServiceStarts.get(key) === tail) pendingServiceStarts.delete(key);
+  }
+}
+
+async function startServiceSerialized(
   service: DiscoveredService,
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},
