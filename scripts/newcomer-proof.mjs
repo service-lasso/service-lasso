@@ -257,6 +257,7 @@ async function main() {
       ownerOutput: owner ? { stdout: owner.stdout.slice(-2_000), stderr: owner.stderr.slice(-2_000) } : null,
     });
   } finally {
+    if (owner) await writeFile(path.join(proofRoot, "private-runtime-output.json"), JSON.stringify({ stdout: owner.stdout, stderr: owner.stderr }));
     if (summary) {
       try {
         const cleanup = await cleanupWorktreeProof(summary.paths.summaryPath);
