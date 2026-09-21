@@ -10,6 +10,7 @@ import { discoverOwningRuntime, observeBoundedJsonObject, waitForBaselineComplet
 import { prepareAppJourney } from "./newcomer-app-journey.mjs";
 import { createPairCheckpoint } from "./newcomer-pair-checkpoint.mjs";
 import { installedArtifactEvidence } from "./newcomer-artifact-evidence.mjs";
+import { retainStartupFailure } from "./newcomer-runtime-diagnostics.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const proofRootBase = path.join(repoRoot, "newcomer-proof-artifacts");
@@ -189,13 +190,14 @@ export async function ensureServiceStarted(runtimeUrl, serviceId, request = fetc
   if (!running) await postJson(`${url}/start`, request);
 }
 
-async function bootstrapOwnedRuntime(summary, owner, timeoutMs = 300_000) {
+async function bootstrapOwnedRuntime(summary, owner, timeoutMs = 300_000, onService = () => {}) {
   const runtime = await discoverOwningRuntime({ owner, servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot, publishTimeoutMs: timeoutMs });
   summary.urls.runtime = runtime.apiUrl;
   summary.ports.runtime = Number(new URL(runtime.apiUrl).port);
   await waitForBaselineCompletion({ owner, runtime, output: owner.bootstrapOutput, servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot });
   await postJson(`${summary.urls.runtime}/api/setup/bootstrap`);
   for (const serviceId of ["@nginx", "@traefik", "echo-service", "@serviceadmin"]) {
+    onService(serviceId);
     await ensureServiceStarted(summary.urls.runtime, serviceId);
   }
   const detail = await (await fetch(`${summary.urls.runtime}/api/services/${encodeURIComponent("@serviceadmin")}`, { signal: AbortSignal.timeout(30_000) })).json();
@@ -249,6 +251,7 @@ async function main() {
   let owner = null;
   let appJourney = null;
   let phase = "prepare";
+  let startupServiceId = null;
   // Outside try/finally: a rejected root is never ours to write a receipt into.
   await claimProofRoot(proofRoot);
   const checkpoint = paired ? createPairCheckpoint(process) : null;
@@ -267,7 +270,7 @@ async function main() {
     receipt.isolation = { proofId, portRange: `${lease.start}-${lease.end}`, distinctServicesRoot: true, distinctWorkspaceRoot: true, distinctEvidenceRoot: true };
     owner = startOwnedRuntime(summary);
     phase = "runtime-bootstrap";
-    await bootstrapOwnedRuntime(summary, owner);
+    await bootstrapOwnedRuntime(summary, owner, 300_000, serviceId => { startupServiceId = serviceId; });
     await waitForAdmin(summary.urls.serviceAdmin, owner);
     receipt.installedArtifacts = await installedArtifactEvidence(summary.paths.servicesRoot, ["@serviceadmin", "@secretsbroker", "echo-service"]);
     receipt.checks.runtime = "Verified";
@@ -300,6 +303,10 @@ async function main() {
   } catch (error) {
     receipt.status = "Invalidated";
     receipt.failure = publicFailure(phase);
+    if (phase === "runtime-bootstrap" && startupServiceId) {
+      await retainStartupFailure(summary?.urls?.runtime, startupServiceId,
+        diagnostic => writeFile(path.join(proofRoot, "private-startup-diagnostic.json"), diagnostic));
+    }
     await writeFile(path.join(proofRoot, "private-failure.json"), JSON.stringify({
       message: error instanceof Error ? error.message : String(error),
       ownerOutput: owner ? { stdout: owner.stdout.slice(-2_000), stderr: owner.stderr.slice(-2_000) } : null,

@@ -108,6 +108,8 @@ For the first runtime slice, expected proof should include:
 
 Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
 
+The real newcomer runner must also retain a bounded, read-only startup failure snapshot before owned cleanup when a request abort hides the server's eventual failure phase. Keep this diagnostic outside public bundles, preserve the original failure, and never retry mutations or extend their deadlines to collect it.
+
 Issue #1387 repairs the Linux PostgreSQL example's owned-artifact library resolution under SPEC-002 AC-4AJ.4c. The direct failed #1385 attempt remains invalidated; corrected source requires fresh full paired qualification, not a system-library workaround or a timeout increase.
 
 Readers should reach a working demo, add a released service, connect a small app, configure it, diagnose failure, and reproduce the app package through centralized task guides. Agent prompts use verified MCP operations where available and coding tools for source/package work, with explicit scope and outcome checks (SPEC-002 AC-4AJ.4).
