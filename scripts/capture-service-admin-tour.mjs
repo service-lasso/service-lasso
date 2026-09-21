@@ -12,6 +12,26 @@ import { fileURLToPath } from "node:url";
 
 export const TOUR_VIEWPORT = Object.freeze({ width: 1512, height: 982 });
 export const LOCAL_PATH_CAPTURE_PATTERN = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|\/(?:Users|home|tmp|private|var|mnt)\/)/u;
+
+export async function localPathCaptureMask(page) {
+  // Mark the immediate owner of a private text node, including bare div text.
+  // Restricting this to table cells misses the runtime command/build summary.
+  await page.evaluate((source) => {
+    const pattern = new RegExp(source, "u");
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const element = node.parentElement;
+      if (element && !["SCRIPT", "STYLE"].includes(element.tagName) && pattern.test(node.textContent ?? "")) {
+        element.setAttribute("data-proof-private-path", "true");
+      }
+    }
+    for (const input of document.querySelectorAll("input, textarea")) {
+      if (pattern.test(input.value)) input.setAttribute("data-proof-private-path", "true");
+    }
+  }, LOCAL_PATH_CAPTURE_PATTERN.source);
+  return page.locator('[data-proof-private-path="true"]');
+}
 export const DEFAULT_SERVICE_ADMIN_URL = "http://127.0.0.1:17700/";
 export const DEFAULT_COLOR_SCHEME = "dark";
 // A cold packaged Admin route can initialize its MCP discovery view after the
@@ -655,7 +675,7 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
           ...passwordFieldMaskOptions(page),
           mask: [
             ...passwordFieldMaskOptions(page).mask,
-            page.locator("td, code, pre, p, span").filter({ hasText: LOCAL_PATH_CAPTURE_PATTERN }),
+            await localPathCaptureMask(page),
           ],
         });
         await assertPngViewport(imagePath);

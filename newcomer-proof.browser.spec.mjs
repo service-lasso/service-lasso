@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { runServiceAdminTour, parseCaptureArguments, passwordFieldMaskOptions, LOCAL_PATH_CAPTURE_PATTERN } from "./scripts/capture-service-admin-tour.mjs";
+import { runServiceAdminTour, parseCaptureArguments, passwordFieldMaskOptions, localPathCaptureMask } from "./scripts/capture-service-admin-tour.mjs";
 
 const adminUrl = process.env.SERVICE_LASSO_NEWCOMER_ADMIN_URL;
 const screenshotDir = process.env.SERVICE_LASSO_NEWCOMER_SCREENSHOT_DIR;
@@ -67,7 +67,7 @@ test("first-run handoff, persistent acknowledgement, and complete ops tour", asy
       const captureState = async (name) => {
         await mkdir(screenshotDir, { recursive: true });
         await page.screenshot({ path: path.join(screenshotDir, name + ".png"), fullPage: false,
-          mask: [...passwordFieldMaskOptions(page).mask, page.locator("td, code, pre, p, span").filter({ hasText: LOCAL_PATH_CAPTURE_PATTERN })] });
+          mask: [...passwordFieldMaskOptions(page).mask, await localPathCaptureMask(page)], animations: "disabled" });
       };
       const original = await readEcho();
       expect(original.running).toBe(true);
