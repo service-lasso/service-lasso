@@ -8,6 +8,10 @@ Create the first real product spec for `service-lasso` by moving from bootstrap-
 
 For #1394, startup materialization sidecar publication may retry only Windows EPERM/EACCES/EBUSY rename failures within a fixed short retry budget. Every attempt must revalidate contained regular source and destination paths and unchanged file identity/content metadata. Close the writer handle before replacement; keep encrypted serialization and durability behavior. Never delete the prior destination or copy over it to work around rename failure. Permanent failure retains the prior record, reports the original rename error, and cleans only the transaction-owned temporary file. Non-Windows failures are not retried. Verify transient recovery, exhaustion, nonretryable errors, unsafe/changed paths, and full materialization rollback regression; repeat paired newcomer evidence before accepting the candidate.
 
+### Linux transient process enumeration (AC-4BH.1)
+
+For #1392, enumerate numeric `/proc` names without directory-type resolution that can implicitly stat an entry after its process exits. Process tree, namespace identity, and listener inspection must retain their subsequent identity/namespace/socket checks and existing bounds. A disappearing individual entry must not abort an otherwise valid scan; a genuine failure to enumerate `/proc` must retain its existing failure/unknown classification, never become an empty successful table or proof of exit. Deterministic regression tests must exercise disappearance, namespace exclusion, malformed entries, and enumeration failures. Full Linux baseline shutdown and required exact-head CI remain acceptance gates.
+
 Included in this spec:
 - establish the first tracked source tree for the core runtime inside this repo
 - define the first bounded standalone runtime slice and its execution boundary

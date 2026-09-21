@@ -47,6 +47,7 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Risks
 - Startup recovery sidecars must remain atomically replaceable under transient Windows sharing contention; bounded retries must preserve prior encrypted recovery bytes and reject changed or redirected paths (#1394, AC-4BJ.2a).
+- Linux shutdown must tolerate process disappearance during `/proc` enumeration without interpreting failed enumeration as proof of exit (#1392, SPEC-002 AC-4BH.1).
 - Staying in analysis/doc mode too long would create false progress without a running core.
 - Starting too broadly could mix manifest redesign, runtime implementation, provider integration, and release plumbing into one hard-to-verify change.
 - Service-specific setup-step jobs can still fail if runtime artifacts, platform commandlines, or provider dependencies are not validated in the owning service repo.
