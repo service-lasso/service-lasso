@@ -8,6 +8,7 @@ import { listSetupStepIds, runServiceSetup, type SetupTransactionHooks } from ".
 import { writeServiceState } from "../state/writeState.js";
 import { configService, installService, startService, type ServiceLifecycleActionOptions } from "./actions.js";
 import { getLifecycleState } from "./store.js";
+import { withServiceStartSerialization } from "./start-serialization.js";
 import type { LifecycleActionResult, ServiceLifecycleState } from "./types.js";
 import type {
   MaterializationWriteHooks,
@@ -128,6 +129,14 @@ function serviceActionOptions(serviceId: string, options: PreparedStartOptions):
 }
 
 export async function prepareAndStartService(
+  service: DiscoveredService,
+  registry: ServiceRegistry,
+  options: PreparedStartOptions = {},
+): Promise<PreparedStartResult> {
+  return await withServiceStartSerialization(service.serviceRoot, () => prepareAndStartServiceSerialized(service, registry, options));
+}
+
+async function prepareAndStartServiceSerialized(
   service: DiscoveredService,
   registry: ServiceRegistry,
   options: PreparedStartOptions = {},

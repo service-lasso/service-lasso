@@ -456,6 +456,11 @@ For #1376, the PostgreSQL source-package example must accept independently confi
 
 The packaged app must prove SQL readiness before creating its schema or declaring HTTP readiness. A live managed PID alone is insufficient during first-run database initialization. Retry only transient startup connection failures within a bounded deadline; authentication and other non-startup failures remain visible immediately.
 
+### Same-service startup serialization (AC-4AJ.4d)
+
+For #1383, automatic startup and explicit starts targeting the same service root must serialize process launch and initialization. Concurrent callers may adopt the same verified owner or receive an already-running result, but must never launch a second initializer/process. Failed attempts must release the serialization boundary for later recovery. Independent service roots must not share this boundary. Validate actual launch counts, ownership and cleanup, including the automatic-start/HTTP request race.
+
+
 ### Windows artifact publication (AC-4AJ.4b)
 
 Issue #1380 requires bounded retries of startup artifact staging publication on Windows for EPERM, EACCES and EBUSY only. Retries use the same transaction-owned source/destination, never remove or replace an existing destination, and do not report success before rename succeeds. Non-transient/non-Windows errors fail immediately. Exhaustion preserves the original error and normal transaction recovery. Verify transient success, exhaustion, immediate failures and destination preservation before repeating direct Windows newcomer proof.
