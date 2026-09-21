@@ -26,6 +26,12 @@ test("first-run handoff, persistent acknowledgement, and complete ops tour", asy
       const tokenPresent = (await page.getByRole("textbox", { name: "Local-admin token", exact: true }).inputValue()).length > 0;
       const passwordPresent = (await page.getByRole("textbox", { name: "Lasso-local password", exact: true }).inputValue()).length > 0;
       expect(tokenPresent && passwordPresent, "first-run credentials must be supplied").toBe(true);
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(adminUrl).origin });
+      await page.getByRole("button", { name: "Copy local-admin token", exact: true }).click();
+      await page.getByRole("button", { name: "Copy local-operator password", exact: true }).click();
+      // Complete the actual copy gate, but leave no disposable credential on
+      // the clipboard after this browser-only handoff exercise.
+      await page.evaluate(() => navigator.clipboard.writeText(""));
       await page.getByRole("checkbox", { name: "I saved this token", exact: true }).check();
       await expect(proceed).toBeEnabled();
       await proceed.click();
