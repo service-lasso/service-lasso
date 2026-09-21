@@ -26,6 +26,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - one operator MCP on the core runtime for safe reads plus guarded lifecycle and maintenance actions through shared application facades (`SPEC-006`); never secret values, raw config/log payloads, local roots, generic shell, terminal/stdin, raw filesystem, or raw configuration tools
 
 ## Constraints
+- Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
 - Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.

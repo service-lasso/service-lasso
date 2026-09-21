@@ -195,15 +195,19 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
           fixture.workspaceRoot,
           phase,
         ],
-        { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+        { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true },
       );
+      let failureDiagnostic = null;
+      crash.on("message", (message) => {
+        if (message?.kind === "startup-crash-failure") failureDiagnostic = message;
+      });
       const stdout = collectBoundedOutput(crash.stdout);
       const stderr = collectBoundedOutput(crash.stderr);
       let apiServer = null;
 
       try {
         const exit = await waitForHardExit(crash);
-        assert.equal(exit.code, 86);
+        assert.equal(exit.code, 86, JSON.stringify({ expectedExit: 86, actualExit: exit.code, failureDiagnostic }));
         assert.equal(exit.signal, null);
         assert.ok(stdout.bytes <= 64 * 1024);
         assert.ok(stderr.bytes <= 64 * 1024);
