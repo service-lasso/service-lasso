@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createServer as createPortProbe } from 'node:net';
@@ -16,7 +16,13 @@ await new Promise((resolve, reject) => {
   probe.listen(ports.core, '127.0.0.1', () => probe.close(resolve));
 });
 // Fixed API port prevents accidentally attaching to another instance.
-const runtime = spawn(process.execPath, [cli, 'serve', '--port', String(ports.core), '--port-policy', 'fixed', ...roots], { cwd: root, stdio: 'inherit', windowsHide: true });
+// This app owns config/start explicitly. New Core versions also autostart by
+// default; opt out when supported, retaining compatibility with the pinned
+// older package that predates this option.
+const help = spawnSync(process.execPath, [cli, 'help'], { cwd: root, encoding: 'utf8', windowsHide: true });
+if (help.error || help.status !== 0) throw new Error('Could not inspect Core CLI startup capabilities.');
+const startupFlags = help.stdout.includes('--noautostart') ? ['--noautostart'] : [];
+const runtime = spawn(process.execPath, [cli, 'serve', ...startupFlags, '--port', String(ports.core), '--port-policy', 'fixed', ...roots], { cwd: root, stdio: 'inherit', windowsHide: true });
 let exited = false;
 runtime.once('exit', () => { exited = true; stop().catch(console.error); });
 let pool, server, stopping = false;

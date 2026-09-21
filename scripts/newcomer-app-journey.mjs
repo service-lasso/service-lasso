@@ -89,7 +89,10 @@ export async function prepareAppJourney({ repoRoot, proofRoot, portStart }) {
     await execute("check", () => runCommand(process.execPath, ["check.mjs"], { cwd, env, windowsHide: true }));
     return { apiUrl, appUrl, cleanup, receipt: { sourcePackage: { sha256: await digest(archive), files: pack.files.map(file => file.path) }, corePackage: { version: installed.version, sha256: await digest(staged.packageArchivePath), substitution: "locally staged current candidate replaces pinned example dependency" }, commands } };
   } catch (error) {
-    await cleanup();
+    await writeFile(path.join(privateRoot, "journey-failure.json"), JSON.stringify({ message: String(error) }));
+    try { await cleanup(); } catch (cleanupError) {
+      await writeFile(path.join(privateRoot, "cleanup-failure.json"), JSON.stringify({ message: String(cleanupError) }));
+    }
     throw error;
   }
 }

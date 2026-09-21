@@ -74,8 +74,19 @@ Chromium versions and UTC execution times. Review the ZIP's approved screenshots
 uploading. A passing implemented subset remains `Blocked` while required
 scenario coverage is outstanding.
 
-To qualify concurrent isolation, run two invocations from distinct new folders
-at the same time and attach both ZIPs to the platform issue. The issue comment
+To qualify concurrent isolation, use the coordinated command:
+
+```sh
+npm run verify:newcomer-pair -- --issue=1328 --proof-root=./newcomer-proof-artifacts/new-windows-pair
+```
+
+It creates two independent child folders and runs both full browser suites.
+After both finish, it records simultaneous live processes/HTTP health, stops A,
+checks B still has the same process identities and healthy HTTP responses,
+then stops B. Single-run receipts keep their concurrent-proof limitation;
+the paired receipt separately records whether the joint requirement passed.
+Inspect both nested child ZIPs and the pair receipt, then attach the paired ZIP
+to the platform issue. The issue comment
 must state only the exact candidate identity, OS and Node versions, command,
 UTC start/end, proof IDs, ZIP names/checksums, scenario classifications, and
 owned-cleanup result. Do not attach credentials, tokens, passwords, raw

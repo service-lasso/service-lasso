@@ -8,6 +8,7 @@ import { zipSync } from "fflate";
 import { cleanupWorktreeProof, prepareWorktreeProof, resolveWorktreeProofOptions } from "./demo-worktree-proof.mjs";
 import { discoverOwningRuntime, observeBoundedJsonObject, waitForBaselineCompletion } from "./runtime-owner.mjs";
 import { prepareAppJourney } from "./newcomer-app-journey.mjs";
+import { createPairCheckpoint } from "./newcomer-pair-checkpoint.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const proofRootBase = path.join(repoRoot, "newcomer-proof-artifacts");
@@ -218,6 +219,8 @@ async function writeBundle(bundleRoot, proofId) {
 
 async function main() {
   const args = process.argv.slice(2);
+  const paired = args.includes("--pair-child");
+  if (paired && !process.send) throw new Error("Pair child requires its IPC coordinator.");
   const proofId = (flag(args, "proof-id") ?? `proof-${randomUUID().slice(0, 12)}`).replace(/[^a-zA-Z0-9-]/g, "-");
   const issue = flag(args, "issue") ?? null;
   const suppliedRoot = flag(args, "proof-root");
@@ -234,6 +237,7 @@ async function main() {
   let phase = "prepare";
   // Outside try/finally: a rejected root is never ours to write a receipt into.
   await claimProofRoot(proofRoot);
+  const checkpoint = paired ? createPairCheckpoint(process) : null;
   try {
     await mkdir(path.join(bundleRoot, "screenshots"), { recursive: true });
     lease = await reservePortRange(proofId);
@@ -274,6 +278,10 @@ async function main() {
     receipt.coverage.outstanding = receipt.coverage.outstanding.filter(item => item !== "app outcome and controlled failure recovery" && item !== "source-package journey");
     // A passing implemented subset is not a complete newcomer qualification.
     receipt.status = receipt.coverage.outstanding.length ? "Blocked" : "Verified";
+    if (checkpoint) {
+      phase = "concurrent-cleanup-checkpoint";
+      await checkpoint.wait({ commit: receipt.candidate.commit, servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot, corePid: owner.pid, runtimeUrl: summary.urls.runtime, adminUrl: summary.urls.serviceAdmin, appUrl: appJourney.appUrl, appCoreUrl: appJourney.apiUrl, start: lease.start, end: lease.end });
+    }
   } catch (error) {
     receipt.status = "Invalidated";
     receipt.failure = publicFailure(phase);
@@ -310,6 +318,8 @@ async function main() {
     const bundle = await writeBundle(bundleRoot, proofId);
     console.log(JSON.stringify(sanitizeEvidence({ proofId, status: receipt.status, zip: path.basename(bundle.zipPath), sha256: bundle.sha256, issue }), null, 2));
     if (receipt.status !== "Verified") process.exitCode = 1;
+    checkpoint?.dispose();
+    if (paired && process.connected) process.disconnect();
   }
 }
 
