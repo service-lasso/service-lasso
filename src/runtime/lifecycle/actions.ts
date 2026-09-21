@@ -4,6 +4,7 @@ import type {
   ServiceRestartPolicy,
 } from "../../contracts/service.js";
 import path from "node:path";
+import { withServiceStartSerialization } from "./start-serialization.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { evaluateServiceIsolation, assertIsolationStartAllowed } from "../isolation/evaluate.js";
@@ -1208,6 +1209,17 @@ export async function configService(
 }
 
 export async function startService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
+): Promise<LifecycleActionResult> {
+  // Automatic startup and API requests may both reach this boundary before
+  // either has enrolled a process. Serialize by root, not just service ID, so
+  // independent folder instances never block one another.
+  return await withServiceStartSerialization(service.serviceRoot, () => startServiceSerialized(service, registry, options));
+}
+
+async function startServiceSerialized(
   service: DiscoveredService,
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},

@@ -448,6 +448,10 @@ User, operator, integration, and service-authoring guides are authored in servic
 
 ## Newcomer journeys (AC-4AJ.4)
 
+### Same-service startup serialization (AC-4AJ.4d)
+
+For #1383, automatic startup and explicit starts targeting the same service root must serialize process launch and initialization. Concurrent callers may adopt the same verified owner or receive an already-running result, but must never launch a second initializer/process. Failed attempts must release the serialization boundary for later recovery. Independent service roots must not share this boundary. Validate actual launch counts, ownership and cleanup, including the automatic-start/HTTP request race.
+
 Issue #1270 must provide task guides and reusable agent prompts for demo evaluation, adding a released service, connecting a small app, configuring values and secret references, diagnosis, and source packaging. Runnable examples and verification helpers must use explicit isolated service/workspace roots, preserve unrelated runtime processes, report exact artifact/source identity, elapsed time and platform, and clean up only owned processes. Central documentation exports must preserve offline Help Center content while preventing independent source drift. Companion READMEs direct consumers to central guides before maintainer reference. Source package proof must not claim fresh-machine, cross-platform, or offline bundled acceptance without evidence.
 
 ### Windows artifact publication (AC-4AJ.4b)
