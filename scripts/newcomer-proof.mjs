@@ -212,7 +212,8 @@ async function main() {
   const bundleRoot = path.join(proofRoot, "bundle");
   const runtimeRoot = path.join(proofRoot, "runtime");
   const startedAt = new Date().toISOString();
-  const receipt = { schema: "service-lasso.newcomer-proof.v1", proofId, issue, startedAt, platform: process.platform, node: process.version, status: "Blocked", checks: {}, cleanup: null };
+  const receipt = { schema: "service-lasso.newcomer-proof.v1", proofId, issue, startedAt, platform: process.platform, node: process.version, status: "Blocked", checks: {}, cleanup: null,
+    coverage: { implemented: ["first-run handoff", "acknowledgement persistence", "credential re-read denial", "ops route audit and redacted captures"], outstanding: ["service lifecycle and cancellation", "app outcome and controlled failure recovery", "source-package journey", "simultaneous independent folders"] } };
   let lease = null;
   let summary = null;
   let owner = null;
@@ -247,7 +248,8 @@ async function main() {
     await writeFile(path.join(bundleRoot, "playwright-command.json"), `${JSON.stringify(publicPlaywrightResult(playwright), null, 2)}\n`);
     if (playwright.code !== 0) throw new Error(`Playwright newcomer suite failed with exit ${playwright.code ?? "unknown"}.`);
     receipt.checks.playwright = "Verified";
-    receipt.status = "Verified";
+    // A passing implemented subset is not a complete newcomer qualification.
+    receipt.status = receipt.coverage.outstanding.length ? "Blocked" : "Verified";
   } catch (error) {
     receipt.status = "Invalidated";
     receipt.failure = sanitizeEvidence({

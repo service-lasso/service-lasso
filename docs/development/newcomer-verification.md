@@ -50,13 +50,20 @@ npm run verify:newcomer-proof -- --issue=<GitHub issue number>
 ```
 
 The command allocates an owned port range, services root, workspace root,
-browser session, and receipt directory. The current implementation runs three
-Playwright route checks against Service Admin entry, services, and Echo detail;
-these are partial coverage, not the complete newcomer journey. Full lifecycle,
-failure/recovery, persistence, concurrent-instance and ops capture coverage remains
-required before newcomer acceptance. The command writes a ZIP under
+browser session, and receipt directory. The current implementation exercises
+first-run acknowledgement and persistence, credential re-read denial, and the
+existing ops route audit/redacted-capture toolset. These remain partial coverage,
+not the complete newcomer journey. Full lifecycle, app failure/recovery,
+source-package and concurrent-instance coverage remains required before newcomer
+acceptance; the receipt lists those outstanding scenarios explicitly. The command writes a ZIP under
 `newcomer-proof-artifacts/`. It retains the ZIP
 and cleans up only the owned runtime data.
+
+Raw Playwright reports are retained outside the ZIP in `private-playwright`;
+they may contain first-run credentials. Never upload that directory or
+`private-playwright-command.json`. Review the ZIP's approved screenshots before
+uploading. A passing implemented subset remains `Blocked` while required
+scenario coverage is outstanding.
 
 To qualify concurrent isolation, run two invocations from distinct new folders
 at the same time and attach both ZIPs to the platform issue. The issue comment
