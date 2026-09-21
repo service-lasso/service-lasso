@@ -6,6 +6,19 @@ title: GA candidate dossier
 
 Prepared for Core #1321. This dossier is a decision input, not a GA approval.
 
+## Current acceptance decision
+
+The user has accepted fresh owned folders on one host as newcomer environments
+and requires concurrent folder instances to work. macOS direct proof (#1330) and
+independent newcomer review are deferred confidence follow-ups, not blockers to
+the current readiness conclusion. This does not waive release-promotion controls
+or supply an independent GA approval. Windows full journey, simultaneous-folder
+proof and inspected ZIP uploads remain incomplete (#1328/#1376).
+
+The candidate and reviewer-routing details below are a historical evidence packet;
+they do not describe current branch heads. See the newcomer matrix for current
+classifications. Each new receipt must identify its exact tested source.
+
 ## Candidate identity
 
 | Component | Exact identity | Status |
@@ -23,10 +36,11 @@ Prepared for Core #1321. This dossier is a decision input, not a GA approval.
 | Core Release Qualification at candidate base | Verified, surrogate-only | Current-`develop` Release Qualification `35483512309` passed; it does not prove customer journeys |
 | Dashboard policy enforcement tests | Verified | #1349 focused suite and terminal hosted checks passed before merge |
 | Dashboard rendered 1512x982 clean-owned capture | Verified, source-integration only | #1322: exact candidate completed 40/40 route audit; inspected redacted capture receipt is review-only with no docs write |
-| Windows newcomer journey | Blocked | Existing development host is not a clean environment; #1328 owns an authorized clean lane |
+| Windows newcomer journey | Invalidated / in progress | New owned folders are accepted; #1328 tracks unfinished full browser and concurrent-instance proof |
 | Linux newcomer journey | Verified, direct | Fresh non-root Ubuntu 26.04 proof at `a0ef7280a58219ff8228cf46d81fe3a99f534eab` completed first run and canonical verification with healthy classification; owned cleanup settled. The metadata-only matrix is in `docs/development/newcomer-candidate-qualification.md`. This does not substitute for Windows or macOS. |
-| macOS newcomer journey | Blocked | macOS environment owner #1330 |
-| Independent reviewer acceptance and GA decision | Blocked | No named independent reviewer has accepted #1321 |
+| macOS newcomer journey | Deferred, non-blocking | macOS follow-up #1330; no direct pass claimed |
+| Independent newcomer review | Deferred, non-blocking | No independent review has occurred; the user has deferred it |
+| GA approval | Not recorded | No approval is inferred or self-signed |
 
 ## Reviewer decision boundary
 

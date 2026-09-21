@@ -7,7 +7,7 @@ title: Newcomer candidate qualification
 This is an evidence matrix for Core issue #1323. It is not a release approval
 or a substitute for independent GA review.
 
-## Candidate
+## Recorded Linux candidate
 
 | Component | Identity |
 | --- | --- |
@@ -20,11 +20,19 @@ or a substitute for independent GA review.
 | Platform | Environment | Result | Evidence and limits |
 | --- | --- | --- | --- |
 | Linux | Fresh non-root Ubuntu 26.04 checkout | Verified, direct | Isolated first run completed; canonical recycle reported `healthy` and canonical verification passed. The owned cleanup converged with seven shutdown entries. Evidence ID: `fresh-linux-a0ef728`. This is a source-candidate proof, not published-package or cross-platform proof. |
-| Windows | No clean external lane available | Blocked | Existing development-host observations are not clean-machine evidence. Do not substitute CI or the Linux result. |
-| macOS | No clean external lane available | Blocked | No direct macOS journey has been run for this candidate. Do not substitute CI or the Linux result. |
+| Windows | Fresh isolated folders on the existing host, accepted by the user | Invalidated / in progress | #1328 and #1376 own full Playwright journey and concurrent-instance proof. Runs have exposed runner defects and installation failures; no complete passing journey or public ZIP exists yet. Individual receipts bind their exact source commits. |
+| macOS | No direct run available | Deferred, non-blocking | #1330 contains the same portable command, full journey requirements, two-folder isolation checks, report fields, and ZIP-upload procedure. No macOS pass is claimed. |
 
 ## Remaining decision boundary
 
-The matrix cannot support GA while Windows and macOS remain blocked. A named
-independent reviewer must assess the exact candidate and all evidence once the
-three-platform matrix is complete; this document records no reviewer decision.
+The user explicitly accepts a new owned folder as a new-machine equivalent for
+Service Lasso and requires simultaneous independent folder instances. macOS proof
+and independent newcomer review are deferred confidence follow-ups, not readiness
+blockers. This supersedes the earlier external-machine and mandatory-three-platform
+acceptance policy; it is not an independent review or release-promotion approval.
+
+Windows full journey, lifecycle/recovery, concurrent-folder isolation, and inspected
+uploaded evidence remain incomplete. The Linux runtime/recycle receipt above does
+not by itself prove the newly requested full Playwright screenshot journey. Do not
+transfer that result to a newer source candidate or another OS. No GA approval is
+recorded here.
