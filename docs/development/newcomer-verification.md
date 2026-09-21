@@ -51,17 +51,22 @@ npm run verify:newcomer-proof -- --issue=<GitHub issue number>
 
 The command allocates an owned port range, services root, workspace root,
 browser session, and receipt directory. The current implementation exercises
-first-run acknowledgement and persistence, credential re-read denial, and the
+first-run acknowledgement and persistence, credential re-read denial, Echo
+cancel/stop/start/restart with authoritative process and refresh checks, and the
 existing ops route audit/redacted-capture toolset. These remain partial coverage,
-not the complete newcomer journey. Full lifecycle, app failure/recovery,
+not the complete newcomer journey. App failure/recovery,
 source-package and concurrent-instance coverage remains required before newcomer
 acceptance; the receipt lists those outstanding scenarios explicitly. The command writes a ZIP under
 `newcomer-proof-artifacts/`. It retains the ZIP
-and cleans up only the owned runtime data.
+and stops only the owned runtime. Private runtime state is retained locally for
+diagnosis, outside the upload bundle. Cleanup is Verified only when both the
+lifecycle stop succeeds and durable process ownership has settled.
 
 Raw Playwright reports are retained outside the ZIP in `private-playwright`;
 they may contain first-run credentials. Never upload that directory or
-`private-playwright-command.json`. Review the ZIP's approved screenshots before
+`private-playwright-command.json`, any `private-*.json` diagnostics, or the
+runtime folder. The browser receipt records the actual installed Playwright and
+Chromium versions and UTC execution times. Review the ZIP's approved screenshots before
 uploading. A passing implemented subset remains `Blocked` while required
 scenario coverage is outstanding.
 

@@ -52,6 +52,18 @@ export function publicPlaywrightResult(result) {
   return { code: result.code, signal: result.signal };
 }
 
+export function publicCleanupResult(cleanup) {
+  const lifecycleOk = cleanup?.stopped?.lifecycle?.ok === true;
+  const settled = cleanup?.shutdown?.settled === true;
+  return { status: lifecycleOk && settled ? "Verified" : "Invalidated", lifecycleOk, settled };
+}
+
+export function publicFailure(phase) {
+  // Arbitrary exception messages and runtime logs may contain unlabelled
+  // credentials. A regex redactor is not a safe publication boundary.
+  return { phase, message: "Proof failed; private diagnostics retained outside the upload bundle." };
+}
+
 async function sha256(filePath) {
   return createHash("sha256").update(await readFile(filePath)).digest("hex");
 }
@@ -213,10 +225,11 @@ async function main() {
   const runtimeRoot = path.join(proofRoot, "runtime");
   const startedAt = new Date().toISOString();
   const receipt = { schema: "service-lasso.newcomer-proof.v1", proofId, issue, startedAt, platform: process.platform, node: process.version, status: "Blocked", checks: {}, cleanup: null,
-    coverage: { implemented: ["first-run handoff", "acknowledgement persistence", "credential re-read denial", "ops route audit and redacted captures"], outstanding: ["service lifecycle and cancellation", "app outcome and controlled failure recovery", "source-package journey", "simultaneous independent folders"] } };
+    coverage: { implemented: ["first-run handoff", "acknowledgement persistence", "credential re-read denial", "service lifecycle and cancellation", "ops route audit and redacted captures"], outstanding: ["app outcome and controlled failure recovery", "source-package journey", "simultaneous independent folders"] } };
   let lease = null;
   let summary = null;
   let owner = null;
+  let phase = "prepare";
   // Outside try/finally: a rejected root is never ours to write a receipt into.
   await claimProofRoot(proofRoot);
   try {
@@ -233,9 +246,11 @@ async function main() {
     receipt.candidate = { commit: summary.owner.commit ?? null, branch: summary.owner.branch ?? null };
     receipt.isolation = { proofId, portRange: `${lease.start}-${lease.end}`, distinctServicesRoot: true, distinctWorkspaceRoot: true, distinctEvidenceRoot: true };
     owner = startOwnedRuntime(summary);
+    phase = "runtime-bootstrap";
     await bootstrapOwnedRuntime(summary, owner);
     await waitForAdmin(summary.urls.serviceAdmin, owner);
     receipt.checks.runtime = "Verified";
+    phase = "browser-suite";
     const playwright = await run(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config=playwright.newcomer.config.mjs"], {
       env: {
         ...process.env,
@@ -252,18 +267,21 @@ async function main() {
     receipt.status = receipt.coverage.outstanding.length ? "Blocked" : "Verified";
   } catch (error) {
     receipt.status = "Invalidated";
-    receipt.failure = sanitizeEvidence({
+    receipt.failure = publicFailure(phase);
+    await writeFile(path.join(proofRoot, "private-failure.json"), JSON.stringify({
       message: error instanceof Error ? error.message : String(error),
       ownerOutput: owner ? { stdout: owner.stdout.slice(-2_000), stderr: owner.stderr.slice(-2_000) } : null,
-    });
+    }));
   } finally {
     if (owner) await writeFile(path.join(proofRoot, "private-runtime-output.json"), JSON.stringify({ stdout: owner.stdout, stderr: owner.stderr }));
     if (summary) {
       try {
-        const cleanup = await cleanupWorktreeProof(summary.paths.summaryPath);
-        receipt.cleanup = sanitizeEvidence({ status: "Verified", stopped: cleanup.stopped });
+        const cleanup = await cleanupWorktreeProof(summary.paths.summaryPath, { preserveState: true });
+        receipt.cleanup = publicCleanupResult(cleanup);
+        if (receipt.cleanup.status !== "Verified") receipt.status = "Invalidated";
       } catch (error) {
-        receipt.cleanup = sanitizeEvidence({ status: "Invalidated", message: error instanceof Error ? error.message : String(error) });
+        await writeFile(path.join(proofRoot, "private-cleanup-failure.json"), JSON.stringify({ message: error instanceof Error ? error.message : String(error) }));
+        receipt.cleanup = { status: "Invalidated", ...publicFailure("cleanup") };
         receipt.status = "Invalidated";
       }
     }

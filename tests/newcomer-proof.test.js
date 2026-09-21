@@ -3,7 +3,18 @@ import test from "node:test";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult, claimProofRoot } from "../scripts/newcomer-proof.mjs";
+import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult, claimProofRoot, publicCleanupResult, publicFailure } from "../scripts/newcomer-proof.mjs";
+
+test("cleanup requires both successful lifecycle stop and settled ownership", () => {
+  for (const cleanup of [undefined, {}, { stopped: { lifecycle: { ok: false } }, shutdown: { settled: true } }, { stopped: { lifecycle: { ok: true } }, shutdown: { settled: false } }]) {
+    assert.equal(publicCleanupResult(cleanup).status, "Invalidated");
+  }
+  assert.deepEqual(publicCleanupResult({ stopped: { lifecycle: { ok: true, privateValue: "do-not-publish" } }, shutdown: { settled: true } }), { status: "Verified", lifecycleOk: true, settled: true });
+});
+
+test("public failure is a fixed diagnostic without raw runtime output", () => {
+  assert.deepEqual(publicFailure("browser-suite"), { phase: "browser-suite", message: "Proof failed; private diagnostics retained outside the upload bundle." });
+});
 
 test("concurrent proof-root claims cannot overwrite existing evidence", async (t) => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "newcomer-root-test-"));

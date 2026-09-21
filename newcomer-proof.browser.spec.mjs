@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runServiceAdminTour, parseCaptureArguments, passwordFieldMaskOptions, localPathCaptureMask } from "./scripts/capture-service-admin-tour.mjs";
 
@@ -7,7 +7,7 @@ const adminUrl = process.env.SERVICE_LASSO_NEWCOMER_ADMIN_URL;
 const screenshotDir = process.env.SERVICE_LASSO_NEWCOMER_SCREENSHOT_DIR;
 if (!adminUrl || !screenshotDir) throw new Error("Newcomer browser suite requires its owned Admin URL and screenshot directory.");
 
-test("first-run handoff, persistent acknowledgement, and complete ops tour", async ({ page }) => {
+test("first-run handoff, persistent acknowledgement, lifecycle, and complete ops tour", async ({ page, browser }) => {
   test.setTimeout(1_500_000);
   const observations = [];
   // Categories only: browser messages and DOM snapshots can expose credentials.
@@ -16,6 +16,7 @@ test("first-run handoff, persistent acknowledgement, and complete ops tour", asy
     if (response.status() >= 400) observations.push({ kind: "http", status: response.status() });
   });
   const scenarios = [];
+  const startedAt = new Date().toISOString();
   try {
     await test.step("first-run credentials stay gated until acknowledged", async () => {
       await page.goto(adminUrl, { waitUntil: "domcontentloaded" });
@@ -124,6 +125,7 @@ test("first-run handoff, persistent acknowledgement, and complete ops tour", asy
     });
   } finally {
     await mkdir(screenshotDir, { recursive: true });
-    await writeFile(path.join(screenshotDir, "browser-scenarios.json"), JSON.stringify({ scenarios, observations }, null, 2));
+    const installed = JSON.parse(await readFile(new URL("./node_modules/@playwright/test/package.json", import.meta.url), "utf8"));
+    await writeFile(path.join(screenshotDir, "browser-scenarios.json"), JSON.stringify({ startedAt, finishedAt: new Date().toISOString(), playwrightVersion: installed.version, browserVersion: browser.version(), scenarios, observations }, null, 2));
   }
 });
