@@ -4,6 +4,10 @@
 Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository now has a tracked bounded runtime implementation and needs governed traceability as it widens toward production-ready service orchestration. The first core milestone proved that Service Lasso can run as a standalone manager and consume canonical service manifests directly; the current work under this spec is widening that bounded slice carefully with direct verification.
 
 ## Scope
+### Windows sidecar atomic replacement (AC-4BJ.2a)
+
+For #1394, startup materialization sidecar publication may retry only Windows EPERM/EACCES/EBUSY rename failures within a fixed short retry budget. Every attempt must revalidate contained regular source and destination paths and unchanged file identity/content metadata. Close the writer handle before replacement; keep encrypted serialization and durability behavior. Never delete the prior destination or copy over it to work around rename failure. Permanent failure retains the prior record, reports the original rename error, and cleans only the transaction-owned temporary file. Non-Windows failures are not retried. Verify transient recovery, exhaustion, nonretryable errors, unsafe/changed paths, and full materialization rollback regression; repeat paired newcomer evidence before accepting the candidate.
+
 Included in this spec:
 - establish the first tracked source tree for the core runtime inside this repo
 - define the first bounded standalone runtime slice and its execution boundary

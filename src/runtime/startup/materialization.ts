@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chmod, lstat, mkdir, open, readdir, readlink, rename, rm, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { replaceStartupSidecar } from "./replace-sidecar.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type { ServiceLifecycleState } from "../lifecycle/types.js";
@@ -392,7 +393,28 @@ async function atomicWriteSidecar(filePath: string, sidecar: MaterializationSide
     } finally {
       await handle.close();
     }
-    await rename(tempPath, filePath);
+    const sourceIdentity = await lstat(tempPath);
+    const destinationIdentity = await lstat(filePath).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    });
+    const sameIdentity = (before: typeof sourceIdentity, after: typeof sourceIdentity) =>
+      before.dev === after.dev && before.ino === after.ino && before.size === after.size &&
+      before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs;
+    await replaceStartupSidecar(tempPath, filePath, async () => {
+      await assertSafePath(sidecar.workspaceRoot, tempPath, false);
+      await assertSafePath(sidecar.workspaceRoot, filePath, true);
+      const currentSource = await lstat(tempPath);
+      const currentDestination = await lstat(filePath).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      });
+      if (!sameIdentity(sourceIdentity, currentSource) ||
+        (destinationIdentity === null ? currentDestination !== null :
+          currentDestination === null || !sameIdentity(destinationIdentity, currentDestination))) {
+        throw new Error("Startup materialization sidecar identity changed before replacement.");
+      }
+    });
     if (process.platform !== "win32") await chmod(filePath, 0o600);
     await syncDirectoryOnPosix(path.dirname(filePath));
   } catch (error) {
