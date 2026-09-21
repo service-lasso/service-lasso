@@ -384,15 +384,30 @@ export async function applyDashboardPublicRedaction(page) {
     // Replace every remaining visible text node instead of relying on a CSS
     // colour mask. This also covers SVG text and values that inherit a custom
     // colour, and leaves an explicit safe marker for visual review.
-    const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node = textNodes.nextNode();
-    while (node) {
-      const parent = node.parentElement;
-      if (!parent?.closest('[data-dashboard-public-capture-label="true"]')) {
-        node.textContent = "[REDACTED]";
+    const redact = () => {
+      const currentRoot = document.querySelector("main");
+      if (!currentRoot) return;
+      const textNodes = document.createTreeWalker(currentRoot, NodeFilter.SHOW_TEXT);
+      let node = textNodes.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        const approved = parent?.matches('[data-dashboard-public-capture-label="true"]')
+          && allowed.has(node.textContent?.trim());
+        if (!approved && node.textContent !== "[REDACTED]") {
+          node.textContent = "[REDACTED]";
+        }
+        node = textNodes.nextNode();
       }
-      node = textNodes.nextNode();
-    }
+    };
+    redact();
+    // Live queries can repaint between evaluate() and screenshot(). Mutation
+    // observers run before paint; keep the policy active for the whole document
+    // lifetime, including replacement of the main subtree. Do not trust a stale
+    // allowlist marker after an element's content changes.
+    window.__serviceLassoDashboardCaptureObserver?.disconnect();
+    const observer = new MutationObserver(redact);
+    observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+    window.__serviceLassoDashboardCaptureObserver = observer;
     // Validate text-node ownership rather than rendered lines: an allowlisted
     // label may share a line with a separately redacted value.
     const residualTextNodes = [];
@@ -678,6 +693,9 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
             await localPathCaptureMask(page),
           ],
         });
+        // The policy is Dashboard-only; do not carry its observer into later
+        // client-side navigations in the same browser context.
+        await page.evaluate(() => window.__serviceLassoDashboardCaptureObserver?.disconnect());
         await assertPngViewport(imagePath);
         receipt.captures.push({ id: route.id, route: route.pathname, image: imageName, localPathMasking: "playwright-native-local-path-text" });
         delete receipt.inFlightRoute;

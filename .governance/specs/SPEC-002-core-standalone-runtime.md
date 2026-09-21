@@ -452,6 +452,8 @@ Issue #1270 must provide task guides and reusable agent prompts for demo evaluat
 
 ### Concurrent packaged app proof (AC-4AJ.4c)
 
+For #1376 public Dashboard capture, the approved static-label-only text policy must remain effective through screenshot paint, including asynchronous text updates, inserted nodes and replaced content. A one-time redaction followed by unredacted live updates is not acceptable. Verify late mutations in a real browser before publishing a fresh inspected capture.
+
 For #1376, the PostgreSQL source-package example must accept independently configured Core, database and app ports for concurrent fresh-folder runs, preserving existing defaults. Reject invalid or duplicate port selections before starting or changing runtime state. Setup, start and check must use the same selected ports, and all lifecycle operations remain scoped to the package's own services/workspace roots. Proof records must distinguish the example's pinned npm Core from any explicitly substituted current-candidate package; neither is silently treated as the other.
 
 The packaged app must prove SQL readiness before creating its schema or declaring HTTP readiness. A live managed PID alone is insufficient during first-run database initialization. Retry only transient startup connection failures within a bounded deadline; authentication and other non-startup failures remain visible immediately.
