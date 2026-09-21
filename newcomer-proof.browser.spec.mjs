@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { runServiceAdminTour, parseCaptureArguments } from "./scripts/capture-service-admin-tour.mjs";
+import { runServiceAdminTour, parseCaptureArguments, passwordFieldMaskOptions, LOCAL_PATH_CAPTURE_PATTERN } from "./scripts/capture-service-admin-tour.mjs";
 
 const adminUrl = process.env.SERVICE_LASSO_NEWCOMER_ADMIN_URL;
 const screenshotDir = process.env.SERVICE_LASSO_NEWCOMER_SCREENSHOT_DIR;
@@ -49,6 +49,64 @@ test("first-run handoff, persistent acknowledgement, and complete ops tour", asy
       const firstRun = await page.request.get(new URL("/api/runtime/auth/first-run", adminUrl).toString());
       expect(firstRun.status()).toBe(404);
       scenarios.push({ scenario: "acknowledgement persistence and credential re-read denial", result: "Verified" });
+    });
+
+    await test.step("Echo cancel, stop, start and restart preserve authoritative state", async () => {
+      await page.goto(adminUrl, { waitUntil: "domcontentloaded" });
+      const localRoot = page.getByRole("button", { name: "Continue as local-root", exact: true });
+      await expect(localRoot).toBeVisible({ timeout: 30_000 });
+      await localRoot.click();
+      await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 30_000 });
+      await page.goto(new URL("/services/echo-service", adminUrl).toString());
+      await expect(page.getByRole("heading", { name: "Echo Service", exact: true })).toBeVisible({ timeout: 30_000 });
+      const readEcho = async () => {
+        const response = await page.request.get(new URL("/api/services/echo-service", adminUrl).toString());
+        expect(response.status()).toBe(200);
+        return (await response.json()).service.lifecycle;
+      };
+      const captureState = async (name) => {
+        await mkdir(screenshotDir, { recursive: true });
+        await page.screenshot({ path: path.join(screenshotDir, name + ".png"), fullPage: false,
+          mask: [...passwordFieldMaskOptions(page).mask, page.locator("td, code, pre, p, span").filter({ hasText: LOCAL_PATH_CAPTURE_PATTERN })] });
+      };
+      const original = await readEcho();
+      expect(original.running).toBe(true);
+      const stop = page.getByRole("button", { name: "Stop service", exact: true });
+      await stop.click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await captureState("echo-stop-confirmation");
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      expect((await readEcho()).runtime.pid).toBe(original.runtime.pid);
+      expect((await readEcho()).running).toBe(true);
+      scenarios.push({ scenario: "cancel stop leaves Echo running with the same process", result: "Verified" });
+
+      await stop.click();
+      await dialog.getByRole("button", { name: /Stop service|Continue/, exact: true }).click();
+      await expect.poll(async () => (await readEcho()).running, { timeout: 30_000 }).toBe(false);
+      await page.reload();
+      await expect(page.getByText("Stopped", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+      await captureState("echo-stopped-after-refresh");
+      scenarios.push({ scenario: "confirmed stop persists across browser refresh", result: "Verified" });
+
+      await page.getByRole("button", { name: "Start service", exact: true }).first().click();
+      await expect.poll(async () => (await readEcho()).running, { timeout: 60_000 }).toBe(true);
+      await expect(page.getByText("Running", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+      const started = await readEcho();
+      expect(started.runtime.pid).not.toBe(original.runtime.pid);
+      await captureState("echo-running-after-start");
+      await page.getByRole("button", { name: "Restart service", exact: true }).click();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: /Restart service|Continue/, exact: true }).click();
+      await expect.poll(async () => {
+        const state = await readEcho();
+        return state.running && state.runtime.pid !== started.runtime.pid;
+      }, { timeout: 60_000 }).toBe(true);
+      await page.reload();
+      await expect(page.getByText("Running", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+      await captureState("echo-running-after-restart");
+      scenarios.push({ scenario: "start and restart create new managed processes and render Running after refresh", result: "Verified" });
     });
 
     await test.step("ops toolset audits every route and captures redacted screens", async () => {
