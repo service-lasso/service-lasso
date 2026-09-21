@@ -50,9 +50,12 @@ npm run verify:newcomer-proof -- --issue=<GitHub issue number>
 ```
 
 The command allocates an owned port range, services root, workspace root,
-browser session, and receipt directory. It runs the complete purpose-built
-Playwright suite against visible Service Admin entry, services, and Echo-detail
-states, then writes a ZIP under `newcomer-proof-artifacts/`. It retains the ZIP
+browser session, and receipt directory. The current implementation runs three
+Playwright route checks against Service Admin entry, services, and Echo detail;
+these are partial coverage, not the complete newcomer journey. Full lifecycle,
+failure/recovery, persistence, concurrent-instance and ops capture coverage remains
+required before newcomer acceptance. The command writes a ZIP under
+`newcomer-proof-artifacts/`. It retains the ZIP
 and cleans up only the owned runtime data.
 
 To qualify concurrent isolation, run two invocations from distinct new folders

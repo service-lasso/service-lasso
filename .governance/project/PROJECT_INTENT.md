@@ -106,4 +106,6 @@ For the first runtime slice, expected proof should include:
 
 Readers should reach a working demo, add a released service, connect a small app, configure it, diagnose failure, and reproduce the app package through centralized task guides. Agent prompts use verified MCP operations where available and coding tools for source/package work, with explicit scope and outcome checks (SPEC-002 AC-4AJ.4).
 
+For the current newcomer-readiness effort (#1323/#1376), the user's September 2026 decision accepts a fresh owned folder as a new-machine equivalent and requires simultaneous independent folder instances. macOS direct evidence and independent newcomer review are deferred confidence follow-ups, not blockers to this readiness conclusion. Unexecuted scenarios remain Deferred, never Verified. This decision does not authorize release promotion, publication, or a fabricated independent approval; the separate promotion controls above remain unchanged.
+
 Documentation appearance follows the reader's system by default and offers a persistent explicit light/dark override (SPEC-002 AC-4AJ.5, #1272).
