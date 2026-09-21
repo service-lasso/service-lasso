@@ -13,6 +13,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1326` | `in_progress` | Diagnose repeated Windows lifecycle qualification deadlines | `SPEC-002`, `AC-4BH`, `AC-4BI` | Hosted lifecycle attempts 1 and 2 at `3f81b8d` failed; the full local suite passed 126/127. Add closed, secret-safe failure-phase diagnostics without widening deadlines or replacing failing assertions. |
 | `ISS-1383` | `in_progress` | Serialize same-service automatic and explicit startup | `SPEC-002`, `AC-4AJ.4d` | Direct newcomer PostgreSQL initialization duplication; reproduce shared launch boundary and preserve independent roots. |
 | `ISS-1380` | `in_progress` | Bound Windows startup artifact publication retries | `SPEC-002`, `AC-4AJ.4b` | Repeated fresh-folder EPERM during staging rename; same owned paths, bounded transient retry, no overwrite. Direct rerun required. |
 | `ISS-1344` | `in_progress` | Stabilize Windows guarded process-control convergence | `SPEC-002`, `AC-4BH`, `AC-4BS.2` | GitHub issue `#1344`; retain finalizer workspace context and release it after a timed-out waiter only when registry reconciliation proves stopped or identity-mismatched ownership. No product deadline increase. |
