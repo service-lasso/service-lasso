@@ -25,6 +25,25 @@ or a substitute for independent GA review.
 
 ## Remaining decision boundary
 
+The later Windows pair at `8a4c3e0` is **Invalidated**, not merely awaiting
+execution. Lane A failed during Archive installation on EPERM replacing its
+startup recovery sidecar; lane B completed all seven browser scenario groups
+but aborted before concurrent cleanup-isolation proof. Both runtime cleanup
+receipts settled successfully. [Inspected failure ZIP and exact report](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5764916307)
+and [downloaded attachment verification](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5764919900)
+retain the outcome. All 11 available screenshots and nested ZIP entries were
+inspected. ZIP SHA-256:
+`e62b9ab126cbb32b1638ef9d2f1ed59da8c3500ccc8cdc72bb2ab3555b9e6e1c`.
+The historical passing Windows row above does not override this failure.
+
+The Linux process-enumeration repair #1393 merged into `develop` at
+`02de549572ad5e1ab47fbf227eb108ac9e3dcc66` after 43 exact-head checks passed.
+Windows sidecar repair #1395 incorporates that repair at `b3887c8`; neither
+older platform proof qualifies this changed candidate. Its full paired proof,
+required CI, integration and post-merge gates must be reconciled before a
+readiness conclusion. Windows process-inspection investigation #1326 also
+remains open; passing unrelated checks does not establish its root cause.
+
 The user explicitly accepts a new owned folder as a new-machine equivalent for
 Service Lasso and requires simultaneous independent folder instances. macOS proof
 and independent newcomer review are deferred confidence follow-ups, not readiness
@@ -59,5 +78,7 @@ as historical runtime evidence, not relabelled as full browser proof. Matching
 Windows proof and post-merge technical gates are still required before reconciling
 the final candidate. The Linux repair (PR #1388) merged as
 `f6a6ff56c76ba15534876d9241afae913e5a5543`; its tree is identical to tested
-`8a4c3e0`, but the receipt's source identity is not rewritten. No GA approval is
+`8a4c3e0`, but the receipt's source identity is not rewritten. Its Release
+Qualification, MCP and CodeQL post-merge gates passed; this does not qualify
+the subsequent repaired candidate. No GA approval is
 recorded here.

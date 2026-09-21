@@ -18,9 +18,18 @@ proof and inspected ZIP upload/readback are Verified at
 Playwright proof, concurrent ownership, cleanup isolation and inspected ZIP
 upload/readback are now Verified at
 `8a4c3e0b6d044066540382685ce725a99b605db3` (#1385/#1387). Matching Windows
-requalification at this corrected candidate remains outstanding. PR #1388 merged
+requalification at this corrected candidate failed: the `8a4c3e0` pair is
+Invalidated on a Windows startup-sidecar EPERM. The [inspected failure ZIP](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5764916307)
+has a [verified downloaded checksum](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5764919900).
+Lane B browser success and settled owned cleanup do not prove simultaneous
+operation or cleanup isolation. PR #1388 merged
 into `develop` as `f6a6ff56c76ba15534876d9241afae913e5a5543` with a tree
-identical to tested `8a4c3e0`; post-merge gates remain separately required.
+identical to tested `8a4c3e0`; its Release Qualification, MCP and CodeQL
+post-merge gates passed. Subsequent Linux enumeration repair #1393 is merged
+at `02de549`, and Windows sidecar repair #1395 incorporates it at `b3887c8`.
+Exact integrated-candidate qualification remains outstanding; #1326 Windows
+process-inspection investigation remains open. These are technical gaps,
+distinct from deferred macOS and independent-review follow-ups.
 Historical evidence is not silently upgraded. PR #1379 merged as
 `39e1292548a30d063521438c485a8765ef853dd1`; hosted technical gates are separate
 from direct newcomer proof.
