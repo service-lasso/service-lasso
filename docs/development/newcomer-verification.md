@@ -76,6 +76,12 @@ collecting hostname, username or environment variables. Review the ZIP's approve
 uploading. A passing implemented subset remains `Blocked` while required
 scenario coverage is outstanding.
 
+Receipts identify installed Admin, Broker, Echo and app PostgreSQL release assets
+and recompute SHA-256 from their retained archives. A release-checksum match is
+reported separately from a locally computed digest: missing upstream checksum
+metadata is not reported as verified release integrity. Private archive paths,
+download URLs, commands and raw installation state are excluded.
+
 To qualify concurrent isolation, use the coordinated command:
 
 ```sh

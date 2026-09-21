@@ -9,6 +9,7 @@ import { cleanupWorktreeProof, prepareWorktreeProof, resolveWorktreeProofOptions
 import { discoverOwningRuntime, observeBoundedJsonObject, waitForBaselineCompletion } from "./runtime-owner.mjs";
 import { prepareAppJourney } from "./newcomer-app-journey.mjs";
 import { createPairCheckpoint } from "./newcomer-pair-checkpoint.mjs";
+import { installedArtifactEvidence } from "./newcomer-artifact-evidence.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const proofRootBase = path.join(repoRoot, "newcomer-proof-artifacts");
@@ -268,6 +269,7 @@ async function main() {
     phase = "runtime-bootstrap";
     await bootstrapOwnedRuntime(summary, owner);
     await waitForAdmin(summary.urls.serviceAdmin, owner);
+    receipt.installedArtifacts = await installedArtifactEvidence(summary.paths.servicesRoot, ["@serviceadmin", "@secretsbroker", "echo-service"]);
     receipt.checks.runtime = "Verified";
     phase = "app-package-journey";
     appJourney = await prepareAppJourney({ repoRoot, proofRoot, portStart: lease.start + 100 });

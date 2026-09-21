@@ -5,6 +5,7 @@ import path from "node:path";
 import { x as extract } from "tar";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
 import { runCommand } from "./release-artifact-lib.mjs";
+import { installedArtifactEvidence } from "./newcomer-artifact-evidence.mjs";
 
 export async function runAppNpm(args, options) {
   const candidates = [process.env.npm_execpath, path.join(path.dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")].filter(Boolean);
@@ -87,7 +88,8 @@ export async function prepareAppJourney({ repoRoot, proofRoot, portStart }) {
     }
     if (!ready) throw new Error("Owned app readiness timed out.");
     await execute("check", () => runCommand(process.execPath, ["check.mjs"], { cwd, env, windowsHide: true }));
-    return { apiUrl, appUrl, cleanup, receipt: { sourcePackage: { sha256: await digest(archive), files: pack.files.map(file => file.path) }, corePackage: { version: installed.version, sha256: await digest(staged.packageArchivePath), substitution: "locally staged current candidate replaces pinned example dependency" }, commands } };
+    const installedArtifacts = await installedArtifactEvidence(path.join(cwd, "workspace/services"), ["postgres"]);
+    return { apiUrl, appUrl, cleanup, receipt: { installedArtifacts, sourcePackage: { sha256: await digest(archive), files: pack.files.map(file => file.path) }, corePackage: { version: installed.version, sha256: await digest(staged.packageArchivePath), substitution: "locally staged current candidate replaces pinned example dependency" }, commands } };
   } catch (error) {
     await writeFile(path.join(privateRoot, "journey-failure.json"), JSON.stringify({ message: String(error) }));
     try { await cleanup(); } catch (cleanupError) {
