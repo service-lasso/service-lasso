@@ -11,7 +11,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 export const TOUR_VIEWPORT = Object.freeze({ width: 1512, height: 982 });
-export const LOCAL_PATH_CAPTURE_PATTERN = /(?:[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|\/(?:Users|home|tmp|private|var|mnt)\/)/u;
+export const LOCAL_PATH_CAPTURE_PATTERN = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|\/(?:Users|home|tmp|private|var|mnt)\/)/u;
 export const DEFAULT_SERVICE_ADMIN_URL = "http://127.0.0.1:17700/";
 export const DEFAULT_COLOR_SCHEME = "dark";
 // A cold packaged Admin route can initialize its MCP discovery view after the
