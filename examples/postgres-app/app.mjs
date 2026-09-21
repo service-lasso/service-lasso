@@ -4,16 +4,18 @@ import { createServer } from 'node:http';
 import { createServer as createPortProbe } from 'node:net';
 import path from 'node:path';
 import pg from 'pg';
-import { cli, roots, root, servicesRoot, run } from './common.mjs';
-const api = 'http://127.0.0.1:18550';
+import { cli, roots, root, servicesRoot, run, ports } from './common.mjs';
+const api = `http://127.0.0.1:${ports.core}`;
 const started = Date.now();
+const manifest = JSON.parse(await readFile(path.join(servicesRoot, 'postgres/service.json'), 'utf8'));
+if (manifest.ports.service !== ports.database) throw new Error('Database port differs from setup. Use the same example port environment for setup, start and check.');
 await new Promise((resolve, reject) => {
   const probe = createPortProbe();
-  probe.once('error', () => reject(new Error('Port 18550 is occupied. Stop your previous example first; do not stop unrelated services.')));
-  probe.listen(18550, '127.0.0.1', () => probe.close(resolve));
+  probe.once('error', () => reject(new Error(`Port ${ports.core} is occupied. Choose unused example ports; do not stop unrelated services.`)));
+  probe.listen(ports.core, '127.0.0.1', () => probe.close(resolve));
 });
 // Fixed API port prevents accidentally attaching to another instance.
-const runtime = spawn(process.execPath, [cli, 'serve', '--port', '18550', '--port-policy', 'fixed', ...roots], { cwd: root, stdio: 'inherit' });
+const runtime = spawn(process.execPath, [cli, 'serve', '--port', String(ports.core), '--port-policy', 'fixed', ...roots], { cwd: root, stdio: 'inherit', windowsHide: true });
 let exited = false;
 runtime.once('exit', () => { exited = true; stop().catch(console.error); });
 let pool, server, stopping = false;
@@ -30,7 +32,7 @@ process.once('SIGTERM', () => stop().catch(console.error));
 try {
   let ready = false;
   for (let i = 0; i < 100; i++) {
-    if (exited) throw new Error('Example runtime exited. Check port 18550 and its startup message.');
+    if (exited) throw new Error(`Example runtime exited. Check port ${ports.core} and its startup message.`);
     try {
       const response = await fetch(`${api}/api/health`, { signal: AbortSignal.timeout(500) });
       if (response.ok) { ready = true; break; }
@@ -58,7 +60,7 @@ try {
     }
   });
   server.on('error', error => { console.error(error.message); stop().catch(console.error); process.exitCode = 1; });
-  server.listen(18552, '127.0.0.1', () => console.log(`App: http://127.0.0.1:18552 | PostgreSQL: 127.0.0.1:${state.ports.service} | ready in ${((Date.now() - started) / 1000).toFixed(1)}s. Run npm run check.`));
+  server.listen(ports.app, '127.0.0.1', () => console.log(`App: http://127.0.0.1:${ports.app} | PostgreSQL: 127.0.0.1:${state.ports.service} | ready in ${((Date.now() - started) / 1000).toFixed(1)}s. Run npm run check.`));
 } catch (error) {
   console.error(error.message);
   await stop();

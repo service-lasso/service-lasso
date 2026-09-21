@@ -1,6 +1,6 @@
 import { access, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { run, servicesRoot, root } from './common.mjs';
+import { run, servicesRoot, root, ports } from './common.mjs';
 const manifestPath = path.join(servicesRoot, 'postgres/service.json');
 try { await access(manifestPath); throw new Error('This example is already set up. Keep its data; use npm start.'); }
 catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -10,7 +10,7 @@ manifest.artifact.source.tag = '2026.5.3-ddd9e47';
 // initdb requires an empty directory; the release puts a .keep in runtime/data.
 manifest.env.POSTGRES_DATA_DIR = '${SERVICE_ROOT}/runtime/database';
 manifest.env.POSTGRES_DATABASES = 'lasso_demo';
-manifest.ports.service = 18551;
+manifest.ports.service = ports.database;
 for (const platform of Object.values(manifest.artifact.platforms)) {
   platform.command = process.execPath;
   platform.args = [path.join(root, 'postgres-launch.mjs')];
