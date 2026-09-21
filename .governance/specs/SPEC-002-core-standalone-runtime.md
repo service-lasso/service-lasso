@@ -448,11 +448,20 @@ User, operator, integration, and service-authoring guides are authored in servic
 
 ## Newcomer journeys (AC-4AJ.4)
 
+Issue #1270 must provide task guides and reusable agent prompts for demo evaluation, adding a released service, connecting a small app, configuring values and secret references, diagnosis, and source packaging. Runnable examples and verification helpers must use explicit isolated service/workspace roots, preserve unrelated runtime processes, report exact artifact/source identity, elapsed time and platform, and clean up only owned processes. For Service Lasso newcomer qualification, a freshly created, owned evidence folder is the accepted new-machine equivalent. The proof command must support concurrent independent folders without port, workspace, process, browser-session, or evidence-artifact collisions; it must run a visible-browser Playwright suite and retain a metadata-safe ZIP receipt. Central documentation exports must preserve offline Help Center content while preventing independent source drift. Companion READMEs direct consumers to central guides before maintainer reference. Source package proof must not claim cross-platform or offline bundled acceptance without evidence.
+
+### Concurrent packaged app proof (AC-4AJ.4c)
+
+For #1376 public Dashboard capture, the approved static-label-only text policy must remain effective through screenshot paint, including asynchronous text updates, inserted nodes and replaced content. A one-time redaction followed by unredacted live updates is not acceptable. Verify late mutations in a real browser before publishing a fresh inspected capture.
+
+For #1376, the PostgreSQL source-package example must accept independently configured Core, database and app ports for concurrent fresh-folder runs, preserving existing defaults. Reject invalid or duplicate port selections before starting or changing runtime state. Setup, start and check must use the same selected ports, and all lifecycle operations remain scoped to the package's own services/workspace roots. Proof records must distinguish the example's pinned npm Core from any explicitly substituted current-candidate package; neither is silently treated as the other.
+
+The packaged app must prove SQL readiness before creating its schema or declaring HTTP readiness. A live managed PID alone is insufficient during first-run database initialization. Retry only transient startup connection failures within a bounded deadline; authentication and other non-startup failures remain visible immediately.
+
 ### Same-service startup serialization (AC-4AJ.4d)
 
 For #1383, automatic startup and explicit starts targeting the same service root must serialize process launch and initialization. Concurrent callers may adopt the same verified owner or receive an already-running result, but must never launch a second initializer/process. Failed attempts must release the serialization boundary for later recovery. Independent service roots must not share this boundary. Validate actual launch counts, ownership and cleanup, including the automatic-start/HTTP request race.
 
-Issue #1270 must provide task guides and reusable agent prompts for demo evaluation, adding a released service, connecting a small app, configuring values and secret references, diagnosis, and source packaging. Runnable examples and verification helpers must use explicit isolated service/workspace roots, preserve unrelated runtime processes, report exact artifact/source identity, elapsed time and platform, and clean up only owned processes. Central documentation exports must preserve offline Help Center content while preventing independent source drift. Companion READMEs direct consumers to central guides before maintainer reference. Source package proof must not claim fresh-machine, cross-platform, or offline bundled acceptance without evidence.
 
 ### Windows artifact publication (AC-4AJ.4b)
 

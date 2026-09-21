@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
+  LOCAL_PATH_CAPTURE_PATTERN,
   DEFAULT_SERVICE_ADMIN_URL,
   PASSWORD_FIELD_MASK_SELECTOR,
   READ_ONLY_AUDIT_ROUTES,
@@ -22,6 +23,15 @@ import {
   selectedDocsPromotionRoutes,
   selectedAuditRoutes,
 } from "../scripts/capture-service-admin-tour.mjs";
+
+test("capture masks local paths on all supported platforms", () => {
+  for (const value of ["D:\\projects\\proof\\services", "C:/Users/operator/proof", "/home/operator/proof", "/Users/operator/proof", "/private/tmp/proof", "\\\\host\\share\\proof"]) {
+    assert.equal(LOCAL_PATH_CAPTURE_PATTERN.test(value), true);
+  }
+  for (const value of ["Archive Utility Provider", "http://127.0.0.1:21000/", "Help Center"]) {
+    assert.equal(LOCAL_PATH_CAPTURE_PATTERN.test(value), false);
+  }
+});
 
 test("capture playbook defaults to the local Service Admin URL and unique review output", () => {
   const options = parseCaptureArguments([], { now: new Date("2026-09-18T00:00:00.000Z") });

@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { resolveExamplePorts } from './ports.mjs';
+export const ports = resolveExamplePorts();
 export const root = fileURLToPath(new URL('.', import.meta.url));
 export const servicesRoot = path.join(root, 'workspace/services');
 export const workspaceRoot = path.join(root, 'workspace/state');

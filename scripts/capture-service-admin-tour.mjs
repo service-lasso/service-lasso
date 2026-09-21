@@ -11,6 +11,27 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 export const TOUR_VIEWPORT = Object.freeze({ width: 1512, height: 982 });
+export const LOCAL_PATH_CAPTURE_PATTERN = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|\/(?:Users|home|tmp|private|var|mnt)\/)/u;
+
+export async function localPathCaptureMask(page) {
+  // Mark the immediate owner of a private text node, including bare div text.
+  // Restricting this to table cells misses the runtime command/build summary.
+  await page.evaluate((source) => {
+    const pattern = new RegExp(source, "u");
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const element = node.parentElement;
+      if (element && !["SCRIPT", "STYLE"].includes(element.tagName) && pattern.test(node.textContent ?? "")) {
+        element.setAttribute("data-proof-private-path", "true");
+      }
+    }
+    for (const input of document.querySelectorAll("input, textarea")) {
+      if (pattern.test(input.value)) input.setAttribute("data-proof-private-path", "true");
+    }
+  }, LOCAL_PATH_CAPTURE_PATTERN.source);
+  return page.locator('[data-proof-private-path="true"]');
+}
 export const DEFAULT_SERVICE_ADMIN_URL = "http://127.0.0.1:17700/";
 export const DEFAULT_COLOR_SCHEME = "dark";
 // A cold packaged Admin route can initialize its MCP discovery view after the
@@ -363,15 +384,30 @@ export async function applyDashboardPublicRedaction(page) {
     // Replace every remaining visible text node instead of relying on a CSS
     // colour mask. This also covers SVG text and values that inherit a custom
     // colour, and leaves an explicit safe marker for visual review.
-    const textNodes = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node = textNodes.nextNode();
-    while (node) {
-      const parent = node.parentElement;
-      if (!parent?.closest('[data-dashboard-public-capture-label="true"]')) {
-        node.textContent = "[REDACTED]";
+    const redact = () => {
+      const currentRoot = document.querySelector("main");
+      if (!currentRoot) return;
+      const textNodes = document.createTreeWalker(currentRoot, NodeFilter.SHOW_TEXT);
+      let node = textNodes.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        const approved = parent?.matches('[data-dashboard-public-capture-label="true"]')
+          && allowed.has(node.textContent?.trim());
+        if (!approved && node.textContent !== "[REDACTED]") {
+          node.textContent = "[REDACTED]";
+        }
+        node = textNodes.nextNode();
       }
-      node = textNodes.nextNode();
-    }
+    };
+    redact();
+    // Live queries can repaint between evaluate() and screenshot(). Mutation
+    // observers run before paint; keep the policy active for the whole document
+    // lifetime, including replacement of the main subtree. Do not trust a stale
+    // allowlist marker after an element's content changes.
+    window.__serviceLassoDashboardCaptureObserver?.disconnect();
+    const observer = new MutationObserver(redact);
+    observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+    window.__serviceLassoDashboardCaptureObserver = observer;
     // Validate text-node ownership rather than rendered lines: an allowlisted
     // label may share a line with a separately redacted value.
     const residualTextNodes = [];
@@ -652,9 +688,16 @@ export async function runServiceAdminTour(options, { chromium } = {}) {
           path: imagePath,
           fullPage: false,
           ...passwordFieldMaskOptions(page),
+          mask: [
+            ...passwordFieldMaskOptions(page).mask,
+            await localPathCaptureMask(page),
+          ],
         });
+        // The policy is Dashboard-only; do not carry its observer into later
+        // client-side navigations in the same browser context.
+        await page.evaluate(() => window.__serviceLassoDashboardCaptureObserver?.disconnect());
         await assertPngViewport(imagePath);
-        receipt.captures.push({ id: route.id, route: route.pathname, image: imageName });
+        receipt.captures.push({ id: route.id, route: route.pathname, image: imageName, localPathMasking: "playwright-native-local-path-text" });
         delete receipt.inFlightRoute;
         await writeReceipt(capture.outputDir, receipt);
       }
