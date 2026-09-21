@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sanitizeEvidence, ensureServiceStarted } from "../scripts/newcomer-proof.mjs";
+import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment } from "../scripts/newcomer-proof.mjs";
+
+test("owned runtime range includes the port wired into Admin's upstream", () => {
+  assert.deepEqual(ownedRuntimePortEnvironment(21480), {
+    SERVICE_LASSO_PORT_RANGE_START: "21480",
+    SERVICE_LASSO_PORT_RANGE_END: "21639",
+  });
+});
 
 test("bootstrap does not start an already-running service again", async () => {
   const calls = [];

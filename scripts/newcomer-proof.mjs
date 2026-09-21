@@ -81,6 +81,13 @@ function run(command, args, options = {}) {
   });
 }
 
+export function ownedRuntimePortEnvironment(runtimePort) {
+  return {
+    SERVICE_LASSO_PORT_RANGE_START: String(runtimePort),
+    SERVICE_LASSO_PORT_RANGE_END: String(runtimePort + portRangeSize - 1),
+  };
+}
+
 function startOwnedRuntime(summary) {
   const child = spawn(process.execPath, [
     "dist/cli.js",
@@ -99,8 +106,7 @@ function startOwnedRuntime(summary) {
     env: {
       ...process.env,
       SERVICE_LASSO_HOST: "127.0.0.1",
-      SERVICE_LASSO_PORT_RANGE_START: String(summary.ports.runtime + 1),
-      SERVICE_LASSO_PORT_RANGE_END: String(summary.ports.runtime + portRangeSize - 1),
+      ...ownedRuntimePortEnvironment(summary.ports.runtime),
     },
   });
   let stdout = "";

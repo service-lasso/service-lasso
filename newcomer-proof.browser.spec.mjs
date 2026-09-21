@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { sanitizeEvidence } from "./scripts/newcomer-proof.mjs";
 
 const adminUrl = process.env.SERVICE_LASSO_NEWCOMER_ADMIN_URL;
 const screenshotDir = process.env.SERVICE_LASSO_NEWCOMER_SCREENSHOT_DIR;
@@ -27,6 +28,21 @@ async function visitVisibleRoute(page, route, screenshotName, expectedText) {
 }
 
 test.describe("Service Lasso newcomer proof", () => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    const errors = [];
+    page.on("pageerror", (error) => errors.push({ kind: "pageerror", message: error.message }));
+    page.on("requestfailed", (request) => errors.push({ kind: "requestfailed", path: new URL(request.url()).pathname, error: request.failure()?.errorText }));
+    page.on("response", (response) => {
+      if (response.status() >= 400) errors.push({ kind: "http", path: new URL(response.url()).pathname, status: response.status() });
+    });
+    testInfo.browserErrors = errors;
+  });
+
+  test.afterEach(async ({}, testInfo) => {
+    await mkdir(screenshotDir, { recursive: true });
+    await writeFile(path.join(screenshotDir, `diagnostics-${testInfo.testId.replace(/[^a-zA-Z0-9-]/g, "-")}.json`), JSON.stringify(sanitizeEvidence(testInfo.browserErrors), null, 2));
+  });
+
   test("renders the Admin entry journey", async ({ page }) => {
     await visitVisibleRoute(page, "/", "01-admin-entry", /service lasso|services|dashboard/i);
   });
