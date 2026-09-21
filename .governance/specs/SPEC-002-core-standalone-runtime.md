@@ -456,5 +456,9 @@ For #1376, the PostgreSQL source-package example must accept independently confi
 
 The packaged app must prove SQL readiness before creating its schema or declaring HTTP readiness. A live managed PID alone is insufficient during first-run database initialization. Retry only transient startup connection failures within a bounded deadline; authentication and other non-startup failures remain visible immediately.
 
+### Windows artifact publication (AC-4AJ.4b)
+
+Issue #1380 requires bounded retries of startup artifact staging publication on Windows for EPERM, EACCES and EBUSY only. Retries use the same transaction-owned source/destination, never remove or replace an existing destination, and do not report success before rename succeeds. Non-transient/non-Windows errors fail immediately. Exhaustion preserves the original error and normal transaction recovery. Verify transient success, exhaustion, immediate failures and destination preservation before repeating direct Windows newcomer proof.
+
 ## Documentation appearance (AC-4AJ.5)
 Issue #1272 established documentation theme behaviour. Follow-up #1301 makes the default system-following choice explicit as Auto: documentation defaults to Auto, follows live prefers-color-scheme changes while Auto is selected, and exposes accessible Auto / Light / Dark choices on desktop and mobile. Explicit choices persist across navigation and reload; returning to Auto clears the override. Use Docusaurus color-mode state and pre-hydration handling. Custom catalog panels, inputs, tables and error/empty states must remain legible in both themes. Verify build, browser selection/persistence, live system changes, and keyboard interaction.
