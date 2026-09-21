@@ -104,6 +104,8 @@ For the first runtime slice, expected proof should include:
 
 ## Newcomer delivery priority
 
+Issue #1387 repairs the Linux PostgreSQL example's owned-artifact library resolution under SPEC-002 AC-4AJ.4c. The direct failed #1385 attempt remains invalidated; corrected source requires fresh full paired qualification, not a system-library workaround or a timeout increase.
+
 Readers should reach a working demo, add a released service, connect a small app, configure it, diagnose failure, and reproduce the app package through centralized task guides. Agent prompts use verified MCP operations where available and coding tools for source/package work, with explicit scope and outcome checks (SPEC-002 AC-4AJ.4).
 
 For the current newcomer-readiness effort (#1323/#1376), the user's September 2026 decision accepts a fresh owned folder as a new-machine equivalent and requires simultaneous independent folder instances. macOS direct evidence and independent newcomer review are deferred confidence follow-ups, not blockers to this readiness conclusion. Unexecuted scenarios remain Deferred, never Verified. This decision does not authorize release promotion, publication, or a fabricated independent approval; the separate promotion controls above remain unchanged.

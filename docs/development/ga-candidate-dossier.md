@@ -18,8 +18,10 @@ proof and inspected ZIP upload/readback are Verified at
 Playwright proof, concurrent ownership, cleanup isolation and inspected ZIP
 upload/readback are now Verified at
 `8a4c3e0b6d044066540382685ce725a99b605db3` (#1385/#1387). Matching Windows
-requalification at this corrected candidate and integration of PR #1388 remain
-outstanding. Historical evidence is not silently upgraded. PR #1379 merged as
+requalification at this corrected candidate remains outstanding. PR #1388 merged
+into `develop` as `f6a6ff56c76ba15534876d9241afae913e5a5543` with a tree
+identical to tested `8a4c3e0`; post-merge gates remain separately required.
+Historical evidence is not silently upgraded. PR #1379 merged as
 `39e1292548a30d063521438c485a8765ef853dd1`; hosted technical gates are separate
 from direct newcomer proof.
 

@@ -56,5 +56,8 @@ not independent review or proof of a newly published package.
 Historical `fresh-linux-a0ef728` proved isolated first run, healthy canonical
 recycle/verification and owned cleanup with seven shutdown entries. It is retained
 as historical runtime evidence, not relabelled as full browser proof. Matching
-Windows proof and integration of the Linux repair (PR #1388) are still required
-before reconciling the final candidate. No GA approval is recorded here.
+Windows proof and post-merge technical gates are still required before reconciling
+the final candidate. The Linux repair (PR #1388) merged as
+`f6a6ff56c76ba15534876d9241afae913e5a5543`; its tree is identical to tested
+`8a4c3e0`, but the receipt's source identity is not rewritten. No GA approval is
+recorded here.
