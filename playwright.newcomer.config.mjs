@@ -7,6 +7,7 @@ export default defineConfig({
   testMatch: "newcomer-proof.browser.spec.mjs",
   fullyParallel: false,
   workers: 1,
+  outputDir: `${artifactDir}/test-results`,
   timeout: 90_000,
   reporter: [
     ["list"],

@@ -176,7 +176,7 @@ async function collectFiles(root, relative = "") {
 }
 
 async function writeBundle(bundleRoot, proofId) {
-  const zipPath = path.join(proofRootBase, `${proofId}.zip`);
+  const zipPath = path.join(path.dirname(bundleRoot), `${proofId}.zip`);
   const archive = zipSync(await collectFiles(bundleRoot), { level: 9 });
   await writeFile(zipPath, archive);
   return { zipPath, sha256: await sha256(zipPath) };
