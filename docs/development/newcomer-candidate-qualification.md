@@ -7,7 +7,7 @@ title: Newcomer candidate qualification
 This is an evidence matrix for Core issue #1323. It is not a release approval
 or a substitute for independent GA review.
 
-## Recorded Linux candidate
+## Historical Linux candidate
 
 | Component | Identity |
 | --- | --- |
@@ -19,8 +19,8 @@ or a substitute for independent GA review.
 
 | Platform | Environment | Result | Evidence and limits |
 | --- | --- | --- | --- |
-| Linux | Fresh non-root Ubuntu 26.04 checkout | Verified, direct | Isolated first run completed; canonical recycle reported `healthy` and canonical verification passed. The owned cleanup converged with seven shutdown entries. Evidence ID: `fresh-linux-a0ef728`. This is a source-candidate proof, not published-package or cross-platform proof. |
-| Windows | Two fresh isolated folders, Windows 11 Pro 10.0.26200 x86_64 | Verified, direct at `f219a06a729549adb408435c6804512fe2ac88e8` | [Full paired report and inspected ZIP](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5763240645). Both browser suites, 40 ops routes and four ops captures per lane, app/package/recovery/persistence, simultaneous ownership and cleanup isolation passed. All 22 screenshots inspected; [attachment readback hash matched](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5763249508). |
+| Linux | Two fresh owned folders, non-root Ubuntu 26.04 WSL2 x86_64 | Verified, direct at `8a4c3e0b6d044066540382685ce725a99b605db3` | [Full paired report and inspected ZIP](https://github.com/service-lasso/service-lasso/issues/1385#issuecomment-5764104066). Both complete browser journeys, 40 ops routes and four ops captures per lane, app failure/recovery/persistence, simultaneous ownership and cleanup isolation passed. All 22 screenshots inspected; [downloaded attachment hash matched](https://github.com/service-lasso/service-lasso/issues/1385#issuecomment-5764112226). Earlier failed `f219a06` attempts remain Invalidated. |
+| Windows | Two fresh isolated folders, Windows 11 Pro 10.0.26200 x86_64 | Verified, historical at `f219a06a729549adb408435c6804512fe2ac88e8`; corrected-candidate requalification outstanding | [Full paired report and inspected ZIP](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5763240645). Both browser suites, 40 ops routes and four ops captures per lane, app/package/recovery/persistence, simultaneous ownership and cleanup isolation passed. All 22 screenshots inspected; [attachment readback hash matched](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5763249508). This does not prove the later `8a4c3e0` candidate. |
 | macOS | No direct run available | Deferred, non-blocking | #1330 contains the same portable command, full journey requirements, two-folder isolation checks, report fields, and ZIP-upload procedure. No macOS pass is claimed. |
 
 ## Remaining decision boundary
@@ -38,10 +38,23 @@ It explicitly substitutes a locally staged current Core package into the unpacke
 example; it does not claim the pinned public dependency changed. Installed
 Admin/Broker identities remain the pinned versions above, with exact archive
 hashes in the receipts. Echo/PostgreSQL local digests are distinguished from
-upstream-verified checksums. PR #1379 integration/current-head CI is a separate
-gate from this direct evidence.
+upstream-verified checksums. PR #1379 merged into `develop` as
+`39e1292548a30d063521438c485a8765ef853dd1`; integration and hosted CI remain
+separate evidence from the direct browser run.
 
-The Linux runtime/recycle receipt above does
-not by itself prove the newly requested full Playwright screenshot journey. Do not
-transfer that result to a newer source candidate or another OS. No GA approval is
-recorded here.
+The new Linux pair ran from 2026-09-21T16:35:22.779Z to 16:37:10.487Z with
+Node 22.22.1, Playwright 1.56.1 and Chromium 141.0.7390.37. It used
+`PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64`, which is a browser-build
+compatibility override, not an official Ubuntu 26.04 support claim. ZIP SHA-256:
+`7b65322ad7201eb5920e805f49802bae8e60eb8c6d843856b5f6d37ed757742e`.
+Each child receipt retains its single-run limitation; the outer pair receipt
+proves concurrent ownership and stopping A without disturbing B. Both runtime
+cleanups settled and both app cleanups passed. The locally staged current Core
+substitution is explicit in both receipts. This is agent-operated direct evidence,
+not independent review or proof of a newly published package.
+
+Historical `fresh-linux-a0ef728` proved isolated first run, healthy canonical
+recycle/verification and owned cleanup with seven shutdown entries. It is retained
+as historical runtime evidence, not relabelled as full browser proof. Matching
+Windows proof and integration of the Linux repair (PR #1388) are still required
+before reconciling the final candidate. No GA approval is recorded here.

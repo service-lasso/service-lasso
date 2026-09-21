@@ -14,9 +14,14 @@ independent newcomer review are deferred confidence follow-ups, not blockers to
 the current readiness conclusion. This does not waive release-promotion controls
 or supply an independent GA approval. Windows full journey, simultaneous-folder
 proof and inspected ZIP upload/readback are Verified at
-`f219a06a729549adb408435c6804512fe2ac88e8` (#1328/#1376). The matching current
-Linux paired Playwright proof remains incomplete; historical Linux evidence is
-not silently upgraded. PR #1379 integration and terminal checks remain separate.
+`f219a06a729549adb408435c6804512fe2ac88e8` (#1328/#1376). Linux full paired
+Playwright proof, concurrent ownership, cleanup isolation and inspected ZIP
+upload/readback are now Verified at
+`8a4c3e0b6d044066540382685ce725a99b605db3` (#1385/#1387). Matching Windows
+requalification at this corrected candidate and integration of PR #1388 remain
+outstanding. Historical evidence is not silently upgraded. PR #1379 merged as
+`39e1292548a30d063521438c485a8765ef853dd1`; hosted technical gates are separate
+from direct newcomer proof.
 
 The candidate and reviewer-routing details below are a historical evidence packet;
 they do not describe current branch heads. See the newcomer matrix for current
@@ -40,7 +45,7 @@ classifications. Each new receipt must identify its exact tested source.
 | Dashboard policy enforcement tests | Verified | #1349 focused suite and terminal hosted checks passed before merge |
 | Dashboard rendered 1512x982 clean-owned capture | Verified, source-integration only | #1322: exact candidate completed 40/40 route audit; inspected redacted capture receipt is review-only with no docs write |
 | Windows newcomer journey | Verified, direct at `f219a06` | [Paired proof and inspected ZIP](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5763240645); both complete browser suites, simultaneous ownership, cleanup isolation and owned cleanup passed. [Downloaded attachment checksum matched](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5763249508). This is not evidence for a later candidate. |
-| Linux newcomer journey | Verified, direct | Fresh non-root Ubuntu 26.04 proof at `a0ef7280a58219ff8228cf46d81fe3a99f534eab` completed first run and canonical verification with healthy classification; owned cleanup settled. The metadata-only matrix is in `docs/development/newcomer-candidate-qualification.md`. This does not substitute for Windows or macOS. |
+| Linux newcomer journey | Verified, direct at `8a4c3e0` | [Full paired proof and inspected ZIP](https://github.com/service-lasso/service-lasso/issues/1385#issuecomment-5764104066); both complete browser journeys, 40 ops routes per lane, simultaneous ownership, cleanup isolation and owned cleanup passed. [Downloaded attachment checksum matched](https://github.com/service-lasso/service-lasso/issues/1385#issuecomment-5764112226). Ubuntu 26.04 WSL2 used an explicitly disclosed Playwright Ubuntu 24.04 browser-build override. Not independent, published-package, Windows or macOS proof. Historical `a0ef728` remains runtime-only evidence. |
 | macOS newcomer journey | Deferred, non-blocking | macOS follow-up #1330; no direct pass claimed |
 | Independent newcomer review | Deferred, non-blocking | No independent review has occurred; the user has deferred it |
 | GA approval | Not recorded | No approval is inferred or self-signed |
