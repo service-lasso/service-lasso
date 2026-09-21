@@ -7,6 +7,58 @@ title: Newcomer candidate qualification
 This is an evidence matrix for Core issue #1323. It is not a release approval
 or a substitute for independent GA review.
 
+## Current matched candidate: d0f68e3
+
+Windows and Linux full paired newcomer proofs are Verified at exact Core source
+`d0f68e3fc47b0bebc22a0cb55bf63c672b589637`. PR #1396 merged into `develop`
+as `72148b5009cca15db11aa1bffb0f1a261e655af3`; the complete file tree was
+verified identical. Receipt source identities are not rewritten.
+
+| Platform | Published evidence | ZIP SHA-256 |
+| --- | --- | --- |
+| Windows | [Report and ZIP](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5765661612), [download verification](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5765666160) | `3e5389f65dd89227d39d435e6383e9d07b6566608a6cb291a40f5dd24b2d364e` |
+| Linux | [Report and ZIP](https://github.com/service-lasso/service-lasso/issues/1385#issuecomment-5765710325), [download verification](https://github.com/service-lasso/service-lasso/issues/1385#issuecomment-5765713645) | `cd580f5c3843db79e2717987cd3a08bd05eac92488a0ed737645ff5f679e3614` |
+| macOS | Deferred non-blocking follow-up #1330 | No direct proof claimed |
+
+Each platform ran both full browser journeys, all seven scenario groups, 40 ops
+routes and four ops captures per lane, app dependency failure/recovery and data
+persistence. The coordinator observed simultaneous distinct ownership and proved
+that stopping A did not disturb B before B cleanup. Both runtime cleanups settled
+and both app cleanups passed. All 22 screenshots per platform and all public
+JSON/nested archive entries were inspected; downloaded ZIP hashes matched.
+Child receipts retain their single-run concurrency limitation; the Verified pair
+receipt supplies that evidence.
+
+Windows: Windows 11 Pro 10.0.26200 x86_64, Node 22.23.2,
+2026-09-21T18:29:18.051Z–18:32:58.237Z. Linux: non-root Ubuntu 26.04 WSL2
+x86_64, Node 22.22.1, 18:37:59.961Z–18:39:53.893Z on the same UTC date.
+Both used locked Playwright 1.56.1 and Chromium 141.0.7390.37. Linux explicitly
+used `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64`; this does not claim
+official Playwright support for Ubuntu 26.04.
+
+Both journeys explicitly substitute locally staged current-candidate Core for
+the example's pinned dependency. Admin `2026.8.31-f015b44` and Broker
+`2026.8.31-f340883` remain pinned published artifacts; exact hashes are in the
+receipts. Echo/Postgres digests are not claimed upstream-verified. Screenshots
+retain stopped-service warnings; this is not an all-services-healthy claim.
+Dashboard text and local paths are deliberately redacted. Raw logs, credentials,
+runtime state and private diagnostics remain outside the uploaded bundles.
+
+This is same-operator direct evidence, not independent review or a newly
+published Core package. Earlier `8a4c3e0` sidecar and `b3887c8` deadline
+failures remain retained. #1326 was reopened because diagnostics alone do not
+resolve the intermittent deadline failure. #1382's macOS CI failure remains
+a separate investigation, not the deferred direct macOS newcomer proof.
+Exact-head pre-merge checks passed; post-merge Release Qualification and final
+dossier reconciliation remain outstanding. No GA approval, deployment or
+promotion is recorded.
+
+## Historical record below
+
+The following sections retain earlier candidate checkpoints and their then-open
+gaps. They do not supersede the current matched-candidate record above.
+
+
 ## Historical Linux candidate
 
 | Component | Identity |
