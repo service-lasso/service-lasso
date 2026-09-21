@@ -49,9 +49,17 @@ published Core package. Earlier `8a4c3e0` sidecar and `b3887c8` deadline
 failures remain retained. #1326 was reopened because diagnostics alone do not
 resolve the intermittent deadline failure. #1382's macOS CI failure remains
 a separate investigation, not the deferred direct macOS newcomer proof.
-Exact-head pre-merge checks passed; post-merge Release Qualification and final
-dossier reconciliation remain outstanding. No GA approval, deployment or
-promotion is recorded.
+Exact-head product pre-merge checks passed. Integrated-source Release Qualification
+[run 35639858582, attempt 2](https://github.com/service-lasso/service-lasso/actions/runs/35639858582)
+passed at `72148b5`; the Linux Broker receipt was downloaded and inspected.
+Attempt 1's artifact-finalization HTTP 403 remains tracked in #1390; recovery
+does not establish its root cause. Sidecar hardening #1394 is complete, including
+the integrated Windows paired proof. Evidence PR #1389 and final dossier
+reconciliation remain outstanding: its Windows hard-crash fixture exited before
+the intentional `owned_readiness_proven` checkpoint (#1397). Focused local
+reproduction passed; hosted run 35640836076 attempt 2 also passed on unchanged
+`ef128fc`. That recovers the check, not the unknown cause of the first failure.
+No GA approval, deployment or promotion is recorded.
 
 ## Historical record below
 
