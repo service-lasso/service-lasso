@@ -135,10 +135,20 @@ async function waitForAdmin(url, owner, timeoutMs = 300_000) {
   throw new Error(`Owned newcomer Admin did not become ready: ${sanitizeEvidence(lastError)}`);
 }
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(30_000) });
+async function postJson(url, request = fetch) {
+  const response = await request(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`POST ${new URL(url).pathname} returned ${response.status}.`);
   return response.json().catch(() => null);
+}
+
+export async function ensureServiceStarted(runtimeUrl, serviceId, request = fetch) {
+  const url = `${runtimeUrl}/api/services/${encodeURIComponent(serviceId)}`;
+  const response = await request(url, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error(`GET ${new URL(url).pathname} returned ${response.status}.`);
+  const detail = await response.json();
+  const running = detail?.service?.lifecycle?.running;
+  if (typeof running !== "boolean") throw new Error(`Missing lifecycle state for ${serviceId}.`);
+  if (!running) await postJson(`${url}/start`, request);
 }
 
 async function bootstrapOwnedRuntime(summary, owner, timeoutMs = 300_000) {
@@ -148,7 +158,7 @@ async function bootstrapOwnedRuntime(summary, owner, timeoutMs = 300_000) {
   await waitForBaselineCompletion({ owner, runtime, output: owner.bootstrapOutput, servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot });
   await postJson(`${summary.urls.runtime}/api/setup/bootstrap`);
   for (const serviceId of ["@nginx", "@traefik", "echo-service", "@serviceadmin"]) {
-    await postJson(`${summary.urls.runtime}/api/services/${encodeURIComponent(serviceId)}/start`);
+    await ensureServiceStarted(summary.urls.runtime, serviceId);
   }
   const detail = await (await fetch(`${summary.urls.runtime}/api/services/${encodeURIComponent("@serviceadmin")}`, { signal: AbortSignal.timeout(30_000) })).json();
   const uiPort = detail?.service?.lifecycle?.runtime?.ports?.ui;
