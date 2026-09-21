@@ -70,7 +70,9 @@ Raw Playwright reports are retained outside the ZIP in `private-playwright`;
 they may contain first-run credentials. Never upload that directory or
 `private-playwright-command.json`, any `private-*.json` diagnostics, or the
 runtime folder. The browser receipt records the actual installed Playwright and
-Chromium versions and UTC execution times. Review the ZIP's approved screenshots before
+Chromium versions and UTC execution times. The run receipt records OS type,
+release/version, system architecture, Node version and Node architecture without
+collecting hostname, username or environment variables. Review the ZIP's approved screenshots before
 uploading. A passing implemented subset remains `Blocked` while required
 scenario coverage is outstanding.
 

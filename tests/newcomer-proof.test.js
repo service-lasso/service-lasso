@@ -3,7 +3,15 @@ import test from "node:test";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult, claimProofRoot, publicCleanupResult, publicFailure } from "../scripts/newcomer-proof.mjs";
+import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult, claimProofRoot, publicCleanupResult, publicFailure, publicEnvironment } from "../scripts/newcomer-proof.mjs";
+
+test("public environment records OS and architecture without machine identity", () => {
+  const system = { type: () => "Windows_NT", release: () => "10.0.26200", version: () => "Windows 11 Pro", machine: () => "ARM64", hostname: () => { throw new Error("private hostname requested"); } };
+  const runtime = { platform: "win32", version: "v22.23.2", arch: "x64", env: { PRIVATE: "do-not-publish" } };
+  assert.deepEqual(publicEnvironment(system, runtime), {
+    platform: "win32", osType: "Windows_NT", osRelease: "10.0.26200", osVersion: "Windows 11 Pro", architecture: "ARM64", node: "v22.23.2", nodeArchitecture: "x64",
+  });
+});
 
 test("cleanup requires both successful lifecycle stop and settled ownership", () => {
   for (const cleanup of [undefined, {}, { stopped: { lifecycle: { ok: false } }, shutdown: { settled: true } }, { stopped: { lifecycle: { ok: true } }, shutdown: { settled: false } }]) {

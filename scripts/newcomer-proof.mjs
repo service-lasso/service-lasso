@@ -17,6 +17,19 @@ const portRangeStart = 21000;
 const portRangeEnd = 39000;
 const portRangeSize = 160;
 
+export function publicEnvironment(system = os, runtime = process) {
+  // Deliberately exclude hostname, user info, environment and filesystem paths.
+  return {
+    platform: runtime.platform,
+    osType: system.type(),
+    osRelease: system.release(),
+    osVersion: system.version(),
+    architecture: system.machine(),
+    node: runtime.version,
+    nodeArchitecture: runtime.arch,
+  };
+}
+
 function flag(args, name) {
   const prefix = `--${name}=`;
   return args.find((value) => value.startsWith(prefix))?.slice(prefix.length);
@@ -228,7 +241,7 @@ async function main() {
   const bundleRoot = path.join(proofRoot, "bundle");
   const runtimeRoot = path.join(proofRoot, "runtime");
   const startedAt = new Date().toISOString();
-  const receipt = { schema: "service-lasso.newcomer-proof.v1", proofId, issue, startedAt, platform: process.platform, node: process.version, status: "Blocked", checks: {}, cleanup: null,
+  const receipt = { schema: "service-lasso.newcomer-proof.v1", proofId, issue, startedAt, platform: process.platform, node: process.version, environment: publicEnvironment(), status: "Blocked", checks: {}, cleanup: null,
     coverage: { implemented: ["first-run handoff", "acknowledgement persistence", "credential re-read denial", "service lifecycle and cancellation", "ops route audit and redacted captures"], outstanding: ["app outcome and controlled failure recovery", "source-package journey", "simultaneous independent folders"] } };
   let lease = null;
   let summary = null;
