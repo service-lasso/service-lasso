@@ -14,6 +14,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
 | `ISS-1394` | `in_progress` | Preserve startup sidecar atomic replacement under Windows contention | `SPEC-002`, `AC-4BJ.2a` | Fresh paired Windows proof failed on EPERM; bounded same-file atomic rename retries, no destination deletion, identity revalidation, then full newcomer proof. |
+| `ISS-1326` | `in_progress` | Diagnose repeated Windows lifecycle qualification deadlines | `SPEC-002`, `AC-4BH`, `AC-4BI` | Hosted lifecycle attempts 1 and 2 at `3f81b8d` failed; the full local suite passed 126/127. Add closed, secret-safe failure-phase diagnostics without widening deadlines or replacing failing assertions. |
 | `ISS-1392` | `in_progress` | Avoid transient Linux proc directory-type enumeration failure | `SPEC-002`, `AC-4BH.1` | Baseline stopAll returned 500 on lstat of a vanished PID; enumerate names without implicit stat, preserve identity and namespace checks, test disappeared entries and real enumeration failures. |
 | `ISS-1383` | `in_progress` | Serialize same-service automatic and explicit startup | `SPEC-002`, `AC-4AJ.4d` | Direct newcomer PostgreSQL initialization duplication; reproduce shared launch boundary and preserve independent roots. |
 | `ISS-1380` | `in_progress` | Bound Windows startup artifact publication retries | `SPEC-002`, `AC-4AJ.4b` | Repeated fresh-folder EPERM during staging rename; same owned paths, bounded transient retry, no overwrite. Direct rerun required. |

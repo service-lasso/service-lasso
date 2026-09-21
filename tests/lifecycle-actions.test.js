@@ -21,7 +21,8 @@ import {
   waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
@@ -47,6 +48,14 @@ async function postJson(url, body) {
           body: JSON.stringify(body),
         }),
   });
+  if (response.status >= 400 && /\/(start|restart)$/.test(new URL(url).pathname)) {
+    try {
+      const serviceId = decodeURIComponent(new URL(url).pathname.split("/").at(-2));
+      console.error(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState(serviceId) }));
+    } catch {
+      console.error('{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}');
+    }
+  }
   return {
     status: response.status,
     body: await response.json(),

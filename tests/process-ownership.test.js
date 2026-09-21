@@ -40,7 +40,7 @@ import {
   setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
   setWindowsManagedLauncherPathForTests,
-  startManagedProcess,
+  startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
   waitForManagedProcessFinalization,
@@ -54,6 +54,20 @@ import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
+
+async function startManagedProcess(options) {
+  try {
+    return await startRuntimeManagedProcess(options);
+  } catch (error) {
+    try {
+      console.error(lifecycleFailureDiagnostic({ error, state: getLifecycleState(options.service.manifest.id) }));
+    } catch {
+      // Diagnostic collection must never replace the original typed failure.
+    }
+    throw error;
+  }
+}
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WINDOWS_TEST_SYSTEM_ROOT = "C:\\Windows";
