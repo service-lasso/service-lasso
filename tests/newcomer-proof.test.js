@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment } from "../scripts/newcomer-proof.mjs";
+import { sanitizeEvidence, ensureServiceStarted, ownedRuntimePortEnvironment, publicPlaywrightResult } from "../scripts/newcomer-proof.mjs";
+
+test("shareable result cannot include credentials from raw Playwright failures", () => {
+  assert.deepEqual(publicPlaywrightResult({ code: 1, signal: null, stdout: "textbox: private-first-run-value", stderr: "private-first-run-value" }), { code: 1, signal: null });
+});
 
 test("owned runtime range includes the port wired into Admin's upstream", () => {
   assert.deepEqual(ownedRuntimePortEnvironment(21480), {

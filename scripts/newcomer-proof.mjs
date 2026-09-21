@@ -39,6 +39,12 @@ export function sanitizeEvidence(value) {
     .replace(/(token|password|secret)\s*[:=]\s*[^\s,;}]+/giu, "$1=<redacted>");
 }
 
+export function publicPlaywrightResult(result) {
+  // Raw stdout, errors and Playwright DOM snapshots can contain first-run
+  // credentials. Publish only process outcome; keep diagnostics local.
+  return { code: result.code, signal: result.signal };
+}
+
 async function exists(target) {
   try {
     await access(target, fsConstants.F_OK);
@@ -235,10 +241,11 @@ async function main() {
         ...process.env,
         SERVICE_LASSO_NEWCOMER_ADMIN_URL: summary.urls.serviceAdmin,
         SERVICE_LASSO_NEWCOMER_SCREENSHOT_DIR: path.join(bundleRoot, "screenshots"),
-        SERVICE_LASSO_NEWCOMER_PLAYWRIGHT_DIR: path.join(bundleRoot, "playwright"),
+        SERVICE_LASSO_NEWCOMER_PLAYWRIGHT_DIR: path.join(proofRoot, "private-playwright"),
       },
     });
-    await writeFile(path.join(bundleRoot, "playwright-command.json"), `${JSON.stringify(sanitizeEvidence(playwright), null, 2)}\n`);
+    await writeFile(path.join(proofRoot, "private-playwright-command.json"), `${JSON.stringify(playwright, null, 2)}\n`);
+    await writeFile(path.join(bundleRoot, "playwright-command.json"), `${JSON.stringify(publicPlaywrightResult(playwright), null, 2)}\n`);
     if (playwright.code !== 0) throw new Error(`Playwright newcomer suite failed with exit ${playwright.code ?? "unknown"}.`);
     receipt.checks.playwright = "Verified";
     receipt.status = "Verified";
