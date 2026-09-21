@@ -13,6 +13,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1380` | `in_progress` | Bound Windows startup artifact publication retries | `SPEC-002`, `AC-4AJ.4b` | Repeated fresh-folder EPERM during staging rename; same owned paths, bounded transient retry, no overwrite. Direct rerun required. |
 | `ISS-1344` | `in_progress` | Stabilize Windows guarded process-control convergence | `SPEC-002`, `AC-4BH`, `AC-4BS.2` | GitHub issue `#1344`; retain finalizer workspace context and release it after a timed-out waiter only when registry reconciliation proves stopped or identity-mismatched ownership. No product deadline increase. |
 | `ISS-1346` | `in_progress` | Preserve ownership and cleanup for isolated demo newcomer lanes | `SPEC-002`, `AC-4AJ.4`, `AC-4BI` | GitHub issue `#1346`; unwrap the persisted v2 runtime-instance envelope before custom-root demo ownership/status decisions so a verified owned lane is not classified as foreign. Direct Linux newcomer rerun and owned cleanup proof remain required. |
 | `ISS-1350` | `in_progress` | Classify GitHub release-rate limits during fresh newcomer bootstrap | `SPEC-002`, `AC-4AJ.4`, `AC-4N.2` | GitHub issue `#1350`; turn external GitHub release-metadata throttling during a fresh baseline bootstrap into a stable, secret-free, recoverable operator classification. Direct Ubuntu newcomer proof must be rerun after the change. |
