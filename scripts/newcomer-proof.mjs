@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { zipSync } from "fflate";
 import { cleanupWorktreeProof, prepareWorktreeProof, resolveWorktreeProofOptions } from "./demo-worktree-proof.mjs";
-import { discoverOwningRuntime, observeBoundedJsonObject } from "./runtime-owner.mjs";
+import { discoverOwningRuntime, observeBoundedJsonObject, waitForBaselineCompletion } from "./runtime-owner.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const proofRootBase = path.join(repoRoot, "newcomer-proof-artifacts");
@@ -114,7 +114,7 @@ function startOwnedRuntime(summary) {
   }));
   child.stdout?.on("data", (chunk) => { stdout += chunk; });
   child.stderr?.on("data", (chunk) => { stderr += chunk; });
-  return { child, closed, bootstrapOutput, get exit() { return exit; }, get stdout() { return stdout; }, get stderr() { return stderr; } };
+  return { child, pid: child.pid, closed, bootstrapOutput, get exit() { return exit; }, get stdout() { return stdout; }, get stderr() { return stderr; } };
 }
 
 async function waitForAdmin(url, owner, timeoutMs = 300_000) {
@@ -145,6 +145,7 @@ async function bootstrapOwnedRuntime(summary, owner, timeoutMs = 300_000) {
   const runtime = await discoverOwningRuntime({ owner, servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot, publishTimeoutMs: timeoutMs });
   summary.urls.runtime = runtime.apiUrl;
   summary.ports.runtime = Number(new URL(runtime.apiUrl).port);
+  await waitForBaselineCompletion({ owner, runtime, output: owner.bootstrapOutput, servicesRoot: summary.paths.servicesRoot, workspaceRoot: summary.paths.workspaceRoot });
   await postJson(`${summary.urls.runtime}/api/setup/bootstrap`);
   for (const serviceId of ["@nginx", "@traefik", "echo-service", "@serviceadmin"]) {
     await postJson(`${summary.urls.runtime}/api/services/${encodeURIComponent(serviceId)}/start`);
@@ -232,7 +233,6 @@ async function main() {
       ownerOutput: owner ? { stdout: owner.stdout.slice(-2_000), stderr: owner.stderr.slice(-2_000) } : null,
     });
   } finally {
-    await stopResidentDemo(owner);
     if (summary) {
       try {
         const cleanup = await cleanupWorktreeProof(summary.paths.summaryPath);
@@ -242,6 +242,7 @@ async function main() {
         receipt.status = "Invalidated";
       }
     }
+    await stopResidentDemo(owner);
     if (lease) await unlink(lease.leasePath).catch(() => undefined);
     receipt.finishedAt = new Date().toISOString();
     await mkdir(bundleRoot, { recursive: true });
