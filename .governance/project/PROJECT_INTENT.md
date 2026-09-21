@@ -46,6 +46,8 @@ This repo is therefore the place where the real core behavior must live and cont
   converts missing technical proof into a pass (`SPEC-007` `AC-7H`, `#1208`).
 
 ## Risks
+- Startup recovery sidecars must remain atomically replaceable under transient Windows sharing contention; bounded retries must preserve prior encrypted recovery bytes and reject changed or redirected paths (#1394, AC-4BJ.2a).
+- Linux shutdown must tolerate process disappearance during `/proc` enumeration without interpreting failed enumeration as proof of exit (#1392, SPEC-002 AC-4BH.1).
 - Staying in analysis/doc mode too long would create false progress without a running core.
 - Starting too broadly could mix manifest redesign, runtime implementation, provider integration, and release plumbing into one hard-to-verify change.
 - Service-specific setup-step jobs can still fail if runtime artifacts, platform commandlines, or provider dependencies are not validated in the owning service repo.
@@ -103,6 +105,10 @@ For the first runtime slice, expected proof should include:
   release, vulnerability, provenance, runtime, recovery, and ledger gates pass
 
 ## Newcomer delivery priority
+
+Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
+
+The real newcomer runner must also retain a bounded, read-only startup failure snapshot before owned cleanup when a request abort hides the server's eventual failure phase. Keep this diagnostic outside public bundles, preserve the original failure, and never retry mutations or extend their deadlines to collect it.
 
 Issue #1387 repairs the Linux PostgreSQL example's owned-artifact library resolution under SPEC-002 AC-4AJ.4c. The direct failed #1385 attempt remains invalidated; corrected source requires fresh full paired qualification, not a system-library workaround or a timeout increase.
 

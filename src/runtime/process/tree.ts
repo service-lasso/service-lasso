@@ -277,17 +277,25 @@ function parseStatusNamespaceId(status: string, field: "NSpid" | "NSpgid"): numb
   return ids.at(-1) ?? null;
 }
 
-async function readLinuxProcessTable(): Promise<PosixProcessRow[]> {
-  const currentPidNamespace = await readlink("/proc/self/ns/pid");
-  const entries = (await readdir("/proc", { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name));
+export async function readLinuxProcessTable(dependencies: {
+  readdir?: typeof readdir;
+  readFile?: typeof readFile;
+  readlink?: typeof readlink;
+} = {}): Promise<PosixProcessRow[]> {
+  const list = dependencies.readdir ?? readdir;
+  const read = dependencies.readFile ?? readFile;
+  const link = dependencies.readlink ?? readlink;
+  const currentPidNamespace = await link("/proc/self/ns/pid");
+  // Dirent conversion may lstat an unknown type after its process has exited.
+  // Read names only; per-process evidence below validates each live candidate.
+  const entries = (await list("/proc")).filter((entry) => /^\d+$/.test(entry));
   const candidates = await Promise.all(entries.map(async (entry) => {
-    const processPath = `/proc/${entry.name}`;
+    const processPath = `/proc/${entry}`;
     try {
       const [stat, status, pidNamespace] = await Promise.all([
-        readFile(`${processPath}/stat`, "utf8"),
-        readFile(`${processPath}/status`, "utf8"),
-        readlink(`${processPath}/ns/pid`),
+        read(`${processPath}/stat`, "utf8"),
+        read(`${processPath}/status`, "utf8"),
+        link(`${processPath}/ns/pid`),
       ]);
       if (pidNamespace !== currentPidNamespace) {
         return null;
@@ -304,7 +312,7 @@ async function readLinuxProcessTable(): Promise<PosixProcessRow[]> {
         return null;
       }
       return {
-        hostPid: Number(entry.name),
+        hostPid: Number(entry),
         hostParentPid,
         pid: namespacePid,
         processGroupId: namespaceProcessGroupId,

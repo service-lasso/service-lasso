@@ -4,6 +4,14 @@
 Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository now has a tracked bounded runtime implementation and needs governed traceability as it widens toward production-ready service orchestration. The first core milestone proved that Service Lasso can run as a standalone manager and consume canonical service manifests directly; the current work under this spec is widening that bounded slice carefully with direct verification.
 
 ## Scope
+### Windows sidecar atomic replacement (AC-4BJ.2a)
+
+For #1394, startup materialization sidecar publication may retry only Windows EPERM/EACCES/EBUSY rename failures within a fixed short retry budget. Every attempt must revalidate contained regular source and destination paths and unchanged file identity/content metadata. Close the writer handle before replacement; keep encrypted serialization and durability behavior. Never delete the prior destination or copy over it to work around rename failure. Permanent failure retains the prior record, reports the original rename error, and cleans only the transaction-owned temporary file. Non-Windows failures are not retried. Verify transient recovery, exhaustion, nonretryable errors, unsafe/changed paths, and full materialization rollback regression; repeat paired newcomer evidence before accepting the candidate.
+
+### Linux transient process enumeration (AC-4BH.1)
+
+For #1392, enumerate numeric `/proc` names without directory-type resolution that can implicitly stat an entry after its process exits. Process tree, namespace identity, and listener inspection must retain their subsequent identity/namespace/socket checks and existing bounds. A disappearing individual entry must not abort an otherwise valid scan; a genuine failure to enumerate `/proc` must retain its existing failure/unknown classification, never become an empty successful table or proof of exit. Deterministic regression tests must exercise disappearance, namespace exclusion, malformed entries, and enumeration failures. Full Linux baseline shutdown and required exact-head CI remain acceptance gates.
+
 Included in this spec:
 - establish the first tracked source tree for the core runtime inside this repo
 - define the first bounded standalone runtime slice and its execution boundary
@@ -445,6 +453,12 @@ Classify verification honestly as direct proof, partial proof, or surrogate-only
 ## Central reader documentation (AC-4AJ.3)
 
 User, operator, integration, and service-authoring guides are authored in service-lasso/docs. Owning repositories retain code-governing specs, security policies, and build instructions. In-app help may retain packaged copies with a declared Core source; migration must preserve runtime loading and record exact imported source identities, navigation, and unresolved repository gates. An inventory, not the existence of a landing page, determines migration completeness.
+
+## Windows lifecycle diagnostic evidence (AC-4BH)
+
+For #1326, failing lifecycle qualification must retain a closed metadata-only account of startup phases and typed launch failure phases. Unknown strings and raw messages, paths, commands, credentials, API payloads, process handles and runtime state must not be printed by the added diagnostics. Diagnostic failure must not replace the original test failure. Cover absent, malformed and sensitive fields with focused tests. Preserve production and fixture deadlines, original test assertions and fail-closed process ownership; a successful retry or richer diagnostic is not root-cause resolution.
+
+For actual newcomer failures, retain up to three read-only observations of the named startup service before owned cleanup, within a five-second total budget. Record only allowlisted phase/status metadata in a private diagnostic file outside the upload bundle. Diagnostic timeout, unavailable runtime, malformed response, or filesystem failure must not prevent owned cleanup or replace the original Invalidated result. Do not repeat a lifecycle mutation or change its deadline. Tests must prove bounded collection, secret exclusion, correct service targeting, and preservation of cleanup/failure behavior.
 
 ## Newcomer journeys (AC-4AJ.4)
 

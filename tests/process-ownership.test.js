@@ -40,7 +40,7 @@ import {
   setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
   setWindowsManagedLauncherPathForTests,
-  startManagedProcess,
+  startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
   waitForManagedProcessFinalization,
@@ -54,6 +54,21 @@ import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
+import { collectStartupFailure } from "../scripts/newcomer-runtime-diagnostics.mjs";
+
+async function startManagedProcess(options) {
+  try {
+    return await startRuntimeManagedProcess(options);
+  } catch (error) {
+    try {
+      console.error(lifecycleFailureDiagnostic({ error, state: getLifecycleState(options.service.manifest.id) }));
+    } catch {
+      // Diagnostic collection must never replace the original typed failure.
+    }
+    throw error;
+  }
+}
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WINDOWS_TEST_SYSTEM_ROOT = "C:\\Windows";
@@ -2831,6 +2846,41 @@ test("Windows primary launch-state cleanup failure is typed and reconciles stopp
   } finally {
     setManagedProcessLaunchStateRemoverForTests(null);
     await stopManagedProcess("primary-launch-cleanup-failure-service", 10_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("newcomer diagnostics observe a real API startup failure before owned cleanup", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-newcomer-diagnostic-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  try {
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    setManagedProcessAfterReleaseHookForTests(async () => { throw new Error("PRIVATE-DIAGNOSTIC-SENTINEL"); });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(diagnostic.observations[0].attemptStatus, "failed");
+    assert.ok(diagnostic.observations[0].events.some(event => event.failurePhase === "post_release_hook"));
+    assert.equal(JSON.stringify(diagnostic).includes("PRIVATE-DIAGNOSTIC-SENTINEL"), false);
+    assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    assert.equal(hasManagedProcess("echo-service"), false);
+  } finally {
+    setManagedProcessAfterReleaseHookForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
