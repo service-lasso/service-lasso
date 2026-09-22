@@ -584,6 +584,61 @@ test("restart replaces the running process and clears stale termination evidence
   }
 });
 
+test("restart fails closed when isolation.require cannot be met", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-restart-isolation-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "restart-isolation-service",
+  );
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/install`,
+    );
+    await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/config`,
+    );
+    const start = await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/start`,
+    );
+    assert.equal(start.status, 200);
+
+    const manifestPath = path.join(serviceRoot, "service.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.isolation = { require: "limits" };
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf8",
+    );
+
+    const restart = await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/restart`,
+      { confirm: true },
+    );
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(restart.status, 409);
+    assert.equal(restart.body.error, "invalid_lifecycle_state");
+    assert.match(restart.body.message, /isolation\.require="limits"/);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, start.body.state.runtime.pid);
+    assert.equal(hasManagedProcess("restart-isolation-service"), true);
+  } finally {
+    await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/stop`,
+      { confirm: true },
+    );
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("config blocks required broker failures with safe ref and status metadata", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot(

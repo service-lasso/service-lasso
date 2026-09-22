@@ -1782,6 +1782,15 @@ export async function restartService(
       `Cannot restart service "${serviceId}" before config.`,
     );
   }
+  try {
+    assertIsolationStartAllowed(evaluateServiceIsolation(service.manifest.isolation), serviceId);
+  } catch (error) {
+    throw new LifecycleStateError(
+      error instanceof Error
+        ? error.message
+        : `Cannot restart service "${serviceId}" because isolation.require cannot be satisfied.`,
+    );
+  }
   const executionPlan = resolveExecutionPlanForLifecycle(
     service,
     current,
