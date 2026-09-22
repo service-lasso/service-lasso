@@ -1,34 +1,64 @@
 # Release 1 independent security review packet
 
-Status: AC-7H **approve with accepted residuals** for Core/npm `2026.9.11-462f837`
+Status: AC-7H **review pending** for Core/npm `2026.9.22-f3de461`. The prior
+AC-7H **approve with accepted residuals** covered Core/npm `2026.9.11-462f837`
 only ([#1151 comment](https://github.com/service-lasso/service-lasso/issues/1151#issuecomment-5645610452),
-2026-09-12). Current npm/GitHub Latest `2026.9.13-1bffd1b` is an
-operator-promoted post-review delta; it is not a second AN signature.
-Tracking issue: [service-lasso/service-lasso#1151](https://github.com/service-lasso/service-lasso/issues/1151)
+2026-09-12) and does not cover these later bytes.
+Review request: [service-lasso/service-lasso#1402](https://github.com/service-lasso/service-lasso/issues/1402)
 Prior packet issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 Acceptance authority: `SPEC-007` `AC-7F` through `AC-7H`
 
 > **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md)
 > records technical verification of the **rejected** `2026.9.1-1f4ec40` set.
-> AC-7H review bytes remain Core/npm `2026.9.11-462f837`. See
-> [GA decision](./release-1-ga-decision.md) for live `1bffd1b` publication.
+> See [GA decision](./release-1-ga-decision.md) for live publication state.
 
 ## Exact review scope
 
 | Component | Immutable identity | Publication |
 | --- | --- | --- |
-| Core | `462f837b25224e98103296b4597807b5beea00c5`; `2026.9.11-462f837` | [GitHub release](https://github.com/service-lasso/service-lasso/releases/tag/2026.9.11-462f837) ID `387143354` and `@service-lasso/service-lasso@2026.9.11-462f837` |
+| Core | `f3de46166c03d3feca5b27fa72f941e0ce8472ae`; `2026.9.22-f3de461` | [GitHub release](https://github.com/service-lasso/service-lasso/releases/tag/2026.9.22-f3de461) ID `393972333` and `@service-lasso/service-lasso@2026.9.22-f3de461` (integrity `sha512-Y9sawMjrZkPd95fNHCWHGHjT6CL4cPkYr7i+BvZhImJvU7agiHCzpuC8/X7Tlgip+KD7iRQA8EAIEJeqZZz4DA==`, shasum `ce8672a6705ca1b4a9dffb0c2b2d3131b3da8ffb`) |
 | Service Admin | `f015b4445b0526546a309301270186a697588166`; `2026.8.31-f015b44` | [GitHub release](https://github.com/service-lasso/lasso-serviceadmin/releases/tag/2026.8.31-f015b44) |
 | Secrets Broker | `f340883056ec3cf74b535fb46490b39382e8c823`; `2026.8.31-f340883` | [GitHub release](https://github.com/service-lasso/lasso-secretsbroker/releases/tag/2026.8.31-f340883) |
 | Cross-repository Admin harness | `f7abf981f8f0bbbbd7fdf352237fd84950d95ca3` | Pinned by the Core published-package workflow |
 
-Rejected identities that this packet does **not** approve: Core/npm
+Previously approved identities retained as history: Core/npm
+`2026.9.11-462f837` / `462f837b25224e98103296b4597807b5beea00c5` (Lane AN,
+2026-09-12). Rejected identities that this packet does **not** approve: Core/npm
 `2026.9.1-1f4ec40` / `1f4ec40f13fe3867b24ca901c42fe31c69e01e8d`; packet
 `#1210` / `c341552`; docs PR `#1232` / `2026.9.8-b0c3a1b`.
 
 Review applies only to these bytes, manifests, checksums, SBOMs, attestations,
 and evidence. A replacement archive, npm version, commit, workflow, dependency
 graph, or security-control change requires delta review and fresh qualification.
+
+## Candidate revision and gate evidence
+
+Candidate `2026.9.22-f3de461` contains 84 commits after the prior approved
+`462f837`, including `#1241` isolation parsing and fail-closed `require`, `#1401`
+restart-path isolation fail-closed (the prior review's required next identity),
+`#1387` Linux PostgreSQL library resolution, `#1392` Linux process enumeration,
+`#1394` Windows sidecar replacement, `#1379` portable newcomer proof bundles, and
+retained lifecycle diagnostics from `#1391`, `#1396`, and `#1398`.
+
+| Gate on the exact SHA | Run |
+| --- | --- |
+| Release Qualification | [35758557194](https://github.com/service-lasso/service-lasso/actions/runs/35758557194) |
+| MCP Product Acceptance | [35758557293](https://github.com/service-lasso/service-lasso/actions/runs/35758557293) |
+| Packaged Admin Lifecycle Acceptance | [35758557458](https://github.com/service-lasso/service-lasso/actions/runs/35758557458) |
+| CodeQL | [35758557221](https://github.com/service-lasso/service-lasso/actions/runs/35758557221) |
+| Release Artifact | [35758779276](https://github.com/service-lasso/service-lasso/actions/runs/35758779276) |
+| Publish Package | [35758782877](https://github.com/service-lasso/service-lasso/actions/runs/35758782877) |
+| Published Package Three-OS Qualification | [35763042401](https://github.com/service-lasso/service-lasso/actions/runs/35763042401) |
+
+Unbundled archive SHA-256: win32
+`10287449ee990d1b66856a5e37138cc4434ef080033b085558bf265247d07e3d`;
+linux/darwin `5352efc24b2b71170c0c11b48203357f5301172500187e2f2090d989348d6f49`.
+The Publish Package run's production and tooling audit steps passed, and the npm
+publication reports a signed provenance statement.
+
+This candidate is not yet reviewed. A named reviewer independent of
+implementation and delivery must record approve, not approved, or blocked with
+residual findings before any GA claim.
 
 ## Product and security boundaries
 
@@ -230,13 +260,14 @@ failure-path, and metadata-only result record on a clean Windows 11 x64 host.
 1. Verify the three release objects are immutable and resolve to the exact SHAs
    in this packet. Download asset inventories, checksum manifests, SBOMs, and
    attestations through the GitHub API; compare every public asset digest.
-2. Verify npm `2026.9.11-462f837` has the exact `gitHead`, `latest` identity,
-   integrity `sha512-whjIemqmLt/NQH03QZVMMjAtXWfx+aL1Ee3aRzeSiQgbZcvKhrpRDVqzqjj57H2A4FPXw9PzTC7PB6940OQjYg==`,
-   and tarball bytes. Treat npm workflow `34614418000` as a historical failure,
-   not as converted green.
+2. Verify npm `2026.9.22-f3de461` has the exact `gitHead`
+   `f3de46166c03d3feca5b27fa72f941e0ce8472ae`, `latest` identity, integrity
+   `sha512-Y9sawMjrZkPd95fNHCWHGHjT6CL4cPkYr7i+BvZhImJvU7agiHCzpuC8/X7Tlgip+KD7iRQA8EAIEJeqZZz4DA==`,
+   and tarball bytes. Treat historical npm failures as failures, not converted
+   green.
 3. In isolated clean consumers on Windows, Linux, and macOS, acquire all three
    publications through the production path and require published-package
-   [run 34625492347](https://github.com/service-lasso/service-lasso/actions/runs/34625492347)
+   [run 35763042401](https://github.com/service-lasso/service-lasso/actions/runs/35763042401)
    all four jobs green and exactly three current-run records.
 4. Parse each record and require `outcome: success`, `mutationRetry: false`, all
    negative proofs/scenarios `success`, and exact mutation counts. Retain no
@@ -267,6 +298,10 @@ includes Dependabot not in that Core SHA.
 
 Operator publication of `2026.9.13-1bffd1b` / `1bffd1bca177de213e3a0bd3efb54125dc5cf107`
 is a post-review delta (`#1241` isolation fail-closed plus later docs/Dependabot).
-It does not reuse the AN signature. `#1151` stays open until a named independent
-reviewer signs those later bytes or the operator explicitly closes the umbrella
-with that residual accepted.
+It does not reuse the AN signature.
+
+The pending review for Core/npm `2026.9.22-f3de461` is requested in
+[#1402](https://github.com/service-lasso/service-lasso/issues/1402). No decision
+is recorded for those bytes yet; they must not be labelled GA until a named
+independent reviewer signs them or the operator explicitly records a different
+decision.
