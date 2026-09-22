@@ -1,8 +1,9 @@
 # Release 1 GA decision
 
-Decision: **working release published — AC-7H bound to `462f837`; operator-promoted `1bffd1b` is a post-review delta**
-Prepared: `2026-09-14`
+Decision: **GA approved with accepted residuals for Core/npm `2026.9.22-f3de461`** (AC-7H recorded 2026-09-23). The prior decision bound AC-7H to `462f837` and treated operator-promoted `1bffd1b` as a post-review delta; both remain history below.
+Prepared: `2026-09-14`; revised: `2026-09-23`
 Tracking issue: [#1151](https://github.com/service-lasso/service-lasso/issues/1151)
+Review request: [#1402](https://github.com/service-lasso/service-lasso/issues/1402)
 Prior packet issue: [#1208](https://github.com/service-lasso/service-lasso/issues/1208)
 
 The 2026-09-08 independent AC-7H reject of Core/npm `2026.9.1-1f4ec40` /
@@ -19,11 +20,48 @@ That decision does **not** cover later develop product bytes.
 
 > **Related:** [Delivery-owner evidence readback](./release-1-independent-security-review-report.md)
 > remains historical for the rejected identity. The [security packet](./release-1-security-review-packet.md)
-> still names the AC-7H identity as `2026.9.11-462f837`.
+> now names the AC-7H identity as `2026.9.22-f3de461`.
+
+## GA decision: 2026.9.22-f3de461
+
+The AC-7H review recorded **approve with accepted residuals** on 2026-09-23 for
+Core/npm `f3de46166c03d3feca5b27fa72f941e0ce8472ae` / `2026.9.22-f3de461`
+([#1402 decision record](https://github.com/service-lasso/service-lasso/issues/1402#issuecomment-5781828161))
+against packet revision `a144abf024e44831685663e832a6f4b777b5c61f`. The
+operator authorized promotion.
+
+- GitHub release `2026.9.22-f3de461` ID `393972333`, immutable, target
+  `f3de46166c03d3feca5b27fa72f941e0ce8472ae`, published 2026-09-22T17:27:35Z.
+- npm `@service-lasso/service-lasso@2026.9.22-f3de461` is `latest`; `gitHead`
+  `f3de46166c03d3feca5b27fa72f941e0ce8472ae`; integrity
+  `sha512-Y9sawMjrZkPd95fNHCWHGHjT6CL4cPkYr7i+BvZhImJvU7agiHCzpuC8/X7Tlgip+KD7iRQA8EAIEJeqZZz4DA==`;
+  shasum `ce8672a6705ca1b4a9dffb0c2b2d3131b3da8ffb`; signed provenance.
+- Gates at `f3de461`: Release Qualification `35758557194`, MCP Product
+  Acceptance `35758557293`, Packaged Admin Lifecycle Acceptance `35758557458`,
+  CodeQL `35758557221`, Release Artifact `35758779276`, Publish Package
+  `35758782877`, Published Package Three-OS Qualification `35763042401` — all
+  success.
+- Admin `2026.8.31-f015b44` and Broker `2026.8.31-f340883` remain the pinned
+  release artifacts.
+
+Accepted residuals: single-operator control limitation (no enforced required
+approvals, CODEOWNERS, last-push approval, or required status checks on
+Core/Admin `develop`; no GA claim may assert enforced independent branch
+approval or review); Admin development-scope critical code-scanning alert not on
+the pinned release; publish attempt-1 registry-propagation reliability residual;
+isolation L2–L4 not implemented with `require` other than none failing closed;
+`#1326` and `#1382` open; `#1330` macOS proof deferred; `gh`
+operator/delivery-owner independence limitation; historical failed runs retained
+as failures.
+
+This decision does not relabel the prior `462f837` approval, does not convert
+any failed run into a pass, and does not claim enforced independent branch
+approval.
 
 ## Current published identities (operator-promoted)
 
-Live readback on 2026-09-14:
+Superseded on 2026-09-23: GitHub/npm `latest` is now `2026.9.22-f3de461` (see
+the GA decision above). The 2026-09-14 readback below is retained as history.
 
 - Core `origin/develop` and `origin/main` are both
   `1bffd1bca177de213e3a0bd3efb54125dc5cf107` (`Parse isolation manifests and fail closed when require cannot be met.` `#1241`);
