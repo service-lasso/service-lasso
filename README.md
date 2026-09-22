@@ -37,7 +37,7 @@ npm run demo:stop
 
 ## Make it yours
 
-**[Add PostgreSQL and connect an app →](docs/first-useful-service.md)** · [Let your agent do it →](docs/agent-prompts.md)
+**[Add PostgreSQL and connect an app →](docs/getting-started/intermediate-make-todo-app-durable.md)** · [Let your agent do it →](docs/agent-prompts.md)
 
 - **Bring your services.** Describe how to install and run each one in a `service.json` manifest. [Write a service →](docs/service-authoring/overview.md)
 - **Choose ready-made services.** Browse databases, runtimes, proxies, and other services you can add to your app. [Service catalog →](docs/service-catalog.md)

@@ -100,7 +100,10 @@ async function recoverStaleLock(lockPath: string, staleMs: number): Promise<void
 
   try {
     const inspected = await inspectLock(lockPath);
-    if (!inspected || Date.now() - inspected.info.mtimeMs < staleMs || inspected.ownerPid !== null && processIsAlive(inspected.ownerPid)) {
+    const lockStillProtected = inspected !== null && inspected.ownerPid !== null
+      ? processIsAlive(inspected.ownerPid)
+      : inspected !== null && Date.now() - inspected.info.mtimeMs < staleMs;
+    if (!inspected || lockStillProtected) {
       await inspected?.handle.close();
       return;
     }
@@ -141,7 +144,10 @@ async function recoveryInProgress(lockPath: string, staleMs: number): Promise<bo
   const inspected = await inspectLock(recoveryPath);
   if (!inspected) return false;
   try {
-    if (Date.now() - inspected.info.mtimeMs < staleMs || inspected.ownerPid !== null && processIsAlive(inspected.ownerPid)) {
+    const lockStillProtected = inspected.ownerPid !== null
+      ? processIsAlive(inspected.ownerPid)
+      : Date.now() - inspected.info.mtimeMs < staleMs;
+    if (lockStillProtected) {
       return true;
     }
     const claimedPath = `${recoveryPath}.stale-${process.pid}-${randomBytes(8).toString("hex")}`;

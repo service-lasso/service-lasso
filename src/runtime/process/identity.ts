@@ -258,11 +258,12 @@ async function resolveLinuxProcessPath(
 
     const currentPidNamespace = await readlink("/proc/self/ns/pid");
     const candidates: string[] = [];
-    for (const entry of await readdir("/proc", { withFileTypes: true })) {
-      if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) {
+    // Avoid implicit lstat during Dirent conversion of a disappearing PID.
+    for (const entry of await readdir("/proc")) {
+      if (!/^\d+$/.test(entry)) {
         continue;
       }
-      const candidatePath = `/proc/${entry.name}`;
+      const candidatePath = `/proc/${entry}`;
       try {
         const [status, pidNamespace] = await Promise.all([
           readFile(`${candidatePath}/status`, "utf8"),

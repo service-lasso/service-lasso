@@ -3,13 +3,17 @@ import test from "node:test";
 import path from "node:path";
 
 import {
+  DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
+  LOCAL_PATH_CAPTURE_PATTERN,
   DEFAULT_SERVICE_ADMIN_URL,
   PASSWORD_FIELD_MASK_SELECTOR,
   READ_ONLY_AUDIT_ROUTES,
+  ROUTE_RENDER_TIMEOUT_MS,
   TOUR_VIEWPORT,
   TourCaptureError,
   assertSafeRenderedText,
   buildRouteUrl,
+  dashboardPublicPolicyIsActive,
   isLoopbackUrl,
   normalizeCaptureOptions,
   passwordFieldMaskOptions,
@@ -20,11 +24,21 @@ import {
   selectedAuditRoutes,
 } from "../scripts/capture-service-admin-tour.mjs";
 
+test("capture masks local paths on all supported platforms", () => {
+  for (const value of ["D:\\projects\\proof\\services", "C:/Users/operator/proof", "/home/operator/proof", "/Users/operator/proof", "/private/tmp/proof", "\\\\host\\share\\proof"]) {
+    assert.equal(LOCAL_PATH_CAPTURE_PATTERN.test(value), true);
+  }
+  for (const value of ["Archive Utility Provider", "http://127.0.0.1:21000/", "Help Center"]) {
+    assert.equal(LOCAL_PATH_CAPTURE_PATTERN.test(value), false);
+  }
+});
+
 test("capture playbook defaults to the local Service Admin URL and unique review output", () => {
   const options = parseCaptureArguments([], { now: new Date("2026-09-18T00:00:00.000Z") });
   assert.equal(options.baseUrl, DEFAULT_SERVICE_ADMIN_URL);
   assert.equal(options.colorScheme, "dark");
   assert.equal(options.outputDir, path.join(".tmp", "service-admin-tour", "2026-09-18T00-00-00-000Z"));
+  assert.equal(parseCaptureArguments(["--no-promote"]).promoteToDocs, false);
 });
 
 test("capture playbook uses Playwright masking for password controls", () => {
@@ -53,6 +67,21 @@ test("capture playbook only accepts HTTP(S) roots without embedded credentials",
   );
 });
 
+test("capture playbook accepts only the named Dashboard public-capture policy", () => {
+  const options = normalizeCaptureOptions({
+    baseUrl: DEFAULT_SERVICE_ADMIN_URL,
+    colorScheme: "dark",
+    headed: false,
+    outputDir: ".tmp/review",
+    dashboardPublicPolicy: DASHBOARD_PUBLIC_CAPTURE_POLICY_ID,
+  });
+  assert.equal(dashboardPublicPolicyIsActive(options), true);
+  assert.throws(
+    () => normalizeCaptureOptions({ ...options, dashboardPublicPolicy: "permissive-dashboard-policy" }),
+    (error) => error instanceof TourCaptureError && error.code === "unknown_dashboard_public_policy",
+  );
+});
+
 test("capture playbook rejects direct writes into public documentation assets", () => {
   assert.throws(
     () => normalizeCaptureOptions({
@@ -73,6 +102,7 @@ test("capture playbook keeps route resolution rooted at the selected Service Adm
 });
 
 test("capture playbook audits every static authenticated destination without adding synthetic reveal routes", () => {
+  assert.equal(ROUTE_RENDER_TIMEOUT_MS, 30_000);
   assert.equal(READ_ONLY_AUDIT_ROUTES.length, 40);
   assert.ok(READ_ONLY_AUDIT_ROUTES.includes("/operations/audit-logging"));
   assert.ok(READ_ONLY_AUDIT_ROUTES.includes("/secrets-broker/secrets"));
@@ -100,6 +130,25 @@ test("capture playbook writes only approved tour captures into public docs", () 
   );
 });
 
+test("capture playbook never promotes captures when explicitly in review-only mode", () => {
+  const options = parseCaptureArguments(["--skip-audit", "--no-promote"]);
+  assert.equal(options.promoteToDocs, false);
+  assert.deepEqual(selectedDocsPromotionRoutes(options), []);
+});
+
+test("capture playbook cannot promote Dashboard until the named redaction policy is active", () => {
+  const reviewOnly = parseCaptureArguments(["--skip-audit", "--capture-limit=1"]);
+  assert.deepEqual(selectedDocsPromotionRoutes(reviewOnly).map((route) => route.id), []);
+
+  const policyActive = parseCaptureArguments([
+    "--skip-audit",
+    "--capture-limit=1",
+    `--dashboard-public-policy=${DASHBOARD_PUBLIC_CAPTURE_POLICY_ID}`,
+  ]);
+  assert.equal(dashboardPublicPolicyIsActive(policyActive), true);
+  assert.deepEqual(selectedDocsPromotionRoutes(policyActive).map((route) => route.id), ["dashboard"]);
+});
+
 test("capture playbook keeps the Services screenshot bounded to a closed column menu", () => {
   const services = selectedCaptureRoutes(parseCaptureArguments([])).find((route) => route.id === "services");
   assert.equal(services.prepare, "hide-links-column");
@@ -109,6 +158,7 @@ test("capture playbook rejects first-run credential and unavailable screens befo
   for (const text of [
     "Save your local-operator token",
     "Lasso-local password",
+    "Continue after saving",
     "Service Admin is unavailable",
   ]) {
     assert.throws(

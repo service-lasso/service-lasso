@@ -76,6 +76,8 @@ async function waitFor(readinessCheck, timeoutMs = 2_000) {
 async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {}) {
   let requestCount = 0;
   const releaseAssetName = options.releaseAssetName ?? assetName;
+  const releaseStatus = options.releaseStatus ?? 200;
+  const releaseHeaders = options.releaseHeaders ?? {};
   const downloadStatuses = options.downloadStatuses ?? [options.downloadStatus ?? 200];
   const checksumAssetName = options.checksumAssetName;
   const checksumAssetBytes = options.checksumAssetBytes;
@@ -91,6 +93,12 @@ async function startFakeGitHubReleaseServer(assetName, assetBytes, options = {})
     if (url.pathname === "/repos/service-lasso/acquire-fixture/releases/latest") {
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
       response.setHeader("content-type", "application/json; charset=utf-8");
+      for (const [name, value] of Object.entries(releaseHeaders)) response.setHeader(name, value);
+      response.statusCode = releaseStatus;
+      if (releaseStatus !== 200) {
+        response.end(JSON.stringify({ message: "release metadata unavailable" }));
+        return;
+      }
       response.end(JSON.stringify({
         tag_name: "2026.4.23-fixture",
         assets: [
@@ -493,6 +501,34 @@ test("install fails clearly when release metadata does not contain the requested
     assert.equal(install.status, 500);
     assert.equal(install.body.error, "internal_error");
     assert.match(install.body.message, /did not contain asset "downloaded-service\.zip"/);
+    assert.equal(stored.install, null);
+  } finally {
+    await apiServer.stop();
+    await releaseServer.stop();
+    resetLifecycleState();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("install classifies GitHub release metadata rate limiting without exposing upstream response details", async () => {
+  resetLifecycleState();
+  const { root, servicesRoot } = await makeTempServicesRoot();
+  const assetName = "downloaded-service.zip";
+  const releaseServer = await startFakeGitHubReleaseServer(assetName, createZipWithRuntimeScript(), {
+    releaseStatus: 403,
+    releaseHeaders: { "x-ratelimit-remaining": "0" },
+  });
+  const serviceRoot = await writeManifest(servicesRoot, "downloaded-service", createReleaseBackedManifest(releaseServer, assetName));
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    const install = await postJson(`${apiServer.url}/api/services/downloaded-service/install`);
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(install.status, 503);
+    assert.equal(install.body.error, "github_release_metadata_rate_limited");
+    assert.match(install.body.message, /temporarily rate limited/i);
+    assert.doesNotMatch(JSON.stringify(install.body), /release metadata unavailable/);
     assert.equal(stored.install, null);
   } finally {
     await apiServer.stop();

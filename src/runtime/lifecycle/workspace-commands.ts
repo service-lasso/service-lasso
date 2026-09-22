@@ -413,6 +413,43 @@ async function stopVerifiedOwnedTrees(
     }
     const label = entryLabel(entry);
     const classification = await classifyRegisteredProcess(entry);
+    // A detached POSIX service owns a process group whose ID is its original
+    // launcher PID.  The launcher can exit while a child in that same group is
+    // still running (for example after a hard runtime exit).  Do not mark that
+    // entry stopped before giving the existing group-scoped terminator a chance
+    // to clear the surviving owned child.  Other absent or mismatched owners
+    // remain fail-closed below.
+    const hasDetachedPosixGroup = classification === "not_running"
+      && entry.pid !== null
+      && entry.processGroup.kind === "posix"
+      && entry.processGroup.id === String(entry.pid);
+    if (hasDetachedPosixGroup) {
+      try {
+        await terminateOwnedProcessTree(
+          {
+            rootPid: entry.pid as number,
+            rootIdentity: null,
+            processGroup: entry.processGroup,
+            rootExitObserved: true,
+          },
+          TREE_STOP_TIMEOUT_MS,
+        );
+        await transitionProcessOwnership(
+          workspaceRoot,
+          entry.ownerType,
+          entry.ownerId,
+          "stopped",
+          "not_running",
+        );
+        if (entry.ownerType === "service") {
+          stoppedServices.push(entry.serviceId ?? entry.ownerId);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "terminate_failed";
+        blockers.push(`${label}:${detail}`);
+      }
+      continue;
+    }
     if (classification === "not_running") {
       if (entry.lifecycleState !== "stopped" || entry.pid !== null) {
         await transitionProcessOwnership(

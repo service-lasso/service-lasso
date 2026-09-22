@@ -226,7 +226,7 @@ interface AdoptManagedProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
-const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void> }>();
+const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void>; workspaceRoot: string | null }>();
 const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
 const managedProcessShutdownQuiescers = new Set<(
@@ -247,6 +247,7 @@ const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
 const WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES = 128;
 let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
+let managedProcessTreeMonitor = monitorManagedProcessTree;
 let managedProcessRootInspector = inspectProcess;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
@@ -264,6 +265,15 @@ export function setManagedProcessTreeTerminatorForTests(
     throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessTreeTerminator = terminator ?? terminateOwnedProcessTree;
+}
+
+export function setManagedProcessTreeMonitorForTests(
+  monitor: typeof monitorManagedProcessTree | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessTreeMonitor = monitor ?? monitorManagedProcessTree;
 }
 
 export function setManagedProcessRootInspectorForTests(
@@ -398,8 +408,8 @@ async function withSerializedWorkspaceFinalization<T>(workspaceRoot: string, act
   }
 }
 
-function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>): void {
-  const tracked = { pid, promise };
+function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>, workspaceRoot: string | null): void {
+  const tracked = { pid, promise, workspaceRoot };
   managedProcessFinalizers.set(serviceId, tracked);
   const clearFinalizer = () => {
     if (managedProcessFinalizers.get(serviceId) === tracked) {
@@ -428,7 +438,14 @@ export async function waitForManagedProcessFinalization(
   } catch (error) {
     // A deadline stops this waiter, not the finalizer itself. Keep the finalizer
     // registered so a later shutdown convergence pass still observes it.
-    if (!isProcessControlDeadlineError(error) && managedProcessFinalizers.get(serviceId) === finalizer) {
+    const reconciledStatus = isProcessControlDeadlineError(error) && finalizer.workspaceRoot
+      ? await reconcileRegisteredProcess(finalizer.workspaceRoot, "service", serviceId).catch(() => "unknown_owner" as const)
+      : null;
+    if ((
+      !isProcessControlDeadlineError(error)
+      || reconciledStatus === "not_running"
+      || reconciledStatus === "identity_mismatch"
+    ) && managedProcessFinalizers.get(serviceId) === finalizer) {
       managedProcessFinalizers.delete(serviceId);
     }
     throw new ManagedProcessFinalizationError([{
@@ -1373,12 +1390,9 @@ async function terminateManagedProcessTree(
     }
 
     const attempt = (async () => {
-      if (record.stopping) {
-        await withProcessControlDeadline(
-          async () => await record.treeMonitorPromise,
-          { deadlineMs },
-        );
-      }
+      // The aborted monitor may still be returning from a native inspection.
+      // It only reads and refreshes a snapshot; termination must retain the
+      // full caller-owned deadline rather than wait for that work to unwind.
       return await withProcessControlDeadline(
         async (signal) => {
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
@@ -1639,10 +1653,9 @@ export async function beginManagedProcessStop(
     }
     record.stopping = true;
     record.treeMonitorAbortController.abort();
-    await withProcessControlDeadline(
-      async () => await record.treeMonitorPromise,
-      { deadlineMs: record.stopDeadlineMs ?? deadlineMs },
-    );
+    // This monitor only maintains a best-effort tree snapshot. Its in-flight
+    // native inspection has its own timeout, so waiting for it here could
+    // consume the caller-owned deadline before authoritative termination starts.
     if (record.workspaceRoot && !record.stoppingPersisted) {
       await withProcessControlDeadline(
         async () => await transitionProcessOwnership(
@@ -1664,13 +1677,8 @@ export async function beginManagedProcessStop(
   if (adopted) {
     adopted.stopping = true;
     adopted.monitorAbortController.abort();
-    const monitor = managedProcessFinalizers.get(serviceId);
-    if (monitor) {
-      await withProcessControlDeadline(
-        async () => await monitor.promise,
-        { deadlineMs },
-      );
-    }
+    // As above, cancellation requests monitor quiescence without allowing a
+    // best-effort inspection to spend the stop operation's deadline.
     if (!adopted.stoppingPersisted) {
       await withProcessControlDeadline(
         async () => await transitionProcessOwnership(
@@ -1728,7 +1736,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
   };
   await refreshAdoptedProcessTreeMembers(record);
   adoptedProcesses.set(serviceId, record);
-  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record));
+  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record), workspaceRoot);
 
   return {
     pid,
@@ -1848,7 +1856,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
     const spawnedChild = child;
     exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      spawnedChild.once("close", (exitCode, signal) => {
+      // `close` reports that stdio streams have closed, which is not a
+      // process-ownership boundary for detached POSIX services.  A managed
+      // service may close or replace its inherited streams while its verified
+      // root PID remains live.  Only the child `exit` event can authorize
+      // lifecycle finalization and process-tree cleanup.
+      spawnedChild.once("exit", (exitCode, signal) => {
         resolve({
           exitCode: typeof exitCode === "number" ? exitCode : null,
           signal,
@@ -1919,7 +1932,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     }
     managedRecordActivated = true;
     managedProcesses.set(serviceId, record);
-    record.treeMonitorPromise = monitorManagedProcessTree(record).catch(() => undefined);
+    record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
     const logFinalizePromise = record.finalizePromise;
     const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
       const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
@@ -1972,7 +1985,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       logFinalizePromise,
       lifecycleFinalizePromise,
     ]).then(() => undefined);
-    trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise);
+    trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise, workspaceRoot ?? null);
   };
 
   if (workspaceRoot) {

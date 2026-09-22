@@ -42,4 +42,23 @@ Every row also proves:
 
 ## Hosted Gate
 
+### Failure before the requested checkpoint
+
+Under `AC-4BJ.9a` (#1397), an unexpected fixture failure sends only its last
+completed formal phase and the closed lifecycle-failure projection over test
+IPC. The exit-code assertion includes that metadata, never collected raw stdout,
+stderr, exception messages or stack traces. Missing IPC evidence remains `null`
+and does not turn an exit mismatch into a pass. A last completed phase is a
+boundary observation, not proof of which next operation failed.
+
+The fixture still intentionally exits 86 at the requested checkpoint; unexpected
+startup failure exits 1. Diagnostic delivery is bounded to 500 ms on the failure
+path and does not extend any product startup or process-control deadline. A
+test-only injected failure exercises the actual child IPC path and checks that
+its private sentinel and owned filesystem path are absent from the diagnostic.
+
+Run `node --test tests/startup-crash-diagnostics.test.js` after building the
+runtime. A passing diagnostic test or later crash-matrix rerun does not explain
+the original intermittent Windows failure; retain the original failed run.
+
 `.github/workflows/startup-hard-crash-matrix.yml` runs one phase per job on `ubuntu-latest` and `windows-latest`. Each job has a bounded timeout and sets `SERVICE_LASSO_HARD_CRASH_PHASE` so failures identify one exact recovery boundary without rerunning unrelated runtime suites.

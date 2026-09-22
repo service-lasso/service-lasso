@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { access, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, link, lstat, mkdir, open, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { publishExtraction } from "./publish-extraction.js";
 import { extractZipSafely } from "../files/safe-zip.js";
 import * as tar from "tar";
 import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
@@ -59,12 +60,29 @@ const TRANSIENT_DOWNLOAD_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const TRANSIENT_DOWNLOAD_ATTEMPTS = 3;
 const TRANSIENT_DOWNLOAD_BACKOFF_MS = 100;
 
+export class ReleaseAcquisitionError extends Error {
+  readonly code: "github_release_metadata_rate_limited";
+  readonly statusCode = 503;
+
+  constructor() {
+    super("github_release_metadata_rate_limited: GitHub release metadata is temporarily rate limited; wait for the public API limit to reset and retry.");
+    this.name = "ReleaseAcquisitionError";
+    this.code = "github_release_metadata_rate_limited";
+  }
+}
+
 function isTransientDownloadStatus(status: number): boolean {
   return TRANSIENT_DOWNLOAD_STATUSES.has(status);
 }
 
 function waitForTransientDownloadRetry(attempt: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, TRANSIENT_DOWNLOAD_BACKOFF_MS * attempt));
+}
+
+function isGitHubReleaseMetadataRateLimited(response: Response): boolean {
+  if (response.status !== 403) return false;
+  return response.headers.get("x-ratelimit-remaining") === "0"
+    || response.headers.has("retry-after");
 }
 
 async function fetchReleaseAsset(url: string, headers?: Record<string, string>): Promise<Response> {
@@ -229,6 +247,9 @@ async function resolveGitHubReleaseDownload(
   const response = await fetchReleaseAsset(apiBaseUrl + releasePath, githubHeaders());
 
   if (!response.ok) {
+    if (isGitHubReleaseMetadataRateLimited(response)) {
+      throw new ReleaseAcquisitionError();
+    }
     throw new Error(
       `Failed to resolve GitHub release metadata for "${artifact.source.repo}": ${response.status} ${response.statusText}`,
     );
@@ -475,6 +496,21 @@ async function extractArchive(
   });
 }
 
+async function ensurePosixArtifactCommandExecutable(extractedPath: string, command: string | undefined): Promise<void> {
+  if (process.platform === "win32" || !command) return;
+  if (!command.startsWith("./") && !command.startsWith(".\\")) return;
+  const commandPath = path.resolve(extractedPath, command);
+  const relativePath = path.relative(extractedPath, commandPath);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("Artifact command must be a contained file within its extracted artifact root.");
+  }
+  const details = await lstat(commandPath);
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new Error("Artifact command must resolve to a contained regular file.");
+  }
+  await chmod(commandPath, (details.mode & 0o777) | 0o500);
+}
+
 async function fileExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
@@ -557,7 +593,7 @@ export async function acquireInstallArtifact(
     await extractArchive(archivePath, definition.archiveType, plan.extractionStagingPath, true);
     await transactionHooks.recordArchive(plan.actionId, archivePath);
     await transactionHooks.beforeExtractionPublish(plan.actionId);
-    await rename(plan.extractionStagingPath, plan.extractionPath);
+    await publishExtraction(plan.extractionStagingPath, plan.extractionPath);
     await transactionHooks.afterExtractionPublish(plan.actionId);
     selectedExtractedPath = plan.extractionPath;
   } else {
@@ -568,6 +604,8 @@ export async function acquireInstallArtifact(
     checksum = await verifyArchiveChecksum(archivePath, resolved.assetName, definition.checksum, resolved);
     await extractArchive(archivePath, definition.archiveType, extractedPath);
   }
+
+  await ensurePosixArtifactCommandExecutable(selectedExtractedPath, definition.command);
 
   const acquired: AcquiredArtifactState = {
     sourceType: artifact.source.type,

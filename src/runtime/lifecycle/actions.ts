@@ -4,6 +4,7 @@ import type {
   ServiceRestartPolicy,
 } from "../../contracts/service.js";
 import path from "node:path";
+import { withServiceStartSerialization } from "./start-serialization.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { evaluateServiceIsolation, assertIsolationStartAllowed } from "../isolation/evaluate.js";
@@ -1128,21 +1129,28 @@ export async function installService(
   );
 
   return applyState(serviceId, "install", (current) => ({
-    nextState: {
-      ...current,
-      installed: true,
-      running: false,
-      installArtifacts: {
-        ...artifacts,
-        artifact: acquiredArtifact ?? current.installArtifacts.artifact,
-      },
-      runtime: {
-        ...current.runtime,
-        pid: null,
-        finishedAt: null,
-        lastTermination: null,
-      },
-    },
+    nextState: (() => {
+      // Materializing an install candidate does not terminate a verified
+      // managed process.  Preserve its ownership state so a late
+      // reconciliation/install pass cannot falsely report a live service as
+      // stopped and cause a duplicate launch.
+      const retainsManagedProcess = current.running && hasManagedProcess(serviceId);
+      return {
+        ...current,
+        installed: true,
+        running: retainsManagedProcess,
+        installArtifacts: {
+          ...artifacts,
+          artifact: acquiredArtifact ?? current.installArtifacts.artifact,
+        },
+        runtime: {
+          ...current.runtime,
+          pid: retainsManagedProcess ? current.runtime.pid : null,
+          finishedAt: retainsManagedProcess ? current.runtime.finishedAt : null,
+          lastTermination: retainsManagedProcess ? current.runtime.lastTermination : null,
+        },
+      };
+    })(),
     message: "Install completed.",
   }));
 }
@@ -1201,6 +1209,17 @@ export async function configService(
 }
 
 export async function startService(
+  service: DiscoveredService,
+  registry?: ServiceRegistry,
+  options: ServiceLifecycleActionOptions = {},
+): Promise<LifecycleActionResult> {
+  // Automatic startup and API requests may both reach this boundary before
+  // either has enrolled a process. Serialize by root, not just service ID, so
+  // independent folder instances never block one another.
+  return await withServiceStartSerialization(service.serviceRoot, () => startServiceSerialized(service, registry, options));
+}
+
+async function startServiceSerialized(
   service: DiscoveredService,
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},
@@ -1761,6 +1780,15 @@ export async function restartService(
   if (!current.configured) {
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" before config.`,
+    );
+  }
+  try {
+    assertIsolationStartAllowed(evaluateServiceIsolation(service.manifest.isolation), serviceId);
+  } catch (error) {
+    throw new LifecycleStateError(
+      error instanceof Error
+        ? error.message
+        : `Cannot restart service "${serviceId}" because isolation.require cannot be satisfied.`,
     );
   }
   const executionPlan = resolveExecutionPlanForLifecycle(

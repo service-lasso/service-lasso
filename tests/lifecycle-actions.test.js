@@ -21,7 +21,8 @@ import {
   waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { resolveServiceVariable } from "../dist/runtime/operator/variables.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
@@ -47,6 +48,14 @@ async function postJson(url, body) {
           body: JSON.stringify(body),
         }),
   });
+  if (response.status >= 400 && /\/(start|restart)$/.test(new URL(url).pathname)) {
+    try {
+      const serviceId = decodeURIComponent(new URL(url).pathname.split("/").at(-2));
+      console.error(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState(serviceId) }));
+    } catch {
+      console.error('{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}');
+    }
+  }
   return {
     status: response.status,
     body: await response.json(),
@@ -285,13 +294,18 @@ test("install and config materialize bounded on-disk artifacts and persist them 
       "runtime/materialized-service.templated.env",
     ]);
     assert.equal(typeof config.body.state.configArtifacts.updatedAt, "string");
+    // A preferred port may be occupied by another concurrent test/runtime.
+    // Materialization must use the negotiated runtime port, not blindly retain
+    // the manifest preference.
+    const assignedServicePort = config.body.state.runtime.ports.service;
+    assert.equal(typeof assignedServicePort, "number");
     assert.equal(
       await readFile(configPath, "utf8"),
-      `SERVICE_PORT=41234\nSERVICE_ROOT=${serviceRoot}\n`,
+      `SERVICE_PORT=${assignedServicePort}\nSERVICE_ROOT=${serviceRoot}\n`,
     );
     assert.equal(
       await readFile(templatedConfigPath, "utf8"),
-      "TEMPLATE_SERVICE=materialized-service\nTEMPLATE_PORT=41234\n",
+      `TEMPLATE_SERVICE=materialized-service\nTEMPLATE_PORT=${assignedServicePort}\n`,
     );
     assert.deepEqual(stored.install.files, ["runtime/install.txt"]);
     assert.deepEqual(stored.config.files, [
@@ -564,6 +578,61 @@ test("restart replaces the running process and clears stale termination evidence
     assert.equal(stored.runtime.finishedAt, null);
     assert.equal(stored.runtime.lastTermination, null);
   } finally {
+    await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("restart fails closed when isolation.require cannot be met", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-restart-isolation-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(
+    servicesRoot,
+    "restart-isolation-service",
+  );
+  const apiServer = await startApiServer({ port: 0, servicesRoot });
+
+  try {
+    await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/install`,
+    );
+    await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/config`,
+    );
+    const start = await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/start`,
+    );
+    assert.equal(start.status, 200);
+
+    const manifestPath = path.join(serviceRoot, "service.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.isolation = { require: "limits" };
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf8",
+    );
+
+    const restart = await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/restart`,
+      { confirm: true },
+    );
+    const stored = await readStoredState(serviceRoot);
+
+    assert.equal(restart.status, 409);
+    assert.equal(restart.body.error, "invalid_lifecycle_state");
+    assert.match(restart.body.message, /isolation\.require="limits"/);
+    assert.equal(stored.runtime.running, true);
+    assert.equal(stored.runtime.pid, start.body.state.runtime.pid);
+    assert.equal(hasManagedProcess("restart-isolation-service"), true);
+  } finally {
+    await postJson(
+      `${apiServer.url}/api/services/restart-isolation-service/stop`,
+      { confirm: true },
+    );
     await apiServer.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
@@ -1043,6 +1112,34 @@ test("manual stop does not trigger automatic restart", async () => {
     assert.equal(stop.state.runtime.supervision.lastRestartResult, null);
   } finally {
     await stopManagedProcess("manual-stop-service", 100).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("install preserves a live managed process lifecycle state", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-install-live-process-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "install-live-process-service");
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    await installService(service);
+    await configService(service);
+    const started = await startService(service);
+    assert.equal(started.state.running, true);
+    assert.equal(hasManagedProcess("install-live-process-service"), true);
+
+    const reinstalled = await installService(service);
+    assert.equal(reinstalled.state.running, true);
+    assert.equal(reinstalled.state.runtime.pid, started.state.runtime.pid);
+    assert.equal(hasManagedProcess("install-live-process-service"), true);
+
+  } finally {
+    await stopManagedProcess("install-live-process-service", FIXTURE_CLEANUP_TIMEOUT_MS).catch(() => null);
+    await waitForManagedProcessFinalization("install-live-process-service").catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

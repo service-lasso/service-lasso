@@ -26,6 +26,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - one operator MCP on the core runtime for safe reads plus guarded lifecycle and maintenance actions through shared application facades (`SPEC-006`); never secret values, raw config/log payloads, local roots, generic shell, terminal/stdin, raw filesystem, or raw configuration tools
 
 ## Constraints
+- Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
 - Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.
@@ -46,6 +47,8 @@ This repo is therefore the place where the real core behavior must live and cont
   converts missing technical proof into a pass (`SPEC-007` `AC-7H`, `#1208`).
 
 ## Risks
+- Startup recovery sidecars must remain atomically replaceable under transient Windows sharing contention; bounded retries must preserve prior encrypted recovery bytes and reject changed or redirected paths (#1394, AC-4BJ.2a).
+- Linux shutdown must tolerate process disappearance during `/proc` enumeration without interpreting failed enumeration as proof of exit (#1392, SPEC-002 AC-4BH.1).
 - Staying in analysis/doc mode too long would create false progress without a running core.
 - Starting too broadly could mix manifest redesign, runtime implementation, provider integration, and release plumbing into one hard-to-verify change.
 - Service-specific setup-step jobs can still fail if runtime artifacts, platform commandlines, or provider dependencies are not validated in the owning service repo.
@@ -104,6 +107,14 @@ For the first runtime slice, expected proof should include:
 
 ## Newcomer delivery priority
 
+Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
+
+The real newcomer runner must also retain a bounded, read-only startup failure snapshot before owned cleanup when a request abort hides the server's eventual failure phase. Keep this diagnostic outside public bundles, preserve the original failure, and never retry mutations or extend their deadlines to collect it.
+
+Issue #1387 repairs the Linux PostgreSQL example's owned-artifact library resolution under SPEC-002 AC-4AJ.4c. The direct failed #1385 attempt remains invalidated; corrected source requires fresh full paired qualification, not a system-library workaround or a timeout increase.
+
 Readers should reach a working demo, add a released service, connect a small app, configure it, diagnose failure, and reproduce the app package through centralized task guides. Agent prompts use verified MCP operations where available and coding tools for source/package work, with explicit scope and outcome checks (SPEC-002 AC-4AJ.4).
+
+For the current newcomer-readiness effort (#1323/#1376), the user's September 2026 decision accepts a fresh owned folder as a new-machine equivalent and requires simultaneous independent folder instances. macOS direct evidence and independent newcomer review are deferred confidence follow-ups, not blockers to this readiness conclusion. Unexecuted scenarios remain Deferred, never Verified. This decision does not authorize release promotion, publication, or a fabricated independent approval; the separate promotion controls above remain unchanged.
 
 Documentation appearance follows the reader's system by default and offers a persistent explicit light/dark override (SPEC-002 AC-4AJ.5, #1272).

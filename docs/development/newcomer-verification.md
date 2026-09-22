@@ -40,6 +40,67 @@ The observations above remain historical. As reconciled on 15 September 2026:
 
 The earlier `9fad18649b8640d98aaa91b6a8153c6b5065b59f` Windows real-Broker failure is historical branch evidence. [Admin PR #620](https://github.com/service-lasso/lasso-serviceadmin/pull/620) subsequently merged as `abd681ed1c76f6e57b23d4baabf61e4a4e3f384d`; its repaired qualification evidence reached the all-passing source head `b2de81f0d6310b1f3c1387a78f81ec9e3d9c5973`. That is source qualification evidence, not a released rollout or completion of the remaining outcomes. The referenced Core #1273 is now closed; released rollout and remaining journey evidence are still unverified. [Core #1270](https://github.com/service-lasso/service-lasso/issues/1270) stays open until the linked outcomes are verified.
 
+## Portable browser-proof receipt
+
+For Service Lasso newcomer qualification, create a new owned evidence folder;
+that folder is the accepted new-machine equivalent. Run:
+
+```sh
+npm run verify:newcomer-proof -- --issue=<GitHub issue number>
+```
+
+The command allocates an owned port range, services root, workspace root,
+browser session, and receipt directory. The current implementation exercises
+first-run acknowledgement and persistence, credential re-read denial, Echo
+cancel/stop/start/restart with authoritative process and refresh checks, and the
+existing ops route audit/redacted-capture toolset. These remain partial coverage,
+not the complete newcomer journey. The runner also packs/unpacks the PostgreSQL
+example, explicitly substitutes a locally staged current Core package, performs
+real write/read checks, and drives app dependency failure/recovery in Playwright.
+The package checksum and dependency substitution are recorded; this does not
+claim the example's pinned public dependency has changed. Concurrent-instance
+orchestration remains required before newcomer acceptance; the receipt lists
+outstanding scenarios explicitly. The command writes a ZIP under
+`newcomer-proof-artifacts/`. It retains the ZIP
+and stops only the owned runtime. Private runtime state is retained locally for
+diagnosis, outside the upload bundle. Cleanup is Verified only when both the
+lifecycle stop succeeds and durable process ownership has settled.
+
+Raw Playwright reports are retained outside the ZIP in `private-playwright`;
+they may contain first-run credentials. Never upload that directory or
+`private-playwright-command.json`, any `private-*.json` diagnostics, or the
+runtime folder. The browser receipt records the actual installed Playwright and
+Chromium versions and UTC execution times. The run receipt records OS type,
+release/version, system architecture, Node version and Node architecture without
+collecting hostname, username or environment variables. Review the ZIP's approved screenshots before
+uploading. A passing implemented subset remains `Blocked` while required
+scenario coverage is outstanding.
+
+Receipts identify installed Admin, Broker, Echo and app PostgreSQL release assets
+and recompute SHA-256 from their retained archives. A release-checksum match is
+reported separately from a locally computed digest: missing upstream checksum
+metadata is not reported as verified release integrity. Private archive paths,
+download URLs, commands and raw installation state are excluded.
+
+To qualify concurrent isolation, use the coordinated command:
+
+```sh
+npm run verify:newcomer-pair -- --issue=1328 --proof-root=./newcomer-proof-artifacts/new-windows-pair
+```
+
+It creates two independent child folders and runs both full browser suites.
+After both finish, it records simultaneous live processes/HTTP health, stops A,
+checks B still has the same process identities and healthy HTTP responses,
+then stops B. Single-run receipts keep their concurrent-proof limitation;
+the paired receipt separately records whether the joint requirement passed.
+Inspect both nested child ZIPs and the pair receipt, then attach the paired ZIP
+to the platform issue. The issue comment
+must state only the exact candidate identity, OS and Node versions, command,
+UTC start/end, proof IDs, ZIP names/checksums, scenario classifications, and
+owned-cleanup result. Do not attach credentials, tokens, passwords, raw
+configuration, private paths, or unredacted logs. A failed receipt is
+`Invalidated` or `Blocked`; it is never substituted with CI or edited evidence.
+
 ## Visible product capture
 
 ![Echo detail with Running and Healthy state](../static/img/newcomer/echo-detail.png)

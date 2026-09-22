@@ -62,6 +62,8 @@ import {
   prepareWorktreeProof,
   patchWorktreeDemoManifest,
   resolveWorktreeProofOptions,
+  seedAcknowledgedWorktreeProofLocalOperator,
+  waitForWorktreeOwnedShutdown,
 } from "../scripts/demo-worktree-proof.mjs";
 
 async function listenOnLoopback() {
@@ -393,6 +395,28 @@ test("worktree proof records allocated URLs for gate, verifier, and cleanup hand
   assert.match(commands.cleanup, /demo-worktree-proof\.mjs --cleanup/);
 });
 
+test("worktree cleanup waits for the owned runtime to finish persistence before removal", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1356-worktree-cleanup-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const registryPath = path.join(workspaceRoot, ".service-lasso", "processes.json");
+  await mkdir(path.dirname(registryPath), { recursive: true });
+  try {
+    await writeFile(registryPath, JSON.stringify({
+      entries: [{ lifecycleState: "running", pid: 1234 }],
+    }));
+    const settle = setTimeout(() => {
+      void writeFile(registryPath, JSON.stringify({
+        entries: [{ lifecycleState: "stopped", pid: null }],
+      }));
+    }, 25);
+    const result = await waitForWorktreeOwnedShutdown(workspaceRoot, { timeoutMs: 1_000 });
+    clearTimeout(settle);
+    assert.deepEqual(result, { settled: true, entries: 1 });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("canonical lifecycle forwards explicit ports from selected runtime URLs to its verifier", () => {
   const dynamic = buildCanonicalLifecycleVerifierOptions({
     port: 18100,
@@ -464,6 +488,7 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
     npm_config_service_admin_port: "18124",
     npm_config_json: "true",
     npm_config_source_admin_root: "C:/tmp/service-lasso/admin",
+    npm_config_seed_acknowledged_local_operator: "true",
   });
 
   assert.equal(options.worktreeId, "issue-947");
@@ -474,6 +499,19 @@ test("worktree proof accepts npm-forwarded proof option configs", () => {
   assert.equal(options.serviceAdminPort, 18124);
   assert.equal(options.json, true);
   assert.equal(options.sourceAdminRoot, path.resolve("C:/tmp/service-lasso/admin"));
+  assert.equal(options.seedAcknowledgedLocalOperator, true);
+});
+
+test("acknowledged local-operator fixture rejects roots outside the isolated proof namespace", async () => {
+  const options = {
+    ...resolveWorktreeProofOptions(["--id=issue-1338"], {}),
+    proofRoot: path.join(os.tmpdir(), "service-lasso-proof"),
+    workspaceRoot: path.join(os.tmpdir(), "service-lasso-proof", "workspace"),
+  };
+  await assert.rejects(
+    () => seedAcknowledgedWorktreeProofLocalOperator(options),
+    /require the default isolated worktree-proof workspace/,
+  );
 });
 
 test("worktree proof patches copied Service Admin manifests to allocated URLs", () => {
@@ -1765,6 +1803,30 @@ test("demo recycle coordinates with the legacy scheduled watchdog lock", async (
     await releaseLegacySchedulerLock(lockPath);
     const reacquired = await acquireLegacySchedulerLock(lockPath, { ttlMs: 60_000 });
     assert.equal(reacquired.acquired, true);
+    await releaseLegacySchedulerLock(lockPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("demo recycle reclaims a fresh legacy lock when its recorded owner is dead", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "service-lasso-dead-legacy-watchdog-"));
+  const lockPath = path.join(tempDir, "watchdog.lock");
+  try {
+    await writeFile(lockPath, `${JSON.stringify({
+      owner: "service-lasso-demo-recycle",
+      pid: 4242,
+      startedAt: new Date().toISOString(),
+      ttlMs: 60_000,
+    })}\n`);
+    const acquired = await acquireLegacySchedulerLock(lockPath, {
+      ttlMs: 60_000,
+      isProcessAlive: async (pid) => {
+        assert.equal(pid, 4242);
+        return false;
+      },
+    });
+    assert.equal(acquired.acquired, true);
     await releaseLegacySchedulerLock(lockPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
