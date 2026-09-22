@@ -1,8 +1,10 @@
 # Release 1 independent security review packet
 
-Status: AC-7H **review pending** for Core/npm `2026.9.22-f3de461`. The prior
-AC-7H **approve with accepted residuals** covered Core/npm `2026.9.11-462f837`
-only ([#1151 comment](https://github.com/service-lasso/service-lasso/issues/1151#issuecomment-5645610452),
+Status: AC-7H **approve with accepted residuals** for Core/npm
+`2026.9.22-f3de461` ([#1402 decision record](https://github.com/service-lasso/service-lasso/issues/1402#issuecomment-5781828161),
+2026-09-23), subject to the recorded single-operator control limitation. The
+prior AC-7H **approve with accepted residuals** covered Core/npm
+`2026.9.11-462f837` only ([#1151 comment](https://github.com/service-lasso/service-lasso/issues/1151#issuecomment-5645610452),
 2026-09-12) and does not cover these later bytes.
 Review request: [service-lasso/service-lasso#1402](https://github.com/service-lasso/service-lasso/issues/1402)
 Prior packet issue: [service-lasso/service-lasso#1208](https://github.com/service-lasso/service-lasso/issues/1208)
@@ -63,9 +65,11 @@ rerun (the exists-guard skipped republishing) and attempt 2 passed with
 `{"ok":true,"classification":"verified"}`. The attempt-1 failure is retained as
 a reliability residual and is not converted into a pass.
 
-This candidate is not yet reviewed. A named reviewer independent of
-implementation and delivery must record approve, not approved, or blocked with
-residual findings before any GA claim.
+AC-7H **approve with accepted residuals** was recorded for this candidate on
+2026-09-23 in the [#1402 decision record](https://github.com/service-lasso/service-lasso/issues/1402#issuecomment-5781828161),
+including the single-operator control limitation and the retained residuals.
+No GA claim may assert enforced independent branch approval or review on
+Core/Admin `develop`; independence is session role only.
 
 ## Product and security boundaries
 
@@ -326,8 +330,15 @@ Operator publication of `2026.9.13-1bffd1b` / `1bffd1bca177de213e3a0bd3efb54125d
 is a post-review delta (`#1241` isolation fail-closed plus later docs/Dependabot).
 It does not reuse the AN signature.
 
-The pending review for Core/npm `2026.9.22-f3de461` is requested in
-[#1402](https://github.com/service-lasso/service-lasso/issues/1402). No decision
-is recorded for those bytes yet; they must not be labelled GA until a named
-independent reviewer signs them or the operator explicitly records a different
-decision.
+AC-7H **approve with accepted residuals** for Core/npm `2026.9.22-f3de461` was
+recorded on 2026-09-23 against packet revision
+`a144abf024e44831685663e832a6f4b777b5c61f` in the
+[#1402 decision record](https://github.com/service-lasso/service-lasso/issues/1402#issuecomment-5781828161).
+Accepted residuals: single-operator control limitation (no enforced required
+approvals/CODEOWNERS/last-push/required checks on Core/Admin `develop`); Admin
+development-scope critical code-scanning alert not on the pinned release;
+publish attempt-1 reliability residual; isolation L2–L4 not implemented with
+`require` other than none failing closed; `#1326` and `#1382` open; `#1330`
+macOS proof deferred; `gh` operator/delivery-owner independence limitation; and
+historical failed runs retained as failures. No technical gap was reclassified
+as green by waiver.
