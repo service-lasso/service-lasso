@@ -54,7 +54,14 @@ Unbundled archive SHA-256: win32
 `10287449ee990d1b66856a5e37138cc4434ef080033b085558bf265247d07e3d`;
 linux/darwin `5352efc24b2b71170c0c11b48203357f5301172500187e2f2090d989348d6f49`.
 The Publish Package run's production and tooling audit steps passed, and the npm
-publication reports a signed provenance statement.
+publication reports a signed provenance statement. Attempt 1 of the Publish
+Package run failed at its `Verify published package from npm` step because the
+new version was not yet visible through the registry propagation window; the
+publish step itself had already reported
+`+ @service-lasso/service-lasso@2026.9.22-f3de461`. Only the failed job was
+rerun (the exists-guard skipped republishing) and attempt 2 passed with
+`{"ok":true,"classification":"verified"}`. The attempt-1 failure is retained as
+a reliability residual and is not converted into a pass.
 
 This candidate is not yet reviewed. A named reviewer independent of
 implementation and delivery must record approve, not approved, or blocked with
@@ -141,9 +148,12 @@ rollback or tombstone recovery.
 
 ## Dependency, SBOM, and supply-chain state
 
-- Core exact release graph at `462f837`: `npm audit --omit=dev --audit-level=low`
-  reports zero vulnerabilities across 143 production dependencies; full
-  `npm audit --audit-level=high` is also zero.
+- Core candidate `f3de461`: the Publish Package run's production
+  (`npm audit --omit=dev --audit-level=low`) and tooling
+  (`npm audit --audit-level=high`) steps passed with zero vulnerabilities, and an
+  independent production audit of the candidate lockfile reported zero
+  vulnerabilities. The prior `462f837` graph reported zero across 143 production
+  dependencies; that count is historical.
 - Admin exact release graph: `pnpm audit --prod` reports zero advisories across
   292 production dependencies.
 - Broker exact release source and native shipped executables pass
@@ -159,23 +169,35 @@ rollback or tombstone recovery.
 
 ## Repository and publication control readback
 
-Live API readback on 2026-09-02 reports an active Release 1 branch ruleset in
-each repository. Core `develop`, Admin `develop`, and Broker `main` all require a
-pull request, one approval, stale-review dismissal, CODEOWNERS review,
-last-push approval, strict terminal-green checks, conversation resolution, and
-linear history; administrator enforcement is enabled and force-push/deletion
-are disabled. Core ruleset `21891323`, Admin ruleset `21891335`, and Broker
-ruleset `21891331` are active.
+Live API readback on 2026-09-23 reports active Release 1 branch rulesets in
+all three repositories. Broker `main` (ruleset `21891331`) requires a pull
+request, one approval, stale-review dismissal, CODEOWNERS review, last-push
+approval, strict terminal-green checks, conversation resolution, and linear
+history. Core `develop` (ruleset `21891323`, updated 2026-09-15) and Admin
+`develop` (ruleset `21891335`, updated 2026-09-15) are active with linear
+history, deletion and non-fast-forward protection, and administrator
+enforcement, but currently set `required_approving_review_count` 0,
+`require_code_owner_review` false, `require_last_push_approval` false, and no
+required status checks; classic `develop` protection also reports no required
+status checks. The delivery owner is the only configured reviewer and
+CODEOWNERS owner and cannot self-approve, so approval and last-push controls are
+not currently enforced on Core/Admin `develop`. This is recorded as a
+control-limitation residual for the reviewer and the operator, not as a
+satisfied control.
 
 Each repository has a read-back `CODEOWNERS` file, `SECURITY.md`, selected-action
 GitHub Actions policy with immutable-SHA pinning required, private vulnerability
 reporting, secret scanning, push protection, Dependabot security updates, and a
-protected `release` environment requiring reviewer `wildone`. Open Dependabot,
-code-scanning, and secret-scanning alert counts are zero in all three
-repositories. Requests to enable secret-scanning validity checks were accepted
-by the repository API, but subsequent readback remained `disabled`; the packet
-therefore records that control as unavailable on the current repository/org
-entitlement and does not claim it is enabled.
+protected `release` environment requiring reviewer `wildone`. Open alert counts
+on 2026-09-23: Core Dependabot/code-scanning/secret-scanning 0/0/0; Broker
+0/0/0; Admin Dependabot 0 and secret-scanning 0, with one open **critical**
+code-scanning alert (`js/request-forgery`, `runtime/server.js`) on Admin
+`develop` head `01d4438`, not on the pinned release `f015b44`; it is retained as
+a sibling-repo development-scope hygiene residual and is not a Core
+production-graph finding. Requests to enable secret-scanning validity checks
+were accepted by the repository API, but subsequent readback remained
+`disabled`; the packet therefore records that control as unavailable on the
+current repository/org entitlement and does not claim it is enabled.
 
 The rejected packet PR
 [#1210](https://github.com/service-lasso/service-lasso/pull/1210) merged at
