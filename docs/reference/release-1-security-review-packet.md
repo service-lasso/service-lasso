@@ -161,8 +161,11 @@ rollback or tombstone recovery.
   vulnerabilities. One module-only advisory, `GO-2026-5932`, is in the
   unimported `golang.org/x/crypto/openpgp` package; the shipped code does not call
   it and PGP bootstrap is excluded. Helper binaries report no vulnerabilities.
-- GitHub readback reports zero open Dependabot, code-scanning, and secret-scanning
-  alerts in all three repositories at packet preparation time.
+- GitHub readback on 2026-09-23 reports zero open Dependabot, code-scanning, and
+  secret-scanning alerts for Core and Broker. Admin reports zero Dependabot and
+  secret-scanning alerts with one open **critical** code-scanning alert on its
+  development head, retained as the sibling-repo hygiene residual described in
+  the control readback above.
 - Every platform archive includes or is paired with a CycloneDX SBOM, checksum
   manifest, provenance/attestation, and exact asset inventory. Public download
   bytes and retained workflow bytes were digest compared.
@@ -170,10 +173,11 @@ rollback or tombstone recovery.
 ## Repository and publication control readback
 
 Live API readback on 2026-09-23 reports active Release 1 branch rulesets in
-all three repositories. Broker `main` (ruleset `21891331`) requires a pull
-request, one approval, stale-review dismissal, CODEOWNERS review, last-push
-approval, strict terminal-green checks, conversation resolution, and linear
-history. Core `develop` (ruleset `21891323`, updated 2026-09-15) and Admin
+all three repositories. Broker `main` is protected by its classic branch
+protection together with active ruleset `21891331`; the effective controls
+require a pull request, one approval, stale-review dismissal, CODEOWNERS review,
+last-push approval, strict terminal-green checks, conversation resolution, and
+linear history. Core `develop` (ruleset `21891323`, updated 2026-09-15) and Admin
 `develop` (ruleset `21891335`, updated 2026-09-15) are active with linear
 history, deletion and non-fast-forward protection, and administrator
 enforcement, but currently set `required_approving_review_count` 0,
