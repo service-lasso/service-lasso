@@ -36,4 +36,4 @@ This example still installs the Core version pinned in its shrinkwrap. Testing
 a different candidate requires an explicitly recorded dependency substitution;
 do not describe the pinned package as current source qualification.
 
-[Walkthrough](https://github.com/service-lasso/service-lasso/blob/develop/docs/first-useful-service.md) · [Configure and recover](https://github.com/service-lasso/service-lasso/blob/develop/docs/operate-your-service.md) · [Package for another machine](https://github.com/service-lasso/service-lasso/blob/develop/docs/package-your-app.md)
+[Walkthrough](https://github.com/service-lasso/service-lasso/blob/develop/docs/getting-started/intermediate-make-todo-app-durable.md) · [Configure and recover](https://github.com/service-lasso/service-lasso/blob/develop/docs/operate-your-service.md) · [Package for another machine](https://github.com/service-lasso/service-lasso/blob/develop/docs/package-your-app.md)
