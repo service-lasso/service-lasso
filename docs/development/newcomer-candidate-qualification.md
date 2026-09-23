@@ -5,7 +5,7 @@ title: Newcomer candidate qualification
 # Newcomer candidate qualification
 
 This is an evidence matrix for Core issue #1323. It is not a release approval
-or a substitute for independent GA review.
+or a substitute for the release owner's exact-candidate GA decision. Independent review is optional unless explicitly mandated with a named reviewer; see [release authority](../../.governance/rules/gov-09-release-authority.mdc).
 
 ## Current matched candidate: d0f68e3
 

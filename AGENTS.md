@@ -17,12 +17,13 @@ Read before making governed changes or bootstrap claims:
 6. `.governance/rules/gov-06-issues.mdc`
 7. `.governance/rules/gov-07-tasks.mdc`
 8. `.governance/rules/gov-08-exploratory-review.mdc`
+9. `.governance/rules/gov-09-release-authority.mdc`
 
 ## Repo Defaults
 - Source of truth: `.governance/`
 - Provider-native mirror targets: none detected during latest bootstrap update
 - Operating modes: `Development` and `Exploration`
-- Release verification stays inside `Development`
+- Release verification stays inside `Development`; agents may report `Technically Ready for GA` for an exact qualified candidate. Only the release owner declares GA and explicitly authorizes promotion, publication, or deployment.
 - Default bootstrap commit policy: `allowed` unless a run artifact states otherwise
 
 ## Non-Negotiable Branch Boundary

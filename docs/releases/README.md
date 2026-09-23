@@ -23,7 +23,7 @@ The bundled artifact contains the built runtime, the checked-in baseline `servic
 Release versions use:
 
 ```text
-yyyy.m.d-<shortsha>
+yyyy.m.d-<7-character-lowercase-git-sha>
 ```
 
 Release details:
@@ -31,4 +31,4 @@ Release details:
 - [GitHub releases](https://github.com/service-lasso/service-lasso/releases)
 - [npm package](https://www.npmjs.com/package/@service-lasso/service-lasso)
 
-Publication is approval-gated. Availability of an archive is not a claim of release qualification; see the [release security review packet](../reference/release-1-security-review-packet.md) and [capability ledger](../reference/secrets-capability-ledger.md) for evidence and limitations.
+Publication requires explicit release-owner authorisation. See [canonical release authority](../../.governance/rules/gov-09-release-authority.mdc) and [release traceability](../../.governance/project/RELEASE_TRACEABILITY.md). Availability of an archive is not a claim of release qualification; see the [release security review packet](../reference/release-1-security-review-packet.md) and [capability ledger](../reference/secrets-capability-ledger.md) for evidence and limitations.

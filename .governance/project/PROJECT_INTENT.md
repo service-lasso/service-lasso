@@ -41,10 +41,7 @@ This repo is therefore the place where the real core behavior must live and cont
   production vulnerability, mutable Action reference, missing shipped-archive
   SBOM/provenance/signature, or failed published-package evidence (`SPEC-007`
   `AC-7G`).
-- Release 1 promotion is additionally fail-closed on independent security
-  review of the exact immutable Core, Admin, Broker, npm, and evidence packet.
-  Internal evidence assembly is not external approval, and a waiver never
-  converts missing technical proof into a pass (`SPEC-007` `AC-7H`, `#1208`).
+- Release authority and readiness follow `gov-09-release-authority.mdc` and `RELEASE_TRACEABILITY.md`. Agents report exact-candidate technical readiness; only the release owner accepts residual risk, declares GA, and authorizes promotion, publication, or deployment. Independent review is required only when the owner explicitly mandates it and names the reviewer (`SPEC-007` `AC-7H`, `#1409`). Missing or failed technical proof is never converted into a pass.
 
 ## Risks
 - Startup recovery sidecars must remain atomically replaceable under transient Windows sharing contention; bounded retries must preserve prior encrypted recovery bytes and reject changed or redirected paths (#1394, AC-4BJ.2a).
@@ -101,9 +98,7 @@ For the first runtime slice, expected proof should include:
 - documented residual gaps/blockers for anything not yet implemented
 - backlog/spec traceability updated to distinguish shipped runtime behavior from remaining planned behavior
 - working-release claims proven from the exact downloaded Core GitHub release and public npm package, with checksum-bound published Admin and Broker behavior on Windows, Ubuntu, and macOS plus exactly three retained metadata-only artifacts and direct artifact API readback; source builds are not publication proof
-- GA promotion claims require a named independent reviewer, exact packet
-  revision, dated decision, and disposition of every finding after all internal
-  release, vulnerability, provenance, runtime, recovery, and ledger gates pass
+- GA decisions require the release owner's dated exact-candidate record (tag, full SHA, package version, qualification evidence) and classification of every open investigation after required technical gates pass. Independent review is optional unless explicitly mandated with a named reviewer
 
 ## Newcomer delivery priority
 
