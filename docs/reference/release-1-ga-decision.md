@@ -43,6 +43,9 @@ operator authorized promotion.
   success.
 - Admin `2026.8.31-f015b44` and Broker `2026.8.31-f340883` remain the pinned
   release artifacts.
+- Promotion: `develop` `9b43f17` was promoted to `main` in PR #1406 (merged
+  `7582076d351cb03a12d89aec771566d5c1eaf5c4`); `main` and `develop` trees were
+  verified identical after promotion.
 
 Accepted residuals: single-operator control limitation (no enforced required
 approvals, CODEOWNERS, last-push approval, or required status checks on
