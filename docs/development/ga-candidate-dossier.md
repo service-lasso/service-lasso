@@ -4,7 +4,7 @@ title: GA candidate dossier
 
 # GA candidate dossier
 
-Prepared for Core #1321. This dossier is a decision input, not a GA approval. Apply [canonical release authority](../../.governance/rules/gov-09-release-authority.mdc) to any new candidate. Its historical reviewer-routing notes below record the former decision context and do not impose an independent-approval gate on a new candidate.
+Prepared for Core #1321. This dossier is a decision input, not a GA approval. Apply [canonical release authority](https://github.com/service-lasso/service-lasso/blob/develop/.governance/rules/gov-09-release-authority.mdc) to any new candidate. Its historical reviewer-routing notes below record the former decision context and do not impose an independent-approval gate on a new candidate.
 
 ## Current matched candidate: d0f68e3
 
