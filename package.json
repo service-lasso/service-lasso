@@ -72,7 +72,7 @@
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
-    "zod": "4.6.1"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@docusaurus/core": "3.10.2",
