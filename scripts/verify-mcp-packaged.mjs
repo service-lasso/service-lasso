@@ -172,6 +172,10 @@ if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
 }
 const version = process.env.SERVICE_LASSO_RELEASE_VERSION?.trim() || `0.1.0-mcp-${candidateSha.slice(0, 7)}`;
+const pinnedSdkVersion = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")).dependencies?.["@modelcontextprotocol/sdk"];
+if (typeof pinnedSdkVersion !== "string" || !/^\d+\.\d+\.\d+/.test(pinnedSdkVersion)) {
+  throw new Error("Packaged MCP acceptance requires an exact pinned MCP SDK version.");
+}
 const evidencePath = path.resolve(
   process.env.MCP_PRODUCT_EVIDENCE_PATH?.trim() || path.join(repoRoot, "artifacts", `mcp-product-${platform}.json`),
 );
@@ -212,6 +216,7 @@ try {
     "--save-exact",
     staged.packageArchivePath,
     "@modelcontextprotocol/inspector@2.4.0",
+    `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
   ], { cwd: consumerRoot, timeoutMs: 300_000 });
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
