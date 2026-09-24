@@ -122,22 +122,27 @@ provenance metadata, asset inventory readback, and independent repeatable build
 instructions. Publication is explicitly dispatched through an approval-gated
 release environment and never occurs from an ordinary integration push.
 
-### `AC-7H` — Independent Release 1 security review and promotion gate
+### `AC-7H` — Release 1 security evidence and owner decision gate
 
-Before Release 1 promotion, the exact immutable Core, Admin, and Broker
-identities must have a review-ready security packet covering the threat model,
-trust boundaries, cryptography and key lifecycle, IPC and identity enforcement,
+Before Release 1 GA, the exact immutable Core, Admin, and Broker identities
+must have a review-ready security packet covering the threat model, trust
+boundaries, cryptography and key lifecycle, IPC and identity enforcement,
 abuse cases, dependency/SBOM/provenance state, static/dynamic/fuzz evidence,
 three-platform released-artifact qualification, recovery and incident handling,
 explicit non-claims, and repeatable reproduction instructions.
 
-The delivery owner may assemble evidence and resolve internal findings but must
-not self-certify the independent review. A named independent reviewer records
-scope, date, decision, residual findings, and approval against the exact packet
-revision. Until that sign-off exists, the decision is `GA blocked: external
-security approval outstanding`; no branch promotion, GA tag, or completion
-claim is permitted. A waiver records accepted risk but never converts a missing
-or failed technical gate into green evidence.
+Agents independently assess the governed technical gates and may report
+`Technically Ready for GA` for the exact candidate. The project owner/release
+owner alone accepts residual risk, declares GA, and authorizes promotion,
+publication, or deployment. The decision names the release tag, full commit
+SHA, npm package version, qualification evidence and dispositions of open
+investigations. An independent reviewer is optional unless the release owner
+explicitly makes that review mandatory and names the reviewer for the exact
+candidate. Deferred independent review is a follow-up, never a GA blocker.
+Neither owner risk acceptance nor reviewer evidence converts a missing or
+failed technical gate into green evidence. The decision model and linked
+procedures are canonical in `.governance/rules/gov-09-release-authority.mdc`
+and `.governance/project/RELEASE_TRACEABILITY.md`.
 
 ## Tests and Evidence
 

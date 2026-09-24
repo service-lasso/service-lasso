@@ -1,0 +1,33 @@
+---
+description: Service Lasso release authority and exact-candidate readiness
+globs:
+alwaysApply: true
+---
+# Governance: Release Authority and Readiness
+
+## Canonical boundary
+`.governance/` is the source of truth for release governance. Concrete release procedures, version naming, required assets, qualification gates, and GA criteria must live here or be explicitly linked from here. This rule governs the decision model; the linked documents and workflows define executable checks. A changed release criterion requires an update here or to the linked governed specification.
+
+- Scope and GA gates: [SPEC-007 AC-7F through AC-7H](../specs/SPEC-007-secrets-capability-ledger.md).
+- Project decision and traceability: [PROJECT_INTENT](../project/PROJECT_INTENT.md) and [release traceability](../project/RELEASE_TRACEABILITY.md).
+- Version and assets: [release version implementation](../../scripts/release-version-lib.mjs), [asset policy](../../docs/release-asset-policy.md), [artifact workflow](../../.github/workflows/release-artifact.yml), [npm publication workflow](../../.github/workflows/publish-package.yml).
+- Technical and published-package qualification: [Release Qualification](../../.github/workflows/release-qualification.yml), [Published Package Three-OS Qualification](../../.github/workflows/published-package-qualification.yml), [GA decision record](../../docs/reference/release-1-ga-decision.md), [security packet](../../docs/reference/release-1-security-review-packet.md).
+
+## Authority and distinct decisions
+- The project owner/release owner alone accepts residual risk, declares GA, and authorizes promotion or deployment. Publication also requires the owner's explicit instruction and the protected release environment. An agent must not invent an unnamed or unavailable independent approver.
+- Agents independently verify and report technical readiness against the exact candidate and may state `Technically Ready for GA` when all governed technical criteria are met. That finding is evidence for the owner, not an agent GA declaration or authorization to publish, promote, or deploy.
+- The owner may declare GA only with an exact-candidate decision record and explicit disposition of open investigations. The owner may instruct promotion, publication, or deployment separately; a GA declaration alone does not instruct any of them.
+- An independent reviewer is optional unless the release owner explicitly makes independent review mandatory and names the reviewer for the exact candidate. Only such a recorded mandate creates a review gate. A deferred independent review never blocks technical readiness or GA. Reviewer evidence does not replace the owner's decision.
+- Technical failures remain blockers; risk acceptance must never relabel a missing or failed required technical gate as a pass. An owner may change a governed criterion explicitly, with traceability, before reassessment.
+
+## Immutable candidate and qualification
+Every GA decision must identify the exact immutable candidate: GitHub release tag, full 40-character commit SHA, published package version, and qualification evidence with run IDs, outcomes, and artifact/checksum references. Verify that the tag targets that SHA, the package registry `gitHead` matches it, and evidence applies to that candidate; historical green runs cannot qualify changed bytes.
+
+The Service Lasso release version convention is `yyyy.m.d-<7-character-lowercase-git-sha>`. The seven characters are the prefix of the full candidate SHA. The GitHub tag, release name, npm package version, and version portion of every artifact filename must be identical.
+
+Required release evidence includes terminal Release Qualification on the exact candidate, immutable GitHub release assets with SHA-256 checksums and inventory readback, publication identity verification (release tag/target, npm version, `gitHead`, integrity/provenance), and successful qualification of the **published package** on Windows, Linux, and macOS. Apply the additional product and supply-chain gates of SPEC-007 AC-7F/AC-7G. A source build or prepublication run cannot substitute for published-package proof.
+
+Classify each open investigation as `blocking defect`, `accepted residual risk`, `deferred follow-up`, or `not applicable`, with reason, owner decision where risk is accepted, and issue/evidence link. Do not withhold a GA conclusion for an unclassified or vague investigation; investigate enough to classify it, then report the technical conclusion honestly.
+
+## Handover and automation
+Handover prompts, automations, issue templates, and agent instructions must preserve the distinction between technical readiness, owner GA declaration, promotion, publication, and deployment. Blanket bans on GA conclusions are prohibited; agents may report `Technically Ready for GA` but cannot declare GA on the owner's behalf. Pass the exact candidate identity, evidence, investigation dispositions, and pending owner decisions in every release handover.
