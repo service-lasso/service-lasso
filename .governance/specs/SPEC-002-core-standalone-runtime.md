@@ -514,3 +514,6 @@ For #1326 HTTP service-start fixtures, a non-success response must emit the exis
 ### AC-4AJ.3 Harness current-source reconciliation (#1418)
 
 At harness a8e6d7aede951e76d280f7592a2ab43f9644b1c3, document direct archive extraction and synchronous manifest execution accurately. Distinguish contract-accepted alternative health types, unenforced health timeout, dependency/evidence gaps and intended real Core lifecycle from delivered behavior. Reader steps must select an owned disposable workspace and retain failed local results before cleanup. Documentation tests/builds are not platform runtime acceptance.
+### Windows native inspection access rights (#1326; AC-4BH, AC-4BS.2)
+
+The native inspector must request only access rights needed by its evidence queries. It must retain complete PID, creation time, image, command line and parent evidence for root and descendants, and preserve all existing rejection/deadline behavior. Do not skip access-denied descendants or substitute partial identity. Removing unused VM_READ is not independent proof of the historical root cause; verify the rebuilt canonical inspector and complete current-head gates.
