@@ -1755,6 +1755,76 @@
       "destination": "docs/security/README.md",
       "action": "Centralize selecting/configuring optional Vault/OpenBao sources and operator reconnection. Link component KV v2 CAS/write-readback and operation-manifest contracts; preserve HTTPS/pinned CA, explicit migration opt-in and live-cluster certification gap. Do not claim login/renewal/discovery or general writeback support.",
       "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/advanced-capabilities-roadmap.md",
+      "blob": "95f6a11648c6c07dce84faa03eac2123e892df1b",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain advanced-capability planning and approval boundaries with Broker ownership. Reconcile its Service Lasso MCP and rotation timing claims against later implementation/operation manifests; this roadmap alone proves no HSM/FIPS/MFA, full MCP transport or remote mutation support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/enterprise-security-readiness.md",
+      "blob": "86ca3c340e23eedb4cff35040368f35eb6a02bb6",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain HSM/FIPS/MFA compliance and threat-model planning locally. Reconcile its dry-run-only local rotation claim against later validated local rotation operations; do not convert local rotation into enterprise or provider parity evidence.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/operation-capability-manifest.md",
+      "blob": "2837af4fe2a7a815bdb155258e05c76545451ce8",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain canonical connection-scoped operation maturity, security, sync/status and conformance authority locally. Central guidance must link this contract and require exact executable/validated connection operations rather than legacy family strings or planning metadata.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/operational-controls-baseline.md",
+      "blob": "9086429d01ef94bd5ba67f82aec261940db7ef23",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain policy, audit, telemetry, event and narrow lockout contracts locally. Link central operator workflows to the relevant sections; reconcile initial/deferred rows with later implemented hash-chain, histogram, export and lockout slices without treating planning or tests as installed acceptance.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/local-store-resolve.md",
+      "blob": "21fb579b789b1e5cbc099060bef34a5e6def00a9",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain encrypted store/batched resolve and per-ref outcome contract locally. Reconcile MVP out-of-scope wrapper, policy, adapters and integration claims with later contracts; signed-lease examples must preserve current production authenticated-IPC requirements.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/api-contract.md",
+      "blob": "f77812ad014467bd609c1d53e77ef66ec8dcfbb5",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain DTO-derived OpenAPI/fixture generation, major-version compatibility and drift-conformance ownership locally. Core/Admin integration guides link pinned canonical artifacts; do not introduce independent hand-maintained client model authority.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/master-key-lifecycle.md",
+      "blob": "586681be0797b2568b0fbb02968f8c8002f785ec",
+      "disposition": "migration-candidate",
+      "destination": "docs/reference/vault-key-bootstrap.md",
+      "action": "Centralize operator initialize/unlock/import/rewrap/recovery steps and expected states. Retain exact wrapper protection, root identity, generated-key one-time reveal and fail-closed audit contracts locally; no key bytes or platform acceptance claims enter public guide evidence.",
+      "reviewedAt": "2026-09-27"
     }
   ],
   "blocked": {
@@ -2368,8 +2438,8 @@
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
     "contentReviewComplete": false,
-    "reviewedPaths": 144,
-    "pendingPaths": 25
+    "reviewedPaths": 151,
+    "pendingPaths": 18
   },
   "pendingReview": [
     {
@@ -2396,29 +2466,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/advanced-capabilities-roadmap.md",
-      "blob": "95f6a11648c6c07dce84faa03eac2123e892df1b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/api-contract.md",
-      "blob": "f77812ad014467bd609c1d53e77ef66ec8dcfbb5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/backup-restore-rotation.md",
       "blob": "5cffe3dbf8c55bcd4bada0f8e0148d607e67a76a",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/enterprise-security-readiness.md",
-      "blob": "86ca3c340e23eedb4cff35040368f35eb6a02bb6",
       "status": "content-review-pending"
     },
     {
@@ -2445,36 +2494,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/local-store-resolve.md",
-      "blob": "21fb579b789b1e5cbc099060bef34a5e6def00a9",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/master-key-lifecycle.md",
-      "blob": "586681be0797b2568b0fbb02968f8c8002f785ec",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
       "blob": "1439d4f600d4dc5cbeaac2a72600e95d39150d2b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/operation-capability-manifest.md",
-      "blob": "2837af4fe2a7a815bdb155258e05c76545451ce8",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/operational-controls-baseline.md",
-      "blob": "9086429d01ef94bd5ba67f82aec261940db7ef23",
       "status": "content-review-pending"
     },
     {
