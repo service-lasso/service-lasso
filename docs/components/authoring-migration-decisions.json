@@ -18,8 +18,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-node",
@@ -33,8 +33,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-web",
@@ -48,8 +48,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-web",
@@ -63,8 +63,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-electron",
@@ -78,8 +78,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-electron",
@@ -93,8 +93,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-tauri",
@@ -108,8 +108,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-tauri",
@@ -123,8 +123,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-packager-nexe",
@@ -138,8 +138,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-packager-nexe",
@@ -153,8 +153,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-packager-pkg",
@@ -168,8 +168,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-packager-pkg",
@@ -183,8 +183,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-packager-sea",
@@ -198,8 +198,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-app-packager-sea",
@@ -213,8 +213,8 @@
         "docs/service-authoring/04-wire-consumers.md"
       ],
       "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-harness",
@@ -226,8 +226,8 @@
         "docs/service-authoring/harness-starter.md"
       ],
       "boundary": "Contract/package/result stub only; real lifecycle execution remains unimplemented in this reviewed source.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "service-lasso-harness",
@@ -239,8 +239,8 @@
         "docs/service-authoring/harness-starter.md"
       ],
       "boundary": "Contract/package/result stub only; real lifecycle execution remains unimplemented in this reviewed source.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "lasso-tini",
@@ -254,8 +254,8 @@
         "docs/components/service-template/runtime-extension-points.md"
       ],
       "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "lasso-tini",
@@ -269,8 +269,8 @@
         "docs/components/service-template/runtime-extension-points.md"
       ],
       "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "lasso-tini",
@@ -284,8 +284,8 @@
         "docs/components/service-template/runtime-extension-points.md"
       ],
       "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     },
     {
       "repository": "lasso-tini",
@@ -299,8 +299,108 @@
         "docs/components/service-template/runtime-extension-points.md"
       ],
       "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1418"
+      "coreDelivery": "merged-pr-1424",
+      "companionDelivery": "merged-with-source-owned-boundaries"
     }
-  ]
+  ],
+  "completion": {
+    "coreGuidePullRequest": "https://github.com/service-lasso/service-lasso/pull/1424",
+    "coreGuideTestedHead": "fb2d40d4c45baba70abc63247876a038316203ba",
+    "coreGuideMerge": "5bab717e5a476c78989b906cde6d9ffbdc769be1",
+    "harnessCorrectionPullRequest": "https://github.com/service-lasso/service-lasso/pull/1429",
+    "harnessCorrectionTestedHead": "c2bbe61a4828bade08c6917d77bb31f03a99b635",
+    "harnessCorrectionMerge": "512f6429756a0d85b53abf0bf7fa4516e2375fbb",
+    "companionPathCount": 20,
+    "remainingCompanionReaderPaths": 0,
+    "tiniRuntimeSpecGap": "https://github.com/service-lasso/lasso-tini/issues/2",
+    "parentRemainingGroups": [
+      "https://github.com/service-lasso/service-lasso/issues/1419",
+      "https://github.com/service-lasso/service-lasso/issues/1420"
+    ],
+    "publicationClaimed": false,
+    "platformNewcomerAcceptanceClaimed": false,
+    "companions": [
+      {
+        "repository": "service-lasso-app-node",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-node/pull/13",
+        "testedHead": "c6e9c8b185e5b580dba528993136e2bc43f80315",
+        "developMerge": "9835a67d27938526750f6816ec8f4cdfca610aca",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-app-web",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-web/pull/24",
+        "testedHead": "7b2089f5ef435f37dcd93ace61cf06943736153a",
+        "developMerge": "8b4376b079c068172aa0b455c6a7ad059d64847f",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-app-electron",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-electron/pull/13",
+        "testedHead": "645039cdbba96a8f27ad0e8a1fa1319f94a099a6",
+        "developMerge": "9685154fc72c2443255020286cb9e6dc732a1268",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-app-tauri",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-tauri/pull/23",
+        "testedHead": "6fd83dcf15718cf842b1f5ecf0171bcfe4fcc231",
+        "developMerge": "ea66d527e26cf1599c0aea96ae61447aefc6de5c",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-app-packager-nexe",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-packager-nexe/pull/5",
+        "testedHead": "9fffe595992a52d736cbfeba79dbfdc3c64ac179",
+        "developMerge": "a193152eb03c79c3da68d48f8e68591ffb4ca192",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-app-packager-pkg",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-packager-pkg/pull/15",
+        "testedHead": "4e473289d0436d2735feb0d35dd99a7c01778c38",
+        "developMerge": "f5efa717e945e61c88a3f312535411bd1c5672fa",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-app-packager-sea",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-app-packager-sea/pull/5",
+        "testedHead": "56fb18e2647958d9011c5a0c588186fa1f97f5d4",
+        "developMerge": "58ee542b001f4bc1c15349121d3639ac1a11b5aa",
+        "hostedCheckCount": 1,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "service-lasso-harness",
+        "pullRequest": "https://github.com/service-lasso/service-lasso-harness/pull/4",
+        "testedHead": "2a3d0ecb55f78cce5d4ba107321c809ead539aaa",
+        "developMerge": "3ec30b076953ebd32a0977f1d62624a1319c88c3",
+        "hostedCheckCount": 0,
+        "hostedChecks": "not-configured; local Go tests/build and closure receipt only",
+        "runtimeAcceptanceClaimed": false
+      },
+      {
+        "repository": "lasso-tini",
+        "pullRequest": "https://github.com/service-lasso/lasso-tini/pull/3",
+        "testedHead": "e89a6319344910055ccfcaa9d971612ffec37203",
+        "developMerge": "7b5dfda4aef66ddeefaf3bef710785348988934f",
+        "hostedCheckCount": 3,
+        "hostedChecks": "all successful or expected skipped at tested head",
+        "runtimeAcceptanceClaimed": false
+      }
+    ]
+  }
 }
