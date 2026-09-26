@@ -1920,6 +1920,56 @@
       "action": "Retain component manifest/policy contract locally while linking Core schema authority. Baseline differences migrate top-level healthchecks/endpoints and add desired secret policy; runtime identity, scoped grants and auth/audit still enforce access. Reconcile copied Echo sample before presenting Broker-specific authoring.",
       "reviewedAt": "2026-09-27",
       "contentReviewBasis": "Recorded reviewed baseline lasso-tini@01af1344378a091842e8dd8da222383573a98de2/docs/service-json-reference.md blob 0a8ef321823743880bb73ef00f300cdc8dbb343f, plus complete git diff --no-index against current blob 8c56f0486c5f2dd7bd0c5f24e401a5ff238dd5f5; all differences inspected."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/local-api-security.md",
+      "blob": "73cbbb0d392e5724c81b1d2b7d48fc2559075c8a",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain API authentication, body bounds, narrow lockout and clear-authority contract locally. Reconcile planned optional production grants and future lease-binding statements against current IPC/launch-lease contracts; neither broad admin/System access nor unbound production leases may be inferred.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/os-authenticated-ipc-transport.md",
+      "blob": "149b320898c9e07836a4afce1520b897947f55e9",
+      "disposition": "migration-candidate",
+      "destination": "docs/security/README.md",
+      "action": "Centralize operator production transport selection and explicit launcher/service-account enrollment prerequisites. Retain exact peer identity, production rejection, token/lease layering and cross-user verifier contracts locally. Missing alternate-principal credentials yield Blocked, not a pass; do not claim current verification from commands alone.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/threat-model.md",
+      "blob": "6ba820e6e39f3822c574166129a1a09fa528eed5",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Broker assets, trust boundaries, mitigations, residual privileged-host risk and explicit assurance non-claims locally. Central security overview links this exact contract; it is not independent penetration-test, enterprise parity or deployed runtime proof.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/local-api-bootstrap-contract.md",
+      "blob": "374654b6e0c8389b31bb7b57a4785d733007d428",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain historical bootstrap interface context locally but reconcile skeleton status, incomplete resolve request without identity lease, planned /v1/write-back spelling, capability examples and Windows ACL not-verified notes with canonical OpenAPI/operation/current security contracts. Central clients must not implement from obsolete examples.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/parity-contract.md",
+      "blob": "127e75820f395c9b56022d214c9d0424fc6e8548",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain implementation-neutral Node/Go conformance, HTTP/CLI/outcome/audit/backup and fixture rules locally. Consumers link canonical generated OpenAPI and pinned fixtures; this contract does not itself establish a Node implementation or successful cross-language/platform acceptance.",
+      "reviewedAt": "2026-09-27"
     }
   ],
   "blocked": {
@@ -2533,38 +2583,10 @@
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
     "contentReviewComplete": false,
-    "reviewedPaths": 160,
-    "pendingPaths": 9
+    "reviewedPaths": 165,
+    "pendingPaths": 4
   },
   "pendingReview": [
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/local-api-bootstrap-contract.md",
-      "blob": "374654b6e0c8389b31bb7b57a4785d733007d428",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/local-api-security.md",
-      "blob": "73cbbb0d392e5724c81b1d2b7d48fc2559075c8a",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/os-authenticated-ipc-transport.md",
-      "blob": "149b320898c9e07836a4afce1520b897947f55e9",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/parity-contract.md",
-      "blob": "127e75820f395c9b56022d214c9d0424fc6e8548",
-      "status": "content-review-pending"
-    },
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
@@ -2591,13 +2613,6 @@
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/secure-initialization-recovery.md",
       "blob": "479dd56379f24d0fb78697010ca3e5dd57466efe",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/threat-model.md",
-      "blob": "6ba820e6e39f3822c574166129a1a09fa528eed5",
       "status": "content-review-pending"
     }
   ]
