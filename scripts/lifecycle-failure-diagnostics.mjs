@@ -24,10 +24,24 @@ export function lifecycleFailureDiagnostic(input = {}) {
     const current = state?.runtime?.startTrace?.current;
     const failurePhases = [];
     let deadlineExceeded = false;
-    for (let depth = 0; depth < 4 && error; depth += 1, error = error.cause) {
-      const phase = allowed(launchPhases, error.failurePhase);
+    const pending = [{ error, depth: 0 }];
+    const seen = new Set();
+    for (let index = 0; index < pending.length && index < 16; index += 1) {
+      const entry = pending[index];
+      const currentError = entry.error;
+      if (!currentError || typeof currentError !== "object" || seen.has(currentError)) continue;
+      seen.add(currentError);
+      const phase = allowed(launchPhases, currentError.failurePhase);
       if (phase) failurePhases.push(phase);
-      deadlineExceeded ||= error.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      if (entry.depth < 3) {
+        const children = [currentError.cause];
+        if (Array.isArray(currentError.errors)) children.push(...currentError.errors.slice(0, 16));
+        for (const child of children) {
+          if (pending.length >= 16) break;
+          if (child && typeof child === "object") pending.push({ error: child, depth: entry.depth + 1 });
+        }
+      }
     }
     return JSON.stringify({
       kind: "lifecycle-failure",

@@ -457,6 +457,9 @@ User, operator, integration, and service-authoring guides are authored in servic
 
 ## Windows lifecycle diagnostic evidence (AC-4BH)
 
+Nested containment errors must retain allowlisted deadline and phase metadata from both cause chains and aggregate members. Traverse at most 16 error objects across four levels, deduplicate cyclic references, and retain the existing closed output fields. Truncation is bounded partial observation, not evidence that no deadline occurred (#1326).
+
+
 For #1326, failing lifecycle qualification must retain a closed metadata-only account of startup phases and typed launch failure phases. Unknown strings and raw messages, paths, commands, credentials, API payloads, process handles and runtime state must not be printed by the added diagnostics. Diagnostic failure must not replace the original test failure. Cover absent, malformed and sensitive fields with focused tests. Preserve production and fixture deadlines, original test assertions and fail-closed process ownership; a successful retry or richer diagnostic is not root-cause resolution.
 
 For actual newcomer failures, retain up to three read-only observations of the named startup service before owned cleanup, within a five-second total budget. Record only allowlisted phase/status metadata in a private diagnostic file outside the upload bundle. Diagnostic timeout, unavailable runtime, malformed response, or filesystem failure must not prevent owned cleanup or replace the original Invalidated result. Do not repeat a lifecycle mutation or change its deadline. Tests must prove bounded collection, secret exclusion, correct service targeting, and preservation of cleanup/failure behavior.
