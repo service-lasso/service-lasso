@@ -29,6 +29,7 @@ import {
   filterWindowsManagedLauncherProgressLineForTests,
   hasManagedProcess,
   managedProcessStartFailurePhase,
+  ManagedProcessEnrollmentContainmentError,
   setManagedProcessAfterReleaseHookForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
@@ -3108,6 +3109,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
   let handle;
   let childPid = null;
   let grandchildPid = null;
+  let primaryError;
 
   try {
     const [service] = await discoverServices(servicesRoot);
@@ -3127,11 +3129,39 @@ test("managed unexpected root exit terminates the remaining verified process tre
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-exit-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
+  } catch (error) {
+    primaryError = error;
+    if (error instanceof ManagedProcessEnrollmentContainmentError) {
+      handle = error.handle;
+    }
+    throw error;
   } finally {
-    await stopManagedProcess("managed-root-exit-service", 100).catch(() => null);
-    forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
+    try {
+      // Startup can fail after spawning the fixture but before returning a handle.
+      // Read only this fixture's receipt; do not discover unrelated host processes.
+      try {
+        const pids = JSON.parse(await readFile(pidFilePath, "utf8"));
+        childPid = pids.childPid;
+        grandchildPid = pids.grandchildPid;
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      await stopManagedProcess("managed-root-exit-service", 100).catch(() => null);
+      const cleanupPids = [handle?.pid, childPid, grandchildPid]
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
+      forceCleanupProcesses(cleanupPids);
+      await waitForProcessesStopped(cleanupPids, 12_000);
+      // Keep live ownership and the fixture if convergence fails. Recursive
+      // removal of a live Windows fixture can hide the primary error for minutes.
+      resetLifecycleState();
+      await removeTempRoot(tempRoot);
+    } catch (cleanupError) {
+      if (primaryError !== undefined) {
+        throw new AggregateError([primaryError, cleanupError],
+          "Managed root-exit assertion and owned fixture cleanup both failed.");
+      }
+      throw cleanupError;
+    }
   }
 });
 
