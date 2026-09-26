@@ -17,8 +17,8 @@
         "docs/service-authoring/05-validate-release.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -30,8 +30,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -43,8 +43,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -56,8 +56,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -70,8 +70,8 @@
         "docs/reference/vault-key-bootstrap.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -83,8 +83,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -96,8 +96,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -109,8 +109,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -123,8 +123,8 @@
         "docs/reference/vault-key-bootstrap.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -136,8 +136,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -150,8 +150,8 @@
         "docs/reference/vault-key-bootstrap.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -163,8 +163,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -176,8 +176,8 @@
         "docs/security/broker-operator-tasks.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -190,8 +190,55 @@
         "docs/reference/vault-key-bootstrap.md"
       ],
       "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1420"
+      "coreDelivery": "merged-pr-1426",
+      "companionDelivery": "merged-with-component-contracts-retained"
     }
-  ]
+  ],
+  "completion": {
+    "corePullRequest": "https://github.com/service-lasso/service-lasso/pull/1426",
+    "coreTestedHead": "f61e2102aa708cce07eb385e1a5b4347aada005b",
+    "coreMergeCommit": "b3f6bd28bf5d87105bbb7a59a041442c1f01fa04",
+    "companionIssue": "https://github.com/service-lasso/lasso-secretsbroker/issues/182",
+    "companionPullRequest": "https://github.com/service-lasso/lasso-secretsbroker/pull/183",
+    "companionTestedHead": "ff974cecd54bb93a819a72042af7e3336e120b77",
+    "companionMergeCommit": "1afcf7b7fb8fe881afbec45e0948c2b983899f5f",
+    "checks": [
+      {
+        "link": "https://github.com/service-lasso/lasso-secretsbroker/actions/runs/36278167332/job/108504805241",
+        "name": "validate (windows-latest, win32, service-lasso-harness-windows-amd64.zip, service-lasso-harness-w...",
+        "state": "SUCCESS"
+      },
+      {
+        "link": "https://github.com/service-lasso/lasso-secretsbroker/runs/108505101167",
+        "name": "CodeQL",
+        "state": "SUCCESS"
+      },
+      {
+        "link": "https://github.com/service-lasso/lasso-secretsbroker/actions/runs/36278167332/job/108504805056",
+        "name": "validate (macos-14, darwin, service-lasso-harness-darwin-arm64.tar.gz, service-lasso-harness-darw...",
+        "state": "SUCCESS"
+      },
+      {
+        "link": "https://github.com/service-lasso/lasso-secretsbroker/actions/runs/36278167385/job/108504805134",
+        "name": "dependency-review",
+        "state": "SUCCESS"
+      },
+      {
+        "link": "https://github.com/service-lasso/lasso-secretsbroker/actions/runs/36278167332/job/108504805171",
+        "name": "validate (ubuntu-latest, linux, service-lasso-harness-linux-amd64.tar.gz, service-lasso-harness-l...",
+        "state": "SUCCESS"
+      },
+      {
+        "link": "https://github.com/service-lasso/lasso-secretsbroker/actions/runs/36278167335/job/108504805046",
+        "name": "CodeQL (go)",
+        "state": "SUCCESS"
+      }
+    ],
+    "remainingCompanionReaderPaths": 0,
+    "remainingParentReaderPaths": 14,
+    "parentRemainingGroup": "1419",
+    "componentContractsRetained": true,
+    "publicationClaimed": false,
+    "runtimeAcceptanceClaimed": false
+  }
 }
