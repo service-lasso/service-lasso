@@ -1825,6 +1825,101 @@
       "destination": "docs/reference/vault-key-bootstrap.md",
       "action": "Centralize operator initialize/unlock/import/rewrap/recovery steps and expected states. Retain exact wrapper protection, root identity, generated-key one-time reveal and fail-closed audit contracts locally; no key bytes or platform acceptance claims enter public guide evidence.",
       "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/headless-admin-cli.md",
+      "blob": "0da131e21f85366fd40174935525bd3bb75bfa3d",
+      "disposition": "migration-candidate",
+      "destination": "docs/security/README.md",
+      "action": "Centralize headless operator status, metadata search, no-echo access verification, source diagnosis and audit/event workflows. Retain CLI option/result contracts locally; preserve explicit reveal reason/confirmation, metadata-only defaults and dry-run-only sync without inventing remote apply.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/backup-restore-rotation.md",
+      "blob": "5cffe3dbf8c55bcd4bada0f8e0148d607e67a76a",
+      "disposition": "migration-candidate",
+      "destination": "docs/reference/vault-key-bootstrap.md",
+      "action": "Centralize encrypted backup/restore and key-rotation operator steps with prerequisites, expected states and recovery limits. Retain exact artifact/API plan/version/digest and compatible-release proof contracts locally; reconcile future-share wording and preserve no UI key/share collection and no arbitrary future compatibility claim.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/provider-source-registry.md",
+      "blob": "d76f253553035e14ef68b9b95349bfd8fa70647f",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain source/connection entities, lifecycle normalization, namespace and exact operation matrix locally. Central setup guides link it; legacy capability fields alone never enable actions and no persistent config UI/background scheduler is implied.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "README.md",
+      "blob": "0268857c4d9e98082c805d3b123f9d85a82bef74",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Keep a short Broker purpose/use link and centralize operator startup/source/key workflows. Retain daemon/API/storage/security ownership locally. Reconcile bootstrap-skeleton and future OS-wrapper statements with later implemented contracts; source commands are not published installed-runtime evidence.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "f3fa39a3f9c65496b7dbb1573653e25c5cf74f05",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain historical draft template contract locally. Complete comparison against reviewed template baseline changes health wording and removes template-creation example; neither turns this draft into current Echo onboarding.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Recorded reviewed baseline lasso-tini@01af1344378a091842e8dd8da222383573a98de2/docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md blob 030d256707058579131794da9ec25edc7ef645fd, plus complete git diff --no-index against current blob f3fa39a3f9c65496b7dbb1573653e25c5cf74f05; all differences inspected."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "1439d4f600d4dc5cbeaac2a72600e95d39150d2b",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain historical draft template contract locally. Complete comparison against reviewed template baseline changes health wording and removes template-creation example; this is not Broker security/production acceptance authority.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Recorded reviewed baseline lasso-tini@01af1344378a091842e8dd8da222383573a98de2/docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md blob 030d256707058579131794da9ec25edc7ef645fd, plus complete git diff --no-index against current blob 1439d4f600d4dc5cbeaac2a72600e95d39150d2b; all differences inspected."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "bdb268e44730a69d0b5b703e5b2831522c58564c",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain historical donor/template structure analysis locally. Complete baseline comparison changes only health terminology; legacy donor fields and proposed layouts are not current package authoring authority.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Recorded reviewed baseline lasso-tini@01af1344378a091842e8dd8da222383573a98de2/docs/reference/SERVICE-STRUCTURE-REVIEW.md blob 71a5591c498e60325a143d07a9aa2f1f99ca34bc, plus complete git diff --no-index against current blob bdb268e44730a69d0b5b703e5b2831522c58564c; all differences inspected."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "b692abb562b925bc2a7809e7c8172fec0e953f99",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain historical donor/template structure analysis locally. Complete baseline comparison changes only health terminology; generic donor behavior is not the current Broker runtime contract.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Recorded reviewed baseline lasso-tini@01af1344378a091842e8dd8da222383573a98de2/docs/reference/SERVICE-STRUCTURE-REVIEW.md blob 71a5591c498e60325a143d07a9aa2f1f99ca34bc, plus complete git diff --no-index against current blob b692abb562b925bc2a7809e7c8172fec0e953f99; all differences inspected."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/service-json-reference.md",
+      "blob": "8c56f0486c5f2dd7bd0c5f24e401a5ff238dd5f5",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain component manifest/policy contract locally while linking Core schema authority. Baseline differences migrate top-level healthchecks/endpoints and add desired secret policy; runtime identity, scoped grants and auth/audit still enforce access. Reconcile copied Echo sample before presenting Broker-specific authoring.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Recorded reviewed baseline lasso-tini@01af1344378a091842e8dd8da222383573a98de2/docs/service-json-reference.md blob 0a8ef321823743880bb73ef00f300cdc8dbb343f, plus complete git diff --no-index against current blob 8c56f0486c5f2dd7bd0c5f24e401a5ff238dd5f5; all differences inspected."
     }
   ],
   "blocked": {
@@ -2438,45 +2533,10 @@
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
     "contentReviewComplete": false,
-    "reviewedPaths": 151,
-    "pendingPaths": 18
+    "reviewedPaths": 160,
+    "pendingPaths": 9
   },
   "pendingReview": [
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
-      "blob": "f3fa39a3f9c65496b7dbb1573653e25c5cf74f05",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
-      "blob": "bdb268e44730a69d0b5b703e5b2831522c58564c",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "README.md",
-      "blob": "0268857c4d9e98082c805d3b123f9d85a82bef74",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/backup-restore-rotation.md",
-      "blob": "5cffe3dbf8c55bcd4bada0f8e0148d607e67a76a",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/headless-admin-cli.md",
-      "blob": "0da131e21f85366fd40174935525bd3bb75bfa3d",
-      "status": "content-review-pending"
-    },
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
@@ -2489,13 +2549,6 @@
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/local-api-security.md",
       "blob": "73cbbb0d392e5724c81b1d2b7d48fc2559075c8a",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
-      "blob": "1439d4f600d4dc5cbeaac2a72600e95d39150d2b",
       "status": "content-review-pending"
     },
     {
@@ -2522,20 +2575,6 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/provider-source-registry.md",
-      "blob": "d76f253553035e14ef68b9b95349bfd8fa70647f",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
-      "blob": "b692abb562b925bc2a7809e7c8172fec0e953f99",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/secrets-management-api.md",
       "blob": "e5a874a88909caf9ffe776e1e4e2b3bfd6b61713",
       "status": "content-review-pending"
@@ -2552,13 +2591,6 @@
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/secure-initialization-recovery.md",
       "blob": "479dd56379f24d0fb78697010ca3e5dd57466efe",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/service-json-reference.md",
-      "blob": "8c56f0486c5f2dd7bd0c5f24e401a5ff238dd5f5",
       "status": "content-review-pending"
     },
     {
