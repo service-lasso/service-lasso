@@ -48,7 +48,7 @@ import {
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { startService, stopService } from "../dist/runtime/lifecycle/actions.js";
+import { startService as startRuntimeService, stopService } from "../dist/runtime/lifecycle/actions.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
@@ -57,6 +57,19 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { collectStartupFailure } from "../scripts/newcomer-runtime-diagnostics.mjs";
+
+async function startService(service, registry, options) {
+  try {
+    return await startRuntimeService(service, registry, options);
+  } catch (error) {
+    try {
+      console.error(lifecycleFailureDiagnostic({ error, state: getLifecycleState(service.manifest.id) }));
+    } catch {
+      // Direct lifecycle observation must preserve the original startup failure.
+    }
+    throw error;
+  }
+}
 
 async function rehydrateLifecycleState(service, options) {
   try {

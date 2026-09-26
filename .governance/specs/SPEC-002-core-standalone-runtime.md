@@ -506,3 +506,5 @@ Issue #1272 established documentation theme behaviour. Follow-up #1301 makes the
 ## Packaged Admin restart investigation (#1382)
 
 Use the exact merged Admin restart-diagnostic harness for the Core three-OS packaged lifecycle gate, preserving the existing immutable Admin/Broker release identities. Bind observation to Admin SPEC-SERVICEADMIN-RESTART-DIAGNOSTICS RD-001 through RD-005. This adds post-unlock service-detail readiness metadata only: trusted-identity unlock failures occur earlier and remain outside that diagnostic. Preserve assertions, timeouts, mutation counts and cleanup. A passing run does not identify the historical intermittent cause or establish direct macOS newcomer acceptance.
+
+For #1326's direct service-start ownership fixture, emit the same bounded lifecycle projection before cleanup on failure, including failed startup trace inspection metadata. Preserve the original error and all port-renegotiation, process ownership and cleanup assertions. A missing failure record must not be treated as absence of a native inspection failure.
