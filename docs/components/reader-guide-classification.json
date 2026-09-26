@@ -1197,6 +1197,484 @@
       "destination": "retain-in-component",
       "action": "Retain root identity, supplied/generated key, one-time reveal, loss semantics and metadata-only audit contract locally. Central setup guidance links this authority and must preserve immediate external key handoff and no re-reveal semantics.",
       "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "030d256707058579131794da9ec25edc7ef645fd",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-traefik@76c1aba32565544d069e7f1d3d026ff16264de56/docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/PROPOSED-CODEBASE-STRUCTURE.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/reference/SERVICE-STRUCTURE-REVIEW.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/PROPOSED-CODEBASE-STRUCTURE.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "126a0687aac24f4f2cbff48579ddb409fbb58256",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/PROPOSED-CODEBASE-STRUCTURE.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/reference/SERVICE-STRUCTURE-REVIEW.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/PROPOSED-CODEBASE-STRUCTURE.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "fa0d1a0d258945f5d244163595a680b48673a6f9",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring",
+      "action": "Open a focused migration decision for the template-first authoring flow; retain component-specific harness and package contracts locally.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source service-lasso-app-docker-node-service@062260eb01a09f0b6cbace2fce3fe5b460ece53a/docs/bootstrap-new-service-repo.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "030d256707058579131794da9ec25edc7ef645fd",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-traefik@76c1aba32565544d069e7f1d3d026ff16264de56/docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/PROPOSED-CODEBASE-STRUCTURE.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/reference/SERVICE-STRUCTURE-REVIEW.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/SERVICE-TEMPLATE-REPO.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-openobserve@f90899445db9bbfdc15d983a8f62320e709e0721/docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source lasso-soarca@579498fa08e28cc7c5e742b6d9b6a1110ceae7a4/docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/service-json-reference.md",
+      "blob": "0a8ef321823743880bb73ef00f300cdc8dbb343f",
+      "disposition": "component-governing-or-reference-retained",
+      "destination": "retain-in-component",
+      "action": "Retain in the component; no reader-workflow migration is justified by this content review.",
+      "reviewedAt": "2026-09-27",
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source service-lasso-app-docker-node-service@062260eb01a09f0b6cbace2fce3fe5b460ece53a/docs/service-json-reference.md; reuse content disposition, not implementation or runtime evidence."
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "README.md",
+      "blob": "b4434f5550a7ae9ee0dcbdef553688b1a47e06a6",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize generic template-first bootstrap, package/test and app-inventory guidance. Reconcile this copied service-template README with actual Tini identity before publishing a Tini guide; sample Echo archive and template status are not Tini runtime evidence.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "1b70d04567236572f34ab10addfcbd0daddb3c22",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/03-create-release-repo.md",
+      "action": "Centralize generic template-first service-repo creation and harness compatibility guidance. Retain Dagu optionality and any repository-origin remediation with its owner; do not recreate a repository as part of docs migration. Reconcile legacy branch examples against current repository policy.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "ad9a167c6ba26083774fc0005dc662330aaccd69",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain explicitly draft template tree as illustrative component context. Its sample layout is not a current implementation or production packaging claim.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-json-reference.md",
+      "blob": "1b5f3b308b00b94f8d97cb47f79eaa4739a01ddb",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Dagu endpoint/resource and compatibility-alias mapping locally, linking Core schema authority. Reconcile generic Echo/template examples and historic #810/#813 landing claims before presenting them as current Dagu instructions.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/service-json-reference.md",
+      "blob": "d6590174368ee77ac774e0fc4811502fc8971d25",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Echo-specific endpoint/environment/health subset locally with Core owning the full schema. Link central manifest authoring guidance rather than migrating package-specific listener identities or illustrative fields.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/service-json-reference.md",
+      "blob": "6a9d812fe2a628687c890281ca97d61687e4b37a",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain package contract locally but reconcile copied Echo/template examples, execconfig versus top-level health declarations and legacy ports/URLs prose with current Core endpoint/schema authority. This source is not a current Filebeat manifest example.",
+      "reviewedAt": "2026-09-27"
     }
   ],
   "blocked": {
@@ -1810,80 +2288,10 @@
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
     "contentReviewComplete": false,
-    "reviewedPaths": 92,
-    "pendingPaths": 77
+    "reviewedPaths": 136,
+    "pendingPaths": 33
   },
   "pendingReview": [
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/bootstrap-new-service-repo.md",
-      "blob": "1b70d04567236572f34ab10addfcbd0daddb3c22",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
-      "blob": "030d256707058579131794da9ec25edc7ef645fd",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
-      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
-      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
-      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
-      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
-      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
-      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-dagu",
-      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
-      "path": "docs/service-json-reference.md",
-      "blob": "1b5f3b308b00b94f8d97cb47f79eaa4739a01ddb",
-      "status": "content-review-pending"
-    },
     {
       "repository": "lasso-echoservice",
       "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
@@ -1894,127 +2302,8 @@
     {
       "repository": "lasso-echoservice",
       "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
-      "blob": "ad9a167c6ba26083774fc0005dc662330aaccd69",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
-      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
       "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "blob": "bdb268e44730a69d0b5b703e5b2831522c58564c",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
-      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
-      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
-      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
-      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-echoservice",
-      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
-      "path": "docs/service-json-reference.md",
-      "blob": "d6590174368ee77ac774e0fc4811502fc8971d25",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
-      "blob": "126a0687aac24f4f2cbff48579ddb409fbb58256",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
-      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
-      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
-      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
-      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
-      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
-      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-filebeat",
-      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
-      "path": "docs/service-json-reference.md",
-      "blob": "6a9d812fe2a628687c890281ca97d61687e4b37a",
       "status": "content-review-pending"
     },
     {
@@ -2181,50 +2470,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
-      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
       "blob": "b692abb562b925bc2a7809e7c8172fec0e953f99",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
-      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
-      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
-      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
-      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
       "status": "content-review-pending"
     },
     {
@@ -2274,83 +2521,6 @@
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/writeback-policy.md",
       "blob": "e477907c770dd9c7b4542892f831cc744a5bdd4d",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "README.md",
-      "blob": "b4434f5550a7ae9ee0dcbdef553688b1a47e06a6",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/bootstrap-new-service-repo.md",
-      "blob": "fa0d1a0d258945f5d244163595a680b48673a6f9",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
-      "blob": "030d256707058579131794da9ec25edc7ef645fd",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
-      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
-      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
-      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
-      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
-      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
-      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
-      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-tini",
-      "revision": "01af1344378a091842e8dd8da222383573a98de2",
-      "path": "docs/service-json-reference.md",
-      "blob": "0a8ef321823743880bb73ef00f300cdc8dbb343f",
       "status": "content-review-pending"
     }
   ]
