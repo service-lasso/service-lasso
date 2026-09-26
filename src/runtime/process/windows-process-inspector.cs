@@ -8,7 +8,6 @@ using System.Text;
 internal static class ServiceLassoWindowsProcessInspector
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
-    private const uint ProcessVmRead = 0x0010;
     private const uint SnapshotProcesses = 0x00000002;
     private const int ErrorNoMoreFiles = 18;
     private const int ErrorInvalidParameter = 87;
@@ -219,7 +218,7 @@ internal static class ServiceLassoWindowsProcessInspector
     {
         EvidenceStage(20);
         IntPtr processHandle = OpenProcess(
-            ProcessQueryLimitedInformation | ProcessVmRead,
+            ProcessQueryLimitedInformation,
             false,
             targetProcessId);
         if (processHandle == IntPtr.Zero)

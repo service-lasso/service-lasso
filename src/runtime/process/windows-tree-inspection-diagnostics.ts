@@ -15,6 +15,8 @@ export function windowsNativeInspectionFailure(exitCode: number | null): string 
 const phases = new Set(["queue_wait", "native_snapshot", "retry_delay"]);
 const retryReasons = new Set([
   "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
+  "ancestry_invalid_parent", "ancestry_predates_root", "ancestry_cycle",
+  "ancestry_missing_parent", "ancestry_predates_parent",
   ...Object.values(nativeFailureReasons),
 ]);
 
