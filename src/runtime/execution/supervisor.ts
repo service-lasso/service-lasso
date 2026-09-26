@@ -2105,7 +2105,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
               dependencies.inspectProcess = snapshot.inspectProcess;
             }
-            return await managedProcessTreeTerminator({
+            const target: Parameters<typeof managedProcessTreeTerminator>[0] = {
               rootPid,
               rootIdentity: verifiedRootIdentity,
               processGroup,
@@ -2114,7 +2114,51 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               rootOwnershipProbe: () => probeManagedChildHandle(child),
               forceImmediately: process.platform === "win32",
               preferFastWindowsRootIdentity: process.platform === "win32",
-            }, remainingProcessControlMs(containmentDeadlineMs), dependencies);
+            };
+            if (
+              process.platform !== "win32" || !windowsManagedLaunchState ||
+              classifiedStartFailurePhase !== "target_acknowledgement"
+            ) {
+              return await managedProcessTreeTerminator(target,
+                remainingProcessControlMs(containmentDeadlineMs), dependencies);
+            }
+
+            // This verified launcher exits through job containment before releasing
+            // approved files. A slow taskkill must not obscure that completion.
+            const helperController = new AbortController();
+            const abortHelper = () => helperController.abort();
+            signal.addEventListener("abort", abortHelper, { once: true });
+            if (signal.aborted) abortHelper();
+            const termination = managedProcessTreeTerminator(target,
+              remainingProcessControlMs(containmentDeadlineMs),
+              { ...dependencies, signal: helperController.signal });
+            void termination.catch(() => undefined);
+            const nativeCompletion = exitPromise.then(({ exitCode, signal: exitSignal }) => {
+              // Only the native acknowledgement-publication failure is proof for
+              // this path. A signal/unknown exit must not waive command failure.
+              return exitCode === 106 && exitSignal === null
+                ? "native" as const
+                : new Promise<never>(() => undefined);
+            });
+            try {
+              const outcome = await Promise.race([
+                termination.then(() => "terminated" as const), nativeCompletion,
+              ]);
+              if (outcome === "terminated") return;
+              abortHelper();
+              const stoppedTree = await inspectKnownWindowsTreeMembers(
+                verifiedRootIdentity, record.knownTreeMembers,
+                containmentDeadlineMs, signal,
+              );
+              for (const member of record.knownTreeMembers) {
+                if ((await stoppedTree.inspectProcess(member.pid)).status !== "not_running") {
+                  throw new Error("Native acknowledgement containment has not converged.");
+                }
+              }
+            } finally {
+              abortHelper();
+              signal.removeEventListener("abort", abortHelper);
+            }
           }, { deadlineMs: containmentDeadlineMs });
         } catch (cleanupError) {
           containmentError = cleanupError;

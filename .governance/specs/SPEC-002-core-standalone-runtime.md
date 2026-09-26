@@ -457,6 +457,8 @@ User, operator, integration, and service-authoring guides are authored in servic
 
 ## Windows lifecycle diagnostic evidence (AC-4BH)
 
+For #1326, the verified native managed launcher's unsignalled acknowledgement-publication failure exit (code 106) may race the parent-owned termination helper only during target acknowledgement failure. If native completion wins, cancel only the owned helper and obtain fresh identity-bound evidence that every previously known member has stopped before recording stopped ownership. All work shares the existing five-second containment deadline. Unknown/signal exits, other failure phases and adopted/unverified processes retain existing containment. Preserve native job containment before approved-file release, late-child containment, original phase assertions and negative deadline tests. A passing diagnostic or retry does not resolve the separate inspection failures.
+
 Nested containment errors must retain allowlisted deadline and phase metadata from both cause chains and aggregate members. Traverse at most 16 error objects across four levels, deduplicate cyclic references, and retain the existing closed output fields. Truncation is bounded partial observation, not evidence that no deadline occurred (#1326).
 
 

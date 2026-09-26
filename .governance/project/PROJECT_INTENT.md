@@ -115,3 +115,5 @@ For the current newcomer-readiness effort (#1323/#1376), the user's September 20
 Documentation appearance follows the reader's system by default and offers a persistent explicit light/dark override (SPEC-002 AC-4AJ.5, #1272).
 
 Issue #1326 diagnostic evidence must include nested aggregate containment deadlines within a bounded, cycle-safe closed projection; no raw error fields or changed process-control deadlines.
+
+For the reproduced #1326 acknowledgement-containment race, observe the verified Windows native launcher's acknowledgement-publication failure exit while the owned termination helper runs. Native completion may cancel only that helper, and must still prove complete known-tree termination before stopped reconciliation within the existing containment deadline. Signals, other exit codes, adopted roots and other startup phases retain their current fail-closed path. Do not kill the launcher to manufacture containment or release approved files early.
