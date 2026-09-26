@@ -1117,6 +1117,86 @@
       "action": "Retain explicitly draft illustrative template tree locally. Its sample service, inventory, package and harness layout does not establish the component current implementation.",
       "reviewedAt": "2026-09-27",
       "contentReviewBasis": "Identical Git blob and path to reviewed lasso-tini/docs/reference/EXAMPLE-REPO-TREE.md"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/go-security-release-gate.md",
+      "blob": "8d485f829eac1dda912f21a689a7a97093881978",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain exact Go/scanner/checksum, three-platform and principal-isolation release gates with Broker ownership. Record this as the reviewed historical contract, not a current toolchain or release verification claim.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/kv-v2.md",
+      "blob": "0962b6e9849de779adc61eae3beed6292db03374",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain KV facade route/schema, CAS, bounded history, deletion and remote-proxy contract locally. Central operator guidance should link it and distinguish local default storage from configured remote sources; it is not an ACL engine or automatic environment onboarding.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/mcp-adapter.md",
+      "blob": "b80cdf22e1a83c2b83380d93c66916128edbac73",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Centralize discovering and calling the headless metadata-only Broker adapter. Retain tool schemas and result-safety contracts locally; explicitly preserve no long-running transport and disabled mutation/reveal operations until separately approved.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/openclaw-secretref-resolver.md",
+      "blob": "e7cb5aa81477245902f0fd4f251adb9d7e2774c7",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Centralize OpenClaw exec-provider onboarding and headless connection setup; retain protocol, allowlist, typed-outcome and audit contracts locally. Broker must start independently; this adapter does not supply upstream credentials to OpenClaw configuration.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/service-contract.md",
+      "blob": "6bc598c6f36e4dfc1acfb68719cf55c0ed11e994",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain manifest/artifact/healthchecks and harness contract ownership locally. Reconcile copied minimal-starter prose against the security-sensitive Broker implementation before treating it as current user guidance.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/source-tls-trust.md",
+      "blob": "e269b5edfd2b8b8bc348bad9bf43a345ee3caf61",
+      "disposition": "migration-candidate",
+      "destination": "docs/secrets",
+      "action": "Centralize operator setup for pinned private-PKI source CA bundles and link the Broker validation contract. Preserve production digest/path bounds, system-root append behavior, TLS verification and redirect restrictions; no insecure verification bypass.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/validation.md",
+      "blob": "c3aa69d1de56e294c4486e011ffa8324e1058259",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain component validation reference; reconcile copied template and released-harness claims against current Broker gates. Documentation does not establish current three-platform lifecycle acceptance.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/vault-root-bootstrap-contract.md",
+      "blob": "b2b25c08b3268766b0559a4013e3e07db317830f",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain root identity, supplied/generated key, one-time reveal, loss semantics and metadata-only audit contract locally. Central setup guidance links this authority and must preserve immediate external key handoff and no re-reveal semantics.",
+      "reviewedAt": "2026-09-27"
     }
   ],
   "blocked": {
@@ -1730,8 +1810,8 @@
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
     "contentReviewComplete": false,
-    "reviewedPaths": 84,
-    "pendingPaths": 85
+    "reviewedPaths": 92,
+    "pendingPaths": 77
   },
   "pendingReview": [
     {
@@ -1996,22 +2076,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/go-security-release-gate.md",
-      "blob": "8d485f829eac1dda912f21a689a7a97093881978",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/headless-admin-cli.md",
       "blob": "0da131e21f85366fd40174935525bd3bb75bfa3d",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/kv-v2.md",
-      "blob": "0962b6e9849de779adc61eae3beed6292db03374",
       "status": "content-review-pending"
     },
     {
@@ -2054,20 +2120,6 @@
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/master-key-lifecycle.md",
       "blob": "586681be0797b2568b0fbb02968f8c8002f785ec",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/mcp-adapter.md",
-      "blob": "b80cdf22e1a83c2b83380d93c66916128edbac73",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/openclaw-secretref-resolver.md",
-      "blob": "e7cb5aa81477245902f0fd4f251adb9d7e2774c7",
       "status": "content-review-pending"
     },
     {
@@ -2199,22 +2251,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/service-contract.md",
-      "blob": "6bc598c6f36e4dfc1acfb68719cf55c0ed11e994",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/service-json-reference.md",
       "blob": "8c56f0486c5f2dd7bd0c5f24e401a5ff238dd5f5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/source-tls-trust.md",
-      "blob": "e269b5edfd2b8b8bc348bad9bf43a345ee3caf61",
       "status": "content-review-pending"
     },
     {
@@ -2227,22 +2265,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/validation.md",
-      "blob": "c3aa69d1de56e294c4486e011ffa8324e1058259",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/vault-openbao-source.md",
       "blob": "ea95eb7e1565ef6ed9237daa8782378356577413",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/vault-root-bootstrap-contract.md",
-      "blob": "b2b25c08b3268766b0559a4013e3e07db317830f",
       "status": "content-review-pending"
     },
     {
