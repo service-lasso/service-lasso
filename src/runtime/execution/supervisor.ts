@@ -5,6 +5,7 @@ import { constants, createWriteStream, type WriteStream } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { DiscoveredService } from "../../contracts/service.js";
+import { observeNativeAcknowledgementContainment } from "./native-ack-containment.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { buildServiceNetwork } from "../operator/network.js";
@@ -2125,27 +2126,13 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 
             // This verified launcher exits through job containment before releasing
             // approved files. A slow taskkill must not obscure that completion.
-            const helperController = new AbortController();
-            const abortHelper = () => helperController.abort();
-            signal.addEventListener("abort", abortHelper, { once: true });
-            if (signal.aborted) abortHelper();
-            const termination = managedProcessTreeTerminator(target,
-              remainingProcessControlMs(containmentDeadlineMs),
-              { ...dependencies, signal: helperController.signal });
-            void termination.catch(() => undefined);
-            const nativeCompletion = exitPromise.then(({ exitCode, signal: exitSignal }) => {
-              // Only the native acknowledgement-publication failure is proof for
-              // this path. A signal/unknown exit must not waive command failure.
-              return exitCode === 106 && exitSignal === null
-                ? "native" as const
-                : new Promise<never>(() => undefined);
-            });
-            try {
-              const outcome = await Promise.race([
-                termination.then(() => "terminated" as const), nativeCompletion,
-              ]);
-              if (outcome === "terminated") return;
-              abortHelper();
+            await observeNativeAcknowledgementContainment({
+              signal,
+              exit: exitPromise,
+              terminate: (helperSignal) => managedProcessTreeTerminator(target,
+                remainingProcessControlMs(containmentDeadlineMs),
+                { ...dependencies, signal: helperSignal }),
+              verifyStopped: async () => {
               const stoppedTree = await inspectKnownWindowsTreeMembers(
                 verifiedRootIdentity, record.knownTreeMembers,
                 containmentDeadlineMs, signal,
@@ -2155,10 +2142,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
                   throw new Error("Native acknowledgement containment has not converged.");
                 }
               }
-            } finally {
-              abortHelper();
-              signal.removeEventListener("abort", abortHelper);
-            }
+              },
+            });
           }, { deadlineMs: containmentDeadlineMs });
         } catch (cleanupError) {
           containmentError = cleanupError;
