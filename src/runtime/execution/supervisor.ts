@@ -2128,20 +2128,21 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             // approved files. A slow taskkill must not obscure that completion.
             await observeNativeAcknowledgementContainment({
               signal,
+              nativeObservationMs: Math.floor(remainingProcessControlMs(containmentDeadlineMs) / 2),
               exit: exitPromise,
               terminate: (helperSignal) => managedProcessTreeTerminator(target,
                 remainingProcessControlMs(containmentDeadlineMs),
                 { ...dependencies, signal: helperSignal }),
               verifyStopped: async () => {
-              const stoppedTree = await inspectKnownWindowsTreeMembers(
-                verifiedRootIdentity, record.knownTreeMembers,
-                containmentDeadlineMs, signal,
-              );
-              for (const member of record.knownTreeMembers) {
-                if ((await stoppedTree.inspectProcess(member.pid)).status !== "not_running") {
-                  throw new Error("Native acknowledgement containment has not converged.");
+                const stoppedTree = await inspectKnownWindowsTreeMembers(
+                  verifiedRootIdentity, record.knownTreeMembers,
+                  containmentDeadlineMs, signal,
+                );
+                for (const member of record.knownTreeMembers) {
+                  if ((await stoppedTree.inspectProcess(member.pid)).status !== "not_running") {
+                    throw new Error("Native acknowledgement containment has not converged.");
+                  }
                 }
-              }
               },
             });
           }, { deadlineMs: containmentDeadlineMs });

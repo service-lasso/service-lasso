@@ -63,3 +63,41 @@ test("expired caller cannot approve native completion", async () => {
   }), { name: "AbortError" });
   assert.equal(touched, false);
 });
+
+test("observed native completion proves stopped state without starting a helper", async () => {
+  let verified = false;
+  await observeNativeAcknowledgementContainment({
+    signal: new AbortController().signal,
+    nativeObservationMs: 100,
+    exit: Promise.resolve({ exitCode: 106, signal: null }),
+    terminate: async () => { assert.fail("helper must not preempt native completion"); },
+    verifyStopped: async () => { verified = true; },
+  });
+  assert.equal(verified, true);
+});
+
+test("observation expiry retains ordinary termination", async () => {
+  let terminated = false;
+  await observeNativeAcknowledgementContainment({
+    signal: new AbortController().signal,
+    nativeObservationMs: 1,
+    exit: new Promise(() => undefined),
+    terminate: async () => { terminated = true; },
+    verifyStopped: async () => { assert.fail("absent native exit is not proof"); },
+  });
+  assert.equal(terminated, true);
+});
+
+test("caller cancellation during observation prevents later termination", async () => {
+  const controller = new AbortController();
+  const reason = new Error("caller expired");
+  const pending = observeNativeAcknowledgementContainment({
+    signal: controller.signal,
+    nativeObservationMs: 100,
+    exit: new Promise(() => undefined),
+    terminate: async () => { assert.fail("cancelled caller cannot start helper"); },
+    verifyStopped: async () => { assert.fail("cancelled caller cannot approve stop"); },
+  });
+  controller.abort(reason);
+  await assert.rejects(pending, (error) => error === reason);
+});
