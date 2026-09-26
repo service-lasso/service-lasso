@@ -46,7 +46,32 @@ test("lifecycle diagnostics bound event and cause counts and tolerate missing or
     state: { runtime: { startTrace: { current: { events: Array(100).fill(null) } } } },
   }));
   assert.equal(result.events.length, 16);
-  assert.equal(result.failurePhases.length, 4);
+  assert.equal(result.failurePhases.length, 1);
+});
+
+test("aggregate containment failures retain nested deadlines without disclosing errors", () => {
+  const sensitive = "private-path-command-token";
+  const failure = new AggregateError([
+    { failurePhase: "launch_state_cleanup", message: sensitive },
+    new AggregateError([{ code: "PROCESS_CONTROL_DEADLINE_EXCEEDED", stack: sensitive }], sensitive),
+    { failurePhase: sensitive, handle: sensitive },
+  ], sensitive);
+  failure.errors.push(failure);
+  const serialized = lifecycleFailureDiagnostic({ error: failure });
+  const result = JSON.parse(serialized);
+  assert.deepEqual(result.failurePhases, ["launch_state_cleanup"]);
+  assert.equal(result.deadlineExceeded, true);
+  assert.equal(serialized.includes(sensitive), false);
+});
+
+test("aggregate diagnostic traversal remains bounded across wide and deep error graphs", () => {
+  const deadline = { code: "PROCESS_CONTROL_DEADLINE_EXCEEDED" };
+  const wide = new AggregateError([...Array.from({ length: 32 }, () => ({ failurePhase: "wrapper_spawn" })), deadline]);
+  const result = JSON.parse(lifecycleFailureDiagnostic({ error: wide }));
+  assert.equal(result.failurePhases.length, 15);
+  assert.equal(result.deadlineExceeded, false);
+  const deep = { cause: { cause: { cause: { cause: deadline } } } };
+  assert.equal(JSON.parse(lifecycleFailureDiagnostic({ error: deep })).deadlineExceeded, false);
 });
 
 test("diagnostic errors cannot replace the original failure or expose thrown content", () => {
