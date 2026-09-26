@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "issue": "https://github.com/service-lasso/service-lasso/issues/1419",
+  "requirement": "SPEC-002 AC-4AJ.3",
+  "reviewedAt": "2026-09-27",
+  "scopeCount": 14,
+  "runtimeAcceptanceClaimed": false,
+  "decisions": [
+    {
+      "repository": "lasso-cacao-roaster",
+      "revision": "bdc074e1ba0d90f873a372a090d8af26748322b9",
+      "path": "README.md",
+      "blob": "f5656c20c8d6612c82ca885bab25c4f9f895d1a9",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-cacao-roaster",
+      "revision": "bdc074e1ba0d90f873a372a090d8af26748322b9",
+      "path": "docs/service.md",
+      "blob": "b07a8258aed3036037e54743f5a0d7e45e5e8733",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-bpmn-server",
+      "revision": "f57db8af782862baf26febc604480f4006437672",
+      "path": "docs/client-sample.md",
+      "blob": "f2107b7651ea0e52ec3326b4ec9067e181848754",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-files",
+      "revision": "24daa58f3420d3803b07db336200c789d147cc4a",
+      "path": "README.md",
+      "blob": "f5a0fa14b595ce030c0731186ab0b0e11865eb34",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-files",
+      "revision": "24daa58f3420d3803b07db336200c789d147cc4a",
+      "path": "docs/migration.md",
+      "blob": "c53501aa9a5b236ea12a037a56aa21204fdeb94c",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "README.md",
+      "blob": "1ce41bfe10da63e966c37fe2b5b8c09774c1e61c",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "decision": "existing-generic-authoring-coverage",
+      "guides": [
+        "docs/service-authoring/overview.md",
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/service-authoring/05-validate-release.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/service.md",
+      "blob": "f5dab31f1de06dcd549babcbcabdeea7ff00fe1a",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "README.md",
+      "blob": "ad42ee7aeaaa56efff26f962c8552762fab1d3b3",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-lasso-managed-workflows.md",
+      "blob": "d997483ba96c34d5f7846eea8b2161b8daa1ebaa",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/runtime-extension-points.md",
+      "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+      "decision": "existing-generic-authoring-coverage",
+      "guides": [
+        "docs/service-authoring/overview.md",
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/service-authoring/05-validate-release.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-lasso-action-inputs.md",
+      "blob": "be15ee62a20b8a24b5ecbb55118c805096c294dd",
+      "decision": "centralized-app-task",
+      "guides": [
+        "docs/components/app-service-tasks.md",
+        "docs/reference/service-action-inputs.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/packaging.md",
+      "blob": "31b505d019e6e3314fad645737e66990ba77f25d",
+      "decision": "existing-generic-authoring-coverage",
+      "guides": [
+        "docs/service-authoring/overview.md",
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/service-authoring/05-validate-release.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "1b70d04567236572f34ab10addfcbd0daddb3c22",
+      "decision": "existing-generic-authoring-coverage",
+      "guides": [
+        "docs/service-authoring/overview.md",
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/service-authoring/05-validate-release.md"
+      ],
+      "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1419"
+    }
+  ]
+}
