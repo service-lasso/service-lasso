@@ -304,7 +304,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Map the app-owned CACAO authoring/SOARCA pairing workflow to a Core integration guide; keep health, environment injection, version and archive contracts component-owned. This records a candidate, not a completed migration.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-cacao-roaster",
@@ -314,7 +315,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Map the app-owned CACAO authoring/SOARCA pairing workflow to a Core integration guide; keep health, environment injection, version and archive contracts component-owned. This records a candidate, not a completed migration.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-fastapi",
@@ -354,7 +356,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Move direct HTTP and app-owned BPMN client usage into a Core integration guide; retain exported environment and authenticated API contracts in the component. Client calls remain app behavior, not a separate managed daemon.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-bpmn-server",
@@ -384,7 +387,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Move managed installation, upload-policy operation, approved workspace-source selection and legacy application migration guidance into a Core Files guide. Preserve API/path/permission contracts and maintainer build verification in the component; no migration completion claimed.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-files",
@@ -394,7 +398,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Move managed installation, upload-policy operation, approved workspace-source selection and legacy application migration guidance into a Core Files guide. Preserve API/path/permission contracts and maintainer build verification in the component; no migration completion claimed.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-files",
@@ -454,7 +459,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-node",
@@ -464,7 +470,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-node",
@@ -494,7 +501,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-web",
@@ -504,7 +512,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-web",
@@ -534,7 +543,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-electron",
@@ -544,7 +554,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-electron",
@@ -574,7 +585,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-tauri",
@@ -584,7 +596,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-tauri",
@@ -614,7 +627,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-packager-nexe",
@@ -624,7 +638,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-packager-nexe",
@@ -654,7 +669,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-packager-pkg",
@@ -664,7 +680,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-packager-pkg",
@@ -694,7 +711,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-packager-sea",
@@ -704,7 +722,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-app-packager-sea",
@@ -734,7 +753,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize service-author adoption and local/CI validation guidance only after explicitly separating the runnable contract/result stub from planned isolated lifecycle execution. Keep architecture and proposed ownership locally; do not present future orchestration as implemented proof.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "service-lasso-harness",
@@ -774,7 +794,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize the quick contract/package/result starter workflow with its explicit stub limitation. Retain harness CLI/build/release contracts, architecture, bootstrap checklist and future execution-engine acceptance locally; do not describe planned isolated lifecycle behavior as a delivered shared proof layer.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "lasso-filebeat",
@@ -784,7 +805,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/app-owned-service-workflows.md",
       "action": "Centralize opt-in Filebeat/OpenObserve setup, app-owned log/output/credential choices and the conditional dashboard setup step. Retain manifest variables, upstream version, health and release contracts locally.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-filebeat",
@@ -794,7 +816,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic application bootstrap-download versus bundled archive guidance. Retain Filebeat packaging entrypoints locally.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-filebeat",
@@ -814,7 +837,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/app-owned-service-workflows.md",
       "action": "Centralize opt-in Filebeat/OpenObserve setup, app-owned log/output/credential choices and the conditional dashboard setup step. Retain manifest variables, upstream version, health and release contracts locally.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-filebeat",
@@ -834,7 +858,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Centralize optional Dagu usage and managed workflow sync invocation; retain pinned upstream binary, launcher, exported endpoint/environment and packaging contracts locally. Shared-harness verification does not establish implemented lifecycle orchestration.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-dagu",
@@ -854,7 +879,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Centralize operator guidance for managed versus custom workflows, registry sync, overwrite drift policy and safe pruning. Retain registry/action payload schemas, actor permissions and redaction contracts locally. Startup/periodic launcher integration is explicitly later work, not delivered automatic sync.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-dagu",
@@ -864,7 +890,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic adapting-runtime/toolchain and service-author bootstrap instructions; retain Dagu package/runtime implementation contracts locally.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-dagu",
@@ -884,7 +911,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/reference/service-action-inputs.md",
       "action": "Centralize user-authored Dagu workflow examples and choosing inline inputs versus stored payload references. Retain actor, permission, correlation, managed-file and override contracts locally; link the existing Core action-input reference rather than creating an independent authority.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-dagu",
@@ -894,7 +922,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic runtime/bootstrap-download versus bundled app artifact guidance. Retain component archive layout, pinned payload, manifest and release contracts locally; copied starter prose is not current installed-runtime evidence.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-dagu",
@@ -934,7 +963,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic runtime/bootstrap-download versus bundled app artifact guidance. Retain component archive layout, pinned payload, manifest and release contracts locally; copied starter prose is not current installed-runtime evidence.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "lasso-tini",
@@ -964,7 +994,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic adapting-runtime/toolchain and service-author bootstrap instructions. Retain component runtime implementation contracts locally; template verification commands and three-platform CI requirements do not supply current platform evidence.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "lasso-tini",
@@ -1094,7 +1125,8 @@
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic runtime/bootstrap-download versus bundled app artifact guidance. Retain component archive layout, pinned payload, manifest and release contracts locally; copied starter prose is not current installed-runtime evidence.",
       "reviewedAt": "2026-09-27",
-      "contentReviewBasis": "Identical Git blob and path to reviewed lasso-tini/docs/packaging.md"
+      "contentReviewBasis": "Identical Git blob and path to reviewed lasso-tini/docs/packaging.md",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1146,7 +1178,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Centralize discovering and calling the headless metadata-only Broker adapter. Retain tool schemas and result-safety contracts locally; explicitly preserve no long-running transport and disabled mutation/reveal operations until separately approved.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1156,7 +1189,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Centralize OpenClaw exec-provider onboarding and headless connection setup; retain protocol, allowlist, typed-outcome and audit contracts locally. Broker must start independently; this adapter does not supply upstream credentials to OpenClaw configuration.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1176,7 +1210,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/security/README.md",
       "action": "Centralize operator setup for pinned private-PKI source CA bundles and link the Broker validation contract. Preserve production digest/path bounds, system-root append behavior, TLS verification and redirect restrictions; no insecure verification bypass.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1515,7 +1550,8 @@
       "destination": "docs/service-authoring",
       "action": "Open a focused migration decision for the template-first authoring flow; retain component-specific harness and package contracts locally.",
       "reviewedAt": "2026-09-27",
-      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source service-lasso-app-docker-node-service@062260eb01a09f0b6cbace2fce3fe5b460ece53a/docs/bootstrap-new-service-repo.md; reuse content disposition, not implementation or runtime evidence."
+      "contentReviewBasis": "Identical Git blob and path to recorded reviewed source service-lasso-app-docker-node-service@062260eb01a09f0b6cbace2fce3fe5b460ece53a/docs/bootstrap-new-service-repo.md; reuse content disposition, not implementation or runtime evidence.",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "lasso-tini",
@@ -1624,7 +1660,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/overview.md",
       "action": "Centralize generic template-first bootstrap, package/test and app-inventory guidance. Reconcile this copied service-template README with actual Tini identity before publishing a Tini guide; sample Echo archive and template status are not Tini runtime evidence.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1418"
     },
     {
       "repository": "lasso-dagu",
@@ -1634,7 +1671,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring/03-create-release-repo.md",
       "action": "Centralize generic template-first service-repo creation and harness compatibility guidance. Retain Dagu optionality and any repository-origin remediation with its owner; do not recreate a repository as part of docs migration. Reconcile legacy branch examples against current repository policy.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1419"
     },
     {
       "repository": "lasso-echoservice",
@@ -1704,7 +1742,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/reference/vault-key-bootstrap.md",
       "action": "Centralize operator portable-vault/copied-machine import and wrapper enrollment guidance. Link component key/payload contract; reconcile foundation-era future recovery-share and wrapper claims against current lifecycle/recovery docs before publishing.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1734,7 +1773,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/security/README.md",
       "action": "Centralize choosing/configuring AWS source and credential handles. Link component SigV4/idempotent write-readback and per-connection operation contracts. Preserve existing-secret-only migration, unsupported remote operations and deterministic local protocol evidence versus live AWS/IAM certification limits.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1744,7 +1784,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/security/README.md",
       "action": "Centralize optional local env/file/exec source setup, resolution order and operator failure recovery. Retain trusted-directory, digest, no-shell, empty-environment, timeout/output and owner-permission contracts locally; examples must preserve production opt-in and metadata-only output.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1754,7 +1795,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/security/README.md",
       "action": "Centralize selecting/configuring optional Vault/OpenBao sources and operator reconnection. Link component KV v2 CAS/write-readback and operation-manifest contracts; preserve HTTPS/pinned CA, explicit migration opt-in and live-cluster certification gap. Do not claim login/renewal/discovery or general writeback support.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1824,7 +1866,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/reference/vault-key-bootstrap.md",
       "action": "Centralize operator initialize/unlock/import/rewrap/recovery steps and expected states. Retain exact wrapper protection, root identity, generated-key one-time reveal and fail-closed audit contracts locally; no key bytes or platform acceptance claims enter public guide evidence.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1834,7 +1877,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/security/README.md",
       "action": "Centralize headless operator status, metadata search, no-echo access verification, source diagnosis and audit/event workflows. Retain CLI option/result contracts locally; preserve explicit reveal reason/confirmation, metadata-only defaults and dry-run-only sync without inventing remote apply.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1844,7 +1888,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/reference/vault-key-bootstrap.md",
       "action": "Centralize encrypted backup/restore and key-rotation operator steps with prerequisites, expected states and recovery limits. Retain exact artifact/API plan/version/digest and compatible-release proof contracts locally; reconcile future-share wording and preserve no UI key/share collection and no arbitrary future compatibility claim.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1864,7 +1909,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/components/README.md",
       "action": "Keep a short Broker purpose/use link and centralize operator startup/source/key workflows. Retain daemon/API/storage/security ownership locally. Reconcile bootstrap-skeleton and future OS-wrapper statements with later implemented contracts; source commands are not published installed-runtime evidence.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-echoservice",
@@ -1939,7 +1985,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/security/README.md",
       "action": "Centralize operator production transport selection and explicit launcher/service-account enrollment prerequisites. Retain exact peer identity, production rejection, token/lease layering and cross-user verifier contracts locally. Missing alternate-principal credentials yield Blocked, not a pass; do not claim current verification from commands alone.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
@@ -1999,7 +2046,8 @@
       "disposition": "migration-candidate",
       "destination": "docs/reference/vault-key-bootstrap.md",
       "action": "Centralize operator threshold-share ceremony, copied-vault recovery, holder separation and rotation prerequisites with explicit expected states and cleanup. Retain key custody, age/X25519 envelope, verification and metadata-only audit contracts locally. Preserve CLI-only sensitive material and no Keybase/keyserver/PGP default; a combined guided ceremony remains proposed rather than delivered.",
-      "reviewedAt": "2026-09-27"
+      "reviewedAt": "2026-09-27",
+      "followUpIssue": "https://github.com/service-lasso/service-lasso/issues/1420"
     },
     {
       "repository": "lasso-secretsbroker",
