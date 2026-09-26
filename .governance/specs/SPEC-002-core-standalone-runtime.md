@@ -457,6 +457,9 @@ User, operator, integration, and service-authoring guides are authored in servic
 
 ## Windows lifecycle diagnostic evidence (AC-4BH)
 
+For repeated native helper rejection under #1326, classify failure solely through a fixed exit-code map for snapshot creation/enumeration/close, root or descendant open/identity/time/image/parent/command-line/close checks, explicit open access-denial and changed ancestry. Unknown exit codes retain generic helper_failed. Do not emit native exception messages, Win32 payloads, process identities or helper output; nonzero results remain rejected under the existing retry/deadline contract. Rebuild and verify helper provenance with the canonical compiler and normalization gates.
+
+
 For #1326 residual tree-inspection failures, retain closed phases queue_wait/native_snapshot/retry_delay, the attempt/retry counts (bounded to 1000), cumulative queue/native timing (bounded to 600000 ms) and a closed last-retry reason. Attach only this projection to errors and failed start-trace metadata; test evidence may retain at most 16 projections within the existing bounded error traversal. Do not serialize helper output, PID, command, fingerprint, path, credentials or arbitrary error text. Projection failure must preserve the original failure. Queued cancellation must still prevent helper startup and all existing deadlines, retry policy and identity validation remain unchanged.
 
 

@@ -4,7 +4,7 @@ import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { projectWindowsTreeInspectionMetadata } from "./windows-tree-inspection-diagnostics.js";
+import { projectWindowsTreeInspectionMetadata, windowsNativeInspectionFailure } from "./windows-tree-inspection-diagnostics.js";
 import {
   isProcessControlDeadlineError,
   remainingProcessControlMs,
@@ -502,7 +502,11 @@ async function inspectWindowsProcessTreeOnce(
     },
   );
   if (result.exitCode !== 0 || !result.stdout.trim()) {
-    throw new Error("Native Windows process-tree inspection failed.");
+    const error = new Error("Native Windows process-tree inspection failed.");
+    Object.defineProperty(error, "windowsNativeInspectionFailure", {
+      value: windowsNativeInspectionFailure(result.exitCode),
+    });
+    throw error;
   }
 
   let payload: WindowsProcessTreeJson;
@@ -735,7 +739,9 @@ export async function inspectWindowsProcessTree(
         throw error;
       }
       retries += 1;
-      lastRetry = error instanceof Error ? retryReasons[error.message] ?? null : null;
+      lastRetry = error instanceof Error
+        ? (error as Error & { windowsNativeInspectionFailure?: string | null }).windowsNativeInspectionFailure ?? retryReasons[error.message] ?? null
+        : null;
       inspectionPhase = "retry_delay";
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }

@@ -1,10 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectWindowsProcessTree } from "../dist/runtime/process/identity.js";
-import { projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
+import { projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata, windowsNativeInspectionFailure } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 
 const root = { pid: 4342, createdAt: "2026-07-18T01:02:03.456Z", executablePath: "C:\\private\\node.exe", commandHash: "private-command-hash" };
+
+test("native failure codes distinguish root/descendant denial without forwarding unknown exit values", () => {
+  assert.equal(windowsNativeInspectionFailure(31), "root_open_denied");
+  assert.equal(windowsNativeInspectionFailure(131), "descendant_open_denied");
+  for (const value of [null, 0, 1, 2, 999, NaN, Infinity, "private-secret", "toString"]) {
+    assert.equal(windowsNativeInspectionFailure(value), null);
+  }
+  const evidence = projectWindowsTreeInspectionMetadata({ windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionLastRetry: windowsNativeInspectionFailure(131), command: "private-secret" });
+  assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_open_denied");
+  assert.equal(JSON.stringify(evidence).includes("private-secret"), false);
+});
 
 test("queued deadline reports queue time and never starts the expired helper", async () => {
   let release;

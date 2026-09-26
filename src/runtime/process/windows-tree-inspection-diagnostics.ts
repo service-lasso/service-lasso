@@ -1,6 +1,21 @@
+const nativeFailureReasons: Record<number, string> = {
+  10: "snapshot_create", 11: "snapshot_enumerate", 12: "snapshot_close", 30: "changed_ancestry",
+};
+for (const [subject, offset] of [["root", 0], ["descendant", 100]] as const) {
+  for (const [stage, code] of [["open", 20], ["identity", 21], ["time", 22], ["image", 23], ["parent", 24],
+    ["command_size", 25], ["command_query", 26], ["command_bounds", 27], ["command_empty", 28],
+    ["handle_close", 29], ["open_denied", 31]] as const) {
+    nativeFailureReasons[offset + code] = `${subject}_${stage}`;
+  }
+}
+export function windowsNativeInspectionFailure(exitCode: number | null): string | null {
+  return Number.isInteger(exitCode) && Object.hasOwn(nativeFailureReasons, exitCode as number)
+    ? nativeFailureReasons[exitCode as number] : null;
+}
 const phases = new Set(["queue_wait", "native_snapshot", "retry_delay"]);
 const retryReasons = new Set([
   "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
+  ...Object.values(nativeFailureReasons),
 ]);
 
 export type WindowsTreeInspectionMetadata = Record<string, string | number | null>;
