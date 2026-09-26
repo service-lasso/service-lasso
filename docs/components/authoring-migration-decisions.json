@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 1,
+  "issue": "https://github.com/service-lasso/service-lasso/issues/1418",
+  "requirement": "SPEC-002 AC-4AJ.3",
+  "reviewedAt": "2026-09-27",
+  "scopeCount": 20,
+  "runtimeAcceptanceClaimed": false,
+  "decisions": [
+    {
+      "repository": "service-lasso-app-node",
+      "revision": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+      "path": "README.md",
+      "blob": "382eed89b210d96b3aeb4c236a940b75954eb47c",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-node",
+      "revision": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+      "path": "docs/minimal-poc.md",
+      "blob": "bcf56fc4b97221891aab555350f7225972c87389",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-web",
+      "revision": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+      "path": "README.md",
+      "blob": "a5c4d6c1cd162b7cc59a4847a9569fbb679aeed4",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-web",
+      "revision": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+      "path": "docs/minimal-poc.md",
+      "blob": "5553ae47d94a2c7c40f6d79d69834d7bde86e8b4",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-electron",
+      "revision": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+      "path": "README.md",
+      "blob": "948f0c9c329c5344e5133b92c27773cdcea987a2",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-electron",
+      "revision": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+      "path": "docs/minimal-poc.md",
+      "blob": "adccc4cb7fd333788b8731d2b920cb2a856b9bb9",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-tauri",
+      "revision": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+      "path": "README.md",
+      "blob": "7f00265636cf842501903532f12d4075cc6ec7eb",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-tauri",
+      "revision": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+      "path": "docs/minimal-poc.md",
+      "blob": "87c9df73027eddfd1f272ed6963af2fadd81f712",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-packager-nexe",
+      "revision": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+      "path": "README.md",
+      "blob": "2de911bb53f627244d7fc20dbc93f382ba42f818",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-packager-nexe",
+      "revision": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+      "path": "docs/minimal-poc.md",
+      "blob": "73a300b5f5cac7d75cc18d3afa1d43e11c5e37bd",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-packager-pkg",
+      "revision": "57cde67347363e97451c245d54b4815171d94051",
+      "path": "README.md",
+      "blob": "a3ec2540a7ba721b687aa285a8b619cd06fb61ec",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-packager-pkg",
+      "revision": "57cde67347363e97451c245d54b4815171d94051",
+      "path": "docs/minimal-poc.md",
+      "blob": "983eeed1950e2a87aa0feec9e717d34ee05238e7",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-packager-sea",
+      "revision": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+      "path": "README.md",
+      "blob": "c06a17f38fac5557b2b8d9c97a93c33677c904e9",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-app-packager-sea",
+      "revision": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+      "path": "docs/minimal-poc.md",
+      "blob": "280003dd4c9bd1e5ae15250378a412da9e75e673",
+      "decision": "centralized-host-guidance",
+      "guides": [
+        "docs/reference-apps.md",
+        "docs/service-authoring/start-reference-host.md",
+        "docs/service-authoring/04-wire-consumers.md"
+      ],
+      "boundary": "Host/Admin/Echo journey only; component entrypoints, native shell, wrapper payload and release contracts remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "docs/usage-flow.md",
+      "blob": "45cbb7631c769876ff2dcda9aaf25864c32ee4f7",
+      "decision": "centralized-starter-guidance",
+      "guides": [
+        "docs/service-authoring/harness-starter.md"
+      ],
+      "boundary": "Contract/package/result stub only; real lifecycle execution remains unimplemented in this reviewed source.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "README.md",
+      "blob": "c3c099e451ac8adcac757790a4ddcb632a6a6e8b",
+      "decision": "centralized-starter-guidance",
+      "guides": [
+        "docs/service-authoring/harness-starter.md"
+      ],
+      "boundary": "Contract/package/result stub only; real lifecycle execution remains unimplemented in this reviewed source.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "decision": "covered-by-existing-generic-authoring-guides",
+      "guides": [
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/components/service-template/packaging.md",
+        "docs/components/service-template/runtime-extension-points.md"
+      ],
+      "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/runtime-extension-points.md",
+      "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+      "decision": "covered-by-existing-generic-authoring-guides",
+      "guides": [
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/components/service-template/packaging.md",
+        "docs/components/service-template/runtime-extension-points.md"
+      ],
+      "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "fa0d1a0d258945f5d244163595a680b48673a6f9",
+      "decision": "covered-by-existing-generic-authoring-guides",
+      "guides": [
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/components/service-template/packaging.md",
+        "docs/components/service-template/runtime-extension-points.md"
+      ],
+      "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "README.md",
+      "blob": "b4434f5550a7ae9ee0dcbdef553688b1a47e06a6",
+      "decision": "covered-by-existing-generic-authoring-guides",
+      "guides": [
+        "docs/service-authoring/03-create-release-repo.md",
+        "docs/components/service-template/packaging.md",
+        "docs/components/service-template/runtime-extension-points.md"
+      ],
+      "boundary": "Generic copied template guidance only; component identity, Tini runtime/package contracts and release acceptance remain source-owned.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1418"
+    }
+  ]
+}
