@@ -1174,7 +1174,7 @@
       "path": "docs/source-tls-trust.md",
       "blob": "e269b5edfd2b8b8bc348bad9bf43a345ee3caf61",
       "disposition": "migration-candidate",
-      "destination": "docs/secrets",
+      "destination": "docs/security/README.md",
       "action": "Centralize operator setup for pinned private-PKI source CA bundles and link the Broker validation contract. Preserve production digest/path bounds, system-root append behavior, TLS verification and redirect restrictions; no insecure verification bypass.",
       "reviewedAt": "2026-09-27"
     },
@@ -1674,6 +1674,86 @@
       "disposition": "component-owned-reference",
       "destination": "retain-in-component",
       "action": "Retain package contract locally but reconcile copied Echo/template examples, execconfig versus top-level health declarations and legacy ports/URLs prose with current Core endpoint/schema authority. This source is not a current Filebeat manifest example.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/lifecycle-states.md",
+      "blob": "368215d569953a83156b80dfce70ca78cb760774",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain typed lifecycle/readiness contract and per-ref/service blocking rules locally. Central explanations must reconcile its early simulation-only out-of-scope list with later implemented storage, wrappers and adapters; simulation is not runtime acceptance.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/launch-identity-leases.md",
+      "blob": "d89a57790e1413caee807b19c13a29e3036c1bdd",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain signed launcher identity, canonical payload, issuer, expiry/replay, scopes and production authenticated-IPC peer binding contract locally. Preserve dedicated signing key, no production API-token fallback and metadata-only audit boundaries.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/portable-master-key.md",
+      "blob": "1e0869ee7d38bffc601c12ea71ea1d7ebe1b74ec",
+      "disposition": "migration-candidate",
+      "destination": "docs/reference/vault-key-bootstrap.md",
+      "action": "Centralize operator portable-vault/copied-machine import and wrapper enrollment guidance. Link component key/payload contract; reconcile foundation-era future recovery-share and wrapper claims against current lifecycle/recovery docs before publishing.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/external-adapter-contract.md",
+      "blob": "5c91d458be9c1f50626c6f104a6b1813b17a7552",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain adapter capability, authentication, failure, bounded output and fake-fixture contract locally. Reconcile family-level capability matrix with authoritative connection-scoped operation manifests; family metadata alone does not enable remote apply.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/writeback-policy.md",
+      "blob": "e477907c770dd9c7b4542892f831cc744a5bdd4d",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain generated-secret writeback schema, identity/policy enforcement, refresh/invalidation and audit-redaction contract locally. Reconcile its initial HTTP example without transport binding against current production signed-lease IPC requirements.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/aws-secrets-manager-source.md",
+      "blob": "fd099c4dedc7e8a107fe56518449d836564e5559",
+      "disposition": "migration-candidate",
+      "destination": "docs/security/README.md",
+      "action": "Centralize choosing/configuring AWS source and credential handles. Link component SigV4/idempotent write-readback and per-connection operation contracts. Preserve existing-secret-only migration, unsupported remote operations and deterministic local protocol evidence versus live AWS/IAM certification limits.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/env-file-exec-sources.md",
+      "blob": "206f05e736259afb7a45ae9353388a60eae13bc7",
+      "disposition": "migration-candidate",
+      "destination": "docs/security/README.md",
+      "action": "Centralize optional local env/file/exec source setup, resolution order and operator failure recovery. Retain trusted-directory, digest, no-shell, empty-environment, timeout/output and owner-permission contracts locally; examples must preserve production opt-in and metadata-only output.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/vault-openbao-source.md",
+      "blob": "ea95eb7e1565ef6ed9237daa8782378356577413",
+      "disposition": "migration-candidate",
+      "destination": "docs/security/README.md",
+      "action": "Centralize selecting/configuring optional Vault/OpenBao sources and operator reconnection. Link component KV v2 CAS/write-readback and operation-manifest contracts; preserve HTTPS/pinned CA, explicit migration opt-in and live-cluster certification gap. Do not claim login/renewal/discovery or general writeback support.",
       "reviewedAt": "2026-09-27"
     }
   ],
@@ -2288,8 +2368,8 @@
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
     "contentReviewComplete": false,
-    "reviewedPaths": 136,
-    "pendingPaths": 33
+    "reviewedPaths": 144,
+    "pendingPaths": 25
   },
   "pendingReview": [
     {
@@ -2330,13 +2410,6 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/aws-secrets-manager-source.md",
-      "blob": "fd099c4dedc7e8a107fe56518449d836564e5559",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/backup-restore-rotation.md",
       "blob": "5cffe3dbf8c55bcd4bada0f8e0148d607e67a76a",
       "status": "content-review-pending"
@@ -2351,36 +2424,8 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/env-file-exec-sources.md",
-      "blob": "206f05e736259afb7a45ae9353388a60eae13bc7",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/external-adapter-contract.md",
-      "blob": "5c91d458be9c1f50626c6f104a6b1813b17a7552",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/headless-admin-cli.md",
       "blob": "0da131e21f85366fd40174935525bd3bb75bfa3d",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/launch-identity-leases.md",
-      "blob": "d89a57790e1413caee807b19c13a29e3036c1bdd",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/lifecycle-states.md",
-      "blob": "368215d569953a83156b80dfce70ca78cb760774",
       "status": "content-review-pending"
     },
     {
@@ -2449,13 +2494,6 @@
     {
       "repository": "lasso-secretsbroker",
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/portable-master-key.md",
-      "blob": "1e0869ee7d38bffc601c12ea71ea1d7ebe1b74ec",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/provider-configuration-migration-api.md",
       "blob": "c8b666a94913f6eb56c3cfeff13bd4ca3ca9ee51",
       "status": "content-review-pending"
@@ -2507,20 +2545,6 @@
       "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
       "path": "docs/threat-model.md",
       "blob": "6ba820e6e39f3822c574166129a1a09fa528eed5",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/vault-openbao-source.md",
-      "blob": "ea95eb7e1565ef6ed9237daa8782378356577413",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/writeback-policy.md",
-      "blob": "e477907c770dd9c7b4542892f831cc744a5bdd4d",
       "status": "content-review-pending"
     }
   ]

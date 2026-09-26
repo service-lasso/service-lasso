@@ -2,7 +2,7 @@
   {
     "repo": "lasso-secretsbroker",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "status": "available; non-truncated develop inventory refreshed; 26 paths classified; 23 content reviews pending",
     "documents": [
       "README.md",
       "docs/advanced-capabilities-roadmap.md",
@@ -324,7 +324,7 @@
   {
     "repo": "lasso-files",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/migration.md",
@@ -390,7 +390,7 @@
   {
     "repo": "lasso-java",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md"
     ],
@@ -400,7 +400,7 @@
   {
     "repo": "lasso-bpmn-server",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/client-sample.md",
@@ -413,7 +413,7 @@
   {
     "repo": "lasso-echoservice",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "status": "available; non-truncated develop inventory refreshed; 14 paths classified; 2 content reviews pending",
     "documents": [
       "README.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
@@ -626,7 +626,7 @@
   {
     "repo": "lasso-filebeat",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
@@ -652,7 +652,7 @@
   {
     "repo": "lasso-fastapi",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md"
     ],
@@ -662,7 +662,7 @@
   {
     "repo": "lasso-cacao-roaster",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/service.md"
@@ -673,7 +673,7 @@
   {
     "repo": "lasso-archive",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/provider-contract.md",
@@ -685,7 +685,7 @@
   {
     "repo": "lasso-dagu",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/bootstrap-new-service-repo.md",
@@ -716,7 +716,7 @@
   {
     "repo": "lasso-tini",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/bootstrap-new-service-repo.md",
@@ -743,7 +743,7 @@
   {
     "repo": "service-lasso-harness",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/openspec-drafts/OPENSPEC-TRACKER.md",
@@ -757,7 +757,7 @@
   {
     "repo": "service-lasso-app-packager-nexe",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
@@ -770,7 +770,7 @@
   {
     "repo": "service-lasso-app-packager-sea",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
@@ -783,7 +783,7 @@
   {
     "repo": "service-lasso-app-packager-pkg",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
@@ -796,7 +796,7 @@
   {
     "repo": "service-lasso-app-tauri",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
@@ -809,7 +809,7 @@
   {
     "repo": "service-lasso-app-electron",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
@@ -822,7 +822,7 @@
   {
     "repo": "service-lasso-app-web",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
@@ -835,7 +835,7 @@
   {
     "repo": "service-lasso-app-node",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/minimal-poc.md",
