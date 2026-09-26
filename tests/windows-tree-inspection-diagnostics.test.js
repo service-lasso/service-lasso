@@ -145,3 +145,18 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
     });
   }
 });
+test("native command status categories remain closed through actual bounded inspection retries", async () => {
+  for (const [code, reason] of [[132, "descendant_command_denied"], [133, "descendant_command_length_changed"],
+    [134, "descendant_command_unsupported"], [135, "descendant_command_native_failure"], [136, "descendant_command_result_length"]]) {
+    await assert.rejects(inspectWindowsProcessTree(root, {
+      deadlineMs: Date.now() + 80,
+      runCommand: async () => ({ exitCode: code, stdout: "private-native-output", stderr: "private-process-output" }),
+    }), error => {
+      const evidence = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(evidence.windowsTreeInspectionLastRetry, reason);
+      assert.ok(evidence.windowsTreeInspectionAttempts >= 1);
+      assert.equal(JSON.stringify(evidence).includes("private"), false);
+      return true;
+    });
+  }
+});
