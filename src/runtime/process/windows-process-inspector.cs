@@ -111,6 +111,15 @@ internal static class ServiceLassoWindowsProcessInspector
         return ((long)value.High << 32) | value.Low;
     }
 
+    private static void EvidenceCommandQueryFailure(int status)
+    {
+        uint value = unchecked((uint)status);
+        // Closed MS-ERREF categories only; never emit arbitrary native status values.
+        if (value == 0xC0000022) EvidenceStage(32);
+        else if (value == 0xC0000004) EvidenceStage(33);
+        else if (value == 0xC0000003 || value == 0xC0000002) EvidenceStage(34);
+        else EvidenceStage(35);
+    }
     private static string ReadCommandLine(IntPtr processHandle)
     {
         EvidenceStage(25);
@@ -138,6 +147,14 @@ internal static class ServiceLassoWindowsProcessInspector
                 buffer,
                 requiredLength,
                 out returnedLength);
+            if (status != 0)
+            {
+                EvidenceCommandQueryFailure(status);
+            }
+            else if (returnedLength < headerSize || returnedLength > requiredLength)
+            {
+                EvidenceStage(36);
+            }
             if (status != 0 || returnedLength < headerSize || returnedLength > requiredLength)
             {
                 throw new InvalidOperationException("Native process command line query failed.");

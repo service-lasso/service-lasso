@@ -4,7 +4,8 @@ const nativeFailureReasons: Record<number, string> = {
 for (const [subject, offset] of [["root", 0], ["descendant", 100]] as const) {
   for (const [stage, code] of [["open", 20], ["identity", 21], ["time", 22], ["image", 23], ["parent", 24],
     ["command_size", 25], ["command_query", 26], ["command_bounds", 27], ["command_empty", 28],
-    ["handle_close", 29], ["open_denied", 31]] as const) {
+    ["handle_close", 29], ["open_denied", 31], ["command_denied", 32],
+    ["command_length_changed", 33], ["command_unsupported", 34], ["command_native_failure", 35], ["command_result_length", 36]] as const) {
     nativeFailureReasons[offset + code] = `${subject}_${stage}`;
   }
 }
