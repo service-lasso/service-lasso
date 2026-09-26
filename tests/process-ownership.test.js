@@ -29,6 +29,7 @@ import {
   filterWindowsManagedLauncherProgressLineForTests,
   hasManagedProcess,
   managedProcessStartFailurePhase,
+  ManagedProcessEnrollmentContainmentError,
   setManagedProcessAfterReleaseHookForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
@@ -47,7 +48,7 @@ import {
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { startService, stopService } from "../dist/runtime/lifecycle/actions.js";
+import { startService as startRuntimeService, stopService } from "../dist/runtime/lifecycle/actions.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
@@ -56,6 +57,19 @@ import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { collectStartupFailure } from "../scripts/newcomer-runtime-diagnostics.mjs";
+
+async function startService(service, registry, options) {
+  try {
+    return await startRuntimeService(service, registry, options);
+  } catch (error) {
+    try {
+      console.error(lifecycleFailureDiagnostic({ error, state: getLifecycleState(service.manifest.id) }));
+    } catch {
+      // Direct lifecycle observation must preserve the original startup failure.
+    }
+    throw error;
+  }
+}
 
 async function rehydrateLifecycleState(service, options) {
   try {
@@ -113,7 +127,21 @@ async function postJson(url, body) {
           body: JSON.stringify(body),
         }),
   });
-  return { response, body: await response.json() };
+  const result = { response, body: await response.json() };
+  if (!response.ok) {
+    try {
+      const startRoute = new URL(url).pathname.match(/^\/api\/services\/([^/]+)\/start$/u);
+      if (startRoute) {
+        console.error(lifecycleFailureDiagnostic({
+          httpStatus: response.status,
+          state: getLifecycleState(decodeURIComponent(startRoute[1])),
+        }));
+      }
+    } catch {
+      // Closed observation must never change the response or original assertion.
+    }
+  }
+  return result;
 }
 
 function windowsInspector(identity) {
@@ -3108,6 +3136,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
   let handle;
   let childPid = null;
   let grandchildPid = null;
+  let primaryError;
 
   try {
     const [service] = await discoverServices(servicesRoot);
@@ -3127,11 +3156,39 @@ test("managed unexpected root exit terminates the remaining verified process tre
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-exit-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
+  } catch (error) {
+    primaryError = error;
+    if (error instanceof ManagedProcessEnrollmentContainmentError) {
+      handle = error.handle;
+    }
+    throw error;
   } finally {
-    await stopManagedProcess("managed-root-exit-service", 100).catch(() => null);
-    forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
+    try {
+      // Startup can fail after spawning the fixture but before returning a handle.
+      // Read only this fixture's receipt; do not discover unrelated host processes.
+      try {
+        const pids = JSON.parse(await readFile(pidFilePath, "utf8"));
+        childPid = pids.childPid;
+        grandchildPid = pids.grandchildPid;
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      await stopManagedProcess("managed-root-exit-service", 100).catch(() => null);
+      const cleanupPids = [handle?.pid, childPid, grandchildPid]
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
+      forceCleanupProcesses(cleanupPids);
+      await waitForProcessesStopped(cleanupPids, 12_000);
+      // Keep live ownership and the fixture if convergence fails. Recursive
+      // removal of a live Windows fixture can hide the primary error for minutes.
+      resetLifecycleState();
+      await removeTempRoot(tempRoot);
+    } catch (cleanupError) {
+      if (primaryError !== undefined) {
+        throw new AggregateError([primaryError, cleanupError],
+          "Managed root-exit assertion and owned fixture cleanup both failed.");
+      }
+      throw cleanupError;
+    }
   }
 });
 

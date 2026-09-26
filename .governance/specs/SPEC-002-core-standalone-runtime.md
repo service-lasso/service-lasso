@@ -497,9 +497,16 @@ For #1383, automatic startup and explicit starts targeting the same service root
 
 Issue #1380 requires bounded retries of startup artifact staging publication on Windows for EPERM, EACCES and EBUSY only. Retries use the same transaction-owned source/destination, never remove or replace an existing destination, and do not report success before rename succeeds. Non-transient/non-Windows errors fail immediately. Exhaustion preserves the original error and normal transaction recovery. Verify transient success, exhaustion, immediate failures and destination preservation before repeating direct Windows newcomer proof.
 
+### Qualification fixture cleanup (AC-4BH)
+For #1326 under AC-4BH, unexpected-root-exit qualification cleanup retains the existing containment error's managed handle and fixture-owned descendant evidence after failed startup. The original exception remains observable if cleanup fails. Cleanup preserves existing stop and convergence deadlines and original lifecycle assertions; ownership reset and recursive directory removal require observed process termination. Retaining failed cleanup state is Invalidated evidence, never a passing result or production fix.
+
 ## Documentation appearance (AC-4AJ.5)
 Issue #1272 established documentation theme behaviour. Follow-up #1301 makes the default system-following choice explicit as Auto: documentation defaults to Auto, follows live prefers-color-scheme changes while Auto is selected, and exposes accessible Auto / Light / Dark choices on desktop and mobile. Explicit choices persist across navigation and reload; returning to Auto clears the override. Use Docusaurus color-mode state and pre-hydration handling. Custom catalog panels, inputs, tables and error/empty states must remain legible in both themes. Verify build, browser selection/persistence, live system changes, and keyboard interaction.
 
 ## Packaged Admin restart investigation (#1382)
 
 Use the exact merged Admin restart-diagnostic harness for the Core three-OS packaged lifecycle gate, preserving the existing immutable Admin/Broker release identities. Bind observation to Admin SPEC-SERVICEADMIN-RESTART-DIAGNOSTICS RD-001 through RD-005. This adds post-unlock service-detail readiness metadata only: trusted-identity unlock failures occur earlier and remain outside that diagnostic. Preserve assertions, timeouts, mutation counts and cleanup. A passing run does not identify the historical intermittent cause or establish direct macOS newcomer acceptance.
+
+For #1326's direct service-start ownership fixture, emit the same bounded lifecycle projection before cleanup on failure, including failed startup trace inspection metadata. Preserve the original error and all port-renegotiation, process ownership and cleanup assertions. A missing failure record must not be treated as absence of a native inspection failure.
+
+For #1326 HTTP service-start fixtures, a non-success response must emit the existing bounded lifecycle projection from in-memory startup trace before cleanup. Use the known route only for state lookup; never emit route, ID, response body or arbitrary text. Preserve response/body return values and the original status/assertions.
