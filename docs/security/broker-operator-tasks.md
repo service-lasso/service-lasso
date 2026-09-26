@@ -79,3 +79,7 @@ The OpenClaw exec resolver is a different value-bearing consumer boundary: it re
 Secrets Sync dry-run reports metadata and risk/next-action guidance; it does not write to GitHub or prove live bidirectional synchronization. No adapter result proves HSM, FIPS, MFA, remote rotation or live-provider certification.
 
 For generic package authoring, use [Core authoring overview](../service-authoring/overview.md) and the component-owned release verifier. Companion reader navigation/removal remains under #1420 and parent #1265; Core guidance alone is not ecosystem migration or publication completion.
+
+## Migration delivery
+
+The 14 Broker reader entry points were reconciled by [Broker #183](https://github.com/service-lasso/lasso-secretsbroker/pull/183), merged into `develop` at `1afcf7b7fb8fe881afbec45e0948c2b983899f5f` after all six exact-head checks passed at `ff974cecd54bb93a819a72042af7e3336e120b77`. The decision ledger preserves original source identities and checked-head receipts. Broker command, API and security contracts remain at their component paths. This documentation delivery does not claim publication, installed Core acceptance or live-provider evidence.
