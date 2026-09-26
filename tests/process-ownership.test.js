@@ -127,7 +127,21 @@ async function postJson(url, body) {
           body: JSON.stringify(body),
         }),
   });
-  return { response, body: await response.json() };
+  const result = { response, body: await response.json() };
+  if (!response.ok) {
+    try {
+      const startRoute = new URL(url).pathname.match(/^\/api\/services\/([^/]+)\/start$/u);
+      if (startRoute) {
+        console.error(lifecycleFailureDiagnostic({
+          httpStatus: response.status,
+          state: getLifecycleState(decodeURIComponent(startRoute[1])),
+        }));
+      }
+    } catch {
+      // Closed observation must never change the response or original assertion.
+    }
+  }
+  return result;
 }
 
 function windowsInspector(identity) {
