@@ -486,3 +486,7 @@ Issue #1380 requires bounded retries of startup artifact staging publication on 
 
 ## Documentation appearance (AC-4AJ.5)
 Issue #1272 established documentation theme behaviour. Follow-up #1301 makes the default system-following choice explicit as Auto: documentation defaults to Auto, follows live prefers-color-scheme changes while Auto is selected, and exposes accessible Auto / Light / Dark choices on desktop and mobile. Explicit choices persist across navigation and reload; returning to Auto clears the override. Use Docusaurus color-mode state and pre-hydration handling. Custom catalog panels, inputs, tables and error/empty states must remain legible in both themes. Verify build, browser selection/persistence, live system changes, and keyboard interaction.
+
+## Packaged Admin restart investigation (#1382)
+
+Use the exact merged Admin restart-diagnostic harness for the Core three-OS packaged lifecycle gate, preserving the existing immutable Admin/Broker release identities. Bind observation to Admin SPEC-SERVICEADMIN-RESTART-DIAGNOSTICS RD-001 through RD-005. This adds post-unlock service-detail readiness metadata only: trusted-identity unlock failures occur earlier and remain outside that diagnostic. Preserve assertions, timeouts, mutation counts and cleanup. A passing run does not identify the historical intermittent cause or establish direct macOS newcomer acceptance.
