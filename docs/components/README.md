@@ -8,6 +8,10 @@ Service Lasso is the documentation home for the product family. Start with the g
 
 - [Add OpenObserve or SOARCA to an app](app-owned-service-workflows.md)
 
+## Secrets Broker
+
+- [Operate and recover Secrets Broker](../security/broker-operator-tasks.md)
+
 ## Service Admin
 
 The browser UI for inspecting and operating services. These guides preserve the original capability/status labels; an imported guide does not prove new functionality.

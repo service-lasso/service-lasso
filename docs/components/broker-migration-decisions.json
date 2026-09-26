@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "issue": "https://github.com/service-lasso/service-lasso/issues/1420",
+  "requirement": "SPEC-002 AC-4AJ.3",
+  "reviewedAt": "2026-09-27",
+  "scopeCount": 14,
+  "runtimeAcceptanceClaimed": false,
+  "decisions": [
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "decision": "existing-generic-authoring-coverage",
+      "guides": [
+        "docs/service-authoring/overview.md",
+        "docs/service-authoring/05-validate-release.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/mcp-adapter.md",
+      "blob": "b80cdf22e1a83c2b83380d93c66916128edbac73",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/openclaw-secretref-resolver.md",
+      "blob": "e7cb5aa81477245902f0fd4f251adb9d7e2774c7",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/source-tls-trust.md",
+      "blob": "e269b5edfd2b8b8bc348bad9bf43a345ee3caf61",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/portable-master-key.md",
+      "blob": "1e0869ee7d38bffc601c12ea71ea1d7ebe1b74ec",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md",
+        "docs/reference/vault-key-bootstrap.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/aws-secrets-manager-source.md",
+      "blob": "fd099c4dedc7e8a107fe56518449d836564e5559",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/env-file-exec-sources.md",
+      "blob": "206f05e736259afb7a45ae9353388a60eae13bc7",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/vault-openbao-source.md",
+      "blob": "ea95eb7e1565ef6ed9237daa8782378356577413",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/master-key-lifecycle.md",
+      "blob": "586681be0797b2568b0fbb02968f8c8002f785ec",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md",
+        "docs/reference/vault-key-bootstrap.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/headless-admin-cli.md",
+      "blob": "0da131e21f85366fd40174935525bd3bb75bfa3d",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/backup-restore-rotation.md",
+      "blob": "5cffe3dbf8c55bcd4bada0f8e0148d607e67a76a",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md",
+        "docs/reference/vault-key-bootstrap.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "README.md",
+      "blob": "0268857c4d9e98082c805d3b123f9d85a82bef74",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/os-authenticated-ipc-transport.md",
+      "blob": "149b320898c9e07836a4afce1520b897947f55e9",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secure-initialization-recovery.md",
+      "blob": "479dd56379f24d0fb78697010ca3e5dd57466efe",
+      "decision": "centralized-bounded-operator-task",
+      "guides": [
+        "docs/security/broker-operator-tasks.md",
+        "docs/reference/vault-key-bootstrap.md"
+      ],
+      "boundary": "Source-reviewed guidance only. Separate Core bootstrap custody from CLI reveal; production IPC identity and exact connection operations remain authoritative. CLI shares and value-bearing resolver output stay outside UI/evidence. No installed-release or live-provider qualification is claimed.",
+      "coreDelivery": "proposed-in-pr",
+      "companionDelivery": "pending-under-1420"
+    }
+  ]
+}

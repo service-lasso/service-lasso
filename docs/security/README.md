@@ -13,3 +13,5 @@ This section describes the Core boundaries for local operator access, service se
 - [Audit history](../reference/audit.md) describes durable metadata-only evidence.
 - [Process and resource isolation](../reference/resource-isolation-model.md) defines the supported isolation ladder and honest degradation rules.
 - [Supported capabilities and limitations](../reference/runtime-capabilities.md) is the runtime capability API contract. Consult the [capability ledger](../reference/secrets-capability-ledger.md) for maturity and release-readiness evidence.
+
+- [Operate and recover Secrets Broker](broker-operator-tasks.md) centralizes bounded setup, recovery, source and adapter tasks with exact source provenance.
