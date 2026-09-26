@@ -2,7 +2,7 @@
   {
     "repo": "lasso-secretsbroker",
     "branch": "develop",
-    "status": "available; non-truncated develop inventory refreshed; 45 paths classified; 4 content reviews pending",
+    "status": "available; listed content reviewed; migration decisions recorded",
     "documents": [
       "README.md",
       "docs/advanced-capabilities-roadmap.md",

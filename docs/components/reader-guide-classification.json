@@ -1970,6 +1970,46 @@
       "destination": "retain-in-component",
       "action": "Retain implementation-neutral Node/Go conformance, HTTP/CLI/outcome/audit/backup and fixture rules locally. Consumers link canonical generated OpenAPI and pinned fixtures; this contract does not itself establish a Node implementation or successful cross-language/platform acceptance.",
       "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/provider-configuration-migration-api.md",
+      "blob": "c8b666a94913f6eb56c3cfeff13bd4ca3ca9ee51",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain source-scoped provider config/migration schema, durable idempotency and independent target verification contracts locally. Reconcile this page claiming persistent validated configuration/local migration with older operation-manifest non-persistence/planned claims against canonical current DTO/runtime evidence; enable only exact connection operations.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secrets-sync-design.md",
+      "blob": "32e2b7e17852e05f354aadc3c97c6feffc5bec6c",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain provider-neutral sync design and metadata-only dry-run contract locally. Central operator guidance links the headless dry-run, preserving no live GitHub writes, background reconciliation, bidirectional imports or blind secret-write retries. Provider reference descriptions are historical design context, not current external certification.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secure-initialization-recovery.md",
+      "blob": "479dd56379f24d0fb78697010ca3e5dd57466efe",
+      "disposition": "migration-candidate",
+      "destination": "docs/reference/vault-key-bootstrap.md",
+      "action": "Centralize operator threshold-share ceremony, copied-vault recovery, holder separation and rotation prerequisites with explicit expected states and cleanup. Retain key custody, age/X25519 envelope, verification and metadata-only audit contracts locally. Preserve CLI-only sensitive material and no Keybase/keyserver/PGP default; a combined guided ceremony remains proposed rather than delivered.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secrets-management-api.md",
+      "blob": "e5a874a88909caf9ffe776e1e4e2b3bfd6b61713",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain provisioning, reveal, local staged rotation, durable migration campaigns and recoverable decommission schemas/authorization contracts locally. Central workflows link exact operation maturities and preserve no generic remote apply, hard delete, disable, invented async polling or live-provider certification. Reconcile illustrative provisioning issuer/lease fields against production issuer/peer binding authority.",
+      "reviewedAt": "2026-09-27"
     }
   ],
   "blocked": {
@@ -2582,38 +2622,12 @@
     "paths": 169,
     "unavailableSources": 0,
     "recursiveTreesTruncated": 0,
-    "contentReviewComplete": false,
-    "reviewedPaths": 165,
-    "pendingPaths": 4
+    "contentReviewComplete": true,
+    "reviewedPaths": 169,
+    "pendingPaths": 0,
+    "migrationCandidates": 48,
+    "retainedPaths": 121,
+    "migrationComplete": false
   },
-  "pendingReview": [
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/provider-configuration-migration-api.md",
-      "blob": "c8b666a94913f6eb56c3cfeff13bd4ca3ca9ee51",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/secrets-management-api.md",
-      "blob": "e5a874a88909caf9ffe776e1e4e2b3bfd6b61713",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/secrets-sync-design.md",
-      "blob": "32e2b7e17852e05f354aadc3c97c6feffc5bec6c",
-      "status": "content-review-pending"
-    },
-    {
-      "repository": "lasso-secretsbroker",
-      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
-      "path": "docs/secure-initialization-recovery.md",
-      "blob": "479dd56379f24d0fb78697010ca3e5dd57466efe",
-      "status": "content-review-pending"
-    }
-  ]
+  "pendingReview": []
 }
