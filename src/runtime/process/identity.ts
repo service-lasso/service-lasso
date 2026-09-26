@@ -480,6 +480,12 @@ async function inspectWindowsProcess(
   return last;
 }
 
+function invalidWindowsTreeAncestry(reason: string): Error {
+  return Object.assign(new Error("Native Windows process-tree ancestry was invalid."), {
+    windowsNativeInspectionFailure: reason,
+  });
+}
+
 async function inspectWindowsProcessTreeOnce(
   expectedRoot: ProcessFingerprint,
   dependencies: Pick<
@@ -552,7 +558,7 @@ async function inspectWindowsProcessTreeOnce(
         parentPid <= 0 ||
         parentPid === pid)
     ) {
-      throw new Error("Native Windows process-tree ancestry was invalid.");
+      throw invalidWindowsTreeAncestry("ancestry_invalid_parent");
     }
     seen.add(pid);
     rows.push({ identity: inspection.identity, parentPid });
@@ -586,25 +592,25 @@ async function inspectWindowsProcessTreeOnce(
       continue;
     }
     if (Date.parse(row.identity.createdAt) < rootCreatedAtMs) {
-      throw new Error("Native Windows process-tree ancestry was invalid.");
+      throw invalidWindowsTreeAncestry("ancestry_predates_root");
     }
 
     const visited = new Set<number>([row.identity.pid]);
     let current = row;
     while (current.parentPid !== expectedRoot.pid) {
       if (current.parentPid === null || visited.has(current.parentPid)) {
-        throw new Error("Native Windows process-tree ancestry was invalid.");
+        throw invalidWindowsTreeAncestry("ancestry_cycle");
       }
       visited.add(current.parentPid);
       const parent = byPid.get(current.parentPid);
       if (!parent) {
-        throw new Error("Native Windows process-tree ancestry was invalid.");
+        throw invalidWindowsTreeAncestry("ancestry_missing_parent");
       }
       if (
         Date.parse(current.identity.createdAt) <
         Date.parse(parent.identity.createdAt)
       ) {
-        throw new Error("Native Windows process-tree ancestry was invalid.");
+        throw invalidWindowsTreeAncestry("ancestry_predates_parent");
       }
       current = parent;
     }

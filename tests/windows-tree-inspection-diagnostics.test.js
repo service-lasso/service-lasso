@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inspectWindowsProcessTree } from "../dist/runtime/process/identity.js";
+import { inspectWindowsProcessTree, hashProcessCommandLine } from "../dist/runtime/process/identity.js";
 import { projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata, windowsNativeInspectionFailure } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 
@@ -114,4 +114,34 @@ test("nested and API trace evidence use the same bounded projection", () => {
   assert.equal(JSON.parse(lifecycleFailureDiagnostic({ state: { runtime: { startTrace: { current: {
     events: Array(40).fill({ metadata }),
   } } } } })).windowsTreeInspections.length, 16);
+});
+
+test("every ancestry rejection stays fail closed with a distinct bounded reason", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const newer = "2026-07-18T01:02:04.456Z";
+  const newest = "2026-07-18T01:02:05.456Z";
+  const cases = [
+    ["ancestry_invalid_parent", [row(4343, 0, newer)]],
+    ["ancestry_predates_root", [row(4343, root.pid, "2026-07-18T01:02:02.456Z")]],
+    ["ancestry_cycle", [row(4343, 4344, newer), row(4344, 4343, newer)]],
+    ["ancestry_missing_parent", [row(4343, 9999, newer)]],
+    ["ancestry_predates_parent", [row(4343, 4344, newer), row(4344, root.pid, newest)]],
+  ];
+  for (const [reason, descendants] of cases) {
+    await assert.rejects(inspectWindowsProcessTree(expected, {
+      deadlineMs: Date.now() + 200,
+      runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+        Processes: [rootRow, ...descendants] }) }),
+    }), error => {
+      const metadata = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(metadata.windowsTreeInspectionLastRetry, reason);
+      assert.ok(metadata.windowsTreeInspectionRetries >= 1);
+      assert.doesNotMatch(JSON.stringify(metadata), /private|4343|4344|9999/);
+      return true;
+    });
+  }
 });

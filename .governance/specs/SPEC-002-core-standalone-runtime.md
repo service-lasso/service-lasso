@@ -517,3 +517,5 @@ At harness a8e6d7aede951e76d280f7592a2ab43f9644b1c3, document direct archive ext
 ### Windows native inspection access rights (#1326; AC-4BH, AC-4BS.2)
 
 The native inspector must request only access rights needed by its evidence queries. It must retain complete PID, creation time, image, command line and parent evidence for root and descendants, and preserve all existing rejection/deadline behavior. Do not skip access-denied descendants or substitute partial identity. Removing unused VM_READ is not independent proof of the historical root cause; verify the rebuilt canonical inspector and complete current-head gates.
+
+For the retained #1326 invalid-ancestry deadline, closed retry evidence must distinguish invalid parent, predates-root, cycle, missing-parent and predates-parent checks. Preserve every rejection and retry/deadline rule. Do not omit a candidate or infer PID reuse without matching classified evidence.
