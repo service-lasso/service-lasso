@@ -4,6 +4,7 @@ import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { projectWindowsTreeInspectionMetadata, windowsNativeInspectionFailure } from "./windows-tree-inspection-diagnostics.js";
 import {
   isProcessControlDeadlineError,
   remainingProcessControlMs,
@@ -501,7 +502,11 @@ async function inspectWindowsProcessTreeOnce(
     },
   );
   if (result.exitCode !== 0 || !result.stdout.trim()) {
-    throw new Error("Native Windows process-tree inspection failed.");
+    const error = new Error("Native Windows process-tree inspection failed.");
+    Object.defineProperty(error, "windowsNativeInspectionFailure", {
+      value: windowsNativeInspectionFailure(result.exitCode),
+    });
+    throw error;
   }
 
   let payload: WindowsProcessTreeJson;
@@ -661,17 +666,62 @@ export async function inspectWindowsProcessTree(
   const deadlineMs =
     dependencies.deadlineMs ??
     Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS;
+  let inspectionPhase = "queue_wait";
+  let attempts = 0;
+  let retries = 0;
+  let queueMs = 0;
+  let nativeMs = 0;
+  let lastRetry: string | null = null;
+  const retryReasons: Record<string, string> = {
+    "Native Windows process-tree inspection failed.": "helper_failed",
+    "Native Windows process-tree evidence was malformed.": "malformed",
+    "Native Windows process-tree evidence was incomplete.": "incomplete",
+    "Native Windows process-tree ancestry was invalid.": "invalid_ancestry",
+    "Native Windows process-tree root evidence was inconsistent.": "inconsistent_root",
+  };
   let lastError: unknown;
   for (let attempt = 1; ; attempt += 1) {
+    if (remainingProcessControlMs(deadlineMs) > 0) inspectionPhase = "queue_wait";
+    const queuedAt = performance.now();
+    let entered = false;
+    let activeNativeAt: number | null = null;
     try {
       return await serializeWindowsNativeTreeSnapshot(async (signal) => {
-        return await inspectWindowsProcessTreeOnce(expectedRoot, {
-          ...dependencies,
-          deadlineMs,
-          signal,
-        });
+        entered = true;
+        queueMs += performance.now() - queuedAt;
+        inspectionPhase = "native_snapshot";
+        attempts += 1;
+        activeNativeAt = performance.now();
+        try {
+          return await inspectWindowsProcessTreeOnce(expectedRoot, {
+            ...dependencies,
+            deadlineMs,
+            signal,
+          });
+        } finally {
+          nativeMs += performance.now() - activeNativeAt;
+          activeNativeAt = null;
+        }
       }, { deadlineMs, signal: dependencies.signal });
     } catch (error) {
+      if (!entered) queueMs += performance.now() - queuedAt;
+      if (error && typeof error === "object") {
+        try {
+          Object.defineProperty(error, "windowsTreeInspection", {
+            value: Object.freeze(projectWindowsTreeInspectionMetadata({
+              windowsTreeInspectionPhase: inspectionPhase,
+              windowsTreeInspectionAttempts: Math.min(1000, attempts),
+              windowsTreeInspectionRetries: Math.min(1000, retries),
+              windowsTreeInspectionQueueMs: Math.min(600000, Math.round(queueMs)),
+              windowsTreeInspectionNativeMs: Math.min(600000, Math.round(nativeMs + (activeNativeAt === null ? 0 : performance.now() - activeNativeAt))),
+              windowsTreeInspectionLastRetry: lastRetry,
+            })),
+            configurable: true,
+          });
+        } catch {
+          // Preserve the original error even if it cannot carry diagnostics.
+        }
+      }
       lastError = error;
       if (
         !isRetryableWindowsTreeSnapshotError(error) ||
@@ -688,6 +738,11 @@ export async function inspectWindowsProcessTree(
       if (retryDelayMs <= 0) {
         throw error;
       }
+      retries += 1;
+      lastRetry = error instanceof Error
+        ? (error as Error & { windowsNativeInspectionFailure?: string | null }).windowsNativeInspectionFailure ?? retryReasons[error.message] ?? null
+        : null;
+      inspectionPhase = "retry_delay";
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }

@@ -1,3 +1,5 @@
+import { projectWindowsTreeInspectionMetadata } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
+
 const phases = new Set([
   "dependency_resolution", "port_selection", "artifact_acquisition", "env_merge",
   "process_spawn", "health_check", "terminal_outcome",
@@ -23,6 +25,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
     let { httpStatus, state, error } = input ?? {};
     const current = state?.runtime?.startTrace?.current;
     const failurePhases = [];
+    const windowsTreeInspections = [];
     let deadlineExceeded = false;
     const pending = [{ error, depth: 0 }];
     const seen = new Set();
@@ -34,6 +37,8 @@ export function lifecycleFailureDiagnostic(input = {}) {
       const phase = allowed(launchPhases, currentError.failurePhase);
       if (phase) failurePhases.push(phase);
       deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      const inspection = projectWindowsTreeInspectionMetadata(currentError.windowsTreeInspection);
+      if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       if (entry.depth < 3) {
         const children = [currentError.cause];
         if (Array.isArray(currentError.errors)) children.push(...currentError.errors.slice(0, 16));
@@ -41,6 +46,13 @@ export function lifecycleFailureDiagnostic(input = {}) {
           if (pending.length >= 16) break;
           if (child && typeof child === "object") pending.push({ error: child, depth: entry.depth + 1 });
         }
+      }
+    }
+    if (Array.isArray(current?.events)) {
+      for (const event of current.events.slice(-16)) {
+        if (windowsTreeInspections.length >= 16) break;
+        const inspection = projectWindowsTreeInspectionMetadata(event?.metadata);
+        if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       }
     }
     return JSON.stringify({
@@ -54,6 +66,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
       })) : [],
       failurePhases,
       deadlineExceeded,
+      ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),
     });
   } catch {
     return '{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}';

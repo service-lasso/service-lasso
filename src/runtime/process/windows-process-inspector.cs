@@ -14,6 +14,13 @@ internal static class ServiceLassoWindowsProcessInspector
     private const int ErrorInvalidParameter = 87;
     private const int ProcessCommandLineInformation = 60;
     private const int ProcessBasicInformation = 0;
+    private static int failureExitCode = 1;
+    private static int evidenceSubject = 0;
+
+    private static void EvidenceStage(int code)
+    {
+        failureExitCode = evidenceSubject + code;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct FileTime
@@ -107,6 +114,7 @@ internal static class ServiceLassoWindowsProcessInspector
 
     private static string ReadCommandLine(IntPtr processHandle)
     {
+        EvidenceStage(25);
         int requiredLength;
         NtQueryInformationProcess(
             processHandle,
@@ -124,6 +132,7 @@ internal static class ServiceLassoWindowsProcessInspector
         try
         {
             int returnedLength;
+            EvidenceStage(26);
             int status = NtQueryInformationProcess(
                 processHandle,
                 ProcessCommandLineInformation,
@@ -136,6 +145,7 @@ internal static class ServiceLassoWindowsProcessInspector
             }
 
             ushort length = unchecked((ushort)Marshal.ReadInt16(buffer, 0));
+            EvidenceStage(27);
             ushort maximumLength = unchecked((ushort)Marshal.ReadInt16(buffer, 2));
             int pointerOffset = IntPtr.Size == 8 ? 8 : 4;
             IntPtr valuePointer = Marshal.ReadIntPtr(buffer, pointerOffset);
@@ -160,6 +170,7 @@ internal static class ServiceLassoWindowsProcessInspector
             }
 
             string commandLine = Marshal.PtrToStringUni(valuePointer, length / 2);
+            EvidenceStage(28);
             if (String.IsNullOrWhiteSpace(commandLine))
             {
                 throw new InvalidOperationException("Native process command line was empty.");
@@ -174,6 +185,7 @@ internal static class ServiceLassoWindowsProcessInspector
 
     private static int ReadParentProcessId(IntPtr processHandle)
     {
+        EvidenceStage(24);
         int informationSize = IntPtr.Size == 8 ? 48 : 24;
         int parentOffset = IntPtr.Size == 8 ? 40 : 20;
         IntPtr information = Marshal.AllocHGlobal(informationSize);
@@ -205,6 +217,7 @@ internal static class ServiceLassoWindowsProcessInspector
 
     private static ProcessEvidence ReadProcessEvidence(int targetProcessId)
     {
+        EvidenceStage(20);
         IntPtr processHandle = OpenProcess(
             ProcessQueryLimitedInformation | ProcessVmRead,
             false,
@@ -216,11 +229,13 @@ internal static class ServiceLassoWindowsProcessInspector
             {
                 return null;
             }
+            if (openError == 5) EvidenceStage(31);
             throw new Win32Exception(openError, "Native process open failed.");
         }
 
         try
         {
+            EvidenceStage(21);
             if (GetProcessId(processHandle) != targetProcessId)
             {
                 throw new InvalidOperationException("Native process ID changed.");
@@ -230,6 +245,7 @@ internal static class ServiceLassoWindowsProcessInspector
             FileTime exitTime;
             FileTime kernelTime;
             FileTime userTime;
+            EvidenceStage(22);
             if (!GetProcessTimes(processHandle, out creationTime, out exitTime, out kernelTime, out userTime))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Native process time query failed.");
@@ -237,6 +253,7 @@ internal static class ServiceLassoWindowsProcessInspector
 
             StringBuilder executablePath = new StringBuilder(32768);
             uint executablePathLength = (uint)executablePath.Capacity;
+            EvidenceStage(23);
             if (!QueryFullProcessImageName(processHandle, 0, executablePath, ref executablePathLength) || executablePathLength == 0)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Native process image query failed.");
@@ -255,6 +272,7 @@ internal static class ServiceLassoWindowsProcessInspector
         {
             if (!CloseHandle(processHandle))
             {
+                EvidenceStage(29);
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Native process handle close failed.");
             }
         }
@@ -262,6 +280,7 @@ internal static class ServiceLassoWindowsProcessInspector
 
     private static List<SnapshotRow> ReadProcessSnapshot()
     {
+        failureExitCode = 10;
         IntPtr snapshot = CreateToolhelp32Snapshot(SnapshotProcesses, 0);
         if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1))
         {
@@ -270,6 +289,7 @@ internal static class ServiceLassoWindowsProcessInspector
 
         try
         {
+            failureExitCode = 11;
             List<SnapshotRow> rows = new List<SnapshotRow>();
             ProcessEntry32 entry = new ProcessEntry32();
             entry.Size = (uint)Marshal.SizeOf(typeof(ProcessEntry32));
@@ -298,6 +318,7 @@ internal static class ServiceLassoWindowsProcessInspector
         {
             if (!CloseHandle(snapshot))
             {
+                failureExitCode = 12;
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Native process snapshot handle close failed.");
             }
         }
@@ -434,6 +455,7 @@ internal static class ServiceLassoWindowsProcessInspector
             }
             foreach (SnapshotRow descendant in descendants)
             {
+                evidenceSubject = 100;
                 ProcessEvidence evidence = ReadProcessEvidence(descendant.ProcessId);
                 if (evidence == null)
                 {
@@ -441,6 +463,7 @@ internal static class ServiceLassoWindowsProcessInspector
                 }
                 if (evidence.ParentProcessId != descendant.ParentProcessId)
                 {
+                    failureExitCode = 30;
                     throw new InvalidOperationException("Native process tree changed during inspection.");
                 }
                 processes.Add(evidence);
@@ -450,7 +473,7 @@ internal static class ServiceLassoWindowsProcessInspector
         }
         catch
         {
-            return 1;
+            return failureExitCode;
         }
     }
 }

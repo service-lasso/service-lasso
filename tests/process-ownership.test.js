@@ -51,11 +51,24 @@ import { startService, stopService } from "../dist/runtime/lifecycle/actions.js"
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
-import { rehydrateDiscoveredServices, rehydrateLifecycleState } from "../dist/runtime/state/rehydrate.js";
+import { rehydrateDiscoveredServices, rehydrateLifecycleState as rehydrateRuntimeLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { collectStartupFailure } from "../scripts/newcomer-runtime-diagnostics.mjs";
+
+async function rehydrateLifecycleState(service, options) {
+  try {
+    return await rehydrateRuntimeLifecycleState(service, options);
+  } catch (error) {
+    try {
+      console.error(lifecycleFailureDiagnostic({ error, state: getLifecycleState(service.manifest.id) }));
+    } catch {
+      // Observation must not replace the original adoption failure.
+    }
+    throw error;
+  }
+}
 
 async function startManagedProcess(options) {
   try {
