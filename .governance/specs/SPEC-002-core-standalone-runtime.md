@@ -510,3 +510,7 @@ Use the exact merged Admin restart-diagnostic harness for the Core three-OS pack
 For #1326's direct service-start ownership fixture, emit the same bounded lifecycle projection before cleanup on failure, including failed startup trace inspection metadata. Preserve the original error and all port-renegotiation, process ownership and cleanup assertions. A missing failure record must not be treated as absence of a native inspection failure.
 
 For #1326 HTTP service-start fixtures, a non-success response must emit the existing bounded lifecycle projection from in-memory startup trace before cleanup. Use the known route only for state lookup; never emit route, ID, response body or arbitrary text. Preserve response/body return values and the original status/assertions.
+
+### AC-4AJ.3 Harness current-source reconciliation (#1418)
+
+At harness a8e6d7aede951e76d280f7592a2ab43f9644b1c3, document direct archive extraction and synchronous manifest execution accurately. Distinguish contract-accepted alternative health types, unenforced health timeout, dependency/evidence gaps and intended real Core lifecycle from delivered behavior. Reader steps must select an owned disposable workspace and retain failed local results before cleanup. Documentation tests/builds are not platform runtime acceptance.
